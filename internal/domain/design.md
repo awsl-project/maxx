@@ -221,6 +221,70 @@ const (
 
 ---
 
+## Router 设计
+
+### 内存数据管理
+
+所有配置数据常驻内存（单实例部署）：
+- Provider
+- Route
+- RoutingStrategy
+- RetryConfig
+
+启动时加载，通过 API 修改时直接更新内存。
+
+### 数据结构
+
+```go
+// Router 匹配结果，预关联所有需要的数据
+type MatchedRoute struct {
+    Route       *Route
+    Provider    *Provider
+    RetryConfig *RetryConfig  // 已解析，包括默认配置
+}
+
+type Router struct {
+    // 内存数据
+    routes             []*Route
+    routingStrategies  []*RoutingStrategy
+    providers          map[uint64]*Provider
+    retryConfigs       map[uint64]*RetryConfig
+    defaultRetryConfig *RetryConfig
+}
+```
+
+### 接口
+
+```go
+func (r *Router) Match(clientType ClientType, projectID uint64) ([]*MatchedRoute, error)
+```
+
+### Match 逻辑
+
+```
+1. 筛选 Route
+   - 条件: IsEnabled && ClientType 匹配
+   - Project 优先: 先查 ProjectID == 请求的 ProjectID
+   - 没有则用全局: ProjectID == 0
+
+2. 获取 RoutingStrategy
+   - Project 优先: 先查 ProjectID == 请求的 ProjectID
+   - 没有则用全局: ProjectID == 0
+
+3. 按策略排序
+   - priority: 按 Position 升序
+   - weighted_random: 按权重随机排列
+
+4. 组装 MatchedRoute
+   - 关联 Provider (by Route.ProviderID)
+   - 关联 RetryConfig (Route.RetryConfigID，0 则用默认)
+
+5. 返回列表
+   - 空列表返回 error
+```
+
+---
+
 ## 可插拔中间件
 
 预留位置，之后可插入：
