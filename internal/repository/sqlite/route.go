@@ -72,6 +72,11 @@ func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {
 	return r.scanRoute(row)
 }
 
+func (r *RouteRepository) FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
+	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, is_enabled, is_native, project_id, client_type, provider_id, position, retry_config_id, model_mapping FROM routes WHERE project_id = ? AND provider_id = ? AND client_type = ?`, projectID, providerID, clientType)
+	return r.scanRoute(row)
+}
+
 func (r *RouteRepository) List() ([]*domain.Route, error) {
 	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, is_enabled, is_native, project_id, client_type, provider_id, position, retry_config_id, model_mapping FROM routes ORDER BY position`)
 	if err != nil {

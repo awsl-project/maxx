@@ -85,6 +85,18 @@ func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {
 	return r.repo.GetByID(id)
 }
 
+func (r *RouteRepository) FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
+	r.mu.RLock()
+	for _, rt := range r.cache {
+		if rt.ProjectID == projectID && rt.ProviderID == providerID && rt.ClientType == clientType {
+			r.mu.RUnlock()
+			return rt, nil
+		}
+	}
+	r.mu.RUnlock()
+	return r.repo.FindByKey(projectID, providerID, clientType)
+}
+
 func (r *RouteRepository) List() ([]*domain.Route, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

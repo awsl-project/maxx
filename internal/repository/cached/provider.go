@@ -57,6 +57,8 @@ func (r *ProviderRepository) Delete(id uint64) error {
 	if err := r.repo.Delete(id); err != nil {
 		return err
 	}
+	// 软删除：从缓存中移除（List 不会返回已删除的 provider）
+	// GetByID 会从数据库回查已删除的 provider（用于历史记录显示）
 	r.mu.Lock()
 	delete(r.cache, id)
 	r.mu.Unlock()

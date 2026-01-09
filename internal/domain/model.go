@@ -54,6 +54,9 @@ type Provider struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
+	// 软删除时间，nil 表示未删除
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
 	// 1. Custom ，主要用来各种中转站
 	// 2. Antigravity
 	Type string `json:"type"`

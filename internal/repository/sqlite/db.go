@@ -170,6 +170,9 @@ func (d *DB) migrate() error {
 	d.db.Exec("ALTER TABLE proxy_requests ADD COLUMN route_id INTEGER DEFAULT 0")
 	d.db.Exec("ALTER TABLE proxy_requests ADD COLUMN provider_id INTEGER DEFAULT 0")
 
+	// Migration: add deleted_at column to providers for soft delete
+	d.db.Exec("ALTER TABLE providers ADD COLUMN deleted_at DATETIME")
+
 	return nil
 }
 

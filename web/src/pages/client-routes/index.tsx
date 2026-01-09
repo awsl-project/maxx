@@ -23,7 +23,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useRoutes, useProviders, useCreateRoute, useToggleRoute, useUpdateRoutePositions, useProviderStats } from '@/hooks/queries';
+import { useRoutes, useProviders, useCreateRoute, useToggleRoute, useDeleteRoute, useUpdateRoutePositions, useProviderStats } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import { ClientIcon, getClientName } from '@/components/icons/client-icons';
 import { getProviderColor } from '@/lib/provider-colors';
@@ -42,6 +42,7 @@ export function ClientRoutesPage() {
 
   const createRoute = useCreateRoute();
   const toggleRoute = useToggleRoute();
+  const deleteRoute = useDeleteRoute();
   const updatePositions = useUpdateRoutePositions();
 
   const loading = routesLoading || providersLoading;
@@ -126,6 +127,10 @@ export function ClientRoutesPage() {
       position: sortedItems.length + 1,
       retryConfigID: 0,
     });
+  };
+
+  const handleDeleteRoute = (routeId: number) => {
+    deleteRoute.mutate(routeId);
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -230,6 +235,7 @@ export function ClientRoutesPage() {
                       stats={providerStats[item.provider.id]}
                       isToggling={toggleRoute.isPending || createRoute.isPending}
                       onToggle={() => handleToggle(item)}
+                      onDelete={item.route && !item.isNative ? () => handleDeleteRoute(item.route!.id) : undefined}
                     />
                   ))}
                 </div>

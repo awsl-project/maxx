@@ -1,4 +1,4 @@
-import { GripVertical, Settings, Zap, RefreshCw } from 'lucide-react';
+import { GripVertical, Settings, Zap, RefreshCw, Trash2 } from 'lucide-react';
 import { Switch } from '@/components/ui';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { useSortable } from '@dnd-kit/sortable';
@@ -39,6 +39,7 @@ type SortableProviderRowProps = {
   stats?: ProviderStats;
   isToggling: boolean;
   onToggle: () => void;
+  onDelete?: () => void;
 };
 
 export function SortableProviderRow({
@@ -49,6 +50,7 @@ export function SortableProviderRow({
   stats,
   isToggling,
   onToggle,
+  onDelete,
 }: SortableProviderRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
@@ -82,6 +84,7 @@ export function SortableProviderRow({
         stats={stats}
         isToggling={isToggling}
         onToggle={onToggle}
+        onDelete={onDelete}
       />
     </div>
   );
@@ -97,6 +100,7 @@ type ProviderRowContentProps = {
   isToggling: boolean;
   isOverlay?: boolean;
   onToggle: () => void;
+  onDelete?: () => void;
 };
 
 export function ProviderRowContent({
@@ -108,6 +112,7 @@ export function ProviderRowContent({
   isToggling,
   isOverlay,
   onToggle,
+  onDelete,
 }: ProviderRowContentProps) {
   const { provider, enabled, route, isNative } = item;
   const color = getProviderColor(provider.type);
@@ -226,6 +231,22 @@ export function ProviderRowContent({
           disabled={!enabled}
         >
           <Settings size={16} />
+        </button>
+      )}
+
+      {/* Delete button (only for non-native converted routes) */}
+      {route && !isNative && onDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirm('确定要删除这个转换路由吗？')) {
+              onDelete();
+            }
+          }}
+          className="relative z-10 p-2 rounded-md text-text-muted hover:text-red-400 hover:bg-red-400/10 transition-colors"
+          title="删除转换路由"
+        >
+          <Trash2 size={16} />
         </button>
       )}
 

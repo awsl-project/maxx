@@ -271,16 +271,16 @@ function DeleteConfirmModal({
 }) {
   return createPortal(
     <div className="dialog-overlay z-[9999]">
-      <div className="dialog-content p-6 max-w-sm mx-4 w-full">
+      <div className="dialog-content p-6 w-[400px]">
         <h3 className="text-lg font-semibold text-text-primary mb-2">Delete Provider?</h3>
-        <p className="text-sm text-text-secondary mb-6">
-          Are you sure you want to delete "{providerName}"? This action cannot be undone.
+        <p className="text-sm text-text-secondary mb-6 leading-relaxed">
+          Are you sure you want to delete <span className="font-medium text-text-primary">"{providerName}"</span>? This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
-          <button onClick={onCancel} className="btn bg-surface-secondary hover:bg-surface-hover text-text-primary">
+          <button onClick={onCancel} className="btn bg-surface-secondary hover:bg-surface-hover text-text-primary px-4">
             Cancel
           </button>
-          <button onClick={onConfirm} disabled={deleting} className="btn bg-error text-white hover:bg-error/90">
+          <button onClick={onConfirm} disabled={deleting} className="btn bg-error text-white hover:bg-error/90 px-4">
             {deleting ? 'Deleting...' : 'Delete'}
           </button>
         </div>

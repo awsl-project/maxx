@@ -322,25 +322,32 @@ func (s *AdminService) syncProviderRoutesWithOldTypes(provider *domain.Provider,
 		newClientTypes[ct] = true
 	}
 
-	providerNativeRoutes := make(map[domain.ClientType]*domain.Route)
-	for _, route := range allRoutes {
-		if route.ProviderID == provider.ID && route.IsNative {
-			providerNativeRoutes[route.ClientType] = route
-		}
-	}
-
 	// Delete native routes for removed client types
+	// Use FindByKey to correctly locate the route by (projectID=0, providerID, clientType)
 	for ct := range oldClientTypesSet {
 		if !newClientTypes[ct] {
-			if route, exists := providerNativeRoutes[ct]; exists {
+			// Find route by key instead of iterating all routes
+			if route, err := s.routeRepo.FindByKey(0, provider.ID, ct); err == nil && route != nil && route.IsNative {
 				s.routeRepo.Delete(route.ID)
 			}
 		}
 	}
 
-	// Create native routes for added client types
+	// Create or update native routes for added client types
 	for ct := range newClientTypes {
 		if !oldClientTypesSet[ct] {
+			// Check if route already exists for this (projectID=0, providerID, clientType)
+			existingRoute, err := s.routeRepo.FindByKey(0, provider.ID, ct)
+			if err == nil && existingRoute != nil {
+				// Route exists, just update isNative if needed
+				if !existingRoute.IsNative {
+					existingRoute.IsNative = true
+					s.routeRepo.Update(existingRoute)
+				}
+				continue
+			}
+
+			// Create new native route
 			maxPosition := 0
 			for _, route := range allRoutes {
 				if route.ClientType == ct && route.Position > maxPosition {

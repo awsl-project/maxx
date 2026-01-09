@@ -15,6 +15,8 @@ type RouteRepository interface {
 	Update(route *domain.Route) error
 	Delete(id uint64) error
 	GetByID(id uint64) (*domain.Route, error)
+	// FindByKey finds a route by the unique key (projectID, providerID, clientType)
+	FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error)
 	List() ([]*domain.Route, error)
 }
 
