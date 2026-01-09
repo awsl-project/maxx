@@ -364,21 +364,8 @@ func isStreamRequest(body []byte) bool {
 }
 
 func updateModelInBody(body []byte, model string, clientType domain.ClientType) ([]byte, error) {
-	// For Gemini, model is in URL path, not in body
+	// For Gemini, model is in URL path, not in body - pass through unchanged
 	if clientType == domain.ClientTypeGemini {
-		// Check if this is Gemini CLI envelope format: {"request": {...}, "model": "..."}
-		// If so, unwrap to just the request content
-		var data map[string]interface{}
-		if err := json.Unmarshal(body, &data); err != nil {
-			return body, nil // Return as-is if can't parse
-		}
-
-		if innerRequest, ok := data["request"]; ok {
-			// Gemini CLI format - extract the inner request
-			return json.Marshal(innerRequest)
-		}
-
-		// Standard Gemini format - return as-is
 		return body, nil
 	}
 

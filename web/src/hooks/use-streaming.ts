@@ -4,7 +4,6 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { getTransport, type ProxyRequest, type ClientType } from '@/lib/transport';
 
 const transport = getTransport();
@@ -23,10 +22,10 @@ export interface StreamingState {
 /**
  * 追踪实时活动的 streaming 请求
  * 通过 WebSocket 事件更新状态
+ * 注意：React Query 缓存更新由 useProxyRequestUpdates 处理
  */
 export function useStreamingRequests(): StreamingState {
   const [activeRequests, setActiveRequests] = useState<Map<string, ProxyRequest>>(new Map());
-  const queryClient = useQueryClient();
 
   // 处理请求更新
   const handleRequestUpdate = useCallback((request: ProxyRequest) => {
@@ -43,10 +42,9 @@ export function useStreamingRequests(): StreamingState {
 
       return next;
     });
-
-    // 同时更新 React Query 缓存
-    queryClient.invalidateQueries({ queryKey: ['requests'] });
-  }, [queryClient]);
+    // 注意：不要在这里调用 invalidateQueries，会导致重复请求
+    // React Query 缓存更新由 useProxyRequestUpdates 处理
+  }, []);
 
   useEffect(() => {
     // 连接 WebSocket

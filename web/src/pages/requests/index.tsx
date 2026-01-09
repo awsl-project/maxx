@@ -403,8 +403,10 @@ function LogRow({
            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning/10 text-warning text-[10px] font-bold">
              {request.proxyUpstreamAttemptCount}
            </span>
+        ) : request.proxyUpstreamAttemptCount === 1 ? (
+          <span className="text-sm text-text-muted">1</span>
         ) : (
-          <span className="text-sm text-text-muted opacity-30">1</span>
+          <span className="text-sm text-text-muted opacity-30">-</span>
         )}
       </TableCell>
 

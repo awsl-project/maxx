@@ -177,6 +177,11 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			// Increment attempt count when creating a new attempt
 			proxyReq.ProxyUpstreamAttemptCount++
 
+			// Broadcast updated request with new attempt count
+			if e.broadcaster != nil {
+				e.broadcaster.BroadcastProxyRequest(proxyReq)
+			}
+
 			// Broadcast new attempt immediately
 			if e.broadcaster != nil {
 				e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
@@ -242,6 +247,23 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
 			}
 			currentAttempt = nil // Clear so defer doesn't double update
+
+			// Update proxyReq with latest attempt info (even on failure)
+			proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
+			proxyReq.InputTokenCount = attemptRecord.InputTokenCount
+			proxyReq.OutputTokenCount = attemptRecord.OutputTokenCount
+			proxyReq.CacheReadCount = attemptRecord.CacheReadCount
+			proxyReq.CacheWriteCount = attemptRecord.CacheWriteCount
+			proxyReq.Cache5mWriteCount = attemptRecord.Cache5mWriteCount
+			proxyReq.Cache1hWriteCount = attemptRecord.Cache1hWriteCount
+			proxyReq.Cost = attemptRecord.Cost
+			if attemptRecord.ResponseInfo != nil {
+				proxyReq.ResponseInfo = attemptRecord.ResponseInfo
+			}
+			_ = e.proxyRequestRepo.Update(proxyReq)
+			if e.broadcaster != nil {
+				e.broadcaster.BroadcastProxyRequest(proxyReq)
+			}
 
 			// Check if it's a context cancellation (client disconnect)
 			if ctx.Err() != nil {
