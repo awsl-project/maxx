@@ -163,6 +163,11 @@ export function ProviderRowContent({
         style={{ backgroundColor: `${color}15`, color }}
       >
         <span className="text-lg font-bold">{provider.name.charAt(0).toUpperCase()}</span>
+        {enabled && (
+          <div className="absolute -top-2 -right-2">
+            <StreamingBadge count={streamingCount} color={color} className="scale-90" />
+          </div>
+        )}
       </div>
 
       {/* Provider Info */}
@@ -300,11 +305,6 @@ export function ProviderRowContent({
           <Trash2 size={16} />
         </button>
       )}
-
-      {/* Streaming count badge */}
-      <div className="relative z-10">
-        {enabled && <StreamingBadge count={streamingCount} color={color} />}
-      </div>
 
       {/* Toggle indicator */}
       <div className="relative z-10 flex items-center gap-3">
