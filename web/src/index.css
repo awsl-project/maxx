@@ -461,6 +461,38 @@ body {
   animation: marquee 1s linear infinite;
 }
 
+/* Marquee effect for table rows using pseudo-element */
+.animate-marquee-row {
+  position: relative;
+}
+
+.animate-marquee-row::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.25;
+  background-color: rgba(0, 120, 212, 0.15);
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.15) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(255, 255, 255, 0.15) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 1rem 1rem;
+  animation: marquee 1s linear infinite;
+}
+
+.animate-marquee-row > * {
+  position: relative;
+  z-index: 1;
+}
+
 /* Provider Colors */
 .provider-anthropic { color: #D4A574; }
 .provider-openai { color: #10A37F; }

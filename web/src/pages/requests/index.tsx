@@ -323,28 +323,20 @@ function LogRow({
     <TableRow
       onClick={onClick}
       className={cn(
-        "cursor-pointer group border-none transition-all duration-500 relative overflow-hidden",
+        "cursor-pointer group border-none transition-all duration-500",
         // Base hover
         !isPending && !isRecent && "hover:bg-surface-hover/50",
 
         // Failed state - Red left border (via shadow) and subtle red bg
         isFailed && "bg-error/5 hover:bg-error/10 shadow-[inset_3px_0_0_0_rgba(239,68,68,0.4)]",
 
-        // Active/Pending state - Blue left border
-        isPending && "shadow-[inset_3px_0_0_0_#0078D4]",
+        // Active/Pending state - Blue left border + Marquee animation
+        isPending && "shadow-[inset_3px_0_0_0_#0078D4] animate-marquee-row",
 
         // New Item Flash Animation
         isRecent && !isPending && "bg-accent/20 shadow-[inset_3px_0_0_0_#0078D4]"
       )}
     >
-      {/* Marquee 背景动画 (仅在 streaming 时显示) */}
-      {isPending && (
-        <div
-          className="absolute inset-0 animate-marquee pointer-events-none opacity-30"
-          style={{ backgroundColor: 'rgba(0, 120, 212, 0.15)' }}
-        />
-      )}
-
       {/* Time */}
       <TableCell className="py-1 font-mono text-sm text-text-primary font-medium whitespace-nowrap">
         {formatTime(request.startTime || request.createdAt)}
