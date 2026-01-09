@@ -231,7 +231,7 @@ export function ClientRoutesPage() {
                       item={item}
                       index={index}
                       clientType={clientType as ClientType}
-                      streamingCount={item.route ? countsByProvider.get(item.route.id) || 0 : 0}
+                      streamingCount={countsByProvider.get(item.provider.id) || 0}
                       stats={providerStats[item.provider.id]}
                       isToggling={toggleRoute.isPending || createRoute.isPending}
                       onToggle={() => handleToggle(item)}
@@ -247,7 +247,7 @@ export function ClientRoutesPage() {
                     item={activeItem}
                     index={sortedItems.findIndex((i) => i.id === activeItem.id)}
                     clientType={clientType as ClientType}
-                    streamingCount={activeItem.route ? countsByProvider.get(activeItem.route.id) || 0 : 0}
+                    streamingCount={countsByProvider.get(activeItem.provider.id) || 0}
                     stats={providerStats[activeItem.provider.id]}
                     isToggling={false}
                     isOverlay
