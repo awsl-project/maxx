@@ -15,6 +15,7 @@ import (
 	"github.com/Bowl42/maxx-next/internal/converter"
 	ctxutil "github.com/Bowl42/maxx-next/internal/context"
 	"github.com/Bowl42/maxx-next/internal/domain"
+	"github.com/Bowl42/maxx-next/internal/pricing"
 	"github.com/Bowl42/maxx-next/internal/usage"
 )
 
@@ -196,6 +197,9 @@ func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.Resp
 			attempt.CacheWriteCount = metrics.CacheCreationCount
 			attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
 			attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
+
+			// Calculate cost
+			attempt.Cost = pricing.GlobalCalculator().Calculate(ctxutil.GetMappedModel(ctx), metrics)
 		}
 
 		// Broadcast attempt update with token info
@@ -274,6 +278,9 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 				attempt.CacheWriteCount = metrics.CacheCreationCount
 				attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
 				attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
+
+				// Calculate cost
+				attempt.Cost = pricing.GlobalCalculator().Calculate(ctxutil.GetMappedModel(ctx), metrics)
 			}
 			// Broadcast attempt update with token info
 			if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
