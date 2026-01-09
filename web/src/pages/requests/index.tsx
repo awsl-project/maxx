@@ -166,8 +166,8 @@ function RequestStatusBadge({ status }: { status: ProxyRequestStatus }) {
           variant: 'info' as const,
           label: status === 'IN_PROGRESS' ? 'Streaming' : 'Pending',
           icon: (
-            <span className="relative flex h-1.5 w-1.5 mr-1">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-info opacity-75"></span>
+            <span className="relative flex items-center justify-center w-[10px] h-[10px] mr-1">
+              <span className="animate-ping absolute inline-flex h-1.5 w-1.5 rounded-full bg-info opacity-75"></span>
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-info"></span>
             </span>
           ),
@@ -176,19 +176,19 @@ function RequestStatusBadge({ status }: { status: ProxyRequestStatus }) {
         return {
           variant: 'success' as const,
           label: 'Completed',
-          icon: <CheckCircle size={10} className="mr-1" />,
+          icon: <CheckCircle size={10} className="mr-1 flex-shrink-0" />,
         };
       case 'FAILED':
         return {
           variant: 'danger' as const,
           label: 'Failed',
-          icon: <AlertTriangle size={10} className="mr-1" />,
+          icon: <AlertTriangle size={10} className="mr-1 flex-shrink-0" />,
         };
       case 'CANCELLED':
         return {
           variant: 'warning' as const,
           label: 'Cancelled',
-          icon: <Ban size={10} className="mr-1" />,
+          icon: <Ban size={10} className="mr-1 flex-shrink-0" />,
         };
     }
   };
@@ -196,7 +196,7 @@ function RequestStatusBadge({ status }: { status: ProxyRequestStatus }) {
   const config = getStatusConfig();
 
   return (
-    <Badge variant={config.variant} className="pl-1 pr-1.5 py-0 text-[10px] font-medium leading-normal h-4">
+    <Badge variant={config.variant} className="inline-flex items-center pl-1 pr-1.5 py-0 text-[10px] font-medium h-4">
       {config.icon}
       {config.label}
     </Badge>
