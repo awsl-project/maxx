@@ -309,7 +309,7 @@ export function ProviderRowContent({
       {/* Toggle indicator */}
       <div className="relative z-10 flex items-center gap-3">
         <span
-          className={`text-[10px] font-bold tracking-wider transition-colors ${
+          className={`text-[10px] font-bold tracking-wider transition-colors w-6 text-right ${
             enabled ? 'text-emerald-400' : 'text-text-muted/40'
           }`}
         >
