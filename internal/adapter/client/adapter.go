@@ -246,8 +246,20 @@ func (a *Adapter) detectFromBodyBytes(body []byte) domain.ClientType {
 	return ""
 }
 
-// ExtractModel extracts the model from the request body
-func (a *Adapter) ExtractModel(body []byte) string {
+// ExtractModel extracts the model from the request (URL path for Gemini, body for others)
+func (a *Adapter) ExtractModel(req *http.Request, body []byte, clientType domain.ClientType) string {
+	// For Gemini, try URL path first
+	if clientType == domain.ClientTypeGemini {
+		path := req.URL.Path
+		if matches := geminiModelPattern.FindStringSubmatch(path); len(matches) > 1 {
+			return matches[1]
+		}
+		if matches := geminiInternalPattern.FindStringSubmatch(path); len(matches) > 1 {
+			return matches[1]
+		}
+	}
+
+	// Try body
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
 		return ""

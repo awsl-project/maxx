@@ -58,7 +58,8 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestModel := h.clientAdapter.ExtractModel(body)
+	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
+	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
 	stream := h.clientAdapter.IsStreamRequest(body)
 
