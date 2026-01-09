@@ -189,6 +189,21 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				proxyReq.EndTime = time.Now()
 				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 				proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
+
+				// Copy token usage from successful attempt to request
+				proxyReq.InputTokenCount = attemptRecord.InputTokenCount
+				proxyReq.OutputTokenCount = attemptRecord.OutputTokenCount
+				proxyReq.CacheReadCount = attemptRecord.CacheReadCount
+				proxyReq.CacheWriteCount = attemptRecord.CacheWriteCount
+				proxyReq.Cache5mWriteCount = attemptRecord.Cache5mWriteCount
+				proxyReq.Cache1hWriteCount = attemptRecord.Cache1hWriteCount
+				proxyReq.Cost = attemptRecord.Cost
+
+				// Copy response info if not already set
+				if proxyReq.ResponseInfo == nil && attemptRecord.ResponseInfo != nil {
+					proxyReq.ResponseInfo = attemptRecord.ResponseInfo
+				}
+
 				_ = e.proxyRequestRepo.Update(proxyReq)
 
 				// Broadcast to WebSocket clients
@@ -307,12 +322,12 @@ func (e *Executor) getRetryConfig(config *domain.RetryConfig) *domain.RetryConfi
 		return defaultConfig
 	}
 
-	// Fallback to hardcoded defaults
+	// No default config means no retry
 	return &domain.RetryConfig{
-		MaxRetries:      3,
-		InitialInterval: time.Second,
-		BackoffRate:     2.0,
-		MaxInterval:     30 * time.Second,
+		MaxRetries:      0,
+		InitialInterval: 0,
+		BackoffRate:     1.0,
+		MaxInterval:     0,
 	}
 }
 

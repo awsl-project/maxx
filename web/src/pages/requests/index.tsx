@@ -91,16 +91,18 @@ export function RequestsPage() {
             <Table>
               <TableHeader className="bg-surface-primary/80 backdrop-blur-md sticky top-0 z-10 shadow-sm border-b border-border">
                 <TableRow className="hover:bg-transparent border-none">
-                  <TableHead className="w-[120px] font-medium">Time</TableHead>
-                  <TableHead className="w-[110px] font-medium">Status</TableHead>
-                  <TableHead className="w-[80px] font-medium">Code</TableHead>
-                  <TableHead className="w-[140px] font-medium">Client</TableHead>
-                  <TableHead className="min-w-[200px] font-medium">Model</TableHead>
-                  <TableHead className="w-[100px] text-right font-medium">Duration</TableHead>
-                  <TableHead className="w-[100px] text-right font-medium">Cost</TableHead>
-                  <TableHead className="w-[80px] text-center font-medium" title="Attempts">Att.</TableHead>
-                  <TableHead className="w-[100px] text-right font-medium">Tokens</TableHead>
-                  <TableHead className="w-[100px] text-right font-medium">Cache</TableHead>
+                  <TableHead className="w-[90px] font-medium">Time</TableHead>
+                  <TableHead className="w-[100px] font-medium">Status</TableHead>
+                  <TableHead className="w-[50px] font-medium">Code</TableHead>
+                  <TableHead className="w-[100px] font-medium">Client</TableHead>
+                  <TableHead className="w-[160px] font-medium">Model</TableHead>
+                  <TableHead className="w-[70px] text-right font-medium">Duration</TableHead>
+                  <TableHead className="w-[70px] text-right font-medium">Cost</TableHead>
+                  <TableHead className="w-[40px] text-center font-medium" title="Attempts">Att.</TableHead>
+                  <TableHead className="w-[55px] text-right font-medium" title="Input Tokens">In</TableHead>
+                  <TableHead className="w-[55px] text-right font-medium" title="Output Tokens">Out</TableHead>
+                  <TableHead className="w-[55px] text-right font-medium" title="Cache Read">CacheR</TableHead>
+                  <TableHead className="w-[55px] text-right font-medium" title="Cache Write">CacheW</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -201,9 +203,9 @@ function RequestStatusBadge({ status }: { status: ProxyRequestStatus }) {
   );
 }
 
-// Token Cell Component
-function TokenCell({ input, output }: { input: number; output: number }) {
-  if (input === 0 && output === 0) {
+// Token Cell Component - single value with color
+function TokenCell({ count, color }: { count: number; color: string }) {
+  if (count === 0) {
     return <span className="text-caption text-text-muted font-mono">-</span>;
   }
 
@@ -213,26 +215,7 @@ function TokenCell({ input, output }: { input: number; output: number }) {
     return n.toString();
   };
 
-  return (
-    <div className="flex flex-col items-end leading-tight">
-      <span className="text-xs font-mono text-emerald-400" title="Output">{formatTokens(output)}</span>
-      <span className="text-[10px] font-mono text-text-secondary" title="Input">{formatTokens(input)}</span>
-    </div>
-  );
-}
-
-// Cache Cell Component
-function CacheCell({ read, write }: { read: number; write: number }) {
-  if (read === 0 && write === 0) {
-    return <span className="text-caption text-text-muted font-mono">-</span>;
-  }
-
-  return (
-    <div className="flex flex-col items-end leading-tight">
-      {read > 0 && <span className="text-xs font-mono text-violet-400" title="Read">R:{read}</span>}
-      {write > 0 && <span className="text-[10px] font-mono text-amber-400" title="Write">W:{write}</span>}
-    </div>
-  );
+  return <span className={`text-xs font-mono ${color}`}>{formatTokens(count)}</span>;
 }
 
 // Cost Cell Component
@@ -399,15 +382,25 @@ function LogRow({
           <span className="text-xs text-text-muted opacity-30">1</span>
         )}
       </TableCell>
-      
-      {/* Tokens */}
+
+      {/* Input Tokens - sky blue */}
       <TableCell className="text-right">
-        <TokenCell input={request.inputTokenCount} output={request.outputTokenCount} />
+        <TokenCell count={request.inputTokenCount} color="text-sky-400" />
       </TableCell>
-      
-      {/* Cache */}
+
+      {/* Output Tokens - emerald green */}
       <TableCell className="text-right">
-        <CacheCell read={request.cacheReadCount} write={request.cacheWriteCount} />
+        <TokenCell count={request.outputTokenCount} color="text-emerald-400" />
+      </TableCell>
+
+      {/* Cache Read - violet */}
+      <TableCell className="text-right">
+        <TokenCell count={request.cacheReadCount} color="text-violet-400" />
+      </TableCell>
+
+      {/* Cache Write - amber */}
+      <TableCell className="text-right">
+        <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
       </TableCell>
     </TableRow>
   );

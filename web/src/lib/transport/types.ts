@@ -156,6 +156,8 @@ export interface ProxyRequest {
   outputTokenCount: number;
   cacheReadCount: number;
   cacheWriteCount: number;
+  cache5mWriteCount: number;
+  cache1hWriteCount: number;
   cost: number;
 }
 
@@ -177,6 +179,8 @@ export interface ProxyUpstreamAttempt {
   outputTokenCount: number;
   cacheReadCount: number;
   cacheWriteCount: number;
+  cache5mWriteCount: number;
+  cache1hWriteCount: number;
   cost: number;
 }
 
@@ -202,6 +206,22 @@ export interface ProxyStatus {
   running: boolean;
   address: string;
   port: number;
+}
+
+// ===== Provider Stats =====
+
+export interface ProviderStats {
+  providerID: number;
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  successRate: number; // 0-100
+  activeRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheRead: number;
+  totalCacheWrite: number;
+  totalCost: number; // 微美元
 }
 
 // ===== 回调类型 =====

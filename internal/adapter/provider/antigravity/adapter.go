@@ -17,6 +17,7 @@ import (
 	"github.com/Bowl42/maxx-next/internal/converter"
 	ctxutil "github.com/Bowl42/maxx-next/internal/context"
 	"github.com/Bowl42/maxx-next/internal/domain"
+	"github.com/Bowl42/maxx-next/internal/usage"
 )
 
 func init() {
@@ -257,12 +258,22 @@ func (a *AntigravityAdapter) handleNonStreamResponse(ctx context.Context, w http
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
 	}
 
-	// Capture response info
+	// Capture response info and extract token usage
 	if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
 		attempt.ResponseInfo = &domain.ResponseInfo{
 			Status:  resp.StatusCode,
 			Headers: flattenHeaders(resp.Header),
 			Body:    string(body),
+		}
+
+		// Extract token usage from response
+		if metrics := usage.ExtractFromResponse(string(body)); metrics != nil {
+			attempt.InputTokenCount = metrics.InputTokens
+			attempt.OutputTokenCount = metrics.OutputTokens
+			attempt.CacheReadCount = metrics.CacheReadCount
+			attempt.CacheWriteCount = metrics.CacheCreationCount
+			attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
+			attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
 		}
 	}
 
@@ -285,8 +296,10 @@ func (a *AntigravityAdapter) handleNonStreamResponse(ctx context.Context, w http
 }
 
 func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType, targetType domain.ClientType, needsConversion bool) error {
+	attempt := ctxutil.GetUpstreamAttempt(ctx)
+
 	// Capture response info (for streaming, we only capture status and headers)
-	if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
+	if attempt != nil {
 		attempt.ResponseInfo = &domain.ResponseInfo{
 			Status:  resp.StatusCode,
 			Headers: flattenHeaders(resp.Header),
@@ -313,6 +326,28 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 		state = converter.NewTransformState()
 	}
 
+	// Collect all SSE events for response body and token extraction
+	var sseBuffer strings.Builder
+
+	// Helper to extract tokens and update attempt with final response body
+	extractTokens := func() {
+		if attempt != nil && sseBuffer.Len() > 0 {
+			// Update response body with collected SSE content
+			if attempt.ResponseInfo != nil {
+				attempt.ResponseInfo.Body = sseBuffer.String()
+			}
+			// Extract token usage
+			if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
+				attempt.InputTokenCount = metrics.InputTokens
+				attempt.OutputTokenCount = metrics.OutputTokens
+				attempt.CacheReadCount = metrics.CacheReadCount
+				attempt.CacheWriteCount = metrics.CacheCreationCount
+				attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
+				attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
+			}
+		}
+	}
+
 	// Create a channel for read results
 	type readResult struct {
 		line []byte
@@ -325,6 +360,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 		// Check context before reading
 		select {
 		case <-ctx.Done():
+			extractTokens()
 			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 		default:
 		}
@@ -338,18 +374,25 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 		// Wait for read or context cancellation
 		select {
 		case <-ctx.Done():
+			extractTokens()
 			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 		case result := <-readCh:
 			if result.err != nil {
 				if result.err == io.EOF {
-					return nil // Normal completion
+					extractTokens() // Extract tokens at normal completion
+					return nil
 				}
 				// Upstream connection closed - check if client is still connected
 				if ctx.Err() != nil {
+					extractTokens()
 					return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 				}
+				extractTokens()
 				return nil // Upstream closed normally
 			}
+
+			// Collect all SSE content (preserve complete format including newlines)
+			sseBuffer.Write(result.line)
 
 			var output []byte
 			if needsConversion {
@@ -367,6 +410,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 				_, writeErr := w.Write(output)
 				if writeErr != nil {
 					// Client disconnected
+					extractTokens()
 					return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
 				}
 				flusher.Flush()

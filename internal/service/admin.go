@@ -226,6 +226,10 @@ func (s *AdminService) GetProxyUpstreamAttempts(proxyRequestID uint64) ([]*domai
 	return s.attemptRepo.ListByProxyRequestID(proxyRequestID)
 }
 
+func (s *AdminService) GetProviderStats(clientType string) (map[uint64]*domain.ProviderStats, error) {
+	return s.attemptRepo.GetProviderStats(clientType)
+}
+
 // ===== Settings API =====
 
 func (s *AdminService) GetSettings() (map[string]string, error) {

@@ -23,7 +23,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useRoutes, useProviders, useCreateRoute, useToggleRoute, useUpdateRoutePositions } from '@/hooks/queries';
+import { useRoutes, useProviders, useCreateRoute, useToggleRoute, useUpdateRoutePositions, useProviderStats } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import { ClientIcon, getClientName } from '@/components/icons/client-icons';
 import { getProviderColor } from '@/lib/provider-colors';
@@ -37,6 +37,7 @@ export function ClientRoutesPage() {
 
   const { data: allRoutes, isLoading: routesLoading } = useRoutes();
   const { data: providers = [], isLoading: providersLoading } = useProviders();
+  const { data: providerStats = {} } = useProviderStats(clientType);
   const { countsByProvider } = useStreamingRequests();
 
   const createRoute = useCreateRoute();
@@ -226,6 +227,7 @@ export function ClientRoutesPage() {
                       index={index}
                       clientType={clientType as ClientType}
                       streamingCount={item.route ? countsByProvider.get(item.route.id) || 0 : 0}
+                      stats={providerStats[item.provider.id]}
                       isToggling={toggleRoute.isPending || createRoute.isPending}
                       onToggle={() => handleToggle(item)}
                     />
@@ -240,6 +242,7 @@ export function ClientRoutesPage() {
                     index={sortedItems.findIndex((i) => i.id === activeItem.id)}
                     clientType={clientType as ClientType}
                     streamingCount={activeItem.route ? countsByProvider.get(activeItem.route.id) || 0 : 0}
+                    stats={providerStats[activeItem.provider.id]}
                     isToggling={false}
                     isOverlay
                     onToggle={() => {}}

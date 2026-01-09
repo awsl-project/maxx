@@ -10,6 +10,7 @@ export {
   useCreateProvider,
   useUpdateProvider,
   useDeleteProvider,
+  useProviderStats,
 } from './use-providers';
 
 // Project hooks

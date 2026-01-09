@@ -162,9 +162,19 @@ type ProxyRequest struct {
 	// Token 使用情况
 	InputTokenCount  uint64 `json:"inputTokenCount"`
 	OutputTokenCount uint64 `json:"outputTokenCount"`
-	CacheReadCount   uint64 `json:"cacheReadCount"`
-	CacheWriteCount  uint64 `json:"cacheWriteCount"`
-	Cost             uint64 `json:"cost"`
+
+	// 缓存使用情况
+	// - CacheReadCount: 缓存命中读取的 tokens (价格: input × 0.1)
+	// - CacheWriteCount: 缓存创建的总 tokens (兼容字段，= Cache5mWriteCount + Cache1hWriteCount)
+	// - Cache5mWriteCount: 5分钟 TTL 缓存创建 tokens (价格: input × 1.25)
+	// - Cache1hWriteCount: 1小时 TTL 缓存创建 tokens (价格: input × 2.0)
+	CacheReadCount    uint64 `json:"cacheReadCount"`
+	CacheWriteCount   uint64 `json:"cacheWriteCount"`
+	Cache5mWriteCount uint64 `json:"cache5mWriteCount"`
+	Cache1hWriteCount uint64 `json:"cache1hWriteCount"`
+
+	// 成本 (微美元，1 USD = 1,000,000)
+	Cost uint64 `json:"cost"`
 }
 
 type ProxyUpstreamAttempt struct {
@@ -186,9 +196,18 @@ type ProxyUpstreamAttempt struct {
 	// Token 使用情况
 	InputTokenCount  uint64 `json:"inputTokenCount"`
 	OutputTokenCount uint64 `json:"outputTokenCount"`
-	CacheReadCount   uint64 `json:"cacheReadCount"`
-	CacheWriteCount  uint64 `json:"cacheWriteCount"`
-	Cost             uint64 `json:"cost"`
+
+	// 缓存使用情况
+	// - CacheReadCount: 缓存命中读取的 tokens
+	// - CacheWriteCount: 缓存创建的总 tokens (兼容字段，= Cache5mWriteCount + Cache1hWriteCount)
+	// - Cache5mWriteCount: 5分钟 TTL 缓存创建 tokens
+	// - Cache1hWriteCount: 1小时 TTL 缓存创建 tokens
+	CacheReadCount    uint64 `json:"cacheReadCount"`
+	CacheWriteCount   uint64 `json:"cacheWriteCount"`
+	Cache5mWriteCount uint64 `json:"cache5mWriteCount"`
+	Cache1hWriteCount uint64 `json:"cache1hWriteCount"`
+
+	Cost uint64 `json:"cost"`
 }
 
 // 重试配置
@@ -260,3 +279,26 @@ type SystemSetting struct {
 const (
 	SettingKeyProxyPort = "proxy_port" // 代理服务器端口，默认 9880
 )
+
+// Provider 统计信息
+type ProviderStats struct {
+	ProviderID uint64 `json:"providerID"`
+
+	// 请求统计
+	TotalRequests     uint64  `json:"totalRequests"`
+	SuccessfulRequests uint64  `json:"successfulRequests"`
+	FailedRequests    uint64  `json:"failedRequests"`
+	SuccessRate       float64 `json:"successRate"` // 0-100
+
+	// 活动请求（正在处理中）
+	ActiveRequests uint64 `json:"activeRequests"`
+
+	// Token 统计
+	TotalInputTokens  uint64 `json:"totalInputTokens"`
+	TotalOutputTokens uint64 `json:"totalOutputTokens"`
+	TotalCacheRead    uint64 `json:"totalCacheRead"`
+	TotalCacheWrite   uint64 `json:"totalCacheWrite"`
+
+	// 成本 (微美元)
+	TotalCost uint64 `json:"totalCost"`
+}

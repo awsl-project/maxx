@@ -19,6 +19,7 @@ import type {
   ProxyRequest,
   ProxyUpstreamAttempt,
   ProxyStatus,
+  ProviderStats,
   PaginationParams,
   WSMessageType,
   EventCallback,
@@ -185,6 +186,12 @@ export class WailsTransport implements Transport {
   async getProxyStatus(): Promise<ProxyStatus> {
     // Wails 模式下，调用 Go 方法获取代理状态
     return this.call<ProxyStatus>('AdminService.GetProxyStatus');
+  }
+
+  // ===== Provider Stats API =====
+
+  async getProviderStats(clientType?: string): Promise<Record<number, ProviderStats>> {
+    return this.call<Record<number, ProviderStats>>('AdminService.GetProviderStats', clientType ?? '');
   }
 
   // ===== Settings API =====

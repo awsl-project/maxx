@@ -28,6 +28,7 @@ export type {
   ProxyUpstreamAttemptStatus,
   RequestInfo,
   ResponseInfo,
+  ProviderStats,
   // 分页
   PaginationParams,
   // WebSocket

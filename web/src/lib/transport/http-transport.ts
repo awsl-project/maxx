@@ -20,6 +20,7 @@ import type {
   ProxyRequest,
   ProxyUpstreamAttempt,
   ProxyStatus,
+  ProviderStats,
   PaginationParams,
   WSMessageType,
   WSMessage,
@@ -210,6 +211,14 @@ export class HttpTransport implements Transport {
   async getProxyStatus(): Promise<ProxyStatus> {
     const { data } = await this.client.get<ProxyStatus>('/proxy-status');
     return data;
+  }
+
+  // ===== Provider Stats API =====
+
+  async getProviderStats(clientType?: string): Promise<Record<number, ProviderStats>> {
+    const params = clientType ? { client_type: clientType } : undefined;
+    const { data } = await this.client.get<Record<number, ProviderStats>>('/provider-stats', { params });
+    return data ?? {};
   }
 
   // ===== Settings API =====

@@ -160,6 +160,12 @@ func (d *DB) migrate() error {
 	// Migration: add instance_id column if not exists
 	d.db.Exec("ALTER TABLE proxy_requests ADD COLUMN instance_id TEXT")
 
+	// Migration: add cache TTL columns for detailed cache tracking
+	d.db.Exec("ALTER TABLE proxy_requests ADD COLUMN cache_5m_write_count INTEGER DEFAULT 0")
+	d.db.Exec("ALTER TABLE proxy_requests ADD COLUMN cache_1h_write_count INTEGER DEFAULT 0")
+	d.db.Exec("ALTER TABLE proxy_upstream_attempts ADD COLUMN cache_5m_write_count INTEGER DEFAULT 0")
+	d.db.Exec("ALTER TABLE proxy_upstream_attempts ADD COLUMN cache_1h_write_count INTEGER DEFAULT 0")
+
 	return nil
 }
 

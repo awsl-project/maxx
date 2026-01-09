@@ -57,6 +57,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleSettings(w, r, parts)
 	case "proxy-status":
 		h.handleProxyStatus(w, r)
+	case "provider-stats":
+		h.handleProviderStats(w, r)
 	case "logs":
 		h.handleLogs(w, r)
 	default:
@@ -586,6 +588,21 @@ func (h *AdminHandler) handleProxyStatus(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, h.svc.GetProxyStatus())
+}
+
+// Provider stats handler
+func (h *AdminHandler) handleProviderStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	clientType := r.URL.Query().Get("client_type")
+	stats, err := h.svc.GetProviderStats(clientType)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
 
 // Logs handler

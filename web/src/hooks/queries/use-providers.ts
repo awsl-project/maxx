@@ -15,6 +15,7 @@ export const providerKeys = {
   list: () => [...providerKeys.lists()] as const,
   details: () => [...providerKeys.all, 'detail'] as const,
   detail: (id: number) => [...providerKeys.details(), id] as const,
+  stats: () => [...providerKeys.all, 'stats'] as const,
 };
 
 // 获取所有 Providers
@@ -72,5 +73,16 @@ export function useDeleteProvider() {
       queryClient.invalidateQueries({ queryKey: providerKeys.lists() });
       queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
     },
+  });
+}
+
+// 获取 Provider 统计信息
+export function useProviderStats(clientType?: string) {
+  return useQuery({
+    queryKey: [...providerKeys.stats(), clientType],
+    queryFn: () => transport.getProviderStats(clientType),
+    // 每 30 秒刷新一次
+    refetchInterval: 30000,
+    enabled: !!clientType, // 只在有 clientType 时才查询
   });
 }

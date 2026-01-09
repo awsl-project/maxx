@@ -19,6 +19,7 @@ import type {
   ProxyUpstreamAttempt,
   PaginationParams,
   ProxyStatus,
+  ProviderStats,
   WSMessageType,
   EventCallback,
   UnsubscribeFn,
@@ -73,6 +74,9 @@ export interface Transport {
 
   // ===== Proxy Status API =====
   getProxyStatus(): Promise<ProxyStatus>;
+
+  // ===== Provider Stats API =====
+  getProviderStats(clientType?: string): Promise<Record<number, ProviderStats>>;
 
   // ===== Settings API =====
   getSettings(): Promise<Record<string, string>>;

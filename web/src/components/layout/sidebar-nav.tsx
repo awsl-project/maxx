@@ -31,7 +31,6 @@ interface NavItem {
 
 const mainNavItems: NavItem[] = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/requests', icon: Activity, label: 'Requests' },
   { to: '/console', icon: Terminal, label: 'Console' },
 ];
 
@@ -46,6 +45,39 @@ const configItems: NavItem[] = [
   { to: '/routing-strategies', icon: Shuffle, label: 'Strategies' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
+
+/**
+ * Requests 导航项 - 带 Streaming Badge
+ */
+function RequestsNavItem() {
+  const location = useLocation();
+  const { total } = useStreamingRequests();
+  const isActive = location.pathname === '/requests';
+  const color = '#10B981'; // emerald-500
+
+  return (
+    <NavLink
+      to="/requests"
+      className={({ isActive }) =>
+        cn(
+          'sidebar-item relative overflow-hidden',
+          isActive && 'sidebar-item-active'
+        )
+      }
+    >
+      {/* Marquee 背景动画 (仅在有 streaming 请求且未激活时显示) */}
+      {total > 0 && !isActive && (
+        <div
+          className="absolute inset-0 animate-marquee pointer-events-none opacity-50"
+          style={{ backgroundColor: `${color}10` }}
+        />
+      )}
+      <Activity className="h-4 w-4 relative z-10" />
+      <span className="flex-1 relative z-10 text-body">Requests</span>
+      <StreamingBadge count={total} color={color} />
+    </NavLink>
+  );
+}
 
 /**
  * 客户端路由项 - 带 Streaming Badge
@@ -152,6 +184,7 @@ export function SidebarNav() {
         {mainNavItems.map((item) => (
           <NavItemComponent key={item.to} item={item} />
         ))}
+        <RequestsNavItem />
 
         {/* Routes Section - Dynamic Client List */}
         <div className="sidebar-section-title">ROUTES</div>
