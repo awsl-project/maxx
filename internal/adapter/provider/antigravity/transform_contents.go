@@ -37,6 +37,13 @@ func buildContents(
 					}
 				}
 
+			case "redacted_thinking":
+				// Downgrade to text with redacted marker
+				// Reference: Antigravity-Manager's RedactedThinking handling
+				parts = append(parts, map[string]interface{}{
+					"text": "[Redacted Thinking: " + block.Data + "]",
+				})
+
 			case "text":
 				parts = append(parts, map[string]interface{}{
 					"text": block.Text,
@@ -147,10 +154,12 @@ func processToolUseBlock(
 		},
 	}
 
-	// Signature recovery priority:
+	// Signature recovery priority (4 layers):
 	// 1. Client-provided signature
 	// 2. Context signature (last_thought_signature)
 	// 3. Cached signature (from previous tool calls)
+	// 4. Global fallback signature (from cache)
+	// Reference: Antigravity-Manager's multi-layer signature recovery
 	signature := block.Signature
 	if signature == "" && lastThoughtSignature != nil {
 		signature = *lastThoughtSignature
@@ -158,9 +167,19 @@ func processToolUseBlock(
 	if signature == "" && signatureCache != nil {
 		signature = signatureCache.GetToolSignature(block.ID)
 	}
+	if signature == "" && signatureCache != nil {
+		// Final fallback: global signature
+		signature = signatureCache.GetGlobalSignature()
+	}
 
+	// Strict signature validation
+	// Reference: Antigravity-Manager's has_valid_signature_for_function_calls
 	if signature != "" && HasValidSignature(signature) {
 		part["thoughtSignature"] = signature
+	} else if signature != "" && len(signature) < MinSignatureLength {
+		// Log when signature is too short (防止 Gemini 拒绝)
+		log.Printf("[Antigravity] Tool call %s has invalid signature (len=%d < %d), not including",
+			block.ID, len(signature), MinSignatureLength)
 	}
 
 	return part
@@ -201,8 +220,9 @@ func processToolResultBlock(
 		},
 	}
 
-	// Backfill signature
-	if lastThoughtSignature != nil && *lastThoughtSignature != "" {
+	// Backfill signature from context
+	// Reference: Antigravity-Manager's tool result signature backfill
+	if lastThoughtSignature != nil && *lastThoughtSignature != "" && HasValidSignature(*lastThoughtSignature) {
 		part["thoughtSignature"] = *lastThoughtSignature
 	}
 

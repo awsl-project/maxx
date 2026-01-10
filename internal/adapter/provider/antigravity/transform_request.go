@@ -98,9 +98,10 @@ type ClaudeMessage struct {
 
 // ContentBlock represents a content block in Claude format
 type ContentBlock struct {
-	Type         string                 `json:"type"` // "text", "thinking", "tool_use", "tool_result", "image"
+	Type         string                 `json:"type"` // "text", "thinking", "redacted_thinking", "tool_use", "tool_result", "image"
 	Text         string                 `json:"text,omitempty"`
 	Thinking     string                 `json:"thinking,omitempty"`
+	Data         string                 `json:"data,omitempty"`         // for redacted_thinking
 	Signature    string                 `json:"signature,omitempty"`
 	ID           string                 `json:"id,omitempty"`
 	Name         string                 `json:"name,omitempty"`
