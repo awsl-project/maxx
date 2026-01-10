@@ -1,6 +1,7 @@
 package antigravity
 
 import (
+	"log"
 	"strings"
 )
 
@@ -14,7 +15,12 @@ func buildGenerationConfig(
 	config := make(map[string]interface{})
 
 	// 1. Thinking Configuration
-	if claudeReq.Thinking != nil && claudeReq.Thinking.Type == "enabled" {
+	// Check if thinking is requested AND the target model supports it
+	// Reference: Antigravity-Manager's target model support check
+	thinkingRequested := claudeReq.Thinking != nil && claudeReq.Thinking.Type == "enabled"
+	modelSupportsThinking := TargetModelSupportsThinking(mappedModel)
+
+	if thinkingRequested && modelSupportsThinking {
 		thinkingConfig := map[string]interface{}{
 			"includeThoughts": true,
 		}
@@ -34,6 +40,9 @@ func buildGenerationConfig(
 		}
 
 		config["thinkingConfig"] = thinkingConfig
+	} else if thinkingRequested && !modelSupportsThinking {
+		// Log when thinking is requested but model doesn't support it
+		log.Printf("[Antigravity] Thinking requested but model %s doesn't support it, disabled", mappedModel)
 	}
 
 	// 2. Basic Parameters

@@ -25,13 +25,22 @@ func TransformClaudeToGemini(
 	// 2. Cache Control cleanup (before conversion)
 	cleanCacheControlFromRequest(&claudeReq)
 
-	// 3. Thinking block pre-filtering
+	// 3. Detect Web Search tool and apply model fallback
+	// Reference: Antigravity-Manager's web search detection
+	hasWebSearch := detectWebSearchTool(&claudeReq)
+	if hasWebSearch {
+		// Web Search only works reliably with gemini-2.5-flash
+		log.Printf("[Antigravity] Detected Web Search tool, forcing model to gemini-2.5-flash (was: %s)", mappedModel)
+		mappedModel = "gemini-2.5-flash"
+	}
+
+	// 4. Thinking block pre-filtering
 	filterInvalidThinkingBlocks(&claudeReq.Messages)
 
-	// 4. Tool loop recovery
+	// 5. Tool loop recovery
 	closeToolLoopForThinking(&claudeReq.Messages)
 
-	// 5. Build Gemini request
+	// 6. Build Gemini request
 	geminiReq := make(map[string]interface{})
 
 	// 5.1 System instruction
@@ -54,6 +63,12 @@ func TransformClaudeToGemini(
 	// 5.4 Generation Config
 	genConfig := buildGenerationConfig(&claudeReq, mappedModel, stream)
 	geminiReq["generationConfig"] = genConfig
+
+	// 5.5 Safety Settings (configurable via environment)
+	// Reference: Antigravity-Manager's build_safety_settings
+	safetyThreshold := GetSafetyThresholdFromEnv()
+	safetySettings := BuildSafetySettingsMap(safetyThreshold)
+	geminiReq["safetySettings"] = safetySettings
 
 	// 6. Serialize
 	return json.Marshal(geminiReq)
@@ -302,4 +317,35 @@ func extractSystemText(system interface{}) string {
 	default:
 		return ""
 	}
+}
+
+// detectWebSearchTool detects if the request contains Web Search tools
+// Reference: Antigravity-Manager's web search detection
+func detectWebSearchTool(claudeReq *ClaudeRequest) bool {
+	if claudeReq.Tools == nil {
+		return false
+	}
+
+	for _, tool := range claudeReq.Tools {
+		// Check by name
+		nameLower := strings.ToLower(tool.Name)
+		if nameLower == "web_search" ||
+			nameLower == "websearch" ||
+			nameLower == "google_search" ||
+			nameLower == "googlesearch" ||
+			nameLower == "googlesearchretrieval" ||
+			nameLower == "web_search_20250305" {
+			return true
+		}
+
+		// Check description for web search keywords
+		descLower := strings.ToLower(tool.Description)
+		if strings.Contains(descLower, "web search") ||
+			strings.Contains(descLower, "google search") ||
+			strings.Contains(descLower, "internet search") {
+			return true
+		}
+	}
+
+	return false
 }
