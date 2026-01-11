@@ -199,6 +199,25 @@ export interface PaginationParams {
   offset?: number;
 }
 
+/** 基于游标的分页参数 (用于大数据量场景) */
+export interface CursorPaginationParams {
+  limit?: number;
+  /** 获取 id 小于此值的记录 (向后翻页) */
+  before?: number;
+  /** 获取 id 大于此值的记录 (向前翻页/获取新数据) */
+  after?: number;
+}
+
+/** 游标分页响应 */
+export interface CursorPaginationResult<T> {
+  items: T[];
+  hasMore: boolean;
+  /** 当前页第一条记录的 id */
+  firstId?: number;
+  /** 当前页最后一条记录的 id */
+  lastId?: number;
+}
+
 // ===== WebSocket 消息 =====
 
 export type WSMessageType = 'proxy_request_update' | 'proxy_upstream_attempt_update' | 'stats_update' | 'log_message';

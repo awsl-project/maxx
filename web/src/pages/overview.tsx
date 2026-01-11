@@ -7,18 +7,20 @@ export function OverviewPage() {
   const { data: providers } = useProviders();
   const { data: routes } = useRoutes();
   const { data: projects } = useProjects();
-  const { data: requests } = useProxyRequests({ limit: 10 });
+  const { data: requestsData } = useProxyRequests({ limit: 10 });
+
+  const requests = requestsData?.items ?? [];
 
   const stats = [
     { label: 'Providers', value: providers?.length ?? 0, icon: Server, color: 'text-info', href: '/providers' },
     { label: 'Routes', value: routes?.length ?? 0, icon: Route, color: 'text-accent', href: '/routes/claude' },
     { label: 'Projects', value: projects?.length ?? 0, icon: FolderKanban, color: 'text-warning', href: '/projects' },
-    { label: 'Recent Requests', value: requests?.length ?? 0, icon: Activity, color: 'text-success', href: '/requests' },
+    { label: 'Recent Requests', value: requests.length, icon: Activity, color: 'text-success', href: '/requests' },
   ];
 
-  const completedRequests = requests?.filter((r) => r.status === 'COMPLETED').length ?? 0;
-  const failedRequests = requests?.filter((r) => r.status === 'FAILED').length ?? 0;
-  const cancelledRequests = requests?.filter((r) => r.status === 'CANCELLED').length ?? 0;
+  const completedRequests = requests.filter((r) => r.status === 'COMPLETED').length;
+  const failedRequests = requests.filter((r) => r.status === 'FAILED').length;
+  const cancelledRequests = requests.filter((r) => r.status === 'CANCELLED').length;
   const hasProviders = (providers?.length ?? 0) > 0;
 
   return (

@@ -36,23 +36,53 @@ export const statusVariant: Record<ProxyRequestStatus, 'default' | 'success' | '
 
 export function RequestsPage() {
   const navigate = useNavigate();
-  const [page, setPage] = useState(0);
-  const { data: requests = [], isLoading, refetch } = useProxyRequests({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+  // 使用游标分页：存储每页的 lastId 用于向后翻页
+  const [cursors, setCursors] = useState<(number | undefined)[]>([undefined]);
+  const [pageIndex, setPageIndex] = useState(0);
+
+  const currentCursor = cursors[pageIndex];
+  const { data, isLoading, refetch } = useProxyRequests({
+    limit: PAGE_SIZE,
+    before: currentCursor
+  });
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount();
   const { data: providers = [] } = useProviders();
 
   // Subscribe to real-time updates
   useProxyRequestUpdates();
 
+  const requests = data?.items ?? [];
+  const hasMore = data?.hasMore ?? false;
+
   // Create provider ID to name mapping
   const providerMap = new Map(providers.map(p => [p.id, p.name]));
 
-  // 使用 totalCount，如果未加载则用当前页数据长度估算
-  const total = typeof totalCount === 'number' ? totalCount : (requests.length > 0 ? requests.length + page * PAGE_SIZE : 0);
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // 使用 totalCount
+  const total = typeof totalCount === 'number' ? totalCount : 0;
 
-  // Refetch count when requests change
+  // 下一页
+  const goToNextPage = () => {
+    if (hasMore && data?.lastId) {
+      const nextCursors = [...cursors];
+      if (pageIndex + 1 >= nextCursors.length) {
+        nextCursors.push(data.lastId);
+      }
+      setCursors(nextCursors);
+      setPageIndex(pageIndex + 1);
+    }
+  };
+
+  // 上一页
+  const goToPrevPage = () => {
+    if (pageIndex > 0) {
+      setPageIndex(pageIndex - 1);
+    }
+  };
+
+  // 刷新时重置到第一页
   const handleRefresh = () => {
+    setCursors([undefined]);
+    setPageIndex(0);
     refetch();
     refetchCount();
   };
@@ -138,9 +168,9 @@ export function RequestsPage() {
         <span className="text-xs text-text-secondary">
           {total > 0 ? (
             <>
-              Showing <span className="font-medium text-text-primary">{page * PAGE_SIZE + 1}</span> to{' '}
-              <span className="font-medium text-text-primary">{Math.min((page + 1) * PAGE_SIZE, total)}</span> of{' '}
-              <span className="font-medium text-text-primary">{total}</span>
+              Page <span className="font-medium text-text-primary">{pageIndex + 1}</span>,{' '}
+              showing <span className="font-medium text-text-primary">{requests.length}</span> items
+              {' '}of <span className="font-medium text-text-primary">{total}</span> total
             </>
           ) : (
             'No items'
@@ -148,18 +178,18 @@ export function RequestsPage() {
         </span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
+            onClick={goToPrevPage}
+            disabled={pageIndex === 0}
             className="p-1.5 rounded-md hover:bg-surface-hover text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronLeft size={16} />
           </button>
           <span className="text-xs text-text-secondary min-w-[60px] text-center font-medium">
-            Page {page + 1} of {totalPages}
+            Page {pageIndex + 1}
           </span>
           <button
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            disabled={page >= totalPages - 1}
+            onClick={goToNextPage}
+            disabled={!hasMore}
             className="p-1.5 rounded-md hover:bg-surface-hover text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronRight size={16} />

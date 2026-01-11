@@ -223,7 +223,6 @@ func cleanJSONSchemaRecursive(value interface{}) {
 		"deprecated",
 		"readOnly",
 		"writeOnly",
-		"title", // Also remove title as it's not needed
 	}
 	for _, field := range hardRemoveFields {
 		delete(schema, field)

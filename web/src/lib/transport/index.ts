@@ -31,6 +31,8 @@ export type {
   ProviderStats,
   // 分页
   PaginationParams,
+  CursorPaginationParams,
+  CursorPaginationResult,
   // WebSocket
   WSMessageType,
   WSMessage,

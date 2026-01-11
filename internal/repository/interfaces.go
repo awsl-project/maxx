@@ -57,6 +57,10 @@ type ProxyRequestRepository interface {
 	Update(req *domain.ProxyRequest) error
 	GetByID(id uint64) (*domain.ProxyRequest, error)
 	List(limit, offset int) ([]*domain.ProxyRequest, error)
+	// ListCursor 基于游标的分页查询
+	// before: 获取 id < before 的记录 (向后翻页)
+	// after: 获取 id > after 的记录 (向前翻页/获取新数据)
+	ListCursor(limit int, before, after uint64) ([]*domain.ProxyRequest, error)
 	Count() (int64, error)
 }
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui';
 import { useProxyRequest, useProxyUpstreamAttempts, useProxyRequestUpdates, useProviders } from '@/hooks/queries';
@@ -51,6 +51,17 @@ export function RequestDetailPage() {
   const [activeTab, setActiveTab] = useState<'request' | 'response' | 'metadata'>('request');
 
   useProxyRequestUpdates();
+
+  // ESC 键返回列表
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        navigate('/requests');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [navigate]);
 
   const selectedAttempt = useMemo(() => {
     if (selection.type === 'attempt') {

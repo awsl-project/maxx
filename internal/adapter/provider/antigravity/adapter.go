@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -33,6 +34,7 @@ type AntigravityAdapter struct {
 	provider   *domain.Provider
 	tokenCache *TokenCache
 	tokenMu    sync.RWMutex
+	httpClient *http.Client
 }
 
 func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
@@ -42,6 +44,7 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 	return &AntigravityAdapter{
 		provider:   p,
 		tokenCache: &TokenCache{},
+		httpClient: newUpstreamHTTPClient(),
 	}, nil
 }
 
@@ -154,7 +157,7 @@ func (a *AntigravityAdapter) Execute(ctx context.Context, w http.ResponseWriter,
 
 		// Build upstream URLs (prod first, daily fallback)
 		baseURLs := []string{V1InternalBaseURLProd, V1InternalBaseURLDaily}
-		client := &http.Client{}
+		client := a.httpClient
 		var lastErr error
 
 		for idx, base := range baseURLs {
@@ -386,7 +389,7 @@ func refreshGoogleToken(ctx context.Context, refreshToken string) (string, int, 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", 0, err
@@ -407,6 +410,30 @@ func refreshGoogleToken(ctx context.Context, refreshToken string) (string, int, 
 	}
 
 	return result.AccessToken, result.ExpiresIn, nil
+}
+
+func newUpstreamHTTPClient() *http.Client {
+	// Mirrors Antigravity-Manager's reqwest client settings:
+	// connect_timeout=20s, pool_max_idle_per_host=16, pool_idle_timeout=90s, tcp_keepalive=60s, timeout=600s.
+	dialer := &net.Dialer{
+		Timeout:   20 * time.Second,
+		KeepAlive: 60 * time.Second,
+	}
+
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConnsPerHost:   16,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   20 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   600 * time.Second,
+	}
 }
 
 // applyClaudePostProcess applies minimal post-processing for advanced features
@@ -971,4 +998,3 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 		ClientType:       "", // Global cooldown
 	}, updateChan
 }
-

@@ -286,6 +286,38 @@ func (s *AdminService) GetProxyRequests(limit, offset int) ([]*domain.ProxyReque
 	return s.proxyRequestRepo.List(limit, offset)
 }
 
+// CursorPaginationResult 游标分页结果
+type CursorPaginationResult struct {
+	Items   []*domain.ProxyRequest `json:"items"`
+	HasMore bool                   `json:"hasMore"`
+	FirstID uint64                 `json:"firstId,omitempty"`
+	LastID  uint64                 `json:"lastId,omitempty"`
+}
+
+func (s *AdminService) GetProxyRequestsCursor(limit int, before, after uint64) (*CursorPaginationResult, error) {
+	items, err := s.proxyRequestRepo.ListCursor(limit+1, before, after)
+	if err != nil {
+		return nil, err
+	}
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+
+	result := &CursorPaginationResult{
+		Items:   items,
+		HasMore: hasMore,
+	}
+
+	if len(items) > 0 {
+		result.FirstID = items[0].ID
+		result.LastID = items[len(items)-1].ID
+	}
+
+	return result, nil
+}
+
 func (s *AdminService) GetProxyRequestsCount() (int64, error) {
 	return s.proxyRequestRepo.Count()
 }

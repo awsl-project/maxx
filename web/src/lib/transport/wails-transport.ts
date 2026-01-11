@@ -20,7 +20,8 @@ import type {
   ProxyUpstreamAttempt,
   ProxyStatus,
   ProviderStats,
-  PaginationParams,
+  CursorPaginationParams,
+  CursorPaginationResult,
   WSMessageType,
   EventCallback,
   UnsubscribeFn,
@@ -177,11 +178,12 @@ export class WailsTransport implements Transport {
 
   // ===== ProxyRequest API =====
 
-  async getProxyRequests(params?: PaginationParams): Promise<ProxyRequest[]> {
-    return this.call<ProxyRequest[]>(
-      'AdminService.GetProxyRequests',
+  async getProxyRequests(params?: CursorPaginationParams): Promise<CursorPaginationResult<ProxyRequest>> {
+    return this.call<CursorPaginationResult<ProxyRequest>>(
+      'AdminService.GetProxyRequestsCursor',
       params?.limit ?? 100,
-      params?.offset ?? 0
+      params?.before ?? 0,
+      params?.after ?? 0
     );
   }
 

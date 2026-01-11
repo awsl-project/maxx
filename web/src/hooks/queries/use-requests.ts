@@ -4,7 +4,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { getTransport, type ProxyRequest, type ProxyUpstreamAttempt, type PaginationParams } from '@/lib/transport';
+import { getTransport, type ProxyRequest, type ProxyUpstreamAttempt, type CursorPaginationParams, type CursorPaginationResult } from '@/lib/transport';
 
 const transport = getTransport();
 
@@ -12,14 +12,14 @@ const transport = getTransport();
 export const requestKeys = {
   all: ['requests'] as const,
   lists: () => [...requestKeys.all, 'list'] as const,
-  list: (params?: PaginationParams) => [...requestKeys.lists(), params] as const,
+  list: (params?: CursorPaginationParams) => [...requestKeys.lists(), params] as const,
   details: () => [...requestKeys.all, 'detail'] as const,
   detail: (id: number) => [...requestKeys.details(), id] as const,
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
 };
 
-// 获取所有 ProxyRequests
-export function useProxyRequests(params?: PaginationParams) {
+// 获取 ProxyRequests (游标分页)
+export function useProxyRequests(params?: CursorPaginationParams) {
   return useQuery({
     queryKey: requestKeys.list(params),
     queryFn: () => transport.getProxyRequests(params),
@@ -74,20 +74,23 @@ export function useProxyRequestUpdates() {
           updatedRequest
         );
 
-        // 更新列表缓存（乐观更新）- 同时更新所有分页的缓存
-        queryClient.setQueriesData<ProxyRequest[]>(
+        // 更新列表缓存（乐观更新）- 适配 CursorPaginationResult 结构
+        queryClient.setQueriesData<CursorPaginationResult<ProxyRequest>>(
           { queryKey: requestKeys.lists() },
           (old) => {
-            // 确保 old 是数组类型，防止错误更新其他缓存
-            if (!old || !Array.isArray(old)) return old;
-            const index = old.findIndex((r) => r.id === updatedRequest.id);
+            if (!old || !old.items) return old;
+            const index = old.items.findIndex((r) => r.id === updatedRequest.id);
             if (index >= 0) {
-              const newList = [...old];
-              newList[index] = updatedRequest;
-              return newList;
+              const newItems = [...old.items];
+              newItems[index] = updatedRequest;
+              return { ...old, items: newItems };
             }
-            // 新请求只添加到第一页（offset=0 的页面）
-            return [updatedRequest, ...old];
+            // 新请求添加到列表开头（只在首页，即没有 before 参数的查询）
+            return {
+              ...old,
+              items: [updatedRequest, ...old.items],
+              firstId: updatedRequest.id,
+            };
           }
         );
 

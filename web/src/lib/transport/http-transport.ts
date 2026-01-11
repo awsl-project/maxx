@@ -21,7 +21,8 @@ import type {
   ProxyUpstreamAttempt,
   ProxyStatus,
   ProviderStats,
-  PaginationParams,
+  CursorPaginationParams,
+  CursorPaginationResult,
   WSMessageType,
   WSMessage,
   EventCallback,
@@ -206,9 +207,9 @@ export class HttpTransport implements Transport {
 
   // ===== ProxyRequest API =====
 
-  async getProxyRequests(params?: PaginationParams): Promise<ProxyRequest[]> {
-    const { data } = await this.client.get<ProxyRequest[]>('/requests', { params });
-    return data ?? [];
+  async getProxyRequests(params?: CursorPaginationParams): Promise<CursorPaginationResult<ProxyRequest>> {
+    const { data } = await this.client.get<CursorPaginationResult<ProxyRequest>>('/requests', { params });
+    return data ?? { items: [], hasMore: false };
   }
 
   async getProxyRequestsCount(): Promise<number> {

@@ -93,6 +93,45 @@ func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest
 	return requests, rows.Err()
 }
 
+// ListCursor 基于游标的分页查询，比 OFFSET 更高效
+// before: 获取 id < before 的记录 (向后翻页)
+// after: 获取 id > after 的记录 (向前翻页/获取新数据)
+// 注意：列表查询不返回 request_info 和 response_info 大字段
+func (r *ProxyRequestRepository) ListCursor(limit int, before, after uint64) ([]*domain.ProxyRequest, error) {
+	// 列表查询使用精简字段，不包含 request_info 和 response_info
+	const listColumns = `id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost`
+
+	var query string
+	var args []interface{}
+
+	if after > 0 {
+		query = `SELECT ` + listColumns + ` FROM proxy_requests WHERE id > ? ORDER BY id DESC LIMIT ?`
+		args = []interface{}{after, limit}
+	} else if before > 0 {
+		query = `SELECT ` + listColumns + ` FROM proxy_requests WHERE id < ? ORDER BY id DESC LIMIT ?`
+		args = []interface{}{before, limit}
+	} else {
+		query = `SELECT ` + listColumns + ` FROM proxy_requests ORDER BY id DESC LIMIT ?`
+		args = []interface{}{limit}
+	}
+
+	rows, err := r.db.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var requests []*domain.ProxyRequest
+	for rows.Next() {
+		p, err := r.scanRequestRowsLite(rows)
+		if err != nil {
+			return nil, err
+		}
+		requests = append(requests, p)
+	}
+	return requests, rows.Err()
+}
+
 func (r *ProxyRequestRepository) Count() (int64, error) {
 	return atomic.LoadInt64(&r.count), nil
 }
@@ -173,5 +212,35 @@ func (r *ProxyRequestRepository) scanRequestRows(rows *sql.Rows) (*domain.ProxyR
 	p.Duration = time.Duration(durationMs) * time.Millisecond
 	p.RequestInfo = fromJSON[*domain.RequestInfo](reqInfoJSON)
 	p.ResponseInfo = fromJSON[*domain.ResponseInfo](respInfoJSON)
+	return &p, nil
+}
+
+// scanRequestRowsLite 精简版扫描，不包含 request_info 和 response_info
+func (r *ProxyRequestRepository) scanRequestRowsLite(rows *sql.Rows) (*domain.ProxyRequest, error) {
+	var p domain.ProxyRequest
+	var startTime, endTime sql.NullTime
+	var durationMs int64
+	var instanceID sql.NullString
+	var routeID, providerID sql.NullInt64
+	var isStream sql.NullBool
+	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost)
+	if err != nil {
+		return nil, err
+	}
+	if instanceID.Valid {
+		p.InstanceID = instanceID.String
+	}
+	if routeID.Valid {
+		p.RouteID = uint64(routeID.Int64)
+	}
+	if providerID.Valid {
+		p.ProviderID = uint64(providerID.Int64)
+	}
+	if isStream.Valid {
+		p.IsStream = isStream.Bool
+	}
+	p.StartTime = parseTime(startTime)
+	p.EndTime = parseTime(endTime)
+	p.Duration = time.Duration(durationMs) * time.Millisecond
 	return &p, nil
 }

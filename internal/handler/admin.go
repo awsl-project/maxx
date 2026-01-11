@@ -556,19 +556,22 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 			writeJSON(w, http.StatusOK, req)
 		} else {
 			limit := 100
-			offset := 0
+			var before, after uint64
 			if l := r.URL.Query().Get("limit"); l != "" {
 				limit, _ = strconv.Atoi(l)
 			}
-			if o := r.URL.Query().Get("offset"); o != "" {
-				offset, _ = strconv.Atoi(o)
+			if b := r.URL.Query().Get("before"); b != "" {
+				before, _ = strconv.ParseUint(b, 10, 64)
 			}
-			requests, err := h.svc.GetProxyRequests(limit, offset)
+			if a := r.URL.Query().Get("after"); a != "" {
+				after, _ = strconv.ParseUint(a, 10, 64)
+			}
+			result, err := h.svc.GetProxyRequestsCursor(limit, before, after)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusOK, requests)
+			writeJSON(w, http.StatusOK, result)
 		}
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
