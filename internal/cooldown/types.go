@@ -18,9 +18,10 @@ type FailureKey struct {
 
 // CooldownInfo represents cooldown information for API response
 type CooldownInfo struct {
-	ProviderID   uint64    `json:"providerID"`
-	ProviderName string    `json:"providerName,omitempty"`
-	ClientType   string    `json:"clientType,omitempty"` // Empty = all types
-	Until        time.Time `json:"until"`
-	Remaining    string    `json:"remaining"` // Human readable remaining time
+	ProviderID   uint64         `json:"providerID"`
+	ProviderName string         `json:"providerName,omitempty"`
+	ClientType   string         `json:"clientType,omitempty"` // Empty = all types
+	Until        time.Time      `json:"until"`
+	Remaining    string         `json:"remaining"` // Human readable remaining time
+	Reason       CooldownReason `json:"reason"`    // Cooldown reason
 }

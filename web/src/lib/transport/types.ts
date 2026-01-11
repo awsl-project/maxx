@@ -281,10 +281,19 @@ export interface ImportResult {
 
 // ===== Cooldown =====
 
+export type CooldownReason =
+  | 'server_error'
+  | 'network_error'
+  | 'quota_exhausted'
+  | 'rate_limit_exceeded'
+  | 'concurrent_limit'
+  | 'unknown';
+
 export interface Cooldown {
   providerID: number;
   providerName: string;
   clientType: string; // 'all' for global cooldown, or specific client type
   until: string; // ISO 8601 timestamp
   remaining: string; // Human-readable duration like "15m30s"
+  reason: CooldownReason; // Cooldown reason
 }

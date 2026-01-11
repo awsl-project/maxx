@@ -9,6 +9,8 @@ import type { ClientType, ProviderStats, AntigravityQuotaData } from '@/lib/tran
 import type { ProviderConfigItem } from '../types';
 import { useAntigravityQuota } from '@/hooks/queries';
 import { useCooldowns } from '@/hooks/use-cooldowns';
+import { CooldownDetailsDialog } from '@/components/cooldown-details-dialog';
+import { useState } from 'react';
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -63,6 +65,10 @@ export function SortableProviderRow({
   onToggle,
   onDelete,
 }: SortableProviderRowProps) {
+  const [showCooldownDialog, setShowCooldownDialog] = useState(false);
+  const { getCooldownForProvider, clearCooldown, isClearingCooldown } = useCooldowns();
+  const cooldown = getCooldownForProvider(item.provider.id, clientType);
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
     transition: {
@@ -78,26 +84,54 @@ export function SortableProviderRow({
     pointerEvents: isDragging ? 'none' : undefined,
   };
 
+  const handleClick = () => {
+    if (isDragging) return;
+
+    // 如果在 cooldown，打开弹窗
+    if (cooldown) {
+      setShowCooldownDialog(true);
+    } else {
+      // 否则 toggle
+      onToggle();
+    }
+  };
+
+  const handleClearCooldown = () => {
+    clearCooldown(item.provider.id);
+    setShowCooldownDialog(false);
+  };
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={() => !isDragging && onToggle()}
-      className="cursor-pointer active:cursor-grabbing"
-    >
-      <ProviderRowContent
-        item={item}
-        index={index}
-        clientType={clientType}
-        streamingCount={streamingCount}
-        stats={stats}
-        isToggling={isToggling}
-        onToggle={onToggle}
-        onDelete={onDelete}
+    <>
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+        onClick={handleClick}
+        className="cursor-pointer active:cursor-grabbing"
+      >
+        <ProviderRowContent
+          item={item}
+          index={index}
+          clientType={clientType}
+          streamingCount={streamingCount}
+          stats={stats}
+          isToggling={isToggling}
+          onToggle={onToggle}
+          onDelete={onDelete}
+        />
+      </div>
+
+      {/* Cooldown Details Dialog */}
+      <CooldownDetailsDialog
+        cooldown={cooldown || null}
+        open={showCooldownDialog}
+        onOpenChange={setShowCooldownDialog}
+        onClear={handleClearCooldown}
+        isClearing={isClearingCooldown}
       />
-    </div>
+    </>
   );
 }
 

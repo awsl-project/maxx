@@ -14,6 +14,7 @@ import (
 type Manager struct {
 	mu             sync.RWMutex
 	cooldowns      map[CooldownKey]time.Time         // cooldown key -> end time
+	reasons        map[CooldownKey]CooldownReason    // cooldown key -> reason
 	failureTracker *FailureTracker                   // tracks failure counts
 	policies       map[CooldownReason]CooldownPolicy // cooldown calculation strategies
 	repository     repository.CooldownRepository
@@ -23,6 +24,7 @@ type Manager struct {
 func NewManager() *Manager {
 	return &Manager{
 		cooldowns:      make(map[CooldownKey]time.Time),
+		reasons:        make(map[CooldownKey]CooldownReason),
 		failureTracker: NewFailureTracker(),
 		policies:       DefaultPolicies(),
 	}
@@ -92,7 +94,7 @@ func (m *Manager) RecordFailure(providerID uint64, clientType string, reason Coo
 
 	// If explicit until time is provided (e.g., from 429 Retry-After), use it directly
 	if explicitUntil != nil {
-		m.setCooldownLocked(providerID, clientType, *explicitUntil)
+		m.setCooldownLocked(providerID, clientType, *explicitUntil, reason)
 		log.Printf("[Cooldown] Provider %d (clientType=%s): Set explicit cooldown until %s (reason=%s)",
 			providerID, clientType, explicitUntil.Format("2006-01-02 15:04:05"), reason)
 		return *explicitUntil
@@ -114,7 +116,7 @@ func (m *Manager) RecordFailure(providerID uint64, clientType string, reason Coo
 	duration := policy.CalculateCooldown(failureCount)
 	until := time.Now().Add(duration)
 
-	m.setCooldownLocked(providerID, clientType, until)
+	m.setCooldownLocked(providerID, clientType, until, reason)
 
 	log.Printf("[Cooldown] Provider %d (clientType=%s): Set cooldown for %v until %s (reason=%s, failureCount=%d)",
 		providerID, clientType, duration, until.Format("2006-01-02 15:04:05"), reason, failureCount)
@@ -124,11 +126,19 @@ func (m *Manager) RecordFailure(providerID uint64, clientType string, reason Coo
 
 // UpdateCooldown updates cooldown time without incrementing failure count
 // This is used for async updates (e.g., when quota reset time is fetched asynchronously)
+// Keeps the existing reason
 func (m *Manager) UpdateCooldown(providerID uint64, clientType string, until time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.setCooldownLocked(providerID, clientType, until)
+	// Get existing reason or use Unknown
+	key := CooldownKey{ProviderID: providerID, ClientType: clientType}
+	reason, ok := m.reasons[key]
+	if !ok {
+		reason = ReasonUnknown
+	}
+
+	m.setCooldownLocked(providerID, clientType, until, reason)
 	log.Printf("[Cooldown] Provider %d (clientType=%s): Updated cooldown to %s (async update, no count increment)",
 		providerID, clientType, until.Format("2006-01-02 15:04:05"))
 }
@@ -143,9 +153,10 @@ func (m *Manager) RecordSuccess(providerID uint64, clientType string) {
 }
 
 // setCooldownLocked sets cooldown without acquiring lock (internal use only)
-func (m *Manager) setCooldownLocked(providerID uint64, clientType string, until time.Time) {
+func (m *Manager) setCooldownLocked(providerID uint64, clientType string, until time.Time, reason CooldownReason) {
 	key := CooldownKey{ProviderID: providerID, ClientType: clientType}
 	m.cooldowns[key] = until
+	m.reasons[key] = reason
 
 	// Persist to database
 	if m.repository != nil {
@@ -167,7 +178,7 @@ func (m *Manager) SetCooldownDuration(providerID uint64, clientType string, dura
 	defer m.mu.Unlock()
 
 	until := time.Now().Add(duration)
-	m.setCooldownLocked(providerID, clientType, until)
+	m.setCooldownLocked(providerID, clientType, until, ReasonUnknown)
 }
 
 // ClearCooldown removes the cooldown for a provider
@@ -187,6 +198,7 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string) {
 		}
 		for _, key := range keysToDelete {
 			delete(m.cooldowns, key)
+			delete(m.reasons, key)
 		}
 
 		// Delete from database
@@ -202,6 +214,7 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string) {
 		// Clear specific cooldown
 		key := CooldownKey{ProviderID: providerID, ClientType: clientType}
 		delete(m.cooldowns, key)
+		delete(m.reasons, key)
 
 		// Delete from database
 		if m.repository != nil {
@@ -301,6 +314,7 @@ func (m *Manager) CleanupExpired() {
 	for key, until := range m.cooldowns {
 		if now.After(until) {
 			delete(m.cooldowns, key)
+			delete(m.reasons, key)
 			expiredKeys = append(expiredKeys, key)
 		}
 	}
@@ -327,7 +341,10 @@ func (m *Manager) CleanupExpired() {
 
 // GetCooldownInfo returns cooldown info for a specific provider and client type
 func (m *Manager) GetCooldownInfo(providerID uint64, clientType string, providerName string) *CooldownInfo {
-	until := m.GetCooldownUntil(providerID, clientType)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	until := m.getCooldownUntilLocked(providerID, clientType)
 	if until.IsZero() {
 		return nil
 	}
@@ -337,13 +354,52 @@ func (m *Manager) GetCooldownInfo(providerID uint64, clientType string, provider
 		return nil
 	}
 
+	// Get reason
+	var reason CooldownReason
+	globalKey := CooldownKey{ProviderID: providerID, ClientType: ""}
+	specificKey := CooldownKey{ProviderID: providerID, ClientType: clientType}
+
+	// Check which key has the cooldown and get its reason
+	if r, ok := m.reasons[specificKey]; ok && clientType != "" {
+		reason = r
+	} else if r, ok := m.reasons[globalKey]; ok {
+		reason = r
+	} else {
+		reason = ReasonUnknown
+	}
+
 	return &CooldownInfo{
 		ProviderID:   providerID,
 		ProviderName: providerName,
 		ClientType:   clientType,
 		Until:        until,
 		Remaining:    formatDuration(remaining),
+		Reason:       reason,
 	}
+}
+
+// getCooldownUntilLocked is internal version without lock
+func (m *Manager) getCooldownUntilLocked(providerID uint64, clientType string) time.Time {
+	now := time.Now()
+	var latestCooldown time.Time
+
+	// Check global cooldown
+	globalKey := CooldownKey{ProviderID: providerID, ClientType: ""}
+	if until, ok := m.cooldowns[globalKey]; ok && now.Before(until) {
+		latestCooldown = until
+	}
+
+	// Check client-type-specific cooldown
+	if clientType != "" {
+		specificKey := CooldownKey{ProviderID: providerID, ClientType: clientType}
+		if until, ok := m.cooldowns[specificKey]; ok && now.Before(until) {
+			if until.After(latestCooldown) {
+				latestCooldown = until
+			}
+		}
+	}
+
+	return latestCooldown
 }
 
 // formatDuration formats a duration as a human-readable string
