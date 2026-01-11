@@ -205,6 +205,68 @@ func wrapV1InternalRequest(body []byte, projectID, originalModel, mappedModel, s
 	return json.Marshal(wrapped)
 }
 
+// stripThinkingFromClaude removes thinking config and blocks to retry without thinking (like Manager 400 retry)
+func stripThinkingFromClaude(body []byte) []byte {
+	var req map[string]interface{}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return body
+	}
+
+	// Remove thinking config
+	delete(req, "thinking")
+
+	// Clean model suffix
+	if model, ok := req["model"].(string); ok {
+		req["model"] = strings.ReplaceAll(model, "-thinking", "")
+	}
+
+	// Remove thinking/redacted_thinking blocks from messages
+	if messages, ok := req["messages"].([]interface{}); ok {
+		for i, msg := range messages {
+			msgMap, ok := msg.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			content, ok := msgMap["content"].([]interface{})
+			if !ok {
+				continue
+			}
+			var filtered []interface{}
+			for _, c := range content {
+				if block, ok := c.(map[string]interface{}); ok {
+					if t, ok := block["type"].(string); ok {
+						if t == "thinking" || t == "redacted_thinking" {
+							continue
+						}
+					}
+				}
+				filtered = append(filtered, c)
+			}
+			msgMap["content"] = filtered
+			messages[i] = msgMap
+		}
+		req["messages"] = messages
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return body
+	}
+	return data
+}
+
+// extractModelFromBody extracts model from a Claude request body
+func extractModelFromBody(body []byte) string {
+	var req map[string]interface{}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return ""
+	}
+	if model, ok := req["model"].(string); ok {
+		return model
+	}
+	return ""
+}
+
 // deepCleanUndefined recursively removes [undefined] strings from request body
 // (like Antigravity-Manager's deep_clean_undefined)
 func deepCleanUndefined(data map[string]interface{}) {

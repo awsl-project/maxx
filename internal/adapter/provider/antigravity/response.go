@@ -124,9 +124,11 @@ func convertGeminiToClaudeResponse(geminiBody []byte, requestModel string) ([]by
 					Thought          bool                `json:"thought,omitempty"`
 					ThoughtSignature string              `json:"thoughtSignature,omitempty"`
 					FunctionCall     *GeminiFunctionCall `json:"functionCall,omitempty"`
+					InlineData       *GeminiInlineData   `json:"inlineData,omitempty"`
 				} `json:"parts"`
 			} `json:"content"`
-			FinishReason string `json:"finishReason,omitempty"`
+			FinishReason      string                   `json:"finishReason,omitempty"`
+			GroundingMetadata *GeminiGroundingMetadata `json:"groundingMetadata,omitempty"`
 		} `json:"candidates"`
 		UsageMetadata *GeminiUsageMetadata `json:"usageMetadata,omitempty"`
 		ModelVersion  string               `json:"modelVersion,omitempty"`
@@ -181,29 +183,24 @@ func convertGeminiToClaudeResponse(geminiBody []byte, requestModel string) ([]by
 	var content []map[string]interface{}
 	hasToolUse := false
 	toolCallCounter := 0
+	var trailingSignature string
 
 	if len(geminiResp.Candidates) > 0 {
 		candidate := geminiResp.Candidates[0]
 		for _, part := range candidate.Content.Parts {
-			// Handle thinking blocks
-			if part.Thought && part.Text != "" {
+			// Handle thinking blocks (including trailing signature case)
+			if part.Thought || part.ThoughtSignature != "" {
+				thinkingText := part.Text
 				block := map[string]interface{}{
 					"type":     "thinking",
-					"thinking": part.Text,
+					"thinking": thinkingText,
 				}
 				if part.ThoughtSignature != "" {
 					block["signature"] = part.ThoughtSignature
 				}
 				content = append(content, block)
+				trailingSignature = "" // reset trailing signature once consumed
 				continue
-			}
-
-			// Handle text blocks
-			if part.Text != "" {
-				content = append(content, map[string]interface{}{
-					"type": "text",
-					"text": part.Text,
-				})
 			}
 
 			// Handle function calls
@@ -216,11 +213,53 @@ func convertGeminiToClaudeResponse(geminiBody []byte, requestModel string) ([]by
 				}
 				args := part.FunctionCall.Args
 				remapFunctionCallArgs(part.FunctionCall.Name, args)
-				content = append(content, map[string]interface{}{
+				toolUse := map[string]interface{}{
 					"type":  "tool_use",
 					"id":    toolID,
 					"name":  part.FunctionCall.Name,
 					"input": args,
+				}
+				if part.ThoughtSignature != "" {
+					toolUse["signature"] = part.ThoughtSignature
+				} else if trailingSignature != "" {
+					toolUse["signature"] = trailingSignature
+				}
+				content = append(content, toolUse)
+				trailingSignature = ""
+				continue
+			}
+
+			// Handle inline data (images)
+			if part.InlineData != nil && part.InlineData.Data != "" {
+				markdownImg := fmt.Sprintf("![image](data:%s;base64,%s)", part.InlineData.MimeType, part.InlineData.Data)
+				content = append(content, map[string]interface{}{
+					"type": "text",
+					"text": markdownImg,
+				})
+				continue
+			}
+
+			// Handle text blocks (capture trailing signature if empty)
+			if part.Text != "" {
+				content = append(content, map[string]interface{}{
+					"type": "text",
+					"text": part.Text,
+				})
+				continue
+			}
+
+			// Empty text with signature (store for next block)
+			if part.Text == "" && part.ThoughtSignature != "" {
+				trailingSignature = part.ThoughtSignature
+			}
+		}
+
+		// Append grounding metadata as a text block (like Antigravity-Manager)
+		if candidate.GroundingMetadata != nil {
+			if groundingText := buildGroundingText(candidate.GroundingMetadata); groundingText != "" {
+				content = append(content, map[string]interface{}{
+					"type": "text",
+					"text": groundingText,
 				})
 			}
 		}
@@ -241,4 +280,41 @@ func convertGeminiToClaudeResponse(geminiBody []byte, requestModel string) ([]by
 	claudeResp["content"] = content
 
 	return json.Marshal(claudeResp)
+}
+
+// buildGroundingText converts grounding metadata into a markdown text snippet
+func buildGroundingText(grounding *GeminiGroundingMetadata) string {
+	if grounding == nil {
+		return ""
+	}
+
+	var b strings.Builder
+
+	if len(grounding.WebSearchQueries) > 0 {
+		b.WriteString("\n\n---\n**🔍 已为您搜索：** ")
+		b.WriteString(strings.Join(grounding.WebSearchQueries, ", "))
+	}
+
+	if len(grounding.GroundingChunks) > 0 {
+		var links []string
+		for i, chunk := range grounding.GroundingChunks {
+			if chunk.Web != nil {
+				title := chunk.Web.Title
+				if title == "" {
+					title = "网页来源"
+				}
+				uri := chunk.Web.URI
+				if uri == "" {
+					uri = "#"
+				}
+				links = append(links, fmt.Sprintf("[%d] [%s](%s)", i+1, title, uri))
+			}
+		}
+		if len(links) > 0 {
+			b.WriteString("\n\n**🌐 来源引文：**\n")
+			b.WriteString(strings.Join(links, "\n"))
+		}
+	}
+
+	return b.String()
 }

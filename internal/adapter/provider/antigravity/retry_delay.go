@@ -28,7 +28,7 @@ const (
 	DefaultServerErrorDelay         = 20 * time.Second    // 20 seconds
 	DefaultUnknownDelay             = 60 * time.Second    // 60 seconds
 	MinRetryDelay                   = 2 * time.Second     // Minimum 2 seconds (safety buffer)
-	JitterFactor                    = 0.2                 // ±20% jitter
+	JitterFactor                    = 0.0                 // Jitter disabled for stability (aligned with Antigravity-Manager)
 )
 
 // RetryInfo contains parsed retry information from a 429 response
@@ -76,7 +76,7 @@ func ParseRetryInfo(statusCode int, body []byte) *RetryInfo {
 // ApplyJitter adds random jitter to delay to prevent thundering herd
 // Returns delay ± JitterFactor (e.g., 1000ms ± 20% = 800-1200ms)
 func ApplyJitter(delay time.Duration) time.Duration {
-	if delay <= 0 {
+	if delay <= 0 || JitterFactor == 0 {
 		return delay
 	}
 

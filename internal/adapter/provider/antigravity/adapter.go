@@ -2,6 +2,7 @@ package antigravity
 
 import (
 	"bytes"
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -52,183 +53,242 @@ func (a *AntigravityAdapter) SupportedClientTypes() []domain.ClientType {
 
 func (a *AntigravityAdapter) Execute(ctx context.Context, w http.ResponseWriter, req *http.Request, provider *domain.Provider) error {
 	clientType := ctxutil.GetClientType(ctx)
+	baseCtx := ctx
 	requestModel := ctxutil.GetRequestModel(ctx) // Original model from request (e.g., "claude-3-5-sonnet-20241022-online")
 	mappedModel := ctxutil.GetMappedModel(ctx)   // Mapped model after route resolution
 	requestBody := ctxutil.GetRequestBody(ctx)
 
 	// [Model Mapping] Apply Antigravity model mapping (like Antigravity-Manager)
-	// Only map if route didn't provide a mapping (mappedModel empty or same as request)
-	config := provider.Config.Antigravity
-	if mappedModel == "" || mappedModel == requestModel {
-		// Route didn't provide mapping, use our internal mapping with haikuTarget config
-		haikuTarget := ""
-		if config != nil {
-			haikuTarget = config.HaikuTarget
+	// We'll attempt at most twice: original + retry without thinking on signature errors
+	retriedWithoutThinking := false
+
+	for attemptIdx := 0; attemptIdx < 2; attemptIdx++ {
+		ctx = ctxutil.WithRequestModel(baseCtx, requestModel)
+		ctx = ctxutil.WithRequestBody(ctx, requestBody)
+
+		// Only map if route didn't provide a mapping (mappedModel empty or same as request)
+		config := provider.Config.Antigravity
+		if mappedModel == "" || mappedModel == requestModel {
+			// Route didn't provide mapping, use our internal mapping with haikuTarget config
+			haikuTarget := ""
+			if config != nil {
+				haikuTarget = config.HaikuTarget
+			}
+			mappedModel = MapClaudeModelToGeminiWithConfig(requestModel, haikuTarget)
 		}
-		mappedModel = MapClaudeModelToGeminiWithConfig(requestModel, haikuTarget)
-	}
-	// If route provided a different mappedModel, trust it and don't re-map
-	// (user/route has explicitly configured the target model)
+		// If route provided a different mappedModel, trust it and don't re-map
+		// (user/route has explicitly configured the target model)
 
 	// Get streaming flag from context (already detected correctly for Gemini URL path)
 	stream := ctxutil.GetIsStream(ctx)
-
-	// Get access token
-	accessToken, err := a.getAccessToken(ctx)
-	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+	clientWantsStream := stream
+	actualStream := stream
+	if !clientWantsStream {
+		// Auto-convert non-stream to stream internally for better quota (like Manager)
+		actualStream = true
 	}
 
-	// [SessionID Support] Extract metadata.user_id from original request for sessionId (like Antigravity-Manager)
-	sessionID := extractSessionID(requestBody)
-
-	// Transform request based on client type
-	var geminiBody []byte
-	if clientType == domain.ClientTypeClaude {
-		// Use direct transformation (no converter dependency)
-		// This combines cache control cleanup, thinking filter, tool loop recovery,
-		// system instruction building, content transformation, tool building, and generation config
-		geminiBody, err = TransformClaudeToGemini(requestBody, mappedModel, stream, sessionID, GlobalSignatureCache())
+		// Get access token
+		accessToken, err := a.getAccessToken(ctx)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to transform Claude request: %v", err))
+			return domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
 		}
 
-		// Apply additional post-processing for advanced features
-		// (interleaved hint, toolConfig, signature validation)
-		hasThinking := HasThinkingEnabledWithModel(requestBody, mappedModel)
-		if hasThinking && !TargetModelSupportsThinking(mappedModel) {
-			hasThinking = false
-		}
+		// [SessionID Support] Extract metadata.user_id from original request for sessionId (like Antigravity-Manager)
+		sessionID := extractSessionID(requestBody)
 
-		// Check if thinking should be disabled due to history
-		if hasThinking {
-			var req map[string]interface{}
-			if err := json.Unmarshal(geminiBody, &req); err == nil {
-				if contents, ok := req["contents"].([]interface{}); ok {
-					if ShouldDisableThinkingDueToHistory(contents) {
-						hasThinking = false
+		// Transform request based on client type
+		var geminiBody []byte
+		if clientType == domain.ClientTypeClaude {
+			// Use direct transformation (no converter dependency)
+			// This combines cache control cleanup, thinking filter, tool loop recovery,
+			// system instruction building, content transformation, tool building, and generation config
+			geminiBody, err = TransformClaudeToGemini(requestBody, mappedModel, actualStream, sessionID, GlobalSignatureCache())
+			if err != nil {
+				return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to transform Claude request: %v", err))
+			}
+
+			// Apply additional post-processing for advanced features
+			// (interleaved hint, toolConfig, signature validation)
+			hasThinking := HasThinkingEnabledWithModel(requestBody, mappedModel)
+			if hasThinking && !TargetModelSupportsThinking(mappedModel) {
+				hasThinking = false
+			}
+
+			// Check if thinking should be disabled due to history
+			if hasThinking {
+				var req map[string]interface{}
+				if err := json.Unmarshal(geminiBody, &req); err == nil {
+					if contents, ok := req["contents"].([]interface{}); ok {
+						if ShouldDisableThinkingDueToHistory(contents) {
+							hasThinking = false
+						}
 					}
 				}
 			}
+
+			// Apply minimal post-processing for features not yet fully integrated
+			geminiBody = applyClaudePostProcess(geminiBody, sessionID, hasThinking, requestBody, mappedModel)
+		} else if clientType == domain.ClientTypeOpenAI {
+			// TODO: Implement OpenAI transformation in the future
+			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "OpenAI transformation not yet implemented")
+		} else {
+			// For Gemini, unwrap CLI envelope if present
+			geminiBody = unwrapGeminiCLIEnvelope(requestBody)
 		}
 
-		// Apply minimal post-processing for features not yet fully integrated
-		geminiBody = applyClaudePostProcess(geminiBody, sessionID, hasThinking, requestBody, mappedModel)
-	} else if clientType == domain.ClientTypeOpenAI {
-		// TODO: Implement OpenAI transformation in the future
-		return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "OpenAI transformation not yet implemented")
-	} else {
-		// For Gemini, unwrap CLI envelope if present
-		geminiBody = unwrapGeminiCLIEnvelope(requestBody)
-	}
-
-	// Wrap request in v1internal format
-	upstreamBody, err := wrapV1InternalRequest(geminiBody, config.ProjectID, requestModel, mappedModel, sessionID)
-	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "failed to wrap request for v1internal")
-	}
-
-	// Build upstream URL (v1internal endpoint)
-	upstreamURL := a.buildUpstreamURL(stream)
-
-	// Create upstream request
-	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(upstreamBody))
-	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to create upstream request")
-	}
-
-	// Set only the required headers (like Antigravity-Manager)
-	// DO NOT copy any client headers - they may contain API keys or other sensitive data
-	upstreamReq.Header.Set("Content-Type", "application/json")
-	upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
-	upstreamReq.Header.Set("User-Agent", AntigravityUserAgent)
-
-	// Capture request info for attempt record
-	if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
-		attempt.RequestInfo = &domain.RequestInfo{
-			Method:  upstreamReq.Method,
-			URL:     upstreamURL,
-			Headers: flattenHeaders(upstreamReq.Header),
-			Body:    string(upstreamBody),
-		}
-	}
-
-	// Execute request
-	client := &http.Client{}
-	resp, err := client.Do(upstreamReq)
-	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-	}
-	defer resp.Body.Close()
-
-	// Check for 401 (token expired) and retry once
-	if resp.StatusCode == http.StatusUnauthorized {
-		// Invalidate token cache
-		a.tokenMu.Lock()
-		a.tokenCache = &TokenCache{}
-		a.tokenMu.Unlock()
-
-		// Get new token
-		accessToken, err = a.getAccessToken(ctx)
+		// Wrap request in v1internal format
+		upstreamBody, err := wrapV1InternalRequest(geminiBody, config.ProjectID, requestModel, mappedModel, sessionID)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "failed to wrap request for v1internal")
 		}
 
-		// Retry request with only required headers
-		upstreamReq, _ = http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(upstreamBody))
-		upstreamReq.Header.Set("Content-Type", "application/json")
-		upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
-		upstreamReq.Header.Set("User-Agent", AntigravityUserAgent)
-		resp, err = client.Do(upstreamReq)
-		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream after token refresh")
-		}
-		defer resp.Body.Close()
-	}
+		// Build upstream URLs (prod first, daily fallback)
+		baseURLs := []string{V1InternalBaseURLProd, V1InternalBaseURLDaily}
+		client := &http.Client{}
+		var lastErr error
 
-	// Check for error response
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		// Capture error response info
-		if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
-			attempt.ResponseInfo = &domain.ResponseInfo{
-				Status:  resp.StatusCode,
-				Headers: flattenHeaders(resp.Header),
-				Body:    string(body),
+		for idx, base := range baseURLs {
+			upstreamURL := a.buildUpstreamURL(base, actualStream)
+
+			upstreamReq, reqErr := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(upstreamBody))
+			if reqErr != nil {
+				lastErr = reqErr
+				continue
 			}
+
+			// Set only the required headers (like Antigravity-Manager)
+			upstreamReq.Header.Set("Content-Type", "application/json")
+			upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
+			upstreamReq.Header.Set("User-Agent", AntigravityUserAgent)
+
+			// Capture request info for attempt record (only once)
+			if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil && attempt.RequestInfo == nil {
+				attempt.RequestInfo = &domain.RequestInfo{
+					Method:  upstreamReq.Method,
+					URL:     upstreamURL,
+					Headers: flattenHeaders(upstreamReq.Header),
+					Body:    string(upstreamBody),
+				}
+			}
+
+			resp, err := client.Do(upstreamReq)
+			if err != nil {
+				lastErr = err
+				if hasNextEndpoint(idx, len(baseURLs)) {
+					continue
+				}
+				return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
+			}
+			defer resp.Body.Close()
+
+			// Check for 401 (token expired) and retry once
+			if resp.StatusCode == http.StatusUnauthorized {
+				resp.Body.Close()
+
+				// Invalidate token cache
+				a.tokenMu.Lock()
+				a.tokenCache = &TokenCache{}
+				a.tokenMu.Unlock()
+
+				// Get new token
+				accessToken, err = a.getAccessToken(ctx)
+				if err != nil {
+					return domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+				}
+
+				// Retry request with only required headers
+				upstreamReq, _ = http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(upstreamBody))
+				upstreamReq.Header.Set("Content-Type", "application/json")
+				upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
+				upstreamReq.Header.Set("User-Agent", AntigravityUserAgent)
+				resp, err = client.Do(upstreamReq)
+				if err != nil {
+					lastErr = err
+					if hasNextEndpoint(idx, len(baseURLs)) {
+						continue
+					}
+					return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream after token refresh")
+				}
+				defer resp.Body.Close()
+			}
+
+			// Check for error response
+			if resp.StatusCode >= 400 {
+				body, _ := io.ReadAll(resp.Body)
+				// Capture error response info
+				if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
+					attempt.ResponseInfo = &domain.ResponseInfo{
+						Status:  resp.StatusCode,
+						Headers: flattenHeaders(resp.Header),
+						Body:    string(body),
+					}
+				}
+
+				// Check for RESOURCE_EXHAUSTED (429) and handle cooldown
+				if resp.StatusCode == http.StatusTooManyRequests {
+					a.handleResourceExhausted(ctx, body, provider)
+				}
+
+				// Parse retry info for 429/5xx responses (like Antigravity-Manager)
+				var retryAfter time.Duration
+				if retryInfo := ParseRetryInfo(resp.StatusCode, body); retryInfo != nil {
+					retryAfter = ApplyJitter(retryInfo.Delay)
+				}
+
+				proxyErr := domain.NewProxyErrorWithMessage(
+					fmt.Errorf("upstream error: %s", string(body)),
+					isRetryableStatusCode(resp.StatusCode),
+					fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+				)
+
+				// Set retry info on error for upstream handling
+				if retryAfter > 0 {
+					proxyErr.RetryAfter = retryAfter
+				}
+
+				lastErr = proxyErr
+
+				// Signature failure recovery: retry once without thinking (like Manager)
+				if resp.StatusCode == http.StatusBadRequest && !retriedWithoutThinking && isThinkingSignatureError(body) {
+					retriedWithoutThinking = true
+					requestBody = stripThinkingFromClaude(requestBody)
+					if newModel := extractModelFromBody(requestBody); newModel != "" {
+						requestModel = newModel
+					}
+					mappedModel = "" // force remap
+					continue
+				}
+
+				// Fallback to next endpoint if available and retryable
+				if hasNextEndpoint(idx, len(baseURLs)) && shouldTryNextEndpoint(resp.StatusCode) {
+					resp.Body.Close()
+					continue
+				}
+
+				return proxyErr
+			}
+
+			// Handle response
+			if actualStream && !clientWantsStream {
+				return a.handleCollectedStreamResponse(ctx, w, resp, clientType, requestModel)
+			}
+			if actualStream {
+				return a.handleStreamResponse(ctx, w, resp, clientType)
+			}
+			return a.handleNonStreamResponse(ctx, w, resp, clientType)
 		}
 
-		// Check for RESOURCE_EXHAUSTED (429) and handle cooldown
-		if resp.StatusCode == http.StatusTooManyRequests {
-			a.handleResourceExhausted(ctx, body, provider)
+		// All endpoints failed in this iteration
+		if lastErr != nil {
+			if proxyErr, ok := lastErr.(*domain.ProxyError); ok {
+				return proxyErr
+			}
+			return domain.NewProxyErrorWithMessage(lastErr, true, "all upstream endpoints failed")
 		}
-
-		// Parse retry info for 429/5xx responses (like Antigravity-Manager)
-		var retryAfter time.Duration
-		if retryInfo := ParseRetryInfo(resp.StatusCode, body); retryInfo != nil {
-			// Apply jitter to prevent thundering herd
-			retryAfter = ApplyJitter(retryInfo.Delay)
-		}
-
-		proxyErr := domain.NewProxyErrorWithMessage(
-			fmt.Errorf("upstream error: %s", string(body)),
-			isRetryableStatusCode(resp.StatusCode),
-			fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-		)
-
-		// Set retry info on error for upstream handling
-		if retryAfter > 0 {
-			proxyErr.RetryAfter = retryAfter
-		}
-
-		return proxyErr
 	}
 
-	// Handle response
-	if stream {
-		return a.handleStreamResponse(ctx, w, resp, clientType)
-	}
-	return a.handleNonStreamResponse(ctx, w, resp, clientType)
+	return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "all upstream endpoints failed")
 }
 
 func (a *AntigravityAdapter) getAccessToken(ctx context.Context) (string, error) {
@@ -342,16 +402,40 @@ func applyClaudePostProcess(geminiBody []byte, sessionID string, hasThinking boo
 	return result
 }
 
-// v1internal endpoint (same as Antigravity-Manager)
+// v1internal endpoints (prod + daily fallback, like Antigravity-Manager)
 const (
-	V1InternalBaseURL = "https://cloudcode-pa.googleapis.com/v1internal"
+	V1InternalBaseURLProd  = "https://cloudcode-pa.googleapis.com/v1internal"
+	V1InternalBaseURLDaily = "https://daily-cloudcode-pa.googleapis.com/v1internal"
 )
 
-func (a *AntigravityAdapter) buildUpstreamURL(stream bool) string {
+func (a *AntigravityAdapter) buildUpstreamURL(base string, stream bool) string {
 	if stream {
-		return fmt.Sprintf("%s:streamGenerateContent?alt=sse", V1InternalBaseURL)
+		return fmt.Sprintf("%s:streamGenerateContent?alt=sse", base)
 	}
-	return fmt.Sprintf("%s:generateContent", V1InternalBaseURL)
+	return fmt.Sprintf("%s:generateContent", base)
+}
+
+func hasNextEndpoint(index, total int) bool {
+	return index+1 < total
+}
+
+// shouldTryNextEndpoint decides if we should fall back to the next endpoint
+// Mirrors Antigravity-Manager: retry on 429, 408, 404, and 5xx errors.
+func shouldTryNextEndpoint(status int) bool {
+	if status == http.StatusTooManyRequests || status == http.StatusRequestTimeout || status == http.StatusNotFound {
+		return true
+	}
+	return status >= 500
+}
+
+// isThinkingSignatureError detects thinking signature related 400 errors (like Manager)
+func isThinkingSignatureError(body []byte) bool {
+	bodyStr := strings.ToLower(string(body))
+	return strings.Contains(bodyStr, "invalid `signature`") ||
+		strings.Contains(bodyStr, "thinking.signature") ||
+		strings.Contains(bodyStr, "thinking.thinking") ||
+		strings.Contains(bodyStr, "corrupted thought signature") ||
+		strings.Contains(bodyStr, "failed to deserialise")
 }
 
 func (a *AntigravityAdapter) handleNonStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType domain.ClientType) error {
@@ -574,6 +658,117 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 			return nil
 		}
 	}
+}
+
+// handleCollectedStreamResponse forwards upstream SSE but collects into a single response body (like Manager non-stream auto-convert)
+func (a *AntigravityAdapter) handleCollectedStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType domain.ClientType, requestModel string) error {
+	attempt := ctxutil.GetUpstreamAttempt(ctx)
+
+	if attempt != nil {
+		attempt.ResponseInfo = &domain.ResponseInfo{
+			Status:  resp.StatusCode,
+			Headers: flattenHeaders(resp.Header),
+			Body:    "[stream-collected]",
+		}
+	}
+
+	var sseBuffer strings.Builder
+	var lastData string
+
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			sseBuffer.WriteString(line)
+
+			unwrapped := unwrapV1InternalSSEChunk([]byte(line))
+			if len(unwrapped) == 0 {
+				if err == io.EOF {
+					break
+				}
+				if err != nil && err != io.EOF {
+					return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream stream")
+				}
+				continue
+			}
+
+			lineStr := strings.TrimSpace(string(unwrapped))
+			if !strings.HasPrefix(lineStr, "data: ") {
+				if err == io.EOF {
+					break
+				}
+				if err != nil && err != io.EOF {
+					return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream stream")
+				}
+				continue
+			}
+
+			dataStr := strings.TrimSpace(strings.TrimPrefix(lineStr, "data: "))
+			if dataStr == "" || dataStr == "[DONE]" {
+				if err == io.EOF {
+					break
+				}
+				if err != nil && err != io.EOF {
+					return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream stream")
+				}
+				continue
+			}
+
+			lastData = dataStr
+		}
+
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream stream")
+		}
+	}
+
+	// Update attempt with collected body and token usage
+	if attempt != nil {
+		if attempt.ResponseInfo != nil {
+			attempt.ResponseInfo.Body = sseBuffer.String()
+		}
+		if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
+			attempt.InputTokenCount = metrics.InputTokens
+			attempt.OutputTokenCount = metrics.OutputTokens
+			attempt.CacheReadCount = metrics.CacheReadCount
+			attempt.CacheWriteCount = metrics.CacheCreationCount
+			attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
+			attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
+		}
+		if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
+			bc.BroadcastProxyUpstreamAttempt(attempt)
+		}
+	}
+
+	if lastData == "" {
+		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "empty upstream stream response")
+	}
+
+	var responseBody []byte
+	var err error
+
+	switch clientType {
+	case domain.ClientTypeClaude:
+		responseBody, err = convertGeminiToClaudeResponse([]byte(lastData), requestModel)
+		if err != nil {
+			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform streamed response")
+		}
+	case domain.ClientTypeGemini:
+		responseBody = []byte(lastData)
+	case domain.ClientTypeOpenAI:
+		return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "OpenAI response transformation not yet implemented")
+	default:
+		responseBody = []byte(lastData)
+	}
+
+	copyResponseHeaders(w.Header(), resp.Header)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(responseBody)
+	return nil
 }
 
 // handleResourceExhausted handles 429 RESOURCE_EXHAUSTED errors with QUOTA_EXHAUSTED reason

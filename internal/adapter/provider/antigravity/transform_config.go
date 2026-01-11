@@ -51,11 +51,8 @@ func buildGenerationConfig(
 	}
 
 	// 3. Max Output Tokens
-	maxTokens := 64000 // Default
-	if claudeReq.MaxTokens > 0 {
-		maxTokens = claudeReq.MaxTokens
-	}
-	config["maxOutputTokens"] = maxTokens
+	// Manager uses fixed 64K cap for Claude compatibility
+	config["maxOutputTokens"] = 64000
 
 	// 4. Stop Sequences
 	config["stopSequences"] = DefaultStopSequences
@@ -64,9 +61,6 @@ func buildGenerationConfig(
 	if claudeReq.OutputConfig != nil && claudeReq.OutputConfig.Effort != "" {
 		config["effortLevel"] = mapEffortLevel(claudeReq.OutputConfig.Effort)
 	}
-
-	// 6. Response MIME Type (always JSON for API compatibility)
-	config["responseMimeType"] = "text/plain"
 
 	return config
 }

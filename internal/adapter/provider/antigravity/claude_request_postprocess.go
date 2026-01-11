@@ -699,22 +699,10 @@ func InjectToolConfig(request map[string]interface{}) bool {
 		return false
 	}
 
-	// Check if any tool has functionDeclarations
-	hasFuncDecls := false
-	for _, tool := range tools {
-		if toolMap, ok := tool.(map[string]interface{}); ok {
-			if _, has := toolMap["functionDeclarations"]; has {
-				hasFuncDecls = true
-				break
-			}
-		}
-	}
-
-	if !hasFuncDecls {
+	// Add toolConfig
+	if _, exists := request["toolConfig"]; exists {
 		return false
 	}
-
-	// Add toolConfig
 	request["toolConfig"] = map[string]interface{}{
 		"functionCallingConfig": map[string]interface{}{
 			"mode": "VALIDATED",

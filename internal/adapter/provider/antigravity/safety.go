@@ -45,6 +45,8 @@ func GetSafetyThresholdFromEnv() SafetyThreshold {
 	switch strings.ToUpper(threshold) {
 	case "OFF":
 		return SafetyThresholdOff
+	case "NONE":
+		return SafetyThresholdBlockNone
 	case "BLOCK_NONE":
 		return SafetyThresholdBlockNone
 	case "BLOCK_LOW_AND_ABOVE":
@@ -52,6 +54,12 @@ func GetSafetyThresholdFromEnv() SafetyThreshold {
 	case "BLOCK_MEDIUM_AND_ABOVE":
 		return SafetyThresholdBlockMedUp
 	case "BLOCK_ONLY_HIGH":
+		return SafetyThresholdBlockHighOnly
+	case "LOW":
+		return SafetyThresholdBlockLowUp
+	case "MEDIUM":
+		return SafetyThresholdBlockMedUp
+	case "HIGH":
 		return SafetyThresholdBlockHighOnly
 	default:
 		return SafetyThresholdOff
