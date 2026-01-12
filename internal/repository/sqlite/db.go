@@ -240,6 +240,18 @@ func (d *DB) migrate() error {
 		return err
 	}
 
+	// Migration: Add project_id column to proxy_requests if it doesn't exist
+	var hasProjectID bool
+	row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('proxy_requests') WHERE name='project_id'`)
+	row.Scan(&hasProjectID)
+
+	if !hasProjectID {
+		_, err = d.db.Exec(`ALTER TABLE proxy_requests ADD COLUMN project_id INTEGER DEFAULT 0`)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

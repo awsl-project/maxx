@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProxyRequests, useProxyRequestUpdates, useProxyRequestsCount, useProviders } from '@/hooks/queries';
+import { useProxyRequests, useProxyRequestUpdates, useProxyRequestsCount, useProviders, useProjects } from '@/hooks/queries';
 import {
   Activity,
   RefreshCw,
@@ -47,6 +47,7 @@ export function RequestsPage() {
   });
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount();
   const { data: providers = [] } = useProviders();
+  const { data: projects = [] } = useProjects();
 
   // Subscribe to real-time updates
   useProxyRequestUpdates();
@@ -56,6 +57,8 @@ export function RequestsPage() {
 
   // Create provider ID to name mapping
   const providerMap = new Map(providers.map(p => [p.id, p.name]));
+  // Create project ID to name mapping
+  const projectMap = new Map(projects.map(p => [p.id, p.name]));
 
   // 使用 totalCount
   const total = typeof totalCount === 'number' ? totalCount : 0;
@@ -136,6 +139,7 @@ export function RequestsPage() {
                   <TableHead className="w-[180px] font-medium">Time</TableHead>
                   <TableHead className="w-[120px] font-medium">Client</TableHead>
                   <TableHead className="w-[180px] font-medium">Model</TableHead>
+                  <TableHead className="w-[100px] font-medium">Project</TableHead>
                   <TableHead className="w-[120px] font-medium">Provider</TableHead>
                   <TableHead className="w-[100px] font-medium">Status</TableHead>
                   <TableHead className="w-[60px] font-medium">Code</TableHead>
@@ -154,6 +158,7 @@ export function RequestsPage() {
                     key={req.id}
                     request={req}
                     providerName={providerMap.get(req.providerID)}
+                    projectName={projectMap.get(req.projectID)}
                     onClick={() => navigate(`/requests/${req.id}`)}
                   />
                 ))}
@@ -296,10 +301,12 @@ function CostCell({ cost }: { cost: number }) {
 function LogRow({
   request,
   providerName,
+  projectName,
   onClick,
 }: {
   request: ProxyRequest;
   providerName?: string;
+  projectName?: string;
   onClick: () => void;
 }) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
@@ -420,6 +427,13 @@ function LogRow({
             </span>
           )}
         </div>
+      </TableCell>
+
+      {/* Project */}
+      <TableCell className="py-1">
+        <span className="text-sm text-text-secondary truncate max-w-[100px] block" title={projectName}>
+          {projectName || '-'}
+        </span>
       </TableCell>
 
       {/* Provider */}

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui';
-import { useProxyRequest, useProxyUpstreamAttempts, useProxyRequestUpdates, useProviders } from '@/hooks/queries';
+import { useProxyRequest, useProxyUpstreamAttempts, useProxyRequestUpdates, useProviders, useProjects } from '@/hooks/queries';
 import {
   ArrowLeft,
   Clock,
@@ -47,6 +47,7 @@ export function RequestDetailPage() {
   const { data: request, isLoading, error } = useProxyRequest(Number(id));
   const { data: attempts } = useProxyUpstreamAttempts(Number(id));
   const { data: providers } = useProviders();
+  const { data: projects } = useProjects();
   const [selection, setSelection] = useState<SelectionType>({ type: 'request' });
   const [activeTab, setActiveTab] = useState<'request' | 'response' | 'metadata'>('request');
 
@@ -77,6 +78,13 @@ export function RequestDetailPage() {
     providers?.forEach(p => map.set(p.id, p.name));
     return map;
   }, [providers]);
+
+  // Create lookup map for project names
+  const projectMap = useMemo(() => {
+    const map = new Map<number, string>();
+    projects?.forEach(p => map.set(p.id, p.name));
+    return map;
+  }, [projects]);
 
   const formatDuration = (ns: number) => {
     const ms = ns / 1_000_000;
@@ -350,6 +358,7 @@ export function RequestDetailPage() {
                   setActiveTab={setActiveTab}
                   formatJSON={formatJSON}
                   formatCost={formatCost}
+                  projectName={projectMap.get(request.projectID)}
                />
             ) : selectedAttempt ? (
                <>
@@ -620,9 +629,10 @@ interface RequestDetailViewProps {
   setActiveTab: (tab: 'request' | 'response' | 'metadata') => void;
   formatJSON: (obj: unknown) => string;
   formatCost: (microUSD: number) => string;
+  projectName?: string;
 }
 
-function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, formatCost }: RequestDetailViewProps) {
+function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, formatCost, projectName }: RequestDetailViewProps) {
   return (
     <>
       {/* Detail Header */}
@@ -825,6 +835,10 @@ function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, forma
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                     <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Response Model</dt>
                     <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">{request.responseModel || '-'}</dd>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+                    <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Project</dt>
+                    <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">{projectName || '-'}</dd>
                   </div>
                 </CardContent>
               </Card>

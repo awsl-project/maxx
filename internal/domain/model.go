@@ -173,6 +173,7 @@ type ProxyRequest struct {
 	// 当前使用的 Route 和 Provider (用于实时追踪)
 	RouteID    uint64 `json:"routeID"`
 	ProviderID uint64 `json:"providerID"`
+	ProjectID  uint64 `json:"projectID"`
 
 	// Token 使用情况
 	InputTokenCount  uint64 `json:"inputTokenCount"`
