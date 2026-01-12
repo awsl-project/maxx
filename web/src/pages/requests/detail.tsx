@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui';
-import { useProxyRequest, useProxyUpstreamAttempts, useProxyRequestUpdates, useProviders, useProjects } from '@/hooks/queries';
+import { useProxyRequest, useProxyUpstreamAttempts, useProxyRequestUpdates, useProviders, useProjects, useSessions } from '@/hooks/queries';
 import {
   ArrowLeft,
   Clock,
@@ -48,6 +48,7 @@ export function RequestDetailPage() {
   const { data: attempts } = useProxyUpstreamAttempts(Number(id));
   const { data: providers } = useProviders();
   const { data: projects } = useProjects();
+  const { data: sessions } = useSessions();
   const [selection, setSelection] = useState<SelectionType>({ type: 'request' });
   const [activeTab, setActiveTab] = useState<'request' | 'response' | 'metadata'>('request');
 
@@ -85,6 +86,13 @@ export function RequestDetailPage() {
     projects?.forEach(p => map.set(p.id, p.name));
     return map;
   }, [projects]);
+
+  // Create lookup map for sessions by sessionID
+  const sessionMap = useMemo(() => {
+    const map = new Map<string, { clientType: string; projectID: number }>();
+    sessions?.forEach(s => map.set(s.sessionID, { clientType: s.clientType, projectID: s.projectID }));
+    return map;
+  }, [sessions]);
 
   const formatDuration = (ns: number) => {
     const ms = ns / 1_000_000;
@@ -359,6 +367,8 @@ export function RequestDetailPage() {
                   formatJSON={formatJSON}
                   formatCost={formatCost}
                   projectName={projectMap.get(request.projectID)}
+                  sessionInfo={sessionMap.get(request.sessionID)}
+                  projectMap={projectMap}
                />
             ) : selectedAttempt ? (
                <>
@@ -630,9 +640,11 @@ interface RequestDetailViewProps {
   formatJSON: (obj: unknown) => string;
   formatCost: (microUSD: number) => string;
   projectName?: string;
+  sessionInfo?: { clientType: string; projectID: number };
+  projectMap: Map<number, string>;
 }
 
-function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, formatCost, projectName }: RequestDetailViewProps) {
+function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, formatCost, projectName, sessionInfo, projectMap }: RequestDetailViewProps) {
   return (
     <>
       {/* Detail Header */}
@@ -822,7 +834,22 @@ function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, forma
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                     <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Session ID</dt>
-                    <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded select-all break-all">{request.sessionID || '-'}</dd>
+                    <dd className="sm:col-span-2">
+                      <div className="font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded select-all break-all">
+                        {request.sessionID || '-'}
+                      </div>
+                      {sessionInfo && (
+                        <div className="flex items-center gap-2 mt-1 text-[10px] text-text-muted">
+                          <span className="capitalize">{sessionInfo.clientType}</span>
+                          {sessionInfo.projectID > 0 && (
+                            <>
+                              <span>·</span>
+                              <span>{projectMap.get(sessionInfo.projectID) || `Project #${sessionInfo.projectID}`}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </dd>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                     <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Instance ID</dt>
