@@ -96,7 +96,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
       className={cn(
         "group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden",
         streamingCount > 0
-          ? "bg-surface-primary border-transparent ring-1 ring-white/10"
+          ? "bg-surface-primary border-transparent ring-1 ring-black/5 dark:ring-white/10"
           : "bg-surface-primary/60 border-border hover:border-accent/30 hover:bg-surface-primary shadow-sm cursor-pointer"
       )}
       style={{

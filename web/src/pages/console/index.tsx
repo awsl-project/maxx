@@ -69,7 +69,7 @@ export function ConsolePage() {
         ) : (
           <div className="p-4">
             {logs.map((log, index) => (
-              <div key={index} className="text-gray-300 py-0.5 hover:bg-white/5">
+              <div key={index} className="text-gray-300 py-0.5 hover:bg-black/5 dark:hover:bg-white/5">
                 {log}
               </div>
             ))}

@@ -34,10 +34,10 @@
 /* ===== Light Theme (Default - Creamy White) ===== */
 :root {
   /* Colors - Creamy White Theme */
-  --color-background: #f8f4f0;
-  --color-surface-primary: #ffffff;
-  --color-surface-secondary: #ebe7e3;
-  --color-surface-hover: #e0dbd6;
+  --color-background: #f5f1ec;
+  --color-surface-primary: #faf8f5;
+  --color-surface-secondary: #f0ece7;
+  --color-surface-hover: #e8e4df;
 
   --color-text-primary: #3d3d3d;
   --color-text-secondary: #6b6b6b;
@@ -453,11 +453,27 @@ body {
 @keyframes pulseSoft {
   0%, 100% {
     transform: scale(1);
+    box-shadow: 0 0 0px rgba(0, 0, 0, 0);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* Dark mode pulse effect */
+:root.dark .animate-pulse-soft {
+  animation-name: pulseSoftDark;
+}
+
+@keyframes pulseSoftDark {
+  0%, 100% {
+    transform: scale(1);
     box-shadow: 0 0 0px rgba(255, 255, 255, 0);
   }
   50% {
     transform: scale(1.05);
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
   }
 }
 
@@ -503,6 +519,22 @@ body {
 .animate-marquee {
   background-image: linear-gradient(
     135deg,
+    rgba(0, 0, 0, 0.03) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(0, 0, 0, 0.03) 50%,
+    rgba(0, 0, 0, 0.03) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 1rem 1rem;
+  animation: marquee 1s linear infinite;
+}
+
+/* Dark mode marquee effect */
+:root.dark .animate-marquee {
+  background-image: linear-gradient(
+    135deg,
     rgba(255, 255, 255, 0.1) 25%,
     transparent 25%,
     transparent 50%,
@@ -511,8 +543,6 @@ body {
     transparent 75%,
     transparent
   );
-  background-size: 1rem 1rem;
-  animation: marquee 1s linear infinite;
 }
 
 .animate-snowing {

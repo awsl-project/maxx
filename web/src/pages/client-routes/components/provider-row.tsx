@@ -234,7 +234,7 @@ export function ProviderRowContent({
           ? "bg-gradient-to-r from-cyan-950/40 to-blue-950/40 border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.1)] cursor-pointer"
           : enabled
           ? streamingCount > 0
-            ? "bg-surface-primary border-transparent ring-1 ring-white/10"
+            ? "bg-surface-primary border-transparent ring-1 ring-black/5 dark:ring-white/10"
             : "bg-surface-primary/60 border-border hover:border-emerald-500/30 hover:bg-surface-primary shadow-sm cursor-pointer"
           : "bg-surface-secondary/40 border-dashed border-border opacity-70 cursor-pointer grayscale-[0.5] hover:opacity-100 hover:grayscale-0"
       )}
@@ -295,7 +295,7 @@ export function ProviderRowContent({
             <Snowflake size={22} className="absolute text-cyan-400 animate-pulse drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]" />
           )}
           {enabled && streamingCount > 0 && !isInCooldown && (
-            <div className="absolute inset-0 bg-white/5 animate-pulse" />
+            <div className="absolute inset-0 bg-black/5 dark:bg-white/5 animate-pulse" />
           )}
         </div>
 
