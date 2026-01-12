@@ -1,7 +1,22 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui';
-import { useProxyRequest, useProxyUpstreamAttempts, useProxyRequestUpdates, useProviders, useProjects, useSessions, useRoutes } from '@/hooks/queries';
+import { useState, useMemo, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Badge,
+} from '@/components/ui'
+import {
+  useProxyRequest,
+  useProxyUpstreamAttempts,
+  useProxyRequestUpdates,
+  useProviders,
+  useProjects,
+  useSessions,
+  useRoutes,
+} from '@/hooks/queries'
 import {
   ArrowLeft,
   Clock,
@@ -52,16 +67,18 @@ function formatCost(microUSD: number): string {
 }
 
 export function RequestDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { data: request, isLoading, error } = useProxyRequest(Number(id));
-  const { data: attempts } = useProxyUpstreamAttempts(Number(id));
-  const { data: providers } = useProviders();
-  const { data: projects } = useProjects();
-  const { data: sessions } = useSessions();
-  const { data: routes } = useRoutes();
-  const [selection, setSelection] = useState<SelectionType>({ type: 'request' });
-  const [activeTab, setActiveTab] = useState<'request' | 'response' | 'metadata'>('request');
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { data: request, isLoading, error } = useProxyRequest(Number(id))
+  const { data: attempts } = useProxyUpstreamAttempts(Number(id))
+  const { data: providers } = useProviders()
+  const { data: projects } = useProjects()
+  const { data: sessions } = useSessions()
+  const { data: routes } = useRoutes()
+  const [selection, setSelection] = useState<SelectionType>({ type: 'request' })
+  const [activeTab, setActiveTab] = useState<
+    'request' | 'response' | 'metadata'
+  >('request')
 
   useProxyRequestUpdates()
 
@@ -92,24 +109,26 @@ export function RequestDetailPage() {
 
   // Create lookup map for project names
   const projectMap = useMemo(() => {
-    const map = new Map<number, string>();
-    projects?.forEach(p => map.set(p.id, p.name));
-    return map;
-  }, [projects]);
+    const map = new Map<number, string>()
+    projects?.forEach(p => map.set(p.id, p.name))
+    return map
+  }, [projects])
 
   // Create lookup map for sessions by sessionID
   const sessionMap = useMemo(() => {
-    const map = new Map<string, { clientType: string; projectID: number }>();
-    sessions?.forEach(s => map.set(s.sessionID, { clientType: s.clientType, projectID: s.projectID }));
-    return map;
-  }, [sessions]);
+    const map = new Map<string, { clientType: string; projectID: number }>()
+    sessions?.forEach(s =>
+      map.set(s.sessionID, { clientType: s.clientType, projectID: s.projectID })
+    )
+    return map
+  }, [sessions])
 
   // Create lookup map for routes by routeID
   const routeMap = useMemo(() => {
-    const map = new Map<number, { projectID: number }>();
-    routes?.forEach(r => map.set(r.id, { projectID: r.projectID }));
-    return map;
-  }, [routes]);
+    const map = new Map<number, { projectID: number }>()
+    routes?.forEach(r => map.set(r.id, { projectID: r.projectID }))
+    return map
+  }, [routes])
 
   const formatDuration = (ns: number) => {
     const ms = ns / 1_000_000
@@ -438,33 +457,68 @@ export function RequestDetailPage() {
                         >
                           {providerMap.get(attempt.providerID) ||
                             `Provider #${attempt.providerID}`}
+                          {(() => {
+                            const route = routeMap.get(attempt.routeID)
+                            if (route?.projectID === 0) {
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] h-4 px-1 ml-1"
+                                >
+                                  Global
+                                </Badge>
+                              )
+                            } else if (route?.projectID) {
+                              return (
+                                <Badge
+                                  variant="info"
+                                  className="text-[9px] h-4 px-1 ml-1"
+                                >
+                                  {projectMap.get(route.projectID) ||
+                                    `#${route.projectID}`}
+                                </Badge>
+                              )
+                            }
+                            return null
+                          })()}
                         </span>
                         <span className="font-mono opacity-70">
-                          {formatDuration(
-                            (new Date(attempt.updatedAt).getTime() -
-                              new Date(attempt.createdAt).getTime()) *
-                              1_000_000
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-text-muted">
-                          <span className="flex items-center gap-1.5 truncate max-w-[140px]" title={providerMap.get(attempt.providerID) || `Provider #${attempt.providerID}`}>
-                            {providerMap.get(attempt.providerID) || `Provider #${attempt.providerID}`}
-                            {(() => {
-                              const route = routeMap.get(attempt.routeID);
-                              if (route?.projectID === 0) {
-                                return <Badge variant="outline" className="text-[9px] h-4 px-1 ml-1">Global</Badge>;
-                              } else if (route?.projectID) {
-                                return <Badge variant="info" className="text-[9px] h-4 px-1 ml-1">{projectMap.get(route.projectID) || `#${route.projectID}`}</Badge>;
-                              }
-                              return null;
-                            })()}
-                          </span>
-                           <span className="font-mono opacity-70">
-                            {attempt.duration > 0 ? formatDuration(attempt.duration) : '-'}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
+                          {attempt.duration > 0
+                            ? formatDuration(attempt.duration)
+                            : '-'}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                )}
+              </div>
+            ) : (
+              <EmptyState message="No attempts available" />
+            )}
+          </div>
+        </div>
+
+        {/* Main Panel: Selected Detail */}
+        <div className="flex-1 flex flex-col bg-background min-w-0">
+          {selection.type === 'request' ? (
+            /* Request Detail View */
+            <RequestDetailView
+              request={request}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              formatJSON={formatJSON}
+              formatCost={formatCost}
+              projectName={projectMap.get(request.projectID)}
+              sessionInfo={sessionMap.get(request.sessionID)}
+              projectMap={projectMap}
+            />
+          ) : selectedAttempt ? (
+            <>
+              {/* Detail Header */}
+              <div className="h-16 border-b border-border bg-surface-secondary/20 px-6 flex items-center justify-between flex-shrink-0 backdrop-blur-sm sticky top-0 z-10">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-lg bg-surface-primary flex items-center justify-center text-text-primary shadow-sm border border-border">
+                    <Server size={20} />
                   </div>
                   <div>
                     <h3 className="text-sm font-medium text-text-primary">
@@ -539,7 +593,7 @@ export function RequestDetailPage() {
                           <h5 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-2 flex-shrink-0">
                             <Code size={14} /> Headers
                           </h5>
-                          <div className="flex-1 rounded-lg border border-border bg-background p-4 overflow-auto shadow-inner relative group">
+                          <div className="flex-1 rounded-lg border border-border bg-[#1a1a1a] p-4 overflow-auto shadow-inner relative group">
                             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                               <Badge
                                 variant="outline"
@@ -671,8 +725,8 @@ export function RequestDetailPage() {
                       <Card className="bg-surface-primary border-border">
                         <CardHeader className="pb-2 border-b border-border/50">
                           <CardTitle className="text-sm font-medium flex items-center gap-2">
-                            <Info size={16} className="text-info" /> Request
-                            Info
+                            <Info size={16} className="text-info" />
+                            Request Info
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4 space-y-4">
@@ -722,8 +776,8 @@ export function RequestDetailPage() {
                       <Card className="bg-surface-primary border-border">
                         <CardHeader className="pb-2 border-b border-border/50">
                           <CardTitle className="text-sm font-medium flex items-center gap-2">
-                            <Zap size={16} className="text-warning" /> Attempt
-                            Usage & Cache
+                            <Zap size={16} className="text-warning" />
+                            Attempt Usage & Cache
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="pt-4 space-y-4">
@@ -786,271 +840,15 @@ export function RequestDetailPage() {
                     </div>
                   </div>
                 )}
-            </div>
-         </div>
-
-         {/* Main Panel: Selected Detail */}
-         <div className="flex-1 flex flex-col bg-background min-w-0">
-            {selection.type === 'request' ? (
-               /* Request Detail View */
-               <RequestDetailView
-                  request={request}
-                  activeTab={activeTab}
-                  setActiveTab={setActiveTab}
-                  formatJSON={formatJSON}
-                  formatCost={formatCost}
-                  projectName={projectMap.get(request.projectID)}
-                  sessionInfo={sessionMap.get(request.sessionID)}
-                  projectMap={projectMap}
-               />
-            ) : selectedAttempt ? (
-               <>
-                 {/* Detail Header */}
-                 <div className="h-16 border-b border-border bg-surface-secondary/20 px-6 flex items-center justify-between flex-shrink-0 backdrop-blur-sm sticky top-0 z-10">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-surface-primary flex items-center justify-center text-text-primary shadow-sm border border-border">
-                         <Server size={20} />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-text-primary">
-                          {providerMap.get(selectedAttempt.providerID) || `Provider #${selectedAttempt.providerID}`}
-                        </h3>
-                         <div className="flex items-center gap-3 text-xs text-text-secondary mt-0.5">
-                           <span>Attempt #{selectedAttempt.id}</span>
-                           {selectedAttempt.cost > 0 && <span className="text-blue-400 font-medium">Cost: {formatCost(selectedAttempt.cost)}</span>}
-                         </div>
-                      </div>
-                    </div>
-                    
-                    {/* Detail Tabs */}
-                     <div className="flex bg-surface-secondary/50 p-1 rounded-lg border border-border">
-                      <button
-                        onClick={() => setActiveTab('request')}
-                        className={cn(
-                          "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
-                          activeTab === 'request'
-                            ? "bg-surface-primary text-text-primary shadow-sm ring-1 ring-border/50"
-                            : "text-text-secondary hover:text-text-primary hover:bg-surface-hover/50"
-                        )}
-                      >
-                        Request
-                      </button>
-                      <button
-                        onClick={() => setActiveTab('response')}
-                        className={cn(
-                          "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
-                          activeTab === 'response'
-                            ? "bg-surface-primary text-text-primary shadow-sm ring-1 ring-border/50"
-                            : "text-text-secondary hover:text-text-primary hover:bg-surface-hover/50"
-                        )}
-                      >
-                        Response
-                      </button>
-                       <button
-                        onClick={() => setActiveTab('metadata')}
-                        className={cn(
-                          "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
-                          activeTab === 'metadata'
-                            ? "bg-surface-primary text-text-primary shadow-sm ring-1 ring-border/50"
-                            : "text-text-secondary hover:text-text-primary hover:bg-surface-hover/50"
-                        )}
-                      >
-                        Metadata
-                      </button>
-                    </div>
-                 </div>
-
-                 {/* Detail Content */}
-                 <div className="flex-1 overflow-hidden flex flex-col bg-background relative">
-                    {activeTab === 'request' && (
-                      selectedAttempt.requestInfo ? (
-                        <div className="flex-1 flex flex-col overflow-hidden p-6 gap-6 animate-fade-in">
-                          <div className="flex items-center gap-3 p-3 bg-surface-secondary/30 rounded-lg border border-border flex-shrink-0">
-                            <Badge variant="info" className="font-mono text-xs">{selectedAttempt.requestInfo.method}</Badge>
-                            <code className="flex-1 font-mono text-xs text-text-primary break-all">
-                              {selectedAttempt.requestInfo.url}
-                            </code>
-                          </div>
-                          
-                          <div className="flex flex-col min-h-0 flex-1 gap-6">
-                            <div className="flex flex-col flex-1 min-h-0 gap-3">
-                              <h5 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-2 flex-shrink-0">
-                                <Code size={14} /> Headers
-                              </h5>
-                              <div className="flex-1 rounded-lg border border-border bg-[#1a1a1a] p-4 overflow-auto shadow-inner relative group">
-                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <Badge variant="outline" className="text-[10px] bg-surface-primary/80 backdrop-blur-sm">JSON</Badge>
-                                </div>
-                                 <pre className="text-xs font-mono text-text-secondary leading-relaxed">
-                                  {formatJSON(selectedAttempt.requestInfo.headers)}
-                                </pre>
-                              </div>
-                            </div>
-
-                            {selectedAttempt.requestInfo.body && (
-                              <div className="flex flex-col flex-[2] min-h-0 gap-3">
-                                <h5 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-2 flex-shrink-0">
-                                  <Database size={14} /> Body
-                                </h5>
-                                <div className="flex-1 rounded-lg border border-border bg-[#1a1a1a] p-4 overflow-auto shadow-inner relative group">
-                                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Badge variant="outline" className="text-[10px] bg-surface-primary/80 backdrop-blur-sm">JSON</Badge>
-                                  </div>
-                                  <pre className="text-xs font-mono text-text-primary whitespace-pre-wrap leading-relaxed">
-                                    {(() => {
-                                      try {
-                                        return formatJSON(JSON.parse(selectedAttempt.requestInfo.body));
-                                      } catch {
-                                        return selectedAttempt.requestInfo.body;
-                                      }
-                                    })()}
-                                  </pre>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                         <EmptyState message="No request data available" />
-                      )
-                    )}
-
-                    {activeTab === 'response' && (
-                       selectedAttempt.responseInfo ? (
-                        <div className="flex-1 flex flex-col overflow-hidden p-6 gap-6 animate-fade-in">
-                           <div className="flex items-center gap-3 p-3 bg-surface-secondary/30 rounded-lg border border-border flex-shrink-0">
-                            <div className={cn(
-                              "px-2 py-1 rounded text-xs font-bold font-mono",
-                              selectedAttempt.responseInfo.status >= 400 ? "bg-red-400/10 text-red-400" : "bg-blue-400/10 text-blue-400"
-                            )}>
-                              {selectedAttempt.responseInfo.status}
-                            </div>
-                            <span className="text-sm text-text-secondary font-medium">Response Status</span>
-                          </div>
-
-                          <div className="flex flex-col min-h-0 flex-1 gap-6">
-                            <div className="flex flex-col flex-1 min-h-0 gap-3">
-                              <h5 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-2 flex-shrink-0">
-                                <Code size={14} /> Headers
-                              </h5>
-                              <div className="flex-1 rounded-lg border border-border bg-[#1a1a1a] p-4 overflow-auto shadow-inner relative group">
-                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <Badge variant="outline" className="text-[10px] bg-surface-primary/80 backdrop-blur-sm">JSON</Badge>
-                                </div>
-                                <pre className="text-xs font-mono text-text-secondary leading-relaxed">
-                                  {formatJSON(selectedAttempt.responseInfo.headers)}
-                                </pre>
-                              </div>
-                            </div>
-
-                            {selectedAttempt.responseInfo.body && (
-                              <div className="flex flex-col flex-[2] min-h-0 gap-3">
-                                <h5 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-2 flex-shrink-0">
-                                  <Database size={14} /> Body
-                                </h5>
-                                <div className="flex-1 rounded-lg border border-border bg-[#1a1a1a] p-4 overflow-auto shadow-inner relative group">
-                                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Badge variant="outline" className="text-[10px] bg-surface-primary/80 backdrop-blur-sm">JSON</Badge>
-                                  </div>
-                                  <pre className="text-xs font-mono text-text-primary whitespace-pre-wrap leading-relaxed">
-                                    {(() => {
-                                      try {
-                                        return formatJSON(JSON.parse(selectedAttempt.responseInfo.body));
-                                      } catch {
-                                        return selectedAttempt.responseInfo.body;
-                                      }
-                                    })()}
-                                  </pre>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                       ) : (
-                        <EmptyState message="No response data available" />
-                       )
-                    )}
-
-                    {activeTab === 'metadata' && (
-                        <div className="flex-1 overflow-y-auto p-6 animate-fade-in">
-                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                                <Card className="bg-surface-primary border-border">
-                                   <CardHeader className="pb-2 border-b border-border/50">
-                                      <CardTitle className="text-sm font-medium flex items-center gap-2">
-                                         <Info size={16} className="text-info"/> Request Info
-                                      </CardTitle>
-                                   </CardHeader>
-                                   <CardContent className="pt-4 space-y-4">
-                                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Request ID</dt>
-                                          <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded select-all break-all">{request.requestID || '-'}</dd>
-                                       </div>
-                                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Session ID</dt>
-                                          <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded select-all break-all">{request.sessionID || '-'}</dd>
-                                       </div>
-                                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Instance ID</dt>
-                                          <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded select-all break-all">{request.instanceID || '-'}</dd>
-                                       </div>
-                                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Request Model</dt>
-                                          <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">{request.requestModel || '-'}</dd>
-                                       </div>
-                                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Response Model</dt>
-                                          <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">{request.responseModel || '-'}</dd>
-                                       </div>
-                                   </CardContent>
-                                </Card>
-
-                                <Card className="bg-surface-primary border-border">
-                                   <CardHeader className="pb-2 border-b border-border/50">
-                                      <CardTitle className="text-sm font-medium flex items-center gap-2">
-                                         <Zap size={16} className="text-warning"/> Attempt Usage & Cache
-                                      </CardTitle>
-                                   </CardHeader>
-                                   <CardContent className="pt-4 space-y-4">
-                                       <div className="flex justify-between items-center border-b border-border/30 pb-2">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Input Tokens</dt>
-                                          <dd className="text-sm text-text-primary font-mono font-medium">{selectedAttempt.inputTokenCount.toLocaleString()}</dd>
-                                       </div>
-                                       <div className="flex justify-between items-center border-b border-border/30 pb-2">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Output Tokens</dt>
-                                          <dd className="text-sm text-text-primary font-mono font-medium">{selectedAttempt.outputTokenCount.toLocaleString()}</dd>
-                                       </div>
-                                       <div className="flex justify-between items-center border-b border-border/30 pb-2">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Cache Read</dt>
-                                          <dd className="text-sm text-violet-400 font-mono font-medium">{selectedAttempt.cacheReadCount.toLocaleString()}</dd>
-                                       </div>
-                                       <div className="flex justify-between items-center border-b border-border/30 pb-2">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Cache Write</dt>
-                                          <dd className="text-sm text-amber-400 font-mono font-medium">{selectedAttempt.cacheWriteCount.toLocaleString()}</dd>
-                                       </div>
-                                       {(selectedAttempt.cache5mWriteCount > 0 || selectedAttempt.cache1hWriteCount > 0) && (
-                                         <div className="flex justify-between items-center border-b border-border/30 pb-2 pl-4">
-                                           <dt className="text-xs font-medium text-text-secondary/70 tracking-wider">
-                                             <span className="text-cyan-400/80">5m:</span> {selectedAttempt.cache5mWriteCount}
-                                             <span className="mx-2">|</span>
-                                             <span className="text-orange-400/80">1h:</span> {selectedAttempt.cache1hWriteCount}
-                                           </dt>
-                                         </div>
-                                       )}
-                                       <div className="flex justify-between items-center">
-                                          <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Cost</dt>
-                                          <dd className="text-sm text-blue-400 font-mono font-medium">{formatCost(selectedAttempt.cost)}</dd>
-                                       </div>
-                                   </CardContent>
-                                </Card>
-                             </div>
-                        </div>
-                    )}
-                 </div>
-               </>
-            ) : (
-               <EmptyState message="Select an attempt to view details" icon={<Server className="h-12 w-12 mb-4 opacity-10" />} />
-            )}
-         </div>
+              </div>
+            </>
+          ) : (
+            <EmptyState
+              message="Select an attempt to view details"
+              icon={<Server className="h-12 w-12 mb-4 opacity-10" />}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
@@ -1073,17 +871,26 @@ function EmptyState({
 
 // Request Detail View Component - shows client request/response (Claude format)
 interface RequestDetailViewProps {
-  request: ProxyRequest;
-  activeTab: 'request' | 'response' | 'metadata';
-  setActiveTab: (tab: 'request' | 'response' | 'metadata') => void;
-  formatJSON: (obj: unknown) => string;
-  formatCost: (microUSD: number) => string;
-  projectName?: string;
-  sessionInfo?: { clientType: string; projectID: number };
-  projectMap: Map<number, string>;
+  request: ProxyRequest
+  activeTab: 'request' | 'response' | 'metadata'
+  setActiveTab: (tab: 'request' | 'response' | 'metadata') => void
+  formatJSON: (obj: unknown) => string
+  formatCost: (microUSD: number) => string
+  projectName?: string
+  sessionInfo?: { clientType: string; projectID: number }
+  projectMap: Map<number, string>
 }
 
-function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, formatCost, projectName, sessionInfo, projectMap }: RequestDetailViewProps) {
+function RequestDetailView({
+  request,
+  activeTab,
+  setActiveTab,
+  formatJSON,
+  formatCost,
+  projectName,
+  sessionInfo,
+  projectMap,
+}: RequestDetailViewProps) {
   return (
     <>
       {/* Detail Header */}
@@ -1312,18 +1119,25 @@ function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, forma
                     </dd>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                    <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Session ID</dt>
+                    <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                      Session ID
+                    </dt>
                     <dd className="sm:col-span-2">
                       <div className="font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded select-all break-all">
                         {request.sessionID || '-'}
                       </div>
                       {sessionInfo && (
                         <div className="flex items-center gap-2 mt-1 text-[10px] text-text-muted">
-                          <span className="capitalize">{sessionInfo.clientType}</span>
+                          <span className="capitalize">
+                            {sessionInfo.clientType}
+                          </span>
                           {sessionInfo.projectID > 0 && (
                             <>
                               <span>·</span>
-                              <span>{projectMap.get(sessionInfo.projectID) || `Project #${sessionInfo.projectID}`}</span>
+                              <span>
+                                {projectMap.get(sessionInfo.projectID) ||
+                                  `Project #${sessionInfo.projectID}`}
+                              </span>
                             </>
                           )}
                         </div>
@@ -1355,8 +1169,12 @@ function RequestDetailView({ request, activeTab, setActiveTab, formatJSON, forma
                     </dd>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                    <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">Project</dt>
-                    <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">{projectName || '-'}</dd>
+                    <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                      Project
+                    </dt>
+                    <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">
+                      {projectName || '-'}
+                    </dd>
                   </div>
                 </CardContent>
               </Card>
