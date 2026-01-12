@@ -202,7 +202,7 @@ export function ProvidersPage() {
 
       {/* Import Status Toast */}
       {importStatus && (
-        <div className="fixed bottom-6 right-6 bg-surface-primary border border-border rounded-lg shadow-lg p-4 max-w-md">
+        <div className="fixed bottom-6 right-6 bg-surface-primary border border-border rounded-lg shadow-lg p-4">
           <div className="space-y-2">
             <div className="text-sm font-medium text-text-primary">
               Import completed: {importStatus.imported} imported, {importStatus.skipped} skipped

@@ -103,6 +103,7 @@ func main() {
 	cachedRetryConfigRepo := cached.NewRetryConfigRepository(retryConfigRepo)
 	cachedRoutingStrategyRepo := cached.NewRoutingStrategyRepository(routingStrategyRepo)
 	cachedSessionRepo := cached.NewSessionRepository(sessionRepo)
+	cachedProjectRepo := cached.NewProjectRepository(projectRepo)
 
 	// Load cached data
 	if err := cachedProviderRepo.Load(); err != nil {
@@ -117,9 +118,12 @@ func main() {
 	if err := cachedRoutingStrategyRepo.Load(); err != nil {
 		log.Printf("Warning: Failed to load routing strategies cache: %v", err)
 	}
+	if err := cachedProjectRepo.Load(); err != nil {
+		log.Printf("Warning: Failed to load projects cache: %v", err)
+	}
 
 	// Create router
-	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo)
+	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo)
 
 	// Initialize provider adapters
 	if err := r.InitAdapters(); err != nil {
@@ -176,11 +180,7 @@ func main() {
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo)
 
-	// Create cached project repository for project proxy handler
-	cachedProjectRepo := cached.NewProjectRepository(projectRepo)
-	if err := cachedProjectRepo.Load(); err != nil {
-		log.Printf("Warning: Failed to load projects cache: %v", err)
-	}
+	// Use already-created cached project repository for project proxy handler
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, cachedProjectRepo)
 
 	// Setup routes

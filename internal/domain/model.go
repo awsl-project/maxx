@@ -82,6 +82,9 @@ type Project struct {
 
 	Name string `json:"name"`
 	Slug string `json:"slug"`
+
+	// 启用自定义路由的 ClientType 列表，空数组表示所有 ClientType 都使用全局路由
+	EnabledCustomRoutes []ClientType `json:"enabledCustomRoutes"`
 }
 
 type Session struct {

@@ -48,7 +48,7 @@ export function OverviewPage() {
             <Zap size={32} className="text-accent" />
           </div>
           <h1 className="text-2xl font-bold text-text-primary mb-3">Welcome to Maxx Next</h1>
-          <p className="text-sm text-text-secondary max-w-md mx-auto mb-8">
+          <p className="text-sm text-text-secondary mb-8">
             AI API Proxy Gateway - Route your AI requests through multiple providers with intelligent failover and load balancing.
           </p>
           <Link

@@ -13,7 +13,7 @@ export function ProjectsPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    createProject.mutate({ name }, {
+    createProject.mutate({ name, enabledCustomRoutes: [] }, {
       onSuccess: (project) => {
         setShowForm(false);
         setName('');

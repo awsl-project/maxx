@@ -52,6 +52,7 @@ export interface Project {
   updatedAt: string;
   name: string;
   slug: string;
+  enabledCustomRoutes: ClientType[];
 }
 
 export type CreateProjectData = Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'slug'> & {

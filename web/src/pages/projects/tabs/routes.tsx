@@ -22,15 +22,17 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useRoutes, useProviders, useCreateRoute, useToggleRoute, useDeleteRoute, useUpdateRoutePositions, useProviderStats } from '@/hooks/queries';
+import { useRoutes, useProviders, useCreateRoute, useToggleRoute, useDeleteRoute, useUpdateRoutePositions, useProviderStats, useUpdateProject, projectKeys } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import { ClientIcon, getClientName, getClientColor } from '@/components/icons/client-icons';
 import { getProviderColor } from '@/lib/provider-colors';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui';
 import type { Project, ClientType, Provider, Route } from '@/lib/transport';
 import { SortableProviderRow, ProviderRowContent } from '@/pages/client-routes/components/provider-row';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
+import { useQueryClient } from '@tanstack/react-query';
 
 // 支持的客户端类型列表
 const CLIENT_TYPES: ClientType[] = ['claude', 'openai', 'codex', 'gemini'];
@@ -50,6 +52,8 @@ interface ClientTypeContentProps {
   deleteRoute: ReturnType<typeof useDeleteRoute>;
   updatePositions: ReturnType<typeof useUpdateRoutePositions>;
   countsByProviderAndClient: Map<string, number>;
+  isCustomRoutesEnabled: boolean;
+  onToggleCustomRoutes: (enabled: boolean) => void;
 }
 
 function ClientTypeContent({
@@ -62,6 +66,8 @@ function ClientTypeContent({
   deleteRoute,
   updatePositions,
   countsByProviderAndClient,
+  isCustomRoutesEnabled,
+  onToggleCustomRoutes,
 }: ClientTypeContentProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const { data: providerStats = {} } = useProviderStats(clientType, project.id);
@@ -199,22 +205,52 @@ function ClientTypeContent({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Header with Toggle */}
+      <div className="flex items-center justify-between px-lg py-4 border-b border-border bg-surface-primary">
+        <div className="flex items-center gap-md">
+          <ClientIcon type={clientType} size={32} />
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">{getClientName(clientType)}</h2>
+            <p className="text-xs text-text-muted">
+              {isCustomRoutesEnabled
+                ? `${items.length} route${items.length !== 1 ? 's' : ''} configured for this project`
+                : 'Using global routes'
+              }
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-text-secondary">Custom Routes</span>
+          <Switch
+            checked={isCustomRoutesEnabled}
+            onCheckedChange={onToggleCustomRoutes}
+          />
+        </div>
+      </div>
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-lg py-6">
         <div className="mx-auto max-w-[1400px] space-y-6">
-          {/* Client Type Header */}
-          <div className="flex items-center gap-md">
-            <ClientIcon type={clientType} size={32} />
-            <div>
-              <h2 className="text-lg font-semibold text-text-primary">{getClientName(clientType)}</h2>
-              <p className="text-xs text-text-muted">
-                {items.length} route{items.length !== 1 ? 's' : ''} configured for this project
-              </p>
+          {/* Disabled state - show prompt */}
+          {!isCustomRoutesEnabled ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center space-y-6">
+              <div className="p-6 rounded-full bg-surface-secondary/50">
+                <ClientIcon type={clientType} size={48} className="opacity-30" />
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold text-text-primary">
+                  Custom Routes Disabled
+                </h3>
+                <p className="text-sm text-text-secondary leading-relaxed">
+                  {getClientName(clientType)} is currently using global routes.
+                  Toggle the switch above to enable project-specific routing for this client type.
+                </p>
+              </div>
             </div>
-          </div>
-
-          {/* Routes List */}
-          {items.length > 0 ? (
+          ) : (
+            <>
+              {/* Routes List */}
+              {items.length > 0 ? (
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -308,6 +344,8 @@ function ClientTypeContent({
               </div>
             </div>
           )}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -357,6 +395,7 @@ function ClientTypeSidebarItem({
 
 export function RoutesTab({ project }: RoutesTabProps) {
   const [activeClientType, setActiveClientType] = useState<ClientType>('claude');
+  const queryClient = useQueryClient();
 
   const { data: allRoutes, isLoading: routesLoading } = useRoutes();
   const { data: providers = [], isLoading: providersLoading } = useProviders();
@@ -366,6 +405,7 @@ export function RoutesTab({ project }: RoutesTabProps) {
   const toggleRoute = useToggleRoute();
   const deleteRoute = useDeleteRoute();
   const updatePositions = useUpdateRoutePositions();
+  const updateProject = useUpdateProject();
 
   const loading = routesLoading || providersLoading;
 
@@ -387,6 +427,35 @@ export function RoutesTab({ project }: RoutesTabProps) {
       count += countsByRoute.get(route.id) || 0;
     }
     return count;
+  };
+
+  // 检查某个 ClientType 是否启用了自定义路由
+  const isCustomRoutesEnabled = (clientType: ClientType): boolean => {
+    return (project.enabledCustomRoutes || []).includes(clientType);
+  };
+
+  // 切换 ClientType 的自定义路由开关
+  const handleToggleCustomRoutes = (clientType: ClientType, enabled: boolean) => {
+    const currentEnabled = project.enabledCustomRoutes || [];
+    let newEnabled: ClientType[];
+
+    if (enabled) {
+      // 添加到列表
+      newEnabled = [...currentEnabled, clientType];
+    } else {
+      // 从列表移除
+      newEnabled = currentEnabled.filter(ct => ct !== clientType);
+    }
+
+    updateProject.mutate(
+      { id: project.id, data: { name: project.name, slug: project.slug, enabledCustomRoutes: newEnabled } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+          queryClient.invalidateQueries({ queryKey: projectKeys.slug(project.slug) });
+        },
+      }
+    );
   };
 
   if (loading) {
@@ -428,6 +497,8 @@ export function RoutesTab({ project }: RoutesTabProps) {
           deleteRoute={deleteRoute}
           updatePositions={updatePositions}
           countsByProviderAndClient={countsByProviderAndClient}
+          isCustomRoutesEnabled={isCustomRoutesEnabled(activeClientType)}
+          onToggleCustomRoutes={(enabled) => handleToggleCustomRoutes(activeClientType, enabled)}
         />
       </main>
     </div>

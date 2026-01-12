@@ -252,6 +252,32 @@ func (d *DB) migrate() error {
 		}
 	}
 
+	// Migration: Add enabled_custom_routes column to projects if it doesn't exist
+	var hasEnabledCustomRoutes bool
+	row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='enabled_custom_routes'`)
+	row.Scan(&hasEnabledCustomRoutes)
+
+	if !hasEnabledCustomRoutes {
+		// Check if old column name exists
+		var hasOldColumn bool
+		row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='enabled_client_types'`)
+		row.Scan(&hasOldColumn)
+
+		if hasOldColumn {
+			// Rename old column to new name
+			_, err = d.db.Exec(`ALTER TABLE projects RENAME COLUMN enabled_client_types TO enabled_custom_routes`)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Create new column
+			_, err = d.db.Exec(`ALTER TABLE projects ADD COLUMN enabled_custom_routes TEXT DEFAULT '[]'`)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 

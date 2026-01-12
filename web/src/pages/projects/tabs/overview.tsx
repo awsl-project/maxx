@@ -18,11 +18,13 @@ export function OverviewTab({ project }: OverviewTabProps) {
   const [slug, setSlug] = useState(project.slug);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const hasChanges = name !== project.name || slug !== project.slug;
+  const hasChanges =
+    name !== project.name ||
+    slug !== project.slug;
 
   const handleSave = () => {
     updateProject.mutate(
-      { id: project.id, data: { name, slug } },
+      { id: project.id, data: { name, slug, enabledCustomRoutes: project.enabledCustomRoutes } },
       {
         onSuccess: (updatedProject) => {
           // Invalidate queries

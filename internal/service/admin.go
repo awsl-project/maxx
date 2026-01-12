@@ -81,21 +81,12 @@ func (s *AdminService) CreateProvider(provider *domain.Provider) error {
 	if s.adapterRefresher != nil {
 		s.adapterRefresher.RefreshAdapter(provider)
 	}
-	// Auto-create routes for each supported client type
-	s.syncProviderRoutes(provider, nil)
 	return nil
 }
 
 func (s *AdminService) UpdateProvider(provider *domain.Provider) error {
 	// Auto-set SupportedClientTypes based on provider type
 	s.autoSetSupportedClientTypes(provider)
-
-	// Get old provider to compare supportedClientTypes
-	var oldSupportedClientTypes []domain.ClientType
-	if oldProvider, err := s.providerRepo.GetByID(provider.ID); err == nil && oldProvider != nil {
-		oldSupportedClientTypes = make([]domain.ClientType, len(oldProvider.SupportedClientTypes))
-		copy(oldSupportedClientTypes, oldProvider.SupportedClientTypes)
-	}
 
 	if err := s.providerRepo.Update(provider); err != nil {
 		return err
@@ -104,8 +95,6 @@ func (s *AdminService) UpdateProvider(provider *domain.Provider) error {
 	if s.adapterRefresher != nil {
 		s.adapterRefresher.RefreshAdapter(provider)
 	}
-	// Sync routes based on supportedClientTypes changes
-	s.syncProviderRoutesWithOldTypes(provider, oldSupportedClientTypes)
 	return nil
 }
 
@@ -456,74 +445,6 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 		// If not set, default to OpenAI
 		if len(provider.SupportedClientTypes) == 0 {
 			provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
-		}
-	}
-}
-
-func (s *AdminService) syncProviderRoutes(provider *domain.Provider, oldProvider *domain.Provider) {
-	var oldClientTypes []domain.ClientType
-	if oldProvider != nil {
-		oldClientTypes = oldProvider.SupportedClientTypes
-	}
-	s.syncProviderRoutesWithOldTypes(provider, oldClientTypes)
-}
-
-func (s *AdminService) syncProviderRoutesWithOldTypes(provider *domain.Provider, oldClientTypes []domain.ClientType) {
-	allRoutes, _ := s.routeRepo.List()
-
-	oldClientTypesSet := make(map[domain.ClientType]bool)
-	for _, ct := range oldClientTypes {
-		oldClientTypesSet[ct] = true
-	}
-
-	newClientTypes := make(map[domain.ClientType]bool)
-	for _, ct := range provider.SupportedClientTypes {
-		newClientTypes[ct] = true
-	}
-
-	// Delete native routes for removed client types
-	// Use FindByKey to correctly locate the route by (projectID=0, providerID, clientType)
-	for ct := range oldClientTypesSet {
-		if !newClientTypes[ct] {
-			// Find route by key instead of iterating all routes
-			if route, err := s.routeRepo.FindByKey(0, provider.ID, ct); err == nil && route != nil && route.IsNative {
-				s.routeRepo.Delete(route.ID)
-			}
-		}
-	}
-
-	// Create or update native routes for added client types
-	for ct := range newClientTypes {
-		if !oldClientTypesSet[ct] {
-			// Check if route already exists for this (projectID=0, providerID, clientType)
-			existingRoute, err := s.routeRepo.FindByKey(0, provider.ID, ct)
-			if err == nil && existingRoute != nil {
-				// Route exists, just update isNative if needed
-				if !existingRoute.IsNative {
-					existingRoute.IsNative = true
-					s.routeRepo.Update(existingRoute)
-				}
-				continue
-			}
-
-			// Create new native route
-			maxPosition := 0
-			for _, route := range allRoutes {
-				if route.ClientType == ct && route.Position > maxPosition {
-					maxPosition = route.Position
-				}
-			}
-
-			newRoute := &domain.Route{
-				IsEnabled:     true,
-				IsNative:      true,
-				ProjectID:     0,
-				ClientType:    ct,
-				ProviderID:    provider.ID,
-				Position:      maxPosition + 1,
-				RetryConfigID: 0,
-			}
-			s.routeRepo.Create(newRoute)
 		}
 	}
 }
