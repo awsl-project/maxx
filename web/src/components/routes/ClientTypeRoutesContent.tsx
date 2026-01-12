@@ -249,7 +249,7 @@ export function ClientTypeRoutesContent({
                       }
                       onToggle={() => handleToggle(item)}
                       onDelete={
-                        item.route && !item.isNative
+                        item.route
                           ? () => handleDeleteRoute(item.route!.id)
                           : undefined
                       }
