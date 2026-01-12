@@ -118,7 +118,7 @@ export function ProjectDetailPage() {
       {/* Tabs */}
       <Tabs
         value={activeTab}
-        onValueChange={v => setActiveTab(v as TabId)}
+        onValueChange={(v: string) => setActiveTab(v as TabId)}
         className="flex-1 flex flex-col overflow-hidden"
       >
         <div className="px-6 py-4 border-b border-border bg-surface-primary/50">
