@@ -27,7 +27,6 @@ import type {
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
-  AntigravityOAuthResult,
   ImportResult,
   Cooldown,
 } from './types';
