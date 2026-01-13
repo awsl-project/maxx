@@ -4,8 +4,8 @@ set -e
 
 # 获取参数
 if [ -z "$1" ] || [ -z "$2" ]; then
-    echo "Usage: $0 <github_token> <version> [release_notes]"
-    echo "Example: $0 ghp_xxxx v1.0.0 \"First release\""
+    echo "Usage: $0 <github_token> <version>"
+    echo "Example: $0 ghp_xxxx v1.0.0"
     exit 1
 fi
 

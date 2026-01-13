@@ -89,3 +89,18 @@ build-desktop.bat
 - Desktop mode (Windows): `%APPDATA%\maxx`
 - Server mode (non-Docker): `~/.config/maxx/maxx.db`
 - Docker data directory: `/data` (mounted via `docker-compose.yml`)
+
+## Release
+
+创建新版本发布：
+
+```bash
+./release.sh <github_token> <version>
+```
+
+示例：
+```bash
+./release.sh ghp_xxxx v1.0.0
+```
+
+脚本会自动创建 tag 并推送到 GitHub，然后创建 Release（自动生成 release notes）。
