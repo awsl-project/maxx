@@ -97,8 +97,6 @@ export function ForceProjectDialog({
       <DialogContent
         showCloseButton={false}
         className="overflow-hidden p-0 w-full max-w-[28rem] bg-surface-primary"
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        onPointerDownOutside={(e) => e.preventDefault()}
       >
         {/* Header with Gradient */}
         <div className="relative bg-gradient-to-b from-amber-900/20 to-transparent p-6 pb-4">
