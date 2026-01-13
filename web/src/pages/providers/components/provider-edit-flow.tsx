@@ -149,7 +149,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     <div className="flex flex-col h-full">
       <div className="h-[73px] flex items-center justify-between p-lg border-b border-border bg-surface-primary">
         <div className="flex items-center gap-md">
-          <Button onClick={onClose}>
+          <Button onClick={onClose} variant={'ghost'}>
             <ChevronLeft size={20} />
           </Button>
           <div>

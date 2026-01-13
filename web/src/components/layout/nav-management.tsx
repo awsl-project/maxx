@@ -35,12 +35,14 @@ export function NavManagement({ items, title }: NavManagementProps) {
             return (
               <SidebarMenuItem key={item.to}>
                 <SidebarMenuButton
-                  render={(props) => <NavLink to={item.to} {...props} />}
                   isActive={isActive}
                   size="lg"
+                  tooltip={item.label}
                 >
-                  <Icon />
-                  <span>{item.label}</span>
+                  <NavLink to={item.to} className="flex items-center gap-2 w-full h-full group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0">
+                    <Icon />
+                    <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
+                  </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             );

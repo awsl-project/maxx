@@ -36,13 +36,18 @@ export function NavMain({ items, children }: NavMainProps) {
             return (
               <SidebarMenuItem key={item.to}>
                 <SidebarMenuButton
-                  render={props => <NavLink to={item.to} {...props} />}
                   isActive={isActive}
                   size="lg"
+                  tooltip={item.label}
                   className="min-w-8 duration-200 ease-linear"
                 >
-                  <Icon />
-                  <span>{item.label}</span>
+                  <NavLink
+                    to={item.to}
+                    className="flex items-center gap-2 w-full h-full group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0"
+                  >
+                    <Icon />
+                    <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
+                  </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )
