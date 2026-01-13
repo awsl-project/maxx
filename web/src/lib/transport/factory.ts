@@ -103,11 +103,18 @@ function waitForWailsRuntime(timeout = 5000): Promise<boolean> {
  * 创建 Transport 实例
  * 注意：Wails 环境下使用动态导入，避免在 web 模式下导入 @wailsio/runtime
  */
-async function createTransportAsync(config?: TransportConfig): Promise<Transport> {
-  // 先等待 Wails runtime 准备好
-  const isWails = await waitForWailsRuntime();
+async function createTransportAsync(
+  initialType: TransportType,
+  config?: TransportConfig
+): Promise<Transport> {
+  // 如果初始检测明确为 http（非 wails:// 协议），直接使用 HttpTransport
+  // 无需等待 Wails runtime
+  if (initialType === 'http') {
+    return new HttpTransport(config);
+  }
 
-  console.log('[Transport] Creating transport, isWails:', isWails);
+  // 对于可能是 Wails 环境的情况，等待 runtime 准备好
+  const isWails = await waitForWailsRuntime();
 
   if (isWails) {
     // 动态导入 WailsTransport，只在 Wails 环境下加载
@@ -116,7 +123,7 @@ async function createTransportAsync(config?: TransportConfig): Promise<Transport
     return new WailsTransport(config);
   }
 
-  console.log('[Transport] Using HttpTransport');
+  // Fallback to HTTP
   return new HttpTransport(config);
 }
 
@@ -147,10 +154,10 @@ export async function initializeTransport(config?: TransportConfig): Promise<Tra
   const detectedType = detectTransportType();
   console.log('[Transport] Initializing... detected type:', detectedType);
 
-  initPromise = createTransportAsync(config)
+  initPromise = createTransportAsync(detectedType, config)
     .then((transport) => {
       state = { status: 'ready', transport, type: detectedType };
-      console.log('[Transport] Initialization complete:', transport.constructor.name);
+      console.log('[Transport] Ready:', transport.constructor.name);
       return transport;
     })
     .catch((error) => {
