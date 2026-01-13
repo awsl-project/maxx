@@ -140,7 +140,7 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
   // Custom: Configuration
   return (
     <div className="flex flex-col h-full">
-      <div className="h-[73px] flex items-center justify-between p-lg border-b border-border bg-surface-primary">
+      <div className="h-[73px] flex items-center justify-between px-6 border-b border-border bg-surface-primary">
         <div className="flex items-center gap-md">
           <button
             onClick={handleBack}
@@ -175,8 +175,8 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-lg">
-        <div className="container mx-auto max-w-[1600px] space-y-8">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="mx-auto max-w-7xl space-y-8">
           
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">

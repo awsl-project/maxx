@@ -40,6 +40,7 @@ import {
   ProviderRowContent,
 } from '@/pages/client-routes/components/provider-row'
 import type { ProviderConfigItem } from '@/pages/client-routes/types'
+import { Button } from '../ui'
 
 interface ClientTypeRoutesContentProps {
   clientType: ClientType
@@ -290,8 +291,8 @@ export function ClientTypeRoutesContent({
 
           {/* Add Route Section - Card Style */}
           {availableProviders.length > 0 && (
-            <div className="pt-4 border-t border-border/50">
-              <div className="flex items-center gap-2 mb-md">
+            <div className="pt-4 border-t border-border/50 ">
+              <div className="flex items-center gap-2 mb-6">
                 <Plus size={14} style={{ color }} />
                 <span className="text-caption font-medium text-text-muted">
                   Available Providers
@@ -306,19 +307,19 @@ export function ClientTypeRoutesContent({
                     provider.type as ProviderType
                   )
                   return (
-                    <button
+                    <Button
                       key={provider.id}
+                      variant={null}
                       onClick={() => handleAddRoute(provider, isNative)}
                       disabled={createRoute.isPending}
-                      className="group relative flex flex-col p-4 rounded-xl border border-border/60 bg-secondary hover:border-border shadow-sm transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
+                      className="h-auto group relative flex items-center justify-between gap-4 p-4 rounded-xl border border-border/40 bg-background hover:bg-secondary/50 hover:border-border shadow-sm hover:shadow transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
                     >
-                      {/* Provider Icon */}
-                      <div className="flex items-start gap-3 mb-3">
+                      {/* Left: Provider Icon & Info */}
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div
-                          className="relative w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border transition-all duration-300 group-hover:shadow-md"
+                          className="relative w-11 h-11 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300 group-hover:scale-105"
                           style={{
-                            backgroundColor: `${providerColor}15`,
-                            borderColor: `${providerColor}30`,
+                            backgroundColor: `${providerColor}20`,
                             color: providerColor,
                           }}
                         >
@@ -327,34 +328,35 @@ export function ClientTypeRoutesContent({
                           </span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-[14px] font-bold text-text-primary truncate">
+                          <div className="text-[14px] font-semibold text-text-primary truncate leading-tight mb-1">
                             {provider.name}
                           </div>
-                          <div className="text-[11px] font-medium text-text-muted capitalize">
-                            {provider.type}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-medium text-text-muted/80 capitalize leading-tight">
+                              {provider.type}
+                            </span>
+                            {isNative ? (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                <Zap size={10} className="fill-current opacity-30" />
+                                NATIVE
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                <RefreshCw size={10} />
+                                CONV
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Badges */}
-                      <div className="flex items-center justify-between">
-                        {isNative ? (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                            <Zap size={10} className="fill-emerald-500/20" />{' '}
-                            NATIVE
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                            <RefreshCw size={10} /> CONV
-                          </span>
-                        )}
-                        <Plus
-                          size={16}
-                          style={{ color: providerColor }}
-                          className="opacity-60 group-hover:opacity-100 transition-opacity"
-                        />
-                      </div>
-                    </button>
+                      {/* Right: Add Icon */}
+                      <Plus
+                        size={20}
+                        style={{ color: providerColor }}
+                        className="opacity-50 group-hover:opacity-100 group-hover:scale-110 transition-all duration-300 shrink-0"
+                      />
+                    </Button>
                   )
                 })}
               </div>

@@ -148,8 +148,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   // Custom provider edit form
   return (
     <div className="flex flex-col h-full">
-      <div className="h-[73px] flex items-center justify-between p-lg border-b border-border bg-surface-primary">
-        <div className="flex items-center gap-md">
+      <div className="h-[73px] flex items-center justify-between px-6 border-b border-border bg-surface-primary">
+        <div className="flex items-center gap-4">
           <Button onClick={onClose} variant={'ghost'}>
             <ChevronLeft size={20} />
           </Button>
@@ -162,7 +162,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-sm">
+        <div className="flex items-center gap-2">
           <Button
             onClick={() => setShowDeleteConfirm(true)}
             variant={'destructive'}
@@ -170,10 +170,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             <Trash2 size={14} />
             Delete
           </Button>
-          <Button
-            onClick={onClose}
-            variant={'secondary'}
-          >
+          <Button onClick={onClose} variant={'secondary'}>
             Cancel
           </Button>
           <Button
@@ -194,8 +191,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-lg">
-        <div className="container mx-auto max-w-[1600px] space-y-8">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="mx-auto max-w-7xl space-y-8">
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
               1. Basic Information
@@ -320,11 +317,7 @@ function DeleteConfirmModal({
           ? This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
-          <Button
-            onClick={onCancel}
-            variant={'secondary'}
-            className="px-4"
-          >
+          <Button onClick={onCancel} variant={'secondary'} className="px-4">
             Cancel
           </Button>
           <Button

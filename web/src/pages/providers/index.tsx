@@ -144,7 +144,7 @@ export function ProvidersPage() {
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-[1400px]">
+        <div className="mx-auto max-w-7xl">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-text-muted">Loading...</div>
