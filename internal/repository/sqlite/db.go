@@ -278,6 +278,38 @@ func (d *DB) migrate() error {
 		}
 	}
 
+	// Migration: Add start_time, end_time and duration columns to proxy_upstream_attempts
+	var hasStartTime bool
+	row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('proxy_upstream_attempts') WHERE name='start_time'`)
+	row.Scan(&hasStartTime)
+
+	if !hasStartTime {
+		_, err = d.db.Exec(`ALTER TABLE proxy_upstream_attempts ADD COLUMN start_time DATETIME`)
+		if err != nil {
+			return err
+		}
+		_, err = d.db.Exec(`ALTER TABLE proxy_upstream_attempts ADD COLUMN end_time DATETIME`)
+		if err != nil {
+			return err
+		}
+		_, err = d.db.Exec(`ALTER TABLE proxy_upstream_attempts ADD COLUMN duration_ms INTEGER DEFAULT 0`)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Migration: Add status_code column to proxy_requests if it doesn't exist
+	var hasStatusCode bool
+	row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('proxy_requests') WHERE name='status_code'`)
+	row.Scan(&hasStatusCode)
+
+	if !hasStatusCode {
+		_, err = d.db.Exec(`ALTER TABLE proxy_requests ADD COLUMN status_code INTEGER DEFAULT 0`)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -416,13 +448,24 @@ func parseTime(t sql.NullTime) time.Time {
 	return time.Time{}
 }
 
-// parseTime parses a string timestamp into time.Time
+// parseTimeString parses a string timestamp into time.Time
+// Supports multiple formats due to SQLite driver behavior differences
 func parseTimeString(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, nil
 	}
-	// SQLite stores timestamps in RFC3339 format
-	return time.Parse("2006-01-02 15:04:05", s)
+
+	// Try RFC3339 first (what go-sqlite3 returns)
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+
+	// Try our storage format
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, nil
 }
 
 // formatTime formats a time.Time into a string for SQLite

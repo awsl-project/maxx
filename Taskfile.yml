@@ -1,5 +1,14 @@
 version: '3'
 
+vars:
+  VERSION:
+    sh: grep '"version"' web/package.json | head -1 | sed 's/.*"version".*"\([^"]*\)".*/\1/'
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  BUILD_TIME:
+    sh: date -u '+%Y-%m-%dT%H:%M:%SZ'
+  LDFLAGS: -X github.com/Bowl42/maxx-next/internal/version.Version={{.VERSION}} -X github.com/Bowl42/maxx-next/internal/version.Commit={{.COMMIT}} -X github.com/Bowl42/maxx-next/internal/version.BuildTime={{.BUILD_TIME}}
+
 tasks:
   dev:
     desc: Run full-stack development (backend + frontend)
@@ -14,7 +23,7 @@ tasks:
     desc: Run frontend development server
     dir: web
     cmds:
-      - npm run dev
+      - pnpm dev
 
   dev:desktop:
     desc: Run Wails desktop application in development mode
@@ -31,7 +40,7 @@ tasks:
     desc: Install frontend dependencies
     dir: web
     cmds:
-      - npm install
+      - pnpm install
 
   install:wails:
     desc: Install Wails CLI
@@ -47,29 +56,30 @@ tasks:
   build:frontend:
     desc: Build frontend
     dir: web
+    env:
+      VITE_COMMIT: "{{.COMMIT}}"
     cmds:
-      - npm run build
+      - pnpm build
 
   build:backend:
-    desc: Build backend binary
+    desc: Build backend with version info
     cmds:
-      - go build -o maxx cmd/maxx/main.go
-
-  build:desktop:
-    desc: Build Wails desktop application
-    deps: [build:frontend]
-    cmds:
-      - wails build
-
-  build:desktop:windows:
-    desc: Build Wails desktop application for Windows
-    deps: [build:frontend]
-    cmds:
-      - wails build -platform windows/amd64
+      - go build -ldflags '{{.LDFLAGS}}' -o maxx cmd/maxx/main.go
 
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -rf web/dist
-      - rm -rf build
       - rm -f maxx
+      - rm -rf web/dist
+
+  version:
+    desc: Show version info
+    cmds:
+      - 'echo "Version: {{.VERSION}}"'
+      - 'echo "Commit:  {{.COMMIT}}"'
+      - 'echo "Build:   {{.BUILD_TIME}}"'
+
+  docker:
+    desc: Build Docker image
+    cmds:
+      - docker build --build-arg VERSION={{.VERSION}} --build-arg COMMIT={{.COMMIT}} --build-arg BUILD_TIME={{.BUILD_TIME}} --build-arg VITE_COMMIT={{.COMMIT}} -t maxx .

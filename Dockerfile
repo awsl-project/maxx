@@ -3,25 +3,31 @@
 # Stage 1: Build frontend
 FROM node:22-alpine AS frontend-builder
 
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 WORKDIR /app/web
 
 # Copy frontend package files
-COPY web/package.json web/package-lock.json ./
+COPY web/package.json ./
 
 # Install frontend dependencies
-RUN npm ci
+RUN pnpm install
 
 # Copy frontend source
 COPY web/ ./
 
+# Build args for version info
+ARG VITE_COMMIT=unknown
+
 # Build frontend
-RUN npm run build
+RUN VITE_COMMIT=${VITE_COMMIT} pnpm build
 
 # Stage 2: Build backend
 FROM golang:1.25-alpine AS backend-builder
 
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev sqlite-dev
+RUN apk add --no-cache gcc musl-dev sqlite-dev git
 
 WORKDIR /app
 
@@ -35,8 +41,18 @@ RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
-# Build backend binary
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -ldflags="-s -w" -o maxx cmd/maxx/main.go
+# Build args for version info
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+
+# Build backend binary with version info
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo \
+    -ldflags="-s -w \
+    -X github.com/Bowl42/maxx-next/internal/version.Version=${VERSION} \
+    -X github.com/Bowl42/maxx-next/internal/version.Commit=${COMMIT} \
+    -X github.com/Bowl42/maxx-next/internal/version.BuildTime=${BUILD_TIME}" \
+    -o maxx cmd/maxx/main.go
 
 # Stage 3: Final runtime image
 FROM alpine:latest

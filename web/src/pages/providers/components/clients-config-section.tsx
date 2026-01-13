@@ -28,7 +28,9 @@ export function ClientsConfigSection({ clients, onUpdateClient }: ClientsConfigS
                   {client.name}
                 </span>
               </div>
-              <Switch checked={client.enabled} onCheckedChange={(checked) => onUpdateClient(client.id, { enabled: checked })} />
+              <div onClick={(e) => e.stopPropagation()}>
+                <Switch checked={client.enabled} onCheckedChange={(checked) => onUpdateClient(client.id, { enabled: checked })} />
+              </div>
             </div>
             
             {/* Expandable/Visible Content */}

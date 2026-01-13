@@ -1,192 +1,290 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
-import { useProviders, useRoutes, useProjects, useProxyRequests } from '@/hooks/queries';
-import { Activity, Server, Route, FolderKanban, Zap, ArrowRight, CheckCircle, XCircle, Ban, LayoutDashboard } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
+import {
+  useProviders,
+  useRoutes,
+  useProjects,
+  useProxyRequests,
+} from '@/hooks/queries'
+import {
+  Activity,
+  Server,
+  Route,
+  FolderKanban,
+  Zap,
+  ArrowRight,
+  CheckCircle,
+  XCircle,
+  Ban,
+  LayoutDashboard,
+} from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { PageHeader } from '@/components/layout/page-header'
 
 export function OverviewPage() {
-  const { data: providers } = useProviders();
-  const { data: routes } = useRoutes();
-  const { data: projects } = useProjects();
-  const { data: requestsData } = useProxyRequests({ limit: 10 });
+  const { data: providers } = useProviders()
+  const { data: routes } = useRoutes()
+  const { data: projects } = useProjects()
+  const { data: requestsData } = useProxyRequests({ limit: 10 })
 
-  const requests = requestsData?.items ?? [];
+  const requests = requestsData?.items ?? []
 
   const stats = [
-    { label: 'Providers', value: providers?.length ?? 0, icon: Server, color: 'text-info', href: '/providers' },
-    { label: 'Routes', value: routes?.length ?? 0, icon: Route, color: 'text-accent', href: '/routes/claude' },
-    { label: 'Projects', value: projects?.length ?? 0, icon: FolderKanban, color: 'text-warning', href: '/projects' },
-    { label: 'Recent Requests', value: requests.length, icon: Activity, color: 'text-success', href: '/requests' },
-  ];
+    {
+      label: 'Providers',
+      value: providers?.length ?? 0,
+      icon: Server,
+      className:
+        'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10',
+      href: '/providers',
+    },
+    {
+      label: 'Routes',
+      value: routes?.length ?? 0,
+      icon: Route,
+      className:
+        'text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-500/10',
+      href: '/routes/claude',
+    },
+    {
+      label: 'Projects',
+      value: projects?.length ?? 0,
+      icon: FolderKanban,
+      className:
+        'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10',
+      href: '/projects',
+    },
+    {
+      label: 'Recent Requests',
+      value: requests.length,
+      icon: Activity,
+      className:
+        'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10',
+      href: '/requests',
+    },
+  ]
 
-  const completedRequests = requests.filter((r) => r.status === 'COMPLETED').length;
-  const failedRequests = requests.filter((r) => r.status === 'FAILED').length;
-  const cancelledRequests = requests.filter((r) => r.status === 'CANCELLED').length;
-  const hasProviders = (providers?.length ?? 0) > 0;
+  const completedRequests = requests.filter(
+    r => r.status === 'COMPLETED'
+  ).length
+  const failedRequests = requests.filter(r => r.status === 'FAILED').length
+  const cancelledRequests = requests.filter(
+    r => r.status === 'CANCELLED'
+  ).length
+  const hasProviders = (providers?.length ?? 0) > 0
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="h-[73px] flex items-center justify-between px-6 border-b border-border bg-surface-primary flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-accent/10 rounded-lg">
-             <LayoutDashboard size={20} className="text-accent" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-text-primary leading-tight">Dashboard</h2>
-            <p className="text-xs text-text-secondary">Overview of your proxy gateway</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
-      {/* Welcome Section */}
-      {!hasProviders && (
-        <div className="text-center py-12">
-          <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-6">
-            <Zap size={32} className="text-accent" />
-          </div>
-          <h1 className="text-2xl font-bold text-text-primary mb-3">Welcome to Maxx Next</h1>
-          <p className="text-sm text-text-secondary mb-8">
-            AI API Proxy Gateway - Route your AI requests through multiple providers with intelligent failover and load balancing.
-          </p>
-          <Link
-            to="/providers"
-            className="inline-flex items-center gap-2 bg-accent text-white px-6 py-2.5 rounded-lg hover:bg-accent-hover transition-colors font-medium text-sm"
-          >
-            Get Started
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
-      )}
-
-      {/* Stats Grid */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Link key={stat.label} to={stat.href}>
-              <Card className="hover:shadow-card-hover cursor-pointer border-border bg-surface-primary transition-all duration-200 hover:border-accent/50">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-medium text-text-secondary uppercase tracking-wider">{stat.label}</p>
-                      <p className="text-2xl font-bold text-text-primary mt-1">{stat.value}</p>
-                    </div>
-                    <div className={`p-3 rounded-lg bg-surface-secondary ${stat.color}`}>
-                      <Icon className="h-5 w-5" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          );
-        })}
-      </div>
-
-      {/* Status Cards */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="border-border bg-surface-primary">
-          <CardHeader className="border-b border-border py-4">
-            <CardTitle className="text-base font-medium">Request Status</CardTitle>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 rounded-lg bg-surface-secondary/50 border border-border">
-                <div className="flex items-center gap-3">
-                  <CheckCircle className="h-4 w-4 text-success" />
-                  <span className="text-sm font-medium text-text-secondary">Completed</span>
-                </div>
-                <span className="text-lg font-bold text-success font-mono">{completedRequests}</span>
+    <div className="flex flex-col h-full">
+      <PageHeader
+        icon={LayoutDashboard}
+        iconClassName="text-indigo-500"
+        title="Dashboard"
+        description="Overview of your proxy gateway"
+      />
+      <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="space-y-6 md:space-y-8 animate-fade-in max-w-7xl mx-auto">
+          {/* Welcome Section */}
+          {!hasProviders && (
+            <div className="text-center py-16 md:py-20 px-4">
+              <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center mx-auto mb-8 shadow-xl shadow-indigo-500/20 animate-pulse-slow ring-4 ring-white/50 dark:ring-white/10">
+                <Zap size={40} className="text-white drop-shadow-md" />
               </div>
-              <div className="flex items-center justify-between p-3 rounded-lg bg-surface-secondary/50 border border-border">
-                <div className="flex items-center gap-3">
-                  <XCircle className="h-4 w-4 text-error" />
-                  <span className="text-sm font-medium text-text-secondary">Failed</span>
-                </div>
-                <span className="text-lg font-bold text-error font-mono">{failedRequests}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-lg bg-surface-secondary/50 border border-border">
-                <div className="flex items-center gap-3">
-                  <Ban className="h-4 w-4 text-warning" />
-                  <span className="text-sm font-medium text-text-secondary">Cancelled</span>
-                </div>
-                <span className="text-lg font-bold text-warning font-mono">{cancelledRequests}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-surface-primary">
-          <CardHeader className="border-b border-border py-4">
-            <CardTitle className="text-base font-medium">Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="space-y-3">
+              <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-indigo-600 dark:from-violet-400 dark:to-indigo-400">
+                Welcome to Maxx Next
+              </h1>
+              <p className="text-base md:text-lg text-muted-foreground max-w mx-auto mb-10 leading-relaxed">
+                AI API Proxy Gateway - Route your AI requests through multiple
+                providers with intelligent failover and load balancing.
+              </p>
               <Link
                 to="/providers"
-                className="flex items-center justify-between p-3 rounded-lg bg-surface-secondary/50 border border-border hover:bg-surface-hover hover:border-accent/30 transition-all group"
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white px-8 py-3 rounded-xl hover:opacity-90 transition-all duration-300 font-medium text-sm shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:scale-105 active:scale-95"
               >
-                <div className="flex items-center gap-3">
-                  <Server className="h-4 w-4 text-info" />
-                  <span className="text-sm font-medium text-text-primary">Manage Providers</span>
-                </div>
-                <ArrowRight className="h-4 w-4 text-text-muted group-hover:text-text-primary transition-colors" />
-              </Link>
-              <Link
-                to="/routes"
-                className="flex items-center justify-between p-3 rounded-lg bg-surface-secondary/50 border border-border hover:bg-surface-hover hover:border-accent/30 transition-all group"
-              >
-                <div className="flex items-center gap-3">
-                  <Route className="h-4 w-4 text-accent" />
-                  <span className="text-sm font-medium text-text-primary">Configure Routes</span>
-                </div>
-                <ArrowRight className="h-4 w-4 text-text-muted group-hover:text-text-primary transition-colors" />
-              </Link>
-              <Link
-                to="/requests"
-                className="flex items-center justify-between p-3 rounded-lg bg-surface-secondary/50 border border-border hover:bg-surface-hover hover:border-accent/30 transition-all group"
-              >
-                <div className="flex items-center gap-3">
-                  <Activity className="h-4 w-4 text-success" />
-                  <span className="text-sm font-medium text-text-primary">View Requests</span>
-                </div>
-                <ArrowRight className="h-4 w-4 text-text-muted group-hover:text-text-primary transition-colors" />
+                Get Started
+                <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
 
-      {/* Features */}
-      {!hasProviders && (
-        <div className="grid grid-cols-3 gap-6">
-          <div className="bg-surface-secondary/30 border border-border rounded-xl p-6 text-center">
-            <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="h-5 w-5 text-success" />
-            </div>
-            <h3 className="text-sm font-semibold text-text-primary">Secure</h3>
-            <p className="text-xs text-text-secondary mt-1">End-to-end encryption</p>
+          {/* Stats Grid */}
+          <div className="grid gap-4 md:gap-6 grid-cols-2 lg:grid-cols-4">
+            {stats.map(stat => {
+              const Icon = stat.icon
+              return (
+                <Link key={stat.label} to={stat.href} className="group">
+                  <Card className="h-full hover:shadow-lg hover:shadow-accent/5 cursor-pointer border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:border-accent/40 hover:-translate-y-1">
+                    <CardContent className="p-4 md:p-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                            {stat.label}
+                          </p>
+                          <p className="text-2xl md:text-3xl font-bold text-foreground font-mono tracking-tight">
+                            {stat.value}
+                          </p>
+                        </div>
+                        <div
+                          className={`p-3 rounded-2xl ${stat.className} transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3 shadow-sm`}
+                        >
+                          <Icon className="h-5 w-5 md:h-6 md:w-6" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              )
+            })}
           </div>
-          <div className="bg-surface-secondary/30 border border-border rounded-xl p-6 text-center">
-            <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center mx-auto mb-4">
-              <Zap className="h-5 w-5 text-accent" />
-            </div>
-            <h3 className="text-sm font-semibold text-text-primary">Fast</h3>
-            <p className="text-xs text-text-secondary mt-1">Low latency routing</p>
+
+          {/* Status Cards */}
+          <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-2">
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:shadow-accent/5">
+              <CardHeader className="border-b border-border/50 py-4 px-5">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-emerald-500" />
+                  Request Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-5">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10 hover:bg-emerald-500/10 transition-colors group">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-emerald-500/10 group-hover:bg-emerald-500/20 transition-colors">
+                        <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        Completed
+                      </span>
+                    </div>
+                    <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono tabular-nums">
+                      {completedRequests}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/10 transition-colors group">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-red-500/10 group-hover:bg-red-500/20 transition-colors">
+                        <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        Failed
+                      </span>
+                    </div>
+                    <span className="text-xl font-bold text-red-600 dark:text-red-400 font-mono tabular-nums">
+                      {failedRequests}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 hover:bg-amber-500/10 transition-colors group">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-amber-500/10 group-hover:bg-amber-500/20 transition-colors">
+                        <Ban className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        Cancelled
+                      </span>
+                    </div>
+                    <span className="text-xl font-bold text-amber-600 dark:text-amber-400 font-mono tabular-nums">
+                      {cancelledRequests}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:shadow-accent/5">
+              <CardHeader className="border-b border-border/50 py-4 px-5">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-amber-500" />
+                  Quick Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-5">
+                <div className="space-y-2">
+                  <Link
+                    to="/providers"
+                    className="flex items-center justify-between p-4 rounded-xl bg-card/30 border border-border/50 hover:bg-blue-500/5 hover:border-blue-500/20 hover:shadow-sm transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 group-hover:bg-blue-500/20 transition-colors">
+                        <Server className="h-4 w-4" />
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        Manage Providers
+                      </span>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+                  </Link>
+                  <Link
+                    to="/routes"
+                    className="flex items-center justify-between p-4 rounded-xl bg-card/30 border border-border/50 hover:bg-violet-500/5 hover:border-violet-500/20 hover:shadow-sm transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400 group-hover:bg-violet-500/20 transition-colors">
+                        <Route className="h-4 w-4" />
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        Configure Routes
+                      </span>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-violet-500 group-hover:translate-x-1 transition-all" />
+                  </Link>
+                  <Link
+                    to="/requests"
+                    className="flex items-center justify-between p-4 rounded-xl bg-card/30 border border-border/50 hover:bg-emerald-500/5 hover:border-emerald-500/20 hover:shadow-sm transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
+                        <Activity className="h-4 w-4" />
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        View Requests
+                      </span>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-          <div className="bg-surface-secondary/30 border border-border rounded-xl p-6 text-center">
-            <div className="w-10 h-10 rounded-lg bg-info/10 flex items-center justify-center mx-auto mb-4">
-              <Activity className="h-5 w-5 text-info" />
+
+          {/* Features */}
+          {!hasProviders && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+              <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-6 md:p-8 text-center hover:bg-emerald-500/5 hover:border-emerald-500/30 transition-all duration-300 group hover:-translate-y-1">
+                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-4 group-hover:bg-emerald-500/20 transition-colors">
+                  <CheckCircle className="h-6 w-6 md:h-7 md:w-7 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-2">
+                  Secure
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  End-to-end encryption
+                </p>
+              </div>
+              <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-6 md:p-8 text-center hover:bg-violet-500/5 hover:border-violet-500/30 transition-all duration-300 group hover:-translate-y-1">
+                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-violet-500/10 flex items-center justify-center mx-auto mb-4 group-hover:bg-violet-500/20 transition-colors">
+                  <Zap className="h-6 w-6 md:h-7 md:w-7 text-violet-600 dark:text-violet-400" />
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-2">
+                  Fast
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Low latency routing
+                </p>
+              </div>
+              <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-6 md:p-8 text-center hover:bg-blue-500/5 hover:border-blue-500/30 transition-all duration-300 group hover:-translate-y-1">
+                <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-blue-500/10 flex items-center justify-center mx-auto mb-4 group-hover:bg-blue-500/20 transition-colors">
+                  <Activity className="h-6 w-6 md:h-7 md:w-7 text-blue-600 dark:text-blue-400" />
+                </div>
+                <h3 className="text-base font-semibold text-foreground mb-2">
+                  Insights
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Real-time analytics
+                </p>
+              </div>
             </div>
-            <h3 className="text-sm font-semibold text-text-primary">Insights</h3>
-            <p className="text-xs text-text-secondary mt-1">Real-time analytics</p>
-          </div>
-        </div>
-      )}
+          )}
         </div>
       </div>
     </div>
-  );
+  )
 }

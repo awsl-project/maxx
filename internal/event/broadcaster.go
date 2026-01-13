@@ -9,6 +9,7 @@ type Broadcaster interface {
 	BroadcastProxyUpstreamAttempt(attempt *domain.ProxyUpstreamAttempt)
 	BroadcastLog(message string)
 	BroadcastStats(stats interface{})
+	BroadcastMessage(messageType string, data interface{})
 }
 
 // NopBroadcaster 空实现，用于测试或不需要广播的场景
@@ -18,3 +19,4 @@ func (n *NopBroadcaster) BroadcastProxyRequest(req *domain.ProxyRequest)        
 func (n *NopBroadcaster) BroadcastProxyUpstreamAttempt(attempt *domain.ProxyUpstreamAttempt) {}
 func (n *NopBroadcaster) BroadcastLog(message string)                                   {}
 func (n *NopBroadcaster) BroadcastStats(stats interface{})                              {}
+func (n *NopBroadcaster) BroadcastMessage(messageType string, data interface{})         {}

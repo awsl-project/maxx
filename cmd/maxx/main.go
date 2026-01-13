@@ -19,6 +19,7 @@ import (
 	"github.com/Bowl42/maxx-next/internal/repository/sqlite"
 	"github.com/Bowl42/maxx-next/internal/router"
 	"github.com/Bowl42/maxx-next/internal/service"
+	"github.com/Bowl42/maxx-next/internal/version"
 )
 
 // getDefaultDataDir returns the default data directory path (~/.config/maxx)
@@ -41,7 +42,14 @@ func main() {
 	// Parse flags
 	addr := flag.String("addr", ":9880", "Server address")
 	dataDir := flag.String("data", "", "Data directory for database and logs (default: ~/.config/maxx)")
+	showVersion := flag.Bool("version", false, "Show version information and exit")
 	flag.Parse()
+
+	// Show version and exit if requested
+	if *showVersion {
+		fmt.Println("maxx", version.Full())
+		os.Exit(0)
+	}
 
 	// Determine data directory: CLI flag > env var > default
 	var dataDirPath string
@@ -164,7 +172,7 @@ func main() {
 	adminService := service.NewAdminService(
 		cachedProviderRepo,
 		cachedRouteRepo,
-		projectRepo,
+		cachedProjectRepo, // Use cached repository so updates are visible to Router
 		cachedSessionRepo,
 		cachedRetryConfigRepo,
 		cachedRoutingStrategyRepo,
@@ -178,7 +186,7 @@ func main() {
 	// Create handlers
 	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, cachedSessionRepo)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
-	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo)
+	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
 
 	// Use already-created cached project repository for project proxy handler
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, cachedProjectRepo)
@@ -221,7 +229,7 @@ func main() {
 	loggedMux := handler.LoggingMiddleware(mux)
 
 	// Start server
-	log.Printf("Starting maxx-next server on %s", *addr)
+	log.Printf("Starting maxx-next server %s on %s", version.Info(), *addr)
 	log.Printf("Data directory: %s", dataDirPath)
 	log.Printf("  Database: %s", dbPath)
 	log.Printf("  Log file: %s", logPath)

@@ -61,13 +61,9 @@ func (r *Router) InitAdapters() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	log.Printf("[Router] InitAdapters: found %d providers", len(providers))
-
 	for _, p := range providers {
-		log.Printf("[Router] InitAdapters: provider id=%d, type=%s", p.ID, p.Type)
 		factory, ok := provider.GetAdapterFactory(p.Type)
 		if !ok {
-			log.Printf("[Router] InitAdapters: no factory for type %s", p.Type)
 			continue // Skip providers without registered adapters
 		}
 		a, err := factory(p)
@@ -76,7 +72,6 @@ func (r *Router) InitAdapters() error {
 			return err
 		}
 		r.adapters[p.ID] = a
-		log.Printf("[Router] InitAdapters: adapter created for provider %d", p.ID)
 	}
 	return nil
 }
@@ -108,17 +103,29 @@ func (r *Router) RemoveAdapter(providerID uint64) {
 func (r *Router) Match(clientType domain.ClientType, projectID uint64) ([]*MatchedRoute, error) {
 	routes := r.routeRepo.GetAll()
 
-	log.Printf("[Router] Total routes in cache: %d", len(routes))
+	log.Printf("[Router] Match called: clientType=%s, projectID=%d, total routes in cache=%d", clientType, projectID, len(routes))
+
+	// Debug: print all routes in cache
+	for _, rt := range routes {
+		log.Printf("[Router] Route in cache: id=%d, clientType=%s, projectID=%d, providerID=%d, isEnabled=%v",
+			rt.ID, rt.ClientType, rt.ProjectID, rt.ProviderID, rt.IsEnabled)
+	}
 
 	// Check if ClientType has custom routes enabled for this project
 	useProjectRoutes := false
 	if projectID != 0 {
 		project, err := r.projectRepo.GetByID(projectID)
-		if err == nil && project != nil {
+		if err != nil {
+			log.Printf("[Router] Failed to get project %d: %v", projectID, err)
+		} else if project == nil {
+			log.Printf("[Router] Project %d not found in cache", projectID)
+		} else {
+			log.Printf("[Router] Project %d found: name=%s, EnabledCustomRoutes=%v", project.ID, project.Name, project.EnabledCustomRoutes)
 			// If EnabledCustomRoutes is empty, all ClientTypes use global routes
 			// If EnabledCustomRoutes is not empty, only listed ClientTypes can have custom routes
 			if len(project.EnabledCustomRoutes) == 0 {
 				useProjectRoutes = false
+				log.Printf("[Router] Project %d has empty EnabledCustomRoutes, using global routes", projectID)
 			} else {
 				for _, ct := range project.EnabledCustomRoutes {
 					if ct == clientType {
@@ -127,37 +134,44 @@ func (r *Router) Match(clientType domain.ClientType, projectID uint64) ([]*Match
 					}
 				}
 			}
-			if !useProjectRoutes {
-				log.Printf("[Router] ClientType %s not in EnabledCustomRoutes for project %d, falling back to global routes", clientType, projectID)
+			if !useProjectRoutes && len(project.EnabledCustomRoutes) > 0 {
+				log.Printf("[Router] ClientType %s not in EnabledCustomRoutes %v for project %d, falling back to global routes", clientType, project.EnabledCustomRoutes, projectID)
 			}
 		}
+	} else {
+		log.Printf("[Router] projectID is 0, using global routes")
 	}
 
 	// Filter routes
 	var filtered []*domain.Route
 	var hasProjectRoutes bool
 
+	log.Printf("[Router] useProjectRoutes=%v for clientType=%s, projectID=%d", useProjectRoutes, clientType, projectID)
+
 	// Only look for project-specific routes if ClientType is in EnabledCustomRoutes
 	if useProjectRoutes {
+		log.Printf("[Router] Looking for project-specific routes for projectID=%d, clientType=%s", projectID, clientType)
 		for _, route := range routes {
-			log.Printf("[Router] Route id=%d, clientType=%s, enabled=%v, projectID=%d",
-				route.ID, route.ClientType, route.IsEnabled, route.ProjectID)
-
 			if !route.IsEnabled {
+				log.Printf("[Router] Skipping disabled route id=%d", route.ID)
 				continue
 			}
 			if route.ClientType != clientType {
 				continue
 			}
 			if route.ProjectID == projectID && projectID != 0 {
+				log.Printf("[Router] Found matching project route: id=%d, providerID=%d", route.ID, route.ProviderID)
 				filtered = append(filtered, route)
 				hasProjectRoutes = true
+			} else {
+				log.Printf("[Router] Route id=%d has projectID=%d, not matching requested projectID=%d", route.ID, route.ProjectID, projectID)
 			}
 		}
 	}
 
 	// If no project-specific routes or ClientType not enabled for custom routes, use global routes
 	if !hasProjectRoutes {
+		log.Printf("[Router] No project routes found, falling back to global routes (projectID=0)")
 		for _, route := range routes {
 			if !route.IsEnabled {
 				continue
@@ -166,12 +180,13 @@ func (r *Router) Match(clientType domain.ClientType, projectID uint64) ([]*Match
 				continue
 			}
 			if route.ProjectID == 0 {
+				log.Printf("[Router] Found global route: id=%d, providerID=%d", route.ID, route.ProviderID)
 				filtered = append(filtered, route)
 			}
 		}
 	}
 
-	log.Printf("[Router] Filtered routes: %d", len(filtered))
+	log.Printf("[Router] Filtered routes count: %d, hasProjectRoutes=%v", len(filtered), hasProjectRoutes)
 
 	if len(filtered) == 0 {
 		return nil, domain.ErrNoRoutes

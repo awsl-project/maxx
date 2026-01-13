@@ -107,27 +107,16 @@ func (r *CooldownRepository) Get(providerID uint64, clientType string) (*domain.
 func (r *CooldownRepository) Upsert(cooldown *domain.Cooldown) error {
 	now := time.Now().UTC()
 
-	// Check if exists
-	existing, err := r.Get(cooldown.ProviderID, cooldown.ClientType)
-	if err != nil {
-		return err
-	}
-
-	if existing != nil {
-		// Update
-		query := `UPDATE cooldowns
-		          SET until_time = ?, reason = ?, updated_at = ?
-		          WHERE provider_id = ? AND client_type = ?`
-
-		_, err = r.db.db.Exec(query, formatTime(cooldown.UntilTime), string(cooldown.Reason), formatTime(now), cooldown.ProviderID, cooldown.ClientType)
-		return err
-	}
-
-	// Insert
+	// Use INSERT OR REPLACE to handle both insert and update cases
+	// This works correctly even when an expired record exists
 	query := `INSERT INTO cooldowns (provider_id, client_type, until_time, reason, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?)`
+	          VALUES (?, ?, ?, ?, ?, ?)
+	          ON CONFLICT(provider_id, client_type) DO UPDATE SET
+	            until_time = excluded.until_time,
+	            reason = excluded.reason,
+	            updated_at = excluded.updated_at`
 
-	result, err := r.db.db.Exec(query,
+	_, err := r.db.db.Exec(query,
 		cooldown.ProviderID,
 		cooldown.ClientType,
 		formatTime(cooldown.UntilTime),
@@ -140,8 +129,6 @@ func (r *CooldownRepository) Upsert(cooldown *domain.Cooldown) error {
 		return err
 	}
 
-	id, _ := result.LastInsertId()
-	cooldown.ID = uint64(id)
 	cooldown.CreatedAt = now
 	cooldown.UpdatedAt = now
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -140,6 +141,11 @@ func FetchQuotaForProvider(ctx context.Context, refreshToken, projectID string) 
 	return quota, nil
 }
 
+// FetchUserInfo 获取用户信息 (导出版本供 handler 使用)
+func FetchUserInfo(ctx context.Context, accessToken string) (*UserInfo, error) {
+	return fetchUserInfo(ctx, accessToken)
+}
+
 // fetchUserInfo 获取用户信息
 func fetchUserInfo(ctx context.Context, accessToken string) (*UserInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", GoogleUserInfoURL, nil)
@@ -165,6 +171,11 @@ func fetchUserInfo(ctx context.Context, accessToken string) (*UserInfo, error) {
 		return nil, err
 	}
 	return &userInfo, nil
+}
+
+// FetchProjectInfo 获取 Project ID 和订阅信息 (导出版本供 handler 使用)
+func FetchProjectInfo(ctx context.Context, accessToken, email string) (projectID, tier string, err error) {
+	return fetchProjectInfo(ctx, accessToken, email)
 }
 
 // fetchProjectInfo 获取 Project ID 和订阅信息
@@ -276,6 +287,11 @@ func fetchProjectInfoByID(ctx context.Context, accessToken, projectID string) (s
 	}
 
 	return projectID, tier, nil
+}
+
+// FetchQuota 获取配额信息 (导出版本供 handler 使用)
+func FetchQuota(ctx context.Context, accessToken, projectID string) (*QuotaData, error) {
+	return fetchQuota(ctx, accessToken, projectID)
 }
 
 // fetchQuota 获取配额信息
@@ -402,4 +418,88 @@ func ImportFromVSCodeDB(dbPath string) ([]string, error) {
 	// macOS: ~/Library/Application Support/Code/User/globalStorage/*/auth.db
 	// 这里返回空实现，完整版需要 SQLite 支持
 	return nil, fmt.Errorf("VSCode DB import not implemented in server mode")
+}
+
+// ============================================================================
+// OAuth 授权流程相关函数（参考 Antigravity-Manager oauth.rs）
+// ============================================================================
+
+const (
+	GoogleAuthURL = "https://accounts.google.com/o/oauth2/v2/auth"
+)
+
+// GetAuthURL 构建 Google OAuth 授权 URL
+// 参考: oauth.rs line 52-73
+func GetAuthURL(redirectURI, state string) string {
+	scopes := []string{
+		"https://www.googleapis.com/auth/cloud-platform",
+		"https://www.googleapis.com/auth/userinfo.email",
+		"https://www.googleapis.com/auth/userinfo.profile",
+		"https://www.googleapis.com/auth/cclog",
+		"https://www.googleapis.com/auth/experimentsandconfigs",
+	}
+
+	params := make(map[string]string)
+	params["client_id"] = OAuthClientID
+	params["redirect_uri"] = redirectURI
+	params["response_type"] = "code"
+	params["scope"] = strings.Join(scopes, " ")
+	params["state"] = state
+	params["access_type"] = "offline"
+	params["prompt"] = "consent"
+	params["include_granted_scopes"] = "true"
+
+	// 构建 URL
+	queryParts := make([]string, 0, len(params))
+	for k, v := range params {
+		queryParts = append(queryParts, fmt.Sprintf("%s=%s", url.QueryEscape(k), url.QueryEscape(v)))
+	}
+	return GoogleAuthURL + "?" + strings.Join(queryParts, "&")
+}
+
+// ExchangeCodeForTokens 使用 authorization code 交换 access_token 和 refresh_token
+// 参考: oauth.rs line 75-121
+func ExchangeCodeForTokens(ctx context.Context, code, redirectURI string) (string, string, int, error) {
+	data := url.Values{}
+	data.Set("client_id", OAuthClientID)
+	data.Set("client_secret", OAuthClientSecret)
+	data.Set("code", code)
+	data.Set("redirect_uri", redirectURI)
+	data.Set("grant_type", "authorization_code")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", GoogleTokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", "", 0, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("token exchange request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", "", 0, fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		TokenType    string `json:"token_type"`
+		RefreshToken string `json:"refresh_token"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", "", 0, fmt.Errorf("failed to parse token response: %w", err)
+	}
+
+	// 检查 refresh_token 是否存在
+	if tokenResp.RefreshToken == "" {
+		return "", "", 0, fmt.Errorf("no refresh_token returned (user may have already authorized this app)")
+	}
+
+	return tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn, nil
 }

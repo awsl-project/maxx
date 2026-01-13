@@ -1,0 +1,29 @@
+# Dependencies
+node_modules
+dist
+build
+
+# Production
+*.min.js
+*.min.css
+
+# Cache
+.cache
+.parcel-cache
+.vite
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode
+.idea
+
+# Other
+coverage
+.DS_Store

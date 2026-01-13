@@ -155,6 +155,7 @@ export interface ProxyRequest {
   duration: number; // nanoseconds
   isStream: boolean; // 是否为 SSE 流式请求
   status: ProxyRequestStatus;
+  statusCode: number; // HTTP 状态码（冗余存储，用于列表查询优化）
   requestInfo: RequestInfo | null;
   responseInfo: ResponseInfo | null;
   error: string;
@@ -181,6 +182,9 @@ export interface ProxyUpstreamAttempt {
   id: number;
   createdAt: string;
   updatedAt: string;
+  startTime: string;
+  endTime: string;
+  duration: number; // nanoseconds
   status: ProxyUpstreamAttemptStatus;
   proxyRequestID: number;
   isStream: boolean; // 是否为 SSE 流式请求
@@ -225,7 +229,12 @@ export interface CursorPaginationResult<T> {
 
 // ===== WebSocket 消息 =====
 
-export type WSMessageType = 'proxy_request_update' | 'proxy_upstream_attempt_update' | 'stats_update' | 'log_message';
+export type WSMessageType =
+  | 'proxy_request_update'
+  | 'proxy_upstream_attempt_update'
+  | 'stats_update'
+  | 'log_message'
+  | 'antigravity_oauth_result';
 
 export interface WSMessage<T = unknown> {
   type: WSMessageType;
@@ -288,6 +297,18 @@ export interface AntigravityTokenValidationResult {
 export interface AntigravityBatchValidationResult {
   results: AntigravityTokenValidationResult[];
   total: number;
+}
+
+export interface AntigravityOAuthResult {
+  state: string;        // 用于前端匹配会话
+  success: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  email?: string;
+  projectID?: string;
+  userInfo?: AntigravityUserInfo;
+  quota?: AntigravityQuotaData;
+  error?: string;
 }
 
 // ===== 回调类型 =====

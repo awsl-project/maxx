@@ -81,12 +81,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 	}
 
 	// Capture client's original request info (before conversion to upstream format)
-	requestPath := ctxutil.GetRequestPath(ctx)
+	requestURI := ctxutil.GetRequestURI(ctx)
 	requestHeaders := ctxutil.GetRequestHeaders(ctx)
 	requestBody := ctxutil.GetRequestBody(ctx)
 	proxyReq.RequestInfo = &domain.RequestInfo{
 		Method:  req.Method,
-		URL:     requestPath,
+		URL:     requestURI,
 		Headers: flattenHeaders(requestHeaders),
 		Body:    string(requestBody),
 	}
@@ -175,13 +175,15 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				return ctx.Err()
 			}
 
-			// Create attempt record
+			// Create attempt record with start time
+			attemptStartTime := time.Now()
 			attemptRecord := &domain.ProxyUpstreamAttempt{
 				ProxyRequestID: proxyReq.ID,
 				RouteID:        matchedRoute.Route.ID,
 				ProviderID:     matchedRoute.Provider.ID,
 				IsStream:       isStream,
 				Status:         "IN_PROGRESS",
+				StartTime:      attemptStartTime,
 			}
 			log.Printf("[Executor] Creating attempt for route %d, attempt %d (proxyRequestID=%d, routeID=%d, providerID=%d)",
 				routeIdx+1, attempt+1, proxyReq.ID, matchedRoute.Route.ID, matchedRoute.Provider.ID)
@@ -215,7 +217,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			log.Printf("[Executor] Route %d, attempt %d: executing...", routeIdx+1, attempt+1)
 			err := matchedRoute.ProviderAdapter.Execute(attemptCtx, responseCapture, req, matchedRoute.Provider)
 			if err == nil {
-				// Success
+				// Success - set end time and duration
+				attemptRecord.EndTime = time.Now()
+				attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 				log.Printf("[Executor] Route %d, attempt %d: SUCCESS", routeIdx+1, attempt+1)
 				attemptRecord.Status = "COMPLETED"
 				_ = e.attemptRepo.Update(attemptRecord)
@@ -240,6 +244,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 					Headers: responseCapture.CapturedHeaders(),
 					Body:    responseCapture.Body(),
 				}
+				proxyReq.StatusCode = responseCapture.StatusCode()
 
 				// Extract token usage from final client response (not from upstream attempt)
 				// This ensures we use the correct format (Claude/OpenAI/Gemini) for the client type
@@ -263,7 +268,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				return nil
 			}
 
-			// Handle error
+			// Handle error - set end time and duration
+			attemptRecord.EndTime = time.Now()
+			attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 			log.Printf("[Executor] Route %d, attempt %d: FAILED - %v", routeIdx+1, attempt+1, err)
 			lastErr = err
 
@@ -289,6 +296,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 					Headers: responseCapture.CapturedHeaders(),
 					Body:    responseCapture.Body(),
 				}
+				proxyReq.StatusCode = responseCapture.StatusCode()
 
 				// Extract token usage from final client response
 				if metrics := usage.ExtractFromResponse(responseCapture.Body()); metrics != nil {

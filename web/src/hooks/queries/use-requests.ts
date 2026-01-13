@@ -57,10 +57,7 @@ export function useProxyRequestUpdates() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    // 确保 Transport 已连接
-    transport.connect().catch(console.error);
-
-    // 订阅 ProxyRequest 更新事件
+    // 订阅 ProxyRequest 更新事件 (连接由 main.tsx 统一管理)
     const unsubscribeRequest = transport.subscribe<ProxyRequest>(
       'proxy_request_update',
       (updatedRequest) => {

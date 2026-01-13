@@ -20,8 +20,8 @@ export function SessionsPage() {
        {/* Header */}
       <div className="h-[73px] flex items-center justify-between px-6 border-b border-border bg-surface-primary flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-accent/10 rounded-lg">
-            <LayoutDashboard size={20} className="text-accent" />
+          <div className="p-2 bg-accent rounded-lg">
+            <LayoutDashboard size={20} />
           </div>
           <div>
             <h2 className="text-lg font-semibold text-text-primary leading-tight">Sessions</h2>

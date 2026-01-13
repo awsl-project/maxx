@@ -85,7 +85,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = ctxutil.WithRequestModel(ctx, requestModel)
 	ctx = ctxutil.WithRequestBody(ctx, body)
 	ctx = ctxutil.WithRequestHeaders(ctx, r.Header)
-	ctx = ctxutil.WithRequestPath(ctx, r.URL.Path)
+	ctx = ctxutil.WithRequestURI(ctx, r.URL.RequestURI())
 	ctx = ctxutil.WithIsStream(ctx, stream)
 
 	// Check for project ID from header (set by ProjectProxyHandler)

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Wand2, ChevronLeft, Loader2, CheckCircle2, AlertCircle, Key, ExternalLink, Mail, ShieldCheck, Zap } from 'lucide-react';
 import { getTransport } from '@/lib/transport';
-import type { AntigravityTokenValidationResult, CreateProviderData } from '@/lib/transport';
+import type { AntigravityTokenValidationResult, CreateProviderData, AntigravityOAuthResult } from '@/lib/transport';
 import { ANTIGRAVITY_COLOR } from '../types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ interface AntigravityTokenImportProps {
 }
 
 type ImportMode = 'oauth' | 'token';
+type OAuthStatus = 'idle' | 'waiting' | 'success' | 'error';
 
 export function AntigravityTokenImport({ onBack, onCreateProvider }: AntigravityTokenImportProps) {
   const [mode, setMode] = useState<ImportMode>('token');
@@ -24,6 +25,76 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
   const [creating, setCreating] = useState(false);
   const [validationResult, setValidationResult] = useState<AntigravityTokenValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // OAuth state
+  const [oauthStatus, setOAuthStatus] = useState<OAuthStatus>('idle');
+  const [oauthState, setOAuthState] = useState<string | null>(null);
+  const [oauthResult, setOAuthResult] = useState<AntigravityOAuthResult | null>(null);
+  const oauthWindowRef = useRef<Window | null>(null);
+
+  // Subscribe to OAuth result messages via WebSocket
+  useEffect(() => {
+    const unsubscribe = transport.subscribe<AntigravityOAuthResult>('antigravity_oauth_result', (result) => {
+      // Only handle results that match our current OAuth state
+      if (result.state === oauthState) {
+        // Close the OAuth window if it's still open
+        if (oauthWindowRef.current && !oauthWindowRef.current.closed) {
+          oauthWindowRef.current.close();
+        }
+
+        if (result.success && result.refreshToken) {
+          // OAuth succeeded, save result for user confirmation
+          setOAuthStatus('success');
+          setOAuthResult(result);
+        } else {
+          // OAuth failed
+          setOAuthStatus('error');
+          setError(result.error || 'OAuth authorization failed');
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [oauthState]);
+
+  // Handle OAuth flow
+  const handleOAuth = async () => {
+    setOAuthStatus('waiting');
+    setError(null);
+
+    try {
+      // Request OAuth URL from backend
+      const { authURL, state } = await transport.startAntigravityOAuth();
+      setOAuthState(state);
+
+      // Open OAuth window
+      const width = 600;
+      const height = 700;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+
+      oauthWindowRef.current = window.open(
+        authURL,
+        'Antigravity OAuth',
+        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+      );
+
+      // Monitor window closure
+      const checkWindowClosed = setInterval(() => {
+        if (oauthWindowRef.current?.closed) {
+          clearInterval(checkWindowClosed);
+          // If still waiting when window closes, assume user cancelled
+          if (oauthStatus === 'waiting') {
+            setOAuthStatus('idle');
+            setOAuthState(null);
+          }
+        }
+      }, 500);
+    } catch (err) {
+      setOAuthStatus('error');
+      setError(err instanceof Error ? err.message : 'Failed to start OAuth flow');
+    }
+  };
 
   // 验证 token
   const handleValidate = async () => {
@@ -72,6 +143,39 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
             projectID: validationResult.projectID || '',
             endpoint: validationResult.projectID
               ? `https://us-central1-aiplatform.googleapis.com/v1/projects/${validationResult.projectID}/locations/us-central1`
+              : '',
+          },
+        },
+      };
+      await onCreateProvider(providerData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '创建失败');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // 创建 OAuth provider
+  const handleOAuthCreate = async () => {
+    if (!oauthResult?.refreshToken) {
+      setError('OAuth result not available');
+      return;
+    }
+
+    setCreating(true);
+    setError(null);
+
+    try {
+      const providerData: CreateProviderData = {
+        type: 'antigravity',
+        name: oauthResult.email || 'Antigravity Account',
+        config: {
+          antigravity: {
+            email: oauthResult.email || '',
+            refreshToken: oauthResult.refreshToken,
+            projectID: oauthResult.projectID || '',
+            endpoint: oauthResult.projectID
+              ? `https://us-central1-aiplatform.googleapis.com/v1/projects/${oauthResult.projectID}/locations/us-central1`
               : '',
           },
         },
@@ -192,25 +296,131 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
           {/* Content Area */}
           <div className="min-h-[400px]">
             {mode === 'oauth' ? (
-              <div className="bg-surface-secondary/50 rounded-2xl p-10 border border-dashed border-border text-center flex flex-col items-center justify-center h-full">
-                <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner"
-                  style={{ backgroundColor: `${ANTIGRAVITY_COLOR}15` }}
-                >
-                  <Wand2 size={32} style={{ color: ANTIGRAVITY_COLOR }} />
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="bg-surface-secondary/50 rounded-2xl p-10 border border-dashed border-border text-center flex flex-col items-center justify-center">
+                  <div
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-inner"
+                    style={{ backgroundColor: `${ANTIGRAVITY_COLOR}15` }}
+                  >
+                    <Wand2 size={32} style={{ color: ANTIGRAVITY_COLOR }} />
+                  </div>
+                  <h3 className="text-lg font-semibold text-text-primary mb-2">OAuth Authorization</h3>
+                  <p className="text-sm text-text-secondary mb-8">
+                    We will redirect you to Google to securely authorize access to your Antigravity projects.
+                  </p>
+
+                  {oauthStatus === 'idle' && (
+                    <Button
+                      onClick={handleOAuth}
+                      variant="default"
+                      size="lg"
+                      className="gap-2"
+                    >
+                      <ExternalLink size={16} />
+                      Connect with Google
+                    </Button>
+                  )}
+
+                  {oauthStatus === 'waiting' && (
+                    <div className="space-y-4">
+                      <Button
+                        disabled
+                        variant="secondary"
+                        size="lg"
+                        className="gap-2"
+                      >
+                        <Loader2 size={16} className="animate-spin" />
+                        Waiting for authorization...
+                      </Button>
+                      <p className="text-xs text-text-muted">
+                        Please complete the authorization in the popup window
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <h3 className="text-lg font-semibold text-text-primary mb-2">OAuth Authorization</h3>
-                <p className="text-sm text-text-secondary mb-8 max-w-sm">
-                  We will redirect you to Google to securely authorize access to your Antigravity projects.
-                </p>
-                <Button
-                  disabled
-                  variant="secondary"
-                  className="gap-2 cursor-not-allowed opacity-80"
-                >
-                  <Loader2 size={16} className="animate-spin" />
-                  Coming Soon
-                </Button>
+
+                {/* OAuth Success Result */}
+                {oauthStatus === 'success' && oauthResult && (
+                  <div className="bg-success/5 border border-success/20 rounded-xl p-5 animate-in fade-in zoom-in-95">
+                    <div className="flex items-start gap-4">
+                      <div className="p-2 bg-success/10 rounded-full">
+                        <CheckCircle2 size={24} className="text-success" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="font-semibold text-text-primary">
+                          Authorization Successful
+                        </div>
+                        <div className="text-sm text-text-secondary">
+                          Ready to connect as <span className="font-medium text-text-primary">{oauthResult.email}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-success/10">
+                          {oauthResult.userInfo?.name && (
+                            <span className="text-xs text-text-muted bg-surface-primary px-2 py-1 rounded border border-border/50">
+                              {oauthResult.userInfo.name}
+                            </span>
+                          )}
+                          {oauthResult.quota?.subscriptionTier && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-primary border border-border/50">
+                              <Zap size={10} className={
+                                oauthResult.quota.subscriptionTier === 'ULTRA' ? 'text-purple-500' : 'text-blue-500'
+                              } />
+                              <span className="text-xs font-medium text-text-secondary">
+                                {oauthResult.quota.subscriptionTier} Tier
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {error && oauthStatus === 'error' && (
+                  <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in zoom-in-95">
+                    <AlertCircle size={20} className="text-error flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-error">OAuth Failed</p>
+                      <p className="text-xs text-error/80 mt-0.5">{error}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                {oauthStatus === 'error' && (
+                  <div className="text-center">
+                    <Button
+                      onClick={() => {
+                        setOAuthStatus('idle');
+                        setError(null);
+                      }}
+                      variant="outline"
+                    >
+                      Try Again
+                    </Button>
+                  </div>
+                )}
+
+                {oauthStatus === 'success' && oauthResult && (
+                  <div className="pt-4">
+                    <Button
+                      onClick={handleOAuthCreate}
+                      disabled={creating}
+                      size="lg"
+                      className="w-full text-base shadow-lg shadow-accent/20 hover:shadow-accent/30 transition-all"
+                    >
+                      {creating ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin mr-2" />
+                          Creating Provider...
+                        </>
+                      ) : (
+                        'Complete Setup'
+                      )}
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

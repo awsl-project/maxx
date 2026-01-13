@@ -144,12 +144,22 @@ func (a *Adapter) extractModel(req *http.Request, clientType domain.ClientType, 
 }
 
 func (a *Adapter) extractSessionID(req *http.Request, clientType domain.ClientType, body []byte) string {
-	// 1. Try metadata.session_id (Claude)
+	// 1. Try metadata.session_id or metadata.user_id (Claude)
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err == nil {
 		if metadata, ok := data["metadata"].(map[string]interface{}); ok {
+			// First try explicit session_id
 			if sid, ok := metadata["session_id"].(string); ok && sid != "" {
 				return sid
+			}
+			// Then try user_id (Claude Code format: "user_{hash}_account__session_{uuid}")
+			if userID, ok := metadata["user_id"].(string); ok && userID != "" {
+				const sessionMarker = "_session_"
+				if idx := strings.LastIndex(userID, sessionMarker); idx != -1 {
+					return userID[idx+len(sessionMarker):]
+				}
+				// Fallback: return full user_id if no _session_ marker
+				return userID
 			}
 		}
 	}

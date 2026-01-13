@@ -24,7 +24,7 @@ import type { Cooldown, CooldownReason, ProviderStats, ClientType } from '@/lib/
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import { useCooldowns } from '@/hooks/use-cooldowns';
 import { Switch } from '@/components/ui';
-import { getProviderColor } from '@/lib/provider-colors';
+import { getProviderColor, type ProviderType } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 interface ProviderDetailsDialogProps {
@@ -172,7 +172,7 @@ export function ProviderDetailsDialog({
   if (!open || !item) return null;
 
   const { provider, enabled, route, isNative } = item;
-  const color = getProviderColor(provider.type);
+  const color = getProviderColor(provider.type as ProviderType);
   const isInCooldown = !!cooldown;
 
   const formatUntilTime = (until: string) => {

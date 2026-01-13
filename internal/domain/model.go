@@ -164,6 +164,9 @@ type ProxyRequest struct {
 	// PENDING, IN_PROGRESS, COMPLETED, FAILED
 	Status string `json:"status"`
 
+	// HTTP 状态码（冗余存储，用于列表查询性能优化）
+	StatusCode int `json:"statusCode"`
+
 	// 原始请求的信息
 	RequestInfo  *RequestInfo  `json:"requestInfo"`
 	ResponseInfo *ResponseInfo `json:"responseInfo"`
@@ -200,6 +203,11 @@ type ProxyUpstreamAttempt struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+
+	// 实际开始和结束时间
+	StartTime time.Time     `json:"startTime"`
+	EndTime   time.Time     `json:"endTime"`
+	Duration  time.Duration `json:"duration"`
 
 	// PENDING, IN_PROGRESS, COMPLETED, FAILED
 	Status string `json:"status"`

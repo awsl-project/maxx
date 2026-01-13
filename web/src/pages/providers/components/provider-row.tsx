@@ -1,7 +1,7 @@
 import { ChevronRight, Globe, Mail, Server, Wand2, Activity } from 'lucide-react';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
-import { getProviderColor } from '@/lib/provider-colors';
+import { getProviderColorVar } from '@/lib/theme';
 import type { Provider, ProviderStats, AntigravityQuotaData } from '@/lib/transport';
 import { ANTIGRAVITY_COLOR } from '../types';
 import { cn } from '@/lib/utils';
@@ -72,7 +72,7 @@ function formatResetTime(resetTime: string): string {
 
 export function ProviderRow({ provider, stats, streamingCount, onClick }: ProviderRowProps) {
   const isAntigravity = provider.type === 'antigravity';
-  const color = isAntigravity ? ANTIGRAVITY_COLOR : getProviderColor(provider.type);
+  const color = isAntigravity ? ANTIGRAVITY_COLOR : getProviderColorVar(provider.type as any);
 
   // 仅为 Antigravity provider 获取额度
   const { data: quota } = useAntigravityQuota(provider.id, isAntigravity);

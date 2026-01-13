@@ -1,145 +1,142 @@
-import { useState, useEffect, useRef } from 'react';
-import { Terminal, Trash2, Pause, Play, ArrowDown } from 'lucide-react';
-import { getTransport } from '@/lib/transport';
+import { useState, useEffect, useRef } from 'react'
+import { Terminal, Trash2, Pause, Play, ArrowDown } from 'lucide-react'
+import { getTransport } from '@/lib/transport'
+import { Button } from '@/components/ui'
+import { PageHeader } from '@/components/layout/page-header'
 
-const transport = getTransport();
+const transport = getTransport()
 
 export function ConsolePage() {
-  const [logs, setLogs] = useState<string[]>([]);
-  const [isPaused, setIsPaused] = useState(false);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const logsEndRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const pausedRef = useRef(isPaused);
+  const [logs, setLogs] = useState<string[]>([])
+  const [isPaused, setIsPaused] = useState(false)
+  const [autoScroll, setAutoScroll] = useState(true)
+  const logsEndRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const pausedRef = useRef(isPaused)
 
   // Keep pausedRef in sync
   useEffect(() => {
-    pausedRef.current = isPaused;
-  }, [isPaused]);
+    pausedRef.current = isPaused
+  }, [isPaused])
 
   // Subscribe to log_message events (only real-time logs from this session)
   useEffect(() => {
-    const unsubscribe = transport.subscribe<string>('log_message', (message) => {
-      if (pausedRef.current) return;
-      setLogs((prev) => [...prev.slice(-999), message]);
-    });
+    const unsubscribe = transport.subscribe<string>('log_message', message => {
+      if (pausedRef.current) return
+      setLogs(prev => [...prev.slice(-999), message])
+    })
 
-    return () => unsubscribe();
-  }, []);
+    return () => unsubscribe()
+  }, [])
 
   // Auto-scroll to bottom
   useEffect(() => {
     if (autoScroll && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [logs, autoScroll]);
+  }, [logs, autoScroll])
 
   const handleScroll = () => {
-    if (!containerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-    setAutoScroll(isAtBottom);
-  };
+    if (!containerRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
+    setAutoScroll(isAtBottom)
+  }
 
   const clearLogs = () => {
-    setLogs([]);
-  };
+    setLogs([])
+  }
 
   const scrollToBottom = () => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    setAutoScroll(true);
-  };
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    setAutoScroll(true)
+  }
 
   return (
     <div className="flex flex-col h-full">
-      <Header
-        isPaused={isPaused}
-        onTogglePause={() => setIsPaused(!isPaused)}
-        onClear={clearLogs}
-        logCount={logs.length}
-      />
+      <PageHeader
+        icon={Terminal}
+        iconClassName="text-slate-500"
+        title="Console"
+        description={`${logs.length.toLocaleString()} events`}
+      >
+        <Button
+          onClick={() => setIsPaused(!isPaused)}
+          variant="outline"
+          className={`h-9 px-4 lg:px-6 gap-2 transition-all duration-300 font-medium ${
+            isPaused
+              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20 hover:border-amber-500/40'
+              : 'hover:bg-accent hover:text-accent-foreground border-border/50'
+          }`}
+        >
+          {isPaused ? (
+            <Play size={16} className="fill-current" />
+          ) : (
+            <Pause size={16} className="fill-current" />
+          )}
+          {isPaused ? 'Resume' : 'Pause'}
+        </Button>
+        <Button
+          onClick={clearLogs}
+          variant="outline"
+          className="h-9 px-4 gap-2 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 hover:border-red-200 dark:hover:border-red-900 border-border/50 transition-all duration-300"
+        >
+          <Trash2 size={16} />
+          <span className="hidden sm:inline">Clear</span>
+        </Button>
+      </PageHeader>
 
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto bg-[#1a1a1a] font-mono text-sm"
+        className="flex-1 overflow-y-auto bg-zinc-50/50 dark:bg-zinc-950/50 font-mono text-xs md:text-sm scroll-smooth"
       >
         {logs.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="p-4">
+          <div className="p-4 space-y-0.5 min-h-full">
             {logs.map((log, index) => (
-              <div key={index} className="text-gray-300 py-0.5 hover:bg-black/5 dark:hover:bg-white/5">
+              <div
+                key={index}
+                className="px-3 py-1.5 rounded-md hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50 text-zinc-700 dark:text-zinc-300 transition-colors break-words whitespace-pre-wrap border border-transparent hover:border-zinc-200 dark:hover:border-zinc-800"
+              >
+                <div className="opacity-50 text-[10px] select-none inline-block w-8 mr-2 text-right">
+                  {index + 1}
+                </div>
                 {log}
               </div>
             ))}
-            <div ref={logsEndRef} />
+            <div ref={logsEndRef} className="h-4" />
           </div>
         )}
       </div>
 
       {!autoScroll && (
-        <button
+        <Button
           onClick={scrollToBottom}
-          className="absolute bottom-6 right-6 p-2 bg-accent text-white rounded-full shadow-lg hover:bg-accent-hover"
+          className="absolute bottom-8 right-8 p-3 bg-primary text-primary-foreground rounded-full shadow-xl hover:bg-primary/90 hover:scale-105 active:scale-95 transition-all z-50 animate-in fade-in zoom-in duration-200"
         >
           <ArrowDown size={20} />
-        </button>
+        </Button>
       )}
     </div>
-  );
-}
-
-function Header({
-  isPaused,
-  onTogglePause,
-  onClear,
-  logCount,
-}: {
-  isPaused: boolean;
-  onTogglePause: () => void;
-  onClear: () => void;
-  logCount: number;
-}) {
-  return (
-    <div className="h-[73px] flex items-center justify-between p-lg border-b border-border bg-surface-primary">
-      <div className="flex items-center gap-md">
-        <div className="w-10 h-10 rounded-lg bg-emerald-400/10 flex items-center justify-center">
-          <Terminal size={20} className="text-emerald-400" />
-        </div>
-        <div>
-          <h1 className="text-headline font-semibold text-text-primary">Console</h1>
-          <p className="text-caption text-text-secondary">{logCount} lines</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onTogglePause}
-          className={`btn flex items-center gap-2 ${isPaused ? 'bg-amber-500/20 text-amber-400' : 'bg-surface-secondary text-text-primary hover:bg-surface-hover'}`}
-        >
-          {isPaused ? <Play size={14} /> : <Pause size={14} />}
-          {isPaused ? 'Resume' : 'Pause'}
-        </button>
-        <button
-          onClick={onClear}
-          className="btn bg-surface-secondary hover:bg-surface-hover text-text-primary flex items-center gap-2"
-        >
-          <Trash2 size={14} />
-          Clear
-        </button>
-      </div>
-    </div>
-  );
+  )
 }
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-text-muted">
-      <Terminal size={48} className="mb-4 opacity-30" />
-      <p>Waiting for logs...</p>
-      <p className="text-xs mt-1">Logs will appear here in real-time</p>
+    <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-muted-foreground/50">
+      <div className="w-20 h-20 rounded-full bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center mb-6 ring-8 ring-zinc-50 dark:ring-zinc-950/50">
+        <Terminal size={40} className="opacity-50" />
+      </div>
+      <p className="text-lg font-medium text-foreground/80">
+        Waiting for logs...
+      </p>
+      <p className="text-sm mt-2 max-w-screen-sm text-center leading-relaxed">
+        Real-time events from the proxy will appear here automatically.
+      </p>
     </div>
-  );
+  )
 }
 
-export default ConsolePage;
+export default ConsolePage

@@ -3,7 +3,7 @@ import { Switch } from '@/components/ui';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { getProviderColor } from '@/lib/provider-colors';
+import { getProviderColorVar, type ProviderType } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import type { ClientType, ProviderStats, AntigravityQuotaData } from '@/lib/transport';
 import type { ProviderConfigItem } from '../types';
@@ -187,7 +187,7 @@ export function ProviderRowContent({
   isInCooldown: isInCooldownProp,
 }: ProviderRowContentProps) {
   const { provider, enabled, isNative } = item;
-  const color = getProviderColor(provider.type);
+  const color = getProviderColorVar(provider.type as ProviderType);
   const isAntigravity = provider.type === 'antigravity';
 
   // 仅为 Antigravity provider 获取额度
@@ -351,7 +351,12 @@ export function ProviderRowContent({
                      claudeInfo.percentage >= 50 ? "bg-emerald-500" :
                      claudeInfo.percentage >= 20 ? "bg-amber-500" : "bg-red-500"
                    )}
-                   style={{ width: `${claudeInfo.percentage}%`, boxShadow: `0 0 8px ${claudeInfo.percentage >= 50 ? '#10b98140' : '#f59e0b40'}` }}
+                   style={{
+                     width: `${claudeInfo.percentage}%`,
+                     boxShadow: claudeInfo.percentage >= 50
+                       ? '0 0 8px rgb(16 185 129 / 0.25)'
+                       : '0 0 8px rgb(245 158 11 / 0.25)'
+                   }}
                  />
                </div>
              ) : <div className="h-1.5 bg-surface-secondary rounded-full" />}
@@ -422,11 +427,14 @@ export function ProviderRowContent({
       </div>
 
       {/* Control Area - Switch */}
-      <div className="relative z-10 flex items-center flex-shrink-0 ml-auto pl-2">
+      <div
+        className="relative z-10 flex items-center flex-shrink-0 ml-auto pl-2"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         <Switch
           checked={enabled}
           onCheckedChange={onToggle}
-          onClick={(e) => e.stopPropagation()}
           disabled={isToggling}
         />
       </div>

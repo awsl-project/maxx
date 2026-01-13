@@ -262,6 +262,10 @@ export class WailsTransport implements Transport {
     return this.call<AntigravityQuotaData>('AntigravityService.GetProviderQuota', providerId, forceRefresh ?? false);
   }
 
+  async startAntigravityOAuth(): Promise<{ authURL: string; state: string }> {
+    return this.call<{ authURL: string; state: string }>('AntigravityService.StartOAuth');
+  }
+
   // ===== Cooldown API =====
 
   async getCooldowns(): Promise<Cooldown[]> {

@@ -1,42 +1,61 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui';
-import { useProjectBySlug, useDeleteProject, projectKeys } from '@/hooks/queries';
-import { ArrowLeft, Trash2, Loader2, FolderKanban, LayoutGrid, Route, Users, FileText } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { OverviewTab } from './tabs/overview';
-import { RoutesTab } from './tabs/routes';
-import { SessionsTab } from './tabs/sessions';
-import { RequestsTab } from './tabs/requests';
+import { useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import {
+  Button,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from '@/components/ui'
+import {
+  useProjectBySlug,
+  useDeleteProject,
+  projectKeys,
+} from '@/hooks/queries'
+import {
+  ArrowLeft,
+  Trash2,
+  Loader2,
+  FolderKanban,
+  LayoutGrid,
+  Route,
+  Users,
+  FileText,
+} from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { OverviewTab } from './tabs/overview'
+import { RoutesTab } from './tabs/routes'
+import { SessionsTab } from './tabs/sessions'
+import { RequestsTab } from './tabs/requests'
 
-type TabId = 'overview' | 'routes' | 'sessions' | 'requests';
+type TabId = 'overview' | 'routes' | 'sessions' | 'requests'
 
 export function ProjectDetailPage() {
-  const { slug } = useParams<{ slug: string }>();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { data: project, isLoading, error } = useProjectBySlug(slug ?? '');
-  const deleteProject = useDeleteProject();
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const { slug } = useParams<{ slug: string }>()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { data: project, isLoading, error } = useProjectBySlug(slug ?? '')
+  const deleteProject = useDeleteProject()
+  const [activeTab, setActiveTab] = useState<TabId>('overview')
 
   const handleDelete = () => {
-    if (!project) return;
+    if (!project) return
     if (confirm(`Are you sure you want to delete project "${project.name}"?`)) {
       deleteProject.mutate(project.id, {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-          navigate('/projects');
+          queryClient.invalidateQueries({ queryKey: projectKeys.lists() })
+          navigate('/projects')
         },
-      });
+      })
     }
-  };
+  }
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="h-8 w-8 animate-spin text-accent" />
       </div>
-    );
+    )
   }
 
   if (error || !project) {
@@ -48,7 +67,7 @@ export function ProjectDetailPage() {
           Back to Projects
         </Button>
       </div>
-    );
+    )
   }
 
   return (
@@ -69,7 +88,9 @@ export function ProjectDetailPage() {
               <FolderKanban size={20} className="text-accent" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-text-primary leading-tight">{project.name}</h2>
+              <h2 className="text-lg font-semibold text-text-primary leading-tight">
+                {project.name}
+              </h2>
               <p className="text-xs text-text-secondary font-mono mt-0.5">
                 {project.slug}
               </p>
@@ -77,7 +98,7 @@ export function ProjectDetailPage() {
           </div>
         </div>
         <Button
-          variant="danger"
+          variant="destructive"
           size="sm"
           onClick={handleDelete}
           disabled={deleteProject.isPending}
@@ -95,7 +116,11 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)} className="flex-1 flex flex-col overflow-hidden">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v: string) => setActiveTab(v as TabId)}
+        className="flex-1 flex flex-col overflow-hidden"
+      >
         <div className="px-6 py-4 border-b border-border bg-surface-primary/50">
           <TabsList>
             <TabsTrigger value="overview">
@@ -118,20 +143,32 @@ export function ProjectDetailPage() {
         </div>
 
         <div className="flex-1 overflow-hidden bg-background">
-          <TabsContent value="overview" className="h-full overflow-auto mt-0 animate-in fade-in-50 duration-200">
+          <TabsContent
+            value="overview"
+            className="h-full overflow-auto mt-0 animate-in fade-in-50 duration-200"
+          >
             <OverviewTab project={project} />
           </TabsContent>
-          <TabsContent value="routes" className="h-full overflow-hidden mt-0 animate-in fade-in-50 duration-200">
+          <TabsContent
+            value="routes"
+            className="h-full overflow-hidden mt-0 animate-in fade-in-50 duration-200"
+          >
             <RoutesTab project={project} />
           </TabsContent>
-          <TabsContent value="sessions" className="h-full overflow-auto mt-0 animate-in fade-in-50 duration-200">
+          <TabsContent
+            value="sessions"
+            className="h-full overflow-auto mt-0 animate-in fade-in-50 duration-200"
+          >
             <SessionsTab project={project} />
           </TabsContent>
-          <TabsContent value="requests" className="h-full overflow-auto mt-0 animate-in fade-in-50 duration-200">
+          <TabsContent
+            value="requests"
+            className="h-full overflow-auto mt-0 animate-in fade-in-50 duration-200"
+          >
             <RequestsTab project={project} />
           </TabsContent>
         </div>
       </Tabs>
     </div>
-  );
+  )
 }

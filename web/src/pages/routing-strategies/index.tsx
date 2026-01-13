@@ -1,69 +1,90 @@
-import { useState } from 'react';
-import { Button, Card, CardContent, CardHeader, CardTitle, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Badge, Select } from '@/components/ui';
-import { useRoutingStrategies, useCreateRoutingStrategy, useUpdateRoutingStrategy, useDeleteRoutingStrategy, useProjects } from '@/hooks/queries';
-import { Plus, Trash2, Pencil } from 'lucide-react';
-import type { RoutingStrategy, RoutingStrategyType } from '@/lib/transport';
+import { useState } from 'react'
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Badge,
+} from '@/components/ui'
+import {
+  useRoutingStrategies,
+  useCreateRoutingStrategy,
+  useUpdateRoutingStrategy,
+  useDeleteRoutingStrategy,
+  useProjects,
+} from '@/hooks/queries'
+import { Plus, Trash2, Pencil } from 'lucide-react'
+import type { RoutingStrategy, RoutingStrategyType } from '@/lib/transport'
 
 export function RoutingStrategiesPage() {
-  const { data: strategies, isLoading } = useRoutingStrategies();
-  const { data: projects } = useProjects();
-  const createStrategy = useCreateRoutingStrategy();
-  const updateStrategy = useUpdateRoutingStrategy();
-  const deleteStrategy = useDeleteRoutingStrategy();
-  const [showForm, setShowForm] = useState(false);
-  const [editingStrategy, setEditingStrategy] = useState<RoutingStrategy | undefined>();
+  const { data: strategies, isLoading } = useRoutingStrategies()
+  const { data: projects } = useProjects()
+  const createStrategy = useCreateRoutingStrategy()
+  const updateStrategy = useUpdateRoutingStrategy()
+  const deleteStrategy = useDeleteRoutingStrategy()
+  const [showForm, setShowForm] = useState(false)
+  const [editingStrategy, setEditingStrategy] = useState<
+    RoutingStrategy | undefined
+  >()
 
-  const [projectID, setProjectID] = useState('0');
-  const [type, setType] = useState<RoutingStrategyType>('priority');
+  const [projectID, setProjectID] = useState('0')
+  const [type, setType] = useState<RoutingStrategyType>('priority')
 
   const resetForm = () => {
-    setProjectID('0');
-    setType('priority');
-  };
+    setProjectID('0')
+    setType('priority')
+  }
 
   const handleEdit = (strategy: RoutingStrategy) => {
-    setEditingStrategy(strategy);
-    setProjectID(String(strategy.projectID));
-    setType(strategy.type);
-    setShowForm(true);
-  };
+    setEditingStrategy(strategy)
+    setProjectID(String(strategy.projectID))
+    setType(strategy.type)
+    setShowForm(true)
+  }
 
   const handleCloseForm = () => {
-    setShowForm(false);
-    setEditingStrategy(undefined);
-    resetForm();
-  };
+    setShowForm(false)
+    setEditingStrategy(undefined)
+    resetForm()
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     const data = {
       projectID: Number(projectID),
       type,
       config: null,
-    };
+    }
 
     if (editingStrategy) {
       updateStrategy.mutate(
         { id: editingStrategy.id, data },
         { onSuccess: handleCloseForm }
-      );
+      )
     } else {
-      createStrategy.mutate(data, { onSuccess: handleCloseForm });
+      createStrategy.mutate(data, { onSuccess: handleCloseForm })
     }
-  };
+  }
 
   const handleDelete = (id: number) => {
     if (confirm('Are you sure you want to delete this strategy?')) {
-      deleteStrategy.mutate(id);
+      deleteStrategy.mutate(id)
     }
-  };
+  }
 
   const getProjectName = (pid: number) => {
-    if (pid === 0) return 'Global';
-    return projects?.find((p) => p.id === pid)?.name ?? `#${pid}`;
-  };
+    if (pid === 0) return 'Global'
+    return projects?.find(p => p.id === pid)?.name ?? `#${pid}`
+  }
 
-  const isPending = createStrategy.isPending || updateStrategy.isPending;
+  const isPending = createStrategy.isPending || updateStrategy.isPending
 
   return (
     <div className="space-y-6">
@@ -78,32 +99,60 @@ export function RoutingStrategiesPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>{editingStrategy ? 'Edit Routing Strategy' : 'New Routing Strategy'}</CardTitle>
+            <CardTitle>
+              {editingStrategy
+                ? 'Edit Routing Strategy'
+                : 'New Routing Strategy'}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Project</label>
-                  <Select value={projectID} onChange={(e) => setProjectID(e.target.value)}>
+                  <label className="mb-1 block text-sm font-medium">
+                    Project
+                  </label>
+                  <select
+                    value={projectID}
+                    onChange={e => setProjectID(e.target.value)}
+                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none"
+                  >
                     <option value="0">Global</option>
-                    {projects?.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                    {projects?.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
                     ))}
-                  </Select>
+                  </select>
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">Type</label>
-                  <Select value={type} onChange={(e) => setType(e.target.value as RoutingStrategyType)}>
+                  <select
+                    value={type}
+                    onChange={e =>
+                      setType(e.target.value as RoutingStrategyType)
+                    }
+                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none"
+                  >
                     <option value="priority">Priority (by position)</option>
                     <option value="weighted_random">Weighted Random</option>
-                  </Select>
+                  </select>
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={handleCloseForm}>Cancel</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCloseForm}
+                >
+                  Cancel
+                </Button>
                 <Button type="submit" disabled={isPending}>
-                  {isPending ? 'Saving...' : editingStrategy ? 'Update' : 'Create'}
+                  {isPending
+                    ? 'Saving...'
+                    : editingStrategy
+                      ? 'Update'
+                      : 'Create'}
                 </Button>
               </div>
             </form>
@@ -129,25 +178,44 @@ export function RoutingStrategiesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {strategies?.map((strategy) => (
+                {strategies?.map(strategy => (
                   <TableRow key={strategy.id}>
                     <TableCell className="font-mono">{strategy.id}</TableCell>
                     <TableCell>
-                      <span className={strategy.projectID === 0 ? 'text-gray-400' : ''}>
+                      <span
+                        className={
+                          strategy.projectID === 0 ? 'text-gray-400' : ''
+                        }
+                      >
                         {getProjectName(strategy.projectID)}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={strategy.type === 'priority' ? 'info' : 'warning'}>
-                        {strategy.type === 'priority' ? 'Priority' : 'Weighted Random'}
+                      <Badge
+                        variant={
+                          strategy.type === 'priority' ? 'info' : 'warning'
+                        }
+                      >
+                        {strategy.type === 'priority'
+                          ? 'Priority'
+                          : 'Weighted Random'}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(strategy)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEdit(strategy)}
+                        >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(strategy.id)} disabled={deleteStrategy.isPending}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(strategy.id)}
+                          disabled={deleteStrategy.isPending}
+                        >
                           <Trash2 className="h-4 w-4 text-red-500" />
                         </Button>
                       </div>
@@ -156,7 +224,12 @@ export function RoutingStrategiesPage() {
                 ))}
                 {(!strategies || strategies.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-gray-500">No strategies</TableCell>
+                    <TableCell
+                      colSpan={4}
+                      className="text-center text-gray-500"
+                    >
+                      No strategies
+                    </TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -165,5 +238,5 @@ export function RoutingStrategiesPage() {
         </CardContent>
       </Card>
     </div>
-  );
+  )
 }

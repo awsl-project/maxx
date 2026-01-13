@@ -4,7 +4,26 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>web</title>
+    <meta name="description" content="Maxx - 智能 API 网关代理，提供请求监控、流量分析和实时调试功能" />
+    <meta name="keywords" content="API Gateway, Proxy, 请求监控, 流量分析, 调试工具" />
+    <title>Maxx - API Gateway & Proxy</title>
+    <script>
+      // 在页面加载前立即应用主题，避免闪烁
+      (function() {
+        try {
+          const theme = localStorage.getItem('theme') || 'system';
+          const getSystemTheme = () => {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          };
+          const effectiveTheme = theme === 'system' ? getSystemTheme() : theme;
+          if (effectiveTheme === 'dark') {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {
+          // localStorage 可能不可用，忽略错误
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

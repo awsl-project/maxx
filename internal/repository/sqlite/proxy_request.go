@@ -34,9 +34,9 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	p.UpdatedAt = now
 
 	result, err := r.db.db.Exec(
-		`INSERT INTO proxy_requests (created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO proxy_requests (created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.CreatedAt, p.UpdatedAt, p.InstanceID, p.RequestID, p.SessionID, p.ClientType, p.RequestModel, p.ResponseModel,
-		nullTime(p.StartTime), nullTime(p.EndTime), p.Duration.Milliseconds(), p.IsStream, p.Status,
+		nullTime(p.StartTime), nullTime(p.EndTime), p.Duration.Milliseconds(), p.IsStream, p.Status, p.StatusCode,
 		toJSON(p.RequestInfo), toJSON(p.ResponseInfo), p.Error,
 		p.ProxyUpstreamAttemptCount, p.FinalProxyUpstreamAttemptID, p.RouteID, p.ProviderID, p.ProjectID,
 		p.InputTokenCount, p.OutputTokenCount, p.CacheReadCount, p.CacheWriteCount, p.Cache5mWriteCount, p.Cache1hWriteCount, p.Cost,
@@ -60,9 +60,9 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	p.UpdatedAt = time.Now()
 	_, err := r.db.db.Exec(
-		`UPDATE proxy_requests SET updated_at = ?, instance_id = ?, request_id = ?, session_id = ?, client_type = ?, request_model = ?, response_model = ?, start_time = ?, end_time = ?, duration_ms = ?, is_stream = ?, status = ?, request_info = ?, response_info = ?, error = ?, proxy_upstream_attempt_count = ?, final_proxy_upstream_attempt_id = ?, route_id = ?, provider_id = ?, project_id = ?, input_token_count = ?, output_token_count = ?, cache_read_count = ?, cache_write_count = ?, cache_5m_write_count = ?, cache_1h_write_count = ?, cost = ? WHERE id = ?`,
+		`UPDATE proxy_requests SET updated_at = ?, instance_id = ?, request_id = ?, session_id = ?, client_type = ?, request_model = ?, response_model = ?, start_time = ?, end_time = ?, duration_ms = ?, is_stream = ?, status = ?, status_code = ?, request_info = ?, response_info = ?, error = ?, proxy_upstream_attempt_count = ?, final_proxy_upstream_attempt_id = ?, route_id = ?, provider_id = ?, project_id = ?, input_token_count = ?, output_token_count = ?, cache_read_count = ?, cache_write_count = ?, cache_5m_write_count = ?, cache_1h_write_count = ?, cost = ? WHERE id = ?`,
 		p.UpdatedAt, p.InstanceID, p.RequestID, p.SessionID, p.ClientType, p.RequestModel, p.ResponseModel,
-		nullTime(p.StartTime), nullTime(p.EndTime), p.Duration.Milliseconds(), p.IsStream, p.Status,
+		nullTime(p.StartTime), nullTime(p.EndTime), p.Duration.Milliseconds(), p.IsStream, p.Status, p.StatusCode,
 		toJSON(p.RequestInfo), toJSON(p.ResponseInfo), p.Error,
 		p.ProxyUpstreamAttemptCount, p.FinalProxyUpstreamAttemptID, p.RouteID, p.ProviderID, p.ProjectID,
 		p.InputTokenCount, p.OutputTokenCount, p.CacheReadCount, p.CacheWriteCount, p.Cache5mWriteCount, p.Cache1hWriteCount, p.Cost, p.ID,
@@ -99,7 +99,7 @@ func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest
 // 注意：列表查询不返回 request_info 和 response_info 大字段
 func (r *ProxyRequestRepository) ListCursor(limit int, before, after uint64) ([]*domain.ProxyRequest, error) {
 	// 列表查询使用精简字段，不包含 request_info 和 response_info
-	const listColumns = `id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost`
+	const listColumns = `id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost`
 
 	var query string
 	var args []interface{}
@@ -229,7 +229,7 @@ func (r *ProxyRequestRepository) scanRequestRowsLite(rows *sql.Rows) (*domain.Pr
 	var instanceID sql.NullString
 	var routeID, providerID, projectID sql.NullInt64
 	var isStream sql.NullBool
-	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost)
+	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &p.StatusCode, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost)
 	if err != nil {
 		return nil, err
 	}

@@ -1,38 +1,62 @@
 /**
  * 主题配置
- * 与 maxx 项目保持一致的设计系统
+ * 统一的颜色管理系统 - 所有颜色从 CSS 变量获取
  */
 
-// 颜色系统
-export const colors = {
-  // 背景色
-  background: '#1E1E1E',
+/**
+ * Provider 类型定义
+ */
+export type ProviderType =
+  | 'anthropic'
+  | 'openai'
+  | 'deepseek'
+  | 'google'
+  | 'azure'
+  | 'aws'
+  | 'cohere'
+  | 'mistral'
+  | 'custom'
+  | 'antigravity';
 
-  // 表面色
+/**
+ * Client 类型定义
+ */
+export type ClientType = 'claude' | 'openai' | 'codex' | 'gemini';
+
+/**
+ * 颜色变量名称类型（所有可用的 CSS 变量）
+ */
+export type ColorVariable =
+  | 'background'
+  | 'foreground'
+  | 'primary'
+  | 'secondary'
+  | 'border'
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'info'
+  | `provider-${ProviderType}`
+  | `client-${ClientType}`;
+
+// 保留旧的 colors 对象用于向后兼容（已弃用，将在未来版本移除）
+/** @deprecated 使用 CSS 变量和工具函数替代 */
+export const colors = {
+  background: '#1E1E1E',
   surfacePrimary: '#252526',
   surfaceSecondary: '#2D2D30',
   surfaceHover: '#3C3C3C',
-
-  // 边框色
   border: '#3C3C3C',
-
-  // 文本色
   textPrimary: '#CCCCCC',
   textSecondary: '#8C8C8C',
   textMuted: '#5A5A5A',
-
-  // 强调色
   accent: '#0078D4',
   accentHover: '#1084D9',
   accentSubtle: 'rgba(0, 120, 212, 0.15)',
-
-  // 状态色
   success: '#4EC9B0',
   warning: '#DDB359',
   error: '#F14C4C',
   info: '#4FC1FF',
-
-  // Provider 品牌色
   providers: {
     anthropic: '#D4A574',
     openai: '#10A37F',
@@ -81,11 +105,54 @@ export const shadows = {
 } as const;
 
 /**
- * 获取 Provider 颜色
+ * 从 CSS 变量获取计算后的颜色值
+ *
+ * @param varName - CSS 变量名称（不含 -- 前缀）
+ * @param element - 可选的 DOM 元素，默认为 document.documentElement
+ * @returns 计算后的颜色值（如 "oklch(0.7324 0.0867 56.4182)"）
+ *
+ * @example
+ * const anthropicColor = getComputedColor('provider-anthropic')
+ * // 返回: "oklch(0.7324 0.0867 56.4182)"
  */
-export function getProviderColor(type: string): string {
-  const key = type.toLowerCase() as keyof typeof colors.providers;
-  return colors.providers[key] || colors.providers.custom;
+export function getComputedColor(
+  varName: ColorVariable,
+  element: HTMLElement = document.documentElement
+): string {
+  return getComputedStyle(element)
+    .getPropertyValue(`--${varName}`)
+    .trim();
+}
+
+/**
+ * 获取 Provider 的品牌色 CSS 变量名
+ *
+ * @param provider - Provider 类型
+ * @returns CSS 变量引用字符串（如 "var(--provider-anthropic)"）
+ *
+ * @example
+ * const colorVar = getProviderColorVar('anthropic')
+ * // 返回: "var(--provider-anthropic)"
+ *
+ * // 用于组件样式
+ * <div style={{ color: getProviderColorVar(provider.type) }}>
+ */
+export function getProviderColorVar(provider: ProviderType): string {
+  return `var(--provider-${provider})`;
+}
+
+/**
+ * 获取 Provider 的计算后颜色值
+ *
+ * @param provider - Provider 类型
+ * @returns 计算后的颜色值
+ *
+ * @example
+ * const color = getProviderColor('anthropic')
+ * // 用于需要实际颜色值的场景（如 SVG fill、第三方库）
+ */
+export function getProviderColor(provider: ProviderType): string {
+  return getComputedColor(`provider-${provider}`);
 }
 
 /**
@@ -107,18 +174,59 @@ export function getProviderDisplayName(type: string): string {
 }
 
 /**
- * Client 类型颜色映射
+ * 获取 Client 的品牌色 CSS 变量名
+ *
+ * @param client - Client 类型
+ * @returns CSS 变量引用字符串
+ *
+ * @example
+ * const colorVar = getClientColorVar('claude')
+ * // 返回: "var(--client-claude)"
  */
+export function getClientColorVar(client: ClientType): string {
+  return `var(--client-${client})`;
+}
+
+/**
+ * 获取 Client 的计算后颜色值
+ *
+ * @param client - Client 类型
+ * @returns 计算后的颜色值
+ *
+ * @example
+ * const color = getClientColor('claude')
+ */
+export function getClientColor(client: ClientType): string {
+  return getComputedColor(`client-${client}`);
+}
+
+/**
+ * 为颜色添加透明度（用于背景等场景）
+ *
+ * @param color - OKLCh 格式的颜色字符串
+ * @param opacity - 透明度（0-1）
+ * @returns 带透明度的颜色字符串
+ *
+ * @example
+ * const bgColor = withOpacity(getProviderColor('anthropic'), 0.2)
+ * // 返回: "oklch(0.7324 0.0867 56.4182 / 0.2)"
+ */
+export function withOpacity(color: string, opacity: number): string {
+  // 处理 oklch(...) 格式
+  if (color.startsWith('oklch(')) {
+    const inner = color.slice(6, -1); // 移除 "oklch(" 和 ")"
+    return `oklch(${inner} / ${opacity})`;
+  }
+
+  // 处理其他格式（HEX、RGB 等）- 降级处理
+  console.warn(`withOpacity: 不支持的颜色格式 "${color}"，建议使用 OKLCh 格式`);
+  return color;
+}
+
+/** @deprecated 使用 getClientColorVar 或 getClientColor 替代 */
 export const clientColors: Record<string, string> = {
   claude: colors.providers.anthropic,
   openai: colors.providers.openai,
   codex: colors.providers.openai,
   gemini: colors.providers.google,
 };
-
-/**
- * 获取 Client 颜色
- */
-export function getClientColor(clientType: string): string {
-  return clientColors[clientType.toLowerCase()] || colors.providers.custom;
-}

@@ -8,6 +8,7 @@ import openaiIcon from '@/assets/icons/openai.png';
 import codexIcon from '@/assets/icons/codex.png';
 import geminiIcon from '@/assets/icons/gemini.png';
 import type { ClientType } from '@/lib/transport';
+import { getClientColorVar } from '@/lib/theme';
 
 // 客户端图标映射
 // OpenAI: 白底黑字 logo
@@ -19,14 +20,12 @@ const clientIconMap: Record<string, string> = {
   gemini: geminiIcon,
 };
 
-/**
- * 客户端颜色映射
- */
+/** @deprecated 使用 getClientColor() 或 getClientColorVar() 替代 */
 export const clientColors: Record<ClientType, string> = {
-  claude: '#D4A574',   // 棕色 - Anthropic
-  openai: '#10A37F',   // 绿色 - OpenAI
-  codex: '#10A37F',    // 绿色 - OpenAI Codex
-  gemini: '#4285F4',   // 蓝色 - Google
+  claude: '#D4A574',
+  openai: '#10A37F',
+  codex: '#10A37F',
+  gemini: '#4285F4',
 };
 
 /**
@@ -40,10 +39,10 @@ export const clientNames: Record<ClientType, string> = {
 };
 
 /**
- * 获取客户端颜色
+ * 获取客户端颜色（返回 CSS 变量引用）
  */
 export function getClientColor(clientType: ClientType): string {
-  return clientColors[clientType] || '#8C8C8C';
+  return getClientColorVar(clientType as any) || 'var(--color-provider-custom)';
 }
 
 /**

@@ -145,13 +145,28 @@ func (m *Manager) UpdateCooldown(providerID uint64, clientType string, until tim
 		providerID, clientType, until.Format("2006-01-02 15:04:05"))
 }
 
-// RecordSuccess records a successful request and resets all failure counts for this provider+clientType
-// This ensures cooldown policies start fresh after a successful request
+// RecordSuccess records a successful request and clears cooldown + resets failure counts
+// This ensures the provider is immediately available after a successful request
 func (m *Manager) RecordSuccess(providerID uint64, clientType string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Clear cooldown from memory
+	key := CooldownKey{ProviderID: providerID, ClientType: clientType}
+	delete(m.cooldowns, key)
+	delete(m.reasons, key)
+
+	// Delete from database
+	if m.repository != nil {
+		if err := m.repository.Delete(providerID, clientType); err != nil {
+			log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s from database: %v", providerID, clientType, err)
+		}
+	}
+
+	// Reset failure counts
 	m.failureTracker.ResetFailures(providerID, clientType)
+
+	log.Printf("[Cooldown] Provider %d (clientType=%s): Cleared cooldown after successful request", providerID, clientType)
 }
 
 // setCooldownLocked sets cooldown without acquiring lock (internal use only)

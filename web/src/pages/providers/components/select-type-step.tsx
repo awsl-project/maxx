@@ -142,7 +142,7 @@ export function SelectTypeStep({
                       <div className="flex items-center justify-between w-full">
                          <div className={`w-12 h-12 rounded-lg flex items-center justify-center border transition-colors ${
                            isSelected 
-                             ? 'bg-accent/10 border-accent/20' 
+                             ? 'bg-accent border-accent/20' 
                              : 'bg-surface-primary border-border/50 group-hover:border-accent/30'
                          }`}>
                             <Icon size={24} className={isSelected ? 'text-accent' : 'text-text-secondary group-hover:text-accent'} />

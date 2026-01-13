@@ -51,10 +51,7 @@ export function useStreamingRequests(): StreamingState {
   }, []);
 
   useEffect(() => {
-    // 连接 WebSocket
-    transport.connect().catch(console.error);
-
-    // 订阅请求更新事件
+    // 订阅请求更新事件 (连接由 main.tsx 统一管理)
     const unsubscribe = transport.subscribe<ProxyRequest>(
       'proxy_request_update',
       handleRequestUpdate

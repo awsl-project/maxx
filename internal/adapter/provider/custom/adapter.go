@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/Bowl42/maxx-next/internal/adapter/provider"
-	"github.com/Bowl42/maxx-next/internal/converter"
 	ctxutil "github.com/Bowl42/maxx-next/internal/context"
+	"github.com/Bowl42/maxx-next/internal/converter"
 	"github.com/Bowl42/maxx-next/internal/domain"
 	"github.com/Bowl42/maxx-next/internal/pricing"
 	"github.com/Bowl42/maxx-next/internal/usage"
@@ -65,49 +65,26 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 		needsConversion = true
 	}
 
-	// Transform request if needed
-	var upstreamBody []byte
-	var err error
-	if needsConversion {
-		upstreamBody, err = a.converter.TransformRequest(clientType, targetType, requestBody, mappedModel, stream)
-		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "failed to transform request")
-		}
-	} else {
-		// Just update the model in the request
-		upstreamBody, err = updateModelInBody(requestBody, mappedModel, clientType)
-		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "failed to update model")
-		}
-	}
-
 	// Build upstream URL
 	baseURL := a.getBaseURL(targetType)
-	requestPath := ctxutil.GetRequestPath(ctx)
+	requestURI := ctxutil.GetRequestURI(ctx)
 
 	// For Gemini, update model in URL path if mapping is configured
 	if clientType == domain.ClientTypeGemini && mappedModel != "" {
-		requestPath = updateGeminiModelInPath(requestPath, mappedModel)
+		requestURI = updateGeminiModelInPath(requestURI, mappedModel)
 	}
 
-	upstreamURL := buildUpstreamURL(baseURL, requestPath)
+	upstreamURL := buildUpstreamURL(baseURL, requestURI)
 
 	// Create upstream request
-	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(upstreamBody))
+	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to create upstream request")
 	}
 
 	// Forward original headers (filtered) - preserves anthropic-version, anthropic-beta, user-agent, etc.
 	originalHeaders := ctxutil.GetRequestHeaders(ctx)
-	copyHeadersFiltered(upstreamReq.Header, originalHeaders)
-
-	// Set content-type if not already set
-	if upstreamReq.Header.Get("Content-Type") == "" {
-		upstreamReq.Header.Set("Content-Type", "application/json")
-	}
-	// Disable compression to avoid gzip decode issues
-	upstreamReq.Header.Set("Accept-Encoding", "identity")
+	upstreamReq.Header = originalHeaders
 
 	// Override auth headers with provider's credentials
 	if a.provider.Config.Custom.APIKey != "" {
@@ -120,7 +97,7 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
 			Headers: flattenHeaders(upstreamReq.Header),
-			Body:    string(upstreamBody),
+			Body:    string(requestBody),
 		}
 	}
 
@@ -238,7 +215,6 @@ func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.Resp
 
 	// Copy upstream headers (except those we override)
 	copyResponseHeaders(w.Header(), resp.Header)
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(responseBody)
 	return nil
@@ -259,11 +235,20 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 	// Copy upstream headers (except those we override)
 	copyResponseHeaders(w.Header(), resp.Header)
 
-	// Set/override streaming headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	// Set streaming headers only if not already set by upstream
+	// These are required for SSE (Server-Sent Events) to work correctly
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/event-stream")
+	}
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	if w.Header().Get("Connection") == "" {
+		w.Header().Set("Connection", "keep-alive")
+	}
+	if w.Header().Get("X-Accel-Buffering") == "" {
+		w.Header().Set("X-Accel-Buffering", "no")
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -472,17 +457,25 @@ func updateGeminiModelInPath(path string, newModel string) string {
 }
 
 func setAuthHeader(req *http.Request, clientType domain.ClientType, apiKey string) {
-	switch clientType {
-	case domain.ClientTypeClaude:
+	// Only update authentication headers that already exist in the request
+	// Do not create new headers - preserve the original request format
+
+	// Check which auth header the client used and update only that one
+
+	if req.Header.Get("x-api-key") != "" {
+		// Claude-style auth
 		req.Header.Set("x-api-key", apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-	case domain.ClientTypeGemini:
-		// Gemini uses query param, but we can also set header
-		req.Header.Set("x-goog-api-key", apiKey)
-	default:
-		// OpenAI and Codex use Bearer token
+	}
+	if req.Header.Get("Authorization") != "" {
+		// OpenAI/Codex-style auth
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
+	if req.Header.Get("x-goog-api-key") != "" {
+		// Gemini-style auth
+		req.Header.Set("x-goog-api-key", apiKey)
+	}
+	// If no auth header exists, don't create one
+	// The request will be sent as-is (useful for providers that use query params or other auth methods)
 }
 
 func isRetryableStatusCode(code int) bool {
@@ -532,16 +525,16 @@ func flattenHeaders(h http.Header) map[string]string {
 // Headers to filter out - only privacy/proxy related, NOT application headers like anthropic-version
 var filteredHeaders = map[string]bool{
 	// IP and client identification headers (privacy protection)
-	"x-forwarded-for":  true,
-	"x-forwarded-host": true,
+	"x-forwarded-for":   true,
+	"x-forwarded-host":  true,
 	"x-forwarded-proto": true,
-	"x-forwarded-port": true,
-	"x-real-ip":        true,
-	"x-client-ip":      true,
-	"x-originating-ip": true,
-	"x-remote-ip":      true,
-	"x-remote-addr":    true,
-	"forwarded":        true,
+	"x-forwarded-port":  true,
+	"x-real-ip":         true,
+	"x-client-ip":       true,
+	"x-originating-ip":  true,
+	"x-remote-ip":       true,
+	"x-remote-addr":     true,
+	"forwarded":         true,
 
 	// CDN/Cloud provider headers
 	"cf-connecting-ip": true,
@@ -555,22 +548,20 @@ var filteredHeaders = map[string]bool{
 	"x-azure-ref":      true,
 
 	// Tracing headers
-	"x-request-id":     true,
-	"x-correlation-id": true,
-	"x-trace-id":       true,
-	"x-amzn-trace-id":  true,
-	"x-b3-traceid":     true,
-	"x-b3-spanid":      true,
+	"x-request-id":      true,
+	"x-correlation-id":  true,
+	"x-trace-id":        true,
+	"x-amzn-trace-id":   true,
+	"x-b3-traceid":      true,
+	"x-b3-spanid":       true,
 	"x-b3-parentspanid": true,
-	"x-b3-sampled":     true,
-	"traceparent":      true,
-	"tracestate":       true,
+	"x-b3-sampled":      true,
+	"traceparent":       true,
+	"tracestate":        true,
 
 	// Headers that will be overridden (not filtered, just replaced)
-	"host":          true, // Will be set by http client
+	"host":           true, // Will be set by http client
 	"content-length": true, // Will be recalculated
-	"authorization": true, // Will be replaced with provider's key
-	"x-api-key":     true, // Will be replaced with provider's key
 }
 
 // copyHeadersFiltered copies headers from src to dst, filtering out sensitive headers
@@ -712,4 +703,3 @@ func extractTimeFromMessage(msg string) time.Time {
 
 	return time.Time{}
 }
-

@@ -101,6 +101,14 @@ func (h *WebSocketHub) BroadcastStats(stats interface{}) {
 	}
 }
 
+// BroadcastMessage sends a custom message with specified type to all connected clients
+func (h *WebSocketHub) BroadcastMessage(messageType string, data interface{}) {
+	h.broadcast <- WSMessage{
+		Type: messageType,
+		Data: data,
+	}
+}
+
 // BroadcastLog sends a log message to all connected clients
 func (h *WebSocketHub) BroadcastLog(message string) {
 	h.broadcast <- WSMessage{

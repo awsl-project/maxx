@@ -1,13 +1,14 @@
 import { Outlet } from 'react-router-dom';
 import { SidebarNav } from './sidebar-nav';
+import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 
 export function AppLayout() {
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <SidebarProvider>
       <SidebarNav />
-      <main className="flex-1 overflow-hidden">
+      <SidebarInset>
         <Outlet />
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

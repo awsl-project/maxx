@@ -21,7 +21,7 @@ const (
 	CtxKeyRequestBody     contextKey = "request_body"
 	CtxKeyUpstreamAttempt contextKey = "upstream_attempt"
 	CtxKeyRequestHeaders  contextKey = "request_headers"
-	CtxKeyRequestPath     contextKey = "request_path"
+	CtxKeyRequestURI      contextKey = "request_uri"
 	CtxKeyBroadcaster     contextKey = "broadcaster"
 	CtxKeyIsStream        contextKey = "is_stream"
 )
@@ -67,8 +67,8 @@ func WithRequestHeaders(ctx context.Context, headers http.Header) context.Contex
 	return context.WithValue(ctx, CtxKeyRequestHeaders, headers)
 }
 
-func WithRequestPath(ctx context.Context, path string) context.Context {
-	return context.WithValue(ctx, CtxKeyRequestPath, path)
+func WithRequestURI(ctx context.Context, uri string) context.Context {
+	return context.WithValue(ctx, CtxKeyRequestURI, uri)
 }
 
 // Getters
@@ -142,8 +142,8 @@ func GetRequestHeaders(ctx context.Context) http.Header {
 	return nil
 }
 
-func GetRequestPath(ctx context.Context) string {
-	if v, ok := ctx.Value(CtxKeyRequestPath).(string); ok {
+func GetRequestURI(ctx context.Context) string {
+	if v, ok := ctx.Value(CtxKeyRequestURI).(string); ok {
 		return v
 	}
 	return ""

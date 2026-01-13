@@ -1,7 +1,8 @@
 import type { ClientType } from '@/lib/transport';
+import { getProviderColorVar } from '@/lib/theme';
 
-// Antigravity brand color
-export const ANTIGRAVITY_COLOR = '#EC4899';
+// Antigravity brand color - 从 CSS 变量获取
+export const ANTIGRAVITY_COLOR = getProviderColorVar('antigravity');
 
 // Quick templates for Custom provider
 export type QuickTemplate = {
