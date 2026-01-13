@@ -226,7 +226,7 @@ func InitializeServerComponents(
 	log.Printf("[Core] Creating handlers")
 	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
-	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo)
+	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wsHub)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, repos.CachedProjectRepo)
 
 	components := &ServerComponents{

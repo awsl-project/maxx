@@ -373,6 +373,7 @@ export namespace domain {
 	    duration: number;
 	    isStream: boolean;
 	    status: string;
+	    statusCode: number;
 	    requestInfo?: RequestInfo;
 	    responseInfo?: ResponseInfo;
 	    error: string;
@@ -409,6 +410,7 @@ export namespace domain {
 	        this.duration = source["duration"];
 	        this.isStream = source["isStream"];
 	        this.status = source["status"];
+	        this.statusCode = source["statusCode"];
 	        this.requestInfo = this.convertValues(source["requestInfo"], RequestInfo);
 	        this.responseInfo = this.convertValues(source["responseInfo"], ResponseInfo);
 	        this.error = source["error"];
@@ -450,6 +452,11 @@ export namespace domain {
 	    createdAt: any;
 	    // Go type: time
 	    updatedAt: any;
+	    // Go type: time
+	    startTime: any;
+	    // Go type: time
+	    endTime: any;
+	    duration: number;
 	    status: string;
 	    proxyRequestID: number;
 	    isStream: boolean;
@@ -474,6 +481,9 @@ export namespace domain {
 	        this.id = source["id"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.startTime = this.convertValues(source["startTime"], null);
+	        this.endTime = this.convertValues(source["endTime"], null);
+	        this.duration = source["duration"];
 	        this.status = source["status"];
 	        this.proxyRequestID = source["proxyRequestID"];
 	        this.isStream = source["isStream"];

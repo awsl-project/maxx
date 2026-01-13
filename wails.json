@@ -5,7 +5,7 @@
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
-  "frontend:dev:serverUrl": "http://localhost:5173",
+  "frontend:dev:serverUrl": "http://localhost:3000",
   "frontend:dir": "./web",
   "wailsjsdir": "./web/src/wailsjs",
   "version": "2",
