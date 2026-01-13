@@ -5,18 +5,19 @@ import (
 	"os"
 	"time"
 
-	"github.com/Bowl42/maxx-next/internal/adapter/client"
-	_ "github.com/Bowl42/maxx-next/internal/adapter/provider/antigravity"
-	_ "github.com/Bowl42/maxx-next/internal/adapter/provider/custom"
-	"github.com/Bowl42/maxx-next/internal/cooldown"
-	"github.com/Bowl42/maxx-next/internal/executor"
-	"github.com/Bowl42/maxx-next/internal/handler"
-	"github.com/Bowl42/maxx-next/internal/repository"
-	"github.com/Bowl42/maxx-next/internal/repository/cached"
-	"github.com/Bowl42/maxx-next/internal/repository/sqlite"
-	"github.com/Bowl42/maxx-next/internal/router"
-	"github.com/Bowl42/maxx-next/internal/service"
-	"github.com/Bowl42/maxx-next/internal/waiter"
+	"github.com/Bowl42/maxx/internal/adapter/client"
+	_ "github.com/Bowl42/maxx/internal/adapter/provider/antigravity"
+	_ "github.com/Bowl42/maxx/internal/adapter/provider/custom"
+	"github.com/Bowl42/maxx/internal/cooldown"
+	"github.com/Bowl42/maxx/internal/event"
+	"github.com/Bowl42/maxx/internal/executor"
+	"github.com/Bowl42/maxx/internal/handler"
+	"github.com/Bowl42/maxx/internal/repository"
+	"github.com/Bowl42/maxx/internal/repository/cached"
+	"github.com/Bowl42/maxx/internal/repository/sqlite"
+	"github.com/Bowl42/maxx/internal/router"
+	"github.com/Bowl42/maxx/internal/service"
+	"github.com/Bowl42/maxx/internal/waiter"
 )
 
 // DatabaseConfig 数据库配置
@@ -51,14 +52,15 @@ type DatabaseRepos struct {
 
 // ServerComponents 包含服务器运行所需的所有组件
 type ServerComponents struct {
-	Router           *router.Router
-	WebSocketHub     *handler.WebSocketHub
-	Executor         *executor.Executor
-	ClientAdapter    *client.Adapter
-	AdminService     *service.AdminService
-	ProxyHandler     *handler.ProxyHandler
-	AdminHandler     *handler.AdminHandler
-	AntigravityHandler *handler.AntigravityHandler
+	Router              *router.Router
+	WebSocketHub        *handler.WebSocketHub
+	WailsBroadcaster    *event.WailsBroadcaster
+	Executor            *executor.Executor
+	ClientAdapter       *client.Adapter
+	AdminService        *service.AdminService
+	ProxyHandler        *handler.ProxyHandler
+	AdminHandler        *handler.AdminHandler
+	AntigravityHandler  *handler.AntigravityHandler
 	ProjectProxyHandler *handler.ProjectProxyHandler
 }
 
@@ -192,12 +194,15 @@ func InitializeServerComponents(
 	log.Printf("[Core] Creating WebSocket hub")
 	wsHub := handler.NewWebSocketHub()
 
+	log.Printf("[Core] Creating Wails broadcaster (wraps WebSocket hub)")
+	wailsBroadcaster := event.NewWailsBroadcaster(wsHub)
+
 	log.Printf("[Core] Setting up log output to broadcast via WebSocket")
 	logWriter := handler.NewWebSocketLogWriter(wsHub, os.Stdout, logPath)
 	log.SetOutput(logWriter)
 
 	log.Printf("[Core] Creating project waiter")
-	projectWaiter := waiter.NewProjectWaiter(repos.CachedSessionRepo, repos.SettingRepo, wsHub)
+	projectWaiter := waiter.NewProjectWaiter(repos.CachedSessionRepo, repos.SettingRepo, wailsBroadcaster)
 
 	log.Printf("[Core] Creating executor")
 	exec := executor.NewExecutor(
@@ -206,7 +211,7 @@ func InitializeServerComponents(
 		repos.AttemptRepo,
 		repos.CachedRetryConfigRepo,
 		repos.CachedSessionRepo,
-		wsHub,
+		wailsBroadcaster,
 		projectWaiter,
 		instanceID,
 	)
@@ -232,19 +237,20 @@ func InitializeServerComponents(
 	log.Printf("[Core] Creating handlers")
 	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
-	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wsHub)
+	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, repos.CachedProjectRepo)
 
 	components := &ServerComponents{
-		Router:               r,
-		WebSocketHub:          wsHub,
-		Executor:              exec,
-		ClientAdapter:         clientAdapter,
-		AdminService:          adminService,
-		ProxyHandler:          proxyHandler,
-		AdminHandler:          adminHandler,
-		AntigravityHandler:    antigravityHandler,
-		ProjectProxyHandler:   projectProxyHandler,
+		Router:              r,
+		WebSocketHub:        wsHub,
+		WailsBroadcaster:    wailsBroadcaster,
+		Executor:            exec,
+		ClientAdapter:       clientAdapter,
+		AdminService:        adminService,
+		ProxyHandler:        proxyHandler,
+		AdminHandler:        adminHandler,
+		AntigravityHandler:  antigravityHandler,
+		ProjectProxyHandler: projectProxyHandler,
 	}
 
 	log.Printf("[Core] Server components initialized successfully")

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Bowl42/maxx-next/internal/core"
+	"github.com/Bowl42/maxx/internal/core"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -85,6 +85,12 @@ func (a *DesktopApp) Startup(ctx context.Context) {
 	log.Println("[Desktop] ========== Application Startup ==========")
 	log.Printf("[Desktop] Data directory: %s", a.dataDir)
 	log.Printf("[Desktop] Instance ID: %s", a.instanceID)
+
+	// Set Wails context on the broadcaster for event emission
+	if a.components != nil && a.components.WailsBroadcaster != nil {
+		log.Println("[Desktop] Setting Wails context on broadcaster")
+		a.components.WailsBroadcaster.SetContext(ctx)
+	}
 
 	if err := a.StartServer(); err != nil {
 		log.Printf("[Desktop] Failed to start server: %v", err)
