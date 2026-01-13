@@ -22,7 +22,8 @@ export function NavProxyStatus() {
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-sm group w-full rounded-lg p-1  hover:bg-surface-hover transition-colors cursor-pointer"
+      className="flex items-center gap-sm group w-full rounded-lg p-1  
+      hover:bg-surface-hover transition-colors cursor-pointer"
       title={`Click to copy: ${fullUrl}`}
     >
       <div className="w-8 h-8 rounded-lg bg-emerald-400/10 flex items-center justify-center shrink-0">
