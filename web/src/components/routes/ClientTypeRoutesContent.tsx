@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo } from 'react'
-import { Plus, RefreshCw } from 'lucide-react'
+import { Plus, RefreshCw, Zap } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -310,42 +310,47 @@ export function ClientTypeRoutesContent({
                       key={provider.id}
                       onClick={() => handleAddRoute(provider, isNative)}
                       disabled={createRoute.isPending}
-                      className="group relative flex flex-col p-4 rounded-lg border border-border bg-surface-secondary hover:bg-surface-hover hover:border-accent/30 transition-all text-left"
+                      className="group relative flex flex-col p-4 rounded-xl border border-border/60 bg-surface-secondary hover:border-border shadow-sm transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
                     >
+                      {/* Provider Icon */}
                       <div className="flex items-start gap-3 mb-3">
                         <div
-                          className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                          className="relative w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border transition-all duration-300 group-hover:shadow-md"
                           style={{
                             backgroundColor: `${providerColor}15`,
-                            color: providerColor,
+                            borderColor: `${providerColor}30`,
+                            color: providerColor
                           }}
                         >
-                          <span className="text-base font-bold">
+                          <span className="relative text-xl font-black">
                             {provider.name.charAt(0).toUpperCase()}
                           </span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-text-primary truncate">
+                          <div className="text-[14px] font-bold text-text-primary truncate">
                             {provider.name}
                           </div>
-                          <div className="text-xs text-text-muted capitalize">
+                          <div className="text-[11px] font-medium text-text-muted capitalize">
                             {provider.type}
                           </div>
                         </div>
                       </div>
+
+                      {/* Badges */}
                       <div className="flex items-center justify-between">
                         {isNative ? (
-                          <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded">
-                            NATIVE
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                            <Zap size={10} className="fill-emerald-500/20" /> NATIVE
                           </span>
                         ) : (
-                          <span className="flex items-center gap-1 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">
-                            <RefreshCw size={8} /> CONV
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                            <RefreshCw size={10} /> CONV
                           </span>
                         )}
                         <Plus
-                          size={14}
-                          className="text-text-muted group-hover:text-accent transition-colors"
+                          size={16}
+                          style={{ color: providerColor }}
+                          className="opacity-60 group-hover:opacity-100 transition-opacity"
                         />
                       </div>
                     </button>

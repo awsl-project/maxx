@@ -73,7 +73,7 @@ export function ProjectDetailPage() {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="h-[73px] flex items-center justify-between px-6 border-b border-border bg-surface-primary flex-shrink-0 z-10">
+      <div className="h-[73px] flex items-center justify-between px-6 border-b border-border bg-surface-primary shrink-0 z-10">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"

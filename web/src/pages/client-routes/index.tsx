@@ -15,7 +15,7 @@ export function ClientRoutesPage() {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="h-[73px] flex items-center justify-between px-6 border-b border-border bg-surface-primary flex-shrink-0">
+      <div className="h-[73px] flex items-center justify-between px-6 border-b border-border bg-surface-primary shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-accent/10 rounded-lg">
             <ClientIcon

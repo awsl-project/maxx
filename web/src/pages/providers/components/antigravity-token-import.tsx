@@ -1,138 +1,164 @@
-import { useState, useEffect, useRef } from 'react';
-import { Wand2, ChevronLeft, Loader2, CheckCircle2, AlertCircle, Key, ExternalLink, Mail, ShieldCheck, Zap } from 'lucide-react';
-import { getTransport } from '@/lib/transport';
-import type { AntigravityTokenValidationResult, CreateProviderData, AntigravityOAuthResult } from '@/lib/transport';
-import { ANTIGRAVITY_COLOR } from '../types';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import { useState, useEffect, useRef } from 'react'
+import {
+  Wand2,
+  ChevronLeft,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Key,
+  ExternalLink,
+  Mail,
+  ShieldCheck,
+  Zap,
+} from 'lucide-react'
+import { getTransport } from '@/lib/transport'
+import type {
+  AntigravityTokenValidationResult,
+  CreateProviderData,
+  AntigravityOAuthResult,
+} from '@/lib/transport'
+import { ANTIGRAVITY_COLOR } from '../types'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 
-const transport = getTransport();
+const transport = getTransport()
 
 interface AntigravityTokenImportProps {
-  onBack: () => void;
-  onCreateProvider: (data: CreateProviderData) => Promise<void>;
+  onBack: () => void
+  onCreateProvider: (data: CreateProviderData) => Promise<void>
 }
 
-type ImportMode = 'oauth' | 'token';
-type OAuthStatus = 'idle' | 'waiting' | 'success' | 'error';
+type ImportMode = 'oauth' | 'token'
+type OAuthStatus = 'idle' | 'waiting' | 'success' | 'error'
 
-export function AntigravityTokenImport({ onBack, onCreateProvider }: AntigravityTokenImportProps) {
-  const [mode, setMode] = useState<ImportMode>('token');
-  const [email, setEmail] = useState('');
-  const [token, setToken] = useState('');
-  const [validating, setValidating] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [validationResult, setValidationResult] = useState<AntigravityTokenValidationResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function AntigravityTokenImport({
+  onBack,
+  onCreateProvider,
+}: AntigravityTokenImportProps) {
+  const [mode, setMode] = useState<ImportMode>('token')
+  const [email, setEmail] = useState('')
+  const [token, setToken] = useState('')
+  const [validating, setValidating] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [validationResult, setValidationResult] =
+    useState<AntigravityTokenValidationResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // OAuth state
-  const [oauthStatus, setOAuthStatus] = useState<OAuthStatus>('idle');
-  const [oauthState, setOAuthState] = useState<string | null>(null);
-  const [oauthResult, setOAuthResult] = useState<AntigravityOAuthResult | null>(null);
-  const oauthWindowRef = useRef<Window | null>(null);
+  const [oauthStatus, setOAuthStatus] = useState<OAuthStatus>('idle')
+  const [oauthState, setOAuthState] = useState<string | null>(null)
+  const [oauthResult, setOAuthResult] = useState<AntigravityOAuthResult | null>(
+    null
+  )
+  const oauthWindowRef = useRef<Window | null>(null)
 
   // Subscribe to OAuth result messages via WebSocket
   useEffect(() => {
-    const unsubscribe = transport.subscribe<AntigravityOAuthResult>('antigravity_oauth_result', (result) => {
-      // Only handle results that match our current OAuth state
-      if (result.state === oauthState) {
-        // Close the OAuth window if it's still open
-        if (oauthWindowRef.current && !oauthWindowRef.current.closed) {
-          oauthWindowRef.current.close();
-        }
+    const unsubscribe = transport.subscribe<AntigravityOAuthResult>(
+      'antigravity_oauth_result',
+      result => {
+        // Only handle results that match our current OAuth state
+        if (result.state === oauthState) {
+          // Close the OAuth window if it's still open
+          if (oauthWindowRef.current && !oauthWindowRef.current.closed) {
+            oauthWindowRef.current.close()
+          }
 
-        if (result.success && result.refreshToken) {
-          // OAuth succeeded, save result for user confirmation
-          setOAuthStatus('success');
-          setOAuthResult(result);
-        } else {
-          // OAuth failed
-          setOAuthStatus('error');
-          setError(result.error || 'OAuth authorization failed');
+          if (result.success && result.refreshToken) {
+            // OAuth succeeded, save result for user confirmation
+            setOAuthStatus('success')
+            setOAuthResult(result)
+          } else {
+            // OAuth failed
+            setOAuthStatus('error')
+            setError(result.error || 'OAuth authorization failed')
+          }
         }
       }
-    });
+    )
 
-    return () => unsubscribe();
-  }, [oauthState]);
+    return () => unsubscribe()
+  }, [oauthState])
 
   // Handle OAuth flow
   const handleOAuth = async () => {
-    setOAuthStatus('waiting');
-    setError(null);
+    setOAuthStatus('waiting')
+    setError(null)
 
     try {
       // Request OAuth URL from backend
-      const { authURL, state } = await transport.startAntigravityOAuth();
-      setOAuthState(state);
+      const { authURL, state } = await transport.startAntigravityOAuth()
+      setOAuthState(state)
 
       // Open OAuth window
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
+      const width = 600
+      const height = 700
+      const left = window.screenX + (window.outerWidth - width) / 2
+      const top = window.screenY + (window.outerHeight - height) / 2
 
       oauthWindowRef.current = window.open(
         authURL,
         'Antigravity OAuth',
         `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-      );
+      )
 
       // Monitor window closure
       const checkWindowClosed = setInterval(() => {
         if (oauthWindowRef.current?.closed) {
-          clearInterval(checkWindowClosed);
+          clearInterval(checkWindowClosed)
           // If still waiting when window closes, assume user cancelled
           if (oauthStatus === 'waiting') {
-            setOAuthStatus('idle');
-            setOAuthState(null);
+            setOAuthStatus('idle')
+            setOAuthState(null)
           }
         }
-      }, 500);
+      }, 500)
     } catch (err) {
-      setOAuthStatus('error');
-      setError(err instanceof Error ? err.message : 'Failed to start OAuth flow');
+      setOAuthStatus('error')
+      setError(
+        err instanceof Error ? err.message : 'Failed to start OAuth flow'
+      )
     }
-  };
+  }
 
   // 验证 token
   const handleValidate = async () => {
     if (token.trim() === '' || !token.startsWith('1//')) {
-      setError('请输入有效的 refresh token（以 1// 开头）');
-      return;
+      setError('请输入有效的 refresh token（以 1// 开头）')
+      return
     }
 
-    setValidating(true);
-    setError(null);
-    setValidationResult(null);
+    setValidating(true)
+    setError(null)
+    setValidationResult(null)
 
     try {
-      const result = await transport.validateAntigravityToken(token.trim());
-      setValidationResult(result);
+      const result = await transport.validateAntigravityToken(token.trim())
+      setValidationResult(result)
       if (!result.valid) {
-        setError(result.error || 'Token 验证失败');
+        setError(result.error || 'Token 验证失败')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '验证失败');
+      setError(err instanceof Error ? err.message : '验证失败')
     } finally {
-      setValidating(false);
+      setValidating(false)
     }
-  };
+  }
 
   // 创建 provider
   const handleCreate = async () => {
     if (!validationResult?.valid) {
-      setError('请先验证 token');
-      return;
+      setError('请先验证 token')
+      return
     }
 
-    setCreating(true);
-    setError(null);
+    setCreating(true)
+    setError(null)
 
     try {
       // 优先使用验证返回的邮箱，其次使用用户输入的邮箱
-      const finalEmail = validationResult.userInfo?.email || email.trim() || '';
+      const finalEmail = validationResult.userInfo?.email || email.trim() || ''
       const providerData: CreateProviderData = {
         type: 'antigravity',
         name: finalEmail || 'Antigravity Account',
@@ -146,24 +172,24 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
               : '',
           },
         },
-      };
-      await onCreateProvider(providerData);
+      }
+      await onCreateProvider(providerData)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '创建失败');
+      setError(err instanceof Error ? err.message : '创建失败')
     } finally {
-      setCreating(false);
+      setCreating(false)
     }
-  };
+  }
 
   // 创建 OAuth provider
   const handleOAuthCreate = async () => {
     if (!oauthResult?.refreshToken) {
-      setError('OAuth result not available');
-      return;
+      setError('OAuth result not available')
+      return
     }
 
-    setCreating(true);
-    setError(null);
+    setCreating(true)
+    setError(null)
 
     try {
       const providerData: CreateProviderData = {
@@ -179,16 +205,16 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
               : '',
           },
         },
-      };
-      await onCreateProvider(providerData);
+      }
+      await onCreateProvider(providerData)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '创建失败');
+      setError(err instanceof Error ? err.message : '创建失败')
     } finally {
-      setCreating(false);
+      setCreating(false)
     }
-  };
+  }
 
-  const isTokenValid = token.trim().startsWith('1//');
+  const isTokenValid = token.trim().startsWith('1//')
 
   return (
     <div className="flex flex-col h-full bg-surface-primary">
@@ -204,7 +230,7 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
         </Button>
         <div>
           <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-            <span 
+            <span
               className="w-2 h-2 rounded-full inline-block"
               style={{ backgroundColor: ANTIGRAVITY_COLOR }}
             />
@@ -215,12 +241,14 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
 
       <div className="flex-1 overflow-y-auto">
         <div className="container max-w-2xl mx-auto py-8 px-6 space-y-8">
-          
           {/* Hero Section */}
           <div className="text-center space-y-2 mb-8">
-            <h1 className="text-2xl font-bold text-text-primary">Choose Authentication Method</h1>
+            <h1 className="text-2xl font-bold text-text-primary">
+              Choose Authentication Method
+            </h1>
             <p className="text-text-secondary mx-auto">
-              Select how you want to connect your Antigravity account to access models.
+              Select how you want to connect your Antigravity account to access
+              models.
             </p>
           </div>
 
@@ -229,23 +257,30 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
             <button
               onClick={() => setMode('oauth')}
               className={cn(
-                "relative group p-4 rounded-xl border-2 transition-all duration-200 text-left",
+                'relative group p-4 rounded-xl border-2 transition-all duration-200 text-left',
                 mode === 'oauth'
-                  ? "border-accent bg-accent/5 shadow-sm"
-                  : "border-border hover:border-accent/50 bg-surface-secondary hover:bg-surface-hover"
+                  ? 'border-accent bg-accent/5 shadow-sm'
+                  : 'border-border hover:border-accent/50 bg-surface-secondary hover:bg-surface-hover'
               )}
             >
               <div className="flex items-start gap-4">
                 <div
                   className={cn(
-                    "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
-                    mode === 'oauth' ? "bg-accent/20 text-accent" : "bg-surface-hover text-text-secondary group-hover:text-accent"
+                    'w-10 h-10 rounded-lg flex items-center justify-center transition-colors',
+                    mode === 'oauth'
+                      ? 'bg-accent/20 text-accent'
+                      : 'bg-surface-hover text-text-secondary group-hover:text-accent'
                   )}
                 >
                   <ExternalLink size={20} />
                 </div>
                 <div>
-                  <div className={cn("font-semibold mb-1", mode === 'oauth' ? "text-accent" : "text-text-primary")}>
+                  <div
+                    className={cn(
+                      'font-semibold mb-1',
+                      mode === 'oauth' ? 'text-accent' : 'text-text-primary'
+                    )}
+                  >
                     OAuth Connect
                   </div>
                   <p className="text-xs text-text-secondary leading-relaxed">
@@ -261,27 +296,35 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
             <button
               onClick={() => setMode('token')}
               className={cn(
-                "relative group p-4 rounded-xl border-2 transition-all duration-200 text-left",
+                'relative group p-4 rounded-xl border-2 transition-all duration-200 text-left',
                 mode === 'token'
-                  ? "border-accent bg-accent/5 shadow-sm"
-                  : "border-border hover:border-accent/50 bg-surface-secondary hover:bg-surface-hover"
+                  ? 'border-accent bg-accent/5 shadow-sm'
+                  : 'border-border hover:border-accent/50 bg-surface-secondary hover:bg-surface-hover'
               )}
             >
               <div className="flex items-start gap-4">
                 <div
                   className={cn(
-                    "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
-                    mode === 'token' ? "bg-accent/20 text-accent" : "bg-surface-hover text-text-secondary group-hover:text-accent"
+                    'w-10 h-10 rounded-lg flex items-center justify-center transition-colors',
+                    mode === 'token'
+                      ? 'bg-accent/20 text-accent'
+                      : 'bg-surface-hover text-text-secondary group-hover:text-accent'
                   )}
                 >
                   <Key size={20} />
                 </div>
                 <div>
-                  <div className={cn("font-semibold mb-1", mode === 'token' ? "text-accent" : "text-text-primary")}>
+                  <div
+                    className={cn(
+                      'font-semibold mb-1',
+                      mode === 'token' ? 'text-accent' : 'text-text-primary'
+                    )}
+                  >
                     Manual Token
                   </div>
                   <p className="text-xs text-text-secondary leading-relaxed">
-                    Paste your refresh token directly. Best for service accounts.
+                    Paste your refresh token directly. Best for service
+                    accounts.
                   </p>
                 </div>
               </div>
@@ -304,9 +347,12 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                   >
                     <Wand2 size={32} style={{ color: ANTIGRAVITY_COLOR }} />
                   </div>
-                  <h3 className="text-lg font-semibold text-text-primary mb-2">OAuth Authorization</h3>
+                  <h3 className="text-lg font-semibold text-text-primary mb-2">
+                    OAuth Authorization
+                  </h3>
                   <p className="text-sm text-text-secondary mb-8">
-                    We will redirect you to Google to securely authorize access to your Antigravity projects.
+                    We will redirect you to Google to securely authorize access
+                    to your Antigravity projects.
                   </p>
 
                   {oauthStatus === 'idle' && (
@@ -351,7 +397,10 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                           Authorization Successful
                         </div>
                         <div className="text-sm text-text-secondary">
-                          Ready to connect as <span className="font-medium text-text-primary">{oauthResult.email}</span>
+                          Ready to connect as{' '}
+                          <span className="font-medium text-text-primary">
+                            {oauthResult.email}
+                          </span>
                         </div>
 
                         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-success/10">
@@ -362,9 +411,14 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                           )}
                           {oauthResult.quota?.subscriptionTier && (
                             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-primary border border-border/50">
-                              <Zap size={10} className={
-                                oauthResult.quota.subscriptionTier === 'ULTRA' ? 'text-purple-500' : 'text-blue-500'
-                              } />
+                              <Zap
+                                size={10}
+                                className={
+                                  oauthResult.quota.subscriptionTier === 'ULTRA'
+                                    ? 'text-purple-500'
+                                    : 'text-blue-500'
+                                }
+                              />
                               <span className="text-xs font-medium text-text-secondary">
                                 {oauthResult.quota.subscriptionTier} Tier
                               </span>
@@ -379,9 +433,14 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                 {/* Error Message */}
                 {error && oauthStatus === 'error' && (
                   <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in zoom-in-95">
-                    <AlertCircle size={20} className="text-error flex-shrink-0 mt-0.5" />
+                    <AlertCircle
+                      size={20}
+                      className="text-error shrink-0 mt-0.5"
+                    />
                     <div>
-                      <p className="text-sm font-medium text-error">OAuth Failed</p>
+                      <p className="text-sm font-medium text-error">
+                        OAuth Failed
+                      </p>
                       <p className="text-xs text-error/80 mt-0.5">{error}</p>
                     </div>
                   </div>
@@ -392,8 +451,8 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                   <div className="text-center">
                     <Button
                       onClick={() => {
-                        setOAuthStatus('idle');
-                        setError(null);
+                        setOAuthStatus('idle')
+                        setError(null)
                       }}
                       variant="outline"
                     >
@@ -430,27 +489,36 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                       <ShieldCheck size={18} className="text-text-primary" />
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-text-primary">Credentials</h3>
-                      <p className="text-xs text-text-secondary">Enter your account details below</p>
+                      <h3 className="text-base font-semibold text-text-primary">
+                        Credentials
+                      </h3>
+                      <p className="text-xs text-text-secondary">
+                        Enter your account details below
+                      </p>
                     </div>
                   </div>
 
                   {/* Email Input */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-text-primary flex items-center justify-between">
-                      <span className="flex items-center gap-2"><Mail size={14} /> Email Address</span>
-                      <span className="text-[10px] text-text-muted bg-surface-hover px-2 py-0.5 rounded-full">Optional</span>
+                      <span className="flex items-center gap-2">
+                        <Mail size={14} /> Email Address
+                      </span>
+                      <span className="text-[10px] text-text-muted bg-surface-hover px-2 py-0.5 rounded-full">
+                        Optional
+                      </span>
                     </label>
                     <Input
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={e => setEmail(e.target.value)}
                       placeholder="e.g. user@example.com"
                       className="bg-surface-primary"
                       disabled={validating || creating}
                     />
                     <p className="text-[11px] text-text-muted pl-1">
-                      Used for display purposes only. Auto-detected if valid token provided.
+                      Used for display purposes only. Auto-detected if valid
+                      token provided.
                     </p>
                   </div>
 
@@ -462,18 +530,18 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                     <div className="relative">
                       <textarea
                         value={token}
-                        onChange={(e) => {
-                          setToken(e.target.value);
-                          setValidationResult(null);
+                        onChange={e => {
+                          setToken(e.target.value)
+                          setValidationResult(null)
                         }}
                         placeholder="1//0xxx..."
                         className="w-full h-32 px-4 py-3 rounded-xl border border-border bg-surface-primary text-text-primary placeholder:text-text-muted font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
                         disabled={validating || creating}
                       />
                       {token && (
-                         <div className="absolute bottom-3 right-3 text-[10px] text-text-muted font-mono bg-surface-secondary px-2 py-1 rounded border border-border">
-                           {token.length} chars
-                         </div>
+                        <div className="absolute bottom-3 right-3 text-[10px] text-text-muted font-mono bg-surface-secondary px-2 py-1 rounded border border-border">
+                          {token.length} chars
+                        </div>
                       )}
                     </div>
                   </div>
@@ -483,7 +551,7 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                     onClick={handleValidate}
                     disabled={!isTokenValid || validating || creating}
                     className="w-full font-medium"
-                    variant={validationResult?.valid ? "outline" : "default"}
+                    variant={validationResult?.valid ? 'outline' : 'default'}
                   >
                     {validating ? (
                       <>
@@ -504,9 +572,14 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                 {/* Error Message */}
                 {error && (
                   <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in zoom-in-95">
-                    <AlertCircle size={20} className="text-error flex-shrink-0 mt-0.5" />
+                    <AlertCircle
+                      size={20}
+                      className="text-error shrink-0 mt-0.5"
+                    />
                     <div>
-                      <p className="text-sm font-medium text-error">Validation Failed</p>
+                      <p className="text-sm font-medium text-error">
+                        Validation Failed
+                      </p>
                       <p className="text-xs text-error/80 mt-0.5">{error}</p>
                     </div>
                   </div>
@@ -517,16 +590,19 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                   <div className="bg-success/5 border border-success/20 rounded-xl p-5 animate-in fade-in zoom-in-95">
                     <div className="flex items-start gap-4">
                       <div className="p-2 bg-success/10 rounded-full">
-                         <CheckCircle2 size={24} className="text-success" />
+                        <CheckCircle2 size={24} className="text-success" />
                       </div>
                       <div className="flex-1 space-y-1">
                         <div className="font-semibold text-text-primary">
                           Token Verified Successfully
                         </div>
                         <div className="text-sm text-text-secondary">
-                          Ready to connect as <span className="font-medium text-text-primary">{validationResult.userInfo?.email || email}</span>
+                          Ready to connect as{' '}
+                          <span className="font-medium text-text-primary">
+                            {validationResult.userInfo?.email || email}
+                          </span>
                         </div>
-                        
+
                         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-success/10">
                           {validationResult.userInfo?.name && (
                             <span className="text-xs text-text-muted bg-surface-primary px-2 py-1 rounded border border-border/50">
@@ -534,14 +610,20 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
                             </span>
                           )}
                           {validationResult.quota?.subscriptionTier && (
-                             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-primary border border-border/50">
-                               <Zap size={10} className={
-                                 validationResult.quota.subscriptionTier === 'ULTRA' ? 'text-purple-500' : 'text-blue-500'
-                               } />
-                               <span className="text-xs font-medium text-text-secondary">
-                                 {validationResult.quota.subscriptionTier} Tier
-                               </span>
-                             </div>
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-primary border border-border/50">
+                              <Zap
+                                size={10}
+                                className={
+                                  validationResult.quota.subscriptionTier ===
+                                  'ULTRA'
+                                    ? 'text-purple-500'
+                                    : 'text-blue-500'
+                                }
+                              />
+                              <span className="text-xs font-medium text-text-secondary">
+                                {validationResult.quota.subscriptionTier} Tier
+                              </span>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -573,5 +655,5 @@ export function AntigravityTokenImport({ onBack, onCreateProvider }: Antigravity
         </div>
       </div>
     </div>
-  );
+  )
 }

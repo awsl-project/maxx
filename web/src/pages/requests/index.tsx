@@ -206,7 +206,7 @@ export function RequestsPage() {
       </div>
 
       {/* Pagination */}
-      <div className="h-[53px] flex items-center justify-between px-6 border-t border-border bg-surface-primary flex-shrink-0">
+      <div className="h-[53px] flex items-center justify-between px-6 border-t border-border bg-surface-primary shrink-0">
         <span className="text-xs text-text-secondary">
           {total > 0 ? (
             <>
@@ -258,33 +258,31 @@ function RequestStatusBadge({ status }: { status: ProxyRequestStatus }) {
         return {
           variant: 'default' as const,
           label: 'Pending',
-          icon: <Loader2 size={10} className="mr-1 flex-shrink-0" />,
+          icon: <Loader2 size={10} className="mr-1 shrink-0" />,
         }
       case 'IN_PROGRESS':
         return {
           variant: 'info' as const,
           label: 'Streaming',
-          icon: (
-            <Loader2 size={10} className="mr-1 flex-shrink-0 animate-spin" />
-          ),
+          icon: <Loader2 size={10} className="mr-1 shrink-0 animate-spin" />,
         }
       case 'COMPLETED':
         return {
           variant: 'success' as const,
           label: 'Completed',
-          icon: <CheckCircle size={10} className="mr-1 flex-shrink-0" />,
+          icon: <CheckCircle size={10} className="mr-1 shrink-0" />,
         }
       case 'FAILED':
         return {
           variant: 'danger' as const,
           label: 'Failed',
-          icon: <AlertTriangle size={10} className="mr-1 flex-shrink-0" />,
+          icon: <AlertTriangle size={10} className="mr-1 shrink-0" />,
         }
       case 'CANCELLED':
         return {
           variant: 'warning' as const,
           label: 'Cancelled',
-          icon: <Ban size={10} className="mr-1 flex-shrink-0" />,
+          icon: <Ban size={10} className="mr-1 shrink-0" />,
         }
     }
   }

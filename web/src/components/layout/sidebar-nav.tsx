@@ -63,7 +63,7 @@ function RequestsNavItem() {
         {/* Marquee 背景动画 (仅在有 streaming 请求且未激活时显示) */}
         {total > 0 && !isActive && (
           <div
-            className="absolute inset-0 animate-marquee pointer-events-none opacity-10"
+            className="absolute inset-0 animate-marquee pointer-events-none opacity-40"
             style={{ backgroundColor: color }}
           />
         )}
@@ -72,7 +72,9 @@ function RequestsNavItem() {
           className="flex items-center gap-2 w-full h-full relative group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 cursor-pointer"
         >
           <Activity className="relative z-10" />
-          <span className="relative z-10 group-data-[collapsible=icon]:hidden">Requests</span>
+          <span className="relative z-10 group-data-[collapsible=icon]:hidden">
+            Requests
+          </span>
         </NavLink>
       </SidebarMenuButton>
       {total > 0 && (

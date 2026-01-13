@@ -1,5 +1,5 @@
-import { useEffect, useCallback, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useCallback, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Snowflake,
   Clock,
@@ -12,23 +12,32 @@ import {
   X,
   Thermometer,
   Calendar,
-  Activity
-} from 'lucide-react';
-import type { Cooldown, CooldownReason } from '@/lib/transport/types';
-import { useCooldowns } from '@/hooks/use-cooldowns';
+  Activity,
+} from 'lucide-react'
+import type { Cooldown, CooldownReason } from '@/lib/transport/types'
+import { useCooldowns } from '@/hooks/use-cooldowns'
 
 interface CooldownDetailsDialogProps {
-  cooldown: Cooldown | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onClear: () => void;
-  isClearing: boolean;
-  onDisable: () => void;
-  isDisabling: boolean;
+  cooldown: Cooldown | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onClear: () => void
+  isClearing: boolean
+  onDisable: () => void
+  isDisabling: boolean
 }
 
 // Reason 中文说明和图标
-const REASON_INFO: Record<CooldownReason, { label: string; description: string; icon: typeof Server; color: string; bgColor: string }> = {
+const REASON_INFO: Record<
+  CooldownReason,
+  {
+    label: string
+    description: string
+    icon: typeof Server
+    color: string
+    bgColor: string
+  }
+> = {
   server_error: {
     label: '服务器错误',
     description: '上游服务器返回 5xx 错误，系统自动进入冷却保护',
@@ -71,7 +80,7 @@ const REASON_INFO: Record<CooldownReason, { label: string; description: string; 
     color: 'text-text-muted',
     bgColor: 'bg-surface-secondary border-border',
   },
-};
+}
 
 export function CooldownDetailsDialog({
   cooldown,
@@ -83,54 +92,57 @@ export function CooldownDetailsDialog({
   isDisabling,
 }: CooldownDetailsDialogProps) {
   // 获取 formatRemaining 函数用于实时倒计时
-  const { formatRemaining } = useCooldowns();
+  const { formatRemaining } = useCooldowns()
 
   // 实时倒计时状态
-  const [liveCountdown, setLiveCountdown] = useState<string>('');
+  const [liveCountdown, setLiveCountdown] = useState<string>('')
 
   // Handle ESC key
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onOpenChange(false);
-    }
-  }, [onOpenChange]);
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onOpenChange(false)
+      }
+    },
+    [onOpenChange]
+  )
 
   useEffect(() => {
     if (open) {
-      document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
+      document.addEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = 'hidden'
       return () => {
-        document.removeEventListener('keydown', handleKeyDown);
-        document.body.style.overflow = '';
-      };
+        document.removeEventListener('keydown', handleKeyDown)
+        document.body.style.overflow = ''
+      }
     }
-  }, [open, handleKeyDown]);
+  }, [open, handleKeyDown])
 
   // 每秒更新倒计时
   useEffect(() => {
     if (!cooldown) {
-      setLiveCountdown('');
-      return;
+      setLiveCountdown('')
+      return
     }
 
     // 立即更新一次
-    setLiveCountdown(formatRemaining(cooldown));
+    setLiveCountdown(formatRemaining(cooldown))
 
     // 每秒更新
     const interval = setInterval(() => {
-      setLiveCountdown(formatRemaining(cooldown));
-    }, 1000);
+      setLiveCountdown(formatRemaining(cooldown))
+    }, 1000)
 
-    return () => clearInterval(interval);
-  }, [cooldown, formatRemaining]);
+    return () => clearInterval(interval)
+  }, [cooldown, formatRemaining])
 
-  if (!open || !cooldown) return null;
+  if (!open || !cooldown) return null
 
-  const reasonInfo = REASON_INFO[cooldown.reason] || REASON_INFO.unknown;
-  const Icon = reasonInfo.icon;
+  const reasonInfo = REASON_INFO[cooldown.reason] || REASON_INFO.unknown
+  const Icon = reasonInfo.icon
 
   const formatUntilTime = (until: string) => {
-    const date = new Date(until);
+    const date = new Date(until)
     return date.toLocaleString('zh-CN', {
       month: '2-digit',
       day: '2-digit',
@@ -138,11 +150,11 @@ export function CooldownDetailsDialog({
       minute: '2-digit',
       second: '2-digit',
       hour12: false,
-    });
-  };
+    })
+  }
 
-  const untilDateStr = formatUntilTime(cooldown.until);
-  const [datePart, timePart] = untilDateStr.split(' ');
+  const untilDateStr = formatUntilTime(cooldown.until)
+  const [datePart, timePart] = untilDateStr.split(' ')
 
   return createPortal(
     <>
@@ -163,7 +175,7 @@ export function CooldownDetailsDialog({
           padding: 0,
           background: 'var(--color-surface-primary)',
         }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
       >
         {/* Header with Gradient */}
         <div className="relative bg-gradient-to-b from-cyan-900/20 to-transparent p-6 pb-4">
@@ -176,10 +188,15 @@ export function CooldownDetailsDialog({
 
           <div className="flex flex-col items-center text-center space-y-3">
             <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-400/20 shadow-[0_0_15px_-3px_rgba(6,182,212,0.2)]">
-              <Snowflake size={28} className="text-cyan-400 animate-spin-slow" />
+              <Snowflake
+                size={28}
+                className="text-cyan-400 animate-spin-slow"
+              />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-text-primary">冷却保护中</h2>
+              <h2 className="text-xl font-bold text-text-primary">
+                冷却保护中
+              </h2>
               <p className="text-xs text-cyan-500/80 font-medium uppercase tracking-wider mt-1">
                 Frozen Protocol Active
               </p>
@@ -189,28 +206,29 @@ export function CooldownDetailsDialog({
 
         {/* Body Content */}
         <div className="px-6 pb-6 space-y-5">
-          
           {/* Provider Card */}
           <div className="flex items-center gap-4 p-3 rounded-xl bg-surface-secondary border border-border">
             <div className="flex-1 min-w-0">
-               <div className="flex items-center gap-2 mb-1">
-                 <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Target Provider</span>
-                 {cooldown.clientType && (
-                   <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-hover text-text-secondary">
-                     {cooldown.clientType}
-                   </span>
-                 )}
-               </div>
-               <div className="font-semibold text-text-primary truncate">
-                 {cooldown.providerName || `Provider #${cooldown.providerID}`}
-               </div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                  Target Provider
+                </span>
+                {cooldown.clientType && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-hover text-text-secondary">
+                    {cooldown.clientType}
+                  </span>
+                )}
+              </div>
+              <div className="font-semibold text-text-primary truncate">
+                {cooldown.providerName || `Provider #${cooldown.providerID}`}
+              </div>
             </div>
           </div>
 
           {/* Reason Section */}
           <div className={`rounded-xl border p-4 ${reasonInfo.bgColor}`}>
             <div className="flex gap-4">
-              <div className={`mt-0.5 flex-shrink-0 ${reasonInfo.color}`}>
+              <div className={`mt-0.5 shrink-0 ${reasonInfo.color}`}>
                 <Icon size={20} />
               </div>
               <div>
@@ -226,35 +244,37 @@ export function CooldownDetailsDialog({
 
           {/* Timer Section */}
           <div className="grid grid-cols-2 gap-3">
-             {/* Countdown */}
+            {/* Countdown */}
             <div className="col-span-2 relative overflow-hidden rounded-xl bg-gradient-to-br from-cyan-950/30 to-transparent border border-cyan-500/20 p-5 flex flex-col items-center justify-center group">
-               <div className="absolute inset-0 bg-cyan-400/5 opacity-50 group-hover:opacity-100 transition-opacity" />
-               <div className="relative flex items-center gap-1.5 text-cyan-500 mb-1">
-                 <Thermometer size={14} />
-                 <span className="text-[10px] font-bold uppercase tracking-widest">Remaining</span>
-               </div>
-               <div className="relative font-mono text-4xl font-bold text-cyan-400 tracking-widest tabular-nums drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]">
-                 {liveCountdown}
-               </div>
+              <div className="absolute inset-0 bg-cyan-400/5 opacity-50 group-hover:opacity-100 transition-opacity" />
+              <div className="relative flex items-center gap-1.5 text-cyan-500 mb-1">
+                <Thermometer size={14} />
+                <span className="text-[10px] font-bold uppercase tracking-widest">
+                  Remaining
+                </span>
+              </div>
+              <div className="relative font-mono text-4xl font-bold text-cyan-400 tracking-widest tabular-nums drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]">
+                {liveCountdown}
+              </div>
             </div>
 
             {/* Time Details */}
             <div className="p-3 rounded-xl bg-surface-secondary border border-border flex flex-col items-center justify-center gap-1">
-               <span className="text-[10px] text-text-muted uppercase tracking-wider font-bold flex items-center gap-1.5">
-                 <Clock size={10} /> Resume
-               </span>
-               <div className="font-mono text-sm font-semibold text-text-primary">
-                 {timePart}
-               </div>
+              <span className="text-[10px] text-text-muted uppercase tracking-wider font-bold flex items-center gap-1.5">
+                <Clock size={10} /> Resume
+              </span>
+              <div className="font-mono text-sm font-semibold text-text-primary">
+                {timePart}
+              </div>
             </div>
 
             <div className="p-3 rounded-xl bg-surface-secondary border border-border flex flex-col items-center justify-center gap-1">
-               <span className="text-[10px] text-text-muted uppercase tracking-wider font-bold flex items-center gap-1.5">
-                 <Calendar size={10} /> Date
-               </span>
-               <div className="font-mono text-sm font-semibold text-text-primary">
-                 {datePart}
-               </div>
+              <span className="text-[10px] text-text-muted uppercase tracking-wider font-bold flex items-center gap-1.5">
+                <Calendar size={10} /> Date
+              </span>
+              <div className="font-mono text-sm font-semibold text-text-primary">
+                {datePart}
+              </div>
             </div>
           </div>
 
@@ -268,14 +288,21 @@ export function CooldownDetailsDialog({
               <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl" />
               <div className="relative flex items-center justify-center gap-2 rounded-[11px] bg-surface-primary group-hover:bg-transparent px-4 py-3 transition-colors">
                 {isClearing ? (
-                   <>
-                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                     <span className="text-sm font-bold text-white">Thawing...</span>
-                   </>
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <span className="text-sm font-bold text-white">
+                      Thawing...
+                    </span>
+                  </>
                 ) : (
                   <>
-                    <Zap size={16} className="text-cyan-400 group-hover:text-white transition-colors" />
-                    <span className="text-sm font-bold text-cyan-400 group-hover:text-white transition-colors">立即解冻 (Force Thaw)</span>
+                    <Zap
+                      size={16}
+                      className="text-cyan-400 group-hover:text-white transition-colors"
+                    />
+                    <span className="text-sm font-bold text-cyan-400 group-hover:text-white transition-colors">
+                      立即解冻 (Force Thaw)
+                    </span>
                   </>
                 )}
               </div>
@@ -287,13 +314,13 @@ export function CooldownDetailsDialog({
               className="w-full flex items-center justify-center gap-2 rounded-xl border border-border bg-surface-secondary hover:bg-surface-hover px-4 py-3 text-sm font-medium text-text-secondary transition-colors disabled:opacity-50"
             >
               {isDisabling ? (
-                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
               ) : (
                 <Ban size={16} />
               )}
               {isDisabling ? 'Disabling...' : '禁用此路由 (Disable Route)'}
             </button>
-            
+
             <div className="flex items-start gap-2 rounded-lg bg-surface-secondary/50 p-2.5 text-[11px] text-text-muted">
               <Activity size={12} className="mt-0.5 shrink-0" />
               <p>强制解冻可能导致请求因根本原因未解决而再次失败。</p>
@@ -303,5 +330,5 @@ export function CooldownDetailsDialog({
       </div>
     </>,
     document.body
-  );
+  )
 }

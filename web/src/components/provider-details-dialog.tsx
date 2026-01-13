@@ -293,10 +293,7 @@ export function ProviderDetailsDialog({
               {/* Provider Basic Info Card */}
               <div className="rounded-xl border border-border bg-surface-secondary p-4 space-y-3">
                 <div className="flex items-start gap-2">
-                  <Info
-                    size={14}
-                    className="text-text-muted mt-0.5 flex-shrink-0"
-                  />
+                  <Info size={14} className="text-text-muted mt-0.5 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">
                       Endpoint
@@ -400,7 +397,7 @@ export function ProviderDetailsDialog({
                     >
                       <div className="flex gap-3">
                         <div
-                          className={`mt-0.5 flex-shrink-0 ${REASON_INFO[cooldown.reason]?.color || REASON_INFO.unknown.color}`}
+                          className={`mt-0.5 shrink-0 ${REASON_INFO[cooldown.reason]?.color || REASON_INFO.unknown.color}`}
                         >
                           {(() => {
                             const Icon =
