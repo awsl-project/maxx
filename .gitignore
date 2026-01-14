@@ -27,6 +27,7 @@ wails.build.log
 node_modules/
 web/node_modules/
 web/dist/
+web/wailsjs/runtime/
 
 # IDE
 .idea/

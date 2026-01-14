@@ -1,8 +1,8 @@
 package main
 
 import (
+	"embed"
 	"log"
-	"os"
 
 	"github.com/Bowl42/maxx-next/app"
 	"github.com/wailsapp/wails/v2"
@@ -11,13 +11,16 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
+//go:embed all:web/dist
+var assets embed.FS
+
 func main() {
 	err := wails.Run(&options.App{
 		Title:  "Maxx",
 		Width:  1200,
 		Height: 800,
 		AssetServer: &assetserver.Options{
-			Assets: os.DirFS("web"),
+			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.Instance.OnStartup,

@@ -50,8 +50,8 @@ jobs:
           echo "Found app: $APP_NAME"
           
           # Create DMG
-          DMG_NAME="Maxx-macOS-${{ matrix.arch }}.dmg"
-          hdiutil create -volname "Maxx" \
+          DMG_NAME="maxx-macOS-${{ matrix.arch }}.dmg"
+          hdiutil create -volname "maxx" \
             -srcfolder "$APP_NAME" \
             -ov -format UDZO \
             "$DMG_NAME"
@@ -73,8 +73,8 @@ jobs:
         with:
           name: macos-${{ matrix.arch }}
           path: |
-            bin/Maxx-macOS-${{ matrix.arch }}.dmg
-            bin/Maxx-macOS-${{ matrix.arch }}.dmg.sha256
+            bin/maxx-macOS-${{ matrix.arch }}.dmg
+            bin/maxx-macOS-${{ matrix.arch }}.dmg.sha256
 
   build-windows:
     name: Build Windows
@@ -106,10 +106,10 @@ jobs:
           # Wails v2 outputs to build/bin
           if (Test-Path "build\bin\maxx.exe") {
             Write-Host "✓ Binary found: build\bin\maxx.exe"
-            # Copy to bin directory and rename
+            # Copy to bin directory
             New-Item -ItemType Directory -Force -Path bin
-            Copy-Item "build\bin\maxx.exe" "bin\Maxx.exe"
-            Get-Item "bin\Maxx.exe" | Format-List Name,Length,LastWriteTime
+            Copy-Item "build\bin\maxx.exe" "bin\maxx.exe"
+            Get-Item "bin\maxx.exe" | Format-List Name,Length,LastWriteTime
           } else {
             Write-Host "✗ Binary not found!"
             Write-Host "Listing build/bin directory:"
@@ -120,9 +120,9 @@ jobs:
       - name: Generate SHA256 Checksums
         run: |
           Push-Location bin
-          Get-FileHash -Algorithm SHA256 Maxx.exe | ForEach-Object { "$($_.Hash.ToLower())  Maxx.exe" } | Out-File -Encoding ascii Maxx.exe.sha256
+          Get-FileHash -Algorithm SHA256 maxx.exe | ForEach-Object { "$($_.Hash.ToLower())  maxx.exe" } | Out-File -Encoding ascii maxx.exe.sha256
           Write-Host "SHA256 checksum generated:"
-          Get-Content Maxx.exe.sha256
+          Get-Content maxx.exe.sha256
           Pop-Location
 
       - name: Upload artifacts
@@ -130,8 +130,8 @@ jobs:
         with:
           name: windows-amd64
           path: |
-            bin/Maxx.exe
-            bin/Maxx.exe.sha256
+            bin/maxx.exe
+            bin/maxx.exe.sha256
 
   build-linux:
     name: Build Linux
@@ -172,10 +172,10 @@ jobs:
           # Wails v2 outputs to build/bin
           mkdir -p bin
           if [ -f "build/bin/maxx" ]; then
-            cp build/bin/maxx bin/Maxx
-            chmod +x bin/Maxx
-            echo "Binary prepared: bin/Maxx"
-            ls -lh bin/Maxx
+            cp build/bin/maxx bin/maxx
+            chmod +x bin/maxx
+            echo "Binary prepared: bin/maxx"
+            ls -lh bin/maxx
           else
             echo "Binary not found!"
             ls -la build/bin/
@@ -185,17 +185,17 @@ jobs:
       - name: Generate SHA256 Checksum
         run: |
           cd bin
-          sha256sum Maxx > Maxx.sha256
+          sha256sum maxx > maxx.sha256
           echo "SHA256 checksum:"
-          cat Maxx.sha256
+          cat maxx.sha256
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-amd64
           path: |
-            bin/Maxx
-            bin/Maxx.sha256
+            bin/maxx
+            bin/maxx.sha256
 
   create-release:
     name: Create Release
@@ -217,18 +217,18 @@ jobs:
           mkdir -p release-assets
 
           # macOS
-          cp artifacts/macos-arm64/Maxx-macOS-arm64.dmg release-assets/ 2>/dev/null || echo "macOS arm64 not found"
-          cp artifacts/macos-arm64/Maxx-macOS-arm64.dmg.sha256 release-assets/ 2>/dev/null || echo "macOS arm64 checksum not found"
-          cp artifacts/macos-amd64/Maxx-macOS-amd64.dmg release-assets/ 2>/dev/null || echo "macOS amd64 not found"
-          cp artifacts/macos-amd64/Maxx-macOS-amd64.dmg.sha256 release-assets/ 2>/dev/null || echo "macOS amd64 checksum not found"
+          cp artifacts/macos-arm64/maxx-macOS-arm64.dmg release-assets/ 2>/dev/null || echo "macOS arm64 not found"
+          cp artifacts/macos-arm64/maxx-macOS-arm64.dmg.sha256 release-assets/ 2>/dev/null || echo "macOS arm64 checksum not found"
+          cp artifacts/macos-amd64/maxx-macOS-amd64.dmg release-assets/ 2>/dev/null || echo "macOS amd64 not found"
+          cp artifacts/macos-amd64/maxx-macOS-amd64.dmg.sha256 release-assets/ 2>/dev/null || echo "macOS amd64 checksum not found"
 
           # Windows
-          cp artifacts/windows-amd64/Maxx.exe release-assets/
-          cp artifacts/windows-amd64/Maxx.exe.sha256 release-assets/
+          cp artifacts/windows-amd64/maxx.exe release-assets/
+          cp artifacts/windows-amd64/maxx.exe.sha256 release-assets/
 
           # Linux
-          cp artifacts/linux-amd64/Maxx release-assets/
-          cp artifacts/linux-amd64/Maxx.sha256 release-assets/
+          cp artifacts/linux-amd64/maxx release-assets/
+          cp artifacts/linux-amd64/maxx.sha256 release-assets/
 
           ls -lh release-assets/
       - name: Generate latest.json
@@ -238,10 +238,10 @@ jobs:
           BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 
           # Read SHA256 checksums from existing .sha256 files
-          WIN_SHA=$(cat release-assets/Maxx.exe.sha256 | awk '{print $1}')
-          LINUX_SHA=$(cat release-assets/Maxx.sha256 | awk '{print $1}')
-          MACOS_ARM64_SHA=$(cat release-assets/Maxx-macOS-arm64.dmg.sha256 2>/dev/null || echo "")
-          MACOS_AMD64_SHA=$(cat release-assets/Maxx-macOS-amd64.dmg.sha256 2>/dev/null || echo "")
+          WIN_SHA=$(cat release-assets/maxx.exe.sha256 | awk '{print $1}')
+          LINUX_SHA=$(cat release-assets/maxx.sha256 | awk '{print $1}')
+          MACOS_ARM64_SHA=$(cat release-assets/maxx-macOS-arm64.dmg.sha256 2>/dev/null || echo "")
+          MACOS_AMD64_SHA=$(cat release-assets/maxx-macOS-amd64.dmg.sha256 2>/dev/null || echo "")
 
           cat > release-assets/latest.json << EOF
           {
@@ -249,23 +249,23 @@ jobs:
             "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "files": {
               "windows": {
-                "name": "Maxx.exe",
-                "url": "${BASE_URL}/Maxx.exe",
+                "name": "maxx.exe",
+                "url": "${BASE_URL}/maxx.exe",
                 "sha256": "${WIN_SHA}"
               },
               "darwin-arm64": {
-                "name": "Maxx-macOS-arm64.dmg",
-                "url": "${BASE_URL}/Maxx-macOS-arm64.dmg",
+                "name": "maxx-macOS-arm64.dmg",
+                "url": "${BASE_URL}/maxx-macOS-arm64.dmg",
                 "sha256": "${MACOS_ARM64_SHA}"
               },
               "darwin-amd64": {
-                "name": "Maxx-macOS-amd64.dmg",
-                "url": "${BASE_URL}/Maxx-macOS-amd64.dmg",
+                "name": "maxx-macOS-amd64.dmg",
+                "url": "${BASE_URL}/maxx-macOS-amd64.dmg",
                 "sha256": "${MACOS_AMD64_SHA}"
               },
               "linux": {
-                "name": "Maxx",
-                "url": "${BASE_URL}/Maxx",
+                "name": "maxx",
+                "url": "${BASE_URL}/maxx",
                 "sha256": "${LINUX_SHA}"
               }
             }
@@ -288,30 +288,30 @@ jobs:
 
           | 平台 | 文件 | 说明 |
           |------|------|------|
-          | **Windows** | `Maxx.exe` | 直接运行 |
-          | **macOS (ARM)** | `Maxx-macOS-arm64.dmg` | Apple Silicon (M1/M2/M3) |
-          | **macOS (Intel)** | `Maxx-macOS-amd64.dmg` | Intel 芯片 |
-          | **Linux** | `Maxx` | 原生二进制 |
+          | **Windows** | `maxx.exe` | 直接运行 |
+          | **macOS (ARM)** | `maxx-macOS-arm64.dmg` | Apple Silicon (M1/M2/M3) |
+          | **macOS (Intel)** | `maxx-macOS-amd64.dmg` | Intel 芯片 |
+          | **Linux** | `maxx` | 原生二进制 |
 
           ### 🚀 使用说明
 
           **Windows**
           ```bash
           # 直接运行
-          .\Maxx.exe
+          .\maxx.exe
           ```
 
           **macOS**
           ```bash
-          # 打开 DMG 文件，拖拽 Maxx.app 到 Applications 文件夹
-          open Maxx-macOS-*.dmg
+          # 打开 DMG 文件，拖拽 maxx.app 到 Applications 文件夹
+          open maxx-macOS-*.dmg
           ```
 
           **Linux**
           ```bash
           # 添加执行权限后运行
-          chmod +x Maxx
-          ./Maxx
+          chmod +x maxx
+          ./maxx
           ```
 
           ### 🔒 文件校验
@@ -319,11 +319,11 @@ jobs:
           
           ```bash
           # Linux/macOS
-          sha256sum -c Maxx.sha256
-          shasum -a 256 -c Maxx-macOS-arm64.dmg.sha256
+          sha256sum -c maxx.sha256
+          shasum -a 256 -c maxx-macOS-arm64.dmg.sha256
 
           # Windows PowerShell
-          (Get-FileHash Maxx.exe).Hash -eq (Get-Content Maxx.exe.sha256).Split()[0]
+          (Get-FileHash maxx.exe).Hash -eq (Get-Content maxx.exe.sha256).Split()[0]
           ```
 
           ### 📝 更新内容
