@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# 进入 web 目录并运行类型检查
+cd web && pnpm tsc --noEmit
+
+if [ $? -ne 0 ]; then
+  echo "❌ TypeScript 类型检查失败，提交被阻止"
+  echo "请先修复类型错误再提交"
+  exit 1
+fi
+
+echo "✅ TypeScript 类型检查通过"
