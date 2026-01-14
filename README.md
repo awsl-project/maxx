@@ -96,8 +96,8 @@ go run cmd/maxx/main.go
 Frontend:
 ```bash
 cd web
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 ### Desktop Mode (Wails)

@@ -96,8 +96,8 @@ go run cmd/maxx/main.go
 前端：
 ```bash
 cd web
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 ### 桌面模式（Wails）

@@ -3,7 +3,7 @@ echo Building maxx Wails Desktop Application...
 
 echo Step 1: Building frontend...
 cd web
-call npm run build
+call pnpm build
 if errorlevel 1 (
     echo Frontend build failed!
     exit /b 1
