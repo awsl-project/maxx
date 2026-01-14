@@ -45,17 +45,17 @@ export function SelectTypeStep({
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="container mx-auto max-w-[1600px] space-y-10">
+        <div className="space-y-10">
           {/* Section: Service Provider */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
               1. Choose Service Provider
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
               <Button
                 onClick={() => onSelectType('antigravity')}
                 variant="ghost"
-                className={`group p-0 rounded-lg border text-left transition-all h-auto ${
+                className={`group p-0 rounded-lg border text-left transition-all h-auto w-full ${
                   formData.type === 'antigravity'
                     ? 'border-provider-antigravity bg-provider-antigravity/10'
                     : 'border-border bg-card hover:bg-muted'
@@ -84,7 +84,7 @@ export function SelectTypeStep({
               <Button
                 onClick={() => onSelectType('custom')}
                 variant="ghost"
-                className={`group p-0 rounded-lg border text-left transition-all h-auto ${
+                className={`group p-0 rounded-lg border text-left transition-all h-auto w-full ${
                   formData.type === 'custom'
                     ? 'border-provider-custom bg-provider-custom/10'
                     : 'border-border bg-card hover:bg-muted'
@@ -124,19 +124,27 @@ export function SelectTypeStep({
                 </h3>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
                 {/* Empty Template Card */}
                 <Button
                   onClick={onSkipToConfig}
                   variant="ghost"
-                  className="group p-0 rounded-lg border border-dashed border-border bg-card hover:bg-muted transition-all h-auto"
+                  className="text-left group p-0 rounded-lg border border-dashed border-border bg-card hover:bg-muted transition-all h-full w-full"
+                  style={{ minHeight: '140px' }}
                 >
-                  <div className="p-4 flex flex-col gap-3">
-                    <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
-                      <FilePlus size={20} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                  <div className="p-4 flex flex-col gap-3 h-full w-full">
+                    <div className="flex items-center justify-between w-full">
+                      <div
+                        className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors bg-muted group-hover:bg-primary/10`}
+                      >
+                        <FilePlus
+                          size={20}
+                          className="text-muted-foreground group-hover:text-primary transition-colors"
+                        />
+                      </div>
                     </div>
 
-                    <div>
+                    <div className="flex-1">
                       <h4 className="text-body font-semibold text-foreground mb-0.5">
                         Empty Template
                       </h4>
@@ -148,43 +156,53 @@ export function SelectTypeStep({
                 </Button>
 
                 {quickTemplates.map(template => {
-                  const Icon = template.icon === 'grid' ? Grid3X3 : Layers
+                  const Icon =
+                    template.icon === 'duck' ? DuckIcon : template.icon === 'grid' ? Grid3X3 : Layers
                   const isSelected = formData.selectedTemplate === template.id
                   return (
                     <Button
                       key={template.id}
                       onClick={() => onApplyTemplate(template.id)}
                       variant="ghost"
-                      className={`group p-0 rounded-lg border text-left transition-all h-auto ${
+                      className={`group p-0 rounded-lg border text-left transition-all h-full w-full ${
                         isSelected
                           ? 'border-primary bg-primary/10'
                           : 'border-border bg-card hover:bg-muted'
                       }`}
+                      style={{ minHeight: '140px' }}
                     >
-                      <div className="p-4 flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
+                      <div className="p-4 flex flex-col gap-3 h-full w-full">
+                        <div className="flex items-center justify-between w-full">
                           <div
-                            className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors ${
+                            className={`w-10 h-10 rounded-md flex items-center justify-center transition-colors overflow-hidden ${
                               isSelected
                                 ? 'bg-primary/15'
                                 : 'bg-muted group-hover:bg-primary/10'
                             }`}
                           >
-                            <Icon
-                              size={20}
-                              className={
-                                isSelected
-                                  ? 'text-primary'
-                                  : 'text-muted-foreground group-hover:text-primary transition-colors'
-                              }
-                            />
+                            {template.logoUrl ? (
+                              <img
+                                src={template.logoUrl}
+                                alt={template.name}
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <Icon
+                                size={20}
+                                className={
+                                  isSelected
+                                    ? 'text-primary'
+                                    : 'text-muted-foreground group-hover:text-primary transition-colors'
+                                }
+                              />
+                            )}
                           </div>
                           {isSelected && (
                             <CheckCircle2 size={18} className="text-primary" />
                           )}
                         </div>
 
-                        <div>
+                        <div className="flex-1">
                           <h4
                             className={`text-body font-semibold mb-0.5 transition-colors ${
                               isSelected ? 'text-primary' : 'text-foreground'

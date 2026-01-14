@@ -1,5 +1,6 @@
 import type { ClientType } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
+import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 
 // Antigravity brand color - 从 CSS 变量获取
 export const ANTIGRAVITY_COLOR = getProviderColorVar('antigravity');
@@ -10,6 +11,7 @@ export type QuickTemplate = {
   name: string;
   description: string;
   icon: 'grid' | 'layers';
+  logoUrl?: string; // 可选的 logo 图片 URL
   supportedClients: ClientType[];
   clientBaseURLs: Partial<Record<ClientType, string>>;
 };
@@ -37,6 +39,19 @@ export const quickTemplates: QuickTemplate[] = [
       claude: 'https://api.aicodemirror.com/api/claudecode',
       codex: 'https://api.aicodemirror.com/api/codex/backend-api/codex',
       gemini: 'https://api.aicodemirror.com/api/gemini',
+    },
+  },
+  {
+    id: 'duckcoding',
+    name: 'DuckCoding',
+    description: 'Claude + Codex + Gemini',
+    icon: 'grid',
+    logoUrl: duckcodingLogo,
+    supportedClients: ['claude', 'codex', 'gemini'],
+    clientBaseURLs: {
+      claude: 'https://jp.duckcoding.com',
+      codex: 'https://jp.duckcoding.com/v1',
+      gemini: 'https://jp.duckcoding.com',
     },
   },
 ];
