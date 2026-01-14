@@ -156,8 +156,7 @@ export function SelectTypeStep({
                 </Button>
 
                 {quickTemplates.map(template => {
-                  const Icon =
-                    template.icon === 'duck' ? DuckIcon : template.icon === 'grid' ? Grid3X3 : Layers
+                  const Icon = template.icon === 'grid' ? Grid3X3 : Layers
                   const isSelected = formData.selectedTemplate === template.id
                   return (
                     <Button
