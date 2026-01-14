@@ -43,7 +43,7 @@ jobs:
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
           VERSION=${TAG#v}
-          wails build -platform darwin/${{ matrix.arch }} -ldflags "-X github.com/Bowl42/maxx-next/internal/version.Version=$VERSION" -clean
+          wails build -platform darwin/${{ matrix.arch }} -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION" -clean
 
       - name: Create DMG and generate checksum
         run: |
@@ -110,7 +110,7 @@ jobs:
         run: |
           $TAG = "${{ inputs.tag || github.ref_name }}"
           $VERSION = $TAG.TrimStart('v')
-          wails build -platform windows/amd64 -ldflags "-X github.com/Bowl42/maxx-next/internal/version.Version=$VERSION" -clean
+          wails build -platform windows/amd64 -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION" -clean
 
       - name: Verify and prepare Binary
         run: |
@@ -179,7 +179,7 @@ jobs:
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
           VERSION=${TAG#v}
-          wails build -platform linux/amd64 -ldflags "-X github.com/Bowl42/maxx-next/internal/version.Version=$VERSION" -clean
+          wails build -platform linux/amd64 -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION" -clean
 
       - name: Prepare binary
         run: |

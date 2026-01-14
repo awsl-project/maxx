@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Bowl42/maxx-next/internal/adapter/provider/antigravity"
-	"github.com/Bowl42/maxx-next/internal/domain"
-	"github.com/Bowl42/maxx-next/internal/event"
-	"github.com/Bowl42/maxx-next/internal/repository"
-	"github.com/Bowl42/maxx-next/internal/service"
+	"github.com/awsl-project/maxx/internal/adapter/provider/antigravity"
+	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/event"
+	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/service"
 )
 
 type AntigravityService struct {

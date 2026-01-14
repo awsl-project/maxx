@@ -160,7 +160,7 @@ The desktop app stores data in the following locations:
 
 ### Download
 
-You can download pre-built desktop applications from [GitHub Releases](https://github.com/Bowl42/maxx-next/releases).
+You can download pre-built desktop applications from [GitHub Releases](https://github.com/awsl-project/maxx/releases).
 
 - Desktop mode (Windows): `%APPDATA%\maxx`
 - Server mode (non-Docker): `~/.config/maxx/maxx.db`

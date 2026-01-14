@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Bowl42/maxx-next/internal/cooldown"
-	"github.com/Bowl42/maxx-next/internal/domain"
-	"github.com/Bowl42/maxx-next/internal/service"
+	"github.com/awsl-project/maxx/internal/cooldown"
+	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/service"
 )
 
 // Provider methods
