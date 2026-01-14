@@ -30,6 +30,8 @@ export default defineConfig({
 		rollupOptions: {
 			external: [
 				"@wailsio/runtime",
+				// Wails 生成的绑定只在桌面模式下存在，Docker 构建时需要排除
+				/^@\/wailsjs\/.*/,
 			],
 		},
 	},
