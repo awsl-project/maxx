@@ -35,15 +35,9 @@ jobs:
       - name: Build macOS ${{ matrix.arch }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          ARCH=${{ matrix.arch }}
-          if [ "$ARCH" = "arm64" ]; then
-            GOARCH=arm64
-          else
-            GOARCH=amd64
-          fi
-          GOOS=darwin GOARCH=$GOARCH wails build -platform darwin/$ARCH -ldflags "-X github.com/Bowl42/maxx-next/internal/version.Version=$VERSION" -clean
+          wails build -platform darwin/${{ matrix.arch }} -ldflags "-X github.com/Bowl42/maxx-next/internal/version.Version=$VERSION" -clean
 
-      - name: Find and archive macOS app
+      - name: Create DMG and generate checksum
         run: |
           cd build/bin
           # Find the .app bundle
@@ -54,16 +48,33 @@ jobs:
             exit 1
           fi
           echo "Found app: $APP_NAME"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_NAME" ../../bin/codeswitch-macos-${{ matrix.arch }}.zip
+          
+          # Create DMG
+          DMG_NAME="Maxx-macOS-${{ matrix.arch }}.dmg"
+          hdiutil create -volname "Maxx" \
+            -srcfolder "$APP_NAME" \
+            -ov -format UDZO \
+            "$DMG_NAME"
+          
+          # Generate SHA256
+          shasum -a 256 "$DMG_NAME" | awk '{print $1}' > "${DMG_NAME}.sha256"
+          
+          # Move to bin directory
           cd ../..
           mkdir -p bin
-          mv build/bin/codeswitch-macos-${{ matrix.arch }}.zip bin/ || true
+          mv "build/bin/$DMG_NAME" bin/
+          mv "build/bin/${DMG_NAME}.sha256" bin/
+          
+          echo "Created: bin/$DMG_NAME"
+          ls -lh bin/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
-          path: bin/codeswitch-macos-${{ matrix.arch }}.zip
+          path: |
+            bin/Maxx-macOS-${{ matrix.arch }}.dmg
+            bin/Maxx-macOS-${{ matrix.arch }}.dmg.sha256
 
   build-windows:
     name: Build Windows
@@ -97,8 +108,8 @@ jobs:
             Write-Host "✓ Binary found: build\bin\maxx.exe"
             # Copy to bin directory and rename
             New-Item -ItemType Directory -Force -Path bin
-            Copy-Item "build\bin\maxx.exe" "bin\CodeSwitch.exe"
-            Get-Item "bin\CodeSwitch.exe" | Format-List Name,Length,LastWriteTime
+            Copy-Item "build\bin\maxx.exe" "bin\Maxx.exe"
+            Get-Item "bin\Maxx.exe" | Format-List Name,Length,LastWriteTime
           } else {
             Write-Host "✗ Binary not found!"
             Write-Host "Listing build/bin directory:"
@@ -109,9 +120,9 @@ jobs:
       - name: Generate SHA256 Checksums
         run: |
           Push-Location bin
-          Get-FileHash -Algorithm SHA256 CodeSwitch.exe | ForEach-Object { "$($_.Hash.ToLower())  CodeSwitch.exe" } | Out-File -Encoding ascii CodeSwitch.exe.sha256
+          Get-FileHash -Algorithm SHA256 Maxx.exe | ForEach-Object { "$($_.Hash.ToLower())  Maxx.exe" } | Out-File -Encoding ascii Maxx.exe.sha256
           Write-Host "SHA256 checksum generated:"
-          Get-Content CodeSwitch.exe.sha256
+          Get-Content Maxx.exe.sha256
           Pop-Location
 
       - name: Upload artifacts
@@ -119,8 +130,8 @@ jobs:
         with:
           name: windows-amd64
           path: |
-            bin/CodeSwitch.exe
-            bin/CodeSwitch.exe.sha256
+            bin/Maxx.exe
+            bin/Maxx.exe.sha256
 
   build-linux:
     name: Build Linux
@@ -161,10 +172,10 @@ jobs:
           # Wails v2 outputs to build/bin
           mkdir -p bin
           if [ -f "build/bin/maxx" ]; then
-            cp build/bin/maxx bin/CodeSwitch
-            chmod +x bin/CodeSwitch
-            echo "Binary prepared: bin/CodeSwitch"
-            ls -lh bin/CodeSwitch
+            cp build/bin/maxx bin/Maxx
+            chmod +x bin/Maxx
+            echo "Binary prepared: bin/Maxx"
+            ls -lh bin/Maxx
           else
             echo "Binary not found!"
             ls -la build/bin/
@@ -174,17 +185,17 @@ jobs:
       - name: Generate SHA256 Checksum
         run: |
           cd bin
-          sha256sum CodeSwitch > CodeSwitch.sha256
+          sha256sum Maxx > Maxx.sha256
           echo "SHA256 checksum:"
-          cat CodeSwitch.sha256
+          cat Maxx.sha256
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-amd64
           path: |
-            bin/CodeSwitch
-            bin/CodeSwitch.sha256
+            bin/Maxx
+            bin/Maxx.sha256
 
   create-release:
     name: Create Release
@@ -206,16 +217,18 @@ jobs:
           mkdir -p release-assets
 
           # macOS
-          cp artifacts/macos-arm64/codeswitch-macos-arm64.zip release-assets/ 2>/dev/null || echo "macOS arm64 not found"
-          cp artifacts/macos-amd64/codeswitch-macos-amd64.zip release-assets/ 2>/dev/null || echo "macOS amd64 not found"
+          cp artifacts/macos-arm64/Maxx-macOS-arm64.dmg release-assets/ 2>/dev/null || echo "macOS arm64 not found"
+          cp artifacts/macos-arm64/Maxx-macOS-arm64.dmg.sha256 release-assets/ 2>/dev/null || echo "macOS arm64 checksum not found"
+          cp artifacts/macos-amd64/Maxx-macOS-amd64.dmg release-assets/ 2>/dev/null || echo "macOS amd64 not found"
+          cp artifacts/macos-amd64/Maxx-macOS-amd64.dmg.sha256 release-assets/ 2>/dev/null || echo "macOS amd64 checksum not found"
 
           # Windows
-          cp artifacts/windows-amd64/CodeSwitch.exe release-assets/
-          cp artifacts/windows-amd64/CodeSwitch.exe.sha256 release-assets/
+          cp artifacts/windows-amd64/Maxx.exe release-assets/
+          cp artifacts/windows-amd64/Maxx.exe.sha256 release-assets/
 
           # Linux
-          cp artifacts/linux-amd64/CodeSwitch release-assets/CodeSwitch-linux
-          cp artifacts/linux-amd64/CodeSwitch.sha256 release-assets/CodeSwitch-linux.sha256
+          cp artifacts/linux-amd64/Maxx release-assets/
+          cp artifacts/linux-amd64/Maxx.sha256 release-assets/
 
           ls -lh release-assets/
       - name: Generate latest.json
@@ -225,8 +238,10 @@ jobs:
           BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 
           # Read SHA256 checksums from existing .sha256 files
-          WIN_SHA=$(cut -d' ' -f1 release-assets/CodeSwitch.exe.sha256)
-          LINUX_SHA=$(cut -d' ' -f1 release-assets/CodeSwitch-linux.sha256)
+          WIN_SHA=$(cat release-assets/Maxx.exe.sha256 | awk '{print $1}')
+          LINUX_SHA=$(cat release-assets/Maxx.sha256 | awk '{print $1}')
+          MACOS_ARM64_SHA=$(cat release-assets/Maxx-macOS-arm64.dmg.sha256 2>/dev/null || echo "")
+          MACOS_AMD64_SHA=$(cat release-assets/Maxx-macOS-amd64.dmg.sha256 2>/dev/null || echo "")
 
           cat > release-assets/latest.json << EOF
           {
@@ -234,21 +249,23 @@ jobs:
             "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "files": {
               "windows": {
-                "name": "CodeSwitch.exe",
-                "url": "${BASE_URL}/CodeSwitch.exe",
+                "name": "Maxx.exe",
+                "url": "${BASE_URL}/Maxx.exe",
                 "sha256": "${WIN_SHA}"
               },
               "darwin-arm64": {
-                "name": "codeswitch-macos-arm64.zip",
-                "url": "${BASE_URL}/codeswitch-macos-arm64.zip"
+                "name": "Maxx-macOS-arm64.dmg",
+                "url": "${BASE_URL}/Maxx-macOS-arm64.dmg",
+                "sha256": "${MACOS_ARM64_SHA}"
               },
               "darwin-amd64": {
-                "name": "codeswitch-macos-amd64.zip",
-                "url": "${BASE_URL}/codeswitch-macos-amd64.zip"
+                "name": "Maxx-macOS-amd64.dmg",
+                "url": "${BASE_URL}/Maxx-macOS-amd64.dmg",
+                "sha256": "${MACOS_AMD64_SHA}"
               },
               "linux": {
-                "name": "CodeSwitch-linux",
-                "url": "${BASE_URL}/CodeSwitch-linux",
+                "name": "Maxx",
+                "url": "${BASE_URL}/Maxx",
                 "sha256": "${LINUX_SHA}"
               }
             }
@@ -262,65 +279,55 @@ jobs:
       - name: Generate release body
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          echo "Generating release body for v$VERSION"
+          echo "Generating release body for Maxx v$VERSION"
 
-          # 提取当前版本的更新内容（从标题到下一个版本标题之前）
-          # 注意：先用 tr 去除 Windows CRLF 换行符，否则 awk 匹配失败
-          tr -d '\r' < RELEASE_NOTES.md | awk "/^# Code Switch v$VERSION/,/^# Code Switch v[0-9]/" | head -n -1 > /tmp/version_notes.md
+          cat > /tmp/release_body.md << 'EOF'
+          ## 🎉 Maxx - AI API Gateway & Proxy
 
-          # 如果没找到版本说明，使用默认内容
-          if [ ! -s /tmp/version_notes.md ]; then
-            echo "## 更新亮点" > /tmp/version_notes.md
-            echo "- 请查看提交历史了解详细更新" >> /tmp/version_notes.md
-          fi
-
-          # 组合完整的 release body
-          cat /tmp/version_notes.md > /tmp/release_body.md
-
-          cat >> /tmp/release_body.md << 'EOF'
-
-          ---
-
-          ## 下载说明
+          ### 📦 下载说明
 
           | 平台 | 文件 | 说明 |
           |------|------|------|
-          | **Windows** | `CodeSwitch.exe` | 直接运行 |
-          | **macOS (ARM)** | `codeswitch-macos-arm64.zip` | Apple Silicon |
-          | **macOS (Intel)** | `codeswitch-macos-amd64.zip` | Intel 芯片 |
-          | **Linux** | `CodeSwitch-linux` | 原生二进制 |
+          | **Windows** | `Maxx.exe` | 直接运行 |
+          | **macOS (ARM)** | `Maxx-macOS-arm64.dmg` | Apple Silicon (M1/M2/M3) |
+          | **macOS (Intel)** | `Maxx-macOS-amd64.dmg` | Intel 芯片 |
+          | **Linux** | `Maxx` | 原生二进制 |
 
-          ## 使用说明
+          ### 🚀 使用说明
 
-          ### Windows
+          **Windows**
           ```bash
           # 直接运行
-          .\CodeSwitch.exe
+          .\Maxx.exe
           ```
 
-          ### macOS
+          **macOS**
           ```bash
-          # 解压后运行
-          unzip codeswitch-macos-*.zip
-          open CodeSwitch.app
+          # 打开 DMG 文件，拖拽 Maxx.app 到 Applications 文件夹
+          open Maxx-macOS-*.dmg
           ```
 
-          ### Linux
+          **Linux**
           ```bash
           # 添加执行权限后运行
-          chmod +x CodeSwitch-linux
-          ./CodeSwitch-linux
+          chmod +x Maxx
+          ./Maxx
           ```
 
-          ## 文件校验
+          ### 🔒 文件校验
           所有平台均提供 SHA256 校验文件（`.sha256`），下载后可验证完整性：
+          
           ```bash
           # Linux/macOS
-          sha256sum -c CodeSwitch-linux.sha256
+          sha256sum -c Maxx.sha256
+          shasum -a 256 -c Maxx-macOS-arm64.dmg.sha256
 
           # Windows PowerShell
-          Get-FileHash CodeSwitch.exe | Format-List
+          (Get-FileHash Maxx.exe).Hash -eq (Get-Content Maxx.exe.sha256).Split()[0]
           ```
+
+          ### 📝 更新内容
+          请查看 [提交历史](https://github.com/${{ github.repository }}/commits) 了解详细更新。
           EOF
 
           echo "Generated release body:"
