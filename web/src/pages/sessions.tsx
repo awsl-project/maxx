@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import {
   Badge,
   Button,
@@ -12,6 +11,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui'
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog'
 import {
   useSessions,
   useProjects,
@@ -143,19 +146,17 @@ export function SessionsPage() {
       </div>
 
       {/* Session Detail Modal */}
-      {selectedSession && (
-        <SessionDetailModal
-          session={selectedSession}
-          projects={projects ?? []}
-          onClose={() => setSelectedSession(null)}
-        />
-      )}
+      <SessionDetailModal
+        session={selectedSession}
+        projects={projects ?? []}
+        onClose={() => setSelectedSession(null)}
+      />
     </div>
   )
 }
 
 interface SessionDetailModalProps {
-  session: Session
+  session: Session | null
   projects: { id: number; name: string }[]
   onClose: () => void
 }
@@ -166,30 +167,17 @@ function SessionDetailModal({
   onClose,
 }: SessionDetailModalProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<number>(
-    session.projectID
+    session?.projectID ?? 0
   )
   const updateSessionProject = useUpdateSessionProject()
 
-  // Handle ESC key
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    },
-    [onClose]
-  )
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = ''
-    }
-  }, [handleKeyDown])
+  // Reset selected project when session changes
+  if (session && selectedProjectId !== session.projectID && !updateSessionProject.isPending) {
+    setSelectedProjectId(session.projectID)
+  }
 
   const handleSave = async () => {
+    if (!session) return
     try {
       await updateSessionProject.mutateAsync({
         sessionID: session.sessionID,
@@ -201,28 +189,15 @@ function SessionDetailModal({
     }
   }
 
-  const hasChanges = selectedProjectId !== session.projectID
+  const hasChanges = session ? selectedProjectId !== session.projectID : false
 
-  return createPortal(
-    <>
-      {/* Overlay */}
-      <div
-        className="dialog-overlay"
-        onClick={onClose}
-        style={{ zIndex: 99998 }}
-      />
+  if (!session) return null
 
-      {/* Content */}
-      <div
-        className="dialog-content overflow-hidden"
-        style={{
-          zIndex: 99999,
-          width: '100%',
-          maxWidth: '32rem',
-          padding: 0,
-          background: 'var(--color-surface-primary)',
-        }}
-        onClick={e => e.stopPropagation()}
+  return (
+    <Dialog open={!!session} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        className="overflow-hidden p-0 w-full max-w-[32rem] bg-surface-primary"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
@@ -351,8 +326,7 @@ function SessionDetailModal({
             )}
           </Button>
         </div>
-      </div>
-    </>,
-    document.body
+      </DialogContent>
+    </Dialog>
   )
 }

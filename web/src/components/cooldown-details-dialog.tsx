@@ -1,5 +1,8 @@
-import { useEffect, useCallback, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useState } from 'react'
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog'
 import {
   Snowflake,
   Clock,
@@ -97,27 +100,6 @@ export function CooldownDetailsDialog({
   // 实时倒计时状态
   const [liveCountdown, setLiveCountdown] = useState<string>('')
 
-  // Handle ESC key
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onOpenChange(false)
-      }
-    },
-    [onOpenChange]
-  )
-
-  useEffect(() => {
-    if (open) {
-      document.addEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = 'hidden'
-      return () => {
-        document.removeEventListener('keydown', handleKeyDown)
-        document.body.style.overflow = ''
-      }
-    }
-  }, [open, handleKeyDown])
-
   // 每秒更新倒计时
   useEffect(() => {
     if (!cooldown) {
@@ -136,7 +118,7 @@ export function CooldownDetailsDialog({
     return () => clearInterval(interval)
   }, [cooldown, formatRemaining])
 
-  if (!open || !cooldown) return null
+  if (!cooldown) return null
 
   const reasonInfo = REASON_INFO[cooldown.reason] || REASON_INFO.unknown
   const Icon = reasonInfo.icon
@@ -156,26 +138,11 @@ export function CooldownDetailsDialog({
   const untilDateStr = formatUntilTime(cooldown.untilTime)
   const [datePart, timePart] = untilDateStr.split(' ')
 
-  return createPortal(
-    <>
-      {/* Overlay */}
-      <div
-        className="dialog-overlay backdrop-blur-[2px]"
-        onClick={() => onOpenChange(false)}
-        style={{ zIndex: 99998 }}
-      />
-
-      {/* Content */}
-      <div
-        className="dialog-content overflow-hidden"
-        style={{
-          zIndex: 99999,
-          width: '100%',
-          maxWidth: '28rem',
-          padding: 0,
-          background: 'var(--color-surface-primary)',
-        }}
-        onClick={e => e.stopPropagation()}
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="overflow-hidden p-0 w-full max-w-[28rem] bg-surface-primary"
       >
         {/* Header with Gradient */}
         <div className="relative bg-gradient-to-b from-cyan-900/20 to-transparent p-6 pb-4">
@@ -327,8 +294,7 @@ export function CooldownDetailsDialog({
             </div>
           </div>
         </div>
-      </div>
-    </>,
-    document.body
+      </DialogContent>
+    </Dialog>
   )
 }

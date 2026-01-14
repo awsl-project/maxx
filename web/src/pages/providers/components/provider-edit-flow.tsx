@@ -1,6 +1,13 @@
 import { useState } from 'react'
-import { createPortal } from 'react-dom'
 import { Globe, ChevronLeft, Key, Check, Trash2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { useUpdateProvider, useDeleteProvider } from '@/hooks/queries'
 import type { Provider, ClientType, CreateProviderData } from '@/lib/transport'
 import { defaultClients, type ClientConfig } from '../types'
@@ -133,14 +140,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           onDelete={() => setShowDeleteConfirm(true)}
           onClose={onClose}
         />
-        {showDeleteConfirm && (
-          <DeleteConfirmModal
-            providerName={provider.name}
-            deleting={deleting}
-            onConfirm={handleDelete}
-            onCancel={() => setShowDeleteConfirm(false)}
-          />
-        )}
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
       </>
     )
   }
@@ -280,14 +286,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         </div>
       </div>
 
-      {showDeleteConfirm && (
-        <DeleteConfirmModal
-          providerName={provider.name}
-          deleting={deleting}
-          onConfirm={handleDelete}
-          onCancel={() => setShowDeleteConfirm(false)}
-        />
-      )}
+      <DeleteConfirmModal
+        providerName={provider.name}
+        deleting={deleting}
+        open={showDeleteConfirm}
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   )
 }
@@ -295,28 +300,30 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 function DeleteConfirmModal({
   providerName,
   deleting,
+  open,
   onConfirm,
   onCancel,
 }: {
   providerName: string
   deleting: boolean
+  open: boolean
   onConfirm: () => void
   onCancel: () => void
 }) {
-  return createPortal(
-    <div className="dialog-overlay z-[9999]">
-      <div className="dialog-content p-6 w-[400px]">
-        <h3 className="text-lg font-semibold text-text-primary mb-2">
-          Delete Provider?
-        </h3>
-        <p className="text-sm text-text-secondary mb-6 leading-relaxed">
-          Are you sure you want to delete{' '}
-          <span className="font-medium text-text-primary">
-            "{providerName}"
-          </span>
-          ? This action cannot be undone.
-        </p>
-        <div className="flex justify-end gap-3">
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
+      <DialogContent className="w-[400px]">
+        <DialogHeader>
+          <DialogTitle>Delete Provider?</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete{' '}
+            <span className="font-medium text-text-primary">
+              "{providerName}"
+            </span>
+            ? This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
           <Button onClick={onCancel} variant={'secondary'} className="px-4">
             Cancel
           </Button>
@@ -328,9 +335,8 @@ function DeleteConfirmModal({
           >
             {deleting ? 'Deleting...' : 'Delete'}
           </Button>
-        </div>
-      </div>
-    </div>,
-    document.body
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
