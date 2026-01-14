@@ -35,19 +35,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2022
             ext: .exe
             name: maxx-windows-amd64
             goos: windows
             goarch: amd64
             platform: windows
-          - os: macos-latest
+          - os: macos-13
             ext: ""
             name: maxx-darwin-universal
             goos: darwin
             goarch: universal
             platform: macos
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             ext: ""
             name: maxx-linux-amd64
             goos: linux
@@ -74,13 +74,13 @@ jobs:
           cache-dependency-path: web/package.json
 
       - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc libgtk-3-dev libwebkit2gtk-4.0-dev
 
       - name: Install Windows dependencies
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2022'
         run: choco install mingw -y
 
       - name: Install Wails CLI
