@@ -16,9 +16,17 @@
 
 ## 如何使用
 
-### 1. 启动服务
+Maxx 支持三种部署方式：
 
-使用 Docker Compose 启动服务（推荐）：
+| 方式 | 说明 | 适用场景 |
+|------|------|----------|
+| **Docker** | 容器化部署 | 服务器/生产环境 |
+| **桌面应用** | 原生应用带 GUI | 个人使用，简单易用 |
+| **本地构建** | 从源码构建 | 开发环境 |
+
+### 方式一：Docker（服务器推荐）
+
+使用 Docker Compose 启动服务：
 
 ```bash
 docker compose up -d
@@ -26,7 +34,8 @@ docker compose up -d
 
 服务将在 `http://localhost:9880` 上运行。
 
-**完整的 docker-compose.yml 示例：**
+<details>
+<summary>完整的 docker-compose.yml 示例</summary>
 
 ```yaml
 services:
@@ -50,19 +59,37 @@ volumes:
     driver: local
 ```
 
-服务数据存储在 `/data` 目录下，通过 volume 持久化。
+</details>
 
-### 2. 访问管理界面
+### 方式二：桌面应用（个人使用推荐）
 
-打开浏览器访问 [http://localhost:9880](http://localhost:9880) 进入 Web 管理界面。
+从 [GitHub Releases](https://github.com/awsl-project/maxx/releases) 下载预构建的桌面应用。
 
-### 3. 配置 Claude Code
+| 平台 | 文件 | 说明 |
+|------|------|------|
+| Windows | `maxx.exe` | 直接运行 |
+| macOS (ARM) | `maxx-macOS-arm64.dmg` | Apple Silicon (M1/M2/M3) |
+| macOS (Intel) | `maxx-macOS-amd64.dmg` | Intel 芯片 |
+| Linux | `maxx` | 原生二进制 |
 
-#### 3.1 获取 API 密钥
+### 方式三：本地构建
+
+```bash
+# 运行服务器模式
+go run cmd/maxx/main.go
+
+# 或使用 Wails 运行桌面模式
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+wails dev
+```
+
+### 配置 Claude Code
+
+#### 1. 获取 API 密钥
 
 在 maxx 管理界面中创建项目并生成 API 密钥。
 
-#### 3.2 配置环境变量
+#### 2. 配置环境变量
 
 **settings.json 配置（推荐，永久生效）**
 
@@ -81,9 +108,7 @@ volumes:
 - `ANTHROPIC_AUTH_TOKEN`：可以随意填写（本地部署无需真实密钥）
 - `ANTHROPIC_BASE_URL`：本地部署使用 `http://localhost:9880`
 
-#### 3.3 开始使用
-
-配置完成后，Claude Code 将通过 maxx 代理访问 AI 服务。您可以在管理界面中查看使用情况和配额。
+配置完成后，Claude Code 将通过 maxx 代理访问 AI 服务。
 
 ## 本地开发
 
@@ -128,9 +153,14 @@ build-desktop.bat
 - 项目代理: http://localhost:9880/{project-slug}/v1/messages (等)
 
 ## 数据存储
-- 桌面模式（Windows）: `%APPDATA%\maxx`
-- 服务器模式（非 Docker）: `~/.config/maxx/maxx.db`
-- Docker 数据目录: `/data`（通过 `docker-compose.yml` 挂载）
+
+| 部署方式 | 数据位置 |
+|----------|----------|
+| Docker | `/data`（通过 volume 挂载） |
+| 桌面应用 (Windows) | `%USERPROFILE%\AppData\Local\maxx\` |
+| 桌面应用 (macOS) | `~/Library/Application Support/maxx/` |
+| 桌面应用 (Linux) | `~/.local/share/maxx/` |
+| 服务器 (非 Docker) | `~/.config/maxx/maxx.db` |
 
 ## 发布版本
 
