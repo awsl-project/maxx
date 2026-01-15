@@ -10,6 +10,7 @@ Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
 
 ## Features
 - Proxy endpoints for Claude, OpenAI, Gemini, and Codex formats
+- Compatible with Claude Code, Codex CLI, and other AI coding tools as a unified API proxy gateway
 - Admin API and Web UI
 - Provider routing, retries, and quotas
 - SQLite-backed storage
@@ -83,15 +84,13 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
 
-### Configure Claude Code
+## Configure AI Coding Tools
 
-#### 1. Get API Key
+### Claude Code
 
-Create a project in the maxx admin interface and generate an API key.
+Create a project in the maxx admin interface and generate an API key, then configure Claude Code using one of the following methods:
 
-#### 2. Configure Environment Variables
-
-**settings.json Configuration (Recommended, Permanent)**
+**settings.json (Recommended)**
 
 Configuration location: `~/.claude/settings.json` or `.claude/settings.json`
 
@@ -104,11 +103,37 @@ Configuration location: `~/.claude/settings.json` or `.claude/settings.json`
 }
 ```
 
-**Important Notes:**
-- `ANTHROPIC_AUTH_TOKEN`: Can be any value (no real key required for local deployment)
-- `ANTHROPIC_BASE_URL`: Use `http://localhost:9880` for local deployment
+**Shell Function (Alternative)**
 
-After configuration, Claude Code will access AI services through the maxx proxy.
+Add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.):
+
+```bash
+claude_maxx() {
+    export ANTHROPIC_BASE_URL="http://localhost:9880"
+    export ANTHROPIC_AUTH_TOKEN="your-api-key-here"
+    claude "$@"
+}
+```
+
+Then use `claude_maxx` instead of `claude` to run Claude Code through maxx.
+
+> **Note:** `ANTHROPIC_AUTH_TOKEN` can be any value for local deployment.
+
+### Codex CLI
+
+Add the following to your `~/.codex/config.toml`:
+
+```toml
+[model_providers.maxx]
+name = "maxx"
+base_url = "http://localhost:9880"
+wire_api = "responses"
+request_max_retries = 4
+stream_max_retries = 10
+stream_idle_timeout_ms = 300000
+```
+
+Then use `--provider maxx` when running Codex CLI.
 
 ## Local Development
 
