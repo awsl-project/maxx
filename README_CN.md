@@ -10,6 +10,7 @@
 
 ## 功能特性
 - 支持 Claude、OpenAI、Gemini 和 Codex 格式的代理端点
+- 兼容 Claude Code、Codex CLI 等 AI 编程工具，可作为统一的 API 代理网关
 - 管理 API 和 Web UI
 - 提供商路由、重试和配额管理
 - 基于 SQLite 的数据存储
@@ -83,15 +84,13 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
 
-### 配置 Claude Code
+## 配置 AI 编程工具
 
-#### 1. 获取 API 密钥
+### Claude Code
 
-在 maxx 管理界面中创建项目并生成 API 密钥。
+在 maxx 管理界面中创建项目并生成 API 密钥，然后使用以下方式之一配置 Claude Code：
 
-#### 2. 配置环境变量
-
-**settings.json 配置（推荐，永久生效）**
+**settings.json（推荐）**
 
 配置位置：`~/.claude/settings.json` 或 `.claude/settings.json`
 
@@ -104,11 +103,37 @@ wails dev
 }
 ```
 
-**重要提示：**
-- `ANTHROPIC_AUTH_TOKEN`：可以随意填写（本地部署无需真实密钥）
-- `ANTHROPIC_BASE_URL`：本地部署使用 `http://localhost:9880`
+**Shell 函数（替代方案）**
 
-配置完成后，Claude Code 将通过 maxx 代理访问 AI 服务。
+添加到你的 shell 配置文件（`~/.bashrc`、`~/.zshrc` 等）：
+
+```bash
+claude_maxx() {
+    export ANTHROPIC_BASE_URL="http://localhost:9880"
+    export ANTHROPIC_AUTH_TOKEN="your-api-key-here"
+    claude "$@"
+}
+```
+
+然后使用 `claude_maxx` 代替 `claude` 来通过 maxx 运行 Claude Code。
+
+> **提示：** 本地部署时 `ANTHROPIC_AUTH_TOKEN` 可以随意填写。
+
+### Codex CLI
+
+在 `~/.codex/config.toml` 中添加以下配置：
+
+```toml
+[model_providers.maxx]
+name = "maxx"
+base_url = "http://localhost:9880"
+wire_api = "responses"
+request_max_retries = 4
+stream_max_retries = 10
+stream_idle_timeout_ms = 300000
+```
+
+然后在运行 Codex CLI 时使用 `--provider maxx` 参数。
 
 ## 本地开发
 
