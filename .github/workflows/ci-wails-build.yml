@@ -43,6 +43,9 @@ jobs:
       - name: Install frontend dependencies
         run: cd web && pnpm install
 
+      - name: Build frontend
+        run: cd web && pnpm build
+
       - name: Build macOS ${{ matrix.arch }}
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
@@ -124,6 +127,9 @@ jobs:
       - name: Install frontend dependencies
         run: cd web && pnpm install
 
+      - name: Build frontend
+        run: cd web && pnpm build
+
       - name: Build Windows Binary
         run: |
           $TAG = "${{ inputs.tag || github.ref_name }}"
@@ -196,6 +202,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: cd web && pnpm install
+
+      - name: Build frontend
+        run: cd web && pnpm build
 
       - name: Build Linux Binary
         run: |

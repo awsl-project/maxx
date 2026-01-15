@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"embed"
+	"io/fs"
 	"log"
 
 	"github.com/awsl-project/maxx/internal/desktop"
+	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
@@ -19,10 +21,18 @@ import (
 //go:embed all:launcher
 var assets embed.FS
 
+//go:embed all:web/dist
+var webDistAssets embed.FS
+
 // 保存 app context 用于菜单回调
 var appCtx context.Context
 
 func main() {
+	// Set embedded static files for HTTP server
+	if subFS, err := fs.Sub(webDistAssets, "web/dist"); err == nil {
+		handler.StaticFS = subFS
+	}
+
 	// Create desktop app instance
 	app, err := desktop.NewLauncherApp()
 	if err != nil {
