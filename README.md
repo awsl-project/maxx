@@ -140,15 +140,21 @@ Then use `--provider maxx` when running Codex CLI.
 ## Local Development
 
 ### Server Mode (Browser)
-Backend:
+**Build frontend first:**
+```bash
+cd web
+pnpm install
+pnpm build
+```
+
+**Then run backend:**
 ```bash
 go run cmd/maxx/main.go
 ```
 
-Frontend:
+**Or run frontend dev server (for development):**
 ```bash
 cd web
-pnpm install
 pnpm dev
 ```
 
