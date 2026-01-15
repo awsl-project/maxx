@@ -73,6 +73,8 @@ volumes:
 | macOS (Intel) | `maxx-macOS-amd64.dmg` | Intel 芯片 |
 | Linux | `maxx` | 原生二进制 |
 
+> **macOS 提示：** 如果提示"应用已损坏"，请运行：`sudo xattr -d com.apple.quarantine /Applications/maxx.app`
+
 ### 方式三：本地构建
 
 ```bash

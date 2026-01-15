@@ -1,19 +1,26 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"log"
 
 	"github.com/awsl-project/maxx/internal/desktop"
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:launcher
 var assets embed.FS
+
+// 保存 app context 用于菜单回调
+var appCtx context.Context
 
 func main() {
 	// Create desktop app instance
@@ -21,6 +28,34 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize desktop app:", err)
 	}
+
+	// Create application menu
+	appMenu := menu.NewMenu()
+
+	// macOS App Menu (Maxx)
+	appMenu.Append(menu.AppMenu())
+
+	// File Menu
+	fileMenu := appMenu.AddSubmenu("File")
+	fileMenu.AddText("Home", keys.CmdOrCtrl("h"), func(_ *menu.CallbackData) {
+		if appCtx != nil {
+			runtime.WindowExecJS(appCtx, `window.location.href = 'wails://wails/index.html';`)
+		}
+	})
+	fileMenu.AddText("Settings", keys.CmdOrCtrl(","), func(_ *menu.CallbackData) {
+		if appCtx != nil {
+			runtime.WindowExecJS(appCtx, `window.location.href = 'wails://wails/index.html?page=settings';`)
+		}
+	})
+	fileMenu.AddSeparator()
+	fileMenu.AddText("Quit", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
+		if appCtx != nil {
+			runtime.Quit(appCtx)
+		}
+	})
+
+	// Edit Menu (for copy/paste support)
+	appMenu.Append(menu.EditMenu())
 
 	// Run Wails application
 	err = wails.Run(&options.App{
@@ -33,13 +68,17 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.Startup,
-		OnDomReady:       app.DomReady,
-		OnBeforeClose:    app.BeforeClose,
-		OnShutdown:       app.Shutdown,
+		OnStartup: func(ctx context.Context) {
+			appCtx = ctx
+			app.Startup(ctx)
+		},
+		OnDomReady:    app.DomReady,
+		OnBeforeClose: app.BeforeClose,
+		OnShutdown:    app.Shutdown,
 		Bind: []interface{}{
 			app,
 		},
+		Menu: appMenu,
 		// 启用 DevTools 方便调试
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

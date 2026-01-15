@@ -1,58 +1,178 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Maxx</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Settings page styles */
+        .settings-container {
+            width: 100%;
+            max-width: 480px;
+            padding: 40px;
+            animation: fadeIn 0.6s ease-out;
+        }
+        .settings-header {
+            margin-bottom: 32px;
+            text-align: center;
+        }
+        .settings-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .settings-content {
+            margin-bottom: 32px;
+        }
+        .setting-item {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+        }
+        .setting-label {
+            margin-bottom: 12px;
+        }
+        .setting-name {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        .setting-desc {
+            display: block;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .setting-input {
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 14px;
+            color: var(--text-primary);
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            outline: none;
+            --wails-draggable: no-drag;
+        }
+        .setting-input:focus {
+            border-color: var(--primary);
+        }
+        .setting-input-readonly {
+            color: var(--text-secondary);
+            cursor: not-allowed;
+        }
+        .settings-footer {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+        .settings-footer .button {
+            min-width: 120px;
+        }
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 1000;
+            animation: fadeIn 0.3s ease-out;
+        }
+        .toast.success { background: rgba(34, 197, 94, 0.9); color: white; }
+        .toast.error { background: rgba(239, 68, 68, 0.9); color: white; }
+        .page { display: none; }
+        .page.active { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+    </style>
 </head>
 <body>
-    <div class="launcher-container">
-        <!-- Logo 区域 -->
-        <div class="logo-container">
-            <div class="logo">
-                <svg class="logo-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                        <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                            <stop offset="0%" style="stop-color:#4f46e5"/>
-                            <stop offset="100%" style="stop-color:#7c3aed"/>
-                        </linearGradient>
-                    </defs>
-                    <circle cx="50" cy="50" r="45" fill="none" stroke="url(#logoGradient)" stroke-width="3"/>
-                    <text x="50" y="62" text-anchor="middle" font-size="32" font-weight="bold" fill="url(#logoGradient)">M</text>
-                </svg>
+    <!-- Launcher Page -->
+    <div id="page-launcher" class="page active">
+        <div class="launcher-container">
+            <div class="logo-container">
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:#4f46e5"/>
+                                <stop offset="100%" style="stop-color:#7c3aed"/>
+                            </linearGradient>
+                        </defs>
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="url(#logoGradient)" stroke-width="3"/>
+                        <text x="50" y="62" text-anchor="middle" font-size="32" font-weight="bold" fill="url(#logoGradient)">M</text>
+                    </svg>
+                </div>
+                <h1 class="app-name">Maxx</h1>
+                <p class="app-tagline">AI API Proxy Gateway</p>
             </div>
-            <h1 class="app-name">Maxx</h1>
-            <p class="app-tagline">AI API Proxy Gateway</p>
-        </div>
 
-        <!-- 状态区域 -->
-        <div id="status-container" class="status-container">
-            <div id="loading-spinner" class="spinner"></div>
-            <p id="status-text" class="status-text">正在启动服务...</p>
-        </div>
-
-        <!-- 错误区域（默认隐藏） -->
-        <div id="error-container" class="error-container hidden">
-            <div class="error-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
+            <div id="status-container" class="status-container">
+                <div id="loading-spinner" class="spinner"></div>
+                <p id="status-text" class="status-text">Starting service...</p>
             </div>
-            <p id="error-message" class="error-message"></p>
-            <div class="button-group">
-                <button id="retry-button" class="button button-primary">重试</button>
-                <button id="quit-button" class="button button-secondary">退出</button>
-            </div>
-        </div>
 
-        <!-- 版本信息 -->
-        <div class="version-info">
-            <span id="version-text"></span>
+            <div id="error-container" class="error-container hidden">
+                <div class="error-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                </div>
+                <p id="error-message" class="error-message"></p>
+                <div class="button-group">
+                    <button id="retry-button" class="button button-primary">Retry</button>
+                    <button id="quit-button" class="button button-secondary">Quit</button>
+                </div>
+            </div>
+
+            <div class="version-info">
+                <span id="version-text"></span>
+            </div>
         </div>
     </div>
+
+    <!-- Settings Page -->
+    <div id="page-settings" class="page">
+        <div class="settings-container">
+            <div class="settings-header">
+                <h2 class="settings-title">Settings</h2>
+            </div>
+
+            <div class="settings-content">
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name">HTTP Server Port</span>
+                        <span class="setting-desc">Click "Save & Restart" to apply changes</span>
+                    </div>
+                    <div class="setting-control">
+                        <input type="number" id="port-input" class="setting-input" min="1" max="65535" value="9880">
+                    </div>
+                </div>
+
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <span class="setting-name">Data Directory</span>
+                        <span class="setting-desc">Config files and database storage location</span>
+                    </div>
+                    <div class="setting-control">
+                        <input type="text" id="datadir-input" class="setting-input setting-input-readonly" readonly>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-footer">
+                <button id="save-button" class="button button-primary">Save & Restart</button>
+                <button id="back-button" class="button button-secondary">Back</button>
+            </div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 </html>

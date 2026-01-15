@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,58 @@ import (
 	"github.com/awsl-project/maxx/internal/version"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// DesktopConfig 桌面应用配置
+type DesktopConfig struct {
+	Port int `json:"port"` // HTTP 服务端口，默认 9880
+}
+
+// DefaultConfig 返回默认配置
+func DefaultConfig() *DesktopConfig {
+	return &DesktopConfig{
+		Port: 9880,
+	}
+}
+
+// loadConfig 从文件加载配置
+func loadConfig(dataDir string) *DesktopConfig {
+	configPath := filepath.Join(dataDir, "desktop.json")
+	config := DefaultConfig()
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		// 配置文件不存在，使用默认配置
+		return config
+	}
+
+	if err := json.Unmarshal(data, config); err != nil {
+		log.Printf("[Launcher] Failed to parse config: %v, using defaults", err)
+		return DefaultConfig()
+	}
+
+	// 验证端口范围
+	if config.Port < 1 || config.Port > 65535 {
+		config.Port = 9880
+	}
+
+	return config
+}
+
+// saveConfig 保存配置到文件
+func saveConfig(dataDir string, config *DesktopConfig) error {
+	configPath := filepath.Join(dataDir, "desktop.json")
+
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	return nil
+}
 
 // getDataDir 获取数据目录
 func getDataDir() string {
@@ -60,6 +113,7 @@ type LauncherApp struct {
 	dataDir    string
 	serverPort string
 	instanceID string
+	config     *DesktopConfig
 
 	// 状态
 	mu          sync.RWMutex
@@ -77,10 +131,15 @@ func NewLauncherApp() (*LauncherApp, error) {
 
 	log.Printf("[Launcher] Data directory: %s", dataDir)
 
+	// 加载配置
+	config := loadConfig(dataDir)
+	log.Printf("[Launcher] Config loaded: port=%d", config.Port)
+
 	app := &LauncherApp{
 		dataDir:    dataDir,
-		serverPort: ":9880",
+		serverPort: fmt.Sprintf(":%d", config.Port),
 		instanceID: generateInstanceID(),
+		config:     config,
 	}
 
 	return app, nil
@@ -171,7 +230,7 @@ func (a *LauncherApp) startServerAsync() {
 	a.starting = false
 	a.mu.Unlock()
 
-	log.Println("[Launcher] HTTP server started successfully on :9880")
+	log.Printf("[Launcher] HTTP server started successfully on %s", a.serverPort)
 	log.Println("[Launcher] ========== Server Ready ==========")
 }
 
@@ -260,6 +319,11 @@ func (a *LauncherApp) RestartServer() error {
 		a.dbRepos = nil
 	}
 
+	// 更新端口（使用最新配置）
+	if a.config != nil {
+		a.serverPort = fmt.Sprintf(":%d", a.config.Port)
+	}
+
 	// 重置状态
 	a.mu.Lock()
 	a.serverError = nil
@@ -317,4 +381,38 @@ func (a *LauncherApp) BeforeClose(ctx context.Context) bool {
 	log.Println("[Launcher] Window close requested")
 	// 允许关闭
 	return false
+}
+
+// GetConfig 获取当前配置（暴露给前端）
+func (a *LauncherApp) GetConfig() DesktopConfig {
+	if a.config == nil {
+		return *DefaultConfig()
+	}
+	return *a.config
+}
+
+// SaveConfig 保存配置（暴露给前端）
+// 保存后需要重启应用才能生效
+func (a *LauncherApp) SaveConfig(config DesktopConfig) error {
+	// 验证端口范围
+	if config.Port < 1 || config.Port > 65535 {
+		return fmt.Errorf("端口必须在 1-65535 范围内")
+	}
+
+	// 保存到文件
+	if err := saveConfig(a.dataDir, &config); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	a.config = &config
+	a.mu.Unlock()
+	log.Printf("[Launcher] Config saved: port=%d", config.Port)
+
+	return nil
+}
+
+// GetDataDir 获取数据目录（暴露给前端）
+func (a *LauncherApp) GetDataDir() string {
+	return a.dataDir
 }

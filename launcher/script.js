@@ -1,19 +1,25 @@
 /**
- * Maxx 启动画面脚本
- * 负责调用后端检查服务状态，后端返回跳转地址后执行跳转
+ * Maxx Launcher Script
+ * Single page app with launcher and settings views
  */
 (function() {
     'use strict';
 
-    // 配置
+    // Config
     const CONFIG = {
-        checkInterval: 500,      // 检查间隔 (ms)
-        maxWaitTime: 60000,      // 最大等待时间 (ms)
-        redirectDelay: 300       // 重定向前的延迟 (ms)
+        checkInterval: 500,
+        maxWaitTime: 60000,
+        redirectDelay: 300
     };
 
-    // DOM 元素
-    const elements = {
+    // Pages
+    const pages = {
+        launcher: document.getElementById('page-launcher'),
+        settings: document.getElementById('page-settings')
+    };
+
+    // Launcher elements
+    const launcher = {
         statusContainer: document.getElementById('status-container'),
         statusText: document.getElementById('status-text'),
         loadingSpinner: document.getElementById('loading-spinner'),
@@ -24,73 +30,99 @@
         versionText: document.getElementById('version-text')
     };
 
-    // 状态
+    // Settings elements
+    const settings = {
+        portInput: document.getElementById('port-input'),
+        datadirInput: document.getElementById('datadir-input'),
+        saveButton: document.getElementById('save-button'),
+        backButton: document.getElementById('back-button')
+    };
+
+    // State
     let checkTimer = null;
     let startTime = Date.now();
 
-    /**
-     * 更新状态文本
-     */
+    // ==================== Page Navigation ====================
+
+    function showPage(name) {
+        Object.keys(pages).forEach(key => {
+            pages[key].classList.toggle('active', key === name);
+        });
+        if (name === 'settings') {
+            loadSettings();
+        }
+    }
+
+    function getPageFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('page') || 'launcher';
+    }
+
+    // Expose for menu
+    window.showSettingsPage = function() {
+        showPage('settings');
+        history.replaceState(null, '', '?page=settings');
+    };
+
+    window.showLauncherPage = function() {
+        showPage('launcher');
+        history.replaceState(null, '', '?page=launcher');
+    };
+
+    // ==================== Toast ====================
+
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    // ==================== Launcher Functions ====================
+
     function updateStatus(text) {
-        elements.statusText.textContent = text;
+        launcher.statusText.textContent = text;
     }
 
-    /**
-     * 显示错误
-     */
     function showError(message) {
-        elements.statusContainer.style.display = 'none';
-        elements.errorContainer.classList.remove('hidden');
-        elements.errorMessage.textContent = message;
+        launcher.statusContainer.style.display = 'none';
+        launcher.errorContainer.classList.remove('hidden');
+        launcher.errorMessage.textContent = message;
     }
 
-    /**
-     * 隐藏错误，显示加载状态
-     */
     function hideError() {
-        elements.errorContainer.classList.add('hidden');
-        elements.statusContainer.style.display = 'flex';
-        elements.statusContainer.classList.remove('success');
+        launcher.errorContainer.classList.add('hidden');
+        launcher.statusContainer.style.display = 'flex';
+        launcher.statusContainer.classList.remove('success');
     }
 
-    /**
-     * 显示成功状态
-     */
     function showSuccess(message) {
-        elements.statusContainer.classList.add('success');
-        updateStatus(message || '启动完成，正在跳转...');
+        launcher.statusContainer.classList.add('success');
+        updateStatus(message || 'Ready, redirecting...');
     }
 
-    /**
-     * 重定向到指定地址
-     */
     function redirectTo(url) {
-        showSuccess('启动完成，正在跳转...');
+        showSuccess('Ready, redirecting...');
         setTimeout(() => {
             window.location.href = url;
         }, CONFIG.redirectDelay);
     }
 
-    /**
-     * 调用后端检查服务器状态
-     */
     async function checkServer() {
         const elapsed = Date.now() - startTime;
 
-        // 超时检查
         if (elapsed > CONFIG.maxWaitTime) {
             clearInterval(checkTimer);
-            showError('服务器启动超时\n\n请检查日志文件或重试启动。');
+            showError('Server startup timeout\n\nPlease check the log files or retry.');
             return;
         }
 
-        // 更新状态文本（显示等待时间）
         const seconds = Math.floor(elapsed / 1000);
         if (seconds > 0) {
-            updateStatus(`正在启动服务... (${seconds}s)`);
+            updateStatus(`Starting service... (${seconds}s)`);
         }
 
-        // 调用后端函数检查状态
         try {
             if (!window.go || !window.go.desktop || !window.go.desktop.LauncherApp) {
                 console.log('[Launcher] Waiting for Wails runtime...');
@@ -99,59 +131,45 @@
 
             const status = await window.go.desktop.LauncherApp.CheckServerStatus();
 
-            // 更新状态消息
             if (status.Message) {
                 updateStatus(status.Message);
             }
 
-            // 检查是否需要跳转
             if (status.Ready && status.RedirectURL) {
                 clearInterval(checkTimer);
                 redirectTo(status.RedirectURL);
                 return;
             }
 
-            // 检查是否有错误
             if (status.Error) {
                 clearInterval(checkTimer);
                 showError(status.Error);
                 return;
             }
-
-            // 继续等待...
         } catch (err) {
             console.error('[Launcher] Check status failed:', err);
-            // 继续等待，可能是 Wails 还没准备好
         }
     }
 
-    /**
-     * 重试启动
-     */
     async function retry() {
         hideError();
         startTime = Date.now();
-        updateStatus('正在重新启动服务...');
+        updateStatus('Restarting service...');
 
-        // 调用后端重启服务器
         try {
             if (window.go && window.go.desktop && window.go.desktop.LauncherApp) {
                 await window.go.desktop.LauncherApp.RestartServer();
             }
         } catch (err) {
             console.error('[Launcher] Restart failed:', err);
-            showError('重启服务器失败: ' + (err.message || err));
+            showError('Failed to restart server: ' + (err.message || err));
             return;
         }
 
-        // 开始检查
         checkTimer = setInterval(checkServer, CONFIG.checkInterval);
         checkServer();
     }
 
-    /**
-     * 退出应用
-     */
     function quit() {
         if (window.go && window.go.desktop && window.go.desktop.LauncherApp) {
             window.go.desktop.LauncherApp.Quit();
@@ -160,11 +178,7 @@
         }
     }
 
-    /**
-     * 获取版本信息
-     */
     async function loadVersion() {
-        // 等待 Wails 准备好
         const maxWait = 5000;
         const startWait = Date.now();
 
@@ -173,7 +187,7 @@
                 try {
                     const version = await window.go.desktop.LauncherApp.GetVersion();
                     if (version) {
-                        elements.versionText.textContent = version;
+                        launcher.versionText.textContent = version;
                     }
                 } catch (err) {
                     console.error('[Launcher] Failed to get version:', err);
@@ -184,25 +198,102 @@
         }
     }
 
-    /**
-     * 初始化
-     */
-    function init() {
-        console.log('[Launcher] Initializing...');
+    // ==================== Settings Functions ====================
 
-        // 绑定事件
-        elements.retryButton.addEventListener('click', retry);
-        elements.quitButton.addEventListener('click', quit);
+    async function loadSettings() {
+        console.log('[Settings] Loading settings...');
 
-        // 加载版本
-        loadVersion();
+        if (!window.go || !window.go.desktop || !window.go.desktop.LauncherApp) {
+            showToast('Wails runtime not ready', 'error');
+            return;
+        }
 
-        // 开始检查服务器状态
-        checkTimer = setInterval(checkServer, CONFIG.checkInterval);
-        checkServer();
+        try {
+            const config = await window.go.desktop.LauncherApp.GetConfig();
+            const dataDir = await window.go.desktop.LauncherApp.GetDataDir();
+
+            settings.portInput.value = config.port || 9880;
+            settings.datadirInput.value = dataDir || '';
+
+            console.log('[Settings] Config loaded:', config, 'dataDir:', dataDir);
+        } catch (err) {
+            console.error('[Settings] Failed to load config:', err);
+            showToast('Failed to load config: ' + (err.message || err), 'error');
+        }
     }
 
-    // 等待 DOM 准备就绪
+    async function saveSettings() {
+        const port = parseInt(settings.portInput.value, 10);
+
+        if (isNaN(port) || port < 1 || port > 65535) {
+            showToast('Port must be between 1-65535', 'error');
+            return;
+        }
+
+        try {
+            if (!window.go || !window.go.desktop || !window.go.desktop.LauncherApp) {
+                showToast('Wails runtime not ready', 'error');
+                return;
+            }
+
+            settings.saveButton.disabled = true;
+            settings.saveButton.textContent = 'Saving...';
+
+            await window.go.desktop.LauncherApp.SaveConfig({ port: port });
+
+            showToast('Config saved, restarting service...');
+
+            await window.go.desktop.LauncherApp.RestartServer();
+
+            // Go back to launcher and restart checking
+            showPage('launcher');
+            history.replaceState(null, '', '?page=launcher');
+            startTime = Date.now();
+            hideError();
+            checkTimer = setInterval(checkServer, CONFIG.checkInterval);
+            checkServer();
+
+        } catch (err) {
+            console.error('[Settings] Failed to save config:', err);
+            showToast('Failed to save config: ' + (err.message || err), 'error');
+        } finally {
+            settings.saveButton.disabled = false;
+            settings.saveButton.textContent = 'Save & Restart';
+        }
+    }
+
+    function goBack() {
+        window.location.href = 'wails://wails/index.html';
+    }
+
+    // ==================== Initialization ====================
+
+    function init() {
+        console.log('[App] Initializing...');
+
+        // Launcher events
+        launcher.retryButton.addEventListener('click', retry);
+        launcher.quitButton.addEventListener('click', quit);
+
+        // Settings events
+        settings.saveButton.addEventListener('click', saveSettings);
+        settings.backButton.addEventListener('click', goBack);
+
+        // Load version
+        loadVersion();
+
+        // Check URL for page
+        const page = getPageFromUrl();
+        if (page === 'settings') {
+            showPage('settings');
+        } else {
+            // Start checking server status
+            checkTimer = setInterval(checkServer, CONFIG.checkInterval);
+            checkServer();
+        }
+    }
+
+    // Wait for DOM ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
