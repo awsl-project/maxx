@@ -111,7 +111,7 @@
       "cancelled": "Cancelled",
       "rejected": "Rejected"
     },
-    "requestId": "Request #${id}",
+    "requestId": "Request #{{id}}",
     "noRequestData": "No request data available",
     "noResponseData": "No response data available",
     "noAttempts": "No attempts available",
@@ -121,7 +121,7 @@
       "metadata": "Metadata"
     },
     "selectAttempt": "Select an attempt to view details",
-    "attemptId": "Attempt #${id}",
+    "attemptId": "Attempt #{{id}}",
     "compareHeaders": "Compare Headers - Client vs Upstream",
     "compareBody": "Compare Body - Client vs Upstream",
     "clientRequest": "Client Request"

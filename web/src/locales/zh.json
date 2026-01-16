@@ -111,7 +111,7 @@
       "cancelled": "已取消",
       "rejected": "已拒绝"
     },
-    "requestId": "请求 #${id}",
+    "requestId": "请求 #{{id}}",
     "noRequestData": "无请求数据",
     "noResponseData": "无响应数据",
     "noAttempts": "无可用尝试",
@@ -121,9 +121,9 @@
       "metadata": "元数据"
     },
     "selectAttempt": "选择一个尝试以查看详情",
-    "attemptId": "尝试 #${id}",
+    "attemptId": "尝试 #{{id}}",
     "compareHeaders": "比较标头 - 客户端 vs 上游",
-    "compareBody": "比较正文 - 客户端 vs 上流",
+    "compareBody": "比较正文 - 客户端 vs 上游",
     "clientRequest": "客户端请求"
   },
   "providers": {
