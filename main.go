@@ -5,6 +5,7 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	goruntime "runtime"
 
 	"github.com/awsl-project/maxx/internal/desktop"
 	"github.com/awsl-project/maxx/internal/handler"
@@ -39,41 +40,55 @@ func main() {
 		log.Fatal("Failed to initialize desktop app:", err)
 	}
 
-	// Create application menu
-	appMenu := menu.NewMenu()
-
-	// macOS App Menu (Maxx)
-	appMenu.Append(menu.AppMenu())
-
-	// File Menu
-	fileMenu := appMenu.AddSubmenu("File")
-	fileMenu.AddText("Home", keys.CmdOrCtrl("h"), func(_ *menu.CallbackData) {
-		if appCtx != nil {
-			runtime.WindowExecJS(appCtx, `window.location.href = 'wails://wails/index.html';`)
+	// 初始化托盘（在 goroutine 中运行，避免阻塞主线程）
+	go func() {
+		// 等待 app context 初始化
+		for appCtx == nil {
+			// 等待 OnStartup 设置 appCtx
 		}
-	})
-	fileMenu.AddText("Settings", keys.CmdOrCtrl(","), func(_ *menu.CallbackData) {
-		if appCtx != nil {
-			runtime.WindowExecJS(appCtx, `window.location.href = 'wails://wails/index.html?page=settings';`)
-		}
-	})
-	fileMenu.AddSeparator()
-	fileMenu.AddText("Quit", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
-		if appCtx != nil {
-			runtime.Quit(appCtx)
-		}
-	})
+		tray := desktop.NewTrayManager(appCtx, app)
+		tray.Start()
+	}()
 
-	// Edit Menu (for copy/paste support)
-	appMenu.Append(menu.EditMenu())
+	// Create application menu (only for macOS)
+	var appMenu *menu.Menu
+	if goruntime.GOOS == "darwin" {
+		appMenu = menu.NewMenu()
+
+		// macOS App Menu (Maxx)
+		appMenu.Append(menu.AppMenu())
+
+		// File Menu
+		fileMenu := appMenu.AddSubmenu("File")
+		fileMenu.AddText("Home", keys.CmdOrCtrl("h"), func(_ *menu.CallbackData) {
+			if appCtx != nil {
+				runtime.WindowExecJS(appCtx, `window.location.href = 'wails://wails/index.html';`)
+			}
+		})
+		fileMenu.AddText("Settings", keys.CmdOrCtrl(","), func(_ *menu.CallbackData) {
+			if appCtx != nil {
+				runtime.WindowExecJS(appCtx, `window.location.href = 'wails://wails/index.html?page=settings';`)
+			}
+		})
+		fileMenu.AddSeparator()
+		fileMenu.AddText("Quit", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
+			if appCtx != nil {
+				runtime.Quit(appCtx)
+			}
+		})
+
+		// Edit Menu (for copy/paste support)
+		appMenu.Append(menu.EditMenu())
+	}
 
 	// Run Wails application
 	err = wails.Run(&options.App{
-		Title:     "Maxx",
-		Width:     1280,
-		Height:    800,
-		MinWidth:  1024,
-		MinHeight: 768,
+		Title:              "Maxx",
+		Width:              1280,
+		Height:             800,
+		MinWidth:           1024,
+		MinHeight:          768,
+		HideWindowOnClose:  true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

@@ -176,8 +176,6 @@ wails dev
 
 # Build desktop app
 wails build
-# or
-build-desktop.bat
 ```
 
 ## Endpoints

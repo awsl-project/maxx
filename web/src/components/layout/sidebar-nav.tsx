@@ -83,9 +83,7 @@ function RequestsNavItem() {
 
 export function SidebarNav() {
   const versionDisplay =
-    `v${__APP_VERSION__}` +
-    (__APP_COMMIT__ !== 'unknown' ? ` (${__APP_COMMIT__})` : '')
-
+    `v${__APP_VERSION__}` 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>

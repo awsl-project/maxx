@@ -341,15 +341,33 @@ func (a *LauncherApp) RestartServer() error {
 func (a *LauncherApp) Quit() {
 	log.Println("[Launcher] Quitting application...")
 
+	// 停止服务器
 	if a.server != nil {
 		a.server.Stop(a.ctx)
 	}
 
+	// 关闭数据库
 	if a.dbRepos != nil {
 		core.CloseDatabase(a.dbRepos)
 	}
 
+	// 退出应用
 	runtime.Quit(a.ctx)
+}
+
+// ShowWindow 显示窗口（供托盘调用）
+func (a *LauncherApp) ShowWindow() {
+	if a.ctx != nil {
+		runtime.WindowShow(a.ctx)
+		runtime.WindowUnminimise(a.ctx)
+	}
+}
+
+// HideWindow 隐藏窗口（供托盘调用）
+func (a *LauncherApp) HideWindow() {
+	if a.ctx != nil {
+		runtime.WindowHide(a.ctx)
+	}
 }
 
 // Shutdown Wails 关闭回调
@@ -378,18 +396,14 @@ func (a *LauncherApp) DomReady(ctx context.Context) {
 
 // BeforeClose Wails 关闭前回调
 func (a *LauncherApp) BeforeClose(ctx context.Context) bool {
-	log.Println("[Launcher] Window close requested")
+	log.Println("[Launcher] Window close requested - hiding window to tray")
 
-	// 先停止 HTTP 服务器，确保端口被释放
-	if a.server != nil && a.server.IsRunning() {
-		log.Println("[Launcher] Stopping HTTP server before close...")
-		if err := a.server.Stop(ctx); err != nil {
-			log.Printf("[Launcher] Failed to stop server in BeforeClose: %v", err)
-		}
-	}
+	// 隐藏窗口到托盘，不退出应用
+	// 服务器继续在后台运行
+	runtime.WindowHide(ctx)
 
-	// 允许关闭
-	return false
+	// 返回 true 阻止窗口关闭（实际上已经隐藏了）
+	return true
 }
 
 // GetConfig 获取当前配置（暴露给前端）
