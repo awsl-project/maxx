@@ -94,3 +94,13 @@ type AntigravityQuotaRepository interface {
 	// Delete 删除配额
 	Delete(email string) error
 }
+
+type APITokenRepository interface {
+	Create(token *domain.APIToken) error
+	Update(token *domain.APIToken) error
+	Delete(id uint64) error
+	GetByID(id uint64) (*domain.APIToken, error)
+	GetByToken(token string) (*domain.APIToken, error)
+	List() ([]*domain.APIToken, error)
+	IncrementUseCount(id uint64) error
+}

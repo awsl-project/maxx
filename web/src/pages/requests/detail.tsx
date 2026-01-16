@@ -9,6 +9,7 @@ import {
   useProjects,
   useSessions,
   useRoutes,
+  useAPITokens,
 } from '@/hooks/queries'
 import {
   ResizableHandle,
@@ -33,6 +34,7 @@ export function RequestDetailPage() {
   const { data: projects } = useProjects()
   const { data: sessions } = useSessions()
   const { data: routes } = useRoutes()
+  const { data: apiTokens } = useAPITokens()
   const [selection, setSelection] = useState<SelectionType>({
     type: 'request',
   })
@@ -91,6 +93,15 @@ export function RequestDetailPage() {
     })
     return map
   }, [routes])
+
+  // Create lookup map for API Token names
+  const tokenMap = useMemo(() => {
+    const map = new Map<number, string>()
+    apiTokens?.forEach(t => {
+      map.set(t.id, t.name)
+    })
+    return map
+  }, [apiTokens])
 
   if (isLoading) {
     return (
@@ -166,6 +177,7 @@ export function RequestDetailPage() {
               providerMap={providerMap}
               projectMap={projectMap}
               sessionMap={sessionMap}
+              tokenMap={tokenMap}
             />
           </ResizablePanel>
         </ResizablePanelGroup>

@@ -6,6 +6,7 @@ import {
   useProxyRequestsCount,
   useProviders,
   useProjects,
+  useAPITokens,
 } from '@/hooks/queries'
 import {
   Activity,
@@ -60,6 +61,7 @@ export function RequestsPage() {
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount()
   const { data: providers = [] } = useProviders()
   const { data: projects = [] } = useProjects()
+  const { data: apiTokens = [] } = useAPITokens()
 
   // Subscribe to real-time updates
   useProxyRequestUpdates()
@@ -71,6 +73,8 @@ export function RequestsPage() {
   const providerMap = new Map(providers.map(p => [p.id, p.name]))
   // Create project ID to name mapping
   const projectMap = new Map(projects.map(p => [p.id, p.name]))
+  // Create API Token ID to name mapping
+  const tokenMap = new Map(apiTokens.map(t => [t.id, t.name]))
 
   // 使用 totalCount
   const total = typeof totalCount === 'number' ? totalCount : 0
@@ -145,6 +149,9 @@ export function RequestsPage() {
                   <TableHead className="w-[100px] font-medium">
                     Project
                   </TableHead>
+                  <TableHead className="w-[100px] font-medium">
+                    Token
+                  </TableHead>
                   <TableHead className="w-[120px] font-medium">
                     Provider
                   </TableHead>
@@ -197,6 +204,7 @@ export function RequestsPage() {
                     request={req}
                     providerName={providerMap.get(req.providerID)}
                     projectName={projectMap.get(req.projectID)}
+                    tokenName={tokenMap.get(req.apiTokenID)}
                     onClick={() => navigate(`/requests/${req.id}`)}
                   />
                 ))}
@@ -363,11 +371,13 @@ function LogRow({
   request,
   providerName,
   projectName,
+  tokenName,
   onClick,
 }: {
   request: ProxyRequest
   providerName?: string
   projectName?: string
+  tokenName?: string
   onClick: () => void
 }) {
   const isPending =
@@ -506,6 +516,16 @@ function LogRow({
           title={projectName}
         >
           {projectName || '-'}
+        </span>
+      </TableCell>
+
+      {/* Token */}
+      <TableCell className="py-1">
+        <span
+          className="text-sm text-text-secondary truncate max-w-[100px] block"
+          title={tokenName}
+        >
+          {tokenName || '-'}
         </span>
       </TableCell>
 

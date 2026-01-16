@@ -183,6 +183,8 @@ export interface ProxyRequest {
   cache5mWriteCount: number;
   cache1hWriteCount: number;
   cost: number;
+  // API Token ID
+  apiTokenID: number;
 }
 
 // ===== ProxyUpstreamAttempt =====
@@ -430,4 +432,33 @@ export interface AuthVerifyResult {
   success: boolean;
   token?: string;
   error?: string;
+}
+
+// ===== API Token =====
+
+export interface APIToken {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  token: string;
+  tokenPrefix: string;
+  name: string;
+  description: string;
+  projectID: number;
+  isEnabled: boolean;
+  expiresAt?: string;
+  lastUsedAt?: string;
+  useCount: number;
+}
+
+export interface APITokenCreateResult {
+  token: string; // 明文 Token（仅创建时返回）
+  apiToken: APIToken;
+}
+
+export interface CreateAPITokenData {
+  name: string;
+  description?: string;
+  projectID?: number;
+  expiresAt?: string;
 }

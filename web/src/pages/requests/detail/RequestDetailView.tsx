@@ -28,6 +28,7 @@ interface RequestDetailViewProps {
   projectName?: string
   sessionInfo?: { clientType: string; projectID: number }
   projectMap: Map<number, string>
+  tokenName?: string
 }
 
 export function RequestDetailView({
@@ -39,6 +40,7 @@ export function RequestDetailView({
   projectName,
   sessionInfo,
   projectMap,
+  tokenName,
 }: RequestDetailViewProps) {
   return (
     <Tabs
@@ -347,6 +349,14 @@ export function RequestDetailView({
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">
                     {projectName || '-'}
+                  </dd>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+                  <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                    API Token
+                  </dt>
+                  <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">
+                    {tokenName || '-'}
                   </dd>
                 </div>
               </dl>

@@ -34,6 +34,9 @@ import type {
   KiroQuotaData,
   AuthStatus,
   AuthVerifyResult,
+  APIToken,
+  APITokenCreateResult,
+  CreateAPITokenData,
 } from './types';
 
 /**
@@ -127,6 +130,13 @@ export interface Transport {
   verifyPassword(password: string): Promise<AuthVerifyResult>;
   setAuthToken(token: string): void;
   clearAuthToken(): void;
+
+  // ===== API Token API =====
+  getAPITokens(): Promise<APIToken[]>;
+  getAPIToken(id: number): Promise<APIToken>;
+  createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
+  updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
+  deleteAPIToken(id: number): Promise<void>;
 
   // ===== 实时订阅 =====
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn;

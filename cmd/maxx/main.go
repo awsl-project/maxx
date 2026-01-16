@@ -92,6 +92,7 @@ func main() {
 	antigravityQuotaRepo := sqlite.NewAntigravityQuotaRepository(db)
 	cooldownRepo := sqlite.NewCooldownRepository(db)
 	failureCountRepo := sqlite.NewFailureCountRepository(db)
+	apiTokenRepo := sqlite.NewAPITokenRepository(db)
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
@@ -115,6 +116,7 @@ func main() {
 	cachedRoutingStrategyRepo := cached.NewRoutingStrategyRepository(routingStrategyRepo)
 	cachedSessionRepo := cached.NewSessionRepository(sessionRepo)
 	cachedProjectRepo := cached.NewProjectRepository(projectRepo)
+	cachedAPITokenRepo := cached.NewAPITokenRepository(apiTokenRepo)
 
 	// Load cached data
 	if err := cachedProviderRepo.Load(); err != nil {
@@ -185,6 +187,7 @@ func main() {
 		proxyRequestRepo,
 		attemptRepo,
 		settingRepo,
+		cachedAPITokenRepo,
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
 	)
@@ -209,8 +212,14 @@ func main() {
 		log.Println("Admin API authentication is disabled (set MAXX_ADMIN_PASSWORD to enable)")
 	}
 
+	// Create token auth middleware
+	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(cachedAPITokenRepo, settingRepo)
+	if tokenAuthMiddleware.IsEnabled() {
+		log.Println("Proxy token authentication is enabled")
+	}
+
 	// Create handlers
-	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, cachedSessionRepo)
+	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, cachedSessionRepo, tokenAuthMiddleware)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
 	authHandler := handler.NewAuthHandler(authMiddleware)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)

@@ -37,6 +37,9 @@ import type {
   KiroQuotaData,
   AuthStatus,
   AuthVerifyResult,
+  APIToken,
+  APITokenCreateResult,
+  CreateAPITokenData,
 } from './types';
 
 export class HttpTransport implements Transport {
@@ -415,6 +418,32 @@ export class HttpTransport implements Transport {
 
   clearAuthToken(): void {
     this.authToken = null;
+  }
+
+  // ===== API Token API =====
+
+  async getAPITokens(): Promise<APIToken[]> {
+    const { data } = await this.client.get<APIToken[]>('/api-tokens');
+    return data ?? [];
+  }
+
+  async getAPIToken(id: number): Promise<APIToken> {
+    const { data } = await this.client.get<APIToken>(`/api-tokens/${id}`);
+    return data;
+  }
+
+  async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {
+    const { data } = await this.client.post<APITokenCreateResult>('/api-tokens', payload);
+    return data;
+  }
+
+  async updateAPIToken(id: number, payload: Partial<APIToken>): Promise<APIToken> {
+    const { data } = await this.client.put<APIToken>(`/api-tokens/${id}`, payload);
+    return data;
+  }
+
+  async deleteAPIToken(id: number): Promise<void> {
+    await this.client.delete(`/api-tokens/${id}`);
   }
 
   // ===== WebSocket 订阅 =====

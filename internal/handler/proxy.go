@@ -11,26 +11,29 @@ import (
 	ctxutil "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
-	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/repository/cached"
 )
 
 // ProxyHandler handles AI API proxy requests
 type ProxyHandler struct {
 	clientAdapter *client.Adapter
 	executor      *executor.Executor
-	sessionRepo   repository.SessionRepository
+	sessionRepo   *cached.SessionRepository
+	tokenAuth     *TokenAuthMiddleware
 }
 
 // NewProxyHandler creates a new proxy handler
 func NewProxyHandler(
 	clientAdapter *client.Adapter,
 	exec *executor.Executor,
-	sessionRepo repository.SessionRepository,
+	sessionRepo *cached.SessionRepository,
+	tokenAuth *TokenAuthMiddleware,
 ) *ProxyHandler {
 	return &ProxyHandler{
 		clientAdapter: clientAdapter,
 		executor:      exec,
 		sessionRepo:   sessionRepo,
+		tokenAuth:     tokenAuth,
 	}
 }
 
@@ -73,6 +76,22 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Token authentication (needs clientType to determine which header to extract from)
+	var apiToken *domain.APIToken
+	var apiTokenID uint64
+	if h.tokenAuth != nil {
+		apiToken, err = h.tokenAuth.ValidateRequest(r, clientType)
+		if err != nil {
+			log.Printf("[Proxy] Token auth failed: %v", err)
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		if apiToken != nil {
+			apiTokenID = apiToken.ID
+			log.Printf("[Proxy] Token authenticated: id=%d, name=%s, projectID=%d", apiToken.ID, apiToken.Name, apiToken.ProjectID)
+		}
+	}
+
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
@@ -87,6 +106,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = ctxutil.WithRequestHeaders(ctx, r.Header)
 	ctx = ctxutil.WithRequestURI(ctx, r.URL.RequestURI())
 	ctx = ctxutil.WithIsStream(ctx, stream)
+	ctx = ctxutil.WithAPITokenID(ctx, apiTokenID)
 
 	// Check for project ID from header (set by ProjectProxyHandler)
 	var projectID uint64
@@ -97,14 +117,24 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get or create session to get project ID (if not already set from header)
+	// Get or create session to get project ID
 	session, _ := h.sessionRepo.GetBySessionID(sessionID)
 	if session != nil {
-		if projectID == 0 {
+		// Priority: Session binding (Admin configured) > Token association > Header > 0
+		if session.ProjectID > 0 {
 			projectID = session.ProjectID
+			log.Printf("[Proxy] Using project ID from session binding: %d", projectID)
+		} else if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
+			projectID = apiToken.ProjectID
+			log.Printf("[Proxy] Using project ID from token: %d", projectID)
 		}
 	} else {
-		// Create new session with the project ID (from header or 0 for global)
+		// Create new session
+		// If no project from header, use token's project
+		if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
+			projectID = apiToken.ProjectID
+			log.Printf("[Proxy] Using project ID from token for new session: %d", projectID)
+		}
 		session = &domain.Session{
 			SessionID:  sessionID,
 			ClientType: clientType,

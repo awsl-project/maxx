@@ -100,6 +100,9 @@ type Project struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
 	Name string `json:"name"`
 	Slug string `json:"slug"`
 
@@ -221,6 +224,9 @@ type ProxyRequest struct {
 
 	// 成本 (微美元，1 USD = 1,000,000)
 	Cost uint64 `json:"cost"`
+
+	// 使用的 API Token ID，0 表示未使用 Token
+	APITokenID uint64 `json:"apiTokenID"`
 }
 
 type ProxyUpstreamAttempt struct {
@@ -403,4 +409,45 @@ type ProviderStats struct {
 
 	// 成本 (微美元)
 	TotalCost uint64 `json:"totalCost"`
+}
+
+// APIToken API 访问令牌
+type APIToken struct {
+	ID        uint64    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// Token 明文（直接存储）
+	Token string `json:"token"`
+
+	// Token 前缀（用于显示，如 "maxx_abc1..."）
+	TokenPrefix string `json:"tokenPrefix"`
+
+	// 名称和描述
+	Name        string `json:"name"`
+	Description string `json:"description"`
+
+	// 关联的项目 ID，0 表示使用全局路由
+	ProjectID uint64 `json:"projectID"`
+
+	// 是否启用
+	IsEnabled bool `json:"isEnabled"`
+
+	// 过期时间，nil 表示永不过期
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// 最后使用时间
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+
+	// 使用次数
+	UseCount uint64 `json:"useCount"`
+
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+}
+
+// APITokenCreateResult 创建 Token 的返回结果（包含明文 Token，仅返回一次）
+type APITokenCreateResult struct {
+	Token    string    `json:"token"`    // 明文 Token（仅创建时返回）
+	APIToken *APIToken `json:"apiToken"` // Token 元数据
 }

@@ -63,6 +63,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 	log.Printf("[Executor] clientType=%s, projectID=%d, model=%s, isStream=%v", clientType, projectID, requestModel, isStream)
 
+	// Get API Token ID from context
+	apiTokenID := ctxutil.GetAPITokenID(ctx)
+
 	// Create proxy request record immediately (PENDING status)
 	proxyReq := &domain.ProxyRequest{
 		InstanceID:   e.instanceID,
@@ -74,6 +77,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		StartTime:    time.Now(),
 		IsStream:     isStream,
 		Status:       "PENDING",
+		APITokenID:   apiTokenID,
 	}
 
 	// Capture client's original request info
