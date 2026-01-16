@@ -470,6 +470,7 @@ export class HttpTransport implements Transport {
     if (filter?.providerId) params.set('providerId', String(filter.providerId));
     if (filter?.projectId) params.set('projectId', String(filter.projectId));
     if (filter?.clientType) params.set('clientType', filter.clientType);
+    if (filter?.apiTokenID) params.set('apiTokenId', String(filter.apiTokenID));
 
     const query = params.toString();
     const url = query ? `/usage-stats?${query}` : '/usage-stats';
