@@ -109,6 +109,9 @@ func (r *ModelMappingRepository) ListByQuery(query *domain.ModelMappingQuery) ([
 		if m.ClientType != "" && m.ClientType != query.ClientType {
 			continue
 		}
+		if m.ProviderType != "" && m.ProviderType != query.ProviderType {
+			continue
+		}
 		if m.ProviderID != 0 && m.ProviderID != query.ProviderID {
 			continue
 		}
@@ -141,6 +144,20 @@ func (r *ModelMappingRepository) DeleteAll() error {
 
 func (r *ModelMappingRepository) DeleteBuiltin() error {
 	if err := r.repo.DeleteBuiltin(); err != nil {
+		return err
+	}
+	return r.Load()
+}
+
+func (r *ModelMappingRepository) ClearAll() error {
+	if err := r.repo.ClearAll(); err != nil {
+		return err
+	}
+	return r.Load()
+}
+
+func (r *ModelMappingRepository) SeedDefaults() error {
+	if err := r.repo.SeedDefaults(); err != nil {
 		return err
 	}
 	return r.Load()

@@ -150,4 +150,6 @@ type ModelMappingRepository interface {
 	Count() (int, error)
 	DeleteAll() error
 	DeleteBuiltin() error
+	ClearAll() error      // Delete all mappings (both builtin and non-builtin)
+	SeedDefaults() error  // Re-seed default builtin mappings
 }

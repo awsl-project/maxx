@@ -10,6 +10,7 @@ import {
   Terminal,
   Settings,
   Key,
+  Zap,
   BarChart3,
 } from 'lucide-react'
 import { StreamingBadge } from '@/components/ui/streaming-badge'
@@ -43,6 +44,7 @@ const managementItems = [
 ]
 
 const configItems = [
+  { to: '/model-mappings', icon: Zap, labelKey: 'nav.modelMappings' },
   { to: '/retry-configs', icon: RefreshCw, labelKey: 'nav.retryConfigs' },
   { to: '/settings', icon: Settings, labelKey: 'nav.settings' },
 ]
@@ -86,7 +88,6 @@ function RequestsNavItem() {
 
 export function SidebarNav() {
   const { t } = useTranslation()
-  const location = useLocation()
   const versionDisplay = `v${__APP_VERSION__}`
   return (
     <Sidebar collapsible="icon">

@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"time"
 
@@ -62,8 +61,6 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 	requestModel := ctxutil.GetRequestModel(ctx)
 	isStream := ctxutil.GetIsStream(ctx)
 
-	log.Printf("[Executor] clientType=%s, projectID=%d, model=%s, isStream=%v", clientType, projectID, requestModel, isStream)
-
 	// Get API Token ID from context
 	apiTokenID := ctxutil.GetAPITokenID(ctx)
 
@@ -100,9 +97,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		Body:    string(requestBody),
 	}
 
-	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
-		log.Printf("[Executor] Failed to create proxy request: %v", err)
-	}
+	_ = e.proxyRequestRepo.Create(proxyReq)
 
 	// Broadcast the new request immediately
 	if e.broadcaster != nil {
@@ -162,7 +157,6 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 	// Match routes
 	routes, err := e.router.Match(clientType, projectID)
 	if err != nil {
-		log.Printf("[Executor] Route match error: %v", err)
 		proxyReq.Status = "FAILED"
 		proxyReq.Error = "no routes available"
 		proxyReq.EndTime = time.Now()
@@ -174,10 +168,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		return domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, "no routes available")
 	}
 
-	log.Printf("[Executor] Matched %d routes", len(routes))
-
 	if len(routes) == 0 {
-		log.Printf("[Executor] No routes configured for clientType=%s, projectID=%d", clientType, projectID)
 		proxyReq.Status = "FAILED"
 		proxyReq.Error = "no routes configured"
 		proxyReq.EndTime = time.Now()
@@ -241,13 +232,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 	// Try routes in order with retry logic
 	var lastErr error
-	for routeIdx, matchedRoute := range routes {
-		log.Printf("[Executor] Trying route %d/%d: routeID=%d, providerID=%d, provider=%s",
-			routeIdx+1, len(routes), matchedRoute.Route.ID, matchedRoute.Provider.ID, matchedRoute.Provider.Name)
-
+	for _, matchedRoute := range routes {
 		// Check context before starting new route
 		if ctx.Err() != nil {
-			log.Printf("[Executor] Context cancelled before route %d", routeIdx+1)
 			return ctx.Err()
 		}
 
@@ -286,13 +273,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				RequestModel:   requestModel,
 				MappedModel:    mappedModel,
 			}
-			log.Printf("[Executor] Creating attempt for route %d, attempt %d (proxyRequestID=%d, routeID=%d, providerID=%d)",
-				routeIdx+1, attempt+1, proxyReq.ID, matchedRoute.Route.ID, matchedRoute.Provider.ID)
-			if err := e.attemptRepo.Create(attemptRecord); err != nil {
-				log.Printf("[Executor] Failed to create attempt record: %v", err)
-			} else {
-				log.Printf("[Executor] Created attempt record with ID=%d", attemptRecord.ID)
-			}
+			_ = e.attemptRepo.Create(attemptRecord)
 			currentAttempt = attemptRecord
 
 			// Increment attempt count when creating a new attempt
@@ -315,13 +296,11 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			responseCapture := NewResponseCapture(w)
 
 			// Execute request
-			log.Printf("[Executor] Route %d, attempt %d: executing...", routeIdx+1, attempt+1)
 			err := matchedRoute.ProviderAdapter.Execute(attemptCtx, responseCapture, req, matchedRoute.Provider)
 			if err == nil {
 				// Success - set end time and duration
 				attemptRecord.EndTime = time.Now()
 				attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
-				log.Printf("[Executor] Route %d, attempt %d: SUCCESS", routeIdx+1, attempt+1)
 				attemptRecord.Status = "COMPLETED"
 				_ = e.attemptRepo.Update(attemptRecord)
 				if e.broadcaster != nil {
@@ -373,7 +352,6 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			// Handle error - set end time and duration
 			attemptRecord.EndTime = time.Now()
 			attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
-			log.Printf("[Executor] Route %d, attempt %d: FAILED - %v", routeIdx+1, attempt+1, err)
 			lastErr = err
 
 			// Update attempt status first (before checking context)
@@ -429,14 +407,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				if e.broadcaster != nil {
 					e.broadcaster.BroadcastProxyRequest(proxyReq)
 				}
-				log.Printf("[Executor] Context cancelled, stopping")
 				return ctx.Err()
 			}
 
 			// Check if retryable
 			proxyErr, ok := err.(*domain.ProxyError)
 			if !ok {
-				log.Printf("[Executor] Error is not ProxyError (type=%T), moving to next route", err)
 				break // Move to next route
 			}
 
@@ -444,10 +420,8 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			e.handleCooldown(attemptCtx, proxyErr, matchedRoute.Provider)
 
 			if !proxyErr.Retryable {
-				log.Printf("[Executor] Error is not retryable, moving to next route")
 				break // Move to next route
 			}
-			log.Printf("[Executor] Error is retryable, will retry on same route")
 
 			// Wait before retry (unless last attempt)
 			if attempt < retryConfig.MaxRetries {
@@ -455,7 +429,6 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				if proxyErr.RetryAfter > 0 {
 					waitTime = proxyErr.RetryAfter
 				}
-				log.Printf("[Executor] Waiting %v before retry", waitTime)
 				select {
 				case <-ctx.Done():
 					// Set final status before returning
@@ -473,11 +446,8 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			}
 		}
 		// Inner loop ended, will try next route if available
-		log.Printf("[Executor] Route %d exhausted (retries: %d), moving to next route if available",
-			routeIdx+1, retryConfig.MaxRetries)
 	}
 
-	log.Printf("[Executor] All %d routes exhausted, request failed", len(routes))
 	// All routes failed
 	proxyReq.Status = "FAILED"
 	proxyReq.EndTime = time.Now()
@@ -499,53 +469,37 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 }
 
 func (e *Executor) mapModel(requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) string {
-	log.Printf("[ModelMapping] Input: requestModel=%q, routeID=%d, providerID=%d, clientType=%s, projectID=%d, apiTokenID=%d",
-		requestModel, route.ID, provider.ID, clientType, projectID, apiTokenID)
-
 	// Database model mapping with full query conditions
 	query := &domain.ModelMappingQuery{
-		ClientType: clientType,
-		ProviderID: provider.ID,
-		ProjectID:  projectID,
-		RouteID:    route.ID,
-		APITokenID: apiTokenID,
+		ClientType:   clientType,
+		ProviderType: provider.Type,
+		ProviderID:   provider.ID,
+		ProjectID:    projectID,
+		RouteID:      route.ID,
+		APITokenID:   apiTokenID,
 	}
-	mappings, err := e.modelMappingRepo.ListByQuery(query)
-	if err != nil {
-		log.Printf("[ModelMapping] Failed to get mappings: %v", err)
-	} else if len(mappings) > 0 {
-		log.Printf("[ModelMapping] Database mappings found: %d rules matching query", len(mappings))
-		for _, m := range mappings {
-			if domain.MatchWildcard(m.Pattern, requestModel) {
-				log.Printf("[ModelMapping] Database mapping matched: id=%d, pattern=%q, target=%q (clientType=%s, providerID=%d, projectID=%d, routeID=%d, apiTokenID=%d)",
-					m.ID, m.Pattern, m.Target, m.ClientType, m.ProviderID, m.ProjectID, m.RouteID, m.APITokenID)
-				return m.Target
-			}
+	mappings, _ := e.modelMappingRepo.ListByQuery(query)
+	for _, m := range mappings {
+		if domain.MatchWildcard(m.Pattern, requestModel) {
+			return m.Target
 		}
-		log.Printf("[ModelMapping] Database mapping: no pattern match")
-	} else {
-		log.Printf("[ModelMapping] No database mappings found for query")
 	}
 
 	// No mapping, use original
-	log.Printf("[ModelMapping] No mapping found, using original: %q", requestModel)
 	return requestModel
 }
 
 func (e *Executor) getRetryConfig(config *domain.RetryConfig) *domain.RetryConfig {
 	if config != nil {
-		log.Printf("[Executor] Using provided retry config: MaxRetries=%d", config.MaxRetries)
 		return config
 	}
 
 	// Get default config
 	defaultConfig, err := e.retryConfigRepo.GetDefault()
 	if err == nil && defaultConfig != nil {
-		log.Printf("[Executor] Using default retry config: MaxRetries=%d", defaultConfig.MaxRetries)
 		return defaultConfig
 	}
 
-	log.Printf("[Executor] No retry config found (err=%v), using MaxRetries=0", err)
 	// No default config means no retry
 	return &domain.RetryConfig{
 		MaxRetries:      0,
@@ -635,25 +589,12 @@ func (e *Executor) handleCooldown(ctx context.Context, proxyErr *domain.ProxyErr
 	// Record failure and apply cooldown
 	// If explicitUntil is not nil, it will be used directly
 	// Otherwise, cooldown duration is calculated based on policy and failure count
-	until := cooldown.Default().RecordFailure(provider.ID, clientType, reason, explicitUntil)
+	cooldown.Default().RecordFailure(provider.ID, clientType, reason, explicitUntil)
 
 	// If there's an async update channel, listen for updates
 	if proxyErr.CooldownUpdateChan != nil {
-		go e.handleAsyncCooldownUpdate(proxyErr.CooldownUpdateChan, provider, clientType, reason)
+		go e.handleAsyncCooldownUpdate(proxyErr.CooldownUpdateChan, provider, clientType)
 	}
-
-	clientTypeDesc := clientType
-	if clientTypeDesc == "" {
-		clientTypeDesc = "all types"
-	}
-
-	explicitStr := "policy-based"
-	if explicitUntil != nil {
-		explicitStr = "explicit from API"
-	}
-
-	log.Printf("[Executor] Provider %d (%s): Cooldown until %s for clientType=%s (reason=%s, source=%s)",
-		provider.ID, provider.Name, until.Format("2006-01-02 15:04:05"), clientTypeDesc, reason, explicitStr)
 }
 
 // mapRateLimitTypeToReason maps RateLimitInfo.Type to CooldownReason
@@ -671,21 +612,14 @@ func mapRateLimitTypeToReason(rateLimitType string) cooldown.CooldownReason {
 }
 
 // handleAsyncCooldownUpdate listens for async cooldown updates from providers
-func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider *domain.Provider, clientType string, reason cooldown.CooldownReason) {
+func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider *domain.Provider, clientType string) {
 	select {
 	case newCooldownTime := <-updateChan:
 		if !newCooldownTime.IsZero() {
 			cooldown.Default().UpdateCooldown(provider.ID, clientType, newCooldownTime)
-			clientTypeDesc := clientType
-			if clientTypeDesc == "" {
-				clientTypeDesc = "all types"
-			}
-			log.Printf("[Executor] Provider %d (%s): Updated cooldown to %s for clientType=%s (async update, reason=%s)",
-				provider.ID, provider.Name, newCooldownTime.Format("2006-01-02 15:04:05"), clientTypeDesc, reason)
 		}
 	case <-time.After(15 * time.Second):
 		// Timeout waiting for update
-		log.Printf("[Executor] Provider %d (%s): Async cooldown update timed out", provider.ID, provider.Name)
 	}
 }
 

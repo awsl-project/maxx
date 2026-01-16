@@ -1,6 +1,10 @@
 package executor
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/awsl-project/maxx/internal/domain"
+)
 
 func TestMatchWildcard(t *testing.T) {
 	tests := []struct {
@@ -48,9 +52,9 @@ func TestMatchWildcard(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pattern+"_"+tt.input, func(t *testing.T) {
-			got := matchWildcard(tt.pattern, tt.input)
+			got := domain.MatchWildcard(tt.pattern, tt.input)
 			if got != tt.want {
-				t.Errorf("matchWildcard(%q, %q) = %v, want %v", tt.pattern, tt.input, got, tt.want)
+				t.Errorf("MatchWildcard(%q, %q) = %v, want %v", tt.pattern, tt.input, got, tt.want)
 			}
 		})
 	}
@@ -84,6 +88,16 @@ func TestMatchModelMapping(t *testing.T) {
 		// No match
 		{"unknown-model", ""},
 		{"gemini-2.5-pro", ""},
+	}
+
+	// Helper function to match model mapping
+	matchModelMapping := func(requestModel string, mapping map[string]string) string {
+		for pattern, target := range mapping {
+			if domain.MatchWildcard(pattern, requestModel) {
+				return target
+			}
+		}
+		return ""
 	}
 
 	for _, tt := range tests {

@@ -86,6 +86,8 @@ export {
   useCreateModelMapping,
   useUpdateModelMapping,
   useDeleteModelMapping,
+  useClearAllModelMappings,
+  useResetModelMappingsToDefaults,
 } from './use-settings';
 
 // API Token hooks

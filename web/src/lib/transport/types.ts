@@ -355,6 +355,7 @@ export interface ModelMapping {
   createdAt: string;
   updatedAt: string;
   clientType: string;    // 客户端类型，空表示所有
+  providerType: string;  // 供应商类型（如 antigravity, kiro, custom），空表示所有
   providerID: number;    // 供应商 ID，0 表示所有
   projectID: number;     // 项目 ID，0 表示所有
   routeID: number;       // 路由 ID，0 表示所有
@@ -369,6 +370,7 @@ export interface ModelMapping {
 // 创建/更新模型映射的请求
 export interface ModelMappingInput {
   clientType?: string;
+  providerType?: string;
   providerID?: number;
   projectID?: number;
   routeID?: number;
