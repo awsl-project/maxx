@@ -1,4 +1,4 @@
-import { Settings, Moon, Sun, Monitor, Laptop, FolderOpen, Zap, Plus, Trash2, ArrowRight, RotateCcw, GripVertical, Languages } from 'lucide-react'
+import { Settings, Moon, Sun, Monitor, Laptop, FolderOpen, Zap, Plus, Trash2, ArrowRight, RotateCcw, GripVertical, Database } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
@@ -36,8 +36,8 @@ export function SettingsPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-6">
-          <AppearanceSection />
-          <LanguageSection />
+          <GeneralSection />
+          <DataRetentionSection />
           <ForceProjectSection />
           <ModelMappingSection />
         </div>
@@ -46,14 +46,19 @@ export function SettingsPage() {
   )
 }
 
-function AppearanceSection() {
+function GeneralSection() {
   const { theme, setTheme } = useTheme()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
     { value: 'light', label: t('settings.theme.light'), icon: Sun },
     { value: 'dark', label: t('settings.theme.dark'), icon: Moon },
     { value: 'system', label: t('settings.theme.system'), icon: Laptop },
+  ]
+
+  const languages = [
+    { value: 'en', label: t('settings.languages.en') },
+    { value: 'zh', label: t('settings.languages.zh') },
   ]
 
   return (
@@ -64,7 +69,7 @@ function AppearanceSection() {
           {t('settings.appearance')}
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-6">
+      <CardContent className="p-6 space-y-4">
         <div className="flex items-center gap-6">
           <label className="text-sm font-medium text-muted-foreground w-40 shrink-0">
             {t('settings.themePreference')}
@@ -82,28 +87,6 @@ function AppearanceSection() {
             ))}
           </div>
         </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function LanguageSection() {
-  const { t, i18n } = useTranslation()
-
-  const languages = [
-    { value: 'en', label: t('settings.languages.en') },
-    { value: 'zh', label: t('settings.languages.zh') },
-  ]
-
-  return (
-    <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
-        <CardTitle className="text-base font-medium flex items-center gap-2">
-          <Languages className="h-4 w-4 text-muted-foreground" />
-          {t('settings.language')}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-6">
         <div className="flex items-center gap-6">
           <label className="text-sm font-medium text-muted-foreground w-40 shrink-0">
             {t('settings.languagePreference')}
@@ -119,6 +102,79 @@ function LanguageSection() {
               </Button>
             ))}
           </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function DataRetentionSection() {
+  const { data: settings, isLoading } = useSettings()
+  const updateSetting = useUpdateSetting()
+  const { t } = useTranslation()
+
+  const requestRetentionDays = settings?.request_retention_days || '7'
+  const statsRetentionDays = settings?.stats_retention_days || '30'
+
+  const handleRequestRetentionChange = async (value: string) => {
+    const numValue = parseInt(value, 10)
+    if (!isNaN(numValue) && numValue >= 0) {
+      await updateSetting.mutateAsync({
+        key: 'request_retention_days',
+        value: value,
+      })
+    }
+  }
+
+  const handleStatsRetentionChange = async (value: string) => {
+    const numValue = parseInt(value, 10)
+    if (!isNaN(numValue) && numValue >= 0) {
+      await updateSetting.mutateAsync({
+        key: 'stats_retention_days',
+        value: value,
+      })
+    }
+  }
+
+  if (isLoading) return null
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Database className="h-4 w-4 text-muted-foreground" />
+          {t('settings.dataRetention')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-6">
+        <div className="flex items-center gap-8">
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-muted-foreground shrink-0">
+              {t('settings.requestRetentionDays')}
+            </label>
+            <Input
+              type="number"
+              value={requestRetentionDays}
+              onChange={e => handleRequestRetentionChange(e.target.value)}
+              className="w-20"
+              min={0}
+              disabled={updateSetting.isPending}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-muted-foreground shrink-0">
+              {t('settings.statsRetentionDays')}
+            </label>
+            <Input
+              type="number"
+              value={statsRetentionDays}
+              onChange={e => handleStatsRetentionChange(e.target.value)}
+              className="w-20"
+              min={0}
+              disabled={updateSetting.isPending}
+            />
+          </div>
+          <span className="text-xs text-muted-foreground">{t('settings.retentionDaysHint')}</span>
         </div>
       </CardContent>
     </Card>

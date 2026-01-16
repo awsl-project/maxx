@@ -61,6 +61,9 @@ export type {
   APIToken,
   APITokenCreateResult,
   CreateAPITokenData,
+  // Usage Stats
+  UsageStats,
+  UsageStatsFilter,
 } from './types';
 
 export type {

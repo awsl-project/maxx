@@ -51,6 +51,7 @@ type DatabaseRepos struct {
 	CachedAPITokenRepo       *cached.APITokenRepository
 	ModelMappingRepo         repository.ModelMappingRepository
 	CachedModelMappingRepo   *cached.ModelMappingRepository
+	UsageStatsRepo           repository.UsageStatsRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
@@ -91,6 +92,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	failureCountRepo := sqlite.NewFailureCountRepository(db)
 	apiTokenRepo := sqlite.NewAPITokenRepository(db)
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
+	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -127,6 +129,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		CachedAPITokenRepo:       cachedAPITokenRepo,
 		ModelMappingRepo:         modelMappingRepo,
 		CachedModelMappingRepo:   cachedModelMappingRepo,
+		UsageStatsRepo:           usageStatsRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -251,6 +254,7 @@ func InitializeServerComponents(
 		repos.SettingRepo,
 		repos.CachedAPITokenRepo,
 		repos.CachedModelMappingRepo,
+		repos.UsageStatsRepo,
 		addr,
 		r,
 	)

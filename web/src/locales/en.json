@@ -46,6 +46,7 @@
     "apiTokens": "API Tokens",
     "retryConfigs": "Retry Configs",
     "settings": "Settings",
+    "stats": "Statistics",
     "routes": "ROUTES",
     "management": "MANAGEMENT",
     "config": "CONFIG"
@@ -301,7 +302,13 @@
     "resetToPreset": "Reset to Preset",
     "modelMappingDesc": "Model name mapping rules, matched in order (higher priority first). Supports wildcard *, e.g., *sonnet* matches all sonnet variants",
     "matchPattern": "Match Pattern",
-    "targetModel": "Target Model"
+    "targetModel": "Target Model",
+    "dataRetention": "Data Retention",
+    "requestRetentionDays": "Requests",
+    "requestRetentionDaysDesc": "Requests older than this will be automatically cleaned up, 0 means no cleanup",
+    "statsRetentionDays": "Statistics",
+    "statsRetentionDaysDesc": "Statistics older than this will be automatically cleaned up, 0 means no cleanup",
+    "retentionDaysHint": "0 = no cleanup"
   },
   "clientRoutes": {
     "claude": "Claude",
@@ -447,5 +454,37 @@
     "pressToUse": "Press {{key}} to use custom model name",
     "toUseCustomModel": "use custom model name",
     "banned": "Banned"
+  },
+  "stats": {
+    "title": "Statistics",
+    "description": "Usage statistics and analytics",
+    "filters": "Filters",
+    "timeRange": "Time Range",
+    "last24h": "Last 24 hours",
+    "last7d": "Last 7 days",
+    "last30d": "Last 30 days",
+    "provider": "Provider",
+    "allProviders": "All Providers",
+    "project": "Project",
+    "allProjects": "All Projects",
+    "clientType": "Client Type",
+    "allClients": "All Clients",
+    "apiToken": "API Token",
+    "allTokens": "All Tokens",
+    "totalRequests": "Total Requests",
+    "successRate": "Success Rate",
+    "inputTokens": "Input Tokens",
+    "outputTokens": "Output Tokens",
+    "cacheRead": "Cache Read",
+    "cacheWrite": "Cache Write",
+    "totalCost": "Total Cost",
+    "dataPoints": "Data Points",
+    "chart": "Statistics Chart",
+    "requests": "Requests",
+    "tokens": "Tokens",
+    "cost": "Cost",
+    "costUSD": "Cost (USD)",
+    "successful": "Successful",
+    "failed": "Failed"
   }
 }

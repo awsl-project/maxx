@@ -42,6 +42,8 @@ import type {
   APITokenCreateResult,
   CreateAPITokenData,
   RoutePositionUpdate,
+  UsageStats,
+  UsageStatsFilter,
 } from './types';
 
 export class HttpTransport implements Transport {
@@ -456,6 +458,23 @@ export class HttpTransport implements Transport {
 
   async deleteAPIToken(id: number): Promise<void> {
     await this.client.delete(`/api-tokens/${id}`);
+  }
+
+  // ===== Usage Stats API =====
+
+  async getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]> {
+    const params = new URLSearchParams();
+    if (filter?.start) params.set('start', filter.start);
+    if (filter?.end) params.set('end', filter.end);
+    if (filter?.routeId) params.set('routeId', String(filter.routeId));
+    if (filter?.providerId) params.set('providerId', String(filter.providerId));
+    if (filter?.projectId) params.set('projectId', String(filter.projectId));
+    if (filter?.clientType) params.set('clientType', filter.clientType);
+
+    const query = params.toString();
+    const url = query ? `/usage-stats?${query}` : '/usage-stats';
+    const { data } = await this.client.get<UsageStats[]>(url);
+    return data ?? [];
   }
 
   // ===== WebSocket 订阅 =====

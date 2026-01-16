@@ -46,6 +46,7 @@
     "apiTokens": "API 令牌",
     "retryConfigs": "重试配置",
     "settings": "设置",
+    "stats": "统计",
     "routes": "路由",
     "management": "管理",
     "config": "配置"
@@ -301,7 +302,13 @@
     "resetToPreset": "重置为预设",
     "modelMappingDesc": "模型名映射规则，按顺序匹配（越靠前优先级越高）。支持通配符 *，例如 *sonnet* 匹配所有 sonnet 变体",
     "matchPattern": "匹配模式",
-    "targetModel": "目标模型"
+    "targetModel": "目标模型",
+    "dataRetention": "数据保留",
+    "requestRetentionDays": "请求记录",
+    "requestRetentionDaysDesc": "超过此天数的请求记录将被自动清理，0 表示不清理",
+    "statsRetentionDays": "统计数据",
+    "statsRetentionDaysDesc": "超过此天数的统计数据将被自动清理，0 表示不清理",
+    "retentionDaysHint": "0 表示不清理"
   },
   "clientRoutes": {
     "claude": "Claude",
@@ -446,5 +453,37 @@
     "noModelsAvailable": "无可用模型",
     "pressToUse": "按 {{key}} 使用自定义模型名称",
     "toUseCustomModel": "使用自定义模型名称"
+  },
+  "stats": {
+    "title": "统计",
+    "description": "使用统计和分析",
+    "filters": "筛选",
+    "timeRange": "时间范围",
+    "last24h": "最近 24 小时",
+    "last7d": "最近 7 天",
+    "last30d": "最近 30 天",
+    "provider": "提供商",
+    "allProviders": "所有提供商",
+    "project": "项目",
+    "allProjects": "所有项目",
+    "clientType": "客户端类型",
+    "allClients": "所有客户端",
+    "apiToken": "API 令牌",
+    "allTokens": "所有令牌",
+    "totalRequests": "总请求数",
+    "successRate": "成功率",
+    "inputTokens": "输入 Token",
+    "outputTokens": "输出 Token",
+    "cacheRead": "缓存读取",
+    "cacheWrite": "缓存写入",
+    "totalCost": "总费用",
+    "dataPoints": "数据点",
+    "chart": "统计图表",
+    "requests": "请求",
+    "tokens": "Token",
+    "cost": "费用",
+    "costUSD": "费用 (USD)",
+    "successful": "成功",
+    "failed": "失败"
   }
 }

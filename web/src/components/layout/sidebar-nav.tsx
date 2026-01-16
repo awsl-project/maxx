@@ -10,6 +10,7 @@ import {
   Terminal,
   Settings,
   Key,
+  BarChart3,
 } from 'lucide-react'
 import { StreamingBadge } from '@/components/ui/streaming-badge'
 import { useStreamingRequests } from '@/hooks/use-streaming'
@@ -85,6 +86,7 @@ function RequestsNavItem() {
 
 export function SidebarNav() {
   const { t } = useTranslation()
+  const location = useLocation()
   const versionDisplay = `v${__APP_VERSION__}`
   return (
     <Sidebar collapsible="icon">
@@ -95,6 +97,16 @@ export function SidebarNav() {
       <SidebarContent>
         <NavMain items={mainNavItems}>
           <RequestsNavItem />
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              render={<NavLink to="/stats" />}
+              isActive={location.pathname.startsWith('/stats')}
+              tooltip={t('nav.stats')}
+            >
+              <BarChart3 />
+              <span>{t('nav.stats')}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </NavMain>
         <NavRoutes />
         <NavManagement items={managementItems} title={t('nav.management')} />

@@ -1,6 +1,10 @@
 package repository
 
-import "github.com/awsl-project/maxx/internal/domain"
+import (
+	"time"
+
+	"github.com/awsl-project/maxx/internal/domain"
+)
 
 type ProviderRepository interface {
 	Create(provider *domain.Provider) error
@@ -70,13 +74,14 @@ type ProxyRequestRepository interface {
 	// MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
 	// Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
 	MarkStaleAsFailed(currentInstanceID string) (int64, error)
+	// DeleteOlderThan 删除指定时间之前的请求记录
+	DeleteOlderThan(before time.Time) (int64, error)
 }
 
 type ProxyUpstreamAttemptRepository interface {
 	Create(attempt *domain.ProxyUpstreamAttempt) error
 	Update(attempt *domain.ProxyUpstreamAttempt) error
 	ListByProxyRequestID(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error)
-	GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error)
 }
 
 type SystemSettingRepository interface {
@@ -95,6 +100,32 @@ type AntigravityQuotaRepository interface {
 	List() ([]*domain.AntigravityQuota, error)
 	// Delete 删除配额
 	Delete(email string) error
+}
+
+type UsageStatsRepository interface {
+	// Upsert 更新或插入统计记录（基于 hour + route_id + provider_id + project_id + client_type）
+	Upsert(stats *domain.UsageStats) error
+	// Query 查询统计数据，支持按时间范围、路由、Provider、项目过滤
+	Query(filter UsageStatsFilter) ([]*domain.UsageStats, error)
+	// DeleteOlderThan 删除指定时间之前的统计记录
+	DeleteOlderThan(before time.Time) (int64, error)
+	// GetLatestHour 获取最新的聚合小时，如果没有记录返回 nil
+	GetLatestHour() (*time.Time, error)
+	// GetProviderStats 获取 Provider 统计数据（合并历史聚合数据和当前小时实时数据）
+	GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error)
+	// Aggregate 聚合统计数据（从 proxy_upstream_attempts 聚合到 usage_stats）
+	Aggregate()
+}
+
+// UsageStatsFilter 统计查询过滤条件
+type UsageStatsFilter struct {
+	StartTime  *time.Time // 开始时间
+	EndTime    *time.Time // 结束时间
+	RouteID    *uint64    // 路由 ID
+	ProviderID *uint64    // Provider ID
+	ProjectID  *uint64    // 项目 ID
+	APITokenID *uint64    // API Token ID
+	ClientType *string    // 客户端类型
 }
 
 type APITokenRepository interface {
