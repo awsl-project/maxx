@@ -35,13 +35,20 @@ docker compose up -d
 
 The service will run at `http://localhost:9880`.
 
+**Available Docker Images:**
+
+| Architecture | Image Tag |
+|--------------|-----------|
+| x86_64 (amd64) | `ghcr.io/awsl-project/maxx:latest` |
+| ARM64 | `ghcr.io/awsl-project/maxx:arm64` |
+
 <details>
 <summary>Full docker-compose.yml example</summary>
 
 ```yaml
 services:
   maxx:
-    image: ghcr.io/awsl-project/maxx:latest
+    image: ghcr.io/awsl-project/maxx:latest  # Use :arm64 for ARM64 systems
     container_name: maxx
     restart: unless-stopped
     ports:

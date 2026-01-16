@@ -41,7 +41,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Build and push Docker images
+      - name: Build and push Docker image (amd64)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -50,7 +50,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:latest
-      - name: Build and push Docker images
+      - name: Build and push Docker image (arm64)
         uses: docker/build-push-action@v5
         with:
           context: .
