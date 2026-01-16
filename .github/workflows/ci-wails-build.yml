@@ -253,6 +253,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: '{macos,windows,linux}-*'
+          merge-multiple: false
 
       - name: Display structure
         run: ls -R artifacts
@@ -368,3 +370,51 @@ jobs:
             所有平台均提供 SHA256 校验文件（`.sha256`），下载后可验证完整性。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew Cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${{ inputs.tag || github.ref_name }}"
+          VERSION_NUM="${VERSION#v}"
+
+          # Get SHA256 from release assets
+          ARM64_SHA=$(cat release-assets/maxx-macOS-arm64.dmg.sha256)
+          AMD64_SHA=$(cat release-assets/maxx-macOS-amd64.dmg.sha256)
+
+          # Generate new cask content
+          cat > maxx.rb << 'CASK_EOF'
+          cask "maxx" do
+            version "VERSION_PLACEHOLDER"
+
+            name "maxx"
+            desc "maxx"
+            if Hardware::CPU.intel?
+              url "https://github.com/awsl-project/maxx/releases/download/v#{version}/maxx-macOS-amd64.dmg"
+              sha256 "AMD64_SHA_PLACEHOLDER"
+            else
+              url "https://github.com/awsl-project/maxx/releases/download/v#{version}/maxx-macOS-arm64.dmg"
+              sha256 "ARM64_SHA_PLACEHOLDER"
+            end
+
+            homepage "https://github.com/awsl-project/maxx"
+
+            app "maxx.app"
+          end
+          CASK_EOF
+
+          # Replace placeholders
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION_NUM}/g" maxx.rb
+          sed -i "s/AMD64_SHA_PLACEHOLDER/${AMD64_SHA}/g" maxx.rb
+          sed -i "s/ARM64_SHA_PLACEHOLDER/${ARM64_SHA}/g" maxx.rb
+
+          # Clone homebrew tap and update
+          git clone https://x-access-token:${GH_TOKEN}@github.com/awsl-project/homebrew-awsl.git
+          cp maxx.rb homebrew-awsl/Casks/maxx.rb
+
+          cd homebrew-awsl
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/maxx.rb
+          git commit -m "Update maxx to ${VERSION}" || echo "No changes to commit"
+          git push
