@@ -48,6 +48,8 @@ services:
       - "9880:9880"
     volumes:
       - maxx-data:/data
+    environment:
+      - MAXX_ADMIN_PASSWORD=your-password  # Optional: Enable admin authentication
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9880/health"]
       interval: 30s
@@ -80,6 +82,9 @@ Download pre-built desktop applications from [GitHub Releases](https://github.co
 ```bash
 # Run server mode
 go run cmd/maxx/main.go
+
+# Run with admin authentication enabled
+MAXX_ADMIN_PASSWORD=your-password go run cmd/maxx/main.go
 
 # Or run desktop mode with Wails
 go install github.com/wailsapp/wails/v2/cmd/wails@latest

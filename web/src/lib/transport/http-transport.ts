@@ -35,6 +35,8 @@ import type {
   Cooldown,
   KiroTokenValidationResult,
   KiroQuotaData,
+  AuthStatus,
+  AuthVerifyResult,
 } from './types';
 
 export class HttpTransport implements Transport {
@@ -45,6 +47,7 @@ export class HttpTransport implements Transport {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectPromise: Promise<void> | null = null;
+  private authToken: string | null = null;
 
   constructor(config: TransportConfig = {}) {
     this.config = {
@@ -59,6 +62,14 @@ export class HttpTransport implements Transport {
       headers: {
         'Content-Type': 'application/json',
       },
+    });
+
+    // Add request interceptor to include auth header
+    this.client.interceptors.request.use((config) => {
+      if (this.authToken) {
+        config.headers['Authorization'] = `Bearer ${this.authToken}`;
+      }
+      return config;
     });
   }
 
@@ -381,6 +392,29 @@ export class HttpTransport implements Transport {
 
   async clearCooldown(providerId: number): Promise<void> {
     await this.client.delete(`/cooldowns/${providerId}`);
+  }
+
+  // ===== Auth API =====
+
+  async getAuthStatus(): Promise<AuthStatus> {
+    const { data } = await axios.get<AuthStatus>('/api/admin/auth/status');
+    return data;
+  }
+
+  async verifyPassword(password: string): Promise<AuthVerifyResult> {
+    const { data } = await axios.post<AuthVerifyResult>(
+      '/api/admin/auth/verify',
+      { password }
+    );
+    return data;
+  }
+
+  setAuthToken(token: string): void {
+    this.authToken = token;
+  }
+
+  clearAuthToken(): void {
+    this.authToken = null;
   }
 
   // ===== WebSocket 订阅 =====

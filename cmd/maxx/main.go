@@ -201,9 +201,18 @@ func main() {
 		}, nil
 	})
 
+	// Create auth middleware
+	authMiddleware := handler.NewAuthMiddleware()
+	if authMiddleware.IsEnabled() {
+		log.Println("Admin API authentication is enabled")
+	} else {
+		log.Println("Admin API authentication is disabled (set MAXX_ADMIN_PASSWORD to enable)")
+	}
+
 	// Create handlers
 	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, cachedSessionRepo)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
+	authHandler := handler.NewAuthHandler(authMiddleware)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
 	kiroHandler := handler.NewKiroHandler(adminService)
 
@@ -213,8 +222,13 @@ func main() {
 	// Setup routes
 	mux := http.NewServeMux()
 
-	// API routes under /api prefix
-	mux.Handle("/api/admin/", http.StripPrefix("/api", adminHandler))
+	// Admin auth endpoint (no authentication required for this endpoint)
+	mux.Handle("/api/admin/auth/", http.StripPrefix("/api", authHandler))
+
+	// Admin API routes with authentication middleware
+	mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
+
+	// Other API routes (no authentication required)
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", antigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", kiroHandler))
 

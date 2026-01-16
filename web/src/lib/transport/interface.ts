@@ -32,6 +32,8 @@ import type {
   Cooldown,
   KiroTokenValidationResult,
   KiroQuotaData,
+  AuthStatus,
+  AuthVerifyResult,
 } from './types';
 
 /**
@@ -119,6 +121,12 @@ export interface Transport {
   // ===== Cooldown API =====
   getCooldowns(): Promise<Cooldown[]>;
   clearCooldown(providerId: number): Promise<void>;
+
+  // ===== Auth API =====
+  getAuthStatus(): Promise<AuthStatus>;
+  verifyPassword(password: string): Promise<AuthVerifyResult>;
+  setAuthToken(token: string): void;
+  clearAuthToken(): void;
 
   // ===== 实时订阅 =====
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn;
