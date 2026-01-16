@@ -3,6 +3,7 @@ module github.com/awsl-project/maxx
 go 1.25.5
 
 require (
+	github.com/bytedance/sonic v1.14.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-sqlite3 v1.14.33
@@ -12,7 +13,6 @@ require (
 require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
-	github.com/bytedance/sonic v1.14.2 // indirect
 	github.com/bytedance/sonic/loader v0.4.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect

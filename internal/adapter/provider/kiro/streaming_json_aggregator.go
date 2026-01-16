@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"encoding/json"
 	"strings"
 	"sync"
 )
@@ -54,7 +53,7 @@ func (a *StreamingJSONAggregator) ProcessToolData(toolUseID, name, input string,
 		fullInput = "{}"
 	} else {
 		var test map[string]any
-		if err := json.Unmarshal([]byte(fullInput), &test); err != nil {
+		if err := FastUnmarshal([]byte(fullInput), &test); err != nil {
 			fullInput = "{}"
 		}
 	}

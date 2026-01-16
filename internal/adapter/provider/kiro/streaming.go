@@ -2,7 +2,6 @@ package kiro
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -297,7 +296,7 @@ func (ctx *streamProcessorContext) sendFinalEvents() error {
 // formatSSE formats a single SSE event.
 func formatSSE(event map[string]any) string {
 	eventType, _ := event["type"].(string)
-	data, _ := json.Marshal(event)
+	data, _ := FastMarshal(event)
 	return fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, string(data))
 }
 

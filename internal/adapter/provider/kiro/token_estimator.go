@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"encoding/json"
 	"math"
 	"strings"
 
@@ -76,7 +75,7 @@ func (e *TokenEstimator) EstimateInputTokens(req *converter.ClaudeRequest) int {
 
 			// 工具 schema（JSON Schema）
 			if tool.InputSchema != nil {
-				if jsonBytes, err := json.Marshal(tool.InputSchema); err == nil {
+				if jsonBytes, err := FastMarshal(tool.InputSchema); err == nil {
 					// Schema 编码密度：根据工具数量自适应
 					var schemaCharsPerToken float64
 					if toolCount == 1 {
@@ -276,7 +275,7 @@ func (e *TokenEstimator) estimateContentBlock(block any) int {
 
 	default:
 		// 未知类型：JSON 长度估算
-		if jsonBytes, err := json.Marshal(block); err == nil {
+		if jsonBytes, err := FastMarshal(block); err == nil {
 			return len(jsonBytes) / 4
 		}
 		return 10
@@ -308,7 +307,7 @@ func (e *TokenEstimator) EstimateToolUseTokens(toolName string, toolInput map[st
 	// 4. 参数内容（JSON 序列化）
 	// 匹配 kiro2api: 使用标准的 4 字符/token 比率
 	if len(toolInput) > 0 {
-		if jsonBytes, err := json.Marshal(toolInput); err == nil {
+		if jsonBytes, err := FastMarshal(toolInput); err == nil {
 			inputTokens := len(jsonBytes) / 4
 			totalTokens += inputTokens
 		}

@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"encoding/json"
 	"sync"
 )
 
@@ -58,13 +57,13 @@ func ParseModelMappingRules(jsonStr string) ([]ModelMappingRule, error) {
 
 	// Try new array format first
 	var rules []ModelMappingRule
-	if err := json.Unmarshal([]byte(jsonStr), &rules); err == nil {
+	if err := FastUnmarshal([]byte(jsonStr), &rules); err == nil {
 		return rules, nil
 	}
 
 	// Fall back to legacy map format: {"pattern": "target", ...}
 	var legacyMap map[string]string
-	if err := json.Unmarshal([]byte(jsonStr), &legacyMap); err != nil {
+	if err := FastUnmarshal([]byte(jsonStr), &legacyMap); err != nil {
 		return nil, err
 	}
 

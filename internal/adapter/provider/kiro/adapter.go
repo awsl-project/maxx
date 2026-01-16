@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -237,7 +236,7 @@ func (a *KiroAdapter) refreshToken(ctx context.Context, config *domain.ProviderC
 // refreshSocialToken refreshes token using Social authentication
 // 匹配 kiro2api/auth/refresh.go:27-69
 func (a *KiroAdapter) refreshSocialToken(ctx context.Context, refreshToken string) (*RefreshResponse, error) {
-	reqBody, err := json.Marshal(RefreshRequest{RefreshToken: refreshToken})
+	reqBody, err := FastMarshal(RefreshRequest{RefreshToken: refreshToken})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -261,7 +260,11 @@ func (a *KiroAdapter) refreshSocialToken(ctx context.Context, refreshToken strin
 	}
 
 	var result RefreshResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if err := FastUnmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -271,7 +274,7 @@ func (a *KiroAdapter) refreshSocialToken(ctx context.Context, refreshToken strin
 // refreshIdCToken refreshes token using IdC (Identity Center) authentication
 // 匹配 kiro2api/auth/refresh.go:72-131
 func (a *KiroAdapter) refreshIdCToken(ctx context.Context, config *domain.ProviderConfigKiro) (*RefreshResponse, error) {
-	reqBody, err := json.Marshal(IdcRefreshRequest{
+	reqBody, err := FastMarshal(IdcRefreshRequest{
 		ClientId:     config.ClientID,
 		ClientSecret: config.ClientSecret,
 		GrantType:    "refresh_token",
@@ -311,7 +314,11 @@ func (a *KiroAdapter) refreshIdCToken(ctx context.Context, config *domain.Provid
 	}
 
 	var result RefreshResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read IdC response: %w", err)
+	}
+	if err := FastUnmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode IdC response: %w", err)
 	}
 
@@ -483,7 +490,7 @@ func (a *KiroAdapter) handleCollectedStreamResponse(ctx context.Context, w http.
 		},
 	}
 
-	responseBody, err := json.Marshal(anthropicResp)
+	responseBody, err := FastMarshal(anthropicResp)
 	if err != nil {
 		return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to encode response")
 	}
@@ -511,7 +518,7 @@ func collectClaudeSSEToJSON(sseContent string) ([]byte, error) {
 		}
 
 		var event map[string]interface{}
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
+		if err := FastUnmarshal([]byte(data), &event); err != nil {
 			continue
 		}
 
@@ -571,7 +578,7 @@ func collectClaudeSSEToJSON(sseContent string) ([]byte, error) {
 		if content[i]["type"] == "tool_use" {
 			if inputStr, ok := content[i]["input"].(string); ok {
 				var inputObj map[string]interface{}
-				if err := json.Unmarshal([]byte(inputStr), &inputObj); err == nil {
+				if err := FastUnmarshal([]byte(inputStr), &inputObj); err == nil {
 					content[i]["input"] = inputObj
 				}
 			}
@@ -592,7 +599,7 @@ func collectClaudeSSEToJSON(sseContent string) ([]byte, error) {
 		},
 	}
 
-	return json.Marshal(response)
+	return FastMarshal(response)
 }
 
 // flattenHeaders converts http.Header to map[string]string
@@ -609,7 +616,7 @@ func flattenHeaders(h http.Header) map[string]string {
 // calculateInputTokens 计算请求的 input token 数量
 func calculateInputTokens(requestBody []byte) int {
 	var claudeReq converter.ClaudeRequest
-	if err := json.Unmarshal(requestBody, &claudeReq); err != nil {
+	if err := FastUnmarshal(requestBody, &claudeReq); err != nil {
 		return 0
 	}
 

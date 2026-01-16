@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,7 +12,7 @@ import (
 // req 参数用于生成稳定的会话ID (匹配 kiro2api)
 func ConvertClaudeToCodeWhisperer(requestBody []byte, modelMapping map[string]string, req *http.Request) ([]byte, string, error) {
 	var claudeReq converter.ClaudeRequest
-	if err := json.Unmarshal(requestBody, &claudeReq); err != nil {
+	if err := FastUnmarshal(requestBody, &claudeReq); err != nil {
 		return nil, "", fmt.Errorf("解析 Claude 请求失败: %w", err)
 	}
 
@@ -82,7 +81,7 @@ func ConvertClaudeToCodeWhisperer(requestBody []byte, modelMapping map[string]st
 	}
 
 	// 序列化请求
-	result, err := json.Marshal(cwReq)
+	result, err := FastMarshal(cwReq)
 	if err != nil {
 		return nil, "", fmt.Errorf("序列化 CodeWhisperer 请求失败: %w", err)
 	}

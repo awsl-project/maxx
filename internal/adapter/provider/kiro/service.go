@@ -3,7 +3,6 @@ package kiro
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -122,7 +121,7 @@ func ValidateSocialToken(ctx context.Context, refreshToken string) (*KiroTokenVa
 
 // refreshSocialToken 刷新 Social token
 func refreshSocialToken(ctx context.Context, refreshToken string) (*SocialRefreshResponse, error) {
-	reqBody, err := json.Marshal(RefreshRequest{RefreshToken: refreshToken})
+	reqBody, err := FastMarshal(RefreshRequest{RefreshToken: refreshToken})
 	if err != nil {
 		return nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
@@ -150,7 +149,7 @@ func refreshSocialToken(ctx context.Context, refreshToken string) (*SocialRefres
 	}
 
 	var result SocialRefreshResponse
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := FastUnmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 
@@ -189,7 +188,7 @@ func getUsageLimits(ctx context.Context, accessToken, profileArn string) (*Usage
 	if resp.StatusCode != http.StatusOK {
 		// 解析错误响应，检测封禁
 		var errResp map[string]interface{}
-		if err := json.Unmarshal(body, &errResp); err == nil {
+		if err := FastUnmarshal(body, &errResp); err == nil {
 			if reason, ok := errResp["reason"].(string); ok {
 				return nil, fmt.Errorf("BANNED:%s", reason)
 			}
@@ -198,7 +197,7 @@ func getUsageLimits(ctx context.Context, accessToken, profileArn string) (*Usage
 	}
 
 	var result UsageLimitsResponse
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := FastUnmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 

@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -14,7 +13,7 @@ func convertInputToString(input any) string {
 	if str, ok := input.(string); ok {
 		return str
 	}
-	if jsonBytes, err := json.Marshal(input); err == nil {
+	if jsonBytes, err := FastMarshal(input); err == nil {
 		return string(jsonBytes)
 	}
 	return "{}"
@@ -150,7 +149,7 @@ func (h *ToolCallRequestHandler) Handle(message *EventStreamMessage) ([]SSEEvent
 		},
 	}
 	if len(input) > 0 {
-		if argsJSON, err := json.Marshal(input); err == nil {
+		if argsJSON, err := FastMarshal(input); err == nil {
 			toolCall.Function.Arguments = string(argsJSON)
 		}
 	}
@@ -400,7 +399,7 @@ func (h *LegacyToolUseEventHandler) handleToolCallEvent(message *EventStreamMess
 		if complete {
 			if fullInput != "" && fullInput != "{}" {
 				var testArgs map[string]any
-				if err := json.Unmarshal([]byte(fullInput), &testArgs); err == nil {
+				if err := FastUnmarshal([]byte(fullInput), &testArgs); err == nil {
 					h.toolManager.UpdateToolArguments(evt.ToolUseId, testArgs)
 				}
 			}

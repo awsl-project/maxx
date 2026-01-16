@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"encoding/json"
 	"time"
 )
 
@@ -45,7 +44,7 @@ func (tlm *ToolLifecycleManager) HandleToolCallRequest(request ToolCallRequest) 
 	for _, toolCall := range request.ToolCalls {
 		if existing, exists := tlm.activeTools[toolCall.ID]; exists {
 			var arguments map[string]any
-			_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
+			_ = FastUnmarshal([]byte(toolCall.Function.Arguments), &arguments)
 			if len(arguments) > 0 {
 				existing.Arguments = arguments
 			}
@@ -53,7 +52,7 @@ func (tlm *ToolLifecycleManager) HandleToolCallRequest(request ToolCallRequest) 
 		}
 
 		var arguments map[string]any
-		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); err != nil {
+		if err := FastUnmarshal([]byte(toolCall.Function.Arguments), &arguments); err != nil {
 			arguments = make(map[string]any)
 		}
 
@@ -83,7 +82,7 @@ func (tlm *ToolLifecycleManager) HandleToolCallRequest(request ToolCallRequest) 
 		})
 
 		if len(arguments) > 0 {
-			argsJSON, _ := json.Marshal(arguments)
+			argsJSON, _ := FastMarshal(arguments)
 			events = append(events, SSEEvent{
 				Event: "content_block_delta",
 				Data: map[string]any{
@@ -252,7 +251,7 @@ func (tlm *ToolLifecycleManager) UpdateToolArguments(toolID string, arguments ma
 // UpdateToolArgumentsFromJSON updates tool arguments from JSON string.
 func (tlm *ToolLifecycleManager) UpdateToolArgumentsFromJSON(toolID string, jsonArgs string) {
 	var arguments map[string]any
-	if err := json.Unmarshal([]byte(jsonArgs), &arguments); err != nil {
+	if err := FastUnmarshal([]byte(jsonArgs), &arguments); err != nil {
 		return
 	}
 	tlm.UpdateToolArguments(toolID, arguments)

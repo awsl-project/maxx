@@ -2,7 +2,6 @@ package kiro
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,7 +65,7 @@ func (a *KiroAdapter) CheckUsageLimits(ctx context.Context) (*UsageLimits, error
 
 	// 解析响应
 	var usageLimits UsageLimits
-	if err := json.Unmarshal(body, &usageLimits); err != nil {
+	if err := FastUnmarshal(body, &usageLimits); err != nil {
 		return nil, fmt.Errorf("failed to parse usage limits response: %w", err)
 	}
 
