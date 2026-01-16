@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"database/sql"
-	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -75,99 +74,4 @@ func (r *ProxyUpstreamAttemptRepository) ListByProxyRequestID(proxyRequestID uin
 		attempts = append(attempts, &a)
 	}
 	return attempts, rows.Err()
-}
-
-// GetProviderStats returns aggregated statistics per provider, optionally filtered by client type and project ID
-func (r *ProxyUpstreamAttemptRepository) GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
-	var query string
-	var args []interface{}
-
-	// Build WHERE conditions
-	conditions := []string{"a.provider_id > 0"}
-	needJoin := false
-
-	if clientType != "" {
-		conditions = append(conditions, "r.client_type = ?")
-		args = append(args, clientType)
-		needJoin = true
-	}
-	if projectID > 0 {
-		conditions = append(conditions, "r.project_id = ?")
-		args = append(args, projectID)
-		needJoin = true
-	}
-
-	if needJoin {
-		query = `
-			SELECT
-				a.provider_id,
-				COUNT(*) as total_requests,
-				SUM(CASE WHEN a.status = 'COMPLETED' THEN 1 ELSE 0 END) as successful_requests,
-				SUM(CASE WHEN a.status = 'FAILED' OR a.status = 'CANCELLED' THEN 1 ELSE 0 END) as failed_requests,
-				SUM(CASE WHEN a.status = 'IN_PROGRESS' OR a.status = 'PENDING' THEN 1 ELSE 0 END) as active_requests,
-				COALESCE(SUM(a.input_token_count), 0) as total_input_tokens,
-				COALESCE(SUM(a.output_token_count), 0) as total_output_tokens,
-				COALESCE(SUM(a.cache_read_count), 0) as total_cache_read,
-				COALESCE(SUM(a.cache_write_count), 0) as total_cache_write,
-				COALESCE(SUM(a.cost), 0) as total_cost
-			FROM proxy_upstream_attempts a
-			INNER JOIN proxy_requests r ON a.proxy_request_id = r.id
-			WHERE ` + joinConditions(conditions) + `
-			GROUP BY a.provider_id
-		`
-	} else {
-		query = `
-			SELECT
-				provider_id,
-				COUNT(*) as total_requests,
-				SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as successful_requests,
-				SUM(CASE WHEN status = 'FAILED' OR status = 'CANCELLED' THEN 1 ELSE 0 END) as failed_requests,
-				SUM(CASE WHEN status = 'IN_PROGRESS' OR status = 'PENDING' THEN 1 ELSE 0 END) as active_requests,
-				COALESCE(SUM(input_token_count), 0) as total_input_tokens,
-				COALESCE(SUM(output_token_count), 0) as total_output_tokens,
-				COALESCE(SUM(cache_read_count), 0) as total_cache_read,
-				COALESCE(SUM(cache_write_count), 0) as total_cache_write,
-				COALESCE(SUM(cost), 0) as total_cost
-			FROM proxy_upstream_attempts
-			WHERE provider_id > 0
-			GROUP BY provider_id
-		`
-	}
-
-	rows, err := r.db.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	stats := make(map[uint64]*domain.ProviderStats)
-	for rows.Next() {
-		var s domain.ProviderStats
-		err := rows.Scan(
-			&s.ProviderID,
-			&s.TotalRequests,
-			&s.SuccessfulRequests,
-			&s.FailedRequests,
-			&s.ActiveRequests,
-			&s.TotalInputTokens,
-			&s.TotalOutputTokens,
-			&s.TotalCacheRead,
-			&s.TotalCacheWrite,
-			&s.TotalCost,
-		)
-		if err != nil {
-			return nil, err
-		}
-		// Calculate success rate
-		if s.TotalRequests > 0 {
-			s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
-		}
-		stats[s.ProviderID] = &s
-	}
-	return stats, rows.Err()
-}
-
-// joinConditions joins SQL conditions with AND
-func joinConditions(conditions []string) string {
-	return strings.Join(conditions, " AND ")
 }

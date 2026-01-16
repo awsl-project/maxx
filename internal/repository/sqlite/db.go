@@ -34,6 +34,14 @@ func (d *DB) Close() error {
 	return d.db.Close()
 }
 
+func (d *DB) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return d.db.Query(query, args...)
+}
+
+func (d *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return d.db.Exec(query, args...)
+}
+
 func (d *DB) migrate() error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS providers (
@@ -161,6 +169,7 @@ func (d *DB) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id);
 	CREATE INDEX IF NOT EXISTS idx_routes_project_client ON routes(project_id, client_type);
 	CREATE INDEX IF NOT EXISTS idx_proxy_requests_session ON proxy_requests(session_id);
+	CREATE INDEX IF NOT EXISTS idx_proxy_requests_created_at ON proxy_requests(created_at);
 
 	CREATE TABLE IF NOT EXISTS cooldowns (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,6 +247,31 @@ func (d *DB) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_model_mappings_provider_id ON model_mappings(provider_id);
 	CREATE INDEX IF NOT EXISTS idx_model_mappings_project_id ON model_mappings(project_id);
 	CREATE INDEX IF NOT EXISTS idx_model_mappings_priority ON model_mappings(priority);
+
+	CREATE TABLE IF NOT EXISTS usage_stats (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		hour DATETIME NOT NULL,
+		route_id INTEGER DEFAULT 0,
+		provider_id INTEGER DEFAULT 0,
+		project_id INTEGER DEFAULT 0,
+		api_token_id INTEGER DEFAULT 0,
+		client_type TEXT DEFAULT '',
+		total_requests INTEGER DEFAULT 0,
+		successful_requests INTEGER DEFAULT 0,
+		failed_requests INTEGER DEFAULT 0,
+		input_tokens INTEGER DEFAULT 0,
+		output_tokens INTEGER DEFAULT 0,
+		cache_read INTEGER DEFAULT 0,
+		cache_write INTEGER DEFAULT 0,
+		cost INTEGER DEFAULT 0,
+		UNIQUE(hour, route_id, provider_id, project_id, api_token_id, client_type)
+	);
+	CREATE INDEX IF NOT EXISTS idx_usage_stats_hour ON usage_stats(hour);
+	CREATE INDEX IF NOT EXISTS idx_usage_stats_provider_id ON usage_stats(provider_id);
+	CREATE INDEX IF NOT EXISTS idx_usage_stats_route_id ON usage_stats(route_id);
+	CREATE INDEX IF NOT EXISTS idx_usage_stats_project_id ON usage_stats(project_id);
+	CREATE INDEX IF NOT EXISTS idx_usage_stats_api_token_id ON usage_stats(api_token_id);
 	`
 
 	_, err := d.db.Exec(schema)
@@ -408,6 +442,23 @@ func (d *DB) migrate() error {
 		_, err = d.db.Exec(`ALTER TABLE proxy_requests ADD COLUMN api_token_id INTEGER DEFAULT 0`)
 		if err != nil {
 			return err
+		}
+	}
+
+	// Migration: Add api_token_id column to usage_stats if it doesn't exist
+	var hasUsageStatsAPITokenID bool
+	row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('usage_stats') WHERE name='api_token_id'`)
+	row.Scan(&hasUsageStatsAPITokenID)
+
+	if !hasUsageStatsAPITokenID {
+		// 需要重建表以修改 UNIQUE 约束
+		_, err = d.db.Exec(`
+			ALTER TABLE usage_stats ADD COLUMN api_token_id INTEGER DEFAULT 0;
+			DROP INDEX IF EXISTS sqlite_autoindex_usage_stats_1;
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_stats_unique ON usage_stats(hour, route_id, provider_id, project_id, api_token_id, client_type);
+		`)
+		if err != nil {
+			// 忽略错误，可能是约束已存在
 		}
 	}
 

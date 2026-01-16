@@ -33,6 +33,7 @@ type AdminService struct {
 	settingRepo         repository.SystemSettingRepository
 	apiTokenRepo        repository.APITokenRepository
 	modelMappingRepo    repository.ModelMappingRepository
+	usageStatsRepo      repository.UsageStatsRepository
 	serverAddr          string
 	adapterRefresher    ProviderAdapterRefresher
 }
@@ -50,6 +51,7 @@ func NewAdminService(
 	settingRepo repository.SystemSettingRepository,
 	apiTokenRepo repository.APITokenRepository,
 	modelMappingRepo repository.ModelMappingRepository,
+	usageStatsRepo repository.UsageStatsRepository,
 	serverAddr string,
 	adapterRefresher ProviderAdapterRefresher,
 ) *AdminService {
@@ -65,6 +67,7 @@ func NewAdminService(
 		settingRepo:         settingRepo,
 		apiTokenRepo:        apiTokenRepo,
 		modelMappingRepo:    modelMappingRepo,
+		usageStatsRepo:      usageStatsRepo,
 		serverAddr:          serverAddr,
 		adapterRefresher:    adapterRefresher,
 	}
@@ -388,7 +391,7 @@ func (s *AdminService) GetProxyUpstreamAttempts(proxyRequestID uint64) ([]*domai
 }
 
 func (s *AdminService) GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
-	return s.attemptRepo.GetProviderStats(clientType, projectID)
+	return s.usageStatsRepo.GetProviderStats(clientType, projectID)
 }
 
 // ===== Settings API =====
@@ -591,4 +594,11 @@ func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 		domain.ClientTypeOpenAI,
 		domain.ClientTypeGemini,
 	}
+}
+
+// ===== Usage Stats API =====
+
+// GetUsageStats queries usage statistics with optional filters
+func (s *AdminService) GetUsageStats(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+	return s.usageStatsRepo.Query(filter)
 }

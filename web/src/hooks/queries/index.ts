@@ -97,3 +97,6 @@ export {
   useUpdateAPIToken,
   useDeleteAPIToken,
 } from './use-api-tokens';
+
+// Usage Stats hooks
+export { usageStatsKeys, useUsageStats } from './use-usage-stats';

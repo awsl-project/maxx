@@ -487,3 +487,34 @@ export interface CreateAPITokenData {
   projectID?: number;
   expiresAt?: string;
 }
+
+// ===== Usage Stats =====
+
+export interface UsageStats {
+  id: number;
+  createdAt: string;
+  hour: string;
+  routeID: number;
+  providerID: number;
+  projectID: number;
+  apiTokenID: number;
+  clientType: string;
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+}
+
+export interface UsageStatsFilter {
+  start?: string;
+  end?: string;
+  routeId?: number;
+  providerId?: number;
+  projectId?: number;
+  apiTokenID?: number;
+  clientType?: string;
+}

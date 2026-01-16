@@ -39,6 +39,8 @@ import type {
   APITokenCreateResult,
   CreateAPITokenData,
   RoutePositionUpdate,
+  UsageStats,
+  UsageStatsFilter,
 } from './types';
 
 /**
@@ -143,6 +145,9 @@ export interface Transport {
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
   deleteAPIToken(id: number): Promise<void>;
+
+  // ===== Usage Stats API =====
+  getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]>;
 
   // ===== 实时订阅 =====
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn;

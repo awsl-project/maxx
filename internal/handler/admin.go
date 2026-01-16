@@ -9,6 +9,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/service"
 )
 
@@ -77,6 +78,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleAPITokens(w, r, id)
 	case "model-mappings":
 		h.handleModelMappings(w, r, id)
+	case "usage-stats":
+		h.handleUsageStats(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
@@ -1102,6 +1105,62 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+// Usage Stats handlers
+func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse query parameters for filtering
+	query := r.URL.Query()
+	filter := repository.UsageStatsFilter{}
+
+	// Parse time range
+	if startStr := query.Get("start"); startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			filter.StartTime = &t
+		}
+	}
+	if endStr := query.Get("end"); endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			filter.EndTime = &t
+		}
+	}
+
+	// Parse IDs
+	if routeIDStr := query.Get("routeId"); routeIDStr != "" {
+		if id, err := strconv.ParseUint(routeIDStr, 10, 64); err == nil {
+			filter.RouteID = &id
+		}
+	}
+	if providerIDStr := query.Get("providerId"); providerIDStr != "" {
+		if id, err := strconv.ParseUint(providerIDStr, 10, 64); err == nil {
+			filter.ProviderID = &id
+		}
+	}
+	if projectIDStr := query.Get("projectId"); projectIDStr != "" {
+		if id, err := strconv.ParseUint(projectIDStr, 10, 64); err == nil {
+			filter.ProjectID = &id
+		}
+	}
+	if clientType := query.Get("clientType"); clientType != "" {
+		filter.ClientType = &clientType
+	}
+	if apiTokenIDStr := query.Get("apiTokenId"); apiTokenIDStr != "" {
+		if id, err := strconv.ParseUint(apiTokenIDStr, 10, 64); err == nil {
+			filter.APITokenID = &id
+		}
+	}
+
+	stats, err := h.svc.GetUsageStats(filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

@@ -13,6 +13,7 @@ import (
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom" // Register custom adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"   // Register kiro adapter
 	"github.com/awsl-project/maxx/internal/cooldown"
+	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository/cached"
@@ -92,6 +93,7 @@ func main() {
 	failureCountRepo := sqlite.NewFailureCountRepository(db)
 	apiTokenRepo := sqlite.NewAPITokenRepository(db)
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
+	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
@@ -163,6 +165,13 @@ func main() {
 	}()
 	log.Println("[Cooldown] Background cleanup started (runs every 1 hour)")
 
+	// Start background tasks
+	core.StartBackgroundTasks(core.BackgroundTaskDeps{
+		UsageStats:   usageStatsRepo,
+		ProxyRequest: proxyRequestRepo,
+		Settings:     settingRepo,
+	})
+
 	// Create WebSocket hub
 	wsHub := handler.NewWebSocketHub()
 
@@ -192,6 +201,7 @@ func main() {
 		settingRepo,
 		cachedAPITokenRepo,
 		cachedModelMappingRepo,
+		usageStatsRepo,
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
 	)

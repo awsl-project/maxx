@@ -16,6 +16,7 @@ import { ConsolePage } from '@/pages/console';
 import { SettingsPage } from '@/pages/settings';
 import { LoginPage } from '@/pages/login';
 import { APITokensPage } from '@/pages/api-tokens';
+import { StatsPage } from '@/pages/stats';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 
 function AppRoutes() {
@@ -51,6 +52,7 @@ function AppRoutes() {
           <Route path="api-tokens" element={<APITokensPage />} />
           <Route path="retry-configs" element={<RetryConfigsPage />} />
           <Route path="routing-strategies" element={<RoutingStrategiesPage />} />
+          <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
