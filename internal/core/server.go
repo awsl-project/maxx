@@ -50,8 +50,10 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 
 	components := s.config.Components
 
-	mux.Handle("/admin/", components.AdminHandler)
-	mux.Handle("/antigravity/", components.AntigravityHandler)
+	// API routes under /api prefix (Go 1.22+ enhanced routing)
+	mux.Handle("/api/admin/", http.StripPrefix("/api", components.AdminHandler))
+	mux.Handle("/api/antigravity/", http.StripPrefix("/api", components.AntigravityHandler))
+	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))
 
 	mux.Handle("/v1/messages", components.ProxyHandler)
 	mux.Handle("/v1/chat/completions", components.ProxyHandler)

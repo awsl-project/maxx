@@ -38,11 +38,7 @@ export default defineConfig({
 	server: {
 		port: 3000,
 		proxy: {
-			"/admin": {
-				target: "http://localhost:9880",
-				changeOrigin: true,
-			},
-			"/antigravity": {
+			"/api": {
 				target: "http://localhost:9880",
 				changeOrigin: true,
 			},

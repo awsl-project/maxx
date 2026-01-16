@@ -72,6 +72,7 @@
     --provider-mistral: oklch(0.6890 0.1789 34.5678); /* #F97316 橙红 */
     --provider-custom: oklch(0.5789 0.0234 95.6789); /* #8C8C8C 灰色 */
     --provider-antigravity: oklch(0.7123 0.2345 345.6789); /* #EC4899 粉色 */
+    --provider-kiro: oklch(0.6890 0.1456 195.6789); /* #00BCD4 青色 */
 
     /* Client 品牌色 (引用 Provider 颜色) */
     --client-claude: var(--provider-anthropic);
@@ -231,6 +232,7 @@
   --color-provider-mistral: var(--provider-mistral);
   --color-provider-custom: var(--provider-custom);
   --color-provider-antigravity: var(--provider-antigravity);
+  --color-provider-kiro: var(--provider-kiro);
 
   /* Client 颜色映射 (Tailwind 可用) */
   --color-client-claude: var(--client-claude);

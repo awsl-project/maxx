@@ -1,9 +1,74 @@
-import type { ClientType } from '@/lib/transport';
+import type { ClientType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
+import type { LucideIcon } from 'lucide-react';
+import { Wand2, Zap, Server, Mail, Globe } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 
-// Antigravity brand color - 从 CSS 变量获取
-export const ANTIGRAVITY_COLOR = getProviderColorVar('antigravity');
+// ===== Provider Type Configuration =====
+// 通用的 Provider 类型配置，添加新类型只需在这里配置
+
+export type ProviderTypeKey = 'custom' | 'antigravity' | 'kiro';
+
+export interface ProviderTypeConfig {
+  key: ProviderTypeKey;
+  label: string;
+  icon: LucideIcon;
+  color: string;
+  // 是否使用邮箱作为显示信息（账号类型）
+  isAccountBased: boolean;
+  // 获取显示信息的函数
+  getDisplayInfo: (provider: Provider) => string;
+}
+
+// Provider 类型配置表
+export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> = {
+  antigravity: {
+    key: 'antigravity',
+    label: 'Antigravity',
+    icon: Wand2,
+    color: getProviderColorVar('antigravity'),
+    isAccountBased: true,
+    getDisplayInfo: (p) => p.config?.antigravity?.email || 'Unknown',
+  },
+  kiro: {
+    key: 'kiro',
+    label: 'Kiro',
+    icon: Zap,
+    color: getProviderColorVar('kiro'),
+    isAccountBased: true,
+    getDisplayInfo: (p) => p.config?.kiro?.email || 'Kiro Account',
+  },
+  custom: {
+    key: 'custom',
+    label: 'Custom',
+    icon: Server,
+    color: getProviderColorVar('custom'),
+    isAccountBased: false,
+    getDisplayInfo: (p) => {
+      if (p.config?.custom?.baseURL) return p.config.custom.baseURL;
+      for (const ct of p.supportedClientTypes || []) {
+        const url = p.config?.custom?.clientBaseURL?.[ct];
+        if (url) return url;
+      }
+      return 'Not configured';
+    },
+  },
+};
+
+// 获取 Provider 类型配置的辅助函数
+export function getProviderTypeConfig(type: string): ProviderTypeConfig {
+  return PROVIDER_TYPE_CONFIGS[type as ProviderTypeKey] || PROVIDER_TYPE_CONFIGS.custom;
+}
+
+// 获取显示图标（邮箱或 URL）
+export function getDisplayIcon(type: string): LucideIcon {
+  const config = getProviderTypeConfig(type);
+  return config.isAccountBased ? Mail : Globe;
+}
+
+// 保留旧的导出以保持兼容性
+export const ANTIGRAVITY_COLOR = PROVIDER_TYPE_CONFIGS.antigravity.color;
+export const KIRO_COLOR = PROVIDER_TYPE_CONFIGS.kiro.color;
 
 // Quick templates for Custom provider
 export type QuickTemplate = {
@@ -72,7 +137,7 @@ export const defaultClients: ClientConfig[] = [
 
 // Form data types
 export type ProviderFormData = {
-  type: 'custom' | 'antigravity';
+  type: 'custom' | 'antigravity' | 'kiro';
   name: string;
   selectedTemplate: string | null;
   baseURL: string;
@@ -81,4 +146,4 @@ export type ProviderFormData = {
 };
 
 // Create step type
-export type CreateStep = 'select-type' | 'custom-config' | 'antigravity-import';
+export type CreateStep = 'select-type' | 'custom-config' | 'antigravity-import' | 'kiro-import';

@@ -12,6 +12,7 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/client"
 	"github.com/awsl-project/maxx/internal/adapter/provider/antigravity"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom" // Register custom adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"   // Register kiro adapter
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
@@ -204,6 +205,7 @@ func main() {
 	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, cachedSessionRepo)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
+	kiroHandler := handler.NewKiroHandler(adminService)
 
 	// Use already-created cached project repository for project proxy handler
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, cachedProjectRepo)
@@ -211,11 +213,10 @@ func main() {
 	// Setup routes
 	mux := http.NewServeMux()
 
-	// Admin API routes
-	mux.Handle("/admin/", adminHandler)
-
-	// Antigravity API routes
-	mux.Handle("/antigravity/", antigravityHandler)
+	// API routes under /api prefix
+	mux.Handle("/api/admin/", http.StripPrefix("/api", adminHandler))
+	mux.Handle("/api/antigravity/", http.StripPrefix("/api", antigravityHandler))
+	mux.Handle("/api/kiro/", http.StripPrefix("/api", kiroHandler))
 
 	// Proxy routes - catch all AI API endpoints
 	// Claude API
@@ -250,7 +251,7 @@ func main() {
 	log.Printf("Data directory: %s", dataDirPath)
 	log.Printf("  Database: %s", dbPath)
 	log.Printf("  Log file: %s", logPath)
-	log.Printf("Admin API: http://localhost%s/admin/", *addr)
+	log.Printf("Admin API: http://localhost%s/api/admin/", *addr)
 	log.Printf("WebSocket: ws://localhost%s/ws", *addr)
 	log.Printf("Proxy endpoints:")
 	log.Printf("  Claude: http://localhost%s/v1/messages", *addr)

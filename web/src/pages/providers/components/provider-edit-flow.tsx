@@ -13,6 +13,7 @@ import type { Provider, ClientType, CreateProviderData } from '@/lib/transport'
 import { defaultClients, type ClientConfig } from '../types'
 import { ClientsConfigSection } from './clients-config-section'
 import { AntigravityProviderView } from './antigravity-provider-view'
+import { KiroProviderView } from './kiro-provider-view'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ModelMappingEditor } from './model-mapping-editor'
@@ -143,6 +144,26 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     return (
       <>
         <AntigravityProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    )
+  }
+
+  // Kiro provider
+  if (provider.type === 'kiro') {
+    return (
+      <>
+        <KiroProviderView
           provider={provider}
           onDelete={() => setShowDeleteConfirm(true)}
           onClose={onClose}

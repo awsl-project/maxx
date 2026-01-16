@@ -7,6 +7,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
 	"github.com/awsl-project/maxx/internal/adapter/provider/antigravity"
+	"github.com/awsl-project/maxx/internal/adapter/provider/kiro"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -62,6 +63,7 @@ type ServerComponents struct {
 	ProxyHandler        *handler.ProxyHandler
 	AdminHandler        *handler.AdminHandler
 	AntigravityHandler  *handler.AntigravityHandler
+	KiroHandler         *handler.KiroHandler
 	ProjectProxyHandler *handler.ProjectProxyHandler
 }
 
@@ -249,10 +251,25 @@ func InitializeServerComponents(
 		}, nil
 	})
 
+	log.Printf("[Core] Initializing Kiro global settings getter")
+	kiro.SetGlobalSettingsGetter(func() (*kiro.GlobalSettings, error) {
+		// Read model mapping rules from database
+		rulesJSON, _ := repos.SettingRepo.Get(domain.SettingKeyKiroModelMapping)
+		rules, err := kiro.ParseModelMappingRules(rulesJSON)
+		if err != nil {
+			return nil, err
+		}
+
+		return &kiro.GlobalSettings{
+			ModelMappingRules: rules,
+		}, nil
+	})
+
 	log.Printf("[Core] Creating handlers")
 	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
+	kiroHandler := handler.NewKiroHandler(adminService)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, repos.CachedProjectRepo)
 
 	components := &ServerComponents{
@@ -265,6 +282,7 @@ func InitializeServerComponents(
 		ProxyHandler:        proxyHandler,
 		AdminHandler:        adminHandler,
 		AntigravityHandler:  antigravityHandler,
+		KiroHandler:         kiroHandler,
 		ProjectProxyHandler: projectProxyHandler,
 	}
 

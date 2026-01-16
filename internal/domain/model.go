@@ -47,9 +47,29 @@ type ProviderConfigAntigravity struct {
 	HaikuTarget string `json:"haikuTarget,omitempty"`
 }
 
+type ProviderConfigKiro struct {
+	// 认证方式: "social" 或 "idc"
+	AuthMethod string `json:"authMethod"`
+
+	// 通用字段
+	RefreshToken string `json:"refreshToken"`
+	Region       string `json:"region,omitempty"` // 默认 us-east-1
+
+	// IdC 认证特有字段
+	ClientID     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"`
+
+	// 可选: 用于标识账号
+	Email string `json:"email,omitempty"`
+
+	// Model 映射: RequestModel → MappedModel
+	ModelMapping map[string]string `json:"modelMapping,omitempty"`
+}
+
 type ProviderConfig struct {
 	Custom      *ProviderConfigCustom      `json:"custom,omitempty"`
 	Antigravity *ProviderConfigAntigravity `json:"antigravity,omitempty"`
+	Kiro        *ProviderConfigKiro        `json:"kiro,omitempty"`
 }
 
 // Provider 供应商
@@ -321,6 +341,7 @@ type SystemSetting struct {
 const (
 	SettingKeyProxyPort               = "proxy_port"                 // 代理服务器端口，默认 9880
 	SettingKeyAntigravityModelMapping = "antigravity_model_mapping"  // Antigravity 全局模型映射 (JSON)
+	SettingKeyKiroModelMapping        = "kiro_model_mapping"         // Kiro 全局模型映射 (JSON)
 )
 
 // Antigravity 模型配额

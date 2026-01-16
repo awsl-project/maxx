@@ -16,7 +16,8 @@ export type ProviderType =
   | 'cohere'
   | 'mistral'
   | 'custom'
-  | 'antigravity';
+  | 'antigravity'
+  | 'kiro';
 
 /**
  * Client 类型定义

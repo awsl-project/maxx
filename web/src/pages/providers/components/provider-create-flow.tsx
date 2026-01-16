@@ -12,6 +12,7 @@ import {
 import { ClientsConfigSection } from './clients-config-section'
 import { SelectTypeStep } from './select-type-step'
 import { AntigravityTokenImport } from './antigravity-token-import'
+import { KiroTokenImport } from './kiro-token-import'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -36,10 +37,12 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
     clients: [...defaultClients],
   })
 
-  const selectType = (type: 'custom' | 'antigravity') => {
+  const selectType = (type: 'custom' | 'antigravity' | 'kiro') => {
     setFormData(prev => ({ ...prev, type }))
     if (type === 'antigravity') {
       setStep('antigravity-import')
+    } else if (type === 'kiro') {
+      setStep('kiro-import')
     }
   }
 
@@ -128,7 +131,7 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
   }
 
   const handleBack = () => {
-    if (step === 'custom-config' || step === 'antigravity-import') {
+    if (step === 'custom-config' || step === 'antigravity-import' || step === 'kiro-import') {
       setStep('select-type')
     } else {
       onClose()
@@ -158,6 +161,19 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
       <AntigravityTokenImport
         onBack={handleBack}
         onCreateProvider={handleCreateAntigravityProvider}
+      />
+    )
+  }
+
+  if (step === 'kiro-import') {
+    const handleCreateKiroProvider = async (data: CreateProviderData) => {
+      await createProvider.mutateAsync(data)
+      onClose()
+    }
+    return (
+      <KiroTokenImport
+        onBack={handleBack}
+        onCreateProvider={handleCreateKiroProvider}
       />
     )
   }

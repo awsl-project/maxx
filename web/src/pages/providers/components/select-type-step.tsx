@@ -6,6 +6,7 @@ import {
   Grid3X3,
   CheckCircle2,
   FilePlus,
+  Cloud,
 } from 'lucide-react'
 import {
   quickTemplates,
@@ -15,7 +16,7 @@ import { Button } from '@/components/ui'
 
 interface SelectTypeStepProps {
   formData: ProviderFormData
-  onSelectType: (type: 'custom' | 'antigravity') => void
+  onSelectType: (type: 'custom' | 'antigravity' | 'kiro') => void
   onApplyTemplate: (templateId: string) => void
   onSkipToConfig: () => void
   onBack: () => void
@@ -51,7 +52,7 @@ export function SelectTypeStep({
             <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
               1. Choose Service Provider
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
               <Button
                 onClick={() => onSelectType('antigravity')}
                 variant="ghost"
@@ -77,6 +78,35 @@ export function SelectTypeStep({
 
                   {formData.type === 'antigravity' && (
                     <CheckCircle2 size={20} className="text-provider-antigravity shrink-0" />
+                  )}
+                </div>
+              </Button>
+
+              <Button
+                onClick={() => onSelectType('kiro')}
+                variant="ghost"
+                className={`group p-0 rounded-lg border text-left transition-all h-auto w-full ${
+                  formData.type === 'kiro'
+                    ? 'border-provider-kiro bg-provider-kiro/10'
+                    : 'border-border bg-card hover:bg-muted'
+                }`}
+              >
+                <div className="p-5 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-md bg-provider-kiro/15 flex items-center justify-center shrink-0">
+                    <Cloud size={24} className="text-provider-kiro" />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-headline font-semibold text-foreground mb-1">
+                      Kiro (Q Developer)
+                    </h3>
+                    <p className="text-caption text-muted-foreground">
+                      AWS CodeWhisperer / Q Developer
+                    </p>
+                  </div>
+
+                  {formData.type === 'kiro' && (
+                    <CheckCircle2 size={20} className="text-provider-kiro shrink-0" />
                   )}
                 </div>
               </Button>

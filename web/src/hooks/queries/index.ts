@@ -13,6 +13,7 @@ export {
   useProviderStats,
   useAllProviderStats,
   useAntigravityQuota,
+  useKiroQuota,
 } from './use-providers';
 
 // Project hooks

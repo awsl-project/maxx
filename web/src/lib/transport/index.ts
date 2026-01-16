@@ -47,6 +47,9 @@ export type {
   AntigravityBatchValidationResult,
   AntigravityOAuthResult,
   AntigravityGlobalSettings,
+  // Kiro
+  KiroTokenValidationResult,
+  KiroQuotaData,
   // Import
   ImportResult,
   // Cooldown

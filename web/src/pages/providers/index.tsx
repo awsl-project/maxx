@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react'
-import { Plus, Layers, Wand2, Server, Download, Upload } from 'lucide-react'
+import { Plus, Layers, Download, Upload } from 'lucide-react'
 import { useProviders, useAllProviderStats } from '@/hooks/queries'
 import { useStreamingRequests } from '@/hooks/use-streaming'
 import type { Provider, ImportResult } from '@/lib/transport'
@@ -10,6 +10,7 @@ import { ProviderEditFlow } from './components/provider-edit-flow'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/page-header'
+import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types'
 
 export function ProvidersPage() {
   const { data: providers, isLoading } = useProviders()
@@ -22,18 +23,24 @@ export function ProvidersPage() {
   const queryClient = useQueryClient()
 
   const groupedProviders = useMemo(() => {
-    const antigravity: Provider[] = []
-    const custom: Provider[] = []
+    // 按类型分组，使用配置系统中定义的类型
+    const groups: Record<ProviderTypeKey, Provider[]> = {
+      antigravity: [],
+      kiro: [],
+      custom: [],
+    }
 
     providers?.forEach(p => {
-      if (p.type === 'antigravity') {
-        antigravity.push(p)
+      const type = p.type as ProviderTypeKey
+      if (groups[type]) {
+        groups[type].push(p)
       } else {
-        custom.push(p)
+        // 未知类型归入 custom
+        groups.custom.push(p)
       }
     })
 
-    return { antigravity, custom }
+    return groups
   }, [providers])
 
   // Export providers as JSON file
@@ -166,53 +173,37 @@ export function ProvidersPage() {
             </div>
           ) : (
             <div className="space-y-8">
-              {/* Antigravity Section */}
-              {groupedProviders.antigravity.length > 0 && (
-                <section className="space-y-3">
-                  <div className="flex items-center gap-2 px-1">
-                    <Wand2 size={16} className="text-purple-400" />
-                    <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-                      Antigravity Cloud
-                    </h3>
-                    <div className="h-px flex-1 bg-border/50 ml-2" />
-                  </div>
-                  <div className="space-y-3">
-                    {groupedProviders.antigravity.map(provider => (
-                      <ProviderRow
-                        key={provider.id}
-                        provider={provider}
-                        stats={providerStats[provider.id]}
-                        streamingCount={countsByProvider.get(provider.id) || 0}
-                        onClick={() => setEditingProvider(provider)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
+              {/* 动态渲染各类型分组 */}
+              {(Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[]).map(typeKey => {
+                const typeProviders = groupedProviders[typeKey]
+                if (typeProviders.length === 0) return null
 
-              {/* Custom Section */}
-              {groupedProviders.custom.length > 0 && (
-                <section className="space-y-3">
-                  <div className="flex items-center gap-2 px-1">
-                    <Server size={16} className="text-blue-400" />
-                    <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-                      Custom Providers
-                    </h3>
-                    <div className="h-px flex-1 bg-border/50 ml-2" />
-                  </div>
-                  <div className="space-y-3">
-                    {groupedProviders.custom.map(provider => (
-                      <ProviderRow
-                        key={provider.id}
-                        provider={provider}
-                        stats={providerStats[provider.id]}
-                        streamingCount={countsByProvider.get(provider.id) || 0}
-                        onClick={() => setEditingProvider(provider)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
+                const config = PROVIDER_TYPE_CONFIGS[typeKey]
+                const TypeIcon = config.icon
+
+                return (
+                  <section key={typeKey} className="space-y-3">
+                    <div className="flex items-center gap-2 px-1">
+                      <TypeIcon size={16} style={{ color: config.color }} />
+                      <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+                        {config.label}
+                      </h3>
+                      <div className="h-px flex-1 bg-border/50 ml-2" />
+                    </div>
+                    <div className="space-y-3">
+                      {typeProviders.map(provider => (
+                        <ProviderRow
+                          key={provider.id}
+                          provider={provider}
+                          stats={providerStats[provider.id]}
+                          streamingCount={countsByProvider.get(provider.id) || 0}
+                          onClick={() => setEditingProvider(provider)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )
+              })}
             </div>
           )}
         </div>

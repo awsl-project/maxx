@@ -33,6 +33,8 @@ import type {
   AntigravityGlobalSettings,
   ImportResult,
   Cooldown,
+  KiroTokenValidationResult,
+  KiroQuotaData,
 } from './types';
 
 export class HttpTransport implements Transport {
@@ -46,7 +48,7 @@ export class HttpTransport implements Transport {
 
   constructor(config: TransportConfig = {}) {
     this.config = {
-      baseURL: config.baseURL ?? '/admin',
+      baseURL: config.baseURL ?? '/api/admin',
       wsURL: config.wsURL ?? `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`,
       reconnectInterval: config.reconnectInterval ?? 3000,
       maxReconnectAttempts: config.maxReconnectAttempts ?? 10,
@@ -300,7 +302,7 @@ export class HttpTransport implements Transport {
 
   async validateAntigravityToken(refreshToken: string): Promise<AntigravityTokenValidationResult> {
     const { data } = await axios.post<AntigravityTokenValidationResult>(
-      '/antigravity/validate-token',
+      '/api/antigravity/validate-token',
       { refreshToken }
     );
     return data;
@@ -308,7 +310,7 @@ export class HttpTransport implements Transport {
 
   async validateAntigravityTokens(tokens: string[]): Promise<AntigravityBatchValidationResult> {
     const { data } = await axios.post<AntigravityBatchValidationResult>(
-      '/antigravity/validate-tokens',
+      '/api/antigravity/validate-tokens',
       { tokens }
     );
     return data;
@@ -316,7 +318,7 @@ export class HttpTransport implements Transport {
 
   async validateAntigravityTokenText(tokenText: string): Promise<AntigravityBatchValidationResult> {
     const { data } = await axios.post<AntigravityBatchValidationResult>(
-      '/antigravity/validate-tokens',
+      '/api/antigravity/validate-tokens',
       { tokenText }
     );
     return data;
@@ -325,7 +327,7 @@ export class HttpTransport implements Transport {
   async getAntigravityProviderQuota(providerId: number, forceRefresh?: boolean): Promise<AntigravityQuotaData> {
     const params = forceRefresh ? { refresh: 'true' } : undefined;
     const { data } = await axios.get<AntigravityQuotaData>(
-      `/antigravity/providers/${providerId}/quota`,
+      `/api/antigravity/providers/${providerId}/quota`,
       { params }
     );
     return data;
@@ -333,7 +335,7 @@ export class HttpTransport implements Transport {
 
   async startAntigravityOAuth(): Promise<{ authURL: string; state: string }> {
     const { data } = await axios.post<{ authURL: string; state: string }>(
-      '/antigravity/oauth/start'
+      '/api/antigravity/oauth/start'
     );
     return data;
   }
@@ -350,6 +352,23 @@ export class HttpTransport implements Transport {
 
   async resetAntigravityGlobalSettings(): Promise<AntigravityGlobalSettings> {
     const { data } = await this.client.post<AntigravityGlobalSettings>('/antigravity-settings-reset');
+    return data;
+  }
+
+  // ===== Kiro API =====
+
+  async validateKiroSocialToken(refreshToken: string): Promise<KiroTokenValidationResult> {
+    const { data } = await axios.post<KiroTokenValidationResult>(
+      '/api/kiro/validate-social-token',
+      { refreshToken }
+    );
+    return data;
+  }
+
+  async getKiroProviderQuota(providerId: number): Promise<KiroQuotaData> {
+    const { data } = await axios.get<KiroQuotaData>(
+      `/api/kiro/providers/${providerId}/quota`
+    );
     return data;
   }
 

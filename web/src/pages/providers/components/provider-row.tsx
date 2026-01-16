@@ -1,22 +1,18 @@
 import {
   ChevronRight,
-  Globe,
-  Mail,
-  Server,
-  Wand2,
   Activity,
 } from 'lucide-react'
 import { ClientIcon } from '@/components/icons/client-icons'
 import { StreamingBadge } from '@/components/ui/streaming-badge'
-import { getProviderColorVar, type ProviderType } from '@/lib/theme'
 import type {
   Provider,
   ProviderStats,
   AntigravityQuotaData,
+  KiroQuotaData,
 } from '@/lib/transport'
-import { ANTIGRAVITY_COLOR } from '../types'
+import { getProviderTypeConfig, getDisplayIcon } from '../types'
 import { cn } from '@/lib/utils'
-import { useAntigravityQuota } from '@/hooks/queries'
+import { useAntigravityQuota, useKiroQuota } from '@/hooks/queries'
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -86,32 +82,53 @@ function formatResetTime(resetTime: string): string {
   }
 }
 
+// 格式化 Kiro 重置天数
+function formatKiroResetDays(days: number): string {
+  if (days <= 0) return 'Soon'
+  if (days === 1) return '1d'
+  return `${days}d`
+}
+
+// 获取 Kiro 配额信息
+function getKiroQuotaInfo(
+  quota: KiroQuotaData | undefined
+): { percentage: number; resetDays: number; isBanned: boolean; totalLimit: number; available: number; used: number } | null {
+  if (!quota) return null
+  // 计算百分比: available / total_limit * 100
+  const percentage = quota.total_limit > 0 ? Math.round((quota.available / quota.total_limit) * 100) : 0
+  return {
+    percentage,
+    resetDays: quota.days_until_reset,
+    isBanned: quota.is_banned,
+    totalLimit: quota.total_limit,
+    available: quota.available,
+    used: quota.used,
+  }
+}
+
 export function ProviderRow({
   provider,
   stats,
   streamingCount,
   onClick,
 }: ProviderRowProps) {
+  // 使用通用配置系统
+  const typeConfig = getProviderTypeConfig(provider.type)
+  const color = typeConfig.color
+  const TypeIcon = typeConfig.icon
+  const DisplayInfoIcon = getDisplayIcon(provider.type)
+  const displayInfo = typeConfig.getDisplayInfo(provider)
+
   const isAntigravity = provider.type === 'antigravity'
-  const color = isAntigravity
-    ? ANTIGRAVITY_COLOR
-    : getProviderColorVar(provider.type as ProviderType)
+  const isKiro = provider.type === 'kiro'
 
   // 仅为 Antigravity provider 获取额度
-  const { data: quota } = useAntigravityQuota(provider.id, isAntigravity)
-  const claudeInfo = isAntigravity ? getClaudeQuotaInfo(quota) : null
+  const { data: antigravityQuota } = useAntigravityQuota(provider.id, isAntigravity)
+  const claudeInfo = isAntigravity ? getClaudeQuotaInfo(antigravityQuota) : null
 
-  const getDisplayInfo = () => {
-    if (isAntigravity) {
-      return provider.config?.antigravity?.email || 'Unknown'
-    }
-    if (provider.config?.custom?.baseURL) return provider.config.custom.baseURL
-    for (const ct of provider.supportedClientTypes || []) {
-      const url = provider.config?.custom?.clientBaseURL?.[ct]
-      if (url) return url
-    }
-    return 'Not configured'
-  }
+  // 仅为 Kiro provider 获取额度
+  const { data: kiroQuota } = useKiroQuota(provider.id, isKiro)
+  const kiroInfo = isKiro ? getKiroQuotaInfo(kiroQuota) : null
 
   return (
     <div
@@ -151,7 +168,7 @@ export function ProviderRow({
           className="absolute inset-0 opacity-10"
           style={{ backgroundColor: color }}
         />
-        {isAntigravity ? <Wand2 size={24} /> : <Server size={24} />}
+        <TypeIcon size={24} />
       </div>
 
       {/* Provider Info */}
@@ -168,19 +185,15 @@ export function ProviderRow({
               className="w-1 h-1 rounded-full animate-pulse"
               style={{ backgroundColor: color }}
             />
-            {isAntigravity ? 'Antigravity' : 'Custom'}
+            {typeConfig.label}
           </span>
         </div>
         <div
           className="flex items-center gap-1.5 text-[11px] font-medium text-text-muted truncate"
-          title={getDisplayInfo()}
+          title={displayInfo}
         >
-          {isAntigravity ? (
-            <Mail size={11} className="shrink-0" />
-          ) : (
-            <Globe size={11} className="shrink-0" />
-          )}
-          <span className="truncate">{getDisplayInfo()}</span>
+          <DisplayInfoIcon size={11} className="shrink-0" />
+          <span className="truncate">{displayInfo}</span>
         </div>
       </div>
 
@@ -235,6 +248,58 @@ export function ProviderRow({
                 }}
               />
             </div>
+          ) : (
+            <div className="h-1.5 bg-surface-secondary rounded-full" />
+          )}
+        </div>
+      )}
+
+      {/* Kiro Quota Area */}
+      {isKiro && (
+        <div className="relative z-10 w-28 flex flex-col gap-1 shrink-0">
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-[9px] font-black text-text-muted/80 uppercase tracking-tighter">
+              Quota
+            </span>
+            {kiroInfo && !kiroInfo.isBanned && (
+              <span className="text-[9px] font-mono text-text-muted/60">
+                {formatKiroResetDays(kiroInfo.resetDays)}
+              </span>
+            )}
+          </div>
+          {kiroInfo ? (
+            kiroInfo.isBanned ? (
+              <div className="h-2 bg-red-500/20 rounded-full flex items-center justify-center">
+                <span className="text-[8px] font-bold text-red-500 uppercase">Banned</span>
+              </div>
+            ) : (
+              <>
+                <div className="h-2 bg-surface-secondary rounded-full overflow-hidden border border-border/50 p-[1px]">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all duration-1000',
+                      kiroInfo.percentage >= 50
+                        ? 'bg-emerald-500'
+                        : kiroInfo.percentage >= 20
+                          ? 'bg-amber-500'
+                          : 'bg-red-500'
+                    )}
+                    style={{
+                      width: `${kiroInfo.percentage}%`,
+                      boxShadow: `0 0 8px ${kiroInfo.percentage >= 50 ? '#10b98140' : '#f59e0b40'}`,
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between px-0.5">
+                  <span className="text-[9px] font-mono text-text-muted/60">
+                    {kiroInfo.available.toFixed(1)}
+                  </span>
+                  <span className="text-[9px] font-mono text-text-muted/40">
+                    / {kiroInfo.totalLimit.toFixed(1)}
+                  </span>
+                </div>
+              </>
+            )
           ) : (
             <div className="h-1.5 bg-surface-secondary rounded-full" />
           )}

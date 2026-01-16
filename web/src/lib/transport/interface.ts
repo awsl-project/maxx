@@ -30,6 +30,8 @@ import type {
   AntigravityGlobalSettings,
   ImportResult,
   Cooldown,
+  KiroTokenValidationResult,
+  KiroQuotaData,
 } from './types';
 
 /**
@@ -109,6 +111,10 @@ export interface Transport {
   getAntigravityGlobalSettings(): Promise<AntigravityGlobalSettings>;
   updateAntigravityGlobalSettings(settings: AntigravityGlobalSettings): Promise<AntigravityGlobalSettings>;
   resetAntigravityGlobalSettings(): Promise<AntigravityGlobalSettings>;
+
+  // ===== Kiro API =====
+  validateKiroSocialToken(refreshToken: string): Promise<KiroTokenValidationResult>;
+  getKiroProviderQuota(providerId: number): Promise<KiroQuotaData>;
 
   // ===== Cooldown API =====
   getCooldowns(): Promise<Cooldown[]>;

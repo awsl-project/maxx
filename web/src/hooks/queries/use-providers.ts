@@ -106,3 +106,15 @@ export function useAntigravityQuota(providerId: number, enabled = true) {
     staleTime: 30000,
   });
 }
+
+// 获取 Kiro Provider 额度
+export function useKiroQuota(providerId: number, enabled = true) {
+  return useQuery({
+    queryKey: [...providerKeys.all, 'kiro-quota', providerId],
+    queryFn: () => getTransport().getKiroProviderQuota(providerId),
+    enabled: enabled && providerId > 0,
+    // 每 60 秒刷新一次
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+}

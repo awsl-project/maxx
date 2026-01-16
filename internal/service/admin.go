@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider/antigravity"
+	"github.com/awsl-project/maxx/internal/adapter/provider/kiro"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -503,6 +504,97 @@ func (s *AdminService) ResetAntigravityGlobalSettings() (*AntigravityGlobalSetti
 	}, nil
 }
 
+// ===== Kiro Global Settings API =====
+
+// KiroGlobalSettings contains global Kiro settings
+type KiroGlobalSettings struct {
+	ModelMappingRules     []ModelMappingRule `json:"modelMappingRules"`
+	AvailableTargetModels []string           `json:"availableTargetModels"`
+}
+
+// GetKiroGlobalSettings retrieves the global Kiro settings
+// If no custom mapping exists, returns the preset mapping as default
+func (s *AdminService) GetKiroGlobalSettings() (*KiroGlobalSettings, error) {
+	settings := &KiroGlobalSettings{
+		ModelMappingRules:     []ModelMappingRule{},
+		AvailableTargetModels: kiro.AvailableTargetModels,
+	}
+
+	// Get model mapping rules from database
+	rulesJSON, err := s.settingRepo.Get(domain.SettingKeyKiroModelMapping)
+	if err == nil && rulesJSON != "" {
+		// Use ParseModelMappingRules which handles both new array format and legacy map format
+		kiroRules, parseErr := kiro.ParseModelMappingRules(rulesJSON)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		// Convert kiro.ModelMappingRule to service.ModelMappingRule
+		settings.ModelMappingRules = make([]ModelMappingRule, len(kiroRules))
+		for i, r := range kiroRules {
+			settings.ModelMappingRules[i] = ModelMappingRule{Pattern: r.Pattern, Target: r.Target}
+		}
+	}
+
+	// If no rules exist, initialize with preset rules
+	if len(settings.ModelMappingRules) == 0 {
+		defaultRules := kiro.GetDefaultModelMappingRules()
+		settings.ModelMappingRules = make([]ModelMappingRule, len(defaultRules))
+		for i, r := range defaultRules {
+			settings.ModelMappingRules[i] = ModelMappingRule{Pattern: r.Pattern, Target: r.Target}
+		}
+		// Save to database
+		if rulesJSON, err := json.Marshal(settings.ModelMappingRules); err == nil {
+			s.settingRepo.Set(domain.SettingKeyKiroModelMapping, string(rulesJSON))
+		}
+	}
+
+	return settings, nil
+}
+
+// UpdateKiroGlobalSettings updates the global Kiro settings
+func (s *AdminService) UpdateKiroGlobalSettings(settings *KiroGlobalSettings) error {
+	// Update model mapping rules
+	if settings.ModelMappingRules != nil {
+		rulesJSON, err := json.Marshal(settings.ModelMappingRules)
+		if err != nil {
+			return err
+		}
+		if err := s.settingRepo.Set(domain.SettingKeyKiroModelMapping, string(rulesJSON)); err != nil {
+			return err
+		}
+	} else {
+		// Clear rules if nil
+		if err := s.settingRepo.Set(domain.SettingKeyKiroModelMapping, "[]"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ResetKiroGlobalSettings resets the model mapping to preset defaults
+func (s *AdminService) ResetKiroGlobalSettings() (*KiroGlobalSettings, error) {
+	defaultRules := kiro.GetDefaultModelMappingRules()
+	rules := make([]ModelMappingRule, len(defaultRules))
+	for i, r := range defaultRules {
+		rules[i] = ModelMappingRule{Pattern: r.Pattern, Target: r.Target}
+	}
+
+	rulesJSON, err := json.Marshal(rules)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.settingRepo.Set(domain.SettingKeyKiroModelMapping, string(rulesJSON)); err != nil {
+		return nil, err
+	}
+
+	return &KiroGlobalSettings{
+		ModelMappingRules:     rules,
+		AvailableTargetModels: kiro.AvailableTargetModels,
+	}, nil
+}
+
 // ===== Proxy Status API =====
 
 type ProxyStatus struct {
@@ -557,6 +649,11 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 			domain.ClientTypeClaude,
 			domain.ClientTypeOpenAI,
 			domain.ClientTypeGemini,
+		}
+	case "kiro":
+		// Kiro natively supports Claude protocol only
+		provider.SupportedClientTypes = []domain.ClientType{
+			domain.ClientTypeClaude,
 		}
 	case "custom":
 		// Custom providers use their configured SupportedClientTypes
