@@ -29,7 +29,7 @@ import {
   Badge,
   Button,
 } from '@/components/ui'
-import { cn, formatDuration as formatDurationBase } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/page-header'
 
 const PAGE_SIZE = 50
