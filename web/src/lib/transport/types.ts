@@ -99,6 +99,11 @@ export interface Route {
 
 export type CreateRouteData = Omit<Route, 'id' | 'createdAt' | 'updatedAt'>;
 
+export interface RoutePositionUpdate {
+  id: number;
+  position: number;
+}
+
 // ===== RetryConfig =====
 
 export interface RetryConfig {

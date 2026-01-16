@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { ClientIcon } from '@/components/icons/client-icons';
 import type { ClientType } from '@/lib/transport';
 import type { ClientConfig } from '../types';
+import { useTranslation } from 'react-i18next';
 
 interface ClientsConfigSectionProps {
   clients: ClientConfig[];
@@ -10,6 +11,7 @@ interface ClientsConfigSectionProps {
 }
 
 export function ClientsConfigSection({ clients, onUpdateClient }: ClientsConfigSectionProps) {
+  const { t } = useTranslation()
   return (
     <div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -44,7 +46,7 @@ export function ClientsConfigSection({ clients, onUpdateClient }: ClientsConfigS
                     type="text"
                     value={client.urlOverride}
                     onChange={(e) => onUpdateClient(client.id, { urlOverride: e.target.value })}
-                    placeholder="Default"
+                    placeholder={t('common.default')}
                     disabled={!client.enabled}
                     className="text-sm w-full bg-card h-9"
                   />

@@ -48,7 +48,11 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "providers":
 		h.handleProviders(w, r, id)
 	case "routes":
-		h.handleRoutes(w, r, id)
+		if len(parts) > 2 && parts[2] == "batch-positions" {
+			h.handleBatchUpdateRoutePositions(w, r)
+		} else {
+			h.handleRoutes(w, r, id)
+		}
 	case "projects":
 		h.handleProjects(w, r, id, parts)
 	case "sessions":
@@ -316,6 +320,27 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+// Batch update route positions
+func (h *AdminHandler) handleBatchUpdateRoutePositions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var updates []domain.RoutePositionUpdate
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := h.svc.BatchUpdateRoutePositions(updates); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "positions updated successfully"})
 }
 
 // Project handlers

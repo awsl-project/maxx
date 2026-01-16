@@ -15,6 +15,7 @@ import type {
 } from '@/lib/transport'
 import { cn, formatDuration } from '@/lib/utils'
 import { getClientName } from '@/components/icons/client-icons'
+import { useTranslation } from 'react-i18next'
 
 // Selection type: either the main request or an attempt
 type SelectionType =
@@ -70,13 +71,14 @@ export function RequestSidebar({
   projectMap,
   routeMap,
 }: RequestSidebarProps) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col h-full bg-card min-w-0">
       {/* Request Section */}
       <div className="shrink-0">
-        <div className="h-10 px-4 border-b border-border bg-muted/50 flex items-center">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-            <FileInput size={12} /> Client Request
+        <div className="h-10 px-4 border-b border-border bg-surface-secondary/50 flex items-center">
+          <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-2">
+            <FileInput size={12} /> {t('requests.clientRequest')}
           </span>
         </div>
         <button
@@ -228,7 +230,7 @@ export function RequestSidebar({
             ))}
           </div>
         ) : (
-          <EmptyState message="No attempts available" />
+          <EmptyState message={t('requests.noAttempts')} />
         )}
       </div>
     </div>

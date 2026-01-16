@@ -118,9 +118,7 @@ export function ProvidersPage() {
         icon={Layers}
         iconClassName="text-blue-500"
         title={t('providers.title')}
-        description={t('providers.description', {
-          count: providers?.length || 0,
-        })}
+        description={t('providers.description', { count: providers?.length || 0 })}
       >
         <input
           type="file"
@@ -158,7 +156,7 @@ export function ProvidersPage() {
         <div className="mx-auto max-w-7xl">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
-              <div className="text-muted-foreground">{t('common.loading')}</div>
+              <div className="text-text-muted">{t('common.loading')}</div>
             </div>
           ) : providers?.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -221,11 +219,8 @@ export function ProvidersPage() {
       {importStatus && (
         <div className="fixed bottom-6 right-6 bg-card border border-border rounded-lg shadow-lg p-4">
           <div className="space-y-2">
-            <div className="text-sm font-medium text-foreground">
-              {t('providers.importCompleted', {
-                imported: importStatus.imported,
-                skipped: importStatus.skipped,
-              })}
+            <div className="text-sm font-medium text-text-primary">
+              {t('providers.importCompleted', { imported: importStatus.imported, skipped: importStatus.skipped })}
             </div>
             {importStatus.errors.length > 0 && (
               <div className="text-xs text-red-400 space-y-1">

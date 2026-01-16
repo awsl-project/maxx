@@ -50,10 +50,10 @@ export function SessionsPage() {
             <LayoutDashboard size={20} />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-foreground leading-tight">
+            <h2 className="text-lg font-semibold text-text-primary leading-tight">
               {t('sessions.title')}
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-text-secondary">
               {t('sessions.activeCount', { count: sessions?.length ?? 0 })}
             </p>
           </div>
@@ -71,16 +71,16 @@ export function SessionsPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent border-border">
-                    <TableHead className="w-[60px] text-muted-foreground">
+                    <TableHead className="w-[60px] text-text-secondary">
                       {t('sessions.client')}
                     </TableHead>
-                    <TableHead className="text-muted-foreground">
+                    <TableHead className="text-text-secondary">
                       {t('sessions.sessionId')}
                     </TableHead>
-                    <TableHead className="w-[150px] text-muted-foreground">
+                    <TableHead className="w-[150px] text-text-secondary">
                       {t('sessions.project')}
                     </TableHead>
-                    <TableHead className="w-[180px] text-right text-muted-foreground">
+                    <TableHead className="w-[180px] text-right text-text-secondary">
                       {t('common.created')}
                     </TableHead>
                   </TableRow>
@@ -109,7 +109,7 @@ export function SessionsPage() {
                       </TableCell>
                       <TableCell>
                         {session.projectID === 0 ? (
-                          <span className="text-muted-foreground text-xs italic">
+                          <span className="text-text-muted text-xs italic">
                             {t('sessions.unassigned')}
                           </span>
                         ) : (
@@ -210,10 +210,10 @@ function SessionDetailModal({
               <ClientIcon type={session.clientType} size={20} />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="text-sm font-semibold text-text-primary">
                 {t('sessions.sessionDetails')}
               </h3>
-              <p className="text-xs text-muted-foreground capitalize">
+              <p className="text-xs text-text-muted capitalize">
                 {session.clientType} {t('sessions.client')}
               </p>
             </div>
@@ -230,17 +230,17 @@ function SessionDetailModal({
         <div className="px-6 py-4 space-y-4">
           {/* Session ID */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
+            <label className="text-xs font-medium text-text-secondary uppercase tracking-wider block mb-1.5">
               {t('sessions.sessionId')}
             </label>
-            <div className="font-mono text-xs text-foreground bg-muted px-3 py-2 rounded-md select-all break-all">
+            <div className="font-mono text-xs text-text-primary bg-muted px-3 py-2 rounded-md select-all break-all">
               {session.sessionID}
             </div>
           </div>
 
           {/* Created At */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">
+            <label className="text-xs font-medium text-text-secondary uppercase tracking-wider block mb-1.5">
               {t('common.created')}
             </label>
             <div className="text-sm text-foreground">
@@ -250,7 +250,7 @@ function SessionDetailModal({
 
           {/* Project Binding */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-2">
+            <label className="text-xs font-medium text-text-secondary uppercase tracking-wider flex items-center gap-2 mb-2">
               <Link2 size={12} /> {t('sessions.projectBinding')}
             </label>
             <div className="flex flex-wrap gap-2">
@@ -261,8 +261,8 @@ function SessionDetailModal({
                 className={cn(
                   'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all',
                   selectedProjectId === 0
-                    ? 'border-blue-500 bg-blue-500 text-white shadow-lg shadow-blue-500/25'
-                    : 'border-border bg-muted text-muted-foreground hover:bg-accent'
+                    ? 'border-primary bg-primary text-primary-foreground shadow-lg shadow-primary/25'
+                    : 'border-border bg-muted text-text-secondary hover:bg-accent'
                 )}
               >
                 <X size={14} />
@@ -277,8 +277,8 @@ function SessionDetailModal({
                   className={cn(
                     'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all',
                     selectedProjectId === project.id
-                      ? 'border-blue-500 bg-blue-500 text-white shadow-lg shadow-blue-500/25'
-                      : 'border-border bg-muted text-foreground hover:bg-accent'
+                      ? 'border-primary bg-primary text-primary-foreground shadow-lg shadow-primary/25'
+                      : 'border-border bg-muted text-text-primary hover:bg-accent'
                   )}
                 >
                   <FolderOpen size={14} />
@@ -286,7 +286,7 @@ function SessionDetailModal({
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-2">
+            <p className="text-[10px] text-text-muted mt-2">
               {t('sessions.projectBindingHint')}
             </p>
           </div>
@@ -296,9 +296,7 @@ function SessionDetailModal({
             <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-400/10 px-3 py-2 rounded-md">
               <Check size={14} />
               <span>
-                {t('sessions.updatedRequests', {
-                  count: updateSessionProject.data.updatedRequests,
-                })}
+                {t('sessions.updatedRequests', { count: updateSessionProject.data.updatedRequests })}
               </span>
             </div>
           )}

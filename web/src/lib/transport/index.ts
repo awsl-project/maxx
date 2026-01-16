@@ -16,6 +16,7 @@ export type {
   Session,
   Route,
   CreateRouteData,
+  RoutePositionUpdate,
   RetryConfig,
   CreateRetryConfigData,
   RoutingStrategy,

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Button,
   Card,
@@ -46,6 +47,7 @@ import { PageHeader } from '@/components/layout'
 import type { APIToken } from '@/lib/transport'
 
 export function APITokensPage() {
+  const { t, i18n } = useTranslation()
   const { data: tokens, isLoading } = useAPITokens()
   const { data: projects } = useProjects()
   const { data: settings } = useSettings()
@@ -160,7 +162,7 @@ export function APITokensPage() {
   }
 
   const getProjectName = (projectId: number) => {
-    if (projectId === 0) return 'Global'
+    if (projectId === 0) return t('apiTokens.global')
     const project = projects?.find(p => p.id === projectId)
     return project?.name || `Project #${projectId}`
   }
@@ -175,8 +177,8 @@ export function APITokensPage() {
       <PageHeader
         icon={Key}
         iconClassName="text-purple-500"
-        title="API Tokens"
-        description="Manage API tokens for proxy authentication"
+        title={t('apiTokens.title')}
+        description={t('apiTokens.description')}
       >
         {apiTokenAuthEnabled && (
           <Button
@@ -191,7 +193,7 @@ export function APITokensPage() {
             ) : (
               <Plus className="mr-2 h-4 w-4" />
             )}
-            {showForm ? 'Cancel' : 'Create Token'}
+            {showForm ? t('common.cancel') : t('apiTokens.createToken')}
           </Button>
         )}
       </PageHeader>
@@ -204,13 +206,9 @@ export function APITokensPage() {
               <CardContent className="py-16">
                 <div className="flex flex-col items-center text-center max-w-md mx-auto">
                   <Shield className="h-16 w-16 text-text-muted mb-6 opacity-50" />
-                  <h2 className="text-xl font-semibold mb-2">
-                    API Token Authentication
-                  </h2>
+                  <h2 className="text-xl font-semibold mb-2">{t('apiTokens.authEnabled')}</h2>
                   <p className="text-text-muted mb-6">
-                    Enable API Token Authentication to require valid tokens for
-                    proxy requests. This adds an extra layer of security by
-                    ensuring only authorized clients can access the proxy.
+                    {t('apiTokens.enableAuthPrompt')}
                   </p>
                   <Button
                     onClick={() => handleToggleAuth(true)}
@@ -220,7 +218,7 @@ export function APITokensPage() {
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     )}
                     <Shield className="mr-2 h-4 w-4" />
-                    Enable Authentication
+                    {t('apiTokens.enableAuth')}
                   </Button>
                 </div>
               </CardContent>
@@ -236,26 +234,16 @@ export function APITokensPage() {
                   <div className="flex items-center gap-3">
                     <Shield className="h-5 w-5 text-green-500" />
                     <div>
-                      <p className="font-medium">API Token Authentication</p>
-                      <p className="text-sm text-text-muted">
-                        Proxy requests require a valid API token
-                      </p>
+                      <p className="font-medium">{t('apiTokens.authEnabled')}</p>
+                      <p className="text-sm text-text-muted">{t('apiTokens.authEnabledDesc')}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Badge
-                      variant="default"
-                      className="bg-green-500/10 text-green-500 border-green-500/20"
-                    >
-                      Enabled
+                    <Badge variant="default" className="bg-green-500/10 text-green-500 border-green-500/20">
+                      {t('common.enabled')}
                     </Badge>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleToggleAuth(false)}
-                      disabled={updateSetting.isPending}
-                    >
-                      Disable
+                    <Button variant="outline" size="sm" onClick={() => handleToggleAuth(false)} disabled={updateSetting.isPending}>
+                      {t('apiTokens.disableAuth')}
                     </Button>
                   </div>
                 </div>
@@ -264,134 +252,126 @@ export function APITokensPage() {
 
             {/* Token List */}
             {isLoading ? (
-              <div className="flex items-center justify-center p-12">
-                <Loader2 className="h-8 w-8 animate-spin text-accent" />
-              </div>
-            ) : tokens && tokens.length > 0 ? (
-              <Card className="border-border bg-surface-primary">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Token Prefix</TableHead>
-                      <TableHead>Project</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Usage</TableHead>
-                      <TableHead>Last Used</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {tokens.map(token => (
-                      <TableRow key={token.id}>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{token.name}</div>
-                            {token.description && (
-                              <div className="text-xs text-text-muted">
-                                {token.description}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                              {token.tokenPrefix}
-                            </code>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={async () => {
-                                await navigator.clipboard.writeText(token.token)
-                              }}
-                            >
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="font-normal">
-                            {getProjectName(token.projectID)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={token.isEnabled}
-                              onCheckedChange={() => handleToggleEnabled(token)}
-                              disabled={updateToken.isPending}
-                            />
-                            {isExpired(token) ? (
-                              <Badge variant="destructive" className="text-xs">
-                                Expired
-                              </Badge>
-                            ) : token.isEnabled ? (
-                              <Badge
-                                variant="default"
-                                className="text-xs bg-green-500/10 text-green-500 border-green-500/20"
-                              >
-                                Active
-                              </Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-xs">
-                                Disabled
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <Hash className="h-3 w-3" />
-                            {token.useCount}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {token.lastUsedAt ? (
-                            <div className="flex items-center gap-1 text-xs text-text-muted">
-                              <Clock className="h-3 w-3" />
-                              {new Date(token.lastUsedAt).toLocaleDateString()}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-text-muted">
-                              Never
-                            </span>
+          <div className="flex items-center justify-center p-12">
+            <Loader2 className="h-8 w-8 animate-spin text-accent" />
+          </div>
+        ) : tokens && tokens.length > 0 ? (
+          <Card className="border-border bg-surface-primary">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('apiTokens.tokenName')}</TableHead>
+                  <TableHead>{t('apiTokens.tokenPrefix')}</TableHead>
+                  <TableHead>{t('apiTokens.project')}</TableHead>
+                  <TableHead>{t('common.status')}</TableHead>
+                  <TableHead>{t('apiTokens.usage')}</TableHead>
+                  <TableHead>{t('apiTokens.lastUsed')}</TableHead>
+                  <TableHead className="text-right">{t('common.actions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tokens.map(token => (
+                  <TableRow key={token.id}>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">{token.name}</div>
+                        {token.description && (
+                          <div className="text-xs text-text-muted">{token.description}</div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <code className="text-xs bg-surface-secondary px-2 py-1 rounded font-mono">
+                          {token.tokenPrefix}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(token.token)
+                          }}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-normal">
+                        {getProjectName(token.projectID)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={token.isEnabled}
+                          onCheckedChange={() => handleToggleEnabled(token)}
+                          disabled={updateToken.isPending}
+                        />
+                        {isExpired(token) ? (
+                          <Badge variant="destructive" className="text-xs">{t('apiTokens.expired')}</Badge>
+                        ) : token.isEnabled ? (
+                          <Badge variant="default" className="text-xs bg-green-500/10 text-green-500 border-green-500/20">{t('apiTokens.active')}</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">{t('common.disabled')}</Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 text-sm text-text-secondary">
+                        <Hash className="h-3 w-3" />
+                        {token.useCount}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {token.lastUsedAt ? (
+                        <div className="flex items-center gap-1 text-xs text-text-muted">
+                          <Clock className="h-3 w-3" />
+                          {new Date(token.lastUsedAt).toLocaleDateString(
+                            i18n.resolvedLanguage ?? i18n.language,
+                            {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            }
                           )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEdit(token)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setDeletingToken(token)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-64 text-text-muted border-2 border-dashed border-border rounded-lg bg-surface-primary/50">
-                <Key className="h-12 w-12 opacity-20 mb-4" />
-                <p className="text-lg font-medium">No API tokens</p>
-                <p className="text-sm">
-                  Create a token to authenticate proxy requests
-                </p>
-              </div>
-            )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-text-muted">{t('apiTokens.never')}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEdit(token)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeletingToken(token)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-64 text-text-muted border-2 border-dashed border-border rounded-lg bg-surface-primary/50">
+            <Key className="h-12 w-12 opacity-20 mb-4" />
+            <p className="text-lg font-medium">{t('apiTokens.noTokens')}</p>
+            <p className="text-sm">{t('apiTokens.noTokensHint')}</p>
+          </div>
+        )}
           </>
         )}
       </div>
@@ -406,26 +386,26 @@ export function APITokensPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create New API Token</DialogTitle>
+            <DialogTitle>{t('apiTokens.createDialog.title')}</DialogTitle>
             <DialogDescription>
-              Create a token to authenticate proxy requests.
+              {t('apiTokens.createDialog.description')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Name *
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('common.name')} *
               </label>
               <Input
                 value={name}
                 onChange={e => setName(e.target.value)}
-                placeholder="e.g., Claude Code Token"
+                placeholder={t('apiTokens.createDialog.namePlaceholder')}
                 required
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Project
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('apiTokens.project')}
               </label>
               <div className="flex items-center gap-2">
                 {projectID === '0' ? (
@@ -436,7 +416,7 @@ export function APITokensPage() {
                     onClick={() => setShowProjectPicker(true)}
                   >
                     <FolderKanban className="mr-2 h-4 w-4" />
-                    Not Specified
+                    {t('apiTokens.notSpecified')}
                   </Button>
                 ) : (
                   <div className="flex items-center gap-2 w-full">
@@ -460,18 +440,18 @@ export function APITokensPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Description
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('common.description')}
               </label>
               <Input
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="Optional description"
+                placeholder={t('apiTokens.createDialog.descriptionPlaceholder')}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Expires At
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('apiTokens.createDialog.expiresAt')}
               </label>
               <Input
                 type="date"
@@ -479,23 +459,15 @@ export function APITokensPage() {
                 onChange={e => setExpiresAt(e.target.value)}
                 min={new Date().toISOString().split('T')[0]}
               />
-              <p className="text-xs text-text-muted">
-                Leave empty for no expiration
-              </p>
+              <p className="text-xs text-text-muted">{t('apiTokens.createDialog.expiresAtHint')}</p>
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowForm(false)}
-              >
-                Cancel
+              <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+                {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={createToken.isPending || !name}>
-                {createToken.isPending && (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                )}
-                Create Token
+                {createToken.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {t('apiTokens.createToken')}
               </Button>
             </DialogFooter>
           </form>
@@ -509,15 +481,15 @@ export function APITokensPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit API Token</DialogTitle>
+            <DialogTitle>{t('apiTokens.editDialog.title')}</DialogTitle>
             <DialogDescription>
-              Update the token settings. The token value cannot be changed.
+              {t('apiTokens.editDialog.description')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdate} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Name *
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('common.name')} *
               </label>
               <Input
                 value={name}
@@ -526,8 +498,8 @@ export function APITokensPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Description
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('common.description')}
               </label>
               <Input
                 value={description}
@@ -535,8 +507,8 @@ export function APITokensPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Project
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('apiTokens.project')}
               </label>
               <div className="flex items-center gap-2">
                 {projectID === '0' ? (
@@ -547,7 +519,7 @@ export function APITokensPage() {
                     onClick={() => setShowProjectPicker(true)}
                   >
                     <FolderKanban className="mr-2 h-4 w-4" />
-                    Not Specified
+                    {t('apiTokens.notSpecified')}
                   </Button>
                 ) : (
                   <div className="flex items-center gap-2 w-full">
@@ -571,8 +543,8 @@ export function APITokensPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Expires At
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('apiTokens.createDialog.expiresAt')}
               </label>
               <Input
                 type="date"
@@ -582,18 +554,12 @@ export function APITokensPage() {
               />
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setEditingToken(null)}
-              >
-                Cancel
+              <Button type="button" variant="outline" onClick={() => setEditingToken(null)}>
+                {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={updateToken.isPending || !name}>
-                {updateToken.isPending && (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                )}
-                Save Changes
+                {updateToken.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {t('common.save')}
               </Button>
             </DialogFooter>
           </form>
@@ -607,26 +573,22 @@ export function APITokensPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete API Token</DialogTitle>
+            <DialogTitle>{t('apiTokens.deleteDialog.title')}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{deletingToken?.name}"? This
-              action cannot be undone. Any applications using this token will no
-              longer be able to authenticate.
+              {t('apiTokens.deleteDialog.description', { name: deletingToken?.name })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletingToken(null)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
               onClick={handleDelete}
               disabled={deleteToken.isPending}
             >
-              {deleteToken.isPending && (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              )}
-              Delete
+              {deleteToken.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -639,21 +601,21 @@ export function APITokensPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Token Created Successfully</DialogTitle>
+            <DialogTitle>{t('apiTokens.newTokenDialog.title')}</DialogTitle>
             <DialogDescription>
-              Copy your new API token now. You won't be able to see it again!
+              {t('apiTokens.newTokenDialog.description')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Token Name
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('apiTokens.newTokenDialog.tokenName')}
               </label>
               <p className="font-medium">{newTokenDialog?.name}</p>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                API Token
+              <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                {t('apiTokens.newTokenDialog.apiToken')}
               </label>
               <div className="flex gap-2">
                 <code className="flex-1 text-sm bg-muted p-3 rounded font-mono break-all border border-border">
@@ -675,13 +637,14 @@ export function APITokensPage() {
             </div>
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
               <p className="text-sm text-amber-600 dark:text-amber-400">
-                <strong>Important:</strong> This token will only be shown once.
-                Make sure to copy it now.
+                <strong>{t('common.confirm')}:</strong> {t('apiTokens.newTokenDialog.warning')}
               </p>
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={() => setNewTokenDialog(null)}>Done</Button>
+            <Button onClick={() => setNewTokenDialog(null)}>
+              {t('apiTokens.newTokenDialog.done')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -693,9 +656,9 @@ export function APITokensPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Select Project</DialogTitle>
+            <DialogTitle>{t('apiTokens.projectDialog.title')}</DialogTitle>
             <DialogDescription>
-              Choose a project to limit this token's access.
+              {t('apiTokens.projectDialog.description')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 max-h-64 overflow-auto">
@@ -714,9 +677,7 @@ export function APITokensPage() {
               </Button>
             ))}
             {(!projects || projects.length === 0) && (
-              <p className="text-sm text-text-muted text-center py-4">
-                No projects available
-              </p>
+              <p className="text-sm text-text-muted text-center py-4">{t('apiTokens.projectDialog.noProjects')}</p>
             )}
           </div>
           <DialogFooter>
@@ -727,13 +688,10 @@ export function APITokensPage() {
                 setShowProjectPicker(false)
               }}
             >
-              Clear Selection
+              {t('apiTokens.projectDialog.clearSelection')}
             </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setShowProjectPicker(false)}
-            >
-              Cancel
+            <Button variant="secondary" onClick={() => setShowProjectPicker(false)}>
+              {t('common.cancel')}
             </Button>
           </DialogFooter>
         </DialogContent>

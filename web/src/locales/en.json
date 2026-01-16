@@ -236,5 +236,231 @@
     "openai": "OpenAI",
     "codex": "Codex",
     "gemini": "Gemini"
+  },
+  "apiTokens": {
+    "title": "API Tokens",
+    "description": "Manage API tokens for proxy authentication",
+    "createToken": "Create Token",
+    "noTokens": "No API tokens",
+    "noTokensHint": "Create a token to authenticate proxy requests",
+    "authEnabled": "API Token Authentication",
+    "authEnabledDesc": "Proxy requests require a valid API token",
+    "enableAuth": "Enable Authentication",
+    "disableAuth": "Disable",
+    "enableAuthPrompt": "Enable API Token Authentication to require valid tokens for proxy requests. This adds an extra layer of security by ensuring only authorized clients can access the proxy.",
+    "tokenName": "Name",
+    "tokenPrefix": "Token Prefix",
+    "project": "Project",
+    "usage": "Usage",
+    "lastUsed": "Last Used",
+    "never": "Never",
+    "active": "Active",
+    "expired": "Expired",
+    "global": "Global",
+    "notSpecified": "Not Specified",
+    "createDialog": {
+      "title": "Create New API Token",
+      "description": "Create a token to authenticate proxy requests.",
+      "namePlaceholder": "e.g., Claude Code Token",
+      "descriptionPlaceholder": "Optional description",
+      "expiresAt": "Expires At",
+      "expiresAtHint": "Leave empty for no expiration"
+    },
+    "editDialog": {
+      "title": "Edit API Token",
+      "description": "Update the token settings. The token value cannot be changed."
+    },
+    "deleteDialog": {
+      "title": "Delete API Token",
+      "description": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone. Any applications using this token will no longer be able to authenticate."
+    },
+    "newTokenDialog": {
+      "title": "Token Created Successfully",
+      "description": "Copy your new API token now. You won't be able to see it again!",
+      "tokenName": "Token Name",
+      "apiToken": "API Token",
+      "warning": "This token will only be shown once. Make sure to copy it now.",
+      "done": "Done"
+    },
+    "projectDialog": {
+      "title": "Select Project",
+      "description": "Choose a project to limit this token's access.",
+      "noProjects": "No projects available",
+      "clearSelection": "Clear Selection"
+    }
+  },
+  "app": {
+    "title": "Maxx Next"
+  },
+  "provider": {
+    "status": {
+      "on": "ON",
+      "off": "OFF"
+    },
+    "thawing": "Thawing...",
+    "reasons": {
+      "serverError": "Server Error",
+      "serverErrorDesc": "Upstream server returned 5xx error, system automatically entered cooldown protection",
+      "networkError": "Network Error",
+      "networkErrorDesc": "Unable to connect to upstream server, possibly network failure or server downtime",
+      "quotaExhausted": "Quota Exhausted",
+      "quotaExhaustedDesc": "API quota exhausted, waiting for quota reset",
+      "rateLimitExceeded": "Rate Limit Exceeded",
+      "rateLimitExceededDesc": "Request rate exceeded limit, triggered rate protection",
+      "concurrentLimit": "Concurrent Limit",
+      "concurrentLimitDesc": "Concurrent requests exceeded limit",
+      "unknown": "Unknown Reason",
+      "unknownDesc": "Unknown error cause"
+    },
+    "forceThaw": "Force Thaw",
+    "deleteRoute": "Delete Route",
+    "forceThawWarning": "Force thawing may cause requests to fail again if the root cause is not resolved.",
+    "cooldownActive": "Cooldown Protection Active",
+    "clients": "Clients:",
+    "notConfigured": "Not configured",
+    "clearCooldown": "Clear cooldown",
+    "configure": "Configure Provider",
+    "configureDescription": "Set up your custom provider connection",
+    "create": "Create Provider",
+    "basicInfo": "1. Basic Information",
+    "clientConfig": "2. Client Configuration",
+    "displayName": "Display Name",
+    "apiEndpoint": "API Endpoint",
+    "apiKey": "API Key",
+    "optionalUrlNote": "Optional if client-specific URLs are set below.",
+    "namePlaceholder": "e.g. Production OpenAI",
+    "endpointPlaceholder": "https://api.openai.com/v1",
+    "keyPlaceholder": "sk-...",
+    "createError": "Failed to create provider. Please check your connection and try again.",
+    "saveChanges": "Save Changes",
+    "none": "None",
+    "defaultEndpoint": "Default endpoint",
+    "validationFailed": "Validation failed",
+    "tokenValidationFailed": "Token validation failed"
+  },
+  "cooldown": {
+    "title": "Cooldown Protection",
+    "forceThaw": "Force Thaw",
+    "disableRoute": "Disable Route",
+    "forceThawWarning": "Force thawing may cause requests to fail again if the root cause is not resolved.",
+    "disabling": "Disabling..."
+  },
+  "routes": {
+    "form": {
+      "clientType": "Client Type",
+      "provider": "Provider",
+      "project": "Project",
+      "position": "Position (lower = higher priority)",
+      "modelMapping": "Model Mapping (Override)",
+      "enabled": "Enabled",
+      "selectProvider": "Select provider...",
+      "globalProjects": "Global (All Projects)",
+    "modelMappingHelp": "Route-level model mappings take priority over provider and global settings."
+  },
+  "modelMapping": {
+    "requestModel": "Request Model",
+    "mappedModel": "Mapped Model",
+    "addMapping": "Add Mapping"
+  },
+    "update": "Update",
+    "create": "Create",
+    "customRoutes": "Custom Routes",
+    "usingGlobalRoutes": "Using global routes",
+    "customRoutesDisabled": "Custom Routes Disabled",
+    "usingGlobalRoutesDesc": "{{client}} is currently using global routes. Toggle switch to enable project-specific routing for this client type.",
+    "routesConfigured_one": "1 route configured for this project",
+    "routesConfigured_other": "{{count}} routes configured for this project"
+  },
+  "requests": {
+    "requestId": "Request #${id}",
+    "noRequestData": "No request data available",
+    "noResponseData": "No response data available",
+    "noAttempts": "No attempts available",
+    "tabs": {
+      "request": "Request",
+      "response": "Response",
+      "metadata": "Metadata"
+    },
+    "selectAttempt": "Select an attempt to view details",
+    "attemptId": "Attempt #${id}",
+    "compareHeaders": "Compare Headers - Client vs Upstream",
+    "compareBody": "Compare Body - Client vs Upstream",
+    "clientRequest": "Client Request"
+  },
+  "models": {
+    "searchPlaceholder": "Search or enter custom model...",
+    "select": "Select Model"
+  },
+  "layout": {
+    "sidebar": "Sidebar"
+  },
+  "proxy": {
+    "listeningOn": "Listening on",
+    "copied": "Copied!",
+    "clickToCopy": "Click to copy",
+    "clickToCopyTooltip": "Click to copy: {{url}}",
+    "comingSoon": "Coming Soon",
+    "resetsIn": "Resets in"
+  },
+  "accessibility": {
+    "toggleSidebar": "Toggle Sidebar",
+    "close": "Close"
+  },
+  "routingStrategies": {
+    "weightedRandom": "Weighted Random",
+    "priority": "Priority",
+    "allStrategies": "All Strategies"
+  },
+  "projects": {
+    "information": "Project Information",
+    "proxyConfig": "Proxy Configuration",
+    "slug": "Slug",
+    "name": "Name",
+    "slugPlaceholder": "project-slug",
+    "slugDesc": "Used in URLs and proxy paths",
+    "baseUrl": "Base URL:",
+    "created": "Created:",
+    "updated": "Updated:",
+    "saveChanges": "Save Changes",
+    "copyUrl": "Copy URL",
+    "proxyConfigDesc": "Use this base URL to route requests through this project's configuration. The protocol (Claude, OpenAI, Gemini) is automatically detected."
+  },
+  "sessions": {
+    "projectSessions": "Project Sessions",
+    "description": "Active sessions using this project's configuration",
+    "id": "ID",
+    "sessionId": "Session ID",
+    "clientType": "Client Type",
+    "created": "Created",
+    "selectProject": "Select Project",
+    "session": "Session",
+    "remaining": "Remaining",
+    "noProjectsAvailable": "No projects available. Please create a project first.",
+    "projectSelectionRequired": "Project Selection Required"
+  },
+  "modelInput": {
+    "selectOrEnter": "Select or enter model...",
+    "searchOrEnter": "Search or enter custom model...",
+    "selectModel": "Select Model",
+    "noMatchingModels": "No matching models found.",
+    "useCustom": "Use custom:",
+    "noModelsAvailable": "No models available",
+    "pressToUse": "Press {{key}} to use custom model name",
+    "toUseCustomModel": "use custom model name",
+    "banned": "Banned"
+  },
+  "common": {
+    "copy": "Copy",
+    "copied": "Copied",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "clientType": "Client Type",
+    "default": "Default",
+    "deleting": "Deleting...",
+    "updating": "Updating...",
+    "day": "day",
+    "days": "days",
+    "global": "Global",
+    "initFailed": "Failed to Initialize"
   }
 }

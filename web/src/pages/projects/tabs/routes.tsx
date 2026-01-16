@@ -17,6 +17,7 @@ import type { Project, ClientType, Route } from '@/lib/transport'
 import { StreamingBadge } from '@/components/ui/streaming-badge'
 import { useQueryClient } from '@tanstack/react-query'
 import { ClientTypeRoutesContent } from '@/components/routes/ClientTypeRoutesContent'
+import { useTranslation } from 'react-i18next'
 
 // 支持的客户端类型列表
 const CLIENT_TYPES: ClientType[] = ['claude', 'openai', 'codex', 'gemini']
@@ -41,6 +42,7 @@ function ProjectClientTypeWrapper({
   onToggleCustomRoutes,
   projectRoutes,
 }: ProjectClientTypeWrapperProps) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col h-full">
       {/* Header with Toggle */}
@@ -53,18 +55,15 @@ function ProjectClientTypeWrapper({
             </h2>
             <p className="text-xs text-muted-foreground">
               {isCustomRoutesEnabled
-                ? `${projectRoutes.filter(r => r.clientType === clientType).length} route${
-                    projectRoutes.filter(r => r.clientType === clientType)
-                      .length !== 1
-                      ? 's'
-                      : ''
-                  } configured for this project`
-                : 'Using global routes'}
+                ? t('routes.routesConfigured', {
+                    count: projectRoutes.filter(r => r.clientType === clientType).length
+                  })
+                : t('routes.usingGlobalRoutes')}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">Custom Routes</span>
+          <span className="text-sm text-text-secondary">{t('routes.customRoutes')}</span>
           <Switch
             checked={isCustomRoutesEnabled}
             onCheckedChange={onToggleCustomRoutes}
@@ -79,13 +78,11 @@ function ProjectClientTypeWrapper({
             <ClientIcon type={clientType} size={48} className="opacity-30" />
           </div>
           <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-foreground">
-              Custom Routes Disabled
+            <h3 className="text-lg font-semibold text-text-primary">
+              {t('routes.customRoutesDisabled')}
             </h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              {getClientName(clientType)} is currently using global routes.
-              Toggle the switch above to enable project-specific routing for
-              this client type.
+            <p className="text-sm text-text-secondary leading-relaxed">
+              {t('routes.usingGlobalRoutesDesc', { client: getClientName(clientType) })}
             </p>
           </div>
         </div>

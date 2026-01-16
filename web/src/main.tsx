@@ -6,10 +6,12 @@ import { TransportProvider } from '@/lib/transport';
 import { ThemeProvider } from '@/components/theme-provider';
 import App from './App';
 import './index.css';
-import '@/lib/i18n'; // 初始化 i18n
+import '@/lib/i18n';
+import { useTranslation } from 'react-i18next';
 
 // 加载中显示的内容
 function LoadingFallback() {
+  const { t } = useTranslation();
   return (
     <div
       style={{
@@ -21,13 +23,14 @@ function LoadingFallback() {
         color: '#666',
       }}
     >
-      Initializing...
+      {t('common.loading')}
     </div>
   );
 }
 
 // 错误时显示的内容
 function ErrorFallback(error: Error) {
+  const { t } = useTranslation();
   return (
     <div
       style={{
@@ -40,7 +43,7 @@ function ErrorFallback(error: Error) {
         textAlign: 'center',
       }}
     >
-      <h2 style={{ color: '#dc2626', marginBottom: '10px' }}>Failed to Initialize</h2>
+      <h2 style={{ color: '#dc2626', marginBottom: '10px' }}>{t('common.initFailed')}</h2>
       <pre
         style={{
           background: '#f3f4f6',

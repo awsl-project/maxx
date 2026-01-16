@@ -169,6 +169,10 @@ export class HttpTransport implements Transport {
     await this.client.delete(`/routes/${id}`);
   }
 
+  async batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void> {
+    await this.client.put('/routes/batch-positions', updates);
+  }
+
   // ===== Session API =====
 
   async getSessions(): Promise<Session[]> {

@@ -21,9 +21,11 @@ import {
   useProjects,
 } from '@/hooks/queries'
 import { Plus, Trash2, Pencil } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { RoutingStrategy, RoutingStrategyType } from '@/lib/transport'
 
 export function RoutingStrategiesPage() {
+  const { t } = useTranslation()
   const { data: strategies, isLoading } = useRoutingStrategies()
   const { data: projects } = useProjects()
   const createStrategy = useCreateRoutingStrategy()
@@ -80,7 +82,7 @@ export function RoutingStrategiesPage() {
   }
 
   const getProjectName = (pid: number) => {
-    if (pid === 0) return 'Global'
+    if (pid === 0) return t('common.global')
     return projects?.find(p => p.id === pid)?.name ?? `#${pid}`
   }
 
@@ -145,14 +147,14 @@ export function RoutingStrategiesPage() {
                   variant="outline"
                   onClick={handleCloseForm}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button type="submit" disabled={isPending}>
                   {isPending
-                    ? 'Saving...'
+                    ? t('common.saving')
                     : editingStrategy
-                      ? 'Update'
-                      : 'Create'}
+                      ? t('routes.update')
+                      : t('routes.create')}
                 </Button>
               </div>
             </form>
@@ -162,19 +164,19 @@ export function RoutingStrategiesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Strategies</CardTitle>
+          <CardTitle>{t('routingStrategies.allStrategies')}</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-gray-500">Loading...</p>
+            <p className="text-gray-500">{t('common.loading')}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>ID</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{t('common.project')}</TableHead>
+                  <TableHead>{t('common.type')}</TableHead>
+                  <TableHead>{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -197,8 +199,8 @@ export function RoutingStrategiesPage() {
                         }
                       >
                         {strategy.type === 'priority'
-                          ? 'Priority'
-                          : 'Weighted Random'}
+                          ? t('routingStrategies.priority')
+                          : t('routingStrategies.weightedRandom')}
                       </Badge>
                     </TableCell>
                     <TableCell>

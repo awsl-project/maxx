@@ -10,6 +10,7 @@ import {
   TabsContent,
 } from '@/components/ui'
 import { Server, Code, Database, Info, Zap } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { ProxyUpstreamAttempt, ProxyRequest } from '@/lib/transport'
 import { cn } from '@/lib/utils'
 import { CopyButton, CopyAsCurlButton, DiffButton, EmptyState } from './components'
@@ -68,6 +69,7 @@ export function RequestDetailPanel({
   sessionMap,
   tokenMap,
 }: RequestDetailPanelProps) {
+  const { t } = useTranslation()
   const selectedAttempt =
     selection.type === 'attempt'
       ? attempts?.find(a => a.id === selection.attemptId)
@@ -92,7 +94,7 @@ export function RequestDetailPanel({
   if (!selectedAttempt) {
     return (
       <EmptyState
-        message="Select an attempt to view details"
+        message={t('requests.selectAttempt')}
         icon={<Server className="h-12 w-12 mb-4 opacity-10" />}
       />
     )
@@ -115,8 +117,8 @@ export function RequestDetailPanel({
               {providerMap.get(selectedAttempt.providerID) ||
                 `Provider #${selectedAttempt.providerID}`}
             </h3>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-              <span>Attempt #{selectedAttempt.id}</span>
+            <div className="flex items-center gap-3 text-xs text-text-secondary mt-0.5">
+              <span>{t('requests.attemptId', { id: selectedAttempt.id })}</span>
               {selectedAttempt.mappedModel && selectedAttempt.requestModel !== selectedAttempt.mappedModel && (
                 <span className="text-muted-foreground">
                   <span className="text-muted-foreground">{selectedAttempt.requestModel}</span>
@@ -175,13 +177,12 @@ export function RequestDetailPanel({
                         upstreamContent={formatJSON(
                           selectedAttempt.requestInfo.headers
                         )}
-                        title="Compare Headers - Client vs Upstream"
+                        title={t('requests.compareHeaders')}
                       />
                       <CopyButton
                         content={formatJSON(
-                          selectedAttempt.requestInfo.headers
+                        selectedAttempt.requestInfo.headers
                         )}
-                        label="Copy"
                       />
                     </div>
                   </div>
@@ -226,7 +227,7 @@ export function RequestDetailPanel({
                               return selectedAttempt.requestInfo.body
                             }
                           })()}
-                          title="Compare Body - Client vs Upstream"
+                          title={t('requests.compareBody')}
                         />
                         <CopyButton
                           content={(() => {
@@ -238,7 +239,6 @@ export function RequestDetailPanel({
                               return selectedAttempt.requestInfo.body
                             }
                           })()}
-                          label="Copy"
                         />
                       </div>
                     </div>
@@ -268,7 +268,7 @@ export function RequestDetailPanel({
               </div>
             </div>
           ) : (
-            <EmptyState message="No request data available" />
+            <EmptyState message={t('requests.noRequestData')} />
           )}
       </TabsContent>
 
@@ -299,8 +299,7 @@ export function RequestDetailPanel({
                     </h5>
                     <CopyButton
                       content={formatJSON(selectedAttempt.responseInfo.headers)}
-                      label="Copy"
-                    />
+                     />
                   </div>
                   <div className="flex-1 rounded-lg border border-border bg-muted/50 dark:bg-muted/30 p-4 overflow-auto shadow-inner relative group min-h-0">
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -333,7 +332,6 @@ export function RequestDetailPanel({
                             return selectedAttempt.responseInfo.body
                           }
                         })()}
-                        label="Copy"
                       />
                     </div>
                     <div className="flex-1 rounded-lg border border-border bg-muted/50 dark:bg-muted/30 p-4 overflow-auto shadow-inner relative group min-h-0">
@@ -362,7 +360,7 @@ export function RequestDetailPanel({
               </div>
             </div>
           ) : (
-            <EmptyState message="No response data available" />
+            <EmptyState message={t('requests.noResponseData')} />
           )}
       </TabsContent>
 

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
@@ -30,60 +31,51 @@ interface CooldownDetailsDialogProps {
   isDisabling: boolean
 }
 
-// Reason 中文说明和图标
-const REASON_INFO: Record<
-  CooldownReason,
-  {
-    label: string
-    description: string
-    icon: typeof Server
-    color: string
-    bgColor: string
-  }
-> = {
+// Reason 信息和图标 - 使用翻译
+const getReasonInfo = (t: (key: string) => string) => ({
   server_error: {
-    label: '服务器错误',
-    description: '上游服务器返回 5xx 错误，系统自动进入冷却保护',
+    label: t('provider.reasons.serverError'),
+    description: t('provider.reasons.serverErrorDesc', '上游服务器返回 5xx 错误，系统自动进入冷却保护'),
     icon: Server,
     color: 'text-red-400',
     bgColor: 'bg-red-400/10 border-red-400/20',
   },
   network_error: {
-    label: '网络错误',
-    description: '无法连接到上游服务器，可能是网络故障或服务器宕机',
+    label: t('provider.reasons.networkError'),
+    description: t('provider.reasons.networkErrorDesc', '无法连接到上游服务器，可能是网络故障或服务器宕机'),
     icon: Wifi,
     color: 'text-amber-400',
     bgColor: 'bg-amber-400/10 border-amber-400/20',
   },
   quota_exhausted: {
-    label: '配额耗尽',
-    description: 'API 配额已用完，等待配额重置',
+    label: t('provider.reasons.quotaExhausted'),
+    description: t('provider.reasons.quotaExhaustedDesc', 'API 配额已用完，等待配额重置'),
     icon: AlertCircle,
     color: 'text-red-400',
     bgColor: 'bg-red-400/10 border-red-400/20',
   },
   rate_limit_exceeded: {
-    label: '速率限制',
-    description: '请求速率超过限制，触发了速率保护',
+    label: t('provider.reasons.rateLimitExceeded'),
+    description: t('provider.reasons.rateLimitExceededDesc', '请求速率超过限制，触发了速率保护'),
     icon: Zap,
     color: 'text-yellow-400',
     bgColor: 'bg-yellow-400/10 border-yellow-400/20',
   },
   concurrent_limit: {
-    label: '并发限制',
-    description: '并发请求数超过限制',
+    label: t('provider.reasons.concurrentLimit'),
+    description: t('provider.reasons.concurrentLimitDesc', '并发请求数超过限制'),
     icon: Ban,
     color: 'text-orange-400',
     bgColor: 'bg-orange-400/10 border-orange-400/20',
   },
   unknown: {
-    label: '未知原因',
-    description: '因未知原因进入冷却状态',
+    label: t('provider.reasons.unknown'),
+    description: t('provider.reasons.unknownDesc', '因未知原因进入冷却状态'),
     icon: HelpCircle,
     color: 'text-muted-foreground',
     bgColor: 'bg-muted border-border',
   },
-}
+})
 
 export function CooldownDetailsDialog({
   cooldown,
@@ -94,6 +86,8 @@ export function CooldownDetailsDialog({
   onDisable,
   isDisabling,
 }: CooldownDetailsDialogProps) {
+  const { t, i18n } = useTranslation()
+  const REASON_INFO = getReasonInfo(t)
   // 获取 formatRemaining 函数用于实时倒计时
   const { formatRemaining } = useCooldowns()
 
@@ -124,7 +118,7 @@ export function CooldownDetailsDialog({
 
   const formatUntilTime = (until: string) => {
     const date = new Date(until)
-    return date.toLocaleString('zh-CN', {
+    return date.toLocaleString(i18n.resolvedLanguage ?? i18n.language, {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
@@ -160,8 +154,8 @@ export function CooldownDetailsDialog({
               />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-foreground">
-                冷却保护中
+              <h2 className="text-xl font-bold text-text-primary">
+                {t('cooldown.title')}
               </h2>
               <p className="text-xs text-cyan-500/80 font-medium uppercase tracking-wider mt-1">
                 Frozen Protocol Active
@@ -267,7 +261,7 @@ export function CooldownDetailsDialog({
                       className="text-cyan-400 group-hover:text-white transition-colors"
                     />
                     <span className="text-sm font-bold text-cyan-400 group-hover:text-white transition-colors">
-                      立即解冻 (Force Thaw)
+                      {t('cooldown.forceThaw')}
                     </span>
                   </>
                 )}
@@ -284,12 +278,12 @@ export function CooldownDetailsDialog({
               ) : (
                 <Ban size={16} />
               )}
-              {isDisabling ? 'Disabling...' : '禁用此路由 (Disable Route)'}
+              {isDisabling ? t('cooldown.disabling') : t('cooldown.disableRoute')}
             </button>
 
             <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-2.5 text-[11px] text-muted-foreground">
               <Activity size={12} className="mt-0.5 shrink-0" />
-              <p>强制解冻可能导致请求因根本原因未解决而再次失败。</p>
+              <p>{t('cooldown.forceThawWarning')}</p>
             </div>
           </div>
         </div>

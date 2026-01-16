@@ -66,6 +66,7 @@ export interface Transport {
   createRoute(data: CreateRouteData): Promise<Route>;
   updateRoute(id: number, data: Partial<Route>): Promise<Route>;
   deleteRoute(id: number): Promise<void>;
+  batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void>;
 
   // ===== Session API =====
   getSessions(): Promise<Session[]>;

@@ -5,12 +5,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import type { Project } from '@/lib/transport';
 import { Loader2, Save, Copy, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface OverviewTabProps {
   project: Project;
 }
 
 export function OverviewTab({ project }: OverviewTabProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const updateProject = useUpdateProject();
@@ -54,12 +56,12 @@ export function OverviewTab({ project }: OverviewTabProps) {
       {/* Project Info */}
       <Card className="border-border bg-card">
         <CardHeader>
-          <CardTitle className="text-base">Project Information</CardTitle>
+          <CardTitle className="text-base">{t('projects.information')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label htmlFor="name" className="text-sm font-medium text-foreground">Name</label>
+              <label htmlFor="name" className="text-sm font-medium text-text-primary">{t('projects.name')}</label>
               <Input
                 id="name"
                 value={name}
@@ -68,30 +70,30 @@ export function OverviewTab({ project }: OverviewTabProps) {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="slug" className="text-sm font-medium text-foreground">Slug</label>
+              <label htmlFor="slug" className="text-sm font-medium text-text-primary">{t('projects.slug')}</label>
               <Input
                 id="slug"
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
-                className="bg-muted border-border font-mono"
-                placeholder="project-slug"
+                className="bg-surface-secondary border-border font-mono"
+                placeholder={t('projects.slugPlaceholder')}
               />
-              <p className="text-xs text-muted-foreground">
-                Used in URLs and proxy paths
+              <p className="text-xs text-text-muted">
+                {t('projects.slugDesc')}
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-muted-foreground">Created:</span>{' '}
-              <span className="text-foreground">
+              <span className="text-text-secondary">{t('projects.created')}</span>{' '}
+              <span className="text-text-primary">
                 {new Date(project.createdAt).toLocaleString()}
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground">Updated:</span>{' '}
-              <span className="text-foreground">
+              <span className="text-text-secondary">{t('projects.updated')}</span>{' '}
+              <span className="text-text-primary">
                 {new Date(project.updatedAt).toLocaleString()}
               </span>
             </div>
@@ -105,7 +107,7 @@ export function OverviewTab({ project }: OverviewTabProps) {
                 ) : (
                   <Save className="mr-2 h-4 w-4" />
                 )}
-                Save Changes
+                {t('projects.saveChanges')}
               </Button>
             </div>
           )}
@@ -115,17 +117,16 @@ export function OverviewTab({ project }: OverviewTabProps) {
       {/* Proxy Configuration */}
       <Card className="border-border bg-card">
         <CardHeader>
-          <CardTitle className="text-base">Proxy Configuration</CardTitle>
+          <CardTitle className="text-base">{t('projects.proxyConfig')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Use this base URL to route requests through this project's configuration.
-            The protocol (Claude, OpenAI, Gemini) is automatically detected.
+          <p className="text-sm text-text-secondary">
+            {t('projects.proxyConfigDesc')}
           </p>
 
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-foreground w-20">Base URL:</span>
-            <code className="flex-1 text-xs bg-muted px-3 py-2 rounded border border-border text-foreground font-mono">
+            <span className="text-sm font-medium text-text-primary w-20">{t('projects.baseUrl')}</span>
+            <code className="flex-1 text-xs bg-surface-secondary px-3 py-2 rounded border border-border text-text-primary font-mono">
               {projectBaseUrl}
             </code>
             <Button

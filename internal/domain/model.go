@@ -152,6 +152,12 @@ type Route struct {
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
+// RoutePositionUpdate represents a route position update
+type RoutePositionUpdate struct {
+	ID       uint64 `json:"id"`
+	Position int    `json:"position"`
+}
+
 type RequestInfo struct {
 	Method  string            `json:"method"`
 	Headers map[string]string `json:"headers"`

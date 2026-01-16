@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
+import { useTranslation } from 'react-i18next';
 import { OverviewPage } from '@/pages/overview';
 import { RequestsPage } from '@/pages/requests';
 import { RequestDetailPage } from '@/pages/requests/detail';
@@ -18,12 +19,13 @@ import { APITokensPage } from '@/pages/api-tokens';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 
 function AppRoutes() {
+  const { t } = useTranslation();
   const { isAuthenticated, isLoading, login } = useAuth();
 
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <span className="text-muted-foreground">Loading...</span>
+        <span className="text-muted-foreground">{t('common.loading')}</span>
       </div>
     );
   }

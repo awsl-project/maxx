@@ -8,8 +8,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Button } from '../ui'
+import { useTranslation } from 'react-i18next'
 
 export function NavProxyStatus() {
+  const { t } = useTranslation()
   const { data: proxyStatus } = useProxyStatus()
   const { state } = useSidebar()
   const [copied, setCopied] = useState(false)
@@ -50,10 +52,10 @@ export function NavProxyStatus() {
         </TooltipTrigger>
         <TooltipContent side="right" align="center">
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">Listening on</span>
+            <span className="text-xs text-text-muted">{t('proxy.listeningOn')}</span>
             <span className="font-mono font-medium">{proxyAddress}</span>
             <span className="text-xs text-emerald-400">
-              {copied ? 'Copied!' : 'Click to copy'}
+              {copied ? t('proxy.copied') : t('proxy.clickToCopy')}
             </span>
           </div>
         </TooltipContent>
@@ -72,8 +74,8 @@ export function NavProxyStatus() {
         <Radio size={16} className="text-emerald-400" />
       </div>
       <div className="flex flex-col items-start flex-1 min-w-0">
-        <span className="text-caption text-muted-foreground">Listening on</span>
-        <span className="font-mono font-medium text-foreground truncate">
+        <span className="text-caption text-text-muted">{t('proxy.listeningOn')}</span>
+        <span className="font-mono font-medium text-text-primary  truncate">
           {proxyAddress}
         </span>
       </div>

@@ -2,12 +2,14 @@ import { Card, CardContent, Table, TableBody, TableCell, TableHead, TableHeader,
 import { useSessions } from '@/hooks/queries';
 import type { Project } from '@/lib/transport';
 import { Loader2, Users } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface SessionsTabProps {
   project: Project;
 }
 
 export function SessionsTab({ project }: SessionsTabProps) {
+  const { t } = useTranslation();
   const { data: allSessions, isLoading } = useSessions();
 
   // Filter sessions for this project
@@ -24,9 +26,9 @@ export function SessionsTab({ project }: SessionsTabProps) {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h3 className="text-lg font-medium text-foreground">Project Sessions</h3>
-        <p className="text-sm text-muted-foreground">
-          Active sessions using this project's configuration
+        <h3 className="text-lg font-medium text-text-primary">{t('sessions.projectSessions')}</h3>
+        <p className="text-sm text-text-secondary">
+          {t('sessions.description')}
         </p>
       </div>
 
@@ -35,10 +37,10 @@ export function SessionsTab({ project }: SessionsTabProps) {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent border-border">
-                <TableHead className="w-[100px] text-muted-foreground">ID</TableHead>
-                <TableHead className="text-muted-foreground">Session ID</TableHead>
-                <TableHead className="text-muted-foreground">Client Type</TableHead>
-                <TableHead className="text-muted-foreground">Created</TableHead>
+                <TableHead className="w-[100px] text-text-secondary">{t('sessions.id')}</TableHead>
+                <TableHead className="text-text-secondary">{t('sessions.sessionId')}</TableHead>
+                <TableHead className="text-text-secondary">{t('sessions.clientType')}</TableHead>
+                <TableHead className="text-text-secondary">{t('sessions.created')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

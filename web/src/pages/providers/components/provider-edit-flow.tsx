@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Globe, ChevronLeft, Key, Check, Trash2, Shuffle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ type EditFormData = {
 }
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
+  const { t } = useTranslation()
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>(
@@ -213,13 +215,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             variant={'default'}
           >
             {saving ? (
-              'Saving...'
+              t('common.saving')
             ) : saveStatus === 'success' ? (
               <>
-                <Check size={14} /> Saved
+                <Check size={14} /> {t('common.saved')}
               </>
             ) : (
-              'Save Changes'
+              t('provider.saveChanges')
             )}
           </Button>
         </div>
@@ -243,7 +245,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   onChange={e =>
                     setFormData(prev => ({ ...prev, name: e.target.value }))
                   }
-                  placeholder="My Provider"
+                  placeholder={t('provider.namePlaceholder')}
                   className="w-full"
                 />
               </div>
@@ -265,7 +267,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                         baseURL: e.target.value,
                       }))
                     }
-                    placeholder="https://api.example.com/v1"
+                    placeholder={t('provider.endpointPlaceholder')}
                     className="w-full"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
@@ -286,7 +288,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     onChange={e =>
                       setFormData(prev => ({ ...prev, apiKey: e.target.value }))
                     }
-                    placeholder="••••••••"
+                    placeholder={t('provider.keyPlaceholder')}
                     className="w-full"
                   />
                 </div>
@@ -380,7 +382,7 @@ function DeleteConfirmModal({
             variant={'destructive'}
             className="px-4"
           >
-            {deleting ? 'Deleting...' : 'Delete'}
+            {deleting ? t('common.deleting') : t('common.delete')}
           </Button>
         </DialogFooter>
       </DialogContent>

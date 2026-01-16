@@ -73,6 +73,14 @@ func (r *RouteRepository) Delete(id uint64) error {
 	return nil
 }
 
+func (r *RouteRepository) BatchUpdatePositions(updates []domain.RoutePositionUpdate) error {
+	if err := r.repo.BatchUpdatePositions(updates); err != nil {
+		return err
+	}
+	// Reload cache to reflect position changes
+	return r.Load()
+}
+
 func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {
 	r.mu.RLock()
 	for _, rt := range r.cache {

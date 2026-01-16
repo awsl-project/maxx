@@ -15,6 +15,7 @@ import type { KiroTokenValidationResult, CreateProviderData } from '@/lib/transp
 import { KIRO_COLOR } from '../types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useTranslation } from 'react-i18next'
 
 interface KiroTokenImportProps {
   onBack: () => void
@@ -25,6 +26,7 @@ export function KiroTokenImport({
   onBack,
   onCreateProvider,
 }: KiroTokenImportProps) {
+  const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [token, setToken] = useState('')
   const [validating, setValidating] = useState(false)
@@ -48,10 +50,10 @@ export function KiroTokenImport({
       const result = await getTransport().validateKiroSocialToken(token.trim())
       setValidationResult(result)
       if (!result.valid) {
-        setError(result.error || 'Token validation failed')
+        setError(result.error || t('provider.tokenValidationFailed'))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Validation failed')
+      setError(err instanceof Error ? err.message : t('provider.validationFailed'))
     } finally {
       setValidating(false)
     }

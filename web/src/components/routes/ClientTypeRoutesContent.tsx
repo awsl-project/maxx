@@ -30,7 +30,9 @@ import {
   useDeleteRoute,
   useUpdateRoutePositions,
   useProviderStats,
+  routeKeys,
 } from '@/hooks/queries'
+import { useQueryClient } from '@tanstack/react-query'
 import { useStreamingRequests } from '@/hooks/use-streaming'
 import { getClientName, getClientColor } from '@/components/icons/client-icons'
 import { getProviderColor, type ProviderType } from '@/lib/theme'
@@ -53,6 +55,7 @@ export function ClientTypeRoutesContent({
 }: ClientTypeRoutesContentProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const { data: providerStats = {} } = useProviderStats(clientType, projectID)
+  const queryClient = useQueryClient()
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -164,7 +167,7 @@ export function ClientTypeRoutesContent({
     setActiveId(event.active.id as string)
   }
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     setActiveId(null)
 
@@ -177,23 +180,7 @@ export function ClientTypeRoutesContent({
 
     const newItems = arrayMove(items, oldIndex, newIndex)
 
-    // Create missing routes
-    for (let i = 0; i < newItems.length; i++) {
-      const item = newItems[i]
-      if (!item.route) {
-        await createRoute.mutateAsync({
-          isEnabled: false,
-          isNative: item.isNative,
-          projectID,
-          clientType,
-          providerID: item.provider.id,
-          position: i + 1,
-          retryConfigID: 0,
-        })
-      }
-    }
-
-    // Update positions
+    // Update positions for all items
     const updates: Record<number, number> = {}
     newItems.forEach((item, i) => {
       if (item.route) {
@@ -202,7 +189,25 @@ export function ClientTypeRoutesContent({
     })
 
     if (Object.keys(updates).length > 0) {
-      updatePositions.mutate(updates)
+      // 乐观更新：立即更新本地缓存
+      queryClient.setQueryData(routeKeys.list(), (oldRoutes: typeof allRoutes) => {
+        if (!oldRoutes) return oldRoutes
+        return oldRoutes.map(route => {
+          const newPosition = updates[route.id]
+          if (newPosition !== undefined) {
+            return { ...route, position: newPosition }
+          }
+          return route
+        })
+      })
+
+      // 发送 API 请求
+      updatePositions.mutate(updates, {
+        onError: () => {
+          // 失败时回滚：重新获取服务器数据
+          queryClient.invalidateQueries({ queryKey: routeKeys.list() })
+        },
+      })
     }
   }
 
@@ -229,7 +234,7 @@ export function ClientTypeRoutesContent({
               onDragEnd={handleDragEnd}
             >
               <SortableContext
-                items={items}
+                items={items.map(item => item.id)}
                 strategy={verticalListSortingStrategy}
               >
                 <div className="space-y-2">

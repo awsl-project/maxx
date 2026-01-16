@@ -203,6 +203,10 @@ func (s *AdminService) UpdateRoute(route *domain.Route) error {
 	return s.routeRepo.Update(route)
 }
 
+func (s *AdminService) BatchUpdateRoutePositions(updates []domain.RoutePositionUpdate) error {
+	return s.routeRepo.BatchUpdatePositions(updates)
+}
+
 func (s *AdminService) DeleteRoute(id uint64) error {
 	return s.routeRepo.Delete(id)
 }

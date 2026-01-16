@@ -62,9 +62,36 @@ func (r *RouteRepository) Update(route *domain.Route) error {
 	return err
 }
 
-func (r *RouteRepository) Delete(id uint64) error {
+	func (r *RouteRepository) Delete(id uint64) error {
 	_, err := r.db.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
 	return err
+}
+
+func (r *RouteRepository) BatchUpdatePositions(updates []domain.RoutePositionUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	stmt, err := tx.Prepare(`UPDATE routes SET position = ?, updated_at = ? WHERE id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, update := range updates {
+		if _, err := stmt.Exec(update.Position, now, update.ID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {

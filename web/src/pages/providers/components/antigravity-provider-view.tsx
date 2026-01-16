@@ -10,6 +10,7 @@ import {
   Shuffle,
   Check,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { ClientIcon } from '@/components/icons/client-icons'
 import type {
   Provider,
@@ -44,13 +45,15 @@ function getQuotaColor(percentage: number): string {
 }
 
 // 格式化重置时间
-function formatResetTime(resetTime: string): string {
+function formatResetTime(resetTime: string, t: (key: string) => string): string {
+  if (!resetTime) return t('proxy.comingSoon')
+  
   try {
     const reset = new Date(resetTime)
     const now = new Date()
     const diff = reset.getTime() - now.getTime()
-
-    if (diff <= 0) return 'Soon'
+  
+    if (diff <= 0) return t('proxy.comingSoon')
 
     const hours = Math.floor(diff / (1000 * 60 * 60))
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
@@ -98,7 +101,7 @@ function ModelQuotaCard({ model }: { model: AntigravityModelQuota }) {
         </span>
         <span className="text-xs text-muted-foreground flex items-center gap-1">
           <Clock size={12} />
-          {formatResetTime(model.resetTime)}
+          {t('proxy.resetsIn')} {formatResetTime(model.resetTime, t)}
         </span>
       </div>
       <div className="flex items-center gap-3">
@@ -121,6 +124,7 @@ export function AntigravityProviderView({
   onDelete,
   onClose,
 }: AntigravityProviderViewProps) {
+  const { t } = useTranslation()
   const [quota, setQuota] = useState<AntigravityQuotaData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -355,13 +359,13 @@ export function AntigravityProviderView({
                   size="sm"
                 >
                   {savingMapping ? (
-                    'Saving...'
+                    t('common.saving')
                   ) : mappingSaveStatus === 'success' ? (
                     <>
-                      <Check size={14} /> Saved
+                      <Check size={14} /> {t('common.saved')}
                     </>
                   ) : (
-                    'Save Changes'
+                    t('provider.saveChanges')
                   )}
                 </Button>
               )}

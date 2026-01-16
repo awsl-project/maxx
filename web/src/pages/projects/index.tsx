@@ -76,7 +76,7 @@ export function ProjectsPage() {
             <CardContent className="pt-6">
               <form onSubmit={handleSubmit} className="flex gap-4 items-end">
                 <div className="flex-1 space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
                     {t('projects.projectName')}
                   </label>
                   <Input
@@ -109,42 +109,41 @@ export function ProjectsPage() {
             {projects.map(project => (
               <Card
                 key={project.id}
-                className="group border-border bg-card cursor-pointer hover:border-accent/50 hover:shadow-card-hover transition-all duration-200 flex flex-col"
+                className="group border-border bg-surface-primary cursor-pointer hover:border-accent/50 hover:shadow-card-hover transition-all duration-200 flex flex-col"
                 onClick={() => handleRowClick(project.slug)}
               >
-                <CardHeader className="pb-3 space-y-0">
-                  <div className="flex justify-between items-start">
-                    <div className="p-2 bg-muted rounded-md text-muted-foreground group-hover:text-accent group-hover:bg-accent/10 transition-colors">
-                      <FolderKanban size={20} />
+                <CardHeader className="pb-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 rounded-lg text-amber-500 bg-amber-500/10 group-hover:bg-amber-500/20 transition-colors">
+                      <FolderKanban size={18} />
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded bg-muted text-muted-foreground">
+                      <Hash size={10} />
+                      <span className="truncate">{project.slug}</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded bg-muted text-muted-foreground">
                       <Hash size={10} />
                       <span className="truncate">{project.slug}</span>
                     </div>
                   </div>
-                  <CardTitle className="pt-3 text-base font-semibold text-foreground leading-tight truncate">
+                  <CardTitle className="text-base font-semibold leading-tight truncate">
                     {project.name}
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="pt-0 flex-1">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded border border-transparent group-hover:border-border transition-colors">
-                    <Hash size={12} className="opacity-50" />
-                    <span className="font-mono truncate">{project.slug}</span>
-                  </div>
-                </CardContent>
-                <CardFooter className="pt-0 text-xs text-muted-foreground flex justify-between items-center border-t border-border/50 mt-auto p-4 bg-muted/20">
-                  <span>
-                    {new Date(project.createdAt).toLocaleDateString(
-                      i18n.resolvedLanguage ?? i18n.language,
-                      {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      }
-                    )}
-                  </span>
-                  <div className="flex items-center text-accent opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200 font-medium">
-                    {t('projects.manage')} <ArrowRight size={12} className="ml-1" />
+                <CardContent className="pt-0 flex-1" />
+                <CardFooter className="pt-0 pb-4 text-xs flex justify-between items-center text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    <Calendar size={12} />
+                    <span>
+                      {new Date(project.createdAt).toLocaleDateString(
+                        i18n.resolvedLanguage ?? i18n.language,
+                        {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        }
+                      )}
+                    </span>
                   </div>
                 </CardFooter>
               </Card>

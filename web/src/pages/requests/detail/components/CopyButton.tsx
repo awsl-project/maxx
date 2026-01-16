@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui'
 import { Copy, Check } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 interface CopyButtonProps {
   content: string
   label?: string
 }
 
-export function CopyButton({ content, label = 'Copy' }: CopyButtonProps) {
+export function CopyButton({ content, label }: CopyButtonProps) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -30,12 +32,12 @@ export function CopyButton({ content, label = 'Copy' }: CopyButtonProps) {
       {copied ? (
         <>
           <Check className="h-3 w-3" />
-          Copied
+          {t('common.copied')}
         </>
       ) : (
         <>
           <Copy className="h-3 w-3" />
-          {label}
+          {label || t('common.copy')}
         </>
       )}
     </Button>

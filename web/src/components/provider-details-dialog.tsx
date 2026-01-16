@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Snowflake,
   Clock,
@@ -47,65 +48,56 @@ interface ProviderDetailsDialogProps {
   isClearingCooldown?: boolean
 }
 
-// Reason 中文说明和图标
-const REASON_INFO: Record<
-  CooldownReason,
-  {
-    label: string
-    description: string
-    icon: typeof Server
-    color: string
-    bgColor: string
-  }
-> = {
+// Reason 信息和图标 - 使用翻译
+const getReasonInfo = (t: (key: string) => string) => ({
   server_error: {
-    label: '服务器错误',
-    description: '上游服务器返回 5xx 错误，系统自动进入冷却保护',
+    label: t('provider.reasons.serverError'),
+    description: t('provider.reasons.serverErrorDesc', '上游服务器返回 5xx 错误，系统自动进入冷却保护'),
     icon: Server,
     color: 'text-rose-500 dark:text-rose-400',
     bgColor:
       'bg-rose-500/10 dark:bg-rose-500/15 border-rose-500/30 dark:border-rose-500/25',
   },
   network_error: {
-    label: '网络错误',
-    description: '无法连接到上游服务器，可能是网络故障或服务器宕机',
+    label: t('provider.reasons.networkError'),
+    description: t('provider.reasons.networkErrorDesc', '无法连接到上游服务器，可能是网络故障或服务器宕机'),
     icon: Wifi,
     color: 'text-amber-600 dark:text-amber-400',
     bgColor:
       'bg-amber-500/10 dark:bg-amber-500/15 border-amber-500/30 dark:border-amber-500/25',
   },
   quota_exhausted: {
-    label: '配额耗尽',
-    description: 'API 配额已用完，等待配额重置',
+    label: t('provider.reasons.quotaExhausted'),
+    description: t('provider.reasons.quotaExhaustedDesc', 'API 配额已用完，等待配额重置'),
     icon: AlertCircle,
     color: 'text-rose-500 dark:text-rose-400',
     bgColor:
       'bg-rose-500/10 dark:bg-rose-500/15 border-rose-500/30 dark:border-rose-500/25',
   },
   rate_limit_exceeded: {
-    label: '速率限制',
-    description: '请求速率超过限制，触发了速率保护',
+    label: t('provider.reasons.rateLimitExceeded'),
+    description: t('provider.reasons.rateLimitExceededDesc', '请求速率超过限制，触发了速率保护'),
     icon: Zap,
     color: 'text-yellow-600 dark:text-yellow-400',
     bgColor:
       'bg-yellow-500/10 dark:bg-yellow-500/15 border-yellow-500/30 dark:border-yellow-500/25',
   },
   concurrent_limit: {
-    label: '并发限制',
-    description: '并发请求数超过限制',
+    label: t('provider.reasons.concurrentLimit'),
+    description: t('provider.reasons.concurrentLimitDesc', '并发请求数超过限制'),
     icon: Ban,
     color: 'text-orange-600 dark:text-orange-400',
     bgColor:
       'bg-orange-500/10 dark:bg-orange-500/15 border-orange-500/30 dark:border-orange-500/25',
   },
   unknown: {
-    label: '未知原因',
-    description: '因未知原因进入冷却状态',
+    label: t('provider.reasons.unknown'),
+    description: t('provider.reasons.unknownDesc', '因未知原因进入冷却状态'),
     icon: HelpCircle,
     color: 'text-muted-foreground',
     bgColor: 'bg-muted/50 border-border',
   },
-}
+})
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -152,6 +144,8 @@ export function ProviderDetailsDialog({
   onClearCooldown,
   isClearingCooldown,
 }: ProviderDetailsDialogProps) {
+  const { t, i18n } = useTranslation()
+  const REASON_INFO = getReasonInfo(t)
   const { formatRemaining } = useCooldowns()
 
   // 计算初始倒计时值
@@ -180,7 +174,7 @@ export function ProviderDetailsDialog({
 
   const formatUntilTime = (until: string) => {
     const date = new Date(until)
-    return date.toLocaleString('zh-CN', {
+    return date.toLocaleString(i18n.resolvedLanguage ?? i18n.language, {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
@@ -194,7 +188,7 @@ export function ProviderDetailsDialog({
     provider.config?.custom?.clientBaseURL?.[clientType] ||
     provider.config?.custom?.baseURL ||
     provider.config?.antigravity?.endpoint ||
-    'Default endpoint'
+    t('provider.defaultEndpoint')
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -221,7 +215,7 @@ export function ProviderDetailsDialog({
                     : 'text-muted-foreground'
                 )}
               >
-                {enabled ? 'ON' : 'OFF'}
+                {enabled ? t('provider.status.on') : t('provider.status.off')}
               </span>
               <Switch
                 checked={enabled}
@@ -351,12 +345,12 @@ export function ProviderDetailsDialog({
                       {isClearingCooldown ? (
                         <>
                           <div className="h-4 w-4 animate-spin rounded-full border-2 border-teal-400/30 border-t-teal-400" />
-                          <span className="text-sm font-bold ">Thawing...</span>
+                          <span className="text-sm font-bold ">{t('provider.thawing')}</span>
                         </>
                       ) : (
                         <>
                           <Zap size={16} />
-                          立即解冻
+                          {t('provider.forceThaw')}
                         </>
                       )}
                     </div>
@@ -370,7 +364,7 @@ export function ProviderDetailsDialog({
                     className="w-full flex items-center justify-center gap-2 rounded-xl border border-rose-500/30 dark:border-rose-500/25 bg-rose-500/5 dark:bg-rose-500/10 hover:bg-rose-500/10 dark:hover:bg-rose-500/15 px-4 py-2.5 text-sm font-medium text-rose-600 dark:text-rose-400 transition-colors"
                   >
                     <Trash2 size={14} />
-                    删除此路由
+                    {t('provider.deleteRoute')}
                   </Button>
                 )}
 
@@ -378,7 +372,7 @@ export function ProviderDetailsDialog({
                 {isInCooldown && (
                   <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-2.5 text-[11px] text-muted-foreground">
                     <Activity size={12} className="mt-0.5 shrink-0" />
-                    <p>强制解冻可能导致请求因根本原因未解决而再次失败。</p>
+                    <p>{t('provider.forceThawWarning')}</p>
                   </div>
                 )}
               </div>
@@ -391,7 +385,7 @@ export function ProviderDetailsDialog({
                 <div className="rounded-xl border p-4 space-y-3">
                   <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400">
                     <Snowflake size={16} className="animate-spin-slow" />
-                    <span className="text-sm font-bold">冷却保护激活</span>
+                    <span className="text-sm font-bold">{t('provider.cooldownActive')}</span>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

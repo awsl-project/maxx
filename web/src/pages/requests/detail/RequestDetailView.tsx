@@ -10,6 +10,7 @@ import {
   TabsContent,
 } from '@/components/ui'
 import { Code, Database, Info, Zap } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { ProxyRequest, ClientType } from '@/lib/transport'
 import { cn } from '@/lib/utils'
 import {
@@ -42,6 +43,7 @@ export function RequestDetailView({
   projectMap,
   tokenName,
 }: RequestDetailViewProps) {
+  const { t } = useTranslation()
   return (
     <Tabs
       value={activeTab}
@@ -65,9 +67,9 @@ export function RequestDetailView({
             <h3 className="text-sm font-medium text-foreground">
               {getClientName(request.clientType as ClientType)} Request
             </h3>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-              <span>Request #{request.id}</span>
-              <span className="text-muted-foreground">·</span>
+            <div className="flex items-center gap-3 text-xs text-text-secondary mt-0.5">
+              <span>{t('requests.requestId', { id: request.id })}</span>
+              <span className="text-text-muted">·</span>
               <span>{request.requestModel}</span>
               {request.cost > 0 && (
                 <span className="text-blue-400 font-medium">
@@ -81,13 +83,13 @@ export function RequestDetailView({
         {/* Detail Tabs */}
         <TabsList>
           <TabsTrigger value="request" className={'border-none'}>
-            Request
+            {t('requests.tabs.request')}
           </TabsTrigger>
           <TabsTrigger value="response" className={'border-none'}>
-            Response
+            {t('requests.tabs.response')}
           </TabsTrigger>
           <TabsTrigger value="metadata" className={'border-none'}>
-            Metadata
+            {t('requests.tabs.metadata')}
           </TabsTrigger>
         </TabsList>
       </div>
@@ -117,7 +119,7 @@ export function RequestDetailView({
                   </h5>
                   <CopyButton
                     content={formatJSON(request.requestInfo.headers)}
-                    label="Copy"
+                    label={t('common.copy')}
                   />
                 </div>
                 <div className="flex-1 rounded-lg border border-border bg-muted/50 dark:bg-muted/30 p-4 overflow-auto shadow-inner relative group min-h-0">
@@ -151,7 +153,7 @@ export function RequestDetailView({
                           return request.requestInfo.body
                         }
                       })()}
-                      label="Copy"
+                      label={t('common.copy')}
                     />
                   </div>
                   <div className="flex-1 rounded-lg border border-border bg-muted/50 dark:bg-muted/30 p-4 overflow-auto shadow-inner relative group min-h-0">
@@ -180,7 +182,7 @@ export function RequestDetailView({
             </div>
           </div>
         ) : (
-          <EmptyState message="No request data available" />
+          <EmptyState message={t('requests.noRequestData')} />
         )}
       </TabsContent>
 
@@ -214,7 +216,7 @@ export function RequestDetailView({
                   </h5>
                   <CopyButton
                     content={formatJSON(request.responseInfo.headers)}
-                    label="Copy"
+                    label={t('common.copy')}
                   />
                 </div>
                 <div className="flex-1 rounded-lg border border-border bg-muted/50 dark:bg-muted/30 p-4 overflow-auto shadow-inner relative group min-h-0">
@@ -248,7 +250,7 @@ export function RequestDetailView({
                           return request.responseInfo.body
                         }
                       })()}
-                      label="Copy"
+                      label={t('common.copy')}
                     />
                   </div>
                   <div className="flex-1 rounded-lg border border-border bg-muted/50 dark:bg-muted/30 p-4 overflow-auto shadow-inner relative group min-h-0">
@@ -277,7 +279,7 @@ export function RequestDetailView({
             </div>
           </div>
         ) : (
-          <EmptyState message="No response data available" />
+          <EmptyState message={t('requests.noResponseData')} />
         )}
       </TabsContent>
 

@@ -236,5 +236,230 @@
     "openai": "OpenAI",
     "codex": "Codex",
     "gemini": "Gemini"
+  },
+  "apiTokens": {
+    "title": "API 令牌",
+    "description": "管理用于代理身份验证的 API 令牌",
+    "createToken": "创建令牌",
+    "noTokens": "暂无 API 令牌",
+    "noTokensHint": "创建令牌以进行代理请求身份验证",
+    "authEnabled": "API 令牌身份验证",
+    "authEnabledDesc": "代理请求需要有效的 API 令牌",
+    "enableAuth": "启用身份验证",
+    "disableAuth": "禁用",
+    "enableAuthPrompt": "启用 API 令牌身份验证以要求代理请求使用有效令牌。这通过确保只有授权客户端可以访问代理来增加额外的安全层。",
+    "tokenName": "名称",
+    "tokenPrefix": "令牌前缀",
+    "project": "项目",
+    "usage": "使用次数",
+    "lastUsed": "最后使用",
+    "never": "从未",
+    "active": "活跃",
+    "expired": "已过期",
+    "global": "全局",
+    "notSpecified": "未指定",
+    "createDialog": {
+      "title": "创建新 API 令牌",
+      "description": "创建令牌以进行代理请求身份验证。",
+      "namePlaceholder": "例如：Claude Code 令牌",
+      "descriptionPlaceholder": "可选描述",
+      "expiresAt": "过期时间",
+      "expiresAtHint": "留空表示永不过期"
+    },
+    "editDialog": {
+      "title": "编辑 API 令牌",
+      "description": "更新令牌设置。令牌值无法更改。"
+    },
+    "deleteDialog": {
+      "title": "删除 API 令牌",
+      "description": "确定要删除「{{name}}」吗？此操作无法撤销。使用此令牌的任何应用程序将无法再进行身份验证。"
+    },
+    "newTokenDialog": {
+      "title": "令牌创建成功",
+      "description": "请立即复制您的新 API 令牌。您将无法再次看到它！",
+      "tokenName": "令牌名称",
+      "apiToken": "API 令牌",
+      "warning": "此令牌仅显示一次。请确保现在复制它。",
+      "done": "完成"
+    },
+    "projectDialog": {
+      "title": "选择项目",
+      "description": "选择一个项目以限制此令牌的访问权限。",
+      "noProjects": "暂无可用项目",
+      "clearSelection": "清除选择"
+    }
+  },
+  "app": {
+    "title": "Maxx Next"
+  },
+  "provider": {
+    "status": {
+      "on": "开启",
+      "off": "关闭"
+    },
+    "thawing": "解冻中...",
+    "reasons": {
+      "serverError": "服务器错误",
+      "serverErrorDesc": "上游服务器返回 5xx 错误，系统自动进入冷却保护",
+      "networkError": "网络错误",
+      "networkErrorDesc": "无法连接到上游服务器，可能是网络故障或服务器宕机",
+      "quotaExhausted": "配额耗尽",
+      "quotaExhaustedDesc": "API 配额已用完，等待配额重置",
+      "rateLimitExceeded": "速率限制",
+      "rateLimitExceededDesc": "请求速率超过限制，触发了速率保护",
+      "concurrentLimit": "并发限制",
+      "concurrentLimitDesc": "并发请求数超过限制",
+      "unknown": "未知原因",
+      "unknownDesc": "未知错误原因"
+    },
+    "forceThaw": "立即解冻",
+    "deleteRoute": "删除此路由",
+    "forceThawWarning": "强制解冻可能导致请求因根本原因未解决而再次失败。",
+    "cooldownActive": "冷却保护激活",
+    "clients": "客户端:",
+    "notConfigured": "未配置",
+    "clearCooldown": "清除冷却",
+    "configure": "配置提供商",
+    "configureDescription": "设置您的自定义提供商连接",
+    "create": "创建提供商",
+    "basicInfo": "1. 基本信息",
+    "clientConfig": "2. 客户端配置",
+    "displayName": "显示名称",
+    "apiEndpoint": "API 端点",
+    "apiKey": "API 密钥",
+    "optionalUrlNote": "如果下面设置了客户端特定的 URL，则此项为可选。",
+    "namePlaceholder": "例如：Production OpenAI",
+    "endpointPlaceholder": "https://api.openai.com/v1",
+    "keyPlaceholder": "sk-...",
+    "createError": "创建提供商失败。请检查您的连接并重试。",
+    "saveChanges": "保存更改",
+    "none": "无",
+    "defaultEndpoint": "默认端点",
+    "validationFailed": "验证失败",
+    "tokenValidationFailed": "令牌验证失败"
+  },
+  "cooldown": {
+    "title": "冷却保护中",
+    "forceThaw": "立即解冻 (Force Thaw)",
+    "disableRoute": "禁用此路由 (Disable Route)",
+    "forceThawWarning": "强制解冻可能导致请求因根本原因未解决而再次失败。",
+    "disabling": "禁用中..."
+  },
+  "routes": {
+    "form": {
+      "clientType": "客户端类型",
+      "provider": "提供商",
+      "project": "项目",
+      "position": "位置 (数值越小优先级越高)",
+      "modelMapping": "模型映射 (覆盖)",
+      "enabled": "启用",
+      "selectProvider": "选择提供商...",
+      "globalProjects": "全局 (所有项目)",
+    "modelMappingHelp": "路由级别的模型映射优先级高于提供商和全局设置。"
+  },
+  "modelMapping": {
+    "requestModel": "请求模型",
+    "mappedModel": "映射模型",
+    "addMapping": "添加映射"
+  },
+    "update": "更新",
+    "create": "创建",
+    "customRoutes": "自定义路由",
+    "usingGlobalRoutes": "使用全局路由",
+    "customRoutesDisabled": "自定义路由已禁用",
+    "usingGlobalRoutesDesc": "{{client}} 当前正在使用全局路由。切换开关以为此客户端类型启用项目特定的路由。",
+    "routesConfigured_one": "为该项目配置了 1 条路由",
+    "routesConfigured_other": "为该项目配置了 {{count}} 条路由"
+  },
+  "requests": {
+    "requestId": "请求 #${id}",
+    "noRequestData": "无请求数据",
+    "noResponseData": "无响应数据",
+    "noAttempts": "无可用尝试",
+    "tabs": {
+      "request": "请求",
+      "response": "响应",
+      "metadata": "元数据"
+    },
+    "selectAttempt": "选择一个尝试以查看详情",
+    "attemptId": "尝试 #${id}",
+    "compareHeaders": "比较标头 - 客户端 vs 上游",
+    "compareBody": "比较正文 - 客户端 vs 上流",
+    "clientRequest": "客户端请求"
+  },
+  "models": {
+    "searchPlaceholder": "搜索或输入自定义模型...",
+    "select": "选择模型"
+  },
+  "layout": {
+    "sidebar": "侧边栏"
+  },
+  "proxy": {
+    "listeningOn": "监听于",
+    "copied": "已复制!",
+    "clickToCopy": "点击复制",
+    "clickToCopyTooltip": "点击复制: {{url}}",
+    "comingSoon": "即将到来",
+    "resetsIn": "重置于"
+  },
+  "accessibility": {
+    "toggleSidebar": "切换侧边栏",
+    "close": "关闭"
+  },
+  "routingStrategies": {
+    "weightedRandom": "加权随机",
+    "priority": "优先级",
+    "allStrategies": "所有策略"
+  },
+  "projects": {
+    "information": "项目信息",
+    "proxyConfig": "代理配置",
+    "slug": "标识符",
+    "name": "名称",
+    "slugPlaceholder": "project-slug",
+    "slugDesc": "用于 URL 和代理路径",
+    "baseUrl": "基础 URL:",
+    "created": "创建时间:",
+    "updated": "更新时间:",
+    "saveChanges": "保存更改",
+    "copyUrl": "复制 URL",
+    "proxyConfigDesc": "使用此基础 URL 通过此项目的配置路由请求。协议（Claude、OpenAI、Gemini）会自动检测。"
+  },
+  "sessions": {
+    "projectSessions": "项目会话",
+    "description": "使用此项目配置的活动会话",
+    "id": "ID",
+    "sessionId": "会话 ID",
+    "clientType": "客户端类型",
+    "created": "创建时间",
+    "selectProject": "选择项目",
+    "session": "会话",
+    "remaining": "剩余",
+    "noProjectsAvailable": "没有可用的项目，请先创建项目",
+    "projectSelectionRequired": "需要选择项目"
+  },
+  "modelInput": {
+    "selectOrEnter": "选择或输入模型...",
+    "searchOrEnter": "搜索或输入自定义模型...",
+    "selectModel": "选择模型",
+    "noMatchingModels": "未找到匹配的模型。",
+    "useCustom": "使用自定义:",
+    "noModelsAvailable": "无可用模型",
+    "pressToUse": "按 {{key}} 使用自定义模型名称",
+    "toUseCustomModel": "使用自定义模型名称"
+  },
+  "common": {
+    "copy": "复制",
+    "copied": "已复制",
+    "saving": "保存中...",
+    "saved": "已保存",
+    "clientType": "客户端类型",
+    "default": "默认",
+    "deleting": "删除中...",
+    "updating": "更新中...",
+    "day": "天",
+    "days": "天",
+    "global": "全局",
+    "initFailed": "初始化失败"
   }
 }

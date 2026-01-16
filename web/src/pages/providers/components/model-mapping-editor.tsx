@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Plus, Trash2, ArrowRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { ModelInput } from '@/components/ui/model-input'
 
@@ -17,6 +18,7 @@ export function ModelMappingEditor({
   disabled = false,
   targetOnlyAntigravity = false,
 }: ModelMappingEditorProps) {
+  const { t } = useTranslation()
   const [newFrom, setNewFrom] = useState('')
   const [newTo, setNewTo] = useState('')
 
@@ -61,7 +63,7 @@ export function ModelMappingEditor({
               <ModelInput
                 value={from}
                 onChange={newKey => handleUpdate(from, newKey, to)}
-                placeholder="Request Model"
+                placeholder={t('modelMapping.requestModel')}
                 className="flex-1"
                 disabled={disabled}
               />
@@ -69,7 +71,7 @@ export function ModelMappingEditor({
               <ModelInput
                 value={to}
                 onChange={newVal => handleUpdate(from, from, newVal)}
-                placeholder="Mapped Model"
+                placeholder={t('modelMapping.mappedModel')}
                 className="flex-1"
                 disabled={disabled}
                 providers={targetProviders}

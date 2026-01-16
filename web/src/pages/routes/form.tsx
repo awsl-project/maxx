@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button, Input } from '@/components/ui'
 import {
   useCreateRoute,
@@ -22,6 +23,7 @@ export function RouteForm({
   isGlobal,
   projectId,
 }: RouteFormProps) {
+  const { t } = useTranslation()
   const createRoute = useCreateRoute()
   const updateRoute = useUpdateRoute()
   const { data: providers } = useProviders()
@@ -85,27 +87,27 @@ export function RouteForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm font-medium">Client Type</label>
+          <label className="mb-1 block text-sm font-medium">{t('routes.form.clientType')}</label>
           <select
             value={clientType}
             onChange={e => setClientType(e.target.value as ClientType)}
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <option value="claude">Claude</option>
-            <option value="openai">OpenAI</option>
-            <option value="codex">Codex</option>
-            <option value="gemini">Gemini</option>
+            <option value="claude">{t('clientRoutes.claude')}</option>
+            <option value="openai">{t('clientRoutes.openai')}</option>
+            <option value="codex">{t('clientRoutes.codex')}</option>
+            <option value="gemini">{t('clientRoutes.gemini')}</option>
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Provider</label>
+          <label className="mb-1 block text-sm font-medium">{t('routes.form.provider')}</label>
           <select
             value={providerID}
             onChange={e => setProviderID(e.target.value)}
             required
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <option value="">Select provider...</option>
+            <option value="">{t('routes.form.selectProvider')}</option>
             {providers?.map(p => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -118,13 +120,13 @@ export function RouteForm({
       <div className="grid gap-4 md:grid-cols-2">
         {showProjectSelector && (
           <div>
-            <label className="mb-1 block text-sm font-medium">Project</label>
+            <label className="mb-1 block text-sm font-medium">{t('routes.form.project')}</label>
             <select
               value={projectID}
               onChange={e => setProjectID(e.target.value)}
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none"
             >
-              <option value="0">Global (All Projects)</option>
+              <option value="0">{t('routes.form.globalProjects')}</option>
               {projects?.map(p => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -135,7 +137,7 @@ export function RouteForm({
         )}
         <div>
           <label className="mb-1 block text-sm font-medium">
-            Position (lower = higher priority)
+            {t('routes.form.position')}
           </label>
           <Input
             type="number"
@@ -150,10 +152,10 @@ export function RouteForm({
       {/* Model Mapping (route-level override) */}
       <div>
         <label className="mb-1 block text-sm font-medium">
-          Model Mapping (Override)
+          {t('routes.form.modelMapping')}
         </label>
-        <p className="mb-2 text-xs text-muted-foreground">
-          Route-level model mappings take priority over provider and global settings.
+        <p className="mb-2 text-xs text-text-secondary">
+          {t('routes.form.modelMappingHelp')}
         </p>
         <ModelMappingEditor
           value={modelMapping}
@@ -171,16 +173,16 @@ export function RouteForm({
           className="h-4 w-4 rounded border-gray-300"
         />
         <label htmlFor="isEnabled" className="text-sm font-medium">
-          Enabled
+          {t('routes.form.enabled')}
         </label>
       </div>
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
+          {t('common.cancel')}
         </Button>
         <Button type="submit" disabled={isPending}>
-          {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+          {isPending ? t('common.saving') : isEditing ? t('routes.update') : t('routes.create')}
         </Button>
       </div>
     </form>

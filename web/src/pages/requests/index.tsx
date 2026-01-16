@@ -129,40 +129,38 @@ export function RequestsPage() {
             <Loader2 className="w-8 h-8 animate-spin text-accent" />
           </div>
         ) : requests.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
+          <div className="flex-1 flex flex-col items-center justify-center text-text-muted">
             <div className="p-4 bg-muted rounded-full mb-4">
               <Activity size={32} className="opacity-50" />
             </div>
             <p className="text-body font-medium">{t('requests.noRequests')}</p>
-            <p className="text-caption mt-1">{t('requests.noRequestsHint')}</p>
+            <p className="text-caption mt-1">
+              {t('requests.noRequestsHint')}
+            </p>
           </div>
         ) : (
           <div className="flex-1 overflow-auto">
             <Table>
               <TableHeader className="bg-card/80 backdrop-blur-md sticky top-0 z-10 shadow-sm border-b border-border">
                 <TableRow className="hover:bg-transparent border-none text-sm">
-                  <TableHead className="w-[180px] font-medium">
-                    {t('requests.time')}
-                  </TableHead>
+                  <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
                   <TableHead className="w-[120px] font-medium">
                     {t('requests.client')}
                   </TableHead>
-                  <TableHead className="w-[180px] font-medium">
-                    {t('requests.model')}
-                  </TableHead>
+                  <TableHead className="w-[180px] font-medium">{t('requests.model')}</TableHead>
                   <TableHead className="w-[100px] font-medium">
                     {t('requests.project')}
                   </TableHead>
-                  <TableHead className="w-[100px] font-medium">Token</TableHead>
+                  <TableHead className="w-[100px] font-medium">
+                    Token
+                  </TableHead>
                   <TableHead className="w-[120px] font-medium">
                     {t('requests.provider')}
                   </TableHead>
                   <TableHead className="w-[100px] font-medium">
                     {t('common.status')}
                   </TableHead>
-                  <TableHead className="w-[60px] font-medium">
-                    {t('requests.code')}
-                  </TableHead>
+                  <TableHead className="w-[60px] font-medium">{t('requests.code')}</TableHead>
                   <TableHead className="w-[80px] text-right font-medium">
                     {t('requests.duration')}
                   </TableHead>
@@ -219,15 +217,13 @@ export function RequestsPage() {
       </div>
 
       {/* Pagination */}
-      <div className="h-[53px] flex items-center justify-between px-6 border-t border-border bg-card shrink-0">
-        <span className="text-xs text-muted-foreground">
-          {total > 0
-            ? t('requests.pageInfo', {
-                page: pageIndex + 1,
-                count: requests.length,
-                total,
-              })
-            : t('requests.noItems')}
+      <div className="h-[53px] flex items-center justify-between px-6 border-t border-border bg-surface-primary shrink-0">
+        <span className="text-xs text-text-secondary">
+          {total > 0 ? (
+            t('requests.pageInfo', { page: pageIndex + 1, count: requests.length, total })
+          ) : (
+            t('requests.noItems')
+          )}
         </span>
         <div className="flex items-center gap-1">
           <Button
@@ -237,7 +233,7 @@ export function RequestsPage() {
           >
             <ChevronLeft size={16} />
           </Button>
-          <span className="text-xs text-muted-foreground min-w-[60px] text-center font-medium">
+          <span className="text-xs text-text-secondary min-w-[60px] text-center font-medium">
             {t('requests.page', { current: pageIndex + 1 })}
           </span>
           <Button
@@ -481,7 +477,7 @@ function LogRow({
       {/* Client */}
       <TableCell className="py-1">
         <div className="flex items-center gap-2">
-          <div className="p-1 rounded bg-muted text-muted-foreground">
+          <div className="p-1 rounded bg-muted text-text-secondary">
             <ClientIcon type={request.clientType} size={16} />
           </div>
           <span className="text-sm text-foreground capitalize font-medium truncate max-w-[100px]">

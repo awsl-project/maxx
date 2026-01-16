@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { ChevronDown, Search, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import {
   Dialog,
@@ -129,11 +130,12 @@ function matchScore(model: Model, pattern: string): number {
 export function ModelInput({
   value,
   onChange,
-  placeholder = 'Select or enter model...',
+  placeholder = t('modelInput.selectOrEnter'),
   disabled = false,
   className,
   providers,
 }: ModelInputProps) {
+  const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [focusedIndex, setFocusedIndex] = useState(-1)
@@ -287,7 +289,7 @@ export function ModelInput({
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Select Model</DialogTitle>
+            <DialogTitle>{t('modelInput.selectModel')}</DialogTitle>
           </DialogHeader>
 
           {/* 搜索框 */}
@@ -301,7 +303,7 @@ export function ModelInput({
               value={search}
               onChange={e => setSearch(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search or enter custom model..."
+              placeholder={t('modelInput.searchOrEnter')}
               className="pl-9"
               autoFocus
             />
@@ -349,34 +351,34 @@ export function ModelInput({
               </div>
             ) : search.trim() ? (
               <div className="py-4">
-                <p className="text-sm text-muted-foreground mb-3">
-                  No matching models found.
+                <p className="text-sm text-text-secondary mb-3">
+                  {t('modelInput.noMatchingModels')}
                 </p>
                 <button
                   type="button"
                   onClick={() => handleSelect(search.trim())}
                   className="w-full px-3 py-2 text-left text-sm bg-muted rounded-md hover:bg-accent transition-colors"
                 >
-                  <span className="text-foreground">
-                    Use custom:{' '}
+                  <span className="text-text-primary">
+                    {t('modelInput.useCustom')}
                     <span className="font-mono font-medium">{search.trim()}</span>
                   </span>
                 </button>
               </div>
             ) : (
-              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                No models available
+              <div className="h-full flex items-center justify-center text-sm text-text-muted">
+                {t('modelInput.noModelsAvailable')}
               </div>
             )}
           </div>
 
           {/* 提示 */}
-          <div className="text-xs text-muted-foreground pt-2 border-t border-border">
-            Press{' '}
-            <kbd className="px-1.5 py-0.5 bg-muted rounded text-muted-foreground font-mono">
+          <div className="text-xs text-text-muted pt-2 border-t border-border">
+            {t('modelInput.pressToUse', { key: 'Enter' })}
+            <kbd className="px-1.5 py-0.5 bg-surface-secondary rounded text-text-secondary font-mono">
               Enter
-            </kbd>{' '}
-            to use custom model name
+            </kbd>
+            {t('modelInput.toUseCustomModel')}
           </div>
         </DialogContent>
       </Dialog>

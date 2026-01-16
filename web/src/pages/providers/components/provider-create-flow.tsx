@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Globe, ChevronLeft, Key, Check } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useCreateProvider } from '@/hooks/queries'
 import type { ClientType, CreateProviderData } from '@/lib/transport'
 import {
@@ -21,6 +22,7 @@ interface ProviderCreateFlowProps {
 }
 
 export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
+  const { t } = useTranslation()
   const [step, setStep] = useState<CreateStep>('select-type')
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>(
@@ -188,16 +190,16 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
           </Button>
           <div>
             <h2 className="text-headline font-semibold text-foreground">
-              Configure Provider
+              {t('provider.configure')}
             </h2>
             <p className="text-caption text-muted-foreground">
-              Set up your custom provider connection
+              {t('provider.configureDescription')}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={onClose} variant={'secondary'}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             onClick={handleSave}
@@ -205,13 +207,13 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
             variant={'default'}
           >
             {saving ? (
-              'Saving...'
+              t('common.saving')
             ) : saveStatus === 'success' ? (
               <>
-                <Check size={14} /> Saved
+                <Check size={14} /> {t('common.saved')}
               </>
             ) : (
-              'Create Provider'
+              t('provider.create')
             )}
           </Button>
         </div>
@@ -220,14 +222,14 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              1. Basic Information
+            <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+              {t('provider.basicInfo')}
             </h3>
 
             <div className="grid gap-6">
               <div>
-                <label className="text-sm font-medium text-foreground block mb-2">
-                  Display Name
+                <label className="text-sm font-medium text-text-primary block mb-2">
+                  {t('provider.displayName')}
                 </label>
                 <Input
                   type="text"
@@ -235,7 +237,7 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
                   onChange={e =>
                     setFormData(prev => ({ ...prev, name: e.target.value }))
                   }
-                  placeholder="e.g. Production OpenAI"
+                  placeholder={t('provider.namePlaceholder')}
                   className="w-full"
                 />
               </div>
@@ -245,7 +247,7 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Globe size={14} />
-                      <span>API Endpoint</span>
+                      <span>{t('provider.apiEndpoint')}</span>
                     </div>
                   </label>
                   <Input
@@ -257,11 +259,11 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
                         baseURL: e.target.value,
                       }))
                     }
-                    placeholder="https://api.openai.com/v1"
+                    placeholder={t('provider.endpointPlaceholder')}
                     className="w-full"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Optional if client-specific URLs are set below.
+                  <p className="text-xs text-text-secondary mt-1">
+                    {t('provider.optionalUrlNote')}
                   </p>
                 </div>
 
@@ -269,7 +271,7 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Key size={14} />
-                      <span>API Key</span>
+                      <span>{t('provider.apiKey')}</span>
                     </div>
                   </label>
                   <Input
@@ -278,7 +280,7 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
                     onChange={e =>
                       setFormData(prev => ({ ...prev, apiKey: e.target.value }))
                     }
-                    placeholder="sk-..."
+                    placeholder={t('provider.keyPlaceholder')}
                     className="w-full"
                   />
                 </div>
@@ -287,8 +289,8 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
           </div>
 
           <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              2. Client Configuration
+            <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+              {t('provider.clientConfig')}
             </h3>
             <ClientsConfigSection
               clients={formData.clients}
@@ -299,8 +301,7 @@ export function ProviderCreateFlow({ onClose }: ProviderCreateFlowProps) {
           {saveStatus === 'error' && (
             <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-error" />
-              Failed to create provider. Please check your connection and try
-              again.
+              {t('provider.createError')}
             </div>
           )}
         </div>

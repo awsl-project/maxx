@@ -10,6 +10,7 @@ import {
   Shuffle,
   Check,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { ClientIcon } from '@/components/icons/client-icons'
 import type { Provider, KiroQuotaData } from '@/lib/transport'
 import { getTransport } from '@/lib/transport'
@@ -32,10 +33,10 @@ function getQuotaColor(percentage: number): string {
 }
 
 // 格式化重置天数
-function formatResetDays(days: number): string {
-  if (days <= 0) return 'Soon'
-  if (days === 1) return '1 day'
-  return `${days} days`
+function formatResetDays(days: number, t: (key: string) => string): string {
+  if (days <= 0) return t('proxy.comingSoon')
+  if (days === 1) return `1 ${t('common.day')}`
+  return `${days} ${t('common.days')}`
 }
 
 // 订阅等级徽章
@@ -69,7 +70,7 @@ function QuotaCard({ quota }: { quota: KiroQuotaData }) {
         </span>
         <span className="text-sm text-muted-foreground flex items-center gap-1.5">
           <Clock size={14} />
-          Resets in {formatResetDays(quota.days_until_reset)}
+          {t('proxy.resetsIn')} {formatResetDays(quota.days_until_reset, t)}
         </span>
       </div>
 
@@ -131,6 +132,7 @@ export function KiroProviderView({
   onDelete,
   onClose,
 }: KiroProviderViewProps) {
+  const { t } = useTranslation()
   const [quota, setQuota] = useState<KiroQuotaData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -357,13 +359,13 @@ export function KiroProviderView({
                   size="sm"
                 >
                   {savingMapping ? (
-                    'Saving...'
+                    t('common.saving')
                   ) : mappingSaveStatus === 'success' ? (
                     <>
-                      <Check size={14} /> Saved
+                      <Check size={14} /> {t('common.saved')}
                     </>
                   ) : (
-                    'Save Changes'
+                    t('provider.saveChanges')
                   )}
                 </Button>
               )}

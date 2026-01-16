@@ -94,11 +94,12 @@ export function useUpdateRoutePositions() {
   return useMutation({
     mutationFn: (updates: Record<number, number>) => {
       const transport = getTransport();
-      // updates 是 { routeId: position } 的映射
-      const promises = Object.entries(updates).map(([id, position]) =>
-        transport.updateRoute(Number(id), { position })
-      );
-      return Promise.all(promises);
+      // 转换为 { id, position } 数组
+      const positionUpdates = Object.entries(updates).map(([id, position]) => ({
+        id: Number(id),
+        position,
+      }));
+      return transport.batchUpdateRoutePositions(positionUpdates);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: routeKeys.lists() });

@@ -7,6 +7,7 @@ import {
   Snowflake,
   X,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { ClientIcon } from '@/components/icons/client-icons'
 import type { Provider } from '@/lib/transport'
 import { ANTIGRAVITY_COLOR } from '../types'
@@ -23,7 +24,8 @@ export function AntigravityProviderCard({
   onClick,
   streamingCount,
 }: ProviderCardProps) {
-  const email = provider.config?.antigravity?.email || 'Unknown'
+  const { t } = useTranslation()
+  const email = provider.config?.antigravity?.email || t('provider.unknown')
   const {
     getCooldownForProvider,
     formatRemaining,
@@ -54,7 +56,7 @@ export function AntigravityProviderCard({
             onClick={handleClearCooldown}
             disabled={isClearingCooldown}
             className="ml-1 p-0.5 rounded hover:bg-cyan-500/30 transition-colors disabled:opacity-50"
-            title="Clear cooldown"
+            title={t('provider.clearCooldown')}
           >
             <X size={12} className="text-cyan-300" />
           </button>
@@ -106,14 +108,14 @@ export function AntigravityProviderCard({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Clients:</span>
+            <span className="text-xs text-text-muted">{t('provider.clients')}</span>
             <div className="flex items-center gap-1">
               {provider.supportedClientTypes?.length > 0 ? (
                 provider.supportedClientTypes.map(ct => (
                   <ClientIcon key={ct} type={ct} size={18} />
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground">None</span>
+                <span className="text-xs text-text-muted">{t('provider.none')}</span>
               )}
             </div>
           </div>
@@ -146,7 +148,7 @@ export function CustomProviderCard({
       const url = provider.config?.custom?.clientBaseURL?.[ct]
       if (url) return url
     }
-    return 'Not configured'
+    return t('provider.notConfigured')
   }
 
   const handleClearCooldown = (e: React.MouseEvent) => {
@@ -171,7 +173,7 @@ export function CustomProviderCard({
             onClick={handleClearCooldown}
             disabled={isClearingCooldown}
             className="ml-1 p-0.5 rounded hover:bg-cyan-500/30 transition-colors disabled:opacity-50"
-            title="Clear cooldown"
+            title={t('provider.clearCooldown')}
           >
             <X size={12} className="text-cyan-300" />
           </button>
@@ -196,7 +198,7 @@ export function CustomProviderCard({
       <div className="flex items-start gap-3">
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-            cooldown ? 'bg-cyan-500/10' : 'bg-accent'
+            cooldown ? 'bg-cyan-500/10' : 'bg-muted'
           }`}
         >
           {cooldown ? (
@@ -223,14 +225,14 @@ export function CustomProviderCard({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Clients:</span>
+            <span className="text-xs text-text-muted">{t('provider.clients')}</span>
             <div className="flex items-center gap-1">
               {provider.supportedClientTypes?.length > 0 ? (
                 provider.supportedClientTypes.map(ct => (
                   <ClientIcon key={ct} type={ct} size={18} />
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground">None</span>
+                <span className="text-xs text-text-muted">{t('provider.none')}</span>
               )}
             </div>
           </div>

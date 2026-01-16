@@ -22,6 +22,7 @@ import { useAntigravityQuota } from '@/hooks/queries'
 import { useCooldowns } from '@/hooks/use-cooldowns'
 import { ProviderDetailsDialog } from '@/components/provider-details-dialog'
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -68,6 +69,7 @@ export function SortableProviderRow({
   onToggle,
   onDelete,
 }: SortableProviderRowProps) {
+  const { t } = useTranslation()
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const { getCooldownForProvider, clearCooldown, isClearingCooldown } =
     useCooldowns()
@@ -111,8 +113,6 @@ export function SortableProviderRow({
         ref={setNodeRef}
         style={style}
         {...attributes}
-        {...listeners}
-        className="active:cursor-grabbing"
       >
         <ProviderRowContent
           item={item}
@@ -124,6 +124,7 @@ export function SortableProviderRow({
           onToggle={onToggle}
           onRowClick={handleRowClick}
           isInCooldown={!!cooldown}
+          dragHandleListeners={listeners}
         />
       </div>
 
@@ -158,6 +159,7 @@ type ProviderRowContentProps = {
   onToggle: () => void
   onRowClick?: (e: React.MouseEvent) => void
   isInCooldown?: boolean
+  dragHandleListeners?: any
 }
 
 // 获取 Claude 模型额度百分比和重置时间
@@ -180,7 +182,7 @@ function formatResetTime(resetTime: string): string {
     const now = new Date()
     const diff = reset.getTime() - now.getTime()
 
-    if (diff <= 0) return 'Soon'
+    if (diff <= 0) return t('proxy.comingSoon')
 
     const hours = Math.floor(diff / (1000 * 60 * 60))
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
@@ -209,6 +211,7 @@ export function ProviderRowContent({
   onToggle,
   onRowClick,
   isInCooldown: isInCooldownProp,
+  dragHandleListeners,
 }: ProviderRowContentProps) {
   const { provider, enabled, isNative } = item
   const color = getProviderColorVar(provider.type as ProviderType)
@@ -295,7 +298,10 @@ export function ProviderRowContent({
 
       {/* Drag Handle & Index */}
       <div className="relative z-10 flex flex-col items-center gap-1.5 w-7 shrink-0">
-        <div className="p-1 rounded-md hover:bg-accent transition-colors">
+        <div 
+          className="p-1 rounded-md hover:bg-accent transition-colors cursor-grab active:cursor-grabbing"
+          {...dragHandleListeners}
+        >
           <GripVertical
             size={14}
             className="text-muted-foreground group-hover:text-muted-foreground"
@@ -386,7 +392,7 @@ export function ProviderRowContent({
             {provider.config?.custom?.clientBaseURL?.[clientType] ||
               provider.config?.custom?.baseURL ||
               provider.config?.antigravity?.endpoint ||
-              'Default endpoint'}
+              t('provider.defaultEndpoint')}
           </div>
         </div>
       </div>

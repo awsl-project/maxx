@@ -18,6 +18,8 @@ type RouteRepository interface {
 	// FindByKey finds a route by the unique key (projectID, providerID, clientType)
 	FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error)
 	List() ([]*domain.Route, error)
+	// BatchUpdatePositions updates positions for multiple routes in a transaction
+	BatchUpdatePositions(updates []domain.RoutePositionUpdate) error
 }
 
 type RoutingStrategyRepository interface {

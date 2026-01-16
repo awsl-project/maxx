@@ -13,6 +13,7 @@ import { useProjects, useUpdateSessionProject, useRejectSession } from '@/hooks/
 import type { NewSessionPendingEvent } from '@/lib/transport/types';
 import { cn } from '@/lib/utils';
 import { getClientName, getClientColor } from '@/components/icons/client-icons';
+import { useTranslation } from 'react-i18next';
 
 interface ForceProjectDialogProps {
   event: NewSessionPendingEvent | null
@@ -25,6 +26,7 @@ export function ForceProjectDialog({
   onClose,
   timeoutSeconds,
 }: ForceProjectDialogProps) {
+  const { t } = useTranslation()
   const { data: projects, isLoading } = useProjects()
   const updateSessionProject = useUpdateSessionProject()
   const rejectSession = useRejectSession()
@@ -107,9 +109,9 @@ export function ForceProjectDialog({
               <AlertCircle size={28} className="text-amber-400" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-foreground">选择项目</h2>
+              <h2 className="text-xl font-bold text-text-primary">{t('sessions.selectProject')}</h2>
               <p className="text-xs text-amber-500/80 font-medium uppercase tracking-wider mt-1">
-                Project Selection Required
+                {t('sessions.projectSelectionRequired')}
               </p>
             </div>
           </div>
@@ -121,8 +123,8 @@ export function ForceProjectDialog({
           <div className="flex items-center gap-4 p-3 rounded-xl bg-muted border border-border">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Session
+                <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                  {t('sessions.session')}
                 </span>
                 <span
                   className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium"
@@ -163,7 +165,7 @@ export function ForceProjectDialog({
             >
               <Clock size={14} />
               <span className="text-[10px] font-bold uppercase tracking-widest">
-                Remaining
+                {t('sessions.remaining')}
               </span>
             </div>
             <div
@@ -185,8 +187,8 @@ export function ForceProjectDialog({
             </div>
           ) : (
             <div className="space-y-3">
-              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                选择项目
+              <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
+                {t('sessions.selectProject')}
               </label>
               {projects && projects.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
@@ -208,8 +210,8 @@ export function ForceProjectDialog({
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  没有可用的项目，请先创建项目
+                <p className="text-sm text-text-muted text-center py-4">
+                  {t('sessions.noProjectsAvailable')}
                 </p>
               )}
             </div>
