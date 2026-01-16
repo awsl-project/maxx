@@ -2,6 +2,7 @@ package kiro
 
 import (
 	"crypto/md5"
+	cryptoRand "crypto/rand"
 	"fmt"
 	"net/http"
 	"sync"
@@ -123,11 +124,13 @@ func getClientIP(req *http.Request) string {
 	return req.RemoteAddr
 }
 
-// generateUUID 生成随机UUID (简化版本)
+// generateUUID 生成 UUID v4 (匹配 kiro2api utils/uuid.go)
 func generateUUID() string {
-	hash := md5.Sum([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
-	return fmt.Sprintf("%x-%x-%x-%x-%x",
-		hash[0:4], hash[4:6], hash[6:8], hash[8:10], hash[10:16])
+	b := make([]byte, 16)
+	cryptoRand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40 // Version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // Variant bits
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 // InvalidateOldSessions 清理过期的会话缓存

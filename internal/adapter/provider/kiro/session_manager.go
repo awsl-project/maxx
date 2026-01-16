@@ -2,8 +2,6 @@ package kiro
 
 import (
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // SessionManager tracks upstream session metadata.
@@ -17,7 +15,7 @@ type SessionManager struct {
 // NewSessionManager creates a session manager.
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
-		sessionID: uuid.NewString(),
+		sessionID: generateUUID(),
 		startTime: time.Now(),
 		isActive:  false,
 	}
@@ -76,7 +74,7 @@ func (sm *SessionManager) GetSessionInfo() SessionInfo {
 
 // Reset resets session state.
 func (sm *SessionManager) Reset() {
-	sm.sessionID = uuid.NewString()
+	sm.sessionID = generateUUID()
 	sm.startTime = time.Now()
 	sm.endTime = nil
 	sm.isActive = false
