@@ -139,16 +139,36 @@ stream_idle_timeout_ms = 300000
 
 ## 本地开发
 
+### 国内镜像设置（中国大陆用户推荐）
+
+为了加速依赖下载，建议设置国内镜像源：
+
+**Go Modules Proxy**
+```bash
+go env -w GOPROXY=https://goproxy.cn,direct
+```
+
+**pnpm Registry**
+```bash
+pnpm config set registry https://registry.npmmirror.com
+```
+
 ### 服务器模式（浏览器）
-后端：
+**先构建前端：**
+```bash
+cd web
+pnpm install
+pnpm build
+```
+
+**然后运行后端：**
 ```bash
 go run cmd/maxx/main.go
 ```
 
-前端：
+**或运行前端开发服务器（开发调试用）：**
 ```bash
 cd web
-pnpm install
 pnpm dev
 ```
 

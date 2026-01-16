@@ -14,7 +14,6 @@ import {
   SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuItem,
-  SidebarMenuButton,
   SidebarMenuBadge,
 } from '@/components/ui/sidebar'
 
@@ -28,11 +27,11 @@ function ClientNavItem({ clientType }: { clientType: ClientType }) {
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton
-        isActive={isActive}
-        size="lg"
-        tooltip={clientName}
-        className="relative overflow-hidden group-data-[collapsible=icon]:justify-center"
+      <NavLink
+        to={`/routes/${clientType}`}
+        className={({ isActive: linkIsActive }) =>
+          `ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground gap-2 rounded-md p-2 text-left text-sm transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 data-active:font-medium peer/menu-button flex w-full items-center overflow-hidden outline-hidden group/menu-button disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&_svg]:size-4 [&_svg]:shrink-0 h-12 text-sm group-data-[collapsible=icon]:p-0! relative overflow-hidden group-data-[collapsible=icon]:justify-center ${isActive || linkIsActive ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : ''}`
+        }
       >
         {/* Marquee 背景动画 (仅在有 streaming 请求且未激活时显示) */}
         {streamingCount > 0 && !isActive && (
@@ -41,14 +40,9 @@ function ClientNavItem({ clientType }: { clientType: ClientType }) {
             style={{ backgroundColor: color }}
           />
         )}
-        <NavLink
-          to={`/routes/${clientType}`}
-          className="flex items-center gap-2 w-full h-full relative group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:justify-center cursor-pointer"
-        >
-          <ClientIcon type={clientType} size={18} className="relative z-10" />
-          <span className="relative z-10 group-data-[collapsible=icon]:hidden">{clientName}</span>
-        </NavLink>
-      </SidebarMenuButton>
+        <ClientIcon type={clientType} size={18} className="relative z-10" />
+        <span className="relative z-10 group-data-[collapsible=icon]:hidden">{clientName}</span>
+      </NavLink>
       {streamingCount > 0 && (
         <SidebarMenuBadge>
           <StreamingBadge count={streamingCount} color={color} />

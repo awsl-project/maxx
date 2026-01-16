@@ -17,7 +17,6 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarMenuBadge,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarTrigger,
 } from '@/components/ui/sidebar'
@@ -54,11 +53,11 @@ function RequestsNavItem() {
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton
-        isActive={isActive}
-        size="lg"
-        tooltip="Requests"
-        className="relative overflow-hidden min-w-8 duration-200 ease-linear"
+      <NavLink
+        to="/requests"
+        className={({ isActive: linkIsActive }) =>
+          `ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground gap-2 rounded-md p-2 text-left text-sm transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 data-active:font-medium peer/menu-button flex w-full items-center overflow-hidden outline-hidden group/menu-button disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&_svg]:size-4 [&_svg]:shrink-0 h-12 text-sm group-data-[collapsible=icon]:p-0! relative overflow-hidden min-w-8 duration-200 ease-linear ${isActive || linkIsActive ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : ''}`
+        }
       >
         {/* Marquee 背景动画 (仅在有 streaming 请求且未激活时显示) */}
         {total > 0 && !isActive && (
@@ -67,16 +66,11 @@ function RequestsNavItem() {
             style={{ backgroundColor: color }}
           />
         )}
-        <NavLink
-          to="/requests"
-          className="flex items-center gap-2 w-full h-full relative group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 cursor-pointer"
-        >
-          <Activity className="relative z-10" />
-          <span className="relative z-10 group-data-[collapsible=icon]:hidden">
-            Requests
-          </span>
-        </NavLink>
-      </SidebarMenuButton>
+        <Activity className="relative z-10" />
+        <span className="relative z-10 group-data-[collapsible=icon]:hidden">
+          Requests
+        </span>
+      </NavLink>
       {total > 0 && (
         <SidebarMenuBadge>
           <StreamingBadge count={total} color={color} />
@@ -107,10 +101,10 @@ export function SidebarNav() {
       </SidebarContent>
 
       <SidebarFooter>
-        <div className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col">
-          <p className="text-caption text-text-muted group-data-[collapsible=icon]:hidden">
-            {versionDisplay}
-          </p>
+        <p className="text-caption text-text-muted group-data-[collapsible=icon]:hidden mb-2">
+          {versionDisplay}
+        </p>
+        <div className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:items-stretch">
           <SidebarTrigger />
           <ThemeToggle />
         </div>
