@@ -419,3 +419,15 @@ export interface Cooldown {
   untilTime: string; // ISO 8601 timestamp (Go time.Time)
   reason: CooldownReason;
 }
+
+// ===== Auth 相关 =====
+
+export interface AuthStatus {
+  authEnabled: boolean;
+}
+
+export interface AuthVerifyResult {
+  success: boolean;
+  token?: string;
+  error?: string;
+}

@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { LucideIcon } from 'lucide-react'
 import {
   SidebarGroup,
@@ -10,7 +11,7 @@ import {
 interface NavItem {
   to: string
   icon: LucideIcon
-  label: string
+  labelKey: string
 }
 
 interface NavMainProps {
@@ -20,6 +21,7 @@ interface NavMainProps {
 
 export function NavMain({ items, children }: NavMainProps) {
   const location = useLocation()
+  const { t } = useTranslation()
 
   return (
     <SidebarGroup>
@@ -42,7 +44,7 @@ export function NavMain({ items, children }: NavMainProps) {
                   }
                 >
                   <Icon />
-                  <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
+                  <span className="group-data-[collapsible=icon]:hidden">{t(item.labelKey)}</span>
                 </NavLink>
               </SidebarMenuItem>
             )

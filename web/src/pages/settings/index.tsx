@@ -1,5 +1,6 @@
-import { Settings, Moon, Sun, Monitor, Laptop, FolderOpen, Zap, Plus, Trash2, ArrowRight, RotateCcw, GripVertical } from 'lucide-react'
+import { Settings, Moon, Sun, Monitor, Laptop, FolderOpen, Zap, Plus, Trash2, ArrowRight, RotateCcw, GripVertical, Languages } from 'lucide-react'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -22,18 +23,21 @@ import type { ModelMappingRule } from '@/lib/transport/types'
 type Theme = 'light' | 'dark' | 'system'
 
 export function SettingsPage() {
+  const { t } = useTranslation()
+
   return (
     <div className="flex flex-col h-full bg-background">
       <PageHeader
         icon={Settings}
         iconClassName="text-zinc-500"
-        title="Settings"
-        description="Configure your maxx instance"
+        title={t('settings.title')}
+        description={t('settings.description')}
       />
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-6">
           <AppearanceSection />
+          <LanguageSection />
           <ForceProjectSection />
           <AntigravityModelMappingSection />
         </div>
@@ -44,11 +48,12 @@ export function SettingsPage() {
 
 function AppearanceSection() {
   const { theme, setTheme } = useTheme()
+  const { t } = useTranslation()
 
   const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
-    { value: 'light', label: 'Light', icon: Sun },
-    { value: 'dark', label: 'Dark', icon: Moon },
-    { value: 'system', label: 'System', icon: Laptop },
+    { value: 'light', label: t('settings.theme.light'), icon: Sun },
+    { value: 'dark', label: t('settings.theme.dark'), icon: Moon },
+    { value: 'system', label: t('settings.theme.system'), icon: Laptop },
   ]
 
   return (
@@ -56,13 +61,13 @@ function AppearanceSection() {
       <CardHeader className="border-b border-border py-4">
         <CardTitle className="text-base font-medium flex items-center gap-2">
           <Monitor className="h-4 w-4 text-text-muted" />
-          Appearance
+          {t('settings.appearance')}
         </CardTitle>
       </CardHeader>
       <CardContent className="p-6">
         <div className="flex items-center gap-6">
           <label className="text-sm font-medium text-text-secondary w-40 shrink-0">
-            Theme Preference
+            {t('settings.themePreference')}
           </label>
           <div className="flex flex-wrap gap-3">
             {themes.map(({ value, label, icon: Icon }) => (
@@ -82,9 +87,48 @@ function AppearanceSection() {
   )
 }
 
+function LanguageSection() {
+  const { t, i18n } = useTranslation()
+
+  const languages = [
+    { value: 'en', label: t('settings.languages.en') },
+    { value: 'zh', label: t('settings.languages.zh') },
+  ]
+
+  return (
+    <Card className="border-border bg-surface-primary">
+      <CardHeader className="border-b border-border py-4">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Languages className="h-4 w-4 text-text-muted" />
+          {t('settings.language')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-6">
+        <div className="flex items-center gap-6">
+          <label className="text-sm font-medium text-text-secondary w-40 shrink-0">
+            {t('settings.languagePreference')}
+          </label>
+          <div className="flex flex-wrap gap-3">
+            {languages.map(({ value, label }) => (
+              <Button
+                key={value}
+                onClick={() => i18n.changeLanguage(value)}
+                variant={i18n.language === value ? 'default' : 'outline'}
+              >
+                <span className="text-sm font-medium">{label}</span>
+              </Button>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function ForceProjectSection() {
   const { data: settings, isLoading } = useSettings()
   const updateSetting = useUpdateSetting()
+  const { t } = useTranslation()
 
   const forceProjectEnabled = settings?.force_project_binding === 'true'
   const timeout = settings?.force_project_timeout || '30'
@@ -113,17 +157,17 @@ function ForceProjectSection() {
       <CardHeader className="border-b border-border py-4">
         <CardTitle className="text-base font-medium flex items-center gap-2">
           <FolderOpen className="h-4 w-4 text-text-muted" />
-          强制项目绑定
+          {t('settings.forceProjectBinding')}
         </CardTitle>
       </CardHeader>
       <CardContent className="p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <label className="text-sm font-medium text-text-primary">
-              启用强制项目绑定
+              {t('settings.enableForceProjectBinding')}
             </label>
             <p className="text-xs text-text-muted mt-1">
-              开启后，新会话必须选择项目才能继续执行请求
+              {t('settings.forceProjectBindingDesc')}
             </p>
           </div>
           <Switch
@@ -136,7 +180,7 @@ function ForceProjectSection() {
         {forceProjectEnabled && (
           <div className="flex items-center gap-6 pt-4 border-t border-border">
             <label className="text-sm font-medium text-text-secondary w-32 shrink-0">
-              等待超时（秒）
+              {t('settings.waitTimeout')}
             </label>
             <Input
               type="number"
@@ -147,7 +191,7 @@ function ForceProjectSection() {
               max={300}
               disabled={updateSetting.isPending}
             />
-            <span className="text-xs text-text-muted">5 - 300 秒</span>
+            <span className="text-xs text-text-muted">{t('settings.waitTimeoutRange')}</span>
           </div>
         )}
       </CardContent>
@@ -228,6 +272,7 @@ function AntigravityModelMappingSection() {
   const resetSettings = useResetAntigravityGlobalSettings()
   const [newPattern, setNewPattern] = useState('')
   const [newTarget, setNewTarget] = useState('')
+  const { t } = useTranslation()
 
   const rules = settings?.modelMappingRules || []
 
@@ -296,7 +341,7 @@ function AntigravityModelMappingSection() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-medium flex items-center gap-2">
             <Zap className="h-4 w-4 text-text-muted" />
-            Antigravity 全局模型映射
+            {t('settings.antigravityModelMapping')}
           </CardTitle>
           <Button
             variant="outline"
@@ -305,13 +350,13 @@ function AntigravityModelMappingSection() {
             disabled={isPending}
           >
             <RotateCcw className="h-4 w-4 mr-1" />
-            重置为预设
+            {t('settings.resetToPreset')}
           </Button>
         </div>
       </CardHeader>
       <CardContent className="p-6 space-y-4">
         <p className="text-xs text-text-muted">
-          模型名映射规则，按顺序匹配（越靠前优先级越高）。支持通配符 <code className="px-1 py-0.5 bg-muted rounded">*</code>，例如 <code className="px-1 py-0.5 bg-muted rounded">*sonnet*</code> 匹配所有 sonnet 变体
+          {t('settings.modelMappingDesc')}
         </p>
 
         {rules.length > 0 && (
@@ -345,7 +390,7 @@ function AntigravityModelMappingSection() {
           <ModelInput
             value={newPattern}
             onChange={setNewPattern}
-            placeholder="匹配模式"
+            placeholder={t('settings.matchPattern')}
             disabled={isPending}
             className="flex-1 max-w-xs"
           />
@@ -353,7 +398,7 @@ function AntigravityModelMappingSection() {
           <ModelInput
             value={newTarget}
             onChange={setNewTarget}
-            placeholder="目标模型"
+            placeholder={t('settings.targetModel')}
             disabled={isPending}
             className="flex-1 max-w-xs"
             providers={['Antigravity']}
@@ -365,7 +410,7 @@ function AntigravityModelMappingSection() {
             disabled={!newPattern.trim() || !newTarget.trim() || isPending}
           >
             <Plus className="h-4 w-4 mr-1" />
-            添加
+            {t('common.add')}
           </Button>
         </div>
       </CardContent>

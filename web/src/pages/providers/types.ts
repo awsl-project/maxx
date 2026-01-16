@@ -3,6 +3,7 @@ import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
 import { Wand2, Zap, Server, Mail, Globe } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
+import freeDuckLogo from '@/assets/icons/free-duck.gif';
 
 // ===== Provider Type Configuration =====
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
@@ -117,6 +118,17 @@ export const quickTemplates: QuickTemplate[] = [
       claude: 'https://jp.duckcoding.com',
       codex: 'https://jp.duckcoding.com/v1',
       gemini: 'https://jp.duckcoding.com',
+    },
+  },
+  {
+    id: 'freeduck',
+    name: 'Free Duck',
+    description: '免费站点 · 只有 Claude Code',
+    icon: 'grid',
+    logoUrl: freeDuckLogo,
+    supportedClients: ['claude'],
+    clientBaseURLs: {
+      claude: 'https://free.duckcoding.com',
     },
   },
 ];

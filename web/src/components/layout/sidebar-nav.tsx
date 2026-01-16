@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   LayoutDashboard,
   Activity,
@@ -27,19 +28,19 @@ import { NavProxyStatus } from './nav-proxy-status'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 const mainNavItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/console', icon: Terminal, label: 'Console' },
+  { to: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+  { to: '/console', icon: Terminal, labelKey: 'nav.console' },
 ]
 
 const managementItems = [
-  { to: '/providers', icon: Server, label: 'Providers' },
-  { to: '/projects', icon: FolderKanban, label: 'Projects' },
-  { to: '/sessions', icon: Users, label: 'Sessions' },
+  { to: '/providers', icon: Server, labelKey: 'nav.providers' },
+  { to: '/projects', icon: FolderKanban, labelKey: 'nav.projects' },
+  { to: '/sessions', icon: Users, labelKey: 'nav.sessions' },
 ]
 
 const configItems = [
-  { to: '/retry-configs', icon: RefreshCw, label: 'Retry Configs' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/retry-configs', icon: RefreshCw, labelKey: 'nav.retryConfigs' },
+  { to: '/settings', icon: Settings, labelKey: 'nav.settings' },
 ]
 
 /**
@@ -48,6 +49,7 @@ const configItems = [
 function RequestsNavItem() {
   const location = useLocation()
   const { total } = useStreamingRequests()
+  const { t } = useTranslation()
   const isActive = location.pathname.startsWith('/requests')
   const color = 'var(--color-success)' // emerald-500
 
@@ -69,7 +71,7 @@ function RequestsNavItem() {
         )}
         <Activity className="relative z-10" />
         <span className="relative z-10 group-data-[collapsible=icon]:hidden">
-          Requests
+          {t('requests.title')}
         </span>
       </NavLink>
       {total > 0 && (
@@ -82,8 +84,9 @@ function RequestsNavItem() {
 }
 
 export function SidebarNav() {
+  const { t } = useTranslation()
   const versionDisplay =
-    `v${__APP_VERSION__}` 
+    `v${__APP_VERSION__}`
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -95,8 +98,8 @@ export function SidebarNav() {
           <RequestsNavItem />
         </NavMain>
         <NavRoutes />
-        <NavManagement items={managementItems} title="MANAGEMENT" />
-        <NavManagement items={configItems} title="CONFIG" />
+        <NavManagement items={managementItems} title={t('nav.management')} />
+        <NavManagement items={configItems} title={t('nav.config')} />
       </SidebarContent>
 
       <SidebarFooter>

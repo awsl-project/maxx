@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
+import { useTranslation } from 'react-i18next'
 import {
   useProviders,
   useRoutes,
@@ -21,6 +22,7 @@ import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/layout/page-header'
 
 export function OverviewPage() {
+  const { t } = useTranslation()
   const { data: providers } = useProviders()
   const { data: routes } = useRoutes()
   const { data: projects } = useProjects()
@@ -30,7 +32,7 @@ export function OverviewPage() {
 
   const stats = [
     {
-      label: 'Providers',
+      label: t('dashboard.providers'),
       value: providers?.length ?? 0,
       icon: Server,
       className:
@@ -38,7 +40,7 @@ export function OverviewPage() {
       href: '/providers',
     },
     {
-      label: 'Routes',
+      label: t('dashboard.routes'),
       value: routes?.length ?? 0,
       icon: Route,
       className:
@@ -46,7 +48,7 @@ export function OverviewPage() {
       href: '/routes/claude',
     },
     {
-      label: 'Projects',
+      label: t('dashboard.projects'),
       value: projects?.length ?? 0,
       icon: FolderKanban,
       className:
@@ -54,7 +56,7 @@ export function OverviewPage() {
       href: '/projects',
     },
     {
-      label: 'Recent Requests',
+      label: t('dashboard.recentRequests'),
       value: requests.length,
       icon: Activity,
       className:
@@ -77,8 +79,8 @@ export function OverviewPage() {
       <PageHeader
         icon={LayoutDashboard}
         iconClassName="text-indigo-500"
-        title="Dashboard"
-        description="Overview of your proxy gateway"
+        title={t('dashboard.title')}
+        description={t('dashboard.description')}
       />
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="space-y-6 md:space-y-8 animate-fade-in max-w-7xl mx-auto">
@@ -89,17 +91,16 @@ export function OverviewPage() {
                 <Zap size={40} className="text-white drop-shadow-md" />
               </div>
               <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-indigo-600 dark:from-violet-400 dark:to-indigo-400">
-                Welcome to Maxx Next
+                {t('dashboard.welcome')}
               </h1>
               <p className="text-base md:text-lg text-muted-foreground max-w mx-auto mb-10 leading-relaxed">
-                AI API Proxy Gateway - Route your AI requests through multiple
-                providers with intelligent failover and load balancing.
+                {t('dashboard.welcomeDescription')}
               </p>
               <Link
                 to="/providers"
                 className="inline-flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white px-8 py-3 rounded-xl hover:opacity-90 transition-all duration-300 font-medium text-sm shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:shadow-indigo-500/30 hover:scale-105 active:scale-95"
               >
-                Get Started
+                {t('dashboard.getStarted')}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
@@ -141,7 +142,7 @@ export function OverviewPage() {
               <CardHeader className="border-b border-border/50 py-4 px-5">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Activity className="h-4 w-4 text-emerald-500" />
-                  Request Status
+                  {t('dashboard.requestStatus')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-5">
@@ -152,7 +153,7 @@ export function OverviewPage() {
                         <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                       </div>
                       <span className="text-sm font-medium text-foreground">
-                        Completed
+                        {t('dashboard.completed')}
                       </span>
                     </div>
                     <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono tabular-nums">
@@ -165,7 +166,7 @@ export function OverviewPage() {
                         <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
                       </div>
                       <span className="text-sm font-medium text-foreground">
-                        Failed
+                        {t('dashboard.failed')}
                       </span>
                     </div>
                     <span className="text-xl font-bold text-red-600 dark:text-red-400 font-mono tabular-nums">
@@ -178,7 +179,7 @@ export function OverviewPage() {
                         <Ban className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                       </div>
                       <span className="text-sm font-medium text-foreground">
-                        Cancelled
+                        {t('dashboard.cancelled')}
                       </span>
                     </div>
                     <span className="text-xl font-bold text-amber-600 dark:text-amber-400 font-mono tabular-nums">
@@ -193,7 +194,7 @@ export function OverviewPage() {
               <CardHeader className="border-b border-border/50 py-4 px-5">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Zap className="h-4 w-4 text-amber-500" />
-                  Quick Actions
+                  {t('dashboard.quickActions')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-5">
@@ -207,7 +208,7 @@ export function OverviewPage() {
                         <Server className="h-4 w-4" />
                       </div>
                       <span className="text-sm font-medium text-foreground">
-                        Manage Providers
+                        {t('dashboard.manageProviders')}
                       </span>
                     </div>
                     <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
@@ -221,7 +222,7 @@ export function OverviewPage() {
                         <Route className="h-4 w-4" />
                       </div>
                       <span className="text-sm font-medium text-foreground">
-                        Configure Routes
+                        {t('dashboard.configureRoutes')}
                       </span>
                     </div>
                     <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-violet-500 group-hover:translate-x-1 transition-all" />
@@ -235,7 +236,7 @@ export function OverviewPage() {
                         <Activity className="h-4 w-4" />
                       </div>
                       <span className="text-sm font-medium text-foreground">
-                        View Requests
+                        {t('dashboard.viewRequests')}
                       </span>
                     </div>
                     <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
@@ -253,10 +254,10 @@ export function OverviewPage() {
                   <CheckCircle className="h-6 w-6 md:h-7 md:w-7 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <h3 className="text-base font-semibold text-foreground mb-2">
-                  Secure
+                  {t('dashboard.secure')}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  End-to-end encryption
+                  {t('dashboard.secureDesc')}
                 </p>
               </div>
               <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-6 md:p-8 text-center hover:bg-violet-500/5 hover:border-violet-500/30 transition-all duration-300 group hover:-translate-y-1">
@@ -264,10 +265,10 @@ export function OverviewPage() {
                   <Zap className="h-6 w-6 md:h-7 md:w-7 text-violet-600 dark:text-violet-400" />
                 </div>
                 <h3 className="text-base font-semibold text-foreground mb-2">
-                  Fast
+                  {t('dashboard.fast')}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Low latency routing
+                  {t('dashboard.fastDesc')}
                 </p>
               </div>
               <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-6 md:p-8 text-center hover:bg-blue-500/5 hover:border-blue-500/30 transition-all duration-300 group hover:-translate-y-1">
@@ -275,10 +276,10 @@ export function OverviewPage() {
                   <Activity className="h-6 w-6 md:h-7 md:w-7 text-blue-600 dark:text-blue-400" />
                 </div>
                 <h3 className="text-base font-semibold text-foreground mb-2">
-                  Insights
+                  {t('dashboard.insights')}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Real-time analytics
+                  {t('dashboard.insightsDesc')}
                 </p>
               </div>
             </div>

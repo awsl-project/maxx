@@ -27,7 +27,7 @@ RUN VITE_COMMIT=${VITE_COMMIT} pnpm build
 FROM golang:1.25-alpine AS backend-builder
 
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev sqlite-dev git
+RUN apk add --no-cache git
 
 WORKDIR /app
 
@@ -47,7 +47,7 @@ ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 
 # Build backend binary with version info
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo \
+RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w \
     -X github.com/awsl-project/maxx/internal/version.Version=${VERSION} \
     -X github.com/awsl-project/maxx/internal/version.Commit=${COMMIT} \
@@ -58,7 +58,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo \
 FROM alpine:latest
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates sqlite-libs
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 

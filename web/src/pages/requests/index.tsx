@@ -408,11 +408,12 @@ function LogRow({
 
   const formatDuration = (ns?: number | null) => {
     if (ns === undefined || ns === null) return '-'
-    // If it's live duration (ms), convert directly
+    // If it's live duration (ms), convert directly to seconds
     if (isPending && liveDuration !== null) {
       return `${(liveDuration / 1000).toFixed(1)}s`
     }
-    // If it's stored duration (nanoseconds), convert
+    // If it's stored duration (nanoseconds), use base formatter
+    // But simplify to only show ms or seconds for list view
     const ms = ns / 1_000_000
     if (ms < 1000) return `${ms.toFixed(0)}ms`
     return `${(ms / 1000).toFixed(2)}s`

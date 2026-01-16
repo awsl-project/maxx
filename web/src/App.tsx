@@ -13,8 +13,24 @@ import { RetryConfigsPage } from '@/pages/retry-configs';
 import { RoutingStrategiesPage } from '@/pages/routing-strategies';
 import { ConsolePage } from '@/pages/console';
 import { SettingsPage } from '@/pages/settings';
+import { LoginPage } from '@/pages/login';
+import { AuthProvider, useAuth } from '@/lib/auth-context';
 
-function App() {
+function AppRoutes() {
+  const { isAuthenticated, isLoading, login } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <span className="text-muted-foreground">Loading...</span>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage onSuccess={login} />;
+  }
+
   return (
     <BrowserRouter>
       <Routes>
@@ -35,6 +51,14 @@ function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
   );
 }
 

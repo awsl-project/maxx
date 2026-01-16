@@ -6,6 +6,7 @@ import { TransportProvider } from '@/lib/transport';
 import { ThemeProvider } from '@/components/theme-provider';
 import App from './App';
 import './index.css';
+import '@/lib/i18n'; // 初始化 i18n
 
 // 加载中显示的内容
 function LoadingFallback() {

@@ -7,6 +7,7 @@ import {
   getClientName,
   getClientColor,
 } from '@/components/icons/client-icons'
+import { formatDuration } from '@/lib/utils'
 
 // 微美元转美元 (1 USD = 1,000,000 microUSD)
 const MICRO_USD_PER_USD = 1_000_000
@@ -22,15 +23,6 @@ function formatCost(microUSD: number): string {
   if (usd < 0.01) return `$${usd.toFixed(4)}`
   if (usd < 1) return `$${usd.toFixed(3)}`
   return `$${usd.toFixed(2)}`
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  const seconds = ms / 1000
-  if (seconds < 60) return `${seconds.toFixed(2)}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = Math.floor(seconds % 60)
-  return `${minutes}m ${remainingSeconds}s`
 }
 
 function formatTime(timestamp: string): string {

@@ -1,0 +1,174 @@
+{
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "add": "添加",
+    "create": "创建",
+    "update": "更新",
+    "confirm": "确认",
+    "close": "关闭",
+    "loading": "加载中...",
+    "noData": "暂无数据",
+    "actions": "操作",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "name": "名称",
+    "description": "描述",
+    "status": "状态",
+    "type": "类型",
+    "created": "创建时间",
+    "updated": "更新时间",
+    "reset": "重置",
+    "import": "导入",
+    "export": "导出"
+  },
+  "nav": {
+    "dashboard": "仪表板",
+    "console": "控制台",
+    "providers": "提供商",
+    "projects": "项目",
+    "sessions": "会话",
+    "retryConfigs": "重试配置",
+    "settings": "设置",
+    "routes": "路由",
+    "management": "管理",
+    "config": "配置"
+  },
+  "dashboard": {
+    "title": "仪表板",
+    "description": "代理网关概览",
+    "welcome": "欢迎使用 Maxx",
+    "welcomeDescription": "AI API 代理网关 - 通过智能故障转移和负载均衡将您的 AI 请求路由到多个提供商。",
+    "getStarted": "开始使用",
+    "providers": "提供商",
+    "routes": "路由",
+    "projects": "项目",
+    "recentRequests": "最近请求",
+    "requestStatus": "请求状态",
+    "completed": "已完成",
+    "failed": "失败",
+    "cancelled": "已取消",
+    "quickActions": "快捷操作",
+    "manageProviders": "管理提供商",
+    "configureRoutes": "配置路由",
+    "viewRequests": "查看请求",
+    "secure": "安全",
+    "secureDesc": "端到端加密",
+    "fast": "快速",
+    "fastDesc": "低延迟路由",
+    "insights": "洞察",
+    "insightsDesc": "实时分析"
+  },
+  "requests": {
+    "title": "请求",
+    "description": "共 {{count}} 个请求",
+    "noRequests": "暂无请求记录",
+    "noRequestsHint": "请求将自动显示在这里",
+    "time": "时间",
+    "client": "客户端",
+    "model": "模型",
+    "project": "项目",
+    "provider": "提供商",
+    "code": "状态码",
+    "duration": "耗时",
+    "cost": "费用",
+    "page": "第 {{current}} 页",
+    "showing": "显示 {{count}} 条，共 {{total}} 条",
+    "noItems": "暂无数据",
+    "status": {
+      "pending": "等待中",
+      "streaming": "传输中",
+      "completed": "已完成",
+      "failed": "失败",
+      "cancelled": "已取消",
+      "rejected": "已拒绝"
+    }
+  },
+  "providers": {
+    "title": "提供商",
+    "description": "已配置 {{count}} 个",
+    "addProvider": "添加提供商",
+    "noProviders": "暂无提供商配置",
+    "noProvidersHint": "点击「添加提供商」创建一个",
+    "importProviders": "导入提供商",
+    "exportProviders": "导出提供商"
+  },
+  "projects": {
+    "title": "项目",
+    "description": "管理您的项目和环境",
+    "addProject": "添加项目",
+    "projectName": "项目名称",
+    "projectNamePlaceholder": "例如：Production、Staging、Experiment-A",
+    "projectInfo": "项目信息",
+    "slug": "标识符",
+    "slugPlaceholder": "project-slug"
+  },
+  "routes": {
+    "title": "全局路由",
+    "description": "这些路由适用于所有项目。项目特定的路由可以在每个项目的设置中配置。",
+    "addRoute": "添加路由",
+    "editRoute": "编辑路由",
+    "newRoute": "新建路由"
+  },
+  "console": {
+    "title": "控制台",
+    "description": "{{count}} 个事件",
+    "pause": "暂停",
+    "resume": "继续",
+    "clear": "清空"
+  },
+  "sessions": {
+    "title": "会话",
+    "description": "管理活动会话"
+  },
+  "retryConfigs": {
+    "title": "重试配置",
+    "description": "配置重试策略",
+    "maxRetries": "最大重试次数",
+    "initialInterval": "初始间隔（毫秒）",
+    "backoffRate": "退避倍率",
+    "maxInterval": "最大间隔（毫秒）"
+  },
+  "routingStrategies": {
+    "title": "路由策略",
+    "addStrategy": "添加策略",
+    "editStrategy": "编辑策略",
+    "newStrategy": "新建策略",
+    "deleteConfirm": "确定要删除此策略吗？"
+  },
+  "settings": {
+    "title": "设置",
+    "description": "配置您的 Maxx 实例",
+    "appearance": "外观",
+    "themePreference": "主题偏好",
+    "theme": {
+      "light": "浅色",
+      "dark": "深色",
+      "system": "跟随系统"
+    },
+    "language": "语言",
+    "languagePreference": "语言偏好",
+    "languages": {
+      "en": "English",
+      "zh": "简体中文"
+    },
+    "forceProjectBinding": "强制项目绑定",
+    "enableForceProjectBinding": "启用强制项目绑定",
+    "forceProjectBindingDesc": "开启后，新会话必须选择项目才能继续执行请求",
+    "waitTimeout": "等待超时（秒）",
+    "waitTimeoutRange": "5 - 300 秒",
+    "antigravityModelMapping": "Antigravity 全局模型映射",
+    "resetToPreset": "重置为预设",
+    "modelMappingDesc": "模型名映射规则，按顺序匹配（越靠前优先级越高）。支持通配符 *，例如 *sonnet* 匹配所有 sonnet 变体",
+    "matchPattern": "匹配模式",
+    "targetModel": "目标模型"
+  },
+  "clientRoutes": {
+    "claude": "Claude",
+    "openai": "OpenAI",
+    "codex": "Codex",
+    "gemini": "Gemini"
+  }
+}
