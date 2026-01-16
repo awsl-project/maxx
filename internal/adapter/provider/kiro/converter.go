@@ -80,8 +80,8 @@ func ConvertClaudeToCodeWhisperer(requestBody []byte, modelMapping map[string]st
 		return nil, "", fmt.Errorf("请求验证失败: %w", err)
 	}
 
-	// 序列化请求
-	result, err := FastMarshal(cwReq)
+	// 序列化请求 (使用 SafeMarshal 匹配 kiro2api)
+	result, err := SafeMarshal(cwReq)
 	if err != nil {
 		return nil, "", fmt.Errorf("序列化 CodeWhisperer 请求失败: %w", err)
 	}
