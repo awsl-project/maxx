@@ -22,7 +22,6 @@ import { useAntigravityQuota } from '@/hooks/queries'
 import { useCooldowns } from '@/hooks/use-cooldowns'
 import { ProviderDetailsDialog } from '@/components/provider-details-dialog'
 import { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
