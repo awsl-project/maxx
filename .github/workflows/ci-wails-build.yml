@@ -3,7 +3,7 @@ name: Wails Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_call:
     inputs:
       tag:
@@ -27,11 +27,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: "1.25"
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -111,11 +111,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: "1.25"
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -178,11 +178,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: "1.25"
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - name: Install Linux Build Dependencies
         run: |
@@ -253,7 +253,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: '{macos,windows,linux}-*'
+          pattern: "{macos,windows,linux}-*"
           merge-multiple: false
 
       - name: Display structure
@@ -321,7 +321,6 @@ jobs:
 
           echo "Generated latest.json:"
           cat release-assets/latest.json
-
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
@@ -409,7 +408,7 @@ jobs:
           sed -i "s/ARM64_SHA_PLACEHOLDER/${ARM64_SHA}/g" maxx.rb
 
           # Clone homebrew tap and update
-          git clone https://x-access-token:${GH_TOKEN}@github.com/awsl-project/homebrew-awsl.git
+          git clone https://${GH_TOKEN}@github.com/awsl-project/homebrew-awsl.git
           cp maxx.rb homebrew-awsl/Casks/maxx.rb
 
           cd homebrew-awsl

@@ -75,6 +75,11 @@ Download pre-built desktop applications from [GitHub Releases](https://github.co
 | macOS (Intel) | `maxx-macOS-amd64.dmg` | Intel chips |
 | Linux | `maxx` | Native binary |
 
+**macOS via Homebrew:**
+```bash
+brew install --no-quarantine awsl-project/awsl/maxx
+```
+
 > **macOS Note:** If you see "App is damaged" error, run: `sudo xattr -d com.apple.quarantine /Applications/maxx.app`
 
 ### Method 3: Local Build
