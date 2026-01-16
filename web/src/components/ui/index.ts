@@ -1,6 +1,5 @@
 // Button
 export { Button, buttonVariants } from './button';
-export type { ButtonProps } from './button';
 
 // Card
 export {
@@ -11,7 +10,6 @@ export {
   CardDescription,
   CardContent,
 } from './card';
-export type { CardProps } from './card';
 
 // Table
 export {
@@ -27,15 +25,12 @@ export {
 
 // Badge
 export { Badge, badgeVariants } from './badge';
-export type { BadgeProps } from './badge';
 
 // Input
 export { Input } from './input';
-export type { InputProps } from './input';
 
 // Select
 export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
-export type { SelectProps } from './select';
 
 // Dialog
 export {

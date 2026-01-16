@@ -197,4 +197,3 @@ export {
   SelectTrigger,
   SelectValue,
 }
-export type SelectProps = SelectPrimitive.Root.Props<string, false>
