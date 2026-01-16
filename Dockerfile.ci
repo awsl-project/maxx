@@ -1,0 +1,43 @@
+# CI Dockerfile - frontend is pre-built by GitHub Actions
+
+# Stage 1: Build backend
+FROM golang:1.24-alpine AS backend-builder
+
+RUN apk add --no-cache git
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w \
+    -X github.com/awsl-project/maxx/internal/version.Version=${VERSION} \
+    -X github.com/awsl-project/maxx/internal/version.Commit=${COMMIT} \
+    -X github.com/awsl-project/maxx/internal/version.BuildTime=${BUILD_TIME}" \
+    -o maxx cmd/maxx/main.go
+
+# Stage 2: Final runtime image
+FROM alpine:latest
+
+RUN apk add --no-cache ca-certificates
+
+WORKDIR /app
+
+COPY --from=backend-builder /app/maxx .
+
+# Copy pre-built frontend from GitHub Actions
+COPY web/dist ./web/dist
+
+RUN mkdir -p /data
+
+EXPOSE 9880
+
+CMD ["./maxx", "-addr", ":9880", "-data", "/data"]
