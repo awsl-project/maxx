@@ -127,7 +127,7 @@ export function ProjectsPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0 flex-1">
-                  <div className="flex items-center gap-2 text-xs text-text-secondary bg-surface-secondary/50 p-2 rounded border border-transparent group-hover:border-border transition-colors">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded border border-transparent group-hover:border-border transition-colors">
                     <Hash size={12} className="opacity-50" />
                     <span className="font-mono truncate">{project.slug}</span>
                   </div>
