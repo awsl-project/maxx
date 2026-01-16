@@ -77,7 +77,11 @@ Download pre-built desktop applications from [GitHub Releases](https://github.co
 
 **macOS via Homebrew:**
 ```bash
+# Install
 brew install --no-quarantine awsl-project/awsl/maxx
+
+# Upgrade
+brew upgrade --no-quarantine awsl-project/awsl/maxx
 ```
 
 > **macOS Note:** If you see "App is damaged" error, run: `sudo xattr -d com.apple.quarantine /Applications/maxx.app`
