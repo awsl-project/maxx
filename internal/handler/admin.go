@@ -977,6 +977,10 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		if body.Name != nil {
+			if *body.Name == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name cannot be empty"})
+				return
+			}
 			existing.Name = *body.Name
 		}
 		if body.Description != nil {

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -682,7 +683,10 @@ func (s *AdminService) GetAPIToken(id uint64) (*domain.APIToken, error) {
 // CreateAPIToken creates a new API token and returns the plain token (only shown once)
 func (s *AdminService) CreateAPIToken(name, description string, projectID uint64, expiresAt *time.Time) (*domain.APITokenCreateResult, error) {
 	// Generate token
-	plain, prefix := generateAPIToken()
+	plain, prefix, err := generateAPIToken()
+	if err != nil {
+		return nil, err
+	}
 
 	token := &domain.APIToken{
 		Token:       plain,
@@ -713,14 +717,16 @@ func (s *AdminService) DeleteAPIToken(id uint64) error {
 }
 
 // generateAPIToken creates a new random token
-// Returns: plain token, prefix for display
-func generateAPIToken() (plain string, prefix string) {
+// Returns: plain token, prefix for display, error if generation fails
+func generateAPIToken() (plain string, prefix string, err error) {
 	const tokenPrefix = "maxx_"
 	const tokenPrefixDisplayLen = 12
 
 	// Generate 32 random bytes (64 hex chars)
 	bytes := make([]byte, 32)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", "", fmt.Errorf("failed to generate random token: %w", err)
+	}
 
 	plain = tokenPrefix + hex.EncodeToString(bytes)
 
@@ -731,5 +737,5 @@ func generateAPIToken() (plain string, prefix string) {
 		prefix = plain
 	}
 
-	return plain, prefix
+	return plain, prefix, nil
 }

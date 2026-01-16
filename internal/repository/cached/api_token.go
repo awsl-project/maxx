@@ -2,6 +2,7 @@ package cached
 
 import (
 	"sync"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
@@ -35,10 +36,18 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 }
 
 func (r *APITokenRepository) Update(t *domain.APIToken) error {
+	// Get old token to remove from tokenCache if token changed
+	r.mu.RLock()
+	old, exists := r.cache[t.ID]
+	r.mu.RUnlock()
+
 	if err := r.repo.Update(t); err != nil {
 		return err
 	}
 	r.mu.Lock()
+	if exists && old != nil && old.Token != t.Token {
+		delete(r.tokenCache, old.Token)
+	}
 	r.cache[t.ID] = t
 	r.tokenCache[t.Token] = t
 	r.mu.Unlock()
@@ -117,6 +126,8 @@ func (r *APITokenRepository) IncrementUseCount(id uint64) error {
 	r.mu.Lock()
 	if t, ok := r.cache[id]; ok {
 		t.UseCount++
+		now := time.Now()
+		t.LastUsedAt = &now
 	}
 	r.mu.Unlock()
 	return nil

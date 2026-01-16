@@ -98,7 +98,7 @@ func (r *ProjectRepository) Delete(id uint64) error {
 }
 
 func (r *ProjectRepository) GetByID(id uint64) (*domain.Project, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, name, slug, enabled_custom_routes, deleted_at FROM projects WHERE id = ?`, id)
+	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, name, slug, enabled_custom_routes, deleted_at FROM projects WHERE id = ? AND deleted_at IS NULL`, id)
 	return r.scanProject(row)
 }
 

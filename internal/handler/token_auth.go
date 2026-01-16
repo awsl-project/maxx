@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -116,11 +117,13 @@ func (m *TokenAuthMiddleware) ValidateRequest(req *http.Request, clientType doma
 }
 
 // GenerateToken creates a new random token
-// Returns: plain token, prefix for display
-func GenerateToken() (plain string, prefix string) {
+// Returns: plain token, prefix for display, error if generation fails
+func GenerateToken() (plain string, prefix string, err error) {
 	// Generate 32 random bytes (64 hex chars)
 	bytes := make([]byte, 32)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", "", fmt.Errorf("failed to generate random token: %w", err)
+	}
 
 	plain = TokenPrefix + hex.EncodeToString(bytes)
 
@@ -131,7 +134,7 @@ func GenerateToken() (plain string, prefix string) {
 		prefix = plain
 	}
 
-	return plain, prefix
+	return plain, prefix, nil
 }
 
 // Setting key for token auth
