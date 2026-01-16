@@ -1,6 +1,8 @@
 import {
   ChevronRight,
   Activity,
+  Mail,
+  Globe,
 } from 'lucide-react'
 import { ClientIcon } from '@/components/icons/client-icons'
 import { StreamingBadge } from '@/components/ui/streaming-badge'
@@ -10,7 +12,7 @@ import type {
   AntigravityQuotaData,
   KiroQuotaData,
 } from '@/lib/transport'
-import { getProviderTypeConfig, getDisplayIcon } from '../types'
+import { getProviderTypeConfig } from '../types'
 import { cn } from '@/lib/utils'
 import { useAntigravityQuota, useKiroQuota } from '@/hooks/queries'
 
@@ -116,7 +118,6 @@ export function ProviderRow({
   const typeConfig = getProviderTypeConfig(provider.type)
   const color = typeConfig.color
   const TypeIcon = typeConfig.icon
-  const DisplayInfoIcon = getDisplayIcon(provider.type)
   const displayInfo = typeConfig.getDisplayInfo(provider)
 
   const isAntigravity = provider.type === 'antigravity'
@@ -192,7 +193,11 @@ export function ProviderRow({
           className="flex items-center gap-1.5 text-[11px] font-medium text-text-muted truncate"
           title={displayInfo}
         >
-          <DisplayInfoIcon size={11} className="shrink-0" />
+          {typeConfig.isAccountBased ? (
+            <Mail size={11} className="shrink-0" />
+          ) : (
+            <Globe size={11} className="shrink-0" />
+          )}
           <span className="truncate">{displayInfo}</span>
         </div>
       </div>
