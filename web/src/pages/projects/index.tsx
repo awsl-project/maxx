@@ -144,7 +144,7 @@ export function ProjectsPage() {
                     )}
                   </span>
                   <div className="flex items-center text-accent opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200 font-medium">
-                    Manage <ArrowRight size={12} className="ml-1" />
+                    {t('projects.manage')} <ArrowRight size={12} className="ml-1" />
                   </div>
                 </CardFooter>
               </Card>

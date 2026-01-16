@@ -73,7 +73,7 @@ export function NavProxyStatus() {
       </div>
       <div className="flex flex-col items-start flex-1 min-w-0">
         <span className="text-caption text-muted-foreground">Listening on</span>
-        <span className="font-mono font-medium text-foreground  truncate">
+        <span className="font-mono font-medium text-foreground truncate">
           {proxyAddress}
         </span>
       </div>

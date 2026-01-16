@@ -95,9 +95,7 @@ export function SessionsPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <div className="p-1 rounded bg-muted">
-                            <div className="p-1 rounded bg-muted">
-                              <ClientIcon type={session.clientType} size={16} />
-                            </div>
+                            <ClientIcon type={session.clientType} size={16} />
                           </div>
                         </div>
                       </TableCell>

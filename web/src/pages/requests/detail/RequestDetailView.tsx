@@ -93,7 +93,10 @@ export function RequestDetailView({
       </div>
 
       {/* Detail Content */}
-      <TabsContent value="request" className="flex-1 overflow-hidden flex flex-col min-w-0 mt-0">
+      <TabsContent
+        value="request"
+        className="flex-1 overflow-hidden flex flex-col min-w-0 mt-0"
+      >
         {request.requestInfo ? (
           <div className="flex-1 flex flex-col overflow-hidden p-6 gap-6 animate-fade-in min-w-0">
             <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border border-border shrink-0">
@@ -181,7 +184,10 @@ export function RequestDetailView({
         )}
       </TabsContent>
 
-      <TabsContent value="response" className="flex-1 overflow-hidden flex flex-col min-w-0 mt-0">
+      <TabsContent
+        value="response"
+        className="flex-1 overflow-hidden flex flex-col min-w-0 mt-0"
+      >
         {request.responseInfo ? (
           <div className="flex-1 flex flex-col overflow-hidden p-6 gap-6 animate-fade-in min-w-0">
             <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border border-border shrink-0">
@@ -352,10 +358,10 @@ export function RequestDetailView({
                   </dd>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                  <dt className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                  <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     API Token
                   </dt>
-                  <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-surface-secondary px-2 py-1 rounded">
+                  <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-muted px-2 py-1 rounded">
                     {tokenName || '-'}
                   </dd>
                 </div>

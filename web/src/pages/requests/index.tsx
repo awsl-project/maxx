@@ -521,7 +521,7 @@ function LogRow({
       {/* Token */}
       <TableCell className="py-1">
         <span
-          className="text-sm text-text-secondary truncate max-w-[100px] block"
+          className="text-sm text-muted-foreground truncate max-w-[100px] block"
           title={tokenName}
         >
           {tokenName || '-'}
