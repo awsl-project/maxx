@@ -143,6 +143,7 @@ export type ClientConfig = {
 
 export const defaultClients: ClientConfig[] = [
   { id: 'claude', name: 'Claude', enabled: true, urlOverride: '' },
+  { id: 'openai', name: 'OpenAI', enabled: false, urlOverride: '' },
   { id: 'codex', name: 'Codex', enabled: false, urlOverride: '' },
   { id: 'gemini', name: 'Gemini', enabled: false, urlOverride: '' },
 ];
