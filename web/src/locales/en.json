@@ -30,6 +30,7 @@
     "providers": "Providers",
     "projects": "Projects",
     "sessions": "Sessions",
+    "apiTokens": "API Tokens",
     "retryConfigs": "Retry Configs",
     "settings": "Settings",
     "routes": "ROUTES",

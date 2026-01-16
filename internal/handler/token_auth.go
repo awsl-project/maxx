@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -116,7 +117,11 @@ func (m *TokenAuthMiddleware) ValidateRequest(req *http.Request, clientType doma
 	}
 
 	// Update usage (async to not block request)
-	go m.tokenRepo.IncrementUseCount(apiToken.ID)
+	go func() {
+		if err := m.tokenRepo.IncrementUseCount(apiToken.ID); err != nil {
+			log.Printf("[TokenAuth] Failed to increment token use count for ID %d: %v", apiToken.ID, err)
+		}
+	}()
 
 	return apiToken, nil
 }

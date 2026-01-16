@@ -30,6 +30,7 @@
     "providers": "提供商",
     "projects": "项目",
     "sessions": "会话",
+    "apiTokens": "API 令牌",
     "retryConfigs": "重试配置",
     "settings": "设置",
     "routes": "路由",

@@ -140,3 +140,18 @@ func (r *APITokenRepository) InvalidateCache() {
 	r.tokenCache = make(map[string]*domain.APIToken)
 	r.mu.Unlock()
 }
+
+// Load preloads all tokens into cache
+func (r *APITokenRepository) Load() error {
+	tokens, err := r.repo.List()
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range tokens {
+		r.cache[t.ID] = t
+		r.tokenCache[t.Token] = t
+	}
+	return nil
+}

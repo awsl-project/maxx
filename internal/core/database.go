@@ -169,6 +169,9 @@ func InitializeServerComponents(
 	if err := repos.CachedProjectRepo.Load(); err != nil {
 		log.Printf("[Core] Warning: Failed to load projects cache: %v", err)
 	}
+	if err := repos.CachedAPITokenRepo.Load(); err != nil {
+		log.Printf("[Core] Warning: Failed to load api tokens cache: %v", err)
+	}
 
 	log.Printf("[Core] Creating router")
 	r := router.NewRouter(
