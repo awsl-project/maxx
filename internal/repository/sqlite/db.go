@@ -52,7 +52,8 @@ func (d *DB) migrate() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		name TEXT NOT NULL,
-		slug TEXT NOT NULL DEFAULT ''
+		slug TEXT NOT NULL DEFAULT '',
+		deleted_at DATETIME
 	);
 
 	CREATE TABLE IF NOT EXISTS sessions (
@@ -200,6 +201,23 @@ func (d *DB) migrate() error {
 		project_id TEXT DEFAULT ''
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_antigravity_quotas_email ON antigravity_quotas(email);
+
+	CREATE TABLE IF NOT EXISTS api_tokens (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		token TEXT NOT NULL UNIQUE,
+		token_prefix TEXT NOT NULL,
+		name TEXT NOT NULL,
+		description TEXT DEFAULT '',
+		project_id INTEGER DEFAULT 0,
+		is_enabled INTEGER DEFAULT 1,
+		expires_at DATETIME,
+		last_used_at DATETIME,
+		use_count INTEGER DEFAULT 0,
+		deleted_at DATETIME
+	);
+	CREATE INDEX IF NOT EXISTS idx_api_tokens_token ON api_tokens(token);
 	`
 
 	_, err := d.db.Exec(schema)
@@ -356,6 +374,18 @@ func (d *DB) migrate() error {
 
 	if !hasResponseModel {
 		_, err = d.db.Exec(`ALTER TABLE proxy_upstream_attempts ADD COLUMN response_model TEXT DEFAULT ''`)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Migration: Add api_token_id column to proxy_requests if it doesn't exist
+	var hasAPITokenID bool
+	row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('proxy_requests') WHERE name='api_token_id'`)
+	row.Scan(&hasAPITokenID)
+
+	if !hasAPITokenID {
+		_, err = d.db.Exec(`ALTER TABLE proxy_requests ADD COLUMN api_token_id INTEGER DEFAULT 0`)
 		if err != nil {
 			return err
 		}

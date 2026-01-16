@@ -54,6 +54,10 @@ export type {
   ImportResult,
   // Cooldown
   Cooldown,
+  // API Token
+  APIToken,
+  APITokenCreateResult,
+  CreateAPITokenData,
 } from './types';
 
 export type {

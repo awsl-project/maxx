@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -72,6 +73,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleAntigravitySettings(w, r)
 	case "antigravity-settings-reset":
 		h.handleAntigravitySettingsReset(w, r)
+	case "api-tokens":
+		h.handleAPITokens(w, r, id)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
@@ -901,6 +904,124 @@ func (h *AdminHandler) handleAntigravitySettingsReset(w http.ResponseWriter, r *
 		return
 	}
 	writeJSON(w, http.StatusOK, settings)
+}
+
+// API Token handlers
+func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, id uint64) {
+	switch r.Method {
+	case http.MethodGet:
+		if id > 0 {
+			token, err := h.svc.GetAPIToken(id)
+			if err != nil {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "token not found"})
+				return
+			}
+			writeJSON(w, http.StatusOK, token)
+		} else {
+			tokens, err := h.svc.GetAPITokens()
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, tokens)
+		}
+	case http.MethodPost:
+		var body struct {
+			Name        string  `json:"name"`
+			Description string  `json:"description"`
+			ProjectID   uint64  `json:"projectID"`
+			ExpiresAt   *string `json:"expiresAt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if body.Name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+			return
+		}
+		var expiresAt *time.Time
+		if body.ExpiresAt != nil && *body.ExpiresAt != "" {
+			t, err := time.Parse(time.RFC3339, *body.ExpiresAt)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid expiresAt format, use RFC3339"})
+				return
+			}
+			expiresAt = &t
+		}
+		result, err := h.svc.CreateAPIToken(body.Name, body.Description, body.ProjectID, expiresAt)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	case http.MethodPut:
+		if id == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
+			return
+		}
+		existing, err := h.svc.GetAPIToken(id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "token not found"})
+			return
+		}
+		var body struct {
+			Name        *string `json:"name"`
+			Description *string `json:"description"`
+			ProjectID   *uint64 `json:"projectID"`
+			IsEnabled   *bool   `json:"isEnabled"`
+			ExpiresAt   *string `json:"expiresAt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if body.Name != nil {
+			if *body.Name == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name cannot be empty"})
+				return
+			}
+			existing.Name = *body.Name
+		}
+		if body.Description != nil {
+			existing.Description = *body.Description
+		}
+		if body.ProjectID != nil {
+			existing.ProjectID = *body.ProjectID
+		}
+		if body.IsEnabled != nil {
+			existing.IsEnabled = *body.IsEnabled
+		}
+		if body.ExpiresAt != nil {
+			if *body.ExpiresAt == "" {
+				existing.ExpiresAt = nil
+			} else {
+				t, err := time.Parse(time.RFC3339, *body.ExpiresAt)
+				if err != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid expiresAt format, use RFC3339"})
+					return
+				}
+				existing.ExpiresAt = &t
+			}
+		}
+		if err := h.svc.UpdateAPIToken(existing); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, existing)
+	case http.MethodDelete:
+		if id == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
+			return
+		}
+		if err := h.svc.DeleteAPIToken(id); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusNoContent, nil)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

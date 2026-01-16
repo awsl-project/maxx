@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Terminal,
   Settings,
+  Key,
 } from 'lucide-react'
 import { StreamingBadge } from '@/components/ui/streaming-badge'
 import { useStreamingRequests } from '@/hooks/use-streaming'
@@ -36,6 +37,7 @@ const managementItems = [
   { to: '/providers', icon: Server, labelKey: 'nav.providers' },
   { to: '/projects', icon: FolderKanban, labelKey: 'nav.projects' },
   { to: '/sessions', icon: Users, labelKey: 'nav.sessions' },
+  { to: '/api-tokens', icon: Key, labelKey: 'nav.apiTokens' },
 ]
 
 const configItems = [

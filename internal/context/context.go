@@ -24,6 +24,7 @@ const (
 	CtxKeyRequestURI      contextKey = "request_uri"
 	CtxKeyBroadcaster     contextKey = "broadcaster"
 	CtxKeyIsStream        contextKey = "is_stream"
+	CtxKeyAPITokenID      contextKey = "api_token_id"
 )
 
 // Setters
@@ -169,4 +170,15 @@ func GetIsStream(ctx context.Context) bool {
 		return v
 	}
 	return false
+}
+
+func WithAPITokenID(ctx context.Context, id uint64) context.Context {
+	return context.WithValue(ctx, CtxKeyAPITokenID, id)
+}
+
+func GetAPITokenID(ctx context.Context) uint64 {
+	if v, ok := ctx.Value(CtxKeyAPITokenID).(uint64); ok {
+		return v
+	}
+	return 0
 }

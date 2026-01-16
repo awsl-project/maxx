@@ -1,7 +1,10 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +34,7 @@ type AdminService struct {
 	proxyRequestRepo    repository.ProxyRequestRepository
 	attemptRepo         repository.ProxyUpstreamAttemptRepository
 	settingRepo         repository.SystemSettingRepository
+	apiTokenRepo        repository.APITokenRepository
 	serverAddr          string
 	adapterRefresher    ProviderAdapterRefresher
 }
@@ -46,6 +50,7 @@ func NewAdminService(
 	proxyRequestRepo repository.ProxyRequestRepository,
 	attemptRepo repository.ProxyUpstreamAttemptRepository,
 	settingRepo repository.SystemSettingRepository,
+	apiTokenRepo repository.APITokenRepository,
 	serverAddr string,
 	adapterRefresher ProviderAdapterRefresher,
 ) *AdminService {
@@ -59,6 +64,7 @@ func NewAdminService(
 		proxyRequestRepo:    proxyRequestRepo,
 		attemptRepo:         attemptRepo,
 		settingRepo:         settingRepo,
+		apiTokenRepo:        apiTokenRepo,
 		serverAddr:          serverAddr,
 		adapterRefresher:    adapterRefresher,
 	}
@@ -662,4 +668,74 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 			provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
 		}
 	}
+}
+
+// ===== API Token API =====
+
+func (s *AdminService) GetAPITokens() ([]*domain.APIToken, error) {
+	return s.apiTokenRepo.List()
+}
+
+func (s *AdminService) GetAPIToken(id uint64) (*domain.APIToken, error) {
+	return s.apiTokenRepo.GetByID(id)
+}
+
+// CreateAPIToken creates a new API token and returns the plain token (only shown once)
+func (s *AdminService) CreateAPIToken(name, description string, projectID uint64, expiresAt *time.Time) (*domain.APITokenCreateResult, error) {
+	// Generate token
+	plain, prefix, err := generateAPIToken()
+	if err != nil {
+		return nil, err
+	}
+
+	token := &domain.APIToken{
+		Token:       plain,
+		TokenPrefix: prefix,
+		Name:        name,
+		Description: description,
+		ProjectID:   projectID,
+		IsEnabled:   true,
+		ExpiresAt:   expiresAt,
+	}
+
+	if err := s.apiTokenRepo.Create(token); err != nil {
+		return nil, err
+	}
+
+	return &domain.APITokenCreateResult{
+		Token:    plain,
+		APIToken: token,
+	}, nil
+}
+
+func (s *AdminService) UpdateAPIToken(token *domain.APIToken) error {
+	return s.apiTokenRepo.Update(token)
+}
+
+func (s *AdminService) DeleteAPIToken(id uint64) error {
+	return s.apiTokenRepo.Delete(id)
+}
+
+// generateAPIToken creates a new random token
+// Returns: plain token, prefix for display, error if generation fails
+func generateAPIToken() (plain string, prefix string, err error) {
+	const tokenPrefix = "maxx_"
+	const tokenPrefixDisplayLen = 12
+
+	// Generate 32 random bytes (64 hex chars)
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", "", fmt.Errorf("failed to generate random token: %w", err)
+	}
+
+	plain = tokenPrefix + hex.EncodeToString(bytes)
+
+	// Create display prefix (e.g., "maxx_abc12345...")
+	if len(plain) > tokenPrefixDisplayLen {
+		prefix = plain[:tokenPrefixDisplayLen] + "..."
+	} else {
+		prefix = plain
+	}
+
+	return plain, prefix, nil
 }

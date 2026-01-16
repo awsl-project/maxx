@@ -34,12 +34,12 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	p.UpdatedAt = now
 
 	result, err := r.db.db.Exec(
-		`INSERT INTO proxy_requests (created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO proxy_requests (created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.CreatedAt, p.UpdatedAt, p.InstanceID, p.RequestID, p.SessionID, p.ClientType, p.RequestModel, p.ResponseModel,
 		nullTime(p.StartTime), nullTime(p.EndTime), p.Duration.Milliseconds(), p.IsStream, p.Status, p.StatusCode,
 		toJSON(p.RequestInfo), toJSON(p.ResponseInfo), p.Error,
 		p.ProxyUpstreamAttemptCount, p.FinalProxyUpstreamAttemptID, p.RouteID, p.ProviderID, p.ProjectID,
-		p.InputTokenCount, p.OutputTokenCount, p.CacheReadCount, p.CacheWriteCount, p.Cache5mWriteCount, p.Cache1hWriteCount, p.Cost,
+		p.InputTokenCount, p.OutputTokenCount, p.CacheReadCount, p.CacheWriteCount, p.Cache5mWriteCount, p.Cache1hWriteCount, p.Cost, p.APITokenID,
 	)
 	if err != nil {
 		return err
@@ -60,23 +60,23 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	p.UpdatedAt = time.Now()
 	_, err := r.db.db.Exec(
-		`UPDATE proxy_requests SET updated_at = ?, instance_id = ?, request_id = ?, session_id = ?, client_type = ?, request_model = ?, response_model = ?, start_time = ?, end_time = ?, duration_ms = ?, is_stream = ?, status = ?, status_code = ?, request_info = ?, response_info = ?, error = ?, proxy_upstream_attempt_count = ?, final_proxy_upstream_attempt_id = ?, route_id = ?, provider_id = ?, project_id = ?, input_token_count = ?, output_token_count = ?, cache_read_count = ?, cache_write_count = ?, cache_5m_write_count = ?, cache_1h_write_count = ?, cost = ? WHERE id = ?`,
+		`UPDATE proxy_requests SET updated_at = ?, instance_id = ?, request_id = ?, session_id = ?, client_type = ?, request_model = ?, response_model = ?, start_time = ?, end_time = ?, duration_ms = ?, is_stream = ?, status = ?, status_code = ?, request_info = ?, response_info = ?, error = ?, proxy_upstream_attempt_count = ?, final_proxy_upstream_attempt_id = ?, route_id = ?, provider_id = ?, project_id = ?, input_token_count = ?, output_token_count = ?, cache_read_count = ?, cache_write_count = ?, cache_5m_write_count = ?, cache_1h_write_count = ?, cost = ?, api_token_id = ? WHERE id = ?`,
 		p.UpdatedAt, p.InstanceID, p.RequestID, p.SessionID, p.ClientType, p.RequestModel, p.ResponseModel,
 		nullTime(p.StartTime), nullTime(p.EndTime), p.Duration.Milliseconds(), p.IsStream, p.Status, p.StatusCode,
 		toJSON(p.RequestInfo), toJSON(p.ResponseInfo), p.Error,
 		p.ProxyUpstreamAttemptCount, p.FinalProxyUpstreamAttemptID, p.RouteID, p.ProviderID, p.ProjectID,
-		p.InputTokenCount, p.OutputTokenCount, p.CacheReadCount, p.CacheWriteCount, p.Cache5mWriteCount, p.Cache1hWriteCount, p.Cost, p.ID,
+		p.InputTokenCount, p.OutputTokenCount, p.CacheReadCount, p.CacheWriteCount, p.Cache5mWriteCount, p.Cache1hWriteCount, p.Cost, p.APITokenID, p.ID,
 	)
 	return err
 }
 
 func (r *ProxyRequestRepository) GetByID(id uint64) (*domain.ProxyRequest, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost FROM proxy_requests WHERE id = ?`, id)
+	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id FROM proxy_requests WHERE id = ?`, id)
 	return r.scanRequest(row)
 }
 
 func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest, error) {
-	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost FROM proxy_requests ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
+	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id FROM proxy_requests ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest
 // 注意：列表查询不返回 request_info 和 response_info 大字段
 func (r *ProxyRequestRepository) ListCursor(limit int, before, after uint64) ([]*domain.ProxyRequest, error) {
 	// 列表查询使用精简字段，不包含 request_info 和 response_info
-	const listColumns = `id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost`
+	const listColumns = `id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id`
 
 	var query string
 	var args []interface{}
@@ -167,9 +167,9 @@ func (r *ProxyRequestRepository) scanRequest(row *sql.Row) (*domain.ProxyRequest
 	var durationMs int64
 	var reqInfoJSON, respInfoJSON string
 	var instanceID sql.NullString
-	var routeID, providerID, projectID sql.NullInt64
+	var routeID, providerID, projectID, apiTokenID sql.NullInt64
 	var isStream sql.NullBool
-	err := row.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &reqInfoJSON, &respInfoJSON, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost)
+	err := row.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &reqInfoJSON, &respInfoJSON, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost, &apiTokenID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, domain.ErrNotFound
@@ -188,6 +188,9 @@ func (r *ProxyRequestRepository) scanRequest(row *sql.Row) (*domain.ProxyRequest
 	if projectID.Valid {
 		p.ProjectID = uint64(projectID.Int64)
 	}
+	if apiTokenID.Valid {
+		p.APITokenID = uint64(apiTokenID.Int64)
+	}
 	if isStream.Valid {
 		p.IsStream = isStream.Bool
 	}
@@ -205,9 +208,9 @@ func (r *ProxyRequestRepository) scanRequestRows(rows *sql.Rows) (*domain.ProxyR
 	var durationMs int64
 	var reqInfoJSON, respInfoJSON string
 	var instanceID sql.NullString
-	var routeID, providerID, projectID sql.NullInt64
+	var routeID, providerID, projectID, apiTokenID sql.NullInt64
 	var isStream sql.NullBool
-	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &reqInfoJSON, &respInfoJSON, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost)
+	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &reqInfoJSON, &respInfoJSON, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost, &apiTokenID)
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +225,9 @@ func (r *ProxyRequestRepository) scanRequestRows(rows *sql.Rows) (*domain.ProxyR
 	}
 	if projectID.Valid {
 		p.ProjectID = uint64(projectID.Int64)
+	}
+	if apiTokenID.Valid {
+		p.APITokenID = uint64(apiTokenID.Int64)
 	}
 	if isStream.Valid {
 		p.IsStream = isStream.Bool
@@ -240,9 +246,9 @@ func (r *ProxyRequestRepository) scanRequestRowsLite(rows *sql.Rows) (*domain.Pr
 	var startTime, endTime sql.NullTime
 	var durationMs int64
 	var instanceID sql.NullString
-	var routeID, providerID, projectID sql.NullInt64
+	var routeID, providerID, projectID, apiTokenID sql.NullInt64
 	var isStream sql.NullBool
-	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &p.StatusCode, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost)
+	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &p.StatusCode, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost, &apiTokenID)
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +263,9 @@ func (r *ProxyRequestRepository) scanRequestRowsLite(rows *sql.Rows) (*domain.Pr
 	}
 	if projectID.Valid {
 		p.ProjectID = uint64(projectID.Int64)
+	}
+	if apiTokenID.Valid {
+		p.APITokenID = uint64(apiTokenID.Int64)
 	}
 	if isStream.Valid {
 		p.IsStream = isStream.Bool

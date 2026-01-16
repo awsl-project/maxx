@@ -50,6 +50,8 @@ type DatabaseRepos struct {
 	CachedRoutingStrategyRepo *cached.RoutingStrategyRepository
 	CachedSessionRepo        *cached.SessionRepository
 	CachedProjectRepo        *cached.ProjectRepository
+	APITokenRepo             repository.APITokenRepository
+	CachedAPITokenRepo       *cached.APITokenRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
@@ -88,6 +90,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	antigravityQuotaRepo := sqlite.NewAntigravityQuotaRepository(db)
 	cooldownRepo := sqlite.NewCooldownRepository(db)
 	failureCountRepo := sqlite.NewFailureCountRepository(db)
+	apiTokenRepo := sqlite.NewAPITokenRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -97,6 +100,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	cachedRoutingStrategyRepo := cached.NewRoutingStrategyRepository(routingStrategyRepo)
 	cachedSessionRepo := cached.NewSessionRepository(sessionRepo)
 	cachedProjectRepo := cached.NewProjectRepository(projectRepo)
+	cachedAPITokenRepo := cached.NewAPITokenRepository(apiTokenRepo)
 
 	repos := &DatabaseRepos{
 		DB:                       db,
@@ -118,6 +122,8 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		CachedRoutingStrategyRepo: cachedRoutingStrategyRepo,
 		CachedSessionRepo:        cachedSessionRepo,
 		CachedProjectRepo:        cachedProjectRepo,
+		APITokenRepo:             apiTokenRepo,
+		CachedAPITokenRepo:       cachedAPITokenRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -162,6 +168,9 @@ func InitializeServerComponents(
 	}
 	if err := repos.CachedProjectRepo.Load(); err != nil {
 		log.Printf("[Core] Warning: Failed to load projects cache: %v", err)
+	}
+	if err := repos.CachedAPITokenRepo.Load(); err != nil {
+		log.Printf("[Core] Warning: Failed to load api tokens cache: %v", err)
 	}
 
 	log.Printf("[Core] Creating router")
@@ -233,6 +242,7 @@ func InitializeServerComponents(
 		repos.ProxyRequestRepo,
 		repos.AttemptRepo,
 		repos.SettingRepo,
+		repos.CachedAPITokenRepo,
 		addr,
 		r,
 	)
@@ -266,7 +276,8 @@ func InitializeServerComponents(
 	})
 
 	log.Printf("[Core] Creating handlers")
-	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo)
+	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(repos.CachedAPITokenRepo, repos.SettingRepo)
+	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo, tokenAuthMiddleware)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
 	kiroHandler := handler.NewKiroHandler(adminService)

@@ -86,3 +86,13 @@ export {
   useUpdateAntigravityGlobalSettings,
   useResetAntigravityGlobalSettings,
 } from './use-settings';
+
+// API Token hooks
+export {
+  apiTokenKeys,
+  useAPITokens,
+  useAPIToken,
+  useCreateAPIToken,
+  useUpdateAPIToken,
+  useDeleteAPIToken,
+} from './use-api-tokens';

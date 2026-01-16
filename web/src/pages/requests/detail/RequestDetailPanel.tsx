@@ -54,6 +54,7 @@ interface RequestDetailPanelProps {
   providerMap: Map<number, string>
   projectMap: Map<number, string>
   sessionMap: Map<string, { clientType: string; projectID: number }>
+  tokenMap: Map<number, string>
 }
 
 export function RequestDetailPanel({
@@ -65,6 +66,7 @@ export function RequestDetailPanel({
   providerMap,
   projectMap,
   sessionMap,
+  tokenMap,
 }: RequestDetailPanelProps) {
   const selectedAttempt =
     selection.type === 'attempt'
@@ -82,6 +84,7 @@ export function RequestDetailPanel({
         projectName={projectMap.get(request.projectID)}
         sessionInfo={sessionMap.get(request.sessionID)}
         projectMap={projectMap}
+        tokenName={tokenMap.get(request.apiTokenID)}
       />
     )
   }
