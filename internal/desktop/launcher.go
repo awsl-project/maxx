@@ -395,16 +395,7 @@ func (a *LauncherApp) DomReady(ctx context.Context) {
 }
 
 // BeforeClose Wails 关闭前回调
-func (a *LauncherApp) BeforeClose(ctx context.Context) bool {
-	log.Println("[Launcher] Window close requested - hiding window to tray")
-
-	// 隐藏窗口到托盘，不退出应用
-	// 服务器继续在后台运行
-	runtime.WindowHide(ctx)
-
-	// 返回 true 阻止窗口关闭（实际上已经隐藏了）
-	return true
-}
+// 由平台特定文件实现：launcher_windows.go 和 launcher_other.go
 
 // GetConfig 获取当前配置（暴露给前端）
 func (a *LauncherApp) GetConfig() DesktopConfig {
