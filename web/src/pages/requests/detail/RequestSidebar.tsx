@@ -13,24 +13,13 @@ import type {
   ProxyRequest,
   ClientType,
 } from '@/lib/transport'
-import { cn } from '@/lib/utils'
+import { cn, formatDuration } from '@/lib/utils'
 import { getClientName } from '@/components/icons/client-icons'
 
 // Selection type: either the main request or an attempt
 type SelectionType =
   | { type: 'request' }
   | { type: 'attempt'; attemptId: number }
-
-function formatDuration(ns: number): string {
-  // Convert nanoseconds to milliseconds
-  const ms = ns / 1_000_000
-  if (ms < 1000) return `${ms.toFixed(0)}ms`
-  const seconds = ms / 1000
-  if (seconds < 60) return `${seconds.toFixed(2)}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = Math.floor(seconds % 60)
-  return `${minutes}m ${remainingSeconds}s`
-}
 
 function getStatusIcon(status: string) {
   switch (status) {
