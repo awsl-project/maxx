@@ -379,6 +379,15 @@ func (a *LauncherApp) DomReady(ctx context.Context) {
 // BeforeClose Wails 关闭前回调
 func (a *LauncherApp) BeforeClose(ctx context.Context) bool {
 	log.Println("[Launcher] Window close requested")
+
+	// 先停止 HTTP 服务器，确保端口被释放
+	if a.server != nil && a.server.IsRunning() {
+		log.Println("[Launcher] Stopping HTTP server before close...")
+		if err := a.server.Stop(ctx); err != nil {
+			log.Printf("[Launcher] Failed to stop server in BeforeClose: %v", err)
+		}
+	}
+
 	// 允许关闭
 	return false
 }

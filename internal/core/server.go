@@ -116,12 +116,16 @@ func (s *ManagedServer) Stop(ctx context.Context) error {
 
 	log.Printf("[Server] Stopping HTTP server on %s", s.config.Addr)
 
-	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// 使用较短的超时时间，超时后强制关闭
+	shutdownCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("[Server] Error during server shutdown: %v", err)
-		return err
+		log.Printf("[Server] Graceful shutdown failed: %v, forcing close", err)
+		// 强制关闭
+		if closeErr := s.httpServer.Close(); closeErr != nil {
+			log.Printf("[Server] Force close error: %v", closeErr)
+		}
 	}
 
 	if s.cancel != nil {
