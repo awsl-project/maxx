@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultRequestRetentionDays = 7 // 默认保留 7 天
+	defaultRequestRetentionHours = 168 // 默认保留 168 小时（7天）
 )
 
 // BackgroundTaskDeps 后台任务依赖
@@ -105,22 +105,22 @@ func (d *BackgroundTaskDeps) runCleanupTasks() {
 
 // cleanupOldRequests 清理过期的请求记录
 func (d *BackgroundTaskDeps) cleanupOldRequests() {
-	retentionDays := defaultRequestRetentionDays
+	retentionHours := defaultRequestRetentionHours
 
-	if val, err := d.Settings.Get(domain.SettingKeyRequestRetentionDays); err == nil && val != "" {
-		if days, err := strconv.Atoi(val); err == nil {
-			retentionDays = days
+	if val, err := d.Settings.Get(domain.SettingKeyRequestRetentionHours); err == nil && val != "" {
+		if hours, err := strconv.Atoi(val); err == nil {
+			retentionHours = hours
 		}
 	}
 
-	if retentionDays <= 0 {
+	if retentionHours <= 0 {
 		return // 0 表示不清理
 	}
 
-	before := time.Now().AddDate(0, 0, -retentionDays)
+	before := time.Now().Add(-time.Duration(retentionHours) * time.Hour)
 	if deleted, err := d.ProxyRequest.DeleteOlderThan(before); err != nil {
 		log.Printf("[Task] Failed to delete old requests: %v", err)
 	} else if deleted > 0 {
-		log.Printf("[Task] Deleted %d requests older than %d days", deleted, retentionDays)
+		log.Printf("[Task] Deleted %d requests older than %d hours", deleted, retentionHours)
 	}
 }

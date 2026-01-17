@@ -360,8 +360,8 @@ type SystemSetting struct {
 
 // 系统设置 Key 常量
 const (
-	SettingKeyProxyPort            = "proxy_port"             // 代理服务器端口，默认 9880
-	SettingKeyRequestRetentionDays = "request_retention_days" // 请求记录保留天数，默认 7 天，0 表示不清理
+	SettingKeyProxyPort             = "proxy_port"              // 代理服务器端口，默认 9880
+	SettingKeyRequestRetentionHours = "request_retention_hours" // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
 )
 
 // Antigravity 模型配额

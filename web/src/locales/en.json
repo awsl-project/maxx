@@ -34,6 +34,7 @@
     "updating": "Updating...",
     "day": "day",
     "days": "days",
+    "hours": "hours",
     "global": "Global",
     "initFailed": "Failed to Initialize"
   },
@@ -309,11 +310,9 @@
     "matchPattern": "Match Pattern",
     "targetModel": "Target Model",
     "dataRetention": "Data Retention",
-    "requestRetentionDays": "Requests",
-    "requestRetentionDaysDesc": "Requests older than this will be automatically cleaned up, 0 means no cleanup",
-    "statsRetentionDays": "Statistics",
-    "statsRetentionDaysDesc": "Statistics older than this will be automatically cleaned up, 0 means no cleanup",
-    "retentionDaysHint": "0 = no cleanup"
+    "requestRetentionHours": "Request Retention",
+    "requestRetentionHoursDesc": "Requests older than this will be automatically cleaned up, 0 means no cleanup",
+    "retentionHoursHint": "0 = no cleanup"
   },
   "modelMappings": {
     "title": "Model Mappings",

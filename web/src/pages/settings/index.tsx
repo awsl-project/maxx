@@ -98,32 +98,32 @@ function DataRetentionSection() {
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
 
-  const requestRetentionDays = settings?.request_retention_days ?? '7';
+  const requestRetentionHours = settings?.request_retention_hours ?? '168';
 
   const [requestDraft, setRequestDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
-      setRequestDraft(requestRetentionDays);
+      setRequestDraft(requestRetentionHours);
       setInitialized(true);
     }
-  }, [isLoading, initialized, requestRetentionDays]);
+  }, [isLoading, initialized, requestRetentionHours]);
 
   useEffect(() => {
     if (initialized) {
-      setRequestDraft(requestRetentionDays);
+      setRequestDraft(requestRetentionHours);
     }
-  }, [requestRetentionDays, initialized]);
+  }, [requestRetentionHours, initialized]);
 
-  const hasChanges = initialized && requestDraft !== requestRetentionDays;
+  const hasChanges = initialized && requestDraft !== requestRetentionHours;
 
   const handleSave = async () => {
     const requestNum = parseInt(requestDraft, 10);
 
-    if (!isNaN(requestNum) && requestNum >= 0 && requestDraft !== requestRetentionDays) {
+    if (!isNaN(requestNum) && requestNum >= 0 && requestDraft !== requestRetentionHours) {
       await updateSetting.mutateAsync({
-        key: 'request_retention_days',
+        key: 'request_retention_hours',
         value: requestDraft,
       });
     }
@@ -140,7 +140,7 @@ function DataRetentionSection() {
               <Database className="h-4 w-4 text-muted-foreground" />
               {t('settings.dataRetention')}
             </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">{t('settings.retentionDaysHint')}</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.retentionHoursHint')}</p>
           </div>
           <Button onClick={handleSave} disabled={!hasChanges || updateSetting.isPending} size="sm">
             {updateSetting.isPending ? t('common.saving') : t('common.save')}
@@ -150,7 +150,7 @@ function DataRetentionSection() {
       <CardContent className="p-6">
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-muted-foreground shrink-0">
-            {t('settings.requestRetentionDays')}
+            {t('settings.requestRetentionHours')}
           </label>
           <Input
             type="number"
@@ -160,7 +160,7 @@ function DataRetentionSection() {
             min={0}
             disabled={updateSetting.isPending}
           />
-          <span className="text-xs text-muted-foreground">{t('common.days')}</span>
+          <span className="text-xs text-muted-foreground">{t('common.hours')}</span>
         </div>
       </CardContent>
     </Card>

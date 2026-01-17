@@ -34,6 +34,7 @@
     "updating": "更新中...",
     "day": "天",
     "days": "天",
+    "hours": "小时",
     "global": "全局",
     "initFailed": "初始化失败"
   },
@@ -309,9 +310,9 @@
     "matchPattern": "匹配模式",
     "targetModel": "目标模型",
     "dataRetention": "数据保留",
-    "requestRetentionDays": "请求记录保留天数",
-    "requestRetentionDaysDesc": "超过此天数的请求记录将被自动清理，0 表示不清理",
-    "retentionDaysHint": "0 表示不清理"
+    "requestRetentionHours": "请求记录保留时间",
+    "requestRetentionHoursDesc": "超过此时间的请求记录将被自动清理，0 表示不清理",
+    "retentionHoursHint": "0 表示不清理"
   },
   "modelMappings": {
     "title": "模型映射",
