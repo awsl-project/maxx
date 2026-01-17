@@ -19,6 +19,8 @@ export interface ProviderTypeConfig {
   isAccountBased: boolean;
   // 获取显示信息的函数
   getDisplayInfo: (provider: Provider) => string;
+  // 是否在创建流程中隐藏
+  hidden?: boolean;
 }
 
 // Provider 类型配置表
@@ -38,6 +40,7 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     color: getProviderColorVar('kiro'),
     isAccountBased: true,
     getDisplayInfo: (p) => p.config?.kiro?.email || 'Kiro Account',
+    hidden: true,
   },
   custom: {
     key: 'custom',

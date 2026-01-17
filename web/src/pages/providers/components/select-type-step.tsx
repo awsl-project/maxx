@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import {
   quickTemplates,
+  PROVIDER_TYPE_CONFIGS,
   type ProviderFormData,
 } from '../types'
 import { Button } from '@/components/ui'
@@ -29,6 +30,10 @@ export function SelectTypeStep({
   onSkipToConfig,
   onBack,
 }: SelectTypeStepProps) {
+  // 计算可见的 provider 数量
+  const visibleProviderCount = Object.values(PROVIDER_TYPE_CONFIGS).filter(c => !c.hidden).length
+  const gridCols = visibleProviderCount <= 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 h-[73px] flex items-center gap-4  border-b border-border bg-card">
@@ -52,7 +57,7 @@ export function SelectTypeStep({
             <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
               1. Choose Service Provider
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+            <div className={`grid grid-cols-1 ${gridCols} gap-4 items-start`}>
               <Button
                 onClick={() => onSelectType('antigravity')}
                 variant="ghost"
@@ -82,6 +87,7 @@ export function SelectTypeStep({
                 </div>
               </Button>
 
+              {!PROVIDER_TYPE_CONFIGS.kiro.hidden && (
               <Button
                 onClick={() => onSelectType('kiro')}
                 variant="ghost"
@@ -110,6 +116,7 @@ export function SelectTypeStep({
                   )}
                 </div>
               </Button>
+              )}
 
               <Button
                 onClick={() => onSelectType('custom')}
