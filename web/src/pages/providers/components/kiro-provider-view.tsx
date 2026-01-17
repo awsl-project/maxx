@@ -7,17 +7,12 @@ import {
   RefreshCw,
   Clock,
   AlertTriangle,
-  Shuffle,
-  Check,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ClientIcon } from '@/components/icons/client-icons'
 import type { Provider, KiroQuotaData } from '@/lib/transport'
 import { getTransport } from '@/lib/transport'
 import { KIRO_COLOR } from '../types'
-import { ModelMappingEditor } from './model-mapping-editor'
-import { useUpdateProvider } from '@/hooks/queries'
-import { Button } from '@/components/ui/button'
 
 interface KiroProviderViewProps {
   provider: Provider
@@ -133,18 +128,9 @@ export function KiroProviderView({
   onDelete,
   onClose,
 }: KiroProviderViewProps) {
-  const { t } = useTranslation()
   const [quota, setQuota] = useState<KiroQuotaData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [modelMapping, setModelMapping] = useState<Record<string, string>>(
-    provider.config?.kiro?.modelMapping || {}
-  )
-  const [savingMapping, setSavingMapping] = useState(false)
-  const [mappingSaveStatus, setMappingSaveStatus] = useState<
-    'idle' | 'success' | 'error'
-  >('idle')
-  const updateProvider = useUpdateProvider()
 
   const fetchQuota = async () => {
     setLoading(true)
@@ -162,47 +148,6 @@ export function KiroProviderView({
   useEffect(() => {
     fetchQuota()
   }, [provider.id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSaveModelMapping = async () => {
-    setSavingMapping(true)
-    setMappingSaveStatus('idle')
-    try {
-      const kiroConfig = provider.config?.kiro
-      if (!kiroConfig) return
-
-      await updateProvider.mutateAsync({
-        id: Number(provider.id),
-        data: {
-          name: provider.name,
-          type: 'kiro',
-          config: {
-            kiro: {
-              authMethod: kiroConfig.authMethod,
-              email: kiroConfig.email,
-              refreshToken: kiroConfig.refreshToken,
-              region: kiroConfig.region,
-              clientID: kiroConfig.clientID,
-              clientSecret: kiroConfig.clientSecret,
-              modelMapping:
-                Object.keys(modelMapping).length > 0 ? modelMapping : undefined,
-            },
-          },
-          supportedClientTypes: provider.supportedClientTypes,
-        },
-      })
-      setMappingSaveStatus('success')
-      setTimeout(() => setMappingSaveStatus('idle'), 2000)
-    } catch (err) {
-      console.error('Failed to save model mapping:', err)
-      setMappingSaveStatus('error')
-    } finally {
-      setSavingMapping(false)
-    }
-  }
-
-  const hasModelMappingChanged =
-    JSON.stringify(modelMapping) !==
-    JSON.stringify(provider.config?.kiro?.modelMapping || {})
 
   return (
     <div className="flex flex-col h-full">
@@ -341,44 +286,6 @@ export function KiroProviderView({
               <p className="text-xs text-muted-foreground mt-4 text-right">
                 Last updated:{' '}
                 {new Date(quota.last_updated * 1000).toLocaleString()}
-              </p>
-            )}
-          </div>
-
-          {/* Model Mapping */}
-          <div>
-            <div className="flex items-center justify-between mb-4 border-b border-border pb-2">
-              <h4 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                <Shuffle size={18} />
-                Model Mapping
-              </h4>
-              {hasModelMappingChanged && (
-                <Button
-                  onClick={handleSaveModelMapping}
-                  disabled={savingMapping}
-                  variant="default"
-                  size="sm"
-                >
-                  {savingMapping ? (
-                    t('common.saving')
-                  ) : mappingSaveStatus === 'success' ? (
-                    <>
-                      <Check size={14} /> {t('common.saved')}
-                    </>
-                  ) : (
-                    t('provider.saveChanges')
-                  )}
-                </Button>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              Map request models to different upstream models. For example, map
-              "claude-sonnet-4-20250514" to a Kiro-supported model.
-            </p>
-            <ModelMappingEditor value={modelMapping} onChange={setModelMapping} />
-            {mappingSaveStatus === 'error' && (
-              <p className="text-sm text-error mt-2">
-                Failed to save model mapping. Please try again.
               </p>
             )}
           </div>

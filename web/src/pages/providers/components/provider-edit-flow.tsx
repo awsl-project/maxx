@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Globe, ChevronLeft, Key, Check, Trash2, Shuffle } from 'lucide-react'
+import { Globe, ChevronLeft, Key, Check, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -17,7 +17,6 @@ import { AntigravityProviderView } from './antigravity-provider-view'
 import { KiroProviderView } from './kiro-provider-view'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ModelMappingEditor } from './model-mapping-editor'
 
 interface ProviderEditFlowProps {
   provider: Provider
@@ -29,7 +28,6 @@ type EditFormData = {
   baseURL: string
   apiKey: string
   clients: ClientConfig[]
-  modelMapping: Record<string, string>
 }
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
@@ -58,7 +56,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     baseURL: provider.config?.custom?.baseURL || '',
     apiKey: provider.config?.custom?.apiKey || '',
     clients: initClients(),
-    modelMapping: provider.config?.custom?.modelMapping || {},
   })
 
   const updateClient = (
@@ -108,10 +105,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
             clientBaseURL:
               Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
-            modelMapping:
-              Object.keys(formData.modelMapping).length > 0
-                ? formData.modelMapping
-                : undefined,
           },
         },
         supportedClientTypes,
@@ -303,25 +296,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             <ClientsConfigSection
               clients={formData.clients}
               onUpdateClient={updateClient}
-            />
-          </div>
-
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              <div className="flex items-center gap-2">
-                <Shuffle size={18} />
-                <span>3. Model Mapping</span>
-              </div>
-            </h3>
-            <p className="text-sm text-muted-foreground -mt-4">
-              Map request models to different upstream models. For example, map
-              "claude-sonnet-4-20250514" to "gemini-2.5-pro".
-            </p>
-            <ModelMappingEditor
-              value={formData.modelMapping}
-              onChange={modelMapping =>
-                setFormData(prev => ({ ...prev, modelMapping }))
-              }
             />
           </div>
 

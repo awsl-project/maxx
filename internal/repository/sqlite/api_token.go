@@ -51,7 +51,7 @@ func (r *APITokenRepository) Delete(id uint64) error {
 }
 
 func (r *APITokenRepository) GetByID(id uint64) (*domain.APIToken, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, token, token_prefix, name, description, project_id, is_enabled, expires_at, last_used_at, use_count, deleted_at FROM api_tokens WHERE id = ? AND deleted_at IS NULL`, id)
+	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, token, token_prefix, name, description, project_id, is_enabled, expires_at, last_used_at, use_count, deleted_at FROM api_tokens WHERE id = ?`, id)
 	return r.scanToken(row)
 }
 

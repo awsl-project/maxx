@@ -7,8 +7,6 @@ import {
   RefreshCw,
   Clock,
   Lock,
-  Shuffle,
-  Check,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ClientIcon } from '@/components/icons/client-icons'
@@ -19,9 +17,6 @@ import type {
 } from '@/lib/transport'
 import { getTransport } from '@/lib/transport'
 import { ANTIGRAVITY_COLOR } from '../types'
-import { ModelMappingEditor } from './model-mapping-editor'
-import { useUpdateProvider } from '@/hooks/queries'
-import { Button } from '@/components/ui/button'
 
 interface AntigravityProviderViewProps {
   provider: Provider
@@ -125,18 +120,9 @@ export function AntigravityProviderView({
   onDelete,
   onClose,
 }: AntigravityProviderViewProps) {
-  const { t } = useTranslation()
   const [quota, setQuota] = useState<AntigravityQuotaData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [modelMapping, setModelMapping] = useState<Record<string, string>>(
-    provider.config?.antigravity?.modelMapping || {}
-  )
-  const [savingMapping, setSavingMapping] = useState(false)
-  const [mappingSaveStatus, setMappingSaveStatus] = useState<
-    'idle' | 'success' | 'error'
-  >('idle')
-  const updateProvider = useUpdateProvider()
 
   const fetchQuota = async (forceRefresh = false) => {
     setLoading(true)
@@ -157,45 +143,6 @@ export function AntigravityProviderView({
   useEffect(() => {
     fetchQuota(false)
   }, [provider.id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSaveModelMapping = async () => {
-    setSavingMapping(true)
-    setMappingSaveStatus('idle')
-    try {
-      const antigravityConfig = provider.config?.antigravity
-      if (!antigravityConfig) return
-
-      await updateProvider.mutateAsync({
-        id: Number(provider.id),
-        data: {
-          name: provider.name,
-          type: 'antigravity',
-          config: {
-            antigravity: {
-              email: antigravityConfig.email,
-              refreshToken: antigravityConfig.refreshToken,
-              projectID: antigravityConfig.projectID,
-              endpoint: antigravityConfig.endpoint,
-              modelMapping:
-                Object.keys(modelMapping).length > 0 ? modelMapping : undefined,
-            },
-          },
-          supportedClientTypes: provider.supportedClientTypes,
-        },
-      })
-      setMappingSaveStatus('success')
-      setTimeout(() => setMappingSaveStatus('idle'), 2000)
-    } catch (err) {
-      console.error('Failed to save model mapping:', err)
-      setMappingSaveStatus('error')
-    } finally {
-      setSavingMapping(false)
-    }
-  }
-
-  const hasModelMappingChanged =
-    JSON.stringify(modelMapping) !==
-    JSON.stringify(provider.config?.antigravity?.modelMapping || {})
 
   return (
     <div className="flex flex-col h-full">
@@ -341,44 +288,6 @@ export function AntigravityProviderView({
               <p className="text-xs text-muted-foreground mt-4 text-right">
                 Last updated:{' '}
                 {new Date(quota.lastUpdated * 1000).toLocaleString()}
-              </p>
-            )}
-          </div>
-
-          {/* Model Mapping */}
-          <div>
-            <div className="flex items-center justify-between mb-4 border-b border-border pb-2">
-              <h4 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                <Shuffle size={18} />
-                Model Mapping
-              </h4>
-              {hasModelMappingChanged && (
-                <Button
-                  onClick={handleSaveModelMapping}
-                  disabled={savingMapping}
-                  variant="default"
-                  size="sm"
-                >
-                  {savingMapping ? (
-                    t('common.saving')
-                  ) : mappingSaveStatus === 'success' ? (
-                    <>
-                      <Check size={14} /> {t('common.saved')}
-                    </>
-                  ) : (
-                    t('provider.saveChanges')
-                  )}
-                </Button>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              Map request models to different upstream models. For example, map
-              "claude-sonnet-4-20250514" to "gemini-2.5-pro".
-            </p>
-            <ModelMappingEditor value={modelMapping} onChange={setModelMapping} targetOnlyAntigravity />
-            {mappingSaveStatus === 'error' && (
-              <p className="text-sm text-error mt-2">
-                Failed to save model mapping. Please try again.
               </p>
             )}
           </div>

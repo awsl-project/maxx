@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Badge,
@@ -166,19 +166,15 @@ function SessionDetailModal({
   onClose,
 }: SessionDetailModalProps) {
   const { t } = useTranslation()
-  const [selectedProjectId, setSelectedProjectId] = useState<number>(
-    session?.projectID ?? 0
-  )
+  const [selectedProjectId, setSelectedProjectId] = useState<number>(0)
   const updateSessionProject = useUpdateSessionProject()
 
   // Reset selected project when session changes
-  if (
-    session &&
-    selectedProjectId !== session.projectID &&
-    !updateSessionProject.isPending
-  ) {
-    setSelectedProjectId(session.projectID)
-  }
+  useEffect(() => {
+    if (session) {
+      setSelectedProjectId(session.projectID)
+    }
+  }, [session])
 
   const handleSave = async () => {
     if (!session) return

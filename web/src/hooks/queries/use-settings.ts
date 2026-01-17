@@ -93,3 +93,25 @@ export function useDeleteModelMapping() {
     },
   });
 }
+
+export function useClearAllModelMappings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => getTransport().clearAllModelMappings(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: settingsKeys.modelMappings });
+    },
+  });
+}
+
+export function useResetModelMappingsToDefaults() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => getTransport().resetModelMappingsToDefaults(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: settingsKeys.modelMappings });
+    },
+  });
+}

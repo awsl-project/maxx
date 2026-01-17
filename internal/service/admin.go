@@ -620,6 +620,16 @@ func (s *AdminService) DeleteModelMapping(id uint64) error {
 	return s.modelMappingRepo.Delete(id)
 }
 
+// ClearAllModelMappings deletes all model mappings (both builtin and non-builtin)
+func (s *AdminService) ClearAllModelMappings() error {
+	return s.modelMappingRepo.ClearAll()
+}
+
+// ResetModelMappingsToDefaults re-seeds default builtin mappings
+func (s *AdminService) ResetModelMappingsToDefaults() error {
+	return s.modelMappingRepo.SeedDefaults()
+}
+
 // GetAvailableClientTypes returns all available client types for model mapping
 func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 	return []domain.ClientType{

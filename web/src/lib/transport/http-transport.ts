@@ -383,6 +383,14 @@ export class HttpTransport implements Transport {
     await this.client.delete(`/model-mappings/${id}`);
   }
 
+  async clearAllModelMappings(): Promise<void> {
+    await this.client.delete('/model-mappings/clear-all');
+  }
+
+  async resetModelMappingsToDefaults(): Promise<void> {
+    await this.client.post('/model-mappings/reset-defaults');
+  }
+
   // ===== Kiro API =====
 
   async validateKiroSocialToken(refreshToken: string): Promise<KiroTokenValidationResult> {

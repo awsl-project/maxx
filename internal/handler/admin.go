@@ -1007,6 +1007,18 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 
 // Model Mapping handlers
 func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Request, id uint64) {
+	// Check for clear-all endpoint: /admin/model-mappings/clear-all
+	path := r.URL.Path
+	if strings.HasSuffix(path, "/clear-all") {
+		h.handleClearAllModelMappings(w, r)
+		return
+	}
+	// Check for reset-defaults endpoint: /admin/model-mappings/reset-defaults
+	if strings.HasSuffix(path, "/reset-defaults") {
+		h.handleResetModelMappingsToDefaults(w, r)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
@@ -1105,6 +1117,34 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+// handleClearAllModelMappings handles DELETE /admin/model-mappings/clear-all
+func (h *AdminHandler) handleClearAllModelMappings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if err := h.svc.ClearAllModelMappings(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "all mappings cleared"})
+}
+
+// handleResetModelMappingsToDefaults handles POST /admin/model-mappings/reset-defaults
+func (h *AdminHandler) handleResetModelMappingsToDefaults(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if err := h.svc.ResetModelMappingsToDefaults(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "mappings reset to defaults"})
 }
 
 // Usage Stats handlers

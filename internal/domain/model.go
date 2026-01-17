@@ -495,11 +495,12 @@ type ModelMapping struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 
 	// 作用域条件（全部为空表示全局规则）
-	ClientType ClientType `json:"clientType,omitempty"` // 客户端类型，空表示所有
-	ProviderID uint64     `json:"providerID,omitempty"` // 供应商 ID，0 表示所有
-	ProjectID  uint64     `json:"projectID,omitempty"`  // 项目 ID，0 表示所有
-	RouteID    uint64     `json:"routeID,omitempty"`    // 路由 ID，0 表示所有
-	APITokenID uint64     `json:"apiTokenID,omitempty"` // Token ID，0 表示所有
+	ClientType   ClientType `json:"clientType,omitempty"`   // 客户端类型，空表示所有
+	ProviderType string     `json:"providerType,omitempty"` // 供应商类型（如 antigravity, kiro, custom），空表示所有
+	ProviderID   uint64     `json:"providerID,omitempty"`   // 供应商 ID，0 表示所有
+	ProjectID    uint64     `json:"projectID,omitempty"`    // 项目 ID，0 表示所有
+	RouteID      uint64     `json:"routeID,omitempty"`      // 路由 ID，0 表示所有
+	APITokenID   uint64     `json:"apiTokenID,omitempty"`   // Token ID，0 表示所有
 
 	// 映射规则
 	Pattern string `json:"pattern"` // 源模式，支持通配符 *
@@ -523,11 +524,12 @@ type ModelMappingRule struct {
 
 // ModelMappingQuery 查询条件
 type ModelMappingQuery struct {
-	ClientType ClientType
-	ProviderID uint64
-	ProjectID  uint64
-	RouteID    uint64
-	APITokenID uint64
+	ClientType   ClientType
+	ProviderType string // 供应商类型（如 antigravity, kiro, custom）
+	ProviderID   uint64
+	ProjectID    uint64
+	RouteID      uint64
+	APITokenID   uint64
 }
 
 // MatchWildcard 检查输入是否匹配通配符模式

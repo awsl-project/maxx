@@ -124,6 +124,8 @@ export interface Transport {
   createModelMapping(data: ModelMappingInput): Promise<ModelMapping>;
   updateModelMapping(id: number, data: ModelMappingInput): Promise<ModelMapping>;
   deleteModelMapping(id: number): Promise<void>;
+  clearAllModelMappings(): Promise<void>;
+  resetModelMappingsToDefaults(): Promise<void>;
 
   // ===== Kiro API =====
   validateKiroSocialToken(refreshToken: string): Promise<KiroTokenValidationResult>;
