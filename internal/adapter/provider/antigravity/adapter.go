@@ -168,14 +168,14 @@ func (a *AntigravityAdapter) Execute(ctx context.Context, w http.ResponseWriter,
 			upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
 			upstreamReq.Header.Set("User-Agent", AntigravityUserAgent)
 
-			// Capture request info for attempt record (only once)
-			if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil && attempt.RequestInfo == nil {
-				attempt.RequestInfo = &domain.RequestInfo{
+			// Send request info via EventChannel (only once per attempt)
+			if eventChan := ctxutil.GetEventChan(ctx); eventChan != nil {
+				eventChan.SendRequestInfo(&domain.RequestInfo{
 					Method:  upstreamReq.Method,
 					URL:     upstreamURL,
 					Headers: flattenHeaders(upstreamReq.Header),
 					Body:    string(upstreamBody),
-				}
+				})
 			}
 
 			resp, err := client.Do(upstreamReq)
@@ -226,13 +226,13 @@ func (a *AntigravityAdapter) Execute(ctx context.Context, w http.ResponseWriter,
 			// Check for error response
 			if resp.StatusCode >= 400 {
 				body, _ := io.ReadAll(resp.Body)
-				// Capture error response info
-				if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
-					attempt.ResponseInfo = &domain.ResponseInfo{
+				// Send error response info via EventChannel
+				if eventChan := ctxutil.GetEventChan(ctx); eventChan != nil {
+					eventChan.SendResponseInfo(&domain.ResponseInfo{
 						Status:  resp.StatusCode,
 						Headers: flattenHeaders(resp.Header),
 						Body:    string(body),
-					}
+					})
 				}
 
 				// Check for RESOURCE_EXHAUSTED (429) and extract cooldown info
@@ -514,31 +514,31 @@ func (a *AntigravityAdapter) handleNonStreamResponse(ctx context.Context, w http
 	// Unwrap v1internal response wrapper (extract "response" field)
 	unwrappedBody := unwrapV1InternalResponse(body)
 
-	// Capture response info and extract token usage
-	if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
-		attempt.ResponseInfo = &domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    string(body), // Keep original for debugging
-		}
+	// Send events via EventChannel (executor will process them)
+	eventChan := ctxutil.GetEventChan(ctx)
 
-		// Extract token usage from unwrapped response
-		if metrics := usage.ExtractFromResponse(string(unwrappedBody)); metrics != nil {
-			attempt.InputTokenCount = metrics.InputTokens
-			attempt.OutputTokenCount = metrics.OutputTokens
-			attempt.CacheReadCount = metrics.CacheReadCount
-			attempt.CacheWriteCount = metrics.CacheCreationCount
-			attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
-			attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
-		}
+	// Send response info event
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    string(body), // Keep original for debugging
+	})
 
-		// Extract modelVersion from Gemini response
-		attempt.ResponseModel = extractModelVersion(unwrappedBody)
+	// Extract and send token usage metrics
+	if metrics := usage.ExtractFromResponse(string(unwrappedBody)); metrics != nil {
+		eventChan.SendMetrics(&domain.AdapterMetrics{
+			InputTokens:          metrics.InputTokens,
+			OutputTokens:         metrics.OutputTokens,
+			CacheReadCount:       metrics.CacheReadCount,
+			CacheCreationCount:   metrics.CacheCreationCount,
+			Cache5mCreationCount: metrics.Cache5mCreationCount,
+			Cache1hCreationCount: metrics.Cache1hCreationCount,
+		})
+	}
 
-		// Broadcast attempt update with token info
-		if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
-			bc.BroadcastProxyUpstreamAttempt(attempt)
-		}
+	// Extract and send response model
+	if modelVersion := extractModelVersion(unwrappedBody); modelVersion != "" {
+		eventChan.SendResponseModel(modelVersion)
 	}
 
 	var responseBody []byte
@@ -567,16 +567,14 @@ func (a *AntigravityAdapter) handleNonStreamResponse(ctx context.Context, w http
 }
 
 func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType domain.ClientType) error {
-	attempt := ctxutil.GetUpstreamAttempt(ctx)
+	eventChan := ctxutil.GetEventChan(ctx)
 
-	// Capture response info (for streaming, we only capture status and headers)
-	if attempt != nil {
-		attempt.ResponseInfo = &domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    "[streaming]",
-		}
-	}
+	// Send initial response info (for streaming, we only capture status and headers)
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    "[streaming]",
+	})
 
 	// Copy upstream headers (except those we override)
 	copyResponseHeaders(w.Header(), resp.Header)
@@ -610,31 +608,37 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 	// Collect all SSE events for response body and token extraction
 	var sseBuffer strings.Builder
 
-	// Helper to extract tokens and update attempt with final response body
-	extractTokens := func() {
-		if attempt != nil && sseBuffer.Len() > 0 {
-			// Update response body with collected SSE content
-			if attempt.ResponseInfo != nil {
-				attempt.ResponseInfo.Body = sseBuffer.String()
-			}
-			// Extract token usage
+	// Helper to extract tokens and send events
+	sendFinalEvents := func() {
+		if sseBuffer.Len() > 0 {
+			// Send updated response body
+			eventChan.SendResponseInfo(&domain.ResponseInfo{
+				Status:  resp.StatusCode,
+				Headers: flattenHeaders(resp.Header),
+				Body:    sseBuffer.String(),
+			})
+
+			// Extract and send token usage
 			if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
-				attempt.InputTokenCount = metrics.InputTokens
-				attempt.OutputTokenCount = metrics.OutputTokens
-				attempt.CacheReadCount = metrics.CacheReadCount
-				attempt.CacheWriteCount = metrics.CacheCreationCount
-				attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
-				attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
+				eventChan.SendMetrics(&domain.AdapterMetrics{
+					InputTokens:          metrics.InputTokens,
+					OutputTokens:         metrics.OutputTokens,
+					CacheReadCount:       metrics.CacheReadCount,
+					CacheCreationCount:   metrics.CacheCreationCount,
+					Cache5mCreationCount: metrics.Cache5mCreationCount,
+					Cache1hCreationCount: metrics.Cache1hCreationCount,
+				})
 			}
-			// Extract responseModel from claudeState (for Claude clients) or SSE content
+
+			// Extract and send response model
+			var modelVersion string
 			if claudeState != nil {
-				attempt.ResponseModel = claudeState.GetModelVersion()
+				modelVersion = claudeState.GetModelVersion()
 			} else {
-				attempt.ResponseModel = extractModelVersionFromSSE(sseBuffer.String())
+				modelVersion = extractModelVersionFromSSE(sseBuffer.String())
 			}
-			// Broadcast attempt update with token info
-			if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
-				bc.BroadcastProxyUpstreamAttempt(attempt)
+			if modelVersion != "" {
+				eventChan.SendResponseModel(modelVersion)
 			}
 		}
 	}
@@ -648,7 +652,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 		// Check context before reading
 		select {
 		case <-ctx.Done():
-			extractTokens()
+			sendFinalEvents()
 			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 		default:
 		}
@@ -666,14 +670,14 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 					break
 				}
 
-				// Collect for token extraction
-				sseBuffer.WriteString(line)
-
 				// Process the complete line
 				lineBytes := []byte(line)
 
 				// Unwrap v1internal SSE chunk before processing
 				unwrappedLine := unwrapV1InternalSSEChunk(lineBytes)
+
+				// Collect original SSE for token extraction (extractor handles v1internal wrapper)
+				sseBuffer.WriteString(line)
 
 				var output []byte
 				if isClaudeClient {
@@ -691,7 +695,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 					_, writeErr := w.Write(output)
 					if writeErr != nil {
 						// Client disconnected
-						extractTokens()
+						sendFinalEvents()
 						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
 					}
 					flusher.Flush()
@@ -708,7 +712,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 						flusher.Flush()
 					}
 				}
-				extractTokens()
+				sendFinalEvents()
 				return nil
 			}
 			// Upstream connection closed - check if client is still connected
@@ -720,7 +724,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 						flusher.Flush()
 					}
 				}
-				extractTokens()
+				sendFinalEvents()
 				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 			}
 			// Ensure Claude clients get termination events
@@ -730,7 +734,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 					flusher.Flush()
 				}
 			}
-			extractTokens()
+			sendFinalEvents()
 			return nil
 		}
 	}
@@ -738,15 +742,14 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 
 // handleCollectedStreamResponse forwards upstream SSE but collects into a single response body (like Manager non-stream auto-convert)
 func (a *AntigravityAdapter) handleCollectedStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType domain.ClientType, requestModel string) error {
-	attempt := ctxutil.GetUpstreamAttempt(ctx)
+	eventChan := ctxutil.GetEventChan(ctx)
 
-	if attempt != nil {
-		attempt.ResponseInfo = &domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    "[stream-collected]",
-		}
-	}
+	// Send initial response info
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    "[stream-collected]",
+	})
 
 	// Copy upstream headers (except those we override)
 	copyResponseHeaders(w.Header(), resp.Header)
@@ -761,7 +764,7 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(ctx context.Context, 
 		claudeState = NewClaudeStreamingStateWithSession(sessionID, requestModel)
 	}
 
-	// Collect upstream SSE for attempt/debug, and (for Claude) collect converted Claude SSE for JSON reconstruction.
+	// Collect upstream SSE for attempt/debug and token extraction.
 	var upstreamSSE strings.Builder
 	var lastPayload []byte
 	var responseBody []byte
@@ -828,36 +831,35 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(ctx context.Context, 
 		}
 	}
 
-	// Update attempt with collected body and token usage
-	if attempt != nil {
-		if attempt.ResponseInfo != nil {
-			if isClaudeClient {
-				attempt.ResponseInfo.Body = claudeSSE.String()
-			} else {
-				attempt.ResponseInfo.Body = upstreamSSE.String()
-			}
-		}
-		metricsSource := upstreamSSE.String()
-		if isClaudeClient {
-			metricsSource = claudeSSE.String()
-		}
-		if metrics := usage.ExtractFromStreamContent(metricsSource); metrics != nil {
-			attempt.InputTokenCount = metrics.InputTokens
-			attempt.OutputTokenCount = metrics.OutputTokens
-			attempt.CacheReadCount = metrics.CacheReadCount
-			attempt.CacheWriteCount = metrics.CacheCreationCount
-			attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
-			attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
-		}
-		// Extract responseModel from claudeState (for Claude clients) or SSE content
-		if claudeState != nil {
-			attempt.ResponseModel = claudeState.GetModelVersion()
-		} else {
-			attempt.ResponseModel = extractModelVersionFromSSE(upstreamSSE.String())
-		}
-		if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
-			bc.BroadcastProxyUpstreamAttempt(attempt)
-		}
+	// Send events via EventChannel
+	// Send response info with collected body
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    upstreamSSE.String(),
+	})
+
+	// Extract and send token usage
+	if metrics := usage.ExtractFromStreamContent(upstreamSSE.String()); metrics != nil {
+		eventChan.SendMetrics(&domain.AdapterMetrics{
+			InputTokens:          metrics.InputTokens,
+			OutputTokens:         metrics.OutputTokens,
+			CacheReadCount:       metrics.CacheReadCount,
+			CacheCreationCount:   metrics.CacheCreationCount,
+			Cache5mCreationCount: metrics.Cache5mCreationCount,
+			Cache1hCreationCount: metrics.Cache1hCreationCount,
+		})
+	}
+
+	// Extract and send response model
+	var modelVersion string
+	if claudeState != nil {
+		modelVersion = claudeState.GetModelVersion()
+	} else {
+		modelVersion = extractModelVersionFromSSE(upstreamSSE.String())
+	}
+	if modelVersion != "" {
+		eventChan.SendResponseModel(modelVersion)
 	}
 
 	if isClaudeClient {
@@ -1010,13 +1012,25 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 
 // extractModelVersion extracts modelVersion from Gemini response JSON
 func extractModelVersion(body []byte) string {
+	// Try direct format first: {"modelVersion": "..."}
 	var resp struct {
 		ModelVersion string `json:"modelVersion"`
 	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return ""
+	if err := json.Unmarshal(body, &resp); err == nil && resp.ModelVersion != "" {
+		return resp.ModelVersion
 	}
-	return resp.ModelVersion
+
+	// Try v1internal wrapper format: {"response": {"modelVersion": "..."}}
+	var wrapper struct {
+		Response struct {
+			ModelVersion string `json:"modelVersion"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(body, &wrapper); err == nil && wrapper.Response.ModelVersion != "" {
+		return wrapper.Response.ModelVersion
+	}
+
+	return ""
 }
 
 // extractModelVersionFromSSE extracts modelVersion from SSE content
@@ -1028,11 +1042,24 @@ func extractModelVersionFromSSE(sseContent string) string {
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
+
+		// Try direct format first: {"modelVersion": "..."}
 		var chunk struct {
 			ModelVersion string `json:"modelVersion"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err == nil && chunk.ModelVersion != "" {
 			lastModelVersion = chunk.ModelVersion
+			continue
+		}
+
+		// Try v1internal wrapper format: {"response": {"modelVersion": "..."}}
+		var wrapper struct {
+			Response struct {
+				ModelVersion string `json:"modelVersion"`
+			} `json:"response"`
+		}
+		if err := json.Unmarshal([]byte(data), &wrapper); err == nil && wrapper.Response.ModelVersion != "" {
+			lastModelVersion = wrapper.Response.ModelVersion
 		}
 	}
 	return lastModelVersion

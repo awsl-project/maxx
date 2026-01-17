@@ -156,6 +156,10 @@ export interface Transport {
 
   // ===== Usage Stats API =====
   getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]>;
+  recalculateUsageStats(): Promise<void>;
+
+  // ===== Response Model API =====
+  getResponseModels(): Promise<string[]>;
 
   // ===== 实时订阅 =====
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn;

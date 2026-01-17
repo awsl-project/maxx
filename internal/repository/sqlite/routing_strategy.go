@@ -1,87 +1,101 @@
 package sqlite
 
 import (
-    "database/sql"
-    "time"
+	"errors"
+	"time"
 
-    "github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/domain"
+	"gorm.io/gorm"
 )
 
 type RoutingStrategyRepository struct {
-    db *DB
+	db *DB
 }
 
 func NewRoutingStrategyRepository(db *DB) *RoutingStrategyRepository {
-    return &RoutingStrategyRepository{db: db}
+	return &RoutingStrategyRepository{db: db}
 }
 
 func (r *RoutingStrategyRepository) Create(s *domain.RoutingStrategy) error {
-    now := time.Now()
-    s.CreatedAt = now
-    s.UpdatedAt = now
+	now := time.Now()
+	s.CreatedAt = now
+	s.UpdatedAt = now
 
-    result, err := r.db.db.Exec(
-        `INSERT INTO routing_strategies (created_at, updated_at, project_id, type, config) VALUES (?, ?, ?, ?, ?)`,
-        s.CreatedAt, s.UpdatedAt, s.ProjectID, s.Type, toJSON(s.Config),
-    )
-    if err != nil {
-        return err
-    }
-
-    id, err := result.LastInsertId()
-    if err != nil {
-        return err
-    }
-    s.ID = uint64(id)
-    return nil
+	model := r.toModel(s)
+	if err := r.db.gorm.Create(model).Error; err != nil {
+		return err
+	}
+	s.ID = model.ID
+	return nil
 }
 
 func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
-    s.UpdatedAt = time.Now()
-    _, err := r.db.db.Exec(
-        `UPDATE routing_strategies SET updated_at = ?, project_id = ?, type = ?, config = ? WHERE id = ?`,
-        s.UpdatedAt, s.ProjectID, s.Type, toJSON(s.Config), s.ID,
-    )
-    return err
+	s.UpdatedAt = time.Now()
+	model := r.toModel(s)
+	return r.db.gorm.Save(model).Error
 }
 
 func (r *RoutingStrategyRepository) Delete(id uint64) error {
-    _, err := r.db.db.Exec(`DELETE FROM routing_strategies WHERE id = ?`, id)
-    return err
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Model(&RoutingStrategy{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error
 }
 
 func (r *RoutingStrategyRepository) GetByProjectID(projectID uint64) (*domain.RoutingStrategy, error) {
-    row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, project_id, type, config FROM routing_strategies WHERE project_id = ?`, projectID)
-    var s domain.RoutingStrategy
-    var configJSON string
-    err := row.Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt, &s.ProjectID, &s.Type, &configJSON)
-    if err != nil {
-        if err == sql.ErrNoRows {
-            return nil, domain.ErrNotFound
-        }
-        return nil, err
-    }
-    s.Config = fromJSON[*domain.RoutingStrategyConfig](configJSON)
-    return &s, nil
+	var model RoutingStrategy
+	if err := r.db.gorm.Where("project_id = ? AND deleted_at = 0", projectID).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
 }
 
 func (r *RoutingStrategyRepository) List() ([]*domain.RoutingStrategy, error) {
-    rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, project_id, type, config FROM routing_strategies ORDER BY id`)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	var models []RoutingStrategy
+	if err := r.db.gorm.Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return r.toDomainList(models), nil
+}
 
-    strategies := make([]*domain.RoutingStrategy, 0)
-    for rows.Next() {
-        var s domain.RoutingStrategy
-        var configJSON string
-        err := rows.Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt, &s.ProjectID, &s.Type, &configJSON)
-        if err != nil {
-            return nil, err
-        }
-        s.Config = fromJSON[*domain.RoutingStrategyConfig](configJSON)
-        strategies = append(strategies, &s)
-    }
-    return strategies, rows.Err()
+func (r *RoutingStrategyRepository) toModel(s *domain.RoutingStrategy) *RoutingStrategy {
+	return &RoutingStrategy{
+		SoftDeleteModel: SoftDeleteModel{
+			BaseModel: BaseModel{
+				ID:        s.ID,
+				CreatedAt: toTimestamp(s.CreatedAt),
+				UpdatedAt: toTimestamp(s.UpdatedAt),
+			},
+			DeletedAt: toTimestampPtr(s.DeletedAt),
+		},
+		ProjectID: s.ProjectID,
+		Type:      string(s.Type),
+		Config:    toJSON(s.Config),
+	}
+}
+
+func (r *RoutingStrategyRepository) toDomain(m *RoutingStrategy) *domain.RoutingStrategy {
+	return &domain.RoutingStrategy{
+		ID:        m.ID,
+		CreatedAt: fromTimestamp(m.CreatedAt),
+		UpdatedAt: fromTimestamp(m.UpdatedAt),
+		DeletedAt: fromTimestampPtr(m.DeletedAt),
+		ProjectID: m.ProjectID,
+		Type:      domain.RoutingStrategyType(m.Type),
+		Config:    fromJSON[*domain.RoutingStrategyConfig](m.Config),
+	}
+}
+
+func (r *RoutingStrategyRepository) toDomainList(models []RoutingStrategy) []*domain.RoutingStrategy {
+	strategies := make([]*domain.RoutingStrategy, len(models))
+	for i, m := range models {
+		strategies[i] = r.toDomain(&m)
+	}
+	return strategies
 }

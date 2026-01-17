@@ -103,29 +103,51 @@ type AntigravityQuotaRepository interface {
 }
 
 type UsageStatsRepository interface {
-	// Upsert 更新或插入统计记录（基于 hour + route_id + provider_id + project_id + client_type）
+	// Upsert 更新或插入统计记录
 	Upsert(stats *domain.UsageStats) error
-	// Query 查询统计数据，支持按时间范围、路由、Provider、项目过滤
+	// BatchUpsert 批量更新或插入统计记录
+	BatchUpsert(stats []*domain.UsageStats) error
+	// Query 查询统计数据，支持按粒度、时间范围、路由、Provider、项目过滤
 	Query(filter UsageStatsFilter) ([]*domain.UsageStats, error)
-	// DeleteOlderThan 删除指定时间之前的统计记录
-	DeleteOlderThan(before time.Time) (int64, error)
-	// GetLatestHour 获取最新的聚合小时，如果没有记录返回 nil
-	GetLatestHour() (*time.Time, error)
-	// GetProviderStats 获取 Provider 统计数据（合并历史聚合数据和当前小时实时数据）
+	// QueryWithRealtime 查询统计数据并合并当前周期的实时数据
+	QueryWithRealtime(filter UsageStatsFilter) ([]*domain.UsageStats, error)
+	// GetSummary 获取汇总统计数据（总计）
+	GetSummary(filter UsageStatsFilter) (*domain.UsageStatsSummary, error)
+	// GetSummaryByProvider 按 Provider 维度获取汇总统计
+	GetSummaryByProvider(filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
+	// GetSummaryByRoute 按 Route 维度获取汇总统计
+	GetSummaryByRoute(filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
+	// GetSummaryByProject 按 Project 维度获取汇总统计
+	GetSummaryByProject(filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
+	// GetSummaryByAPIToken 按 APIToken 维度获取汇总统计
+	GetSummaryByAPIToken(filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
+	// GetSummaryByClientType 按 ClientType 维度获取汇总统计
+	GetSummaryByClientType(filter UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error)
+	// DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
+	DeleteOlderThan(granularity domain.Granularity, before time.Time) (int64, error)
+	// GetLatestTimeBucket 获取指定粒度的最新时间桶
+	GetLatestTimeBucket(granularity domain.Granularity) (*time.Time, error)
+	// GetProviderStats 获取 Provider 统计数据
 	GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error)
-	// Aggregate 聚合统计数据（从 proxy_upstream_attempts 聚合到 usage_stats）
-	Aggregate() (int, error)
+	// AggregateMinute 从原始数据聚合到分钟级别
+	AggregateMinute() (int, error)
+	// RollUp 从细粒度上卷到粗粒度
+	RollUp(from, to domain.Granularity) (int, error)
+	// ClearAndRecalculate 清空统计数据并重新从原始数据计算
+	ClearAndRecalculate() error
 }
 
 // UsageStatsFilter 统计查询过滤条件
 type UsageStatsFilter struct {
-	StartTime  *time.Time // 开始时间
-	EndTime    *time.Time // 结束时间
-	RouteID    *uint64    // 路由 ID
-	ProviderID *uint64    // Provider ID
-	ProjectID  *uint64    // 项目 ID
-	APITokenID *uint64    // API Token ID
-	ClientType *string    // 客户端类型
+	Granularity domain.Granularity // 时间粒度（必填）
+	StartTime   *time.Time         // 开始时间
+	EndTime     *time.Time         // 结束时间
+	RouteID     *uint64            // 路由 ID
+	ProviderID  *uint64            // Provider ID
+	ProjectID   *uint64            // 项目 ID
+	APITokenID  *uint64            // API Token ID
+	ClientType  *string            // 客户端类型
+	Model       *string            // 模型名称
 }
 
 type APITokenRepository interface {
@@ -149,7 +171,17 @@ type ModelMappingRepository interface {
 	ListByQuery(query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error)
 	Count() (int, error)
 	DeleteAll() error
-	DeleteBuiltin() error
-	ClearAll() error      // Delete all mappings (both builtin and non-builtin)
-	SeedDefaults() error  // Re-seed default builtin mappings
+	ClearAll() error     // Delete all mappings
+	SeedDefaults() error // Re-seed default mappings
+}
+
+type ResponseModelRepository interface {
+	// Upsert 更新或插入 response model（基于 name）
+	Upsert(name string) error
+	// BatchUpsert 批量更新或插入 response models
+	BatchUpsert(names []string) error
+	// List 获取所有 response models
+	List() ([]*domain.ResponseModel, error)
+	// ListNames 获取所有 response model 名称
+	ListNames() ([]string, error)
 }

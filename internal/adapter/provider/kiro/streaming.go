@@ -309,3 +309,15 @@ func extractBlockIndex(dataMap map[string]any) int {
 	}
 	return -1
 }
+
+// GetTokenCounts returns the input and output token counts
+func (ctx *streamProcessorContext) GetTokenCounts() (inputTokens int, outputTokens int) {
+	outputTokens = ctx.totalOutputTokens
+	if outputTokens < 1 {
+		hasContent := len(ctx.completedToolUseIds) > 0 || len(ctx.toolUseIdByBlockIndex) > 0 || ctx.totalProcessedEvents > 0
+		if hasContent {
+			outputTokens = 1
+		}
+	}
+	return ctx.inputTokens, outputTokens
+}

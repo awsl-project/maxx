@@ -365,26 +365,31 @@ export interface AntigravityOAuthResult {
 
 // ===== 模型映射 =====
 
+// 模型映射作用域
+export type ModelMappingScope = 'global' | 'provider' | 'route';
+
 // 模型映射规则
 export interface ModelMapping {
   id: number;
   createdAt: string;
   updatedAt: string;
-  clientType: string; // 客户端类型，空表示所有
-  providerType: string; // 供应商类型（如 antigravity, kiro, custom），空表示所有
-  providerID: number; // 供应商 ID，0 表示所有
-  projectID: number; // 项目 ID，0 表示所有
-  routeID: number; // 路由 ID，0 表示所有
-  apiTokenID: number; // Token ID，0 表示所有
-  pattern: string; // 源模式，支持 * 通配符
-  target: string; // 目标模型名
-  priority: number; // 优先级，数字越小优先级越高
-  isEnabled: boolean; // 是否启用
-  isBuiltin: boolean; // 是否为内置规则
+  scope: ModelMappingScope;  // 作用域类型
+  clientType: string;    // 客户端类型，空表示所有
+  providerType: string;  // 供应商类型（如 antigravity, kiro, custom），空表示所有
+  providerID: number;    // 供应商 ID，0 表示所有
+  projectID: number;     // 项目 ID，0 表示所有
+  routeID: number;       // 路由 ID，0 表示所有
+  apiTokenID: number;    // Token ID，0 表示所有
+  pattern: string;       // 源模式，支持 * 通配符
+  target: string;        // 目标模型名
+  priority: number;      // 优先级，数字越小优先级越高
+  isEnabled: boolean;    // 是否启用
+  isBuiltin: boolean;    // 是否为内置规则
 }
 
 // 创建/更新模型映射的请求
 export interface ModelMappingInput {
+  scope?: ModelMappingScope;
   clientType?: string;
   providerType?: string;
   providerID?: number;
@@ -508,18 +513,24 @@ export interface CreateAPITokenData {
 
 // ===== Usage Stats =====
 
+/** 统计数据时间粒度 */
+export type StatsGranularity = 'minute' | 'hour' | 'day' | 'week' | 'month';
+
 export interface UsageStats {
   id: number;
   createdAt: string;
-  hour: string;
+  timeBucket: string;           // 时间桶（根据粒度截断）
+  granularity: StatsGranularity; // 时间粒度
   routeID: number;
   providerID: number;
   projectID: number;
   apiTokenID: number;
   clientType: string;
+  model: string;                // 请求的模型名称
   totalRequests: number;
   successfulRequests: number;
   failedRequests: number;
+  totalDurationMs: number;      // 累计请求耗时（毫秒）
   inputTokens: number;
   outputTokens: number;
   cacheRead: number;
@@ -527,12 +538,36 @@ export interface UsageStats {
   cost: number;
 }
 
+/** 统计数据汇总 */
+export interface UsageStatsSummary {
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  successRate: number;          // 0-100
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheRead: number;
+  totalCacheWrite: number;
+  totalCost: number;            // 微美元
+}
+
 export interface UsageStatsFilter {
-  start?: string;
-  end?: string;
+  granularity?: StatsGranularity; // 时间粒度（必填）
+  start?: string;                 // 开始时间 ISO8601
+  end?: string;                   // 结束时间 ISO8601
   routeId?: number;
   providerId?: number;
   projectId?: number;
-  apiTokenID?: number;
+  apiTokenId?: number;
   clientType?: string;
+  model?: string;                 // 模型名称
+}
+
+/** Response Model - 记录所有出现过的 response model */
+export interface ResponseModel {
+  id: number;
+  createdAt: string;
+  name: string;
+  lastSeenAt: string;
+  useCount: number;
 }

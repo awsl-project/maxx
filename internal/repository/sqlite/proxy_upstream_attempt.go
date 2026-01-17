@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"database/sql"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -20,58 +19,90 @@ func (r *ProxyUpstreamAttemptRepository) Create(a *domain.ProxyUpstreamAttempt) 
 	a.CreatedAt = now
 	a.UpdatedAt = now
 
-	result, err := r.db.db.Exec(
-		`INSERT INTO proxy_upstream_attempts (created_at, updated_at, start_time, end_time, duration_ms, status, proxy_request_id, is_stream, request_model, mapped_model, response_model, request_info, response_info, route_id, provider_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.CreatedAt, a.UpdatedAt, a.StartTime, a.EndTime, a.Duration.Milliseconds(), a.Status, a.ProxyRequestID, a.IsStream, a.RequestModel, a.MappedModel, a.ResponseModel, toJSON(a.RequestInfo), toJSON(a.ResponseInfo), a.RouteID, a.ProviderID, a.InputTokenCount, a.OutputTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount, a.Cost,
-	)
-	if err != nil {
+	model := r.toModel(a)
+	if err := r.db.gorm.Create(model).Error; err != nil {
 		return err
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
-	}
-	a.ID = uint64(id)
+	a.ID = model.ID
 	return nil
 }
 
 func (r *ProxyUpstreamAttemptRepository) Update(a *domain.ProxyUpstreamAttempt) error {
 	a.UpdatedAt = time.Now()
-	_, err := r.db.db.Exec(
-		`UPDATE proxy_upstream_attempts SET updated_at = ?, start_time = ?, end_time = ?, duration_ms = ?, status = ?, is_stream = ?, request_model = ?, mapped_model = ?, response_model = ?, request_info = ?, response_info = ?, route_id = ?, provider_id = ?, input_token_count = ?, output_token_count = ?, cache_read_count = ?, cache_write_count = ?, cache_5m_write_count = ?, cache_1h_write_count = ?, cost = ? WHERE id = ?`,
-		a.UpdatedAt, a.StartTime, a.EndTime, a.Duration.Milliseconds(), a.Status, a.IsStream, a.RequestModel, a.MappedModel, a.ResponseModel, toJSON(a.RequestInfo), toJSON(a.ResponseInfo), a.RouteID, a.ProviderID, a.InputTokenCount, a.OutputTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount, a.Cost, a.ID,
-	)
-	return err
+	model := r.toModel(a)
+	return r.db.gorm.Save(model).Error
 }
 
 func (r *ProxyUpstreamAttemptRepository) ListByProxyRequestID(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error) {
-	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, start_time, end_time, duration_ms, status, proxy_request_id, is_stream, request_model, mapped_model, response_model, request_info, response_info, route_id, provider_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost FROM proxy_upstream_attempts WHERE proxy_request_id = ? ORDER BY id`, proxyRequestID)
-	if err != nil {
+	var models []ProxyUpstreamAttempt
+	if err := r.db.gorm.Where("proxy_request_id = ?", proxyRequestID).Order("id").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return r.toDomainList(models), nil
+}
 
-	attempts := make([]*domain.ProxyUpstreamAttempt, 0)
-	for rows.Next() {
-		var a domain.ProxyUpstreamAttempt
-		var reqInfoJSON, respInfoJSON string
-		var startTime, endTime sql.NullTime
-		var durationMs int64
-		err := rows.Scan(&a.ID, &a.CreatedAt, &a.UpdatedAt, &startTime, &endTime, &durationMs, &a.Status, &a.ProxyRequestID, &a.IsStream, &a.RequestModel, &a.MappedModel, &a.ResponseModel, &reqInfoJSON, &respInfoJSON, &a.RouteID, &a.ProviderID, &a.InputTokenCount, &a.OutputTokenCount, &a.CacheReadCount, &a.CacheWriteCount, &a.Cache5mWriteCount, &a.Cache1hWriteCount, &a.Cost)
-		if err != nil {
-			return nil, err
-		}
-		if startTime.Valid {
-			a.StartTime = startTime.Time
-		}
-		if endTime.Valid {
-			a.EndTime = endTime.Time
-		}
-		a.Duration = time.Duration(durationMs) * time.Millisecond
-		a.RequestInfo = fromJSON[*domain.RequestInfo](reqInfoJSON)
-		a.ResponseInfo = fromJSON[*domain.ResponseInfo](respInfoJSON)
-		attempts = append(attempts, &a)
+func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
+	return &ProxyUpstreamAttempt{
+		BaseModel: BaseModel{
+			ID:        a.ID,
+			CreatedAt: toTimestamp(a.CreatedAt),
+			UpdatedAt: toTimestamp(a.UpdatedAt),
+		},
+		StartTime:         toTimestamp(a.StartTime),
+		EndTime:           toTimestamp(a.EndTime),
+		DurationMs:        a.Duration.Milliseconds(),
+		Status:            a.Status,
+		ProxyRequestID:    a.ProxyRequestID,
+		IsStream:          boolToInt(a.IsStream),
+		RequestModel:      a.RequestModel,
+		MappedModel:       a.MappedModel,
+		ResponseModel:     a.ResponseModel,
+		RequestInfo:       toJSON(a.RequestInfo),
+		ResponseInfo:      toJSON(a.ResponseInfo),
+		RouteID:           a.RouteID,
+		ProviderID:        a.ProviderID,
+		InputTokenCount:   a.InputTokenCount,
+		OutputTokenCount:  a.OutputTokenCount,
+		CacheReadCount:    a.CacheReadCount,
+		CacheWriteCount:   a.CacheWriteCount,
+		Cache5mWriteCount: a.Cache5mWriteCount,
+		Cache1hWriteCount: a.Cache1hWriteCount,
+		Cost:              a.Cost,
 	}
-	return attempts, rows.Err()
+}
+
+func (r *ProxyUpstreamAttemptRepository) toDomain(m *ProxyUpstreamAttempt) *domain.ProxyUpstreamAttempt {
+	return &domain.ProxyUpstreamAttempt{
+		ID:                m.ID,
+		CreatedAt:         fromTimestamp(m.CreatedAt),
+		UpdatedAt:         fromTimestamp(m.UpdatedAt),
+		StartTime:         fromTimestamp(m.StartTime),
+		EndTime:           fromTimestamp(m.EndTime),
+		Duration:          time.Duration(m.DurationMs) * time.Millisecond,
+		Status:            m.Status,
+		ProxyRequestID:    m.ProxyRequestID,
+		IsStream:          m.IsStream == 1,
+		RequestModel:      m.RequestModel,
+		MappedModel:       m.MappedModel,
+		ResponseModel:     m.ResponseModel,
+		RequestInfo:       fromJSON[*domain.RequestInfo](m.RequestInfo),
+		ResponseInfo:      fromJSON[*domain.ResponseInfo](m.ResponseInfo),
+		RouteID:           m.RouteID,
+		ProviderID:        m.ProviderID,
+		InputTokenCount:   m.InputTokenCount,
+		OutputTokenCount:  m.OutputTokenCount,
+		CacheReadCount:    m.CacheReadCount,
+		CacheWriteCount:   m.CacheWriteCount,
+		Cache5mWriteCount: m.Cache5mWriteCount,
+		Cache1hWriteCount: m.Cache1hWriteCount,
+		Cost:              m.Cost,
+	}
+}
+
+func (r *ProxyUpstreamAttemptRepository) toDomainList(models []ProxyUpstreamAttempt) []*domain.ProxyUpstreamAttempt {
+	attempts := make([]*domain.ProxyUpstreamAttempt, len(models))
+	for i, m := range models {
+		attempts[i] = r.toDomain(&m)
+	}
+	return attempts
 }

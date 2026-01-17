@@ -1,11 +1,12 @@
 package sqlite
 
 import (
-	"database/sql"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type CooldownRepository struct {
@@ -17,113 +18,57 @@ func NewCooldownRepository(db *DB) repository.CooldownRepository {
 }
 
 func (r *CooldownRepository) GetAll() ([]*domain.Cooldown, error) {
-	query := `SELECT id, created_at, updated_at, provider_id, client_type, until_time, reason
-	          FROM cooldowns
-	          WHERE until_time > datetime('now')`
-
-	rows, err := r.db.db.Query(query)
-	if err != nil {
+	now := time.Now().UnixMilli()
+	var models []Cooldown
+	if err := r.db.gorm.Where("until_time > ?", now).Find(&models).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	cooldowns := make([]*domain.Cooldown, 0)
-	for rows.Next() {
-		cd := &domain.Cooldown{}
-		var createdAt, updatedAt, untilTime string
-		var reason string
-		if err := rows.Scan(&cd.ID, &createdAt, &updatedAt, &cd.ProviderID, &cd.ClientType, &untilTime, &reason); err != nil {
-			return nil, err
-		}
-
-		cd.CreatedAt, _ = parseTimeString(createdAt)
-		cd.UpdatedAt, _ = parseTimeString(updatedAt)
-		cd.UntilTime, _ = parseTimeString(untilTime)
-		cd.Reason = domain.CooldownReason(reason)
-		cooldowns = append(cooldowns, cd)
-	}
-
-	return cooldowns, rows.Err()
+	return r.toDomainList(models), nil
 }
 
 func (r *CooldownRepository) GetByProvider(providerID uint64) ([]*domain.Cooldown, error) {
-	query := `SELECT id, created_at, updated_at, provider_id, client_type, until_time, reason
-	          FROM cooldowns
-	          WHERE provider_id = ? AND until_time > datetime('now')`
-
-	rows, err := r.db.db.Query(query, providerID)
-	if err != nil {
+	now := time.Now().UnixMilli()
+	var models []Cooldown
+	if err := r.db.gorm.Where("provider_id = ? AND until_time > ?", providerID, now).Find(&models).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	cooldowns := make([]*domain.Cooldown, 0)
-	for rows.Next() {
-		cd := &domain.Cooldown{}
-		var createdAt, updatedAt, untilTime string
-		var reason string
-		if err := rows.Scan(&cd.ID, &createdAt, &updatedAt, &cd.ProviderID, &cd.ClientType, &untilTime, &reason); err != nil {
-			return nil, err
-		}
-
-		cd.CreatedAt, _ = parseTimeString(createdAt)
-		cd.UpdatedAt, _ = parseTimeString(updatedAt)
-		cd.UntilTime, _ = parseTimeString(untilTime)
-		cd.Reason = domain.CooldownReason(reason)
-		cooldowns = append(cooldowns, cd)
-	}
-
-	return cooldowns, rows.Err()
+	return r.toDomainList(models), nil
 }
 
 func (r *CooldownRepository) Get(providerID uint64, clientType string) (*domain.Cooldown, error) {
-	query := `SELECT id, created_at, updated_at, provider_id, client_type, until_time, reason
-	          FROM cooldowns
-	          WHERE provider_id = ? AND client_type = ? AND until_time > datetime('now')`
-
-	cd := &domain.Cooldown{}
-	var createdAt, updatedAt, untilTime string
-	var reason string
-
-	err := r.db.db.QueryRow(query, providerID, clientType).Scan(
-		&cd.ID, &createdAt, &updatedAt, &cd.ProviderID, &cd.ClientType, &untilTime, &reason,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+	now := time.Now().UnixMilli()
+	var model Cooldown
+	err := r.db.gorm.Where("provider_id = ? AND client_type = ? AND until_time > ?", providerID, clientType, now).First(&model).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
 		return nil, err
 	}
-
-	cd.CreatedAt, _ = parseTimeString(createdAt)
-	cd.UpdatedAt, _ = parseTimeString(updatedAt)
-	cd.UntilTime, _ = parseTimeString(untilTime)
-	cd.Reason = domain.CooldownReason(reason)
-
-	return cd, nil
+	return r.toDomain(&model), nil
 }
 
 func (r *CooldownRepository) Upsert(cooldown *domain.Cooldown) error {
-	now := time.Now().UTC()
+	now := time.Now()
+	model := &Cooldown{
+		BaseModel: BaseModel{
+			CreatedAt: toTimestamp(now),
+			UpdatedAt: toTimestamp(now),
+		},
+		ProviderID: cooldown.ProviderID,
+		ClientType: cooldown.ClientType,
+		UntilTime:  toTimestamp(cooldown.UntilTime),
+		Reason:     string(cooldown.Reason),
+	}
 
-	// Use INSERT OR REPLACE to handle both insert and update cases
-	// This works correctly even when an expired record exists
-	query := `INSERT INTO cooldowns (provider_id, client_type, until_time, reason, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?)
-	          ON CONFLICT(provider_id, client_type) DO UPDATE SET
-	            until_time = excluded.until_time,
-	            reason = excluded.reason,
-	            updated_at = excluded.updated_at`
-
-	_, err := r.db.db.Exec(query,
-		cooldown.ProviderID,
-		cooldown.ClientType,
-		formatTime(cooldown.UntilTime),
-		string(cooldown.Reason),
-		formatTime(now),
-		formatTime(now),
-	)
+	err := r.db.gorm.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "provider_id"}, {Name: "client_type"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"until_time": model.UntilTime,
+			"reason":     model.Reason,
+			"updated_at": model.UpdatedAt,
+		}),
+	}).Create(model).Error
 
 	if err != nil {
 		return err
@@ -131,24 +76,38 @@ func (r *CooldownRepository) Upsert(cooldown *domain.Cooldown) error {
 
 	cooldown.CreatedAt = now
 	cooldown.UpdatedAt = now
-
 	return nil
 }
 
 func (r *CooldownRepository) Delete(providerID uint64, clientType string) error {
-	query := `DELETE FROM cooldowns WHERE provider_id = ? AND client_type = ?`
-	_, err := r.db.db.Exec(query, providerID, clientType)
-	return err
+	return r.db.gorm.Where("provider_id = ? AND client_type = ?", providerID, clientType).Delete(&Cooldown{}).Error
 }
 
 func (r *CooldownRepository) DeleteAll(providerID uint64) error {
-	query := `DELETE FROM cooldowns WHERE provider_id = ?`
-	_, err := r.db.db.Exec(query, providerID)
-	return err
+	return r.db.gorm.Where("provider_id = ?", providerID).Delete(&Cooldown{}).Error
 }
 
 func (r *CooldownRepository) DeleteExpired() error {
-	query := `DELETE FROM cooldowns WHERE until_time <= datetime('now')`
-	_, err := r.db.db.Exec(query)
-	return err
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Where("until_time <= ?", now).Delete(&Cooldown{}).Error
+}
+
+func (r *CooldownRepository) toDomain(m *Cooldown) *domain.Cooldown {
+	return &domain.Cooldown{
+		ID:         m.ID,
+		CreatedAt:  fromTimestamp(m.CreatedAt),
+		UpdatedAt:  fromTimestamp(m.UpdatedAt),
+		ProviderID: m.ProviderID,
+		ClientType: m.ClientType,
+		UntilTime:  fromTimestamp(m.UntilTime),
+		Reason:     domain.CooldownReason(m.Reason),
+	}
+}
+
+func (r *CooldownRepository) toDomainList(models []Cooldown) []*domain.Cooldown {
+	cooldowns := make([]*domain.Cooldown, len(models))
+	for i, m := range models {
+		cooldowns[i] = r.toDomain(&m)
+	}
+	return cooldowns
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
+	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
 	"github.com/awsl-project/maxx/internal/version"
@@ -72,8 +73,15 @@ func main() {
 	dbPath := filepath.Join(dataDirPath, "maxx.db")
 	logPath := filepath.Join(dataDirPath, "maxx.log")
 
-	// Initialize database
-	db, err := sqlite.NewDB(dbPath)
+	// Initialize database (DSN > default SQLite path)
+	var db *sqlite.DB
+	var err error
+	if dsn := os.Getenv("MAXX_DSN"); dsn != "" {
+		log.Printf("Using database DSN from MAXX_DSN environment variable")
+		db, err = sqlite.NewDBWithDSN(dsn)
+	} else {
+		db, err = sqlite.NewDB(dbPath)
+	}
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -94,6 +102,7 @@ func main() {
 	apiTokenRepo := sqlite.NewAPITokenRepository(db)
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
+	responseModelRepo := sqlite.NewResponseModelRepository(db)
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
@@ -182,8 +191,11 @@ func main() {
 	// Create project waiter for force project binding
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
+	// Create stats aggregator
+	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
+
 	// Create executor
-	exec := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, wsHub, projectWaiter, instanceID)
+	exec := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, wsHub, projectWaiter, instanceID, statsAggregator)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()
@@ -202,6 +214,7 @@ func main() {
 		cachedAPITokenRepo,
 		cachedModelMappingRepo,
 		usageStatsRepo,
+		responseModelRepo,
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
 	)

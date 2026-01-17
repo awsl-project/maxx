@@ -16,13 +16,15 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
+	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
 	DataDir string
-	DBPath  string
+	DBPath  string // SQLite file path (legacy)
+	DSN     string // Database DSN (mysql://... or sqlite://...)
 	LogPath string
 }
 
@@ -52,6 +54,7 @@ type DatabaseRepos struct {
 	ModelMappingRepo         repository.ModelMappingRepository
 	CachedModelMappingRepo   *cached.ModelMappingRepository
 	UsageStatsRepo           repository.UsageStatsRepository
+	ResponseModelRepo        repository.ResponseModelRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
@@ -71,9 +74,17 @@ type ServerComponents struct {
 
 // InitializeDatabase 初始化数据库和所有仓库
 func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
-	log.Printf("[Core] Initializing database: %s", config.DBPath)
+	var db *sqlite.DB
+	var err error
 
-	db, err := sqlite.NewDB(config.DBPath)
+	// 优先使用 DSN，否则使用 DBPath（向后兼容）
+	if config.DSN != "" {
+		log.Printf("[Core] Initializing database with DSN")
+		db, err = sqlite.NewDBWithDSN(config.DSN)
+	} else {
+		log.Printf("[Core] Initializing database: %s", config.DBPath)
+		db, err = sqlite.NewDB(config.DBPath)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +104,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	apiTokenRepo := sqlite.NewAPITokenRepository(db)
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
+	responseModelRepo := sqlite.NewResponseModelRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -130,6 +142,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		ModelMappingRepo:         modelMappingRepo,
 		CachedModelMappingRepo:   cachedModelMappingRepo,
 		UsageStatsRepo:           usageStatsRepo,
+		ResponseModelRepo:        responseModelRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -225,6 +238,9 @@ func InitializeServerComponents(
 	log.Printf("[Core] Creating project waiter")
 	projectWaiter := waiter.NewProjectWaiter(repos.CachedSessionRepo, repos.SettingRepo, wailsBroadcaster)
 
+	log.Printf("[Core] Creating stats aggregator")
+	statsAggregator := stats.NewStatsAggregator(repos.UsageStatsRepo)
+
 	log.Printf("[Core] Creating executor")
 	exec := executor.NewExecutor(
 		r,
@@ -236,6 +252,7 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		projectWaiter,
 		instanceID,
+		statsAggregator,
 	)
 
 	log.Printf("[Core] Creating client adapter")
@@ -255,6 +272,7 @@ func InitializeServerComponents(
 		repos.CachedAPITokenRepo,
 		repos.CachedModelMappingRepo,
 		repos.UsageStatsRepo,
+		repos.ResponseModelRepo,
 		addr,
 		r,
 	)

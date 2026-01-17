@@ -25,6 +25,7 @@ const (
 	CtxKeyBroadcaster     contextKey = "broadcaster"
 	CtxKeyIsStream        contextKey = "is_stream"
 	CtxKeyAPITokenID      contextKey = "api_token_id"
+	CtxKeyEventChan       contextKey = "event_chan"
 )
 
 // Setters
@@ -181,4 +182,15 @@ func GetAPITokenID(ctx context.Context) uint64 {
 		return v
 	}
 	return 0
+}
+
+func WithEventChan(ctx context.Context, ch domain.AdapterEventChan) context.Context {
+	return context.WithValue(ctx, CtxKeyEventChan, ch)
+}
+
+func GetEventChan(ctx context.Context) domain.AdapterEventChan {
+	if v, ok := ctx.Value(CtxKeyEventChan).(domain.AdapterEventChan); ok {
+		return v
+	}
+	return nil
 }

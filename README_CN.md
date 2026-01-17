@@ -209,6 +209,64 @@ build-desktop.bat
 | 桌面应用 (Linux) | `~/.local/share/maxx/` |
 | 服务器 (非 Docker) | `~/.config/maxx/maxx.db` |
 
+## 数据库配置
+
+Maxx 支持 SQLite（默认）和 MySQL 数据库。
+
+### SQLite（默认）
+
+无需配置，数据存储在数据目录下的 `maxx.db` 文件中。
+
+### MySQL
+
+设置 `MAXX_DSN` 环境变量：
+
+```bash
+# MySQL DSN 格式
+export MAXX_DSN="mysql://user:password@tcp(host:port)/dbname?parseTime=true&charset=utf8mb4"
+
+# 示例
+export MAXX_DSN="mysql://maxx:secret@tcp(127.0.0.1:3306)/maxx?parseTime=true&charset=utf8mb4"
+```
+
+**Docker Compose 使用 MySQL：**
+
+```yaml
+services:
+  maxx:
+    image: ghcr.io/awsl-project/maxx:latest
+    container_name: maxx
+    restart: unless-stopped
+    ports:
+      - "9880:9880"
+    environment:
+      - MAXX_DSN=mysql://maxx:secret@tcp(mysql:3306)/maxx?parseTime=true&charset=utf8mb4
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    container_name: maxx-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: maxx
+      MYSQL_USER: maxx
+      MYSQL_PASSWORD: secret
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql-data:
+    driver: local
+```
+
 ## 发布版本
 
 创建新版本发布有两种方式：

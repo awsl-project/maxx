@@ -140,10 +140,15 @@ func extractUsageFromMap(data map[string]interface{}) *Metrics {
 	}
 
 	// Try Codex/OpenAI Response API format: { "response": { "usage": { ... } } }
-	// This is used in response.completed events
+	// Also handles Gemini v1internal wrapper: { "response": { "usageMetadata": { ... } } }
 	if response, ok := data["response"].(map[string]interface{}); ok {
+		// Try OpenAI usage format first
 		if usage, ok := response["usage"].(map[string]interface{}); ok {
 			return extractOpenAIUsage(usage)
+		}
+		// Try Gemini usageMetadata format (v1internal wrapper)
+		if usage, ok := response["usageMetadata"].(map[string]interface{}); ok {
+			return extractGeminiUsage(usage)
 		}
 	}
 

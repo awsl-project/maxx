@@ -9,8 +9,10 @@ import (
 	ctxutil "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
+	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/router"
+	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
@@ -26,6 +28,7 @@ type Executor struct {
 	broadcaster        event.Broadcaster
 	projectWaiter      *waiter.ProjectWaiter
 	instanceID         string
+	statsAggregator    *stats.StatsAggregator
 }
 
 // NewExecutor creates a new executor
@@ -39,6 +42,7 @@ func NewExecutor(
 	bc event.Broadcaster,
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
+	statsAggregator *stats.StatsAggregator,
 ) *Executor {
 	return &Executor{
 		router:             r,
@@ -50,6 +54,7 @@ func NewExecutor(
 		broadcaster:        bc,
 		projectWaiter:      projectWaiter,
 		instanceID:         instanceID,
+		statsAggregator:    statsAggregator,
 	}
 }
 
@@ -292,16 +297,40 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			// Put attempt into context so adapter can populate request/response info
 			attemptCtx := ctxutil.WithUpstreamAttempt(ctx, attemptRecord)
 
+			// Create event channel for adapter to send events
+			eventChan := domain.NewAdapterEventChan()
+			attemptCtx = ctxutil.WithEventChan(attemptCtx, eventChan)
+
 			// Wrap ResponseWriter to capture actual client response
 			responseCapture := NewResponseCapture(w)
 
 			// Execute request
 			err := matchedRoute.ProviderAdapter.Execute(attemptCtx, responseCapture, req, matchedRoute.Provider)
+
+			// Process events from adapter (drain channel)
+			e.processAdapterEvents(eventChan, attemptRecord)
+			eventChan.Close()
+
 			if err == nil {
 				// Success - set end time and duration
 				attemptRecord.EndTime = time.Now()
 				attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 				attemptRecord.Status = "COMPLETED"
+
+				// Calculate cost in executor (unified for all adapters)
+				// Adapter only needs to set token counts, executor handles pricing
+				if attemptRecord.InputTokenCount > 0 || attemptRecord.OutputTokenCount > 0 {
+					metrics := &usage.Metrics{
+						InputTokens:          attemptRecord.InputTokenCount,
+						OutputTokens:         attemptRecord.OutputTokenCount,
+						CacheReadCount:       attemptRecord.CacheReadCount,
+						CacheCreationCount:   attemptRecord.CacheWriteCount,
+						Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
+						Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
+					}
+					attemptRecord.Cost = pricing.GlobalCalculator().Calculate(attemptRecord.MappedModel, metrics)
+				}
+
 				_ = e.attemptRepo.Update(attemptRecord)
 				if e.broadcaster != nil {
 					e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
@@ -360,6 +389,20 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			} else {
 				attemptRecord.Status = "FAILED"
 			}
+
+			// Calculate cost in executor even for failed attempts (may have partial token usage)
+			if attemptRecord.InputTokenCount > 0 || attemptRecord.OutputTokenCount > 0 {
+				metrics := &usage.Metrics{
+					InputTokens:          attemptRecord.InputTokenCount,
+					OutputTokens:         attemptRecord.OutputTokenCount,
+					CacheReadCount:       attemptRecord.CacheReadCount,
+					CacheCreationCount:   attemptRecord.CacheWriteCount,
+					Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
+					Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
+				}
+				attemptRecord.Cost = pricing.GlobalCalculator().Calculate(attemptRecord.MappedModel, metrics)
+			}
+
 			_ = e.attemptRepo.Update(attemptRecord)
 			if e.broadcaster != nil {
 				e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
@@ -620,6 +663,53 @@ func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider
 		}
 	case <-time.After(15 * time.Second):
 		// Timeout waiting for update
+	}
+}
+
+// processAdapterEvents drains the event channel and updates attempt record
+func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attempt *domain.ProxyUpstreamAttempt) {
+	if eventChan == nil || attempt == nil {
+		return
+	}
+
+	// Drain all events from channel (non-blocking)
+	for {
+		select {
+		case event, ok := <-eventChan:
+			if !ok {
+				return // Channel closed
+			}
+			if event == nil {
+				continue
+			}
+
+			switch event.Type {
+			case domain.EventRequestInfo:
+				if event.RequestInfo != nil {
+					attempt.RequestInfo = event.RequestInfo
+				}
+			case domain.EventResponseInfo:
+				if event.ResponseInfo != nil {
+					attempt.ResponseInfo = event.ResponseInfo
+				}
+			case domain.EventMetrics:
+				if event.Metrics != nil {
+					attempt.InputTokenCount = event.Metrics.InputTokens
+					attempt.OutputTokenCount = event.Metrics.OutputTokens
+					attempt.CacheReadCount = event.Metrics.CacheReadCount
+					attempt.CacheWriteCount = event.Metrics.CacheCreationCount
+					attempt.Cache5mWriteCount = event.Metrics.Cache5mCreationCount
+					attempt.Cache1hWriteCount = event.Metrics.Cache1hCreationCount
+				}
+			case domain.EventResponseModel:
+				if event.ResponseModel != "" {
+					attempt.ResponseModel = event.ResponseModel
+				}
+			}
+		default:
+			// No more events
+			return
+		}
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	ctxutil "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/usage"
 )
 
 func init() {
@@ -88,10 +89,13 @@ func (a *KiroAdapter) Execute(ctx context.Context, w http.ResponseWriter, req *h
 		return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to convert request: %v", err))
 	}
 
-	// Update attempt record with the mapped model
+	// Update attempt record with the mapped model (kiro-specific internal mapping)
 	if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
 		attempt.MappedModel = mappedModel
 	}
+
+	// Get EventChannel for sending events to executor
+	eventChan := ctxutil.GetEventChan(ctx)
 
 	// Build upstream URL
 	upstreamURL := fmt.Sprintf(CodeWhispererURLTemplate, region)
@@ -113,15 +117,13 @@ func (a *KiroAdapter) Execute(ctx context.Context, w http.ResponseWriter, req *h
 	upstreamReq.Header.Set("x-amz-user-agent", "aws-sdk-js/1.0.18 KiroIDE-0.2.13-66c23a8c5d15afabec89ef9954ef52a119f10d369df04d548fc6c1eac694b0d1")
 	upstreamReq.Header.Set("user-agent", "aws-sdk-js/1.0.18 ua/2.1 os/darwin#25.0.0 lang/js md/nodejs#20.16.0 api/codewhispererstreaming#1.0.18 m/E KiroIDE-0.2.13-66c23a8c5d15afabec89ef9954ef52a119f10d369df04d548fc6c1eac694b0d1")
 
-	// Capture request info for attempt record
-	if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil && attempt.RequestInfo == nil {
-		attempt.RequestInfo = &domain.RequestInfo{
-			Method:  upstreamReq.Method,
-			URL:     upstreamURL,
-			Headers: flattenHeaders(upstreamReq.Header),
-			Body:    string(cwBody),
-		}
-	}
+	// Send request info via EventChannel
+	eventChan.SendRequestInfo(&domain.RequestInfo{
+		Method:  upstreamReq.Method,
+		URL:     upstreamURL,
+		Headers: flattenHeaders(upstreamReq.Header),
+		Body:    string(cwBody),
+	})
 
 	// Execute request
 	resp, err := a.httpClient.Do(upstreamReq)
@@ -171,14 +173,12 @@ func (a *KiroAdapter) Execute(ctx context.Context, w http.ResponseWriter, req *h
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 
-		// Capture error response info
-		if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
-			attempt.ResponseInfo = &domain.ResponseInfo{
-				Status:  resp.StatusCode,
-				Headers: flattenHeaders(resp.Header),
-				Body:    string(body),
-			}
-		}
+		// Send error response info via EventChannel
+		eventChan.SendResponseInfo(&domain.ResponseInfo{
+			Status:  resp.StatusCode,
+			Headers: flattenHeaders(resp.Header),
+			Body:    string(body),
+		})
 
 		proxyErr := domain.NewProxyErrorWithMessage(
 			fmt.Errorf("upstream error: %s", string(body)),
@@ -336,16 +336,14 @@ func (a *KiroAdapter) refreshIdCToken(ctx context.Context, config *domain.Provid
 
 // handleStreamResponse handles streaming EventStream response
 func (a *KiroAdapter) handleStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, requestModel string, inputTokens int) error {
-	attempt := ctxutil.GetUpstreamAttempt(ctx)
+	eventChan := ctxutil.GetEventChan(ctx)
 
-	// Capture response info (will be updated with actual body at the end)
-	if attempt != nil {
-		attempt.ResponseInfo = &domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    "[streaming]",
-		}
-	}
+	// Send initial response info
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    "[streaming]",
+	})
 
 	// Set streaming headers
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -363,52 +361,81 @@ func (a *KiroAdapter) handleStreamResponse(ctx context.Context, w http.ResponseW
 	}
 
 	if err := streamCtx.sendInitialEvents(); err != nil {
-		a.updateAttemptBody(ctx, attempt, sseBuffer.String())
+		inTok, outTok := streamCtx.GetTokenCounts()
+		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
 		return domain.NewProxyErrorWithMessage(err, false, "failed to send initial events")
 	}
 
 	err = streamCtx.processEventStream(ctx, resp.Body)
 	if err != nil {
 		if ctx.Err() != nil {
-			a.updateAttemptBody(ctx, attempt, sseBuffer.String())
+			inTok, outTok := streamCtx.GetTokenCounts()
+			a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
 			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 		}
 
 		_ = streamCtx.sendFinalEvents()
-		a.updateAttemptBody(ctx, attempt, sseBuffer.String())
+		inTok, outTok := streamCtx.GetTokenCounts()
+		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
 		return nil
 	}
 
 	if err := streamCtx.sendFinalEvents(); err != nil {
-		a.updateAttemptBody(ctx, attempt, sseBuffer.String())
+		inTok, outTok := streamCtx.GetTokenCounts()
+		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
 		return domain.NewProxyErrorWithMessage(err, false, "failed to send final events")
 	}
 
-	a.updateAttemptBody(ctx, attempt, sseBuffer.String())
+	inTok, outTok := streamCtx.GetTokenCounts()
+	a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
 	return nil
 }
 
-// updateAttemptBody updates the attempt record with the captured response body
-func (a *KiroAdapter) updateAttemptBody(ctx context.Context, attempt *domain.ProxyUpstreamAttempt, body string) {
-	if attempt != nil && attempt.ResponseInfo != nil {
-		attempt.ResponseInfo.Body = body
-		if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
-			bc.BroadcastProxyUpstreamAttempt(attempt)
-		}
+// sendFinalEvents sends final events via EventChannel
+func (a *KiroAdapter) sendFinalEvents(ctx context.Context, body string, inputTokens, outputTokens int, requestModel string) {
+	eventChan := ctxutil.GetEventChan(ctx)
+	if eventChan == nil {
+		return
 	}
+
+	// Send response info with body
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  200, // streaming always returns 200 at this point
+		Body:    body,
+	})
+
+	// Try to extract usage metrics from the SSE content first
+	if metrics := usage.ExtractFromStreamContent(body); metrics != nil && !metrics.IsEmpty() {
+		eventChan.SendMetrics(&domain.AdapterMetrics{
+			InputTokens:          metrics.InputTokens,
+			OutputTokens:         metrics.OutputTokens,
+			CacheReadCount:       metrics.CacheReadCount,
+			CacheCreationCount:   metrics.CacheCreationCount,
+			Cache5mCreationCount: metrics.Cache5mCreationCount,
+			Cache1hCreationCount: metrics.Cache1hCreationCount,
+		})
+	} else {
+		// Fall back to estimated token counts
+		eventChan.SendMetrics(&domain.AdapterMetrics{
+			InputTokens:  uint64(inputTokens),
+			OutputTokens: uint64(outputTokens),
+		})
+	}
+
+	// Set responseModel to requestModel since Kiro doesn't return model in response
+	eventChan.SendResponseModel(requestModel)
 }
 
 // handleCollectedStreamResponse collects streaming response into a single JSON response
 func (a *KiroAdapter) handleCollectedStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, requestModel string, inputTokens int) error {
-	attempt := ctxutil.GetUpstreamAttempt(ctx)
+	eventChan := ctxutil.GetEventChan(ctx)
 
-	if attempt != nil {
-		attempt.ResponseInfo = &domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    "[stream-collected]",
-		}
-	}
+	// Send initial response info
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    "[stream-collected]",
+	})
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -421,12 +448,11 @@ func (a *KiroAdapter) handleCollectedStreamResponse(ctx context.Context, w http.
 		return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to parse upstream stream")
 	}
 
-	if attempt != nil && attempt.ResponseInfo != nil {
-		attempt.ResponseInfo.Body = string(body)
-		if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
-			bc.BroadcastProxyUpstreamAttempt(attempt)
-		}
-	}
+	// Send response info with body
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status: resp.StatusCode,
+		Body:   string(body),
+	})
 
 	var contexts []map[string]any
 	textAgg := result.GetCompletionText()
@@ -507,6 +533,14 @@ func (a *KiroAdapter) handleCollectedStreamResponse(ctx context.Context, w http.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(responseBody)
+
+	// Send metrics and response model via EventChannel
+	eventChan.SendMetrics(&domain.AdapterMetrics{
+		InputTokens:  uint64(inputTokens),
+		OutputTokens: uint64(outputTokens),
+	})
+	eventChan.SendResponseModel(requestModel)
+
 	return nil
 }
 

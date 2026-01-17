@@ -49,10 +49,13 @@ interface ClientTypeRoutesContentProps {
   projectID: number; // 0 for global routes
 }
 
-export function ClientTypeRoutesContent({ clientType, projectID }: ClientTypeRoutesContentProps) {
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const { data: providerStats = {} } = useProviderStats(clientType, projectID);
-  const queryClient = useQueryClient();
+export function ClientTypeRoutesContent({
+  clientType,
+  projectID,
+}: ClientTypeRoutesContentProps) {
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined)
+  const queryClient = useQueryClient()
 
   const sensors = useSensors(
     useSensor(PointerSensor, {

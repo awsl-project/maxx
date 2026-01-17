@@ -490,17 +490,29 @@ export class HttpTransport implements Transport {
 
   async getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]> {
     const params = new URLSearchParams();
+    if (filter?.granularity) params.set('granularity', filter.granularity);
     if (filter?.start) params.set('start', filter.start);
     if (filter?.end) params.set('end', filter.end);
     if (filter?.routeId) params.set('routeId', String(filter.routeId));
     if (filter?.providerId) params.set('providerId', String(filter.providerId));
     if (filter?.projectId) params.set('projectId', String(filter.projectId));
     if (filter?.clientType) params.set('clientType', filter.clientType);
-    if (filter?.apiTokenID) params.set('apiTokenId', String(filter.apiTokenID));
+    if (filter?.apiTokenId) params.set('apiTokenId', String(filter.apiTokenId));
 
     const query = params.toString();
     const url = query ? `/usage-stats?${query}` : '/usage-stats';
     const { data } = await this.client.get<UsageStats[]>(url);
+    return data ?? [];
+  }
+
+  async recalculateUsageStats(): Promise<void> {
+    await this.client.post('/usage-stats/recalculate');
+  }
+
+  // ===== Response Model API =====
+
+  async getResponseModels(): Promise<string[]> {
+    const { data } = await this.client.get<string[]>('/response-models');
     return data ?? [];
   }
 

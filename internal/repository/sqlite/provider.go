@@ -1,10 +1,11 @@
 package sqlite
 
 import (
-	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"gorm.io/gorm"
 )
 
 type ProviderRepository struct {
@@ -20,91 +21,82 @@ func (r *ProviderRepository) Create(p *domain.Provider) error {
 	p.CreatedAt = now
 	p.UpdatedAt = now
 
-	result, err := r.db.db.Exec(
-		`INSERT INTO providers (created_at, updated_at, type, name, config, supported_client_types) VALUES (?, ?, ?, ?, ?, ?)`,
-		p.CreatedAt, p.UpdatedAt, p.Type, p.Name, toJSON(p.Config), toJSON(p.SupportedClientTypes),
-	)
-	if err != nil {
+	model := r.toModel(p)
+	if err := r.db.gorm.Create(model).Error; err != nil {
 		return err
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
-	}
-	p.ID = uint64(id)
+	p.ID = model.ID
 	return nil
 }
 
 func (r *ProviderRepository) Update(p *domain.Provider) error {
 	p.UpdatedAt = time.Now()
-	_, err := r.db.db.Exec(
-		`UPDATE providers SET updated_at = ?, type = ?, name = ?, config = ?, supported_client_types = ? WHERE id = ?`,
-		p.UpdatedAt, p.Type, p.Name, toJSON(p.Config), toJSON(p.SupportedClientTypes), p.ID,
-	)
-	return err
+	model := r.toModel(p)
+	return r.db.gorm.Save(model).Error
 }
 
 func (r *ProviderRepository) Delete(id uint64) error {
-	now := time.Now()
-	_, err := r.db.db.Exec(`UPDATE providers SET deleted_at = ?, updated_at = ? WHERE id = ?`, now, now, id)
-	return err
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Model(&Provider{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error
 }
 
 func (r *ProviderRepository) GetByID(id uint64) (*domain.Provider, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, deleted_at, type, name, config, supported_client_types FROM providers WHERE id = ?`, id)
-	return r.scanProvider(row)
-}
-
-func (r *ProviderRepository) List() ([]*domain.Provider, error) {
-	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, deleted_at, type, name, config, supported_client_types FROM providers WHERE deleted_at IS NULL ORDER BY id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	providers := make([]*domain.Provider, 0)
-	for rows.Next() {
-		p, err := r.scanProviderRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		providers = append(providers, p)
-	}
-	return providers, rows.Err()
-}
-
-func (r *ProviderRepository) scanProvider(row *sql.Row) (*domain.Provider, error) {
-	var p domain.Provider
-	var configJSON, typesJSON string
-	var deletedAt sql.NullTime
-	err := row.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &deletedAt, &p.Type, &p.Name, &configJSON, &typesJSON)
-	if err != nil {
-		if err == sql.ErrNoRows {
+	var model Provider
+	if err := r.db.gorm.First(&model, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	if deletedAt.Valid {
-		p.DeletedAt = &deletedAt.Time
-	}
-	p.Config = fromJSON[*domain.ProviderConfig](configJSON)
-	p.SupportedClientTypes = fromJSON[[]domain.ClientType](typesJSON)
-	return &p, nil
+	return r.toDomain(&model), nil
 }
 
-func (r *ProviderRepository) scanProviderRows(rows *sql.Rows) (*domain.Provider, error) {
-	var p domain.Provider
-	var configJSON, typesJSON string
-	var deletedAt sql.NullTime
-	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &deletedAt, &p.Type, &p.Name, &configJSON, &typesJSON)
-	if err != nil {
+func (r *ProviderRepository) List() ([]*domain.Provider, error) {
+	var models []Provider
+	if err := r.db.gorm.Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	if deletedAt.Valid {
-		p.DeletedAt = &deletedAt.Time
+
+	providers := make([]*domain.Provider, len(models))
+	for i, m := range models {
+		providers[i] = r.toDomain(&m)
 	}
-	p.Config = fromJSON[*domain.ProviderConfig](configJSON)
-	p.SupportedClientTypes = fromJSON[[]domain.ClientType](typesJSON)
-	return &p, nil
+	return providers, nil
+}
+
+// toModel converts domain.Provider to sqlite.Provider
+func (r *ProviderRepository) toModel(p *domain.Provider) *Provider {
+	return &Provider{
+		SoftDeleteModel: SoftDeleteModel{
+			BaseModel: BaseModel{
+				ID:        p.ID,
+				CreatedAt: toTimestamp(p.CreatedAt),
+				UpdatedAt: toTimestamp(p.UpdatedAt),
+			},
+			DeletedAt: toTimestampPtr(p.DeletedAt),
+		},
+		Type:                 p.Type,
+		Name:                 p.Name,
+		Config:               toJSON(p.Config),
+		SupportedClientTypes: toJSON(p.SupportedClientTypes),
+	}
+}
+
+// toDomain converts sqlite.Provider to domain.Provider
+func (r *ProviderRepository) toDomain(m *Provider) *domain.Provider {
+	return &domain.Provider{
+		ID:                   m.ID,
+		CreatedAt:            fromTimestamp(m.CreatedAt),
+		UpdatedAt:            fromTimestamp(m.UpdatedAt),
+		DeletedAt:            fromTimestampPtr(m.DeletedAt),
+		Type:                 m.Type,
+		Name:                 m.Name,
+		Config:               fromJSON[*domain.ProviderConfig](m.Config),
+		SupportedClientTypes: fromJSON[[]domain.ClientType](m.SupportedClientTypes),
+	}
 }

@@ -1,10 +1,11 @@
 package sqlite
 
 import (
-	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"gorm.io/gorm"
 )
 
 type RouteRepository struct {
@@ -20,51 +21,28 @@ func (r *RouteRepository) Create(route *domain.Route) error {
 	route.CreatedAt = now
 	route.UpdatedAt = now
 
-	isEnabled := 0
-	if route.IsEnabled {
-		isEnabled = 1
-	}
-	isNative := 0
-	if route.IsNative {
-		isNative = 1
-	}
-
-	result, err := r.db.db.Exec(
-		`INSERT INTO routes (created_at, updated_at, is_enabled, is_native, project_id, client_type, provider_id, position, retry_config_id, model_mapping) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		route.CreatedAt, route.UpdatedAt, isEnabled, isNative, route.ProjectID, route.ClientType, route.ProviderID, route.Position, route.RetryConfigID, toJSON(route.ModelMapping),
-	)
-	if err != nil {
+	model := r.toModel(route)
+	if err := r.db.gorm.Create(model).Error; err != nil {
 		return err
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
-	}
-	route.ID = uint64(id)
+	route.ID = model.ID
 	return nil
 }
 
 func (r *RouteRepository) Update(route *domain.Route) error {
 	route.UpdatedAt = time.Now()
-	isEnabled := 0
-	if route.IsEnabled {
-		isEnabled = 1
-	}
-	isNative := 0
-	if route.IsNative {
-		isNative = 1
-	}
-	_, err := r.db.db.Exec(
-		`UPDATE routes SET updated_at = ?, is_enabled = ?, is_native = ?, project_id = ?, client_type = ?, provider_id = ?, position = ?, retry_config_id = ?, model_mapping = ? WHERE id = ?`,
-		route.UpdatedAt, isEnabled, isNative, route.ProjectID, route.ClientType, route.ProviderID, route.Position, route.RetryConfigID, toJSON(route.ModelMapping), route.ID,
-	)
-	return err
+	model := r.toModel(route)
+	return r.db.gorm.Save(model).Error
 }
 
-	func (r *RouteRepository) Delete(id uint64) error {
-	_, err := r.db.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
-	return err
+func (r *RouteRepository) Delete(id uint64) error {
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Model(&Route{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error
 }
 
 func (r *RouteRepository) BatchUpdatePositions(updates []domain.RoutePositionUpdate) error {
@@ -72,83 +50,97 @@ func (r *RouteRepository) BatchUpdatePositions(updates []domain.RoutePositionUpd
 		return nil
 	}
 
-	tx, err := r.db.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	now := time.Now()
-	stmt, err := tx.Prepare(`UPDATE routes SET position = ?, updated_at = ? WHERE id = ?`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, update := range updates {
-		if _, err := stmt.Exec(update.Position, now, update.ID); err != nil {
-			return err
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UnixMilli()
+		for _, update := range updates {
+			if err := tx.Model(&Route{}).
+				Where("id = ?", update.ID).
+				Updates(map[string]any{
+					"position":   update.Position,
+					"updated_at": now,
+				}).Error; err != nil {
+				return err
+			}
 		}
-	}
-
-	return tx.Commit()
+		return nil
+	})
 }
 
 func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, is_enabled, is_native, project_id, client_type, provider_id, position, retry_config_id, model_mapping FROM routes WHERE id = ?`, id)
-	return r.scanRoute(row)
-}
-
-func (r *RouteRepository) FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, is_enabled, is_native, project_id, client_type, provider_id, position, retry_config_id, model_mapping FROM routes WHERE project_id = ? AND provider_id = ? AND client_type = ?`, projectID, providerID, clientType)
-	return r.scanRoute(row)
-}
-
-func (r *RouteRepository) List() ([]*domain.Route, error) {
-	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, is_enabled, is_native, project_id, client_type, provider_id, position, retry_config_id, model_mapping FROM routes ORDER BY position`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	routes := make([]*domain.Route, 0)
-	for rows.Next() {
-		route, err := r.scanRouteRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		routes = append(routes, route)
-	}
-	return routes, rows.Err()
-}
-
-func (r *RouteRepository) scanRoute(row *sql.Row) (*domain.Route, error) {
-	var route domain.Route
-	var isEnabled, isNative int
-	var mappingJSON string
-	err := row.Scan(&route.ID, &route.CreatedAt, &route.UpdatedAt, &isEnabled, &isNative, &route.ProjectID, &route.ClientType, &route.ProviderID, &route.Position, &route.RetryConfigID, &mappingJSON)
-	if err != nil {
-		if err == sql.ErrNoRows {
+	var model Route
+	if err := r.db.gorm.First(&model, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	route.IsEnabled = isEnabled == 1
-	route.IsNative = isNative == 1
-	route.ModelMapping = fromJSON[map[string]string](mappingJSON)
-	return &route, nil
+	return r.toDomain(&model), nil
 }
 
-func (r *RouteRepository) scanRouteRows(rows *sql.Rows) (*domain.Route, error) {
-	var route domain.Route
-	var isEnabled, isNative int
-	var mappingJSON string
-	err := rows.Scan(&route.ID, &route.CreatedAt, &route.UpdatedAt, &isEnabled, &isNative, &route.ProjectID, &route.ClientType, &route.ProviderID, &route.Position, &route.RetryConfigID, &mappingJSON)
-	if err != nil {
+func (r *RouteRepository) FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
+	var model Route
+	if err := r.db.gorm.Where("project_id = ? AND provider_id = ? AND client_type = ? AND deleted_at = 0", projectID, providerID, clientType).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
 		return nil, err
 	}
-	route.IsEnabled = isEnabled == 1
-	route.IsNative = isNative == 1
-	route.ModelMapping = fromJSON[map[string]string](mappingJSON)
-	return &route, nil
+	return r.toDomain(&model), nil
+}
+
+func (r *RouteRepository) List() ([]*domain.Route, error) {
+	var models []Route
+	if err := r.db.gorm.Where("deleted_at = 0").Order("position").Find(&models).Error; err != nil {
+		return nil, err
+	}
+
+	routes := make([]*domain.Route, len(models))
+	for i, m := range models {
+		routes[i] = r.toDomain(&m)
+	}
+	return routes, nil
+}
+
+func (r *RouteRepository) toModel(route *domain.Route) *Route {
+	isEnabled := 0
+	if route.IsEnabled {
+		isEnabled = 1
+	}
+	isNative := 0
+	if route.IsNative {
+		isNative = 1
+	}
+	return &Route{
+		SoftDeleteModel: SoftDeleteModel{
+			BaseModel: BaseModel{
+				ID:        route.ID,
+				CreatedAt: toTimestamp(route.CreatedAt),
+				UpdatedAt: toTimestamp(route.UpdatedAt),
+			},
+			DeletedAt: toTimestampPtr(route.DeletedAt),
+		},
+		IsEnabled:     isEnabled,
+		IsNative:      isNative,
+		ProjectID:     route.ProjectID,
+		ClientType:    string(route.ClientType),
+		ProviderID:    route.ProviderID,
+		Position:      route.Position,
+		RetryConfigID: route.RetryConfigID,
+	}
+}
+
+func (r *RouteRepository) toDomain(m *Route) *domain.Route {
+	return &domain.Route{
+		ID:            m.ID,
+		CreatedAt:     fromTimestamp(m.CreatedAt),
+		UpdatedAt:     fromTimestamp(m.UpdatedAt),
+		DeletedAt:     fromTimestampPtr(m.DeletedAt),
+		IsEnabled:     m.IsEnabled == 1,
+		IsNative:      m.IsNative == 1,
+		ProjectID:     m.ProjectID,
+		ClientType:    domain.ClientType(m.ClientType),
+		ProviderID:    m.ProviderID,
+		Position:      m.Position,
+		RetryConfigID: m.RetryConfigID,
+	}
 }

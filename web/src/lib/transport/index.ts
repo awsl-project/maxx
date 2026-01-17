@@ -64,6 +64,7 @@ export type {
   // Usage Stats
   UsageStats,
   UsageStatsFilter,
+  StatsGranularity,
 } from './types';
 
 export type { Transport, TransportType, TransportConfig } from './interface';

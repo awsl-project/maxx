@@ -80,6 +80,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleModelMappings(w, r, id)
 	case "usage-stats":
 		h.handleUsageStats(w, r)
+	case "response-models":
+		h.handleResponseModels(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
@@ -289,18 +291,6 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 		if v, ok := updates["retryConfigID"]; ok {
 			if f, ok := v.(float64); ok {
 				existing.RetryConfigID = uint64(f)
-			}
-		}
-		if v, ok := updates["modelMapping"]; ok {
-			if v == nil {
-				existing.ModelMapping = nil
-			} else if m, ok := v.(map[string]interface{}); ok {
-				existing.ModelMapping = make(map[string]string)
-				for k, val := range m {
-					if s, ok := val.(string); ok {
-						existing.ModelMapping[k] = s
-					}
-				}
 			}
 		}
 		if err := h.svc.UpdateRoute(existing); err != nil {
@@ -1070,7 +1060,6 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 			Pattern    *string `json:"pattern"`
 			Target     *string `json:"target"`
 			Priority   *int    `json:"priority"`
-			IsEnabled  *bool   `json:"isEnabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -1095,9 +1084,6 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 		}
 		if body.Priority != nil {
 			existing.Priority = *body.Priority
-		}
-		if body.IsEnabled != nil {
-			existing.IsEnabled = *body.IsEnabled
 		}
 		if err := h.svc.UpdateModelMapping(existing); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -1149,6 +1135,13 @@ func (h *AdminHandler) handleResetModelMappingsToDefaults(w http.ResponseWriter,
 
 // Usage Stats handlers
 func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) {
+	// Check for recalculate endpoint: /admin/usage-stats/recalculate
+	path := r.URL.Path
+	if strings.HasSuffix(path, "/recalculate") {
+		h.handleRecalculateUsageStats(w, r)
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -1158,17 +1151,34 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 	query := r.URL.Query()
 	filter := repository.UsageStatsFilter{}
 
-	// Parse time range (转换到本地时区)
+	// Parse granularity (required, default to "hour")
+	granularity := query.Get("granularity")
+	switch granularity {
+	case "minute":
+		filter.Granularity = domain.GranularityMinute
+	case "hour":
+		filter.Granularity = domain.GranularityHour
+	case "day":
+		filter.Granularity = domain.GranularityDay
+	case "week":
+		filter.Granularity = domain.GranularityWeek
+	case "month":
+		filter.Granularity = domain.GranularityMonth
+	default:
+		filter.Granularity = domain.GranularityHour // Default to hour
+	}
+
+	// Parse time range (转换到 UTC)
 	if startStr := query.Get("start"); startStr != "" {
 		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
-			local := t.Local()
-			filter.StartTime = &local
+			utc := t.UTC()
+			filter.StartTime = &utc
 		}
 	}
 	if endStr := query.Get("end"); endStr != "" {
 		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
-			local := t.Local()
-			filter.EndTime = &local
+			utc := t.UTC()
+			filter.EndTime = &utc
 		}
 	}
 
@@ -1196,6 +1206,9 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 			filter.APITokenID = &id
 		}
 	}
+	if model := query.Get("model"); model != "" {
+		filter.Model = &model
+	}
 
 	stats, err := h.svc.GetUsageStats(filter)
 	if err != nil {
@@ -1203,6 +1216,35 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// handleRecalculateUsageStats handles POST /admin/usage-stats/recalculate
+func (h *AdminHandler) handleRecalculateUsageStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if err := h.svc.RecalculateUsageStats(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "usage stats recalculated successfully"})
+}
+
+// handleResponseModels handles GET /admin/response-models
+func (h *AdminHandler) handleResponseModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	names, err := h.svc.GetResponseModelNames()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, names)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

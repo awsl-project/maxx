@@ -1,11 +1,12 @@
 package sqlite
 
 import (
-	"database/sql"
+	"errors"
 	"sync/atomic"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"gorm.io/gorm"
 )
 
 type ProxyRequestRepository struct {
@@ -23,7 +24,7 @@ func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
 // initCount 从数据库初始化计数缓存
 func (r *ProxyRequestRepository) initCount() {
 	var count int64
-	if err := r.db.db.QueryRow(`SELECT COUNT(*) FROM proxy_requests`).Scan(&count); err == nil {
+	if err := r.db.gorm.Model(&ProxyRequest{}).Count(&count).Error; err == nil {
 		atomic.StoreInt64(&r.count, count)
 	}
 }
@@ -33,23 +34,11 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	p.CreatedAt = now
 	p.UpdatedAt = now
 
-	result, err := r.db.db.Exec(
-		`INSERT INTO proxy_requests (created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.CreatedAt, p.UpdatedAt, p.InstanceID, p.RequestID, p.SessionID, p.ClientType, p.RequestModel, p.ResponseModel,
-		nullTime(p.StartTime), nullTime(p.EndTime), p.Duration.Milliseconds(), p.IsStream, p.Status, p.StatusCode,
-		toJSON(p.RequestInfo), toJSON(p.ResponseInfo), p.Error,
-		p.ProxyUpstreamAttemptCount, p.FinalProxyUpstreamAttemptID, p.RouteID, p.ProviderID, p.ProjectID,
-		p.InputTokenCount, p.OutputTokenCount, p.CacheReadCount, p.CacheWriteCount, p.Cache5mWriteCount, p.Cache1hWriteCount, p.Cost, p.APITokenID,
-	)
-	if err != nil {
+	model := r.toModel(p)
+	if err := r.db.gorm.Create(model).Error; err != nil {
 		return err
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
-	}
-	p.ID = uint64(id)
+	p.ID = model.ID
 
 	// 创建成功后增加计数缓存
 	atomic.AddInt64(&r.count, 1)
@@ -59,38 +48,27 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 
 func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	p.UpdatedAt = time.Now()
-	_, err := r.db.db.Exec(
-		`UPDATE proxy_requests SET updated_at = ?, instance_id = ?, request_id = ?, session_id = ?, client_type = ?, request_model = ?, response_model = ?, start_time = ?, end_time = ?, duration_ms = ?, is_stream = ?, status = ?, status_code = ?, request_info = ?, response_info = ?, error = ?, proxy_upstream_attempt_count = ?, final_proxy_upstream_attempt_id = ?, route_id = ?, provider_id = ?, project_id = ?, input_token_count = ?, output_token_count = ?, cache_read_count = ?, cache_write_count = ?, cache_5m_write_count = ?, cache_1h_write_count = ?, cost = ?, api_token_id = ? WHERE id = ?`,
-		p.UpdatedAt, p.InstanceID, p.RequestID, p.SessionID, p.ClientType, p.RequestModel, p.ResponseModel,
-		nullTime(p.StartTime), nullTime(p.EndTime), p.Duration.Milliseconds(), p.IsStream, p.Status, p.StatusCode,
-		toJSON(p.RequestInfo), toJSON(p.ResponseInfo), p.Error,
-		p.ProxyUpstreamAttemptCount, p.FinalProxyUpstreamAttemptID, p.RouteID, p.ProviderID, p.ProjectID,
-		p.InputTokenCount, p.OutputTokenCount, p.CacheReadCount, p.CacheWriteCount, p.Cache5mWriteCount, p.Cache1hWriteCount, p.Cost, p.APITokenID, p.ID,
-	)
-	return err
+	model := r.toModel(p)
+	return r.db.gorm.Save(model).Error
 }
 
 func (r *ProxyRequestRepository) GetByID(id uint64) (*domain.ProxyRequest, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id FROM proxy_requests WHERE id = ?`, id)
-	return r.scanRequest(row)
+	var model ProxyRequest
+	if err := r.db.gorm.First(&model, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
 }
 
 func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest, error) {
-	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, request_info, response_info, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id FROM proxy_requests ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
-	if err != nil {
+	var models []ProxyRequest
+	if err := r.db.gorm.Order("id DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	requests := make([]*domain.ProxyRequest, 0)
-	for rows.Next() {
-		p, err := r.scanRequestRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		requests = append(requests, p)
-	}
-	return requests, rows.Err()
+	return r.toDomainList(models), nil
 }
 
 // ListCursor 基于游标的分页查询，比 OFFSET 更高效
@@ -98,38 +76,21 @@ func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest
 // after: 获取 id > after 的记录 (向前翻页/获取新数据)
 // 注意：列表查询不返回 request_info 和 response_info 大字段
 func (r *ProxyRequestRepository) ListCursor(limit int, before, after uint64) ([]*domain.ProxyRequest, error) {
-	// 列表查询使用精简字段，不包含 request_info 和 response_info
-	const listColumns = `id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id`
-
-	var query string
-	var args []interface{}
+	// 使用 Select 排除大字段
+	query := r.db.gorm.Model(&ProxyRequest{}).
+		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id")
 
 	if after > 0 {
-		query = `SELECT ` + listColumns + ` FROM proxy_requests WHERE id > ? ORDER BY id DESC LIMIT ?`
-		args = []interface{}{after, limit}
+		query = query.Where("id > ?", after)
 	} else if before > 0 {
-		query = `SELECT ` + listColumns + ` FROM proxy_requests WHERE id < ? ORDER BY id DESC LIMIT ?`
-		args = []interface{}{before, limit}
-	} else {
-		query = `SELECT ` + listColumns + ` FROM proxy_requests ORDER BY id DESC LIMIT ?`
-		args = []interface{}{limit}
+		query = query.Where("id < ?", before)
 	}
 
-	rows, err := r.db.db.Query(query, args...)
-	if err != nil {
+	var models []ProxyRequest
+	if err := query.Order("id DESC").Limit(limit).Find(&models).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	requests := make([]*domain.ProxyRequest, 0)
-	for rows.Next() {
-		p, err := r.scanRequestRowsLite(rows)
-		if err != nil {
-			return nil, err
-		}
-		requests = append(requests, p)
-	}
-	return requests, rows.Err()
+	return r.toDomainList(models), nil
 }
 
 func (r *ProxyRequestRepository) Count() (int64, error) {
@@ -139,186 +100,158 @@ func (r *ProxyRequestRepository) Count() (int64, error) {
 // MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
 // Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
 func (r *ProxyRequestRepository) MarkStaleAsFailed(currentInstanceID string) (int64, error) {
-	timeoutThreshold := time.Now().Add(-30 * time.Minute)
-	result, err := r.db.db.Exec(
-		`UPDATE proxy_requests
-		 SET status = 'FAILED',
-		     error = CASE
-		         WHEN instance_id IS NULL OR instance_id != ? THEN 'Server restarted'
-		         ELSE 'Request timed out (stuck in progress)'
-		     END,
-		     updated_at = ?
-		 WHERE status IN ('PENDING', 'IN_PROGRESS')
-		   AND (
-		       (instance_id IS NULL OR instance_id != ?)
-		       OR (start_time < ? AND start_time IS NOT NULL)
-		   )`,
-		currentInstanceID, time.Now(), currentInstanceID, timeoutThreshold,
+	timeoutThreshold := time.Now().Add(-30 * time.Minute).UnixMilli()
+	now := time.Now().UnixMilli()
+
+	// Use raw SQL for complex CASE expression
+	result := r.db.gorm.Exec(`
+		UPDATE proxy_requests
+		SET status = 'FAILED',
+		    error = CASE
+		        WHEN instance_id IS NULL OR instance_id != ? THEN 'Server restarted'
+		        ELSE 'Request timed out (stuck in progress)'
+		    END,
+		    updated_at = ?
+		WHERE status IN ('PENDING', 'IN_PROGRESS')
+		  AND (
+		      (instance_id IS NULL OR instance_id != ?)
+		      OR (start_time < ? AND start_time > 0)
+		  )`,
+		currentInstanceID, now, currentInstanceID, timeoutThreshold,
 	)
-	if err != nil {
-		return 0, err
+	if result.Error != nil {
+		return 0, result.Error
 	}
-	return result.RowsAffected()
-}
-
-func (r *ProxyRequestRepository) scanRequest(row *sql.Row) (*domain.ProxyRequest, error) {
-	var p domain.ProxyRequest
-	var startTime, endTime sql.NullTime
-	var durationMs int64
-	var reqInfoJSON, respInfoJSON string
-	var instanceID sql.NullString
-	var routeID, providerID, projectID, apiTokenID sql.NullInt64
-	var isStream sql.NullBool
-	err := row.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &reqInfoJSON, &respInfoJSON, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost, &apiTokenID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, domain.ErrNotFound
-		}
-		return nil, err
-	}
-	if instanceID.Valid {
-		p.InstanceID = instanceID.String
-	}
-	if routeID.Valid {
-		p.RouteID = uint64(routeID.Int64)
-	}
-	if providerID.Valid {
-		p.ProviderID = uint64(providerID.Int64)
-	}
-	if projectID.Valid {
-		p.ProjectID = uint64(projectID.Int64)
-	}
-	if apiTokenID.Valid {
-		p.APITokenID = uint64(apiTokenID.Int64)
-	}
-	if isStream.Valid {
-		p.IsStream = isStream.Bool
-	}
-	p.StartTime = parseTime(startTime)
-	p.EndTime = parseTime(endTime)
-	p.Duration = time.Duration(durationMs) * time.Millisecond
-	p.RequestInfo = fromJSON[*domain.RequestInfo](reqInfoJSON)
-	p.ResponseInfo = fromJSON[*domain.ResponseInfo](respInfoJSON)
-	return &p, nil
-}
-
-func (r *ProxyRequestRepository) scanRequestRows(rows *sql.Rows) (*domain.ProxyRequest, error) {
-	var p domain.ProxyRequest
-	var startTime, endTime sql.NullTime
-	var durationMs int64
-	var reqInfoJSON, respInfoJSON string
-	var instanceID sql.NullString
-	var routeID, providerID, projectID, apiTokenID sql.NullInt64
-	var isStream sql.NullBool
-	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &reqInfoJSON, &respInfoJSON, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost, &apiTokenID)
-	if err != nil {
-		return nil, err
-	}
-	if instanceID.Valid {
-		p.InstanceID = instanceID.String
-	}
-	if routeID.Valid {
-		p.RouteID = uint64(routeID.Int64)
-	}
-	if providerID.Valid {
-		p.ProviderID = uint64(providerID.Int64)
-	}
-	if projectID.Valid {
-		p.ProjectID = uint64(projectID.Int64)
-	}
-	if apiTokenID.Valid {
-		p.APITokenID = uint64(apiTokenID.Int64)
-	}
-	if isStream.Valid {
-		p.IsStream = isStream.Bool
-	}
-	p.StartTime = parseTime(startTime)
-	p.EndTime = parseTime(endTime)
-	p.Duration = time.Duration(durationMs) * time.Millisecond
-	p.RequestInfo = fromJSON[*domain.RequestInfo](reqInfoJSON)
-	p.ResponseInfo = fromJSON[*domain.ResponseInfo](respInfoJSON)
-	return &p, nil
-}
-
-// scanRequestRowsLite 精简版扫描，不包含 request_info 和 response_info
-func (r *ProxyRequestRepository) scanRequestRowsLite(rows *sql.Rows) (*domain.ProxyRequest, error) {
-	var p domain.ProxyRequest
-	var startTime, endTime sql.NullTime
-	var durationMs int64
-	var instanceID sql.NullString
-	var routeID, providerID, projectID, apiTokenID sql.NullInt64
-	var isStream sql.NullBool
-	err := rows.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt, &instanceID, &p.RequestID, &p.SessionID, &p.ClientType, &p.RequestModel, &p.ResponseModel, &startTime, &endTime, &durationMs, &isStream, &p.Status, &p.StatusCode, &p.Error, &p.ProxyUpstreamAttemptCount, &p.FinalProxyUpstreamAttemptID, &routeID, &providerID, &projectID, &p.InputTokenCount, &p.OutputTokenCount, &p.CacheReadCount, &p.CacheWriteCount, &p.Cache5mWriteCount, &p.Cache1hWriteCount, &p.Cost, &apiTokenID)
-	if err != nil {
-		return nil, err
-	}
-	if instanceID.Valid {
-		p.InstanceID = instanceID.String
-	}
-	if routeID.Valid {
-		p.RouteID = uint64(routeID.Int64)
-	}
-	if providerID.Valid {
-		p.ProviderID = uint64(providerID.Int64)
-	}
-	if projectID.Valid {
-		p.ProjectID = uint64(projectID.Int64)
-	}
-	if apiTokenID.Valid {
-		p.APITokenID = uint64(apiTokenID.Int64)
-	}
-	if isStream.Valid {
-		p.IsStream = isStream.Bool
-	}
-	p.StartTime = parseTime(startTime)
-	p.EndTime = parseTime(endTime)
-	p.Duration = time.Duration(durationMs) * time.Millisecond
-	return &p, nil
+	return result.RowsAffected, nil
 }
 
 // UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 func (r *ProxyRequestRepository) UpdateProjectIDBySessionID(sessionID string, projectID uint64) (int64, error) {
-	result, err := r.db.db.Exec(
-		`UPDATE proxy_requests SET project_id = ?, updated_at = ? WHERE session_id = ?`,
-		projectID, time.Now(), sessionID,
-	)
-	if err != nil {
-		return 0, err
+	now := time.Now().UnixMilli()
+	result := r.db.gorm.Model(&ProxyRequest{}).
+		Where("session_id = ?", sessionID).
+		Updates(map[string]any{
+			"project_id": projectID,
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		return 0, result.Error
 	}
-	return result.RowsAffected()
+	return result.RowsAffected, nil
 }
 
 // DeleteOlderThan 删除指定时间之前的请求记录
 func (r *ProxyRequestRepository) DeleteOlderThan(before time.Time) (int64, error) {
-	// 先删除关联的 attempts
-	_, err := r.db.db.Exec(
-		`DELETE FROM proxy_upstream_attempts WHERE proxy_request_id IN (
-			SELECT id FROM proxy_requests WHERE created_at < ?
-		)`,
-		before,
-	)
-	if err != nil {
+	beforeTs := toTimestamp(before)
+
+	// 先查询需要删除的请求ID列表（兼容MySQL）
+	var requestIDs []uint64
+	if err := r.db.gorm.Model(&ProxyRequest{}).Where("created_at < ?", beforeTs).Pluck("id", &requestIDs).Error; err != nil {
 		return 0, err
 	}
 
-	// 再删除 requests
-	result, err := r.db.db.Exec(
-		`DELETE FROM proxy_requests WHERE created_at < ?`,
-		before,
-	)
-	if err != nil {
+	if len(requestIDs) == 0 {
+		return 0, nil
+	}
+
+	// 删除关联的 attempts
+	if err := r.db.gorm.Where("proxy_request_id IN ?", requestIDs).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
 		return 0, err
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
+	// 删除 requests
+	result := r.db.gorm.Where("id IN ?", requestIDs).Delete(&ProxyRequest{})
+	if result.Error != nil {
+		return 0, result.Error
 	}
 
+	affected := result.RowsAffected
 	// 更新计数缓存
 	if affected > 0 {
 		atomic.AddInt64(&r.count, -affected)
 	}
 
 	return affected, nil
+}
+
+func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
+	return &ProxyRequest{
+		BaseModel: BaseModel{
+			ID:        p.ID,
+			CreatedAt: toTimestamp(p.CreatedAt),
+			UpdatedAt: toTimestamp(p.UpdatedAt),
+		},
+		InstanceID:                 p.InstanceID,
+		RequestID:                  p.RequestID,
+		SessionID:                  p.SessionID,
+		ClientType:                 string(p.ClientType),
+		RequestModel:               p.RequestModel,
+		ResponseModel:              p.ResponseModel,
+		StartTime:                  toTimestamp(p.StartTime),
+		EndTime:                    toTimestamp(p.EndTime),
+		DurationMs:                 p.Duration.Milliseconds(),
+		IsStream:                   boolToInt(p.IsStream),
+		Status:                     p.Status,
+		StatusCode:                 p.StatusCode,
+		RequestInfo:                toJSON(p.RequestInfo),
+		ResponseInfo:               toJSON(p.ResponseInfo),
+		Error:                      p.Error,
+		ProxyUpstreamAttemptCount:  p.ProxyUpstreamAttemptCount,
+		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,
+		RouteID:                    p.RouteID,
+		ProviderID:                 p.ProviderID,
+		ProjectID:                  p.ProjectID,
+		InputTokenCount:            p.InputTokenCount,
+		OutputTokenCount:           p.OutputTokenCount,
+		CacheReadCount:             p.CacheReadCount,
+		CacheWriteCount:            p.CacheWriteCount,
+		Cache5mWriteCount:          p.Cache5mWriteCount,
+		Cache1hWriteCount:          p.Cache1hWriteCount,
+		Cost:                       p.Cost,
+		APITokenID:                 p.APITokenID,
+	}
+}
+
+func (r *ProxyRequestRepository) toDomain(m *ProxyRequest) *domain.ProxyRequest {
+	return &domain.ProxyRequest{
+		ID:                          m.ID,
+		CreatedAt:                   fromTimestamp(m.CreatedAt),
+		UpdatedAt:                   fromTimestamp(m.UpdatedAt),
+		InstanceID:                  m.InstanceID,
+		RequestID:                   m.RequestID,
+		SessionID:                   m.SessionID,
+		ClientType:                  domain.ClientType(m.ClientType),
+		RequestModel:                m.RequestModel,
+		ResponseModel:               m.ResponseModel,
+		StartTime:                   fromTimestamp(m.StartTime),
+		EndTime:                     fromTimestamp(m.EndTime),
+		Duration:                    time.Duration(m.DurationMs) * time.Millisecond,
+		IsStream:                    m.IsStream == 1,
+		Status:                      m.Status,
+		StatusCode:                  m.StatusCode,
+		RequestInfo:                 fromJSON[*domain.RequestInfo](m.RequestInfo),
+		ResponseInfo:                fromJSON[*domain.ResponseInfo](m.ResponseInfo),
+		Error:                       m.Error,
+		ProxyUpstreamAttemptCount:   m.ProxyUpstreamAttemptCount,
+		FinalProxyUpstreamAttemptID: m.FinalProxyUpstreamAttemptID,
+		RouteID:                     m.RouteID,
+		ProviderID:                  m.ProviderID,
+		ProjectID:                   m.ProjectID,
+		InputTokenCount:             m.InputTokenCount,
+		OutputTokenCount:            m.OutputTokenCount,
+		CacheReadCount:              m.CacheReadCount,
+		CacheWriteCount:             m.CacheWriteCount,
+		Cache5mWriteCount:           m.Cache5mWriteCount,
+		Cache1hWriteCount:           m.Cache1hWriteCount,
+		Cost:                        m.Cost,
+		APITokenID:                  m.APITokenID,
+	}
+}
+
+func (r *ProxyRequestRepository) toDomainList(models []ProxyRequest) []*domain.ProxyRequest {
+	requests := make([]*domain.ProxyRequest, len(models))
+	for i, m := range models {
+		requests[i] = r.toDomain(&m)
+	}
+	return requests
 }

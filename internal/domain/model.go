@@ -115,6 +115,9 @@ type Session struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
 	SessionID  string     `json:"sessionID"`
 	ClientType ClientType `json:"clientType"`
 
@@ -130,6 +133,9 @@ type Route struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 
 	IsEnabled bool `json:"isEnabled"`
 
@@ -147,9 +153,6 @@ type Route struct {
 
 	// 重试配置，0 表示使用系统默认
 	RetryConfigID uint64 `json:"retryConfigID"`
-
-	// Model 映射: RequestModel → MappedModel，优先级高于 Provider
-	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
 // RoutePositionUpdate represents a route position update
@@ -290,6 +293,9 @@ type RetryConfig struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
 	// 配置名称，便于复用
 	Name string `json:"name"`
 
@@ -331,6 +337,9 @@ type RoutingStrategy struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
 	// 0 表示全局策略
 	ProjectID uint64 `json:"projectID"`
 
@@ -370,6 +379,9 @@ type AntigravityQuota struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
 	// 邮箱作为唯一标识
 	Email string `json:"email"`
 
@@ -380,7 +392,7 @@ type AntigravityQuota struct {
 	Picture string `json:"picture"`
 
 	// Google Cloud Project ID
-	ProjectID string `json:"projectID"`
+	GCPProjectID string `json:"gcpProjectID"`
 
 	// 订阅等级：FREE, PRO, ULTRA
 	SubscriptionTier string `json:"subscriptionTier"`
@@ -390,9 +402,6 @@ type AntigravityQuota struct {
 
 	// 各模型配额
 	Models []AntigravityModelQuota `json:"models"`
-
-	// 上次更新时间（Unix timestamp）
-	LastUpdated int64 `json:"lastUpdated"`
 }
 
 // Provider 统计信息
@@ -418,23 +427,39 @@ type ProviderStats struct {
 	TotalCost uint64 `json:"totalCost"`
 }
 
-// UsageStats 使用统计汇总（按小时聚合）
+// Granularity 统计数据的时间粒度
+type Granularity string
+
+const (
+	GranularityMinute Granularity = "minute"
+	GranularityHour   Granularity = "hour"
+	GranularityDay    Granularity = "day"
+	GranularityWeek   Granularity = "week"
+	GranularityMonth  Granularity = "month"
+)
+
+// UsageStats 使用统计汇总（多层级时间聚合）
 type UsageStats struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 
+	// 时间维度
+	TimeBucket  time.Time   `json:"timeBucket"`  // 时间桶（根据粒度截断）
+	Granularity Granularity `json:"granularity"` // 时间粒度
+
 	// 聚合维度
-	Hour       time.Time `json:"hour"`       // 小时时间戳（精确到小时）
-	RouteID    uint64    `json:"routeId"`    // 路由 ID，0 表示未知
-	ProviderID uint64    `json:"providerId"` // Provider ID
-	ProjectID  uint64    `json:"projectId"`  // 项目 ID，0 表示未知
-	APITokenID uint64    `json:"apiTokenId"` // API Token ID，0 表示未知
-	ClientType string    `json:"clientType"` // 客户端类型
+	RouteID    uint64 `json:"routeId"`    // 路由 ID，0 表示未知
+	ProviderID uint64 `json:"providerId"` // Provider ID
+	ProjectID  uint64 `json:"projectId"`  // 项目 ID，0 表示未知
+	APITokenID uint64 `json:"apiTokenId"` // API Token ID，0 表示未知
+	ClientType string `json:"clientType"` // 客户端类型
+	Model      string `json:"model"`      // 请求的模型名称
 
 	// 请求统计
 	TotalRequests      uint64 `json:"totalRequests"`
 	SuccessfulRequests uint64 `json:"successfulRequests"`
 	FailedRequests     uint64 `json:"failedRequests"`
+	TotalDurationMs    uint64 `json:"totalDurationMs"` // 累计请求耗时（毫秒）
 
 	// Token 统计
 	InputTokens  uint64 `json:"inputTokens"`
@@ -444,6 +469,19 @@ type UsageStats struct {
 
 	// 成本 (微美元)
 	Cost uint64 `json:"cost"`
+}
+
+// UsageStatsSummary 统计数据汇总（用于仪表盘）
+type UsageStatsSummary struct {
+	TotalRequests      uint64  `json:"totalRequests"`
+	SuccessfulRequests uint64  `json:"successfulRequests"`
+	FailedRequests     uint64  `json:"failedRequests"`
+	SuccessRate        float64 `json:"successRate"`
+	TotalInputTokens   uint64  `json:"totalInputTokens"`
+	TotalOutputTokens  uint64  `json:"totalOutputTokens"`
+	TotalCacheRead     uint64  `json:"totalCacheRead"`
+	TotalCacheWrite    uint64  `json:"totalCacheWrite"`
+	TotalCost          uint64  `json:"totalCost"`
 }
 
 // APIToken API 访问令牌
@@ -487,12 +525,30 @@ type APITokenCreateResult struct {
 	APIToken *APIToken `json:"apiToken"` // Token 元数据
 }
 
+// ModelMappingScope 模型映射作用域
+type ModelMappingScope string
+
+const (
+	// ModelMappingScopeGlobal 全局作用域，优先级最低
+	ModelMappingScopeGlobal ModelMappingScope = "global"
+	// ModelMappingScopeProvider 供应商作用域
+	ModelMappingScopeProvider ModelMappingScope = "provider"
+	// ModelMappingScopeRoute 路由作用域，优先级最高
+	ModelMappingScopeRoute ModelMappingScope = "route"
+)
+
 // ModelMapping 模型映射规则
 // 支持多种条件筛选，类似 Route 的配置方式
 type ModelMapping struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// 作用域类型
+	Scope ModelMappingScope `json:"scope"` // global, provider, route
 
 	// 作用域条件（全部为空表示全局规则）
 	ClientType   ClientType `json:"clientType,omitempty"`   // 客户端类型，空表示所有
@@ -508,12 +564,6 @@ type ModelMapping struct {
 
 	// 优先级，数字越小优先级越高
 	Priority int `json:"priority"`
-
-	// 是否启用
-	IsEnabled bool `json:"isEnabled"`
-
-	// 是否为内置规则（内置规则不可删除，但可以禁用）
-	IsBuiltin bool `json:"isBuiltin"`
 }
 
 // ModelMappingRule 简化的映射规则（用于 API 和内部逻辑）
@@ -530,6 +580,22 @@ type ModelMappingQuery struct {
 	ProjectID    uint64
 	RouteID      uint64
 	APITokenID   uint64
+}
+
+// ResponseModel 记录所有出现过的 response model
+// 用于快速查询可选的模型列表，避免每次 DISTINCT 查询
+type ResponseModel struct {
+	ID        uint64    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// 模型名称
+	Name string `json:"name"`
+
+	// 最后一次使用时间
+	LastSeenAt time.Time `json:"lastSeenAt"`
+
+	// 使用次数
+	UseCount uint64 `json:"useCount"`
 }
 
 // MatchWildcard 检查输入是否匹配通配符模式

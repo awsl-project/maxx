@@ -1,10 +1,11 @@
 package sqlite
 
 import (
-	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"gorm.io/gorm"
 )
 
 type RetryConfigRepository struct {
@@ -20,100 +21,102 @@ func (r *RetryConfigRepository) Create(c *domain.RetryConfig) error {
 	c.CreatedAt = now
 	c.UpdatedAt = now
 
-	isDefault := 0
-	if c.IsDefault {
-		isDefault = 1
-	}
-
-	result, err := r.db.db.Exec(
-		`INSERT INTO retry_configs (created_at, updated_at, name, is_default, max_retries, initial_interval_ms, backoff_rate, max_interval_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.CreatedAt, c.UpdatedAt, c.Name, isDefault, c.MaxRetries, c.InitialInterval.Milliseconds(), c.BackoffRate, c.MaxInterval.Milliseconds(),
-	)
-	if err != nil {
+	model := r.toModel(c)
+	if err := r.db.gorm.Create(model).Error; err != nil {
 		return err
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
-	}
-	c.ID = uint64(id)
+	c.ID = model.ID
 	return nil
 }
 
 func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
 	c.UpdatedAt = time.Now()
-	isDefault := 0
-	if c.IsDefault {
-		isDefault = 1
-	}
-	_, err := r.db.db.Exec(
-		`UPDATE retry_configs SET updated_at = ?, name = ?, is_default = ?, max_retries = ?, initial_interval_ms = ?, backoff_rate = ?, max_interval_ms = ? WHERE id = ?`,
-		c.UpdatedAt, c.Name, isDefault, c.MaxRetries, c.InitialInterval.Milliseconds(), c.BackoffRate, c.MaxInterval.Milliseconds(), c.ID,
-	)
-	return err
+	model := r.toModel(c)
+	return r.db.gorm.Save(model).Error
 }
 
 func (r *RetryConfigRepository) Delete(id uint64) error {
-	_, err := r.db.db.Exec(`DELETE FROM retry_configs WHERE id = ?`, id)
-	return err
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Model(&RetryConfig{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error
 }
 
 func (r *RetryConfigRepository) GetByID(id uint64) (*domain.RetryConfig, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, name, is_default, max_retries, initial_interval_ms, backoff_rate, max_interval_ms FROM retry_configs WHERE id = ?`, id)
-	return r.scanConfig(row)
-}
-
-func (r *RetryConfigRepository) GetDefault() (*domain.RetryConfig, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, name, is_default, max_retries, initial_interval_ms, backoff_rate, max_interval_ms FROM retry_configs WHERE is_default = 1 LIMIT 1`)
-	return r.scanConfig(row)
-}
-
-func (r *RetryConfigRepository) List() ([]*domain.RetryConfig, error) {
-	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, name, is_default, max_retries, initial_interval_ms, backoff_rate, max_interval_ms FROM retry_configs ORDER BY id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	configs := make([]*domain.RetryConfig, 0)
-	for rows.Next() {
-		c, err := r.scanConfigRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		configs = append(configs, c)
-	}
-	return configs, rows.Err()
-}
-
-func (r *RetryConfigRepository) scanConfig(row *sql.Row) (*domain.RetryConfig, error) {
-	var c domain.RetryConfig
-	var isDefault int
-	var initialMs, maxMs int64
-	err := row.Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt, &c.Name, &isDefault, &c.MaxRetries, &initialMs, &c.BackoffRate, &maxMs)
-	if err != nil {
-		if err == sql.ErrNoRows {
+	var model RetryConfig
+	if err := r.db.gorm.First(&model, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	c.IsDefault = isDefault == 1
-	c.InitialInterval = time.Duration(initialMs) * time.Millisecond
-	c.MaxInterval = time.Duration(maxMs) * time.Millisecond
-	return &c, nil
+	return r.toDomain(&model), nil
 }
 
-func (r *RetryConfigRepository) scanConfigRows(rows *sql.Rows) (*domain.RetryConfig, error) {
-	var c domain.RetryConfig
-	var isDefault int
-	var initialMs, maxMs int64
-	err := rows.Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt, &c.Name, &isDefault, &c.MaxRetries, &initialMs, &c.BackoffRate, &maxMs)
-	if err != nil {
+func (r *RetryConfigRepository) GetDefault() (*domain.RetryConfig, error) {
+	var model RetryConfig
+	if err := r.db.gorm.Where("is_default = 1 AND deleted_at = 0").First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
 		return nil, err
 	}
-	c.IsDefault = isDefault == 1
-	c.InitialInterval = time.Duration(initialMs) * time.Millisecond
-	c.MaxInterval = time.Duration(maxMs) * time.Millisecond
-	return &c, nil
+	return r.toDomain(&model), nil
+}
+
+func (r *RetryConfigRepository) List() ([]*domain.RetryConfig, error) {
+	var models []RetryConfig
+	if err := r.db.gorm.Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return r.toDomainList(models), nil
+}
+
+func (r *RetryConfigRepository) toModel(c *domain.RetryConfig) *RetryConfig {
+	isDefault := 0
+	if c.IsDefault {
+		isDefault = 1
+	}
+	return &RetryConfig{
+		SoftDeleteModel: SoftDeleteModel{
+			BaseModel: BaseModel{
+				ID:        c.ID,
+				CreatedAt: toTimestamp(c.CreatedAt),
+				UpdatedAt: toTimestamp(c.UpdatedAt),
+			},
+			DeletedAt: toTimestampPtr(c.DeletedAt),
+		},
+		Name:              c.Name,
+		IsDefault:         isDefault,
+		MaxRetries:        c.MaxRetries,
+		InitialIntervalMs: int(c.InitialInterval.Milliseconds()),
+		BackoffRate:       c.BackoffRate,
+		MaxIntervalMs:     int(c.MaxInterval.Milliseconds()),
+	}
+}
+
+func (r *RetryConfigRepository) toDomain(m *RetryConfig) *domain.RetryConfig {
+	return &domain.RetryConfig{
+		ID:              m.ID,
+		CreatedAt:       fromTimestamp(m.CreatedAt),
+		UpdatedAt:       fromTimestamp(m.UpdatedAt),
+		DeletedAt:       fromTimestampPtr(m.DeletedAt),
+		Name:            m.Name,
+		IsDefault:       m.IsDefault == 1,
+		MaxRetries:      m.MaxRetries,
+		InitialInterval: time.Duration(m.InitialIntervalMs) * time.Millisecond,
+		BackoffRate:     m.BackoffRate,
+		MaxInterval:     time.Duration(m.MaxIntervalMs) * time.Millisecond,
+	}
+}
+
+func (r *RetryConfigRepository) toDomainList(models []RetryConfig) []*domain.RetryConfig {
+	configs := make([]*domain.RetryConfig, len(models))
+	for i, m := range models {
+		configs[i] = r.toDomain(&m)
+	}
+	return configs
 }

@@ -207,6 +207,64 @@ wails build
 | Desktop (Linux) | `~/.local/share/maxx/` |
 | Server (non-Docker) | `~/.config/maxx/maxx.db` |
 
+## Database Configuration
+
+Maxx supports SQLite (default) and MySQL databases.
+
+### SQLite (Default)
+
+No configuration needed. Data is stored in `maxx.db` in the data directory.
+
+### MySQL
+
+Set the `MAXX_DSN` environment variable:
+
+```bash
+# MySQL DSN format
+export MAXX_DSN="mysql://user:password@tcp(host:port)/dbname?parseTime=true&charset=utf8mb4"
+
+# Example
+export MAXX_DSN="mysql://maxx:secret@tcp(127.0.0.1:3306)/maxx?parseTime=true&charset=utf8mb4"
+```
+
+**Docker Compose with MySQL:**
+
+```yaml
+services:
+  maxx:
+    image: ghcr.io/awsl-project/maxx:latest
+    container_name: maxx
+    restart: unless-stopped
+    ports:
+      - "9880:9880"
+    environment:
+      - MAXX_DSN=mysql://maxx:secret@tcp(mysql:3306)/maxx?parseTime=true&charset=utf8mb4
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    container_name: maxx-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: maxx
+      MYSQL_USER: maxx
+      MYSQL_PASSWORD: secret
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql-data:
+    driver: local
+```
+
 ## Release
 
 There are two ways to create a new release:

@@ -37,6 +37,7 @@ type AdminService struct {
 	apiTokenRepo        repository.APITokenRepository
 	modelMappingRepo    repository.ModelMappingRepository
 	usageStatsRepo      repository.UsageStatsRepository
+	responseModelRepo   repository.ResponseModelRepository
 	serverAddr          string
 	adapterRefresher    ProviderAdapterRefresher
 }
@@ -55,6 +56,7 @@ func NewAdminService(
 	apiTokenRepo repository.APITokenRepository,
 	modelMappingRepo repository.ModelMappingRepository,
 	usageStatsRepo repository.UsageStatsRepository,
+	responseModelRepo repository.ResponseModelRepository,
 	serverAddr string,
 	adapterRefresher ProviderAdapterRefresher,
 ) *AdminService {
@@ -71,6 +73,7 @@ func NewAdminService(
 		apiTokenRepo:        apiTokenRepo,
 		modelMappingRepo:    modelMappingRepo,
 		usageStatsRepo:      usageStatsRepo,
+		responseModelRepo:   responseModelRepo,
 		serverAddr:          serverAddr,
 		adapterRefresher:    adapterRefresher,
 	}
@@ -620,6 +623,13 @@ func (s *AdminService) ClearAllModelMappings() error {
 	return s.modelMappingRepo.ClearAll()
 }
 
+// ===== Response Model API =====
+
+// GetResponseModelNames returns all unique response model names
+func (s *AdminService) GetResponseModelNames() ([]string, error) {
+	return s.responseModelRepo.ListNames()
+}
+
 // ResetModelMappingsToDefaults re-seeds default builtin mappings
 func (s *AdminService) ResetModelMappingsToDefaults() error {
 	return s.modelMappingRepo.SeedDefaults()
@@ -638,6 +648,12 @@ func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 // ===== Usage Stats API =====
 
 // GetUsageStats queries usage statistics with optional filters
+// Uses QueryWithRealtime to include current period's real-time data
 func (s *AdminService) GetUsageStats(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	return s.usageStatsRepo.Query(filter)
+	return s.usageStatsRepo.QueryWithRealtime(filter)
+}
+
+// RecalculateUsageStats clears all usage stats and recalculates from raw data
+func (s *AdminService) RecalculateUsageStats() error {
+	return s.usageStatsRepo.ClearAndRecalculate()
 }

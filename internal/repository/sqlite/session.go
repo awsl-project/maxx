@@ -1,10 +1,11 @@
 package sqlite
 
 import (
-	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"gorm.io/gorm"
 )
 
 type SessionRepository struct {
@@ -20,79 +21,80 @@ func (r *SessionRepository) Create(s *domain.Session) error {
 	s.CreatedAt = now
 	s.UpdatedAt = now
 
-	result, err := r.db.db.Exec(
-		`INSERT INTO sessions (created_at, updated_at, session_id, client_type, project_id, rejected_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		s.CreatedAt, s.UpdatedAt, s.SessionID, s.ClientType, s.ProjectID, formatTimePtr(s.RejectedAt),
-	)
-	if err != nil {
+	model := r.toModel(s)
+	if err := r.db.gorm.Create(model).Error; err != nil {
 		return err
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
-	}
-	s.ID = uint64(id)
+	s.ID = model.ID
 	return nil
 }
 
 func (r *SessionRepository) Update(s *domain.Session) error {
 	s.UpdatedAt = time.Now()
-	_, err := r.db.db.Exec(
-		`UPDATE sessions SET updated_at = ?, client_type = ?, project_id = ?, rejected_at = ? WHERE id = ?`,
-		s.UpdatedAt, s.ClientType, s.ProjectID, formatTimePtr(s.RejectedAt), s.ID,
-	)
-	return err
+	model := r.toModel(s)
+	return r.db.gorm.Save(model).Error
+}
+
+func (r *SessionRepository) Delete(id uint64) error {
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Model(&Session{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error
 }
 
 func (r *SessionRepository) GetBySessionID(sessionID string) (*domain.Session, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, session_id, client_type, project_id, rejected_at FROM sessions WHERE session_id = ?`, sessionID)
-	var s domain.Session
-	var rejectedAt sql.NullString
-	err := row.Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt, &s.SessionID, &s.ClientType, &s.ProjectID, &rejectedAt)
-	if err != nil {
-		if err == sql.ErrNoRows {
+	var model Session
+	if err := r.db.gorm.Where("session_id = ? AND deleted_at = 0", sessionID).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	if rejectedAt.Valid && rejectedAt.String != "" {
-		if t, err := parseTimeString(rejectedAt.String); err == nil && !t.IsZero() {
-			s.RejectedAt = &t
-		}
-	}
-	return &s, nil
+	return r.toDomain(&model), nil
 }
 
 func (r *SessionRepository) List() ([]*domain.Session, error) {
-	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, session_id, client_type, project_id, rejected_at FROM sessions ORDER BY created_at DESC`)
-	if err != nil {
+	var models []Session
+	if err := r.db.gorm.Where("deleted_at = 0").Order("created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	sessions := make([]*domain.Session, 0)
-	for rows.Next() {
-		var s domain.Session
-		var rejectedAt sql.NullString
-		err := rows.Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt, &s.SessionID, &s.ClientType, &s.ProjectID, &rejectedAt)
-		if err != nil {
-			return nil, err
-		}
-		if rejectedAt.Valid && rejectedAt.String != "" {
-			if t, err := parseTimeString(rejectedAt.String); err == nil && !t.IsZero() {
-				s.RejectedAt = &t
-			}
-		}
-		sessions = append(sessions, &s)
+	sessions := make([]*domain.Session, len(models))
+	for i, m := range models {
+		sessions[i] = r.toDomain(&m)
 	}
-	return sessions, rows.Err()
+	return sessions, nil
 }
 
-// formatTimePtr formats a *time.Time for SQLite storage
-func formatTimePtr(t *time.Time) interface{} {
-	if t == nil {
-		return nil
+func (r *SessionRepository) toModel(s *domain.Session) *Session {
+	return &Session{
+		SoftDeleteModel: SoftDeleteModel{
+			BaseModel: BaseModel{
+				ID:        s.ID,
+				CreatedAt: toTimestamp(s.CreatedAt),
+				UpdatedAt: toTimestamp(s.UpdatedAt),
+			},
+			DeletedAt: toTimestampPtr(s.DeletedAt),
+		},
+		SessionID:  s.SessionID,
+		ClientType: string(s.ClientType),
+		ProjectID:  s.ProjectID,
+		RejectedAt: toTimestampPtr(s.RejectedAt),
 	}
-	return formatTime(*t)
+}
+
+func (r *SessionRepository) toDomain(m *Session) *domain.Session {
+	return &domain.Session{
+		ID:         m.ID,
+		CreatedAt:  fromTimestamp(m.CreatedAt),
+		UpdatedAt:  fromTimestamp(m.UpdatedAt),
+		DeletedAt:  fromTimestampPtr(m.DeletedAt),
+		SessionID:  m.SessionID,
+		ClientType: domain.ClientType(m.ClientType),
+		ProjectID:  m.ProjectID,
+		RejectedAt: fromTimestampPtr(m.RejectedAt),
+	}
 }

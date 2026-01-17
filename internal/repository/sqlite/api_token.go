@@ -1,10 +1,11 @@
 package sqlite
 
 import (
-	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"gorm.io/gorm"
 )
 
 type APITokenRepository struct {
@@ -20,127 +21,128 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 	t.CreatedAt = now
 	t.UpdatedAt = now
 
-	result, err := r.db.db.Exec(
-		`INSERT INTO api_tokens (created_at, updated_at, token, token_prefix, name, description, project_id, is_enabled, expires_at, last_used_at, use_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.CreatedAt, t.UpdatedAt, t.Token, t.TokenPrefix, t.Name, t.Description, t.ProjectID, t.IsEnabled, formatTimePtr(t.ExpiresAt), formatTimePtr(t.LastUsedAt), t.UseCount,
-	)
-	if err != nil {
+	model := r.toModel(t)
+	if err := r.db.gorm.Create(model).Error; err != nil {
 		return err
 	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
-	}
-	t.ID = uint64(id)
+	t.ID = model.ID
 	return nil
 }
 
 func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	t.UpdatedAt = time.Now()
-	_, err := r.db.db.Exec(
-		`UPDATE api_tokens SET updated_at = ?, name = ?, description = ?, project_id = ?, is_enabled = ?, expires_at = ? WHERE id = ?`,
-		t.UpdatedAt, t.Name, t.Description, t.ProjectID, t.IsEnabled, formatTimePtr(t.ExpiresAt), t.ID,
-	)
-	return err
+	return r.db.gorm.Model(&APIToken{}).
+		Where("id = ?", t.ID).
+		Updates(map[string]any{
+			"updated_at":  toTimestamp(t.UpdatedAt),
+			"name":        t.Name,
+			"description": t.Description,
+			"project_id":  t.ProjectID,
+			"is_enabled":  boolToInt(t.IsEnabled),
+			"expires_at":  toTimestampPtr(t.ExpiresAt),
+		}).Error
 }
 
 func (r *APITokenRepository) Delete(id uint64) error {
-	_, err := r.db.db.Exec(`UPDATE api_tokens SET deleted_at = ?, updated_at = ? WHERE id = ?`, formatTime(time.Now()), formatTime(time.Now()), id)
-	return err
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Model(&APIToken{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error
 }
 
 func (r *APITokenRepository) GetByID(id uint64) (*domain.APIToken, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, token, token_prefix, name, description, project_id, is_enabled, expires_at, last_used_at, use_count, deleted_at FROM api_tokens WHERE id = ?`, id)
-	return r.scanToken(row)
-}
-
-func (r *APITokenRepository) GetByToken(token string) (*domain.APIToken, error) {
-	row := r.db.db.QueryRow(`SELECT id, created_at, updated_at, token, token_prefix, name, description, project_id, is_enabled, expires_at, last_used_at, use_count, deleted_at FROM api_tokens WHERE token = ? AND deleted_at IS NULL`, token)
-	return r.scanToken(row)
-}
-
-func (r *APITokenRepository) List() ([]*domain.APIToken, error) {
-	rows, err := r.db.db.Query(`SELECT id, created_at, updated_at, token, token_prefix, name, description, project_id, is_enabled, expires_at, last_used_at, use_count, deleted_at FROM api_tokens WHERE deleted_at IS NULL ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	tokens := make([]*domain.APIToken, 0)
-	for rows.Next() {
-		t, err := r.scanTokenRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		tokens = append(tokens, t)
-	}
-	return tokens, rows.Err()
-}
-
-func (r *APITokenRepository) IncrementUseCount(id uint64) error {
-	_, err := r.db.db.Exec(
-		`UPDATE api_tokens SET use_count = use_count + 1, last_used_at = ?, updated_at = ? WHERE id = ?`,
-		formatTime(time.Now()), formatTime(time.Now()), id,
-	)
-	return err
-}
-
-func (r *APITokenRepository) scanToken(row *sql.Row) (*domain.APIToken, error) {
-	var t domain.APIToken
-	var expiresAt, lastUsedAt, deletedAt sql.NullString
-
-	err := row.Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt, &t.Token, &t.TokenPrefix, &t.Name, &t.Description, &t.ProjectID, &t.IsEnabled, &expiresAt, &lastUsedAt, &t.UseCount, &deletedAt)
-	if err != nil {
-		if err == sql.ErrNoRows {
+	var model APIToken
+	if err := r.db.gorm.First(&model, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-
-	if expiresAt.Valid && expiresAt.String != "" {
-		if parsed, err := parseTimeString(expiresAt.String); err == nil && !parsed.IsZero() {
-			t.ExpiresAt = &parsed
-		}
-	}
-	if lastUsedAt.Valid && lastUsedAt.String != "" {
-		if parsed, err := parseTimeString(lastUsedAt.String); err == nil && !parsed.IsZero() {
-			t.LastUsedAt = &parsed
-		}
-	}
-	if deletedAt.Valid && deletedAt.String != "" {
-		if parsed, err := parseTimeString(deletedAt.String); err == nil && !parsed.IsZero() {
-			t.DeletedAt = &parsed
-		}
-	}
-
-	return &t, nil
+	return r.toDomain(&model), nil
 }
 
-func (r *APITokenRepository) scanTokenRow(rows *sql.Rows) (*domain.APIToken, error) {
-	var t domain.APIToken
-	var expiresAt, lastUsedAt, deletedAt sql.NullString
+func (r *APITokenRepository) GetByToken(token string) (*domain.APIToken, error) {
+	var model APIToken
+	if err := r.db.gorm.Where("token = ? AND deleted_at = 0", token).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
+}
 
-	err := rows.Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt, &t.Token, &t.TokenPrefix, &t.Name, &t.Description, &t.ProjectID, &t.IsEnabled, &expiresAt, &lastUsedAt, &t.UseCount, &deletedAt)
-	if err != nil {
+func (r *APITokenRepository) List() ([]*domain.APIToken, error) {
+	var models []APIToken
+	if err := r.db.gorm.Where("deleted_at = 0").Order("created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
 
-	if expiresAt.Valid && expiresAt.String != "" {
-		if parsed, err := parseTimeString(expiresAt.String); err == nil && !parsed.IsZero() {
-			t.ExpiresAt = &parsed
-		}
+	tokens := make([]*domain.APIToken, len(models))
+	for i, m := range models {
+		tokens[i] = r.toDomain(&m)
 	}
-	if lastUsedAt.Valid && lastUsedAt.String != "" {
-		if parsed, err := parseTimeString(lastUsedAt.String); err == nil && !parsed.IsZero() {
-			t.LastUsedAt = &parsed
-		}
-	}
-	if deletedAt.Valid && deletedAt.String != "" {
-		if parsed, err := parseTimeString(deletedAt.String); err == nil && !parsed.IsZero() {
-			t.DeletedAt = &parsed
-		}
-	}
+	return tokens, nil
+}
 
-	return &t, nil
+func (r *APITokenRepository) IncrementUseCount(id uint64) error {
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Model(&APIToken{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"use_count":    gorm.Expr("use_count + 1"),
+			"last_used_at": now,
+			"updated_at":   now,
+		}).Error
+}
+
+func (r *APITokenRepository) toModel(t *domain.APIToken) *APIToken {
+	return &APIToken{
+		SoftDeleteModel: SoftDeleteModel{
+			BaseModel: BaseModel{
+				ID:        t.ID,
+				CreatedAt: toTimestamp(t.CreatedAt),
+				UpdatedAt: toTimestamp(t.UpdatedAt),
+			},
+			DeletedAt: toTimestampPtr(t.DeletedAt),
+		},
+		Token:       t.Token,
+		TokenPrefix: t.TokenPrefix,
+		Name:        t.Name,
+		Description: t.Description,
+		ProjectID:   t.ProjectID,
+		IsEnabled:   boolToInt(t.IsEnabled),
+		ExpiresAt:   toTimestampPtr(t.ExpiresAt),
+		LastUsedAt:  toTimestampPtr(t.LastUsedAt),
+		UseCount:    t.UseCount,
+	}
+}
+
+func (r *APITokenRepository) toDomain(m *APIToken) *domain.APIToken {
+	return &domain.APIToken{
+		ID:          m.ID,
+		CreatedAt:   fromTimestamp(m.CreatedAt),
+		UpdatedAt:   fromTimestamp(m.UpdatedAt),
+		DeletedAt:   fromTimestampPtr(m.DeletedAt),
+		Token:       m.Token,
+		TokenPrefix: m.TokenPrefix,
+		Name:        m.Name,
+		Description: m.Description,
+		ProjectID:   m.ProjectID,
+		IsEnabled:   m.IsEnabled == 1,
+		ExpiresAt:   fromTimestampPtr(m.ExpiresAt),
+		LastUsedAt:  fromTimestampPtr(m.LastUsedAt),
+		UseCount:    m.UseCount,
+	}
+}
+
+// boolToInt converts bool to int
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

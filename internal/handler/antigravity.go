@@ -195,7 +195,6 @@ func (h *AntigravityHandler) saveQuotaToDB(email, name, picture, projectID strin
 	var models []domain.AntigravityModelQuota
 	var subscriptionTier string
 	var isForbidden bool
-	var lastUpdated int64
 
 	if quota != nil {
 		models = make([]domain.AntigravityModelQuota, len(quota.Models))
@@ -208,20 +207,16 @@ func (h *AntigravityHandler) saveQuotaToDB(email, name, picture, projectID strin
 		}
 		subscriptionTier = quota.SubscriptionTier
 		isForbidden = quota.IsForbidden
-		lastUpdated = quota.LastUpdated
-	} else {
-		lastUpdated = time.Now().Unix()
 	}
 
 	domainQuota := &domain.AntigravityQuota{
 		Email:            email,
 		Name:             name,
 		Picture:          picture,
-		ProjectID:        projectID,
+		GCPProjectID:     projectID,
 		SubscriptionTier: subscriptionTier,
 		IsForbidden:      isForbidden,
 		Models:           models,
-		LastUpdated:      lastUpdated,
 	}
 
 	h.quotaRepo.Upsert(domainQuota)
@@ -283,7 +278,7 @@ func (h *AntigravityHandler) GetProviderQuota(ctx context.Context, providerID ui
 		cachedQuota, err := h.quotaRepo.GetByEmail(email)
 		if err == nil && cachedQuota != nil {
 			// 检查是否过期（5分钟）
-			if time.Now().Unix()-cachedQuota.LastUpdated < 300 {
+			if time.Since(cachedQuota.UpdatedAt).Seconds() < 300 {
 				return h.domainQuotaToResponse(cachedQuota), nil
 			}
 		}
@@ -354,7 +349,7 @@ func (h *AntigravityHandler) domainQuotaToResponse(quota *domain.AntigravityQuot
 
 	return &antigravity.QuotaData{
 		Models:           models,
-		LastUpdated:      quota.LastUpdated,
+		LastUpdated:      quota.UpdatedAt.Unix(),
 		IsForbidden:      quota.IsForbidden,
 		SubscriptionTier: quota.SubscriptionTier,
 	}

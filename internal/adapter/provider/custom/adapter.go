@@ -16,7 +16,6 @@ import (
 	ctxutil "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/domain"
-	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/usage"
 )
 
@@ -91,14 +90,14 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 		setAuthHeader(upstreamReq, targetType, a.provider.Config.Custom.APIKey)
 	}
 
-	// Capture request info for attempt record
-	if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
-		attempt.RequestInfo = &domain.RequestInfo{
+	// Send request info via EventChannel
+	if eventChan := ctxutil.GetEventChan(ctx); eventChan != nil {
+		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
 			Headers: flattenHeaders(upstreamReq.Header),
 			Body:    string(requestBody),
-		}
+		})
 	}
 
 	// Execute request
@@ -114,13 +113,13 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 	// Check for error response
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		// Capture error response info
-		if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
-			attempt.ResponseInfo = &domain.ResponseInfo{
+		// Send error response info via EventChannel
+		if eventChan := ctxutil.GetEventChan(ctx); eventChan != nil {
+			eventChan.SendResponseInfo(&domain.ResponseInfo{
 				Status:  resp.StatusCode,
 				Headers: flattenHeaders(resp.Header),
 				Body:    string(body),
-			}
+			})
 		}
 
 		proxyErr := domain.NewProxyErrorWithMessage(
@@ -174,33 +173,32 @@ func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.Resp
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
 	}
 
-	// Capture response info and extract token usage
-	if attempt := ctxutil.GetUpstreamAttempt(ctx); attempt != nil {
-		attempt.ResponseInfo = &domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    string(body),
-		}
+	eventChan := ctxutil.GetEventChan(ctx)
 
-		// Extract token usage from response
-		if metrics := usage.ExtractFromResponse(string(body)); metrics != nil {
-			// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
-			metrics = usage.AdjustForClientType(metrics, clientType)
-			attempt.InputTokenCount = metrics.InputTokens
-			attempt.OutputTokenCount = metrics.OutputTokens
-			attempt.CacheReadCount = metrics.CacheReadCount
-			attempt.CacheWriteCount = metrics.CacheCreationCount
-			attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
-			attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
+	// Send response info via EventChannel
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    string(body),
+	})
 
-			// Calculate cost
-			attempt.Cost = pricing.GlobalCalculator().Calculate(ctxutil.GetMappedModel(ctx), metrics)
-		}
+	// Extract and send token usage metrics
+	if metrics := usage.ExtractFromResponse(string(body)); metrics != nil {
+		// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
+		metrics = usage.AdjustForClientType(metrics, clientType)
+		eventChan.SendMetrics(&domain.AdapterMetrics{
+			InputTokens:          metrics.InputTokens,
+			OutputTokens:         metrics.OutputTokens,
+			CacheReadCount:       metrics.CacheReadCount,
+			CacheCreationCount:   metrics.CacheCreationCount,
+			Cache5mCreationCount: metrics.Cache5mCreationCount,
+			Cache1hCreationCount: metrics.Cache1hCreationCount,
+		})
+	}
 
-		// Broadcast attempt update with token info
-		if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
-			bc.BroadcastProxyUpstreamAttempt(attempt)
-		}
+	// Extract and send responseModel
+	if responseModel := extractResponseModel(body, targetType); responseModel != "" {
+		eventChan.SendResponseModel(responseModel)
 	}
 
 	var responseBody []byte
@@ -221,16 +219,14 @@ func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.Resp
 }
 
 func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType, targetType domain.ClientType, needsConversion bool) error {
-	attempt := ctxutil.GetUpstreamAttempt(ctx)
+	eventChan := ctxutil.GetEventChan(ctx)
 
-	// Capture response info (for streaming, we only capture status and headers)
-	if attempt != nil {
-		attempt.ResponseInfo = &domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    "[streaming]",
-		}
-	}
+	// Send initial response info (for streaming, we only capture status and headers)
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    "[streaming]",
+	})
 
 	// Copy upstream headers (except those we override)
 	copyResponseHeaders(w.Header(), resp.Header)
@@ -264,30 +260,33 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 	var sseBuffer strings.Builder
 	var sseError error // Track any SSE error event
 
-	// Helper to extract tokens and update attempt with final response body
-	extractTokens := func() {
-		if attempt != nil && sseBuffer.Len() > 0 {
-			// Update response body with collected SSE content
-			if attempt.ResponseInfo != nil {
-				attempt.ResponseInfo.Body = sseBuffer.String()
-			}
-			// Extract token usage
+	// Helper to send final events via EventChannel
+	sendFinalEvents := func() {
+		if sseBuffer.Len() > 0 {
+			// Send updated response body
+			eventChan.SendResponseInfo(&domain.ResponseInfo{
+				Status:  resp.StatusCode,
+				Headers: flattenHeaders(resp.Header),
+				Body:    sseBuffer.String(),
+			})
+
+			// Extract and send token usage
 			if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
 				// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
 				metrics = usage.AdjustForClientType(metrics, clientType)
-				attempt.InputTokenCount = metrics.InputTokens
-				attempt.OutputTokenCount = metrics.OutputTokens
-				attempt.CacheReadCount = metrics.CacheReadCount
-				attempt.CacheWriteCount = metrics.CacheCreationCount
-				attempt.Cache5mWriteCount = metrics.Cache5mCreationCount
-				attempt.Cache1hWriteCount = metrics.Cache1hCreationCount
-
-				// Calculate cost
-				attempt.Cost = pricing.GlobalCalculator().Calculate(ctxutil.GetMappedModel(ctx), metrics)
+				eventChan.SendMetrics(&domain.AdapterMetrics{
+					InputTokens:          metrics.InputTokens,
+					OutputTokens:         metrics.OutputTokens,
+					CacheReadCount:       metrics.CacheReadCount,
+					CacheCreationCount:   metrics.CacheCreationCount,
+					Cache5mCreationCount: metrics.Cache5mCreationCount,
+					Cache1hCreationCount: metrics.Cache1hCreationCount,
+				})
 			}
-			// Broadcast attempt update with token info
-			if bc := ctxutil.GetBroadcaster(ctx); bc != nil {
-				bc.BroadcastProxyUpstreamAttempt(attempt)
+
+			// Extract and send responseModel
+			if responseModel := extractResponseModelFromSSE(sseBuffer.String(), targetType); responseModel != "" {
+				eventChan.SendResponseModel(responseModel)
 			}
 		}
 	}
@@ -340,7 +339,7 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 		// Check context before reading
 		select {
 		case <-ctx.Done():
-			extractTokens() // Try to extract tokens before returning
+			sendFinalEvents() // Try to extract tokens before returning
 			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 		default:
 		}
@@ -386,7 +385,7 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 					_, writeErr := w.Write(output)
 					if writeErr != nil {
 						// Client disconnected
-						extractTokens()
+						sendFinalEvents()
 						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
 					}
 					flusher.Flush()
@@ -396,7 +395,7 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 
 		if err != nil {
 			if err == io.EOF {
-				extractTokens() // Extract tokens at normal completion
+				sendFinalEvents() // Extract tokens at normal completion
 				// Return SSE error if one was detected during streaming
 				if sseError != nil {
 					return sseError
@@ -405,10 +404,10 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 			}
 			// Upstream connection closed - check if client is still connected
 			if ctx.Err() != nil {
-				extractTokens()
+				sendFinalEvents()
 				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 			}
-			extractTokens()
+			sendFinalEvents()
 			// Return SSE error if one was detected during streaming
 			if sseError != nil {
 				return sseError
@@ -702,4 +701,70 @@ func extractTimeFromMessage(msg string) time.Time {
 	}
 
 	return time.Time{}
+}
+
+// extractResponseModel extracts the model name from response body based on target type
+func extractResponseModel(body []byte, targetType domain.ClientType) string {
+	var data map[string]interface{}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return ""
+	}
+
+	switch targetType {
+	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
+		// Claude/OpenAI/Codex: "model" field at root level
+		if model, ok := data["model"].(string); ok {
+			return model
+		}
+	case domain.ClientTypeGemini:
+		// Gemini: "modelVersion" field at root level
+		if model, ok := data["modelVersion"].(string); ok {
+			return model
+		}
+	}
+
+	return ""
+}
+
+
+// extractResponseModelFromSSE extracts the model name from SSE content based on target type
+func extractResponseModelFromSSE(sseContent string, targetType domain.ClientType) string {
+	var lastModel string
+	lines := strings.Split(sseContent, "\n")
+
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if dataStr == "" || dataStr == "[DONE]" {
+			continue
+		}
+
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
+			continue
+		}
+
+		switch targetType {
+		case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
+			// Claude/OpenAI: check for "model" in various places
+			if model, ok := payload["model"].(string); ok && model != "" {
+				lastModel = model
+			}
+			// Claude SSE: check message_start event
+			if msg, ok := payload["message"].(map[string]interface{}); ok {
+				if model, ok := msg["model"].(string); ok && model != "" {
+					lastModel = model
+				}
+			}
+		case domain.ClientTypeGemini:
+			// Gemini: check for "modelVersion"
+			if model, ok := payload["modelVersion"].(string); ok && model != "" {
+				lastModel = model
+			}
+		}
+	}
+
+	return lastModel
 }

@@ -106,4 +106,23 @@ export {
 } from './use-api-tokens';
 
 // Usage Stats hooks
-export { usageStatsKeys, useUsageStats } from './use-usage-stats';
+export {
+  usageStatsKeys,
+  useUsageStats,
+  useUsageStatsWithPreset,
+  useRecalculateUsageStats,
+  selectGranularity,
+  getTimeRange,
+  type TimeRangePreset,
+} from './use-usage-stats';
+
+// Aggregated Stats hooks (基于 usage_stats 预聚合数据)
+export {
+  useProviderStatsFromUsageStats,
+  useAllProviderStatsFromUsageStats,
+  useRouteStatsFromUsageStats,
+  type RouteStats,
+} from './use-aggregated-stats';
+
+// Response Model hooks
+export { responseModelKeys, useResponseModels } from './use-response-models';

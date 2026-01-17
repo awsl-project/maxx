@@ -101,22 +101,22 @@ function SortableRuleItem({
       />
 
       {/* Client Type (read-only) */}
-      <span className="w-[100px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
+      <span className="w-[80px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
         {rule.clientType || t('modelMappings.allClients')}
       </span>
 
       {/* Provider Type (read-only) */}
-      <span className="w-[110px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
+      <span className="w-[90px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
         {rule.providerType || t('modelMappings.allProviderTypes')}
       </span>
 
       {/* Provider ID (read-only) */}
-      <span className="w-[70px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
+      <span className="w-[50px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
         {rule.providerID || '-'}
       </span>
 
       {/* Project ID (read-only) */}
-      <span className="w-[70px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
+      <span className="w-[50px] h-7 text-xs shrink-0 flex items-center text-muted-foreground">
         {rule.projectID || '-'}
       </span>
 
@@ -140,7 +140,8 @@ export function ModelMappingsPage() {
   const [newClientType, setNewClientType] = useState('claude');
   const [newProviderType, setNewProviderType] = useState('antigravity');
 
-  const rules = mappings || [];
+  // Filter only global scope mappings
+  const rules = (mappings || []).filter(m => !m.scope || m.scope === 'global')
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -166,6 +167,7 @@ export function ModelMappingsPage() {
             data: {
               pattern: rule.pattern,
               target: rule.target,
+              scope: 'global',
               priority: i * 10,
               isEnabled: rule.isEnabled,
             },
@@ -181,6 +183,7 @@ export function ModelMappingsPage() {
     await createMapping.mutateAsync({
       pattern: newPattern.trim(),
       target: newTarget.trim(),
+      scope: 'global',
       clientType: newClientType,
       providerType: newProviderType,
       priority: rules.length * 10 + 1000,
@@ -202,6 +205,7 @@ export function ModelMappingsPage() {
       data: {
         pattern: data.pattern ?? rule.pattern,
         target: data.target ?? rule.target,
+        scope: 'global',
         clientType: data.clientType ?? rule.clientType,
         providerType: data.providerType ?? rule.providerType,
         providerID: data.providerID ?? rule.providerID,
