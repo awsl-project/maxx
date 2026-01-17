@@ -1,5 +1,5 @@
-import { useMemo, useRef } from 'react';
-import { Plus, Layers, Download, Upload } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Plus, Layers, Download, Upload, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useProviders, useAllProviderStats } from '@/hooks/queries';
@@ -9,9 +9,9 @@ import { getTransport } from '@/lib/transport';
 import { ProviderRow } from './components/provider-row';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/layout/page-header';
 import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
-import { useState } from 'react';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 
 export function ProvidersPage() {
@@ -21,6 +21,7 @@ export function ProvidersPage() {
   const { data: providerStats = {} } = useAllProviderStats();
   const { countsByProvider } = useStreamingRequests();
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -32,7 +33,19 @@ export function ProvidersPage() {
       custom: [],
     };
 
-    providers?.forEach((p) => {
+    // Filter providers by search query
+    const filteredProviders = providers?.filter((p) => {
+      if (!searchQuery.trim()) return true;
+      const query = searchQuery.toLowerCase();
+      const config = PROVIDER_TYPE_CONFIGS[p.type as ProviderTypeKey];
+      const displayInfo = config?.getDisplayInfo(p) || '';
+      return (
+        p.name.toLowerCase().includes(query) ||
+        displayInfo.toLowerCase().includes(query)
+      );
+    });
+
+    filteredProviders?.forEach((p) => {
       const type = p.type as ProviderTypeKey;
       if (groups[type]) {
         groups[type].push(p);
@@ -43,7 +56,7 @@ export function ProvidersPage() {
     });
 
     return groups;
-  }, [providers]);
+  }, [providers, searchQuery]);
 
   // Export providers as JSON file
   const handleExport = async () => {
@@ -107,6 +120,18 @@ export function ProvidersPage() {
           count: providers?.length || 0,
         })}
       >
+        <div className="relative">
+          <Search
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            placeholder={t('common.search')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 w-48"
+          />
+        </div>
         <input
           type="file"
           ref={fileInputRef}

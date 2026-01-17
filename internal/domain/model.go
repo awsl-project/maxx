@@ -88,6 +88,9 @@ type Provider struct {
 	// 展示的名称
 	Name string `json:"name"`
 
+	// Logo URL 或 data URI
+	Logo string `json:"logo,omitempty"`
+
 	// 配置
 	Config *ProviderConfig `json:"config"`
 

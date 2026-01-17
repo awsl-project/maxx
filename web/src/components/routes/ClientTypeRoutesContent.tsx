@@ -48,11 +48,13 @@ import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context
 interface ClientTypeRoutesContentProps {
   clientType: ClientType;
   projectID: number; // 0 for global routes
+  searchQuery?: string; // Optional search query from parent
 }
 
 export function ClientTypeRoutesContent({
   clientType,
   projectID,
+  searchQuery = '',
 }: ClientTypeRoutesContentProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined)
@@ -100,7 +102,16 @@ export function ClientTypeRoutesContent({
     });
 
     // Only show providers that have routes
-    const filteredItems = allItems.filter((item) => item.route);
+    let filteredItems = allItems.filter((item) => item.route);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filteredItems = filteredItems.filter((item) =>
+        item.provider.name.toLowerCase().includes(query) ||
+        item.provider.type.toLowerCase().includes(query)
+      );
+    }
 
     return filteredItems.sort((a, b) => {
       if (a.route && b.route) return a.route.position - b.route.position;
@@ -110,15 +121,26 @@ export function ClientTypeRoutesContent({
       if (!a.isNative && b.isNative) return 1;
       return a.provider.name.localeCompare(b.provider.name);
     });
-  }, [providers, clientRoutes, clientType]);
+  }, [providers, clientRoutes, clientType, searchQuery]);
 
   // Get available providers (without routes yet)
   const availableProviders = useMemo((): Provider[] => {
-    return providers.filter((p) => {
+    let available = providers.filter((p) => {
       const hasRoute = clientRoutes.some((r) => Number(r.providerID) === Number(p.id));
       return !hasRoute;
     });
-  }, [providers, clientRoutes]);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      available = available.filter((p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.type.toLowerCase().includes(query)
+      );
+    }
+
+    return available;
+  }, [providers, clientRoutes, searchQuery]);
 
   const activeItem = activeId ? items.find((item) => item.id === activeId) : null;
 

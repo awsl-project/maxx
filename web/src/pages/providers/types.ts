@@ -4,6 +4,9 @@ import type { LucideIcon } from 'lucide-react';
 import { Wand2, Zap, Server, Mail, Globe } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
+import nvidiaLogo from '@/assets/icons/nvidia.svg';
+import logo88code from '@/assets/icons/88code.svg';
+import aicodemirrorLogo from '@/assets/icons/aicodemirror.png';
 
 // ===== Provider Type Configuration =====
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
@@ -74,6 +77,12 @@ export function getDisplayIcon(type: string): LucideIcon {
 export const ANTIGRAVITY_COLOR = PROVIDER_TYPE_CONFIGS.antigravity.color;
 export const KIRO_COLOR = PROVIDER_TYPE_CONFIGS.kiro.color;
 
+// Model mapping for templates
+export type TemplateModelMapping = {
+  pattern: string; // e.g., '*claude*', '*sonnet*'
+  target: string; // e.g., 'meta/llama-3.1-70b-instruct'
+};
+
 // Quick templates for Custom provider
 export type QuickTemplate = {
   id: string;
@@ -85,6 +94,7 @@ export type QuickTemplate = {
   logoUrl?: string; // 可选的 logo 图片 URL
   supportedClients: ClientType[];
   clientBaseURLs: Partial<Record<ClientType, string>>;
+  modelMappings?: TemplateModelMapping[]; // 可选的模型映射
 };
 
 export const quickTemplates: QuickTemplate[] = [
@@ -95,6 +105,7 @@ export const quickTemplates: QuickTemplate[] = [
     nameKey: 'addProvider.templates.88code.name',
     descriptionKey: 'addProvider.templates.88code.description',
     icon: 'grid',
+    logoUrl: logo88code,
     supportedClients: ['claude', 'codex', 'gemini'],
     clientBaseURLs: {
       claude: 'https://www.88code.ai/api',
@@ -109,6 +120,7 @@ export const quickTemplates: QuickTemplate[] = [
     nameKey: 'addProvider.templates.aicodemirror.name',
     descriptionKey: 'addProvider.templates.aicodemirror.description',
     icon: 'layers',
+    logoUrl: aicodemirrorLogo,
     supportedClients: ['claude', 'codex', 'gemini'],
     clientBaseURLs: {
       claude: 'https://api.aicodemirror.com/api/claudecode',
@@ -144,6 +156,20 @@ export const quickTemplates: QuickTemplate[] = [
       claude: 'https://free.duckcoding.com',
     },
   },
+  {
+    id: 'nvidia',
+    name: 'NVIDIA',
+    description: 'NVIDIA NIM · OpenAI 兼容',
+    nameKey: 'addProvider.templates.nvidia.name',
+    descriptionKey: 'addProvider.templates.nvidia.description',
+    icon: 'layers',
+    logoUrl: nvidiaLogo,
+    supportedClients: ['openai'],
+    clientBaseURLs: {
+      openai: 'https://integrate.api.nvidia.com',
+    },
+    modelMappings: [{ pattern: '*', target: 'minimaxai/minimax-m2.1' }],
+  },
 ];
 
 // Client config
@@ -169,6 +195,8 @@ export type ProviderFormData = {
   baseURL: string;
   apiKey: string;
   clients: ClientConfig[];
+  modelMappings?: TemplateModelMapping[]; // 模型映射
+  logo?: string; // Logo URL
 };
 
 // Create step type

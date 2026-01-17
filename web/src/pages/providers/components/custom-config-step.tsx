@@ -1,10 +1,11 @@
-import { Globe, ChevronLeft, Key, Check } from 'lucide-react';
+import { Globe, ChevronLeft, Key, Check, Plus, Trash2, ArrowRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useCreateProvider } from '@/hooks/queries';
+import { useCreateProvider, useCreateModelMapping } from '@/hooks/queries';
 import type { ClientType, CreateProviderData } from '@/lib/transport';
 import { ClientsConfigSection } from './clients-config-section';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ModelInput } from '@/components/ui/model-input';
 import { useProviderForm } from '../context/provider-form-context';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 
@@ -13,6 +14,7 @@ export function CustomConfigStep() {
   const { formData, updateFormData, updateClient, isValid, isSaving, setSaving, saveStatus, setSaveStatus } = useProviderForm();
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
+  const createModelMapping = useCreateModelMapping();
 
   const handleSave = async () => {
     if (!isValid()) return;
@@ -32,6 +34,7 @@ export function CustomConfigStep() {
       const data: CreateProviderData = {
         type: 'custom',
         name: formData.name,
+        logo: formData.logo,
         config: {
           custom: {
             baseURL: formData.baseURL,
@@ -42,7 +45,20 @@ export function CustomConfigStep() {
         supportedClientTypes,
       };
 
-      await createProvider.mutateAsync(data);
+      const provider = await createProvider.mutateAsync(data);
+
+      // Create model mappings if template has any
+      if (formData.modelMappings && formData.modelMappings.length > 0) {
+        for (const mapping of formData.modelMappings) {
+          await createModelMapping.mutateAsync({
+            scope: 'provider',
+            providerID: provider.id,
+            pattern: mapping.pattern,
+            target: mapping.target,
+          });
+        }
+      }
+
       setSaveStatus('success');
       setTimeout(() => goToProviders(), 500);
     } catch (error) {
@@ -151,6 +167,81 @@ export function CustomConfigStep() {
               {t('provider.clientConfig')}
             </h3>
             <ClientsConfigSection clients={formData.clients} onUpdateClient={updateClient} />
+          </div>
+
+          {/* Model Mapping Section */}
+          <div className="space-y-6">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <h3 className="text-lg font-semibold text-text-primary">
+                {t('modelMappings.title')}
+              </h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const newMappings = [...(formData.modelMappings || []), { pattern: '', target: '' }];
+                  updateFormData({ modelMappings: newMappings });
+                }}
+              >
+                <Plus size={14} />
+                {t('routes.modelMapping.addMapping')}
+              </Button>
+            </div>
+
+            {formData.modelMappings && formData.modelMappings.length > 0 ? (
+              <div className="space-y-3">
+                {formData.modelMappings.map((mapping, index) => (
+                  <div key={index} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <div className="flex-1">
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        {t('settings.matchPattern')}
+                      </label>
+                      <Input
+                        type="text"
+                        value={mapping.pattern}
+                        onChange={(e) => {
+                          const newMappings = [...(formData.modelMappings || [])];
+                          newMappings[index] = { ...newMappings[index], pattern: e.target.value };
+                          updateFormData({ modelMappings: newMappings });
+                        }}
+                        placeholder="*claude*, *sonnet*, *"
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                    <ArrowRight size={16} className="text-muted-foreground shrink-0 mt-5" />
+                    <div className="flex-1">
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        {t('settings.targetModel')}
+                      </label>
+                      <ModelInput
+                        value={mapping.target}
+                        onChange={(value) => {
+                          const newMappings = [...(formData.modelMappings || [])];
+                          newMappings[index] = { ...newMappings[index], target: value };
+                          updateFormData({ modelMappings: newMappings });
+                        }}
+                        placeholder={t('modelInput.selectOrEnter')}
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 mt-5 text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        const newMappings = (formData.modelMappings || []).filter((_, i) => i !== index);
+                        updateFormData({ modelMappings: newMappings });
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground p-4 bg-muted/30 rounded-lg text-center">
+                {t('modelMappings.noMappings')}
+              </div>
+            )}
           </div>
 
           {saveStatus === 'error' && (
