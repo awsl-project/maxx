@@ -43,6 +43,7 @@ import {
 } from '@/pages/client-routes/components/provider-row';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import { Button } from '../ui';
+import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 
 interface ClientTypeRoutesContentProps {
   clientType: ClientType;
@@ -212,11 +213,12 @@ export function ClientTypeRoutesContent({
   }
 
   return (
-    <div className="flex flex-col h-full px-6">
-      <div className="flex-1 overflow-y-auto px-lg py-6">
-        <div className="mx-auto max-w-[1400px] space-y-6">
-          {/* Routes List */}
-          {items.length > 0 ? (
+    <AntigravityQuotasProvider>
+      <div className="flex flex-col h-full px-6">
+        <div className="flex-1 overflow-y-auto px-lg py-6">
+          <div className="mx-auto max-w-[1400px] space-y-6">
+            {/* Routes List */}
+            {items.length > 0 ? (
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -342,5 +344,6 @@ export function ClientTypeRoutesContent({
         </div>
       </div>
     </div>
+  </AntigravityQuotasProvider>
   );
 }

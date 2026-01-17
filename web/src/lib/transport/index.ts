@@ -44,6 +44,7 @@ export type {
   AntigravityUserInfo,
   AntigravityModelQuota,
   AntigravityQuotaData,
+  AntigravityBatchQuotaResult,
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityOAuthResult,

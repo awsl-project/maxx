@@ -339,6 +339,11 @@ export interface AntigravityQuotaData {
   subscriptionTier: string; // FREE/PRO/ULTRA
 }
 
+// 批量配额查询结果
+export interface AntigravityBatchQuotaResult {
+  quotas: Record<number, AntigravityQuotaData>; // providerId -> quota
+}
+
 export interface AntigravityTokenValidationResult {
   valid: boolean;
   error?: string;

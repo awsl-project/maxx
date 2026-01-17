@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/layout/page-header';
 import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
 import { useState } from 'react';
+import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 
 export function ProvidersPage() {
   const { t } = useTranslation();
@@ -158,39 +159,41 @@ export function ProvidersPage() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-8">
-              {/* 动态渲染各类型分组 */}
-              {(Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[]).map((typeKey) => {
-                const typeProviders = groupedProviders[typeKey];
-                if (typeProviders.length === 0) return null;
+            <AntigravityQuotasProvider>
+              <div className="space-y-8">
+                {/* 动态渲染各类型分组 */}
+                {(Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[]).map((typeKey) => {
+                  const typeProviders = groupedProviders[typeKey];
+                  if (typeProviders.length === 0) return null;
 
-                const config = PROVIDER_TYPE_CONFIGS[typeKey];
-                const TypeIcon = config.icon;
+                  const config = PROVIDER_TYPE_CONFIGS[typeKey];
+                  const TypeIcon = config.icon;
 
-                return (
-                  <section key={typeKey} className="space-y-3">
-                    <div className="flex items-center gap-2 px-1">
-                      <TypeIcon size={16} style={{ color: config.color }} />
-                      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                        {config.label}
-                      </h3>
-                      <div className="h-px flex-1 bg-border/50 ml-2" />
-                    </div>
-                    <div className="space-y-3">
-                      {typeProviders.map((provider) => (
-                        <ProviderRow
-                          key={provider.id}
-                          provider={provider}
-                          stats={providerStats[provider.id]}
-                          streamingCount={countsByProvider.get(provider.id) || 0}
-                          onClick={() => navigate(`/providers/${provider.id}/edit`)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
+                  return (
+                    <section key={typeKey} className="space-y-3">
+                      <div className="flex items-center gap-2 px-1">
+                        <TypeIcon size={16} style={{ color: config.color }} />
+                        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                          {config.label}
+                        </h3>
+                        <div className="h-px flex-1 bg-border/50 ml-2" />
+                      </div>
+                      <div className="space-y-3">
+                        {typeProviders.map((provider) => (
+                          <ProviderRow
+                            key={provider.id}
+                            provider={provider}
+                            stats={providerStats[provider.id]}
+                            streamingCount={countsByProvider.get(provider.id) || 0}
+                            onClick={() => navigate(`/providers/${provider.id}/edit`)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            </AntigravityQuotasProvider>
           )}
         </div>
       </div>

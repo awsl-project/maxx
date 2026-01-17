@@ -37,6 +37,7 @@ func NewAntigravityHandler(svc *service.AdminService, quotaRepo repository.Antig
 //   POST /antigravity/validate-token - 验证单个 refresh token
 //   POST /antigravity/validate-tokens - 批量验证 refresh tokens
 //   GET  /antigravity/providers/{id}/quota - 获取 provider 的配额信息
+//   GET  /antigravity/providers/quotas - 批量获取所有 Antigravity provider 的配额信息
 //   POST /antigravity/oauth/start - 启动 OAuth 流程
 //   GET  /antigravity/oauth/callback - OAuth 回调
 func (h *AntigravityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +55,12 @@ func (h *AntigravityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// POST /antigravity/validate-tokens
 	if len(parts) >= 2 && parts[1] == "validate-tokens" && r.Method == http.MethodPost {
 		h.handleValidateTokens(w, r)
+		return
+	}
+
+	// GET /antigravity/providers/quotas - 批量获取配额（必须在单个 provider 路由之前匹配）
+	if len(parts) >= 3 && parts[1] == "providers" && parts[2] == "quotas" && r.Method == http.MethodGet {
+		h.handleGetBatchQuotas(w, r)
 		return
 	}
 
@@ -277,8 +284,8 @@ func (h *AntigravityHandler) GetProviderQuota(ctx context.Context, providerID ui
 	if !forceRefresh && email != "" && h.quotaRepo != nil {
 		cachedQuota, err := h.quotaRepo.GetByEmail(email)
 		if err == nil && cachedQuota != nil {
-			// 检查是否过期（5分钟）
-			if time.Since(cachedQuota.UpdatedAt).Seconds() < 300 {
+			// 检查是否过期（10分钟）
+			if time.Since(cachedQuota.UpdatedAt).Seconds() < 600 {
 				return h.domainQuotaToResponse(cachedQuota), nil
 			}
 		}
@@ -353,6 +360,86 @@ func (h *AntigravityHandler) domainQuotaToResponse(quota *domain.AntigravityQuot
 		IsForbidden:      quota.IsForbidden,
 		SubscriptionTier: quota.SubscriptionTier,
 	}
+}
+
+// BatchQuotaResult 批量配额查询结果
+type BatchQuotaResult struct {
+	Quotas map[uint64]*antigravity.QuotaData `json:"quotas"` // providerId -> quota
+}
+
+// GetBatchQuotas 批量获取所有 Antigravity provider 的配额信息（供 HTTP handler 和 Wails 共用）
+func (h *AntigravityHandler) GetBatchQuotas(ctx context.Context) (*BatchQuotaResult, error) {
+	// 获取所有 providers
+	providers, err := h.svc.GetProviders()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list providers: %w", err)
+	}
+
+	result := &BatchQuotaResult{
+		Quotas: make(map[uint64]*antigravity.QuotaData),
+	}
+
+	// 过滤出 Antigravity providers 并获取配额
+	for _, provider := range providers {
+		if provider.Type != "antigravity" || provider.Config == nil || provider.Config.Antigravity == nil {
+			continue
+		}
+
+		config := provider.Config.Antigravity
+		email := config.Email
+
+		// 尝试从数据库获取缓存的配额
+		if email != "" && h.quotaRepo != nil {
+			cachedQuota, err := h.quotaRepo.GetByEmail(email)
+			if err == nil && cachedQuota != nil {
+				// 检查是否过期（10分钟）- 如果未过期，直接使用缓存
+				if time.Since(cachedQuota.UpdatedAt).Seconds() < 600 {
+					result.Quotas[provider.ID] = h.domainQuotaToResponse(cachedQuota)
+					continue
+				}
+			}
+		}
+
+		// 缓存过期或不存在，从 API 获取最新配额
+		quota, err := antigravity.FetchQuotaForProvider(ctx, config.RefreshToken, config.ProjectID)
+		if err != nil {
+			// 如果 API 失败，尝试使用过期的缓存数据
+			if email != "" && h.quotaRepo != nil {
+				cachedQuota, _ := h.quotaRepo.GetByEmail(email)
+				if cachedQuota != nil {
+					result.Quotas[provider.ID] = h.domainQuotaToResponse(cachedQuota)
+					continue
+				}
+			}
+			// 跳过此 provider，不中断整体查询
+			continue
+		}
+
+		// 保存到数据库
+		if email != "" && h.quotaRepo != nil {
+			var name, picture string
+			if cachedQuota, _ := h.quotaRepo.GetByEmail(email); cachedQuota != nil {
+				name = cachedQuota.Name
+				picture = cachedQuota.Picture
+			}
+			h.saveQuotaToDB(email, name, picture, config.ProjectID, quota)
+		}
+
+		result.Quotas[provider.ID] = quota
+	}
+
+	return result, nil
+}
+
+// handleGetBatchQuotas 批量获取所有 Antigravity provider 的配额信息
+func (h *AntigravityHandler) handleGetBatchQuotas(w http.ResponseWriter, r *http.Request) {
+	result, err := h.GetBatchQuotas(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // ============================================================================

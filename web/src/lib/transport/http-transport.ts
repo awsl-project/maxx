@@ -378,6 +378,13 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async getAntigravityBatchQuotas(): Promise<Record<number, AntigravityQuotaData>> {
+    const { data } = await axios.get<{ quotas: Record<number, AntigravityQuotaData> }>(
+      '/api/antigravity/providers/quotas',
+    );
+    return data.quotas;
+  }
+
   async startAntigravityOAuth(): Promise<{ authURL: string; state: string }> {
     const { data } = await axios.post<{ authURL: string; state: string }>(
       '/api/antigravity/oauth/start',

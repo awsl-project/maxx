@@ -101,9 +101,21 @@ export function useAntigravityQuota(providerId: number, enabled = true) {
     queryKey: [...providerKeys.all, 'antigravity-quota', providerId],
     queryFn: () => getTransport().getAntigravityProviderQuota(providerId, false),
     enabled: enabled && providerId > 0,
-    // 每 60 秒刷新一次
-    refetchInterval: 60000,
-    staleTime: 30000,
+    // 每 10 分钟刷新一次
+    refetchInterval: 600000,
+    staleTime: 600000,
+  });
+}
+
+// 批量获取所有 Antigravity Provider 额度
+export function useAntigravityBatchQuotas(enabled = true) {
+  return useQuery({
+    queryKey: [...providerKeys.all, 'antigravity-batch-quotas'],
+    queryFn: () => getTransport().getAntigravityBatchQuotas(),
+    enabled,
+    // 每 10 分钟刷新一次
+    refetchInterval: 600000,
+    staleTime: 600000,
   });
 }
 
@@ -113,8 +125,8 @@ export function useKiroQuota(providerId: number, enabled = true) {
     queryKey: [...providerKeys.all, 'kiro-quota', providerId],
     queryFn: () => getTransport().getKiroProviderQuota(providerId),
     enabled: enabled && providerId > 0,
-    // 每 60 秒刷新一次
-    refetchInterval: 60000,
-    staleTime: 30000,
+    // 每 10 分钟刷新一次
+    refetchInterval: 600000,
+    staleTime: 600000,
   });
 }

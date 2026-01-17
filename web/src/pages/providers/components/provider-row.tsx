@@ -5,7 +5,8 @@ import { MarqueeBackground } from '@/components/ui/marquee-background';
 import type { Provider, ProviderStats, AntigravityQuotaData, KiroQuotaData } from '@/lib/transport';
 import { getProviderTypeConfig } from '../types';
 import { cn } from '@/lib/utils';
-import { useAntigravityQuota, useKiroQuota } from '@/hooks/queries';
+import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-context';
+import { useKiroQuota } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
 
 // 格式化 Token 数量
@@ -111,14 +112,13 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
   // 使用通用配置系统
   const typeConfig = getProviderTypeConfig(provider.type);
   const color = typeConfig.color;
-  const TypeIcon = typeConfig.icon;
   const displayInfo = typeConfig.getDisplayInfo(provider);
 
   const isAntigravity = provider.type === 'antigravity';
   const isKiro = provider.type === 'kiro';
 
-  // 仅为 Antigravity provider 获取额度
-  const { data: antigravityQuota } = useAntigravityQuota(provider.id, isAntigravity);
+  // 从批量查询上下文获取 Antigravity 额度
+  const antigravityQuota = useAntigravityQuotaFromContext(provider.id);
   const claudeInfo = isAntigravity ? getClaudeQuotaInfo(antigravityQuota) : null;
 
   // 仅为 Kiro provider 获取额度
@@ -148,13 +148,22 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
         </div>
       )}
 
-      {/* Provider Icon */}
-      <div
-        className="relative z-10 w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-muted border border-border shadow-inner group-hover:shadow-none transition-shadow duration-300"
-        style={{ color }}
-      >
-        <div className="absolute inset-0 opacity-10 rounded-xl" style={{ backgroundColor: color }} />
-        <TypeIcon size={24} />
+      {/* Supported Clients - 左侧居中 */}
+      <div className="relative z-10 w-12 flex flex-col items-center justify-center gap-1 shrink-0">
+        <div className="flex items-center -space-x-1.5 group/clients">
+          {provider.supportedClientTypes?.length > 0 ? (
+            provider.supportedClientTypes.map((ct) => (
+              <div
+                key={ct}
+                className="relative z-0 hover:z-10 bg-card rounded-full p-0.5 border border-border transition-all hover:scale-125 hover:-translate-y-0.5 shadow-sm"
+              >
+                <ClientIcon type={ct} size={16} />
+              </div>
+            ))
+          ) : (
+            <span className="text-xs text-muted-foreground font-mono">-</span>
+          )}
+        </div>
       </div>
 
       {/* Provider Info */}
@@ -172,75 +181,43 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
             {typeConfig.label}
           </span>
         </div>
-        <div
-          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground truncate"
-          title={displayInfo}
-        >
-          {typeConfig.isAccountBased ? (
-            <Mail size={11} className="shrink-0" />
-          ) : (
-            <Globe size={11} className="shrink-0" />
-          )}
-          <span className="truncate">{displayInfo}</span>
-        </div>
-      </div>
-
-      {/* Supported Clients */}
-      <div className="relative z-10 w-28 flex flex-col gap-1 shrink-0">
-        <span className="text-[9px] font-black text-muted-foreground/60 uppercase tracking-tighter">
-          Clients
-        </span>
-        <div className="flex items-center -space-x-1.5 group/clients">
-          {provider.supportedClientTypes?.length > 0 ? (
-            provider.supportedClientTypes.map((ct) => (
-              <div
-                key={ct}
-                className="relative z-0 hover:z-10 bg-card rounded-full p-0.5 border border-border transition-all hover:scale-125 hover:-translate-y-0.5 shadow-sm"
-              >
-                <ClientIcon type={ct} size={14} />
+        <div className="flex items-center gap-3">
+          {/* 对于 Antigravity，显示 Claude Quota；对于其他类型，显示邮箱/endpoint */}
+          {isAntigravity && claudeInfo ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[9px] font-black text-muted-foreground/60 uppercase">Claude</span>
+              <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all duration-1000',
+                    claudeInfo.percentage >= 50
+                      ? 'bg-emerald-500'
+                      : claudeInfo.percentage >= 20
+                        ? 'bg-amber-500'
+                        : 'bg-red-500',
+                  )}
+                  style={{ width: `${claudeInfo.percentage}%` }}
+                />
               </div>
-            ))
-          ) : (
-            <span className="text-xs text-muted-foreground font-mono">-</span>
-          )}
-        </div>
-      </div>
-
-      {/* Claude Quota Area */}
-      {isAntigravity && (
-        <div className="relative z-10 w-24 flex flex-col gap-1 shrink-0">
-          <div className="flex items-center justify-between px-0.5">
-            <span className="text-[9px] font-black text-muted-foreground/80 uppercase tracking-tighter">
-              Claude
-            </span>
-            {claudeInfo && (
-              <span className="text-[9px] font-mono text-text-muted/60">
+              <span className="text-[9px] font-mono text-muted-foreground/60">
                 {formatResetTime(claudeInfo.resetTime, t)}
               </span>
-            )}
-          </div>
-          {claudeInfo ? (
-            <div className="h-2 bg-muted rounded-full overflow-hidden border border-border/50 p-[1px]">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all duration-1000',
-                  claudeInfo.percentage >= 50
-                    ? 'bg-emerald-500'
-                    : claudeInfo.percentage >= 20
-                      ? 'bg-amber-500'
-                      : 'bg-red-500',
-                )}
-                style={{
-                  width: `${claudeInfo.percentage}%`,
-                  boxShadow: `0 0 8px ${claudeInfo.percentage >= 50 ? '#10b98140' : '#f59e0b40'}`,
-                }}
-              />
             </div>
           ) : (
-            <div className="h-1.5 bg-muted rounded-full" />
+            <div
+              className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground truncate"
+              title={displayInfo}
+            >
+              {typeConfig.isAccountBased ? (
+                <Mail size={11} className="shrink-0" />
+              ) : (
+                <Globe size={11} className="shrink-0" />
+              )}
+              <span className="truncate">{displayInfo}</span>
+            </div>
           )}
         </div>
-      )}
+      </div>
 
       {/* Kiro Quota Area */}
       {isKiro && (

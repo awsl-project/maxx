@@ -123,6 +123,7 @@ export interface Transport {
     providerId: number,
     forceRefresh?: boolean,
   ): Promise<AntigravityQuotaData>;
+  getAntigravityBatchQuotas(): Promise<Record<number, AntigravityQuotaData>>;
   startAntigravityOAuth(): Promise<{ authURL: string; state: string }>;
 
   // ===== Model Mapping API =====

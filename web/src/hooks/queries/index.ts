@@ -13,6 +13,7 @@ export {
   useProviderStats,
   useAllProviderStats,
   useAntigravityQuota,
+  useAntigravityBatchQuotas,
   useKiroQuota,
 } from './use-providers';
 

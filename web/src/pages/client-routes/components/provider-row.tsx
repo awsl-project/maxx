@@ -8,7 +8,7 @@ import { getProviderColorVar, type ProviderType } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import type { ClientType, ProviderStats, AntigravityQuotaData } from '@/lib/transport';
 import type { ProviderConfigItem } from '../types';
-import { useAntigravityQuota } from '@/hooks/queries';
+import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-context';
 import { useCooldowns } from '@/hooks/use-cooldowns';
 import { ProviderDetailsDialog } from '@/components/provider-details-dialog';
 import { useState, useEffect } from 'react';
@@ -195,8 +195,8 @@ export function ProviderRowContent({
   const color = getProviderColorVar(provider.type as ProviderType);
   const isAntigravity = provider.type === 'antigravity';
 
-  // 仅为 Antigravity provider 获取额度
-  const { data: quota } = useAntigravityQuota(provider.id, isAntigravity);
+  // 从批量查询上下文获取 Antigravity 额度
+  const quota = useAntigravityQuotaFromContext(provider.id);
   const claudeInfo = isAntigravity ? getClaudeQuotaInfo(quota) : null;
 
   // 获取 cooldown 状态
@@ -349,66 +349,52 @@ export function ProviderRowContent({
               )}
             </div>
           </div>
-          <div
-            className={cn(
-              'text-[11px] font-medium truncate flex items-center gap-1',
-              isInCooldown
-                ? 'text-muted-foreground'
-                : enabled
-                  ? 'text-muted-foreground'
-                  : 'text-muted-foreground/50',
+          <div className="flex items-center gap-3">
+            {/* 对于 Antigravity，显示 Claude Quota；对于其他类型，显示 endpoint */}
+            {isAntigravity && claudeInfo ? (
+              <div className={cn('flex items-center gap-2 shrink-0', !enabled && 'opacity-40')}>
+                <span className="text-[9px] font-black text-muted-foreground/60 uppercase">Claude</span>
+                <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all duration-1000',
+                      claudeInfo.percentage >= 50
+                        ? 'bg-emerald-500'
+                        : claudeInfo.percentage >= 20
+                          ? 'bg-amber-500'
+                          : 'bg-red-500',
+                    )}
+                    style={{ width: `${claudeInfo.percentage}%` }}
+                  />
+                </div>
+                <span className="text-[9px] font-mono text-muted-foreground/60">
+                  {formatResetTime(claudeInfo.resetTime, t)}
+                </span>
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  'text-[11px] font-medium truncate flex items-center gap-1',
+                  isInCooldown
+                    ? 'text-muted-foreground'
+                    : enabled
+                      ? 'text-muted-foreground'
+                      : 'text-muted-foreground/50',
+                )}
+              >
+                <Info size={10} className="shrink-0" />
+                {provider.config?.custom?.clientBaseURL?.[clientType] ||
+                  provider.config?.custom?.baseURL ||
+                  provider.config?.antigravity?.endpoint ||
+                  t('provider.defaultEndpoint')}
+              </div>
             )}
-          >
-            <Info size={10} className="shrink-0" />
-            {provider.config?.custom?.clientBaseURL?.[clientType] ||
-              provider.config?.custom?.baseURL ||
-              provider.config?.antigravity?.endpoint ||
-              t('provider.defaultEndpoint')}
           </div>
         </div>
       </div>
 
       {/* Quota & Center Countdown Area */}
       <div className="relative z-10 flex items-center gap-4 shrink-0">
-        {/* Claude Quota */}
-        {isAntigravity && (
-          <div className={cn('w-24 flex flex-col gap-1', !enabled && 'opacity-40')}>
-            <div className="flex items-center justify-between px-0.5">
-              <span className="text-[9px] font-black text-muted-foreground/80 uppercase tracking-tighter">
-                Claude
-              </span>
-              {claudeInfo && (
-                <span className="text-[9px] font-mono text-muted-foreground/60">
-                  {formatResetTime(claudeInfo.resetTime, t)}
-                </span>
-              )}
-            </div>
-            {claudeInfo ? (
-              <div className="h-2 bg-muted rounded-full overflow-hidden border border-border/50 p-[1px]">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-all duration-1000',
-                    claudeInfo.percentage >= 50
-                      ? 'bg-emerald-500'
-                      : claudeInfo.percentage >= 20
-                        ? 'bg-amber-500'
-                        : 'bg-red-500',
-                  )}
-                  style={{
-                    width: `${claudeInfo.percentage}%`,
-                    boxShadow:
-                      claudeInfo.percentage >= 50
-                        ? '0 0 8px rgb(16 185 129 / 0.25)'
-                        : '0 0 8px rgb(245 158 11 / 0.25)',
-                  }}
-                />
-              </div>
-            ) : (
-              <div className="h-1.5 bg-muted rounded-full" />
-            )}
-          </div>
-        )}
-
         {/* Center-placed Countdown (when in cooldown) or Stats Grid */}
         {isInCooldown && cooldown ? (
           <div className="flex items-center gap-3 bg-white/80 dark:bg-teal-950/60 rounded-xl border border-teal-500/50 p-1 px-3 backdrop-blur-md shadow-[0_0_15px_rgba(20,184,166,0.15)]">
