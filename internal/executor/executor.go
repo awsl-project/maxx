@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/awsl-project/maxx/internal/cooldown"
 	ctxutil "github.com/awsl-project/maxx/internal/context"
+	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/pricing"
@@ -20,16 +20,16 @@ import (
 
 // Executor handles request execution with retry logic
 type Executor struct {
-	router             *router.Router
-	proxyRequestRepo   repository.ProxyRequestRepository
-	attemptRepo        repository.ProxyUpstreamAttemptRepository
-	retryConfigRepo    repository.RetryConfigRepository
-	sessionRepo        repository.SessionRepository
-	modelMappingRepo   repository.ModelMappingRepository
-	broadcaster        event.Broadcaster
-	projectWaiter      *waiter.ProjectWaiter
-	instanceID         string
-	statsAggregator    *stats.StatsAggregator
+	router           *router.Router
+	proxyRequestRepo repository.ProxyRequestRepository
+	attemptRepo      repository.ProxyUpstreamAttemptRepository
+	retryConfigRepo  repository.RetryConfigRepository
+	sessionRepo      repository.SessionRepository
+	modelMappingRepo repository.ModelMappingRepository
+	broadcaster      event.Broadcaster
+	projectWaiter    *waiter.ProjectWaiter
+	instanceID       string
+	statsAggregator  *stats.StatsAggregator
 }
 
 // NewExecutor creates a new executor
@@ -46,16 +46,16 @@ func NewExecutor(
 	statsAggregator *stats.StatsAggregator,
 ) *Executor {
 	return &Executor{
-		router:             r,
-		proxyRequestRepo:   prr,
-		attemptRepo:        ar,
-		retryConfigRepo:    rcr,
-		sessionRepo:        sessionRepo,
-		modelMappingRepo:   modelMappingRepo,
-		broadcaster:        bc,
-		projectWaiter:      projectWaiter,
-		instanceID:         instanceID,
-		statsAggregator:    statsAggregator,
+		router:           r,
+		proxyRequestRepo: prr,
+		attemptRepo:      ar,
+		retryConfigRepo:  rcr,
+		sessionRepo:      sessionRepo,
+		modelMappingRepo: modelMappingRepo,
+		broadcaster:      bc,
+		projectWaiter:    projectWaiter,
+		instanceID:       instanceID,
+		statsAggregator:  statsAggregator,
 	}
 }
 
@@ -63,6 +63,7 @@ func NewExecutor(
 func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	clientType := ctxutil.GetClientType(ctx)
 	projectID := ctxutil.GetProjectID(ctx)
+	tenantID := ctxutil.GetTenantID(ctx)
 	sessionID := ctxutil.GetSessionID(ctx)
 	requestModel := ctxutil.GetRequestModel(ctx)
 	isStream := ctxutil.GetIsStream(ctx)
@@ -77,6 +78,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		SessionID:    sessionID,
 		ClientType:   clientType,
 		ProjectID:    projectID,
+		TenantID:     tenantID,
 		RequestModel: requestModel,
 		StartTime:    time.Now(),
 		IsStream:     isStream,
@@ -275,6 +277,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				ProxyRequestID: proxyReq.ID,
 				RouteID:        matchedRoute.Route.ID,
 				ProviderID:     matchedRoute.Provider.ID,
+				TenantID:       tenantID,
 				IsStream:       isStream,
 				Status:         "IN_PROGRESS",
 				StartTime:      attemptStartTime,
@@ -717,4 +720,3 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 		}
 	}
 }
-

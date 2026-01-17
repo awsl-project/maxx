@@ -901,6 +901,7 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			Name        string  `json:"name"`
 			Description string  `json:"description"`
 			ProjectID   uint64  `json:"projectID"`
+			TenantID    uint64  `json:"tenantID"`
 			ExpiresAt   *string `json:"expiresAt"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -909,6 +910,10 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 		}
 		if body.Name == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+			return
+		}
+		if body.TenantID == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tenantID is required"})
 			return
 		}
 		var expiresAt *time.Time
@@ -920,7 +925,7 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			}
 			expiresAt = &t
 		}
-		result, err := h.svc.CreateAPIToken(body.Name, body.Description, body.ProjectID, expiresAt)
+		result, err := h.svc.CreateAPIToken(body.Name, body.Description, body.ProjectID, body.TenantID, expiresAt)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -940,6 +945,7 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			Name        *string `json:"name"`
 			Description *string `json:"description"`
 			ProjectID   *uint64 `json:"projectID"`
+			TenantID    *uint64 `json:"tenantID"`
 			IsEnabled   *bool   `json:"isEnabled"`
 			ExpiresAt   *string `json:"expiresAt"`
 		}
@@ -959,6 +965,9 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 		}
 		if body.ProjectID != nil {
 			existing.ProjectID = *body.ProjectID
+		}
+		if body.TenantID != nil {
+			existing.TenantID = *body.TenantID
 		}
 		if body.IsEnabled != nil {
 			existing.IsEnabled = *body.IsEnabled

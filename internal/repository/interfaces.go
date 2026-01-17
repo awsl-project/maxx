@@ -14,6 +14,15 @@ type ProviderRepository interface {
 	List() ([]*domain.Provider, error)
 }
 
+type TenantRepository interface {
+	Create(tenant *domain.Tenant) error
+	Update(tenant *domain.Tenant) error
+	Delete(id uint64) error
+	GetByID(id uint64) (*domain.Tenant, error)
+	GetBySlug(slug string) (*domain.Tenant, error)
+	List() ([]*domain.Tenant, error)
+}
+
 type RouteRepository interface {
 	Create(route *domain.Route) error
 	Update(route *domain.Route) error
@@ -145,6 +154,7 @@ type UsageStatsFilter struct {
 	RouteID     *uint64            // 路由 ID
 	ProviderID  *uint64            // Provider ID
 	ProjectID   *uint64            // 项目 ID
+	TenantID    *uint64            // 租户 ID
 	APITokenID  *uint64            // API Token ID
 	ClientType  *string            // 客户端类型
 	Model       *string            // 模型名称

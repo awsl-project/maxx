@@ -20,6 +20,9 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 	now := time.Now()
 	t.CreatedAt = now
 	t.UpdatedAt = now
+	if t.TenantID == 0 {
+		t.TenantID = domain.DefaultTenantID
+	}
 
 	model := r.toModel(t)
 	if err := r.db.gorm.Create(model).Error; err != nil {
@@ -31,6 +34,9 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 
 func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	t.UpdatedAt = time.Now()
+	if t.TenantID == 0 {
+		t.TenantID = domain.DefaultTenantID
+	}
 	return r.db.gorm.Model(&APIToken{}).
 		Where("id = ?", t.ID).
 		Updates(map[string]any{
@@ -38,6 +44,7 @@ func (r *APITokenRepository) Update(t *domain.APIToken) error {
 			"name":        t.Name,
 			"description": t.Description,
 			"project_id":  t.ProjectID,
+			"tenant_id":   t.TenantID,
 			"is_enabled":  boolToInt(t.IsEnabled),
 			"expires_at":  toTimestampPtr(t.ExpiresAt),
 		}).Error
@@ -114,6 +121,7 @@ func (r *APITokenRepository) toModel(t *domain.APIToken) *APIToken {
 		Name:        t.Name,
 		Description: t.Description,
 		ProjectID:   t.ProjectID,
+		TenantID:    t.TenantID,
 		IsEnabled:   boolToInt(t.IsEnabled),
 		ExpiresAt:   toTimestampPtr(t.ExpiresAt),
 		LastUsedAt:  toTimestampPtr(t.LastUsedAt),
@@ -132,6 +140,7 @@ func (r *APITokenRepository) toDomain(m *APIToken) *domain.APIToken {
 		Name:        m.Name,
 		Description: m.Description,
 		ProjectID:   m.ProjectID,
+		TenantID:    m.TenantID,
 		IsEnabled:   m.IsEnabled == 1,
 		ExpiresAt:   fromTimestampPtr(m.ExpiresAt),
 		LastUsedAt:  fromTimestampPtr(m.LastUsedAt),

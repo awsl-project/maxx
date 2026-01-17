@@ -28,7 +28,8 @@ web/package.json.md5
 # Node.js
 node_modules/
 web/node_modules/
-web/dist/
+web/dist/*
+!web/dist/.placeholder
 web/wailsjs/runtime/
 web/src/wailsjs/
 

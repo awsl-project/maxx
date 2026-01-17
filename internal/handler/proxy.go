@@ -11,6 +11,7 @@ import (
 	ctxutil "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 )
 
@@ -19,6 +20,7 @@ type ProxyHandler struct {
 	clientAdapter *client.Adapter
 	executor      *executor.Executor
 	sessionRepo   *cached.SessionRepository
+	projectRepo   repository.ProjectRepository
 	tokenAuth     *TokenAuthMiddleware
 }
 
@@ -27,12 +29,14 @@ func NewProxyHandler(
 	clientAdapter *client.Adapter,
 	exec *executor.Executor,
 	sessionRepo *cached.SessionRepository,
+	projectRepo repository.ProjectRepository,
 	tokenAuth *TokenAuthMiddleware,
 ) *ProxyHandler {
 	return &ProxyHandler{
 		clientAdapter: clientAdapter,
 		executor:      exec,
 		sessionRepo:   sessionRepo,
+		projectRepo:   projectRepo,
 		tokenAuth:     tokenAuth,
 	}
 }
@@ -79,6 +83,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Token authentication (uses clientType for primary header, with fallback)
 	var apiToken *domain.APIToken
 	var apiTokenID uint64
+	var tenantID uint64
 	if h.tokenAuth != nil {
 		apiToken, err = h.tokenAuth.ValidateRequest(r, clientType)
 		if err != nil {
@@ -88,6 +93,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if apiToken != nil {
 			apiTokenID = apiToken.ID
+			tenantID = apiToken.TenantID
 			log.Printf("[Proxy] Token authenticated: id=%d, name=%s, projectID=%d", apiToken.ID, apiToken.Name, apiToken.ProjectID)
 		}
 	}
@@ -117,7 +123,7 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get or create session to get project ID
+	// Get or create session to get project and tenant ID
 	session, _ := h.sessionRepo.GetBySessionID(sessionID)
 	if session != nil {
 		// Priority: Session binding (Admin configured) > Token association > Header > 0
@@ -127,6 +133,9 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
 			projectID = apiToken.ProjectID
 			log.Printf("[Proxy] Using project ID from token: %d", projectID)
+		}
+		if session.TenantID > 0 {
+			tenantID = session.TenantID
 		}
 	} else {
 		// Create new session
@@ -139,10 +148,51 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			SessionID:  sessionID,
 			ClientType: clientType,
 			ProjectID:  projectID,
+			TenantID:   tenantID,
 		}
 		_ = h.sessionRepo.Create(session)
 	}
 
+	// Resolve project to enforce tenant isolation
+	if projectID > 0 {
+		project, err := h.projectRepo.GetByID(projectID)
+		if err != nil {
+			log.Printf("[Proxy] Project lookup failed for id=%d: %v", projectID, err)
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		projectTenant := project.TenantID
+		if projectTenant == 0 {
+			projectTenant = domain.DefaultTenantID
+		}
+		if apiToken != nil && tenantID != 0 && tenantID != projectTenant {
+			log.Printf("[Proxy] Tenant mismatch token=%d project=%d", tenantID, projectTenant)
+			writeError(w, http.StatusForbidden, "tenant mismatch for token/project")
+			return
+		}
+		tenantID = projectTenant
+	}
+
+	// Enforce token tenant when no project
+	if apiToken != nil && apiToken.TenantID > 0 && tenantID == 0 {
+		tenantID = apiToken.TenantID
+	}
+
+	// Ensure tenant is never zero
+	if tenantID == 0 {
+		tenantID = domain.DefaultTenantID
+	}
+
+	if session != nil {
+		// Persist resolved tenant/project binding for the session to keep future requests consistent.
+		if session.TenantID != tenantID || session.ProjectID != projectID {
+			session.TenantID = tenantID
+			session.ProjectID = projectID
+			_ = h.sessionRepo.Update(session)
+		}
+	}
+
+	ctx = ctxutil.WithTenantID(ctx, tenantID)
 	ctx = ctxutil.WithProjectID(ctx, projectID)
 
 	// Execute request (executor handles request recording, project binding, routing, etc.)

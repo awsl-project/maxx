@@ -25,6 +25,7 @@ const (
 	CtxKeyBroadcaster     contextKey = "broadcaster"
 	CtxKeyIsStream        contextKey = "is_stream"
 	CtxKeyAPITokenID      contextKey = "api_token_id"
+	CtxKeyTenantID        contextKey = "tenant_id"
 	CtxKeyEventChan       contextKey = "event_chan"
 )
 
@@ -39,6 +40,10 @@ func WithSessionID(ctx context.Context, sid string) context.Context {
 
 func WithProjectID(ctx context.Context, pid uint64) context.Context {
 	return context.WithValue(ctx, CtxKeyProjectID, pid)
+}
+
+func WithTenantID(ctx context.Context, tid uint64) context.Context {
+	return context.WithValue(ctx, CtxKeyTenantID, tid)
 }
 
 func WithRequestModel(ctx context.Context, model string) context.Context {
@@ -90,6 +95,13 @@ func GetSessionID(ctx context.Context) string {
 
 func GetProjectID(ctx context.Context) uint64 {
 	if v, ok := ctx.Value(CtxKeyProjectID).(uint64); ok {
+		return v
+	}
+	return 0
+}
+
+func GetTenantID(ctx context.Context) uint64 {
+	if v, ok := ctx.Value(CtxKeyTenantID).(uint64); ok {
 		return v
 	}
 	return 0

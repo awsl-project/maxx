@@ -20,6 +20,9 @@ func (r *ProjectRepository) Create(p *domain.Project) error {
 	now := time.Now()
 	p.CreatedAt = now
 	p.UpdatedAt = now
+	if p.TenantID == 0 {
+		p.TenantID = domain.DefaultTenantID
+	}
 
 	// Generate slug if not provided
 	if p.Slug == "" {
@@ -51,6 +54,9 @@ func (r *ProjectRepository) Create(p *domain.Project) error {
 
 func (r *ProjectRepository) Update(p *domain.Project) error {
 	p.UpdatedAt = time.Now()
+	if p.TenantID == 0 {
+		p.TenantID = domain.DefaultTenantID
+	}
 
 	// Check slug uniqueness (excluding current project and deleted projects)
 	if p.Slug != "" {
@@ -122,6 +128,7 @@ func (r *ProjectRepository) toModel(p *domain.Project) *Project {
 			},
 			DeletedAt: toTimestampPtr(p.DeletedAt),
 		},
+		TenantID:            p.TenantID,
 		Name:                p.Name,
 		Slug:                p.Slug,
 		EnabledCustomRoutes: toJSON(p.EnabledCustomRoutes),
@@ -134,6 +141,7 @@ func (r *ProjectRepository) toDomain(m *Project) *domain.Project {
 		CreatedAt:           fromTimestamp(m.CreatedAt),
 		UpdatedAt:           fromTimestamp(m.UpdatedAt),
 		DeletedAt:           fromTimestampPtr(m.DeletedAt),
+		TenantID:            m.TenantID,
 		Name:                m.Name,
 		Slug:                m.Slug,
 		EnabledCustomRoutes: fromJSON[[]domain.ClientType](m.EnabledCustomRoutes),

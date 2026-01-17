@@ -1,10 +1,12 @@
 package sqlite
 
 import (
+	"errors"
 	"log"
 	"sort"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/domain"
 	"gorm.io/gorm"
 )
 
@@ -18,7 +20,63 @@ type Migration struct {
 
 // 所有迁移按版本号注册
 // 注意：GORM AutoMigrate 会自动处理新增列，这里只需要处理特殊情况（重命名、数据迁移等）
-var migrations = []Migration{}
+var migrations = []Migration{
+	{
+		Version:     1,
+		Description: "seed default tenant and backfill tenant_id columns",
+		Up: func(db *gorm.DB) error {
+			if err := db.AutoMigrate(&Tenant{}, &Project{}, &APIToken{}, &Session{}, &Route{}, &RoutingStrategy{}, &ProxyRequest{}, &ProxyUpstreamAttempt{}, &UsageStats{}); err != nil {
+				return err
+			}
+
+			// Ensure default tenant exists
+			var defaultTenant Tenant
+			err := db.Where("slug = ?", domain.DefaultTenantSlug).First(&defaultTenant).Error
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					defaultTenant = Tenant{
+						Name:   "Default Tenant",
+						Slug:   domain.DefaultTenantSlug,
+						Status: "active",
+					}
+					if err := db.Create(&defaultTenant).Error; err != nil {
+						return err
+					}
+				} else {
+					return err
+				}
+			}
+
+			// Backfill tenant_id for existing data
+			targetID := defaultTenant.ID
+			if err := db.Model(&Project{}).Where("tenant_id = 0").Update("tenant_id", targetID).Error; err != nil {
+				return err
+			}
+			if err := db.Model(&APIToken{}).Where("tenant_id = 0").Update("tenant_id", targetID).Error; err != nil {
+				return err
+			}
+			if err := db.Model(&Session{}).Where("tenant_id = 0").Update("tenant_id", targetID).Error; err != nil {
+				return err
+			}
+			if err := db.Model(&Route{}).Where("tenant_id = 0").Update("tenant_id", targetID).Error; err != nil {
+				return err
+			}
+			if err := db.Model(&RoutingStrategy{}).Where("tenant_id = 0").Update("tenant_id", targetID).Error; err != nil {
+				return err
+			}
+			if err := db.Model(&ProxyRequest{}).Where("tenant_id = 0").Update("tenant_id", targetID).Error; err != nil {
+				return err
+			}
+			if err := db.Model(&ProxyUpstreamAttempt{}).Where("tenant_id = 0").Update("tenant_id", targetID).Error; err != nil {
+				return err
+			}
+			if err := db.Model(&UsageStats{}).Where("tenant_id = 0").Update("tenant_id", targetID).Error; err != nil {
+				return err
+			}
+			return nil
+		},
+	},
+}
 
 // RunMigrations 运行所有待执行的迁移
 func (d *DB) RunMigrations() error {

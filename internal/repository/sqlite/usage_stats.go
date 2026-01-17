@@ -49,6 +49,9 @@ func TruncateToGranularity(t time.Time, g domain.Granularity) time.Time {
 func (r *UsageStatsRepository) Upsert(stats *domain.UsageStats) error {
 	now := time.Now()
 	stats.CreatedAt = now
+	if stats.TenantID == 0 {
+		stats.TenantID = domain.DefaultTenantID
+	}
 
 	model := r.toModel(stats)
 	return r.db.gorm.Clauses(clause.OnConflict{
@@ -58,6 +61,7 @@ func (r *UsageStatsRepository) Upsert(stats *domain.UsageStats) error {
 			{Name: "route_id"},
 			{Name: "provider_id"},
 			{Name: "project_id"},
+			{Name: "tenant_id"},
 			{Name: "api_token_id"},
 			{Name: "client_type"},
 			{Name: "model"},
@@ -81,6 +85,9 @@ func (r *UsageStatsRepository) BatchUpsert(stats []*domain.UsageStats) error {
 	now := time.Now()
 	for _, s := range stats {
 		s.CreatedAt = now
+		if s.TenantID == 0 {
+			s.TenantID = domain.DefaultTenantID
+		}
 		if err := r.Upsert(s); err != nil {
 			return err
 		}
@@ -115,6 +122,10 @@ func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*dom
 	if filter.ProjectID != nil {
 		conditions = append(conditions, "project_id = ?")
 		args = append(args, *filter.ProjectID)
+	}
+	if filter.TenantID != nil {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, *filter.TenantID)
 	}
 	if filter.ClientType != nil {
 		conditions = append(conditions, "client_type = ?")
@@ -315,6 +326,10 @@ func (r *UsageStatsRepository) queryStatsInRange(granularity domain.Granularity,
 		conditions = append(conditions, "project_id = ?")
 		args = append(args, *filter.ProjectID)
 	}
+	if filter.TenantID != nil {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, *filter.TenantID)
+	}
 	if filter.ClientType != nil {
 		conditions = append(conditions, "client_type = ?")
 		args = append(args, *filter.ClientType)
@@ -347,6 +362,7 @@ func (r *UsageStatsRepository) aggregateToTargetBucket(
 		routeID    uint64
 		providerID uint64
 		projectID  uint64
+		tenantID   uint64
 		apiTokenID uint64
 		clientType string
 		model      string
@@ -355,7 +371,7 @@ func (r *UsageStatsRepository) aggregateToTargetBucket(
 	aggregated := make(map[dimKey]*domain.UsageStats)
 
 	for _, s := range stats {
-		key := dimKey{s.RouteID, s.ProviderID, s.ProjectID, s.APITokenID, s.ClientType, s.Model}
+		key := dimKey{s.RouteID, s.ProviderID, s.ProjectID, s.TenantID, s.APITokenID, s.ClientType, s.Model}
 		if existing, ok := aggregated[key]; ok {
 			existing.TotalRequests += s.TotalRequests
 			existing.SuccessfulRequests += s.SuccessfulRequests
@@ -373,6 +389,7 @@ func (r *UsageStatsRepository) aggregateToTargetBucket(
 				RouteID:            s.RouteID,
 				ProviderID:         s.ProviderID,
 				ProjectID:          s.ProjectID,
+				TenantID:           s.TenantID,
 				APITokenID:         s.APITokenID,
 				ClientType:         s.ClientType,
 				Model:              s.Model,
@@ -438,6 +455,10 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 		conditions = append(conditions, "r.project_id = ?")
 		args = append(args, *filter.ProjectID)
 	}
+	if filter.TenantID != nil {
+		conditions = append(conditions, "COALESCE(r.tenant_id, 0) = ?")
+		args = append(args, *filter.TenantID)
+	}
 	if filter.ClientType != nil {
 		conditions = append(conditions, "r.client_type = ?")
 		args = append(args, *filter.ClientType)
@@ -454,7 +475,7 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 	query := `
 		SELECT
 			COALESCE(r.route_id, 0), COALESCE(a.provider_id, 0),
-			COALESCE(r.project_id, 0), COALESCE(r.api_token_id, 0), COALESCE(r.client_type, ''),
+			COALESCE(r.project_id, 0), COALESCE(r.tenant_id, 0), COALESCE(r.api_token_id, 0), COALESCE(r.client_type, ''),
 			COALESCE(a.response_model, ''),
 			COUNT(*),
 			SUM(CASE WHEN a.status = 'COMPLETED' THEN 1 ELSE 0 END),
@@ -468,7 +489,7 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 		FROM proxy_upstream_attempts a
 		LEFT JOIN proxy_requests r ON a.proxy_request_id = r.id
 		WHERE ` + strings.Join(conditions, " AND ") + `
-		GROUP BY r.route_id, a.provider_id, r.project_id, r.api_token_id, r.client_type, a.response_model
+		GROUP BY r.route_id, a.provider_id, r.project_id, r.tenant_id, r.api_token_id, r.client_type, a.response_model
 	`
 
 	rows, err := r.db.gorm.Raw(query, args...).Rows()
@@ -484,7 +505,7 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 			Granularity: domain.GranularityMinute,
 		}
 		err := rows.Scan(
-			&s.RouteID, &s.ProviderID, &s.ProjectID, &s.APITokenID, &s.ClientType,
+			&s.RouteID, &s.ProviderID, &s.ProjectID, &s.TenantID, &s.APITokenID, &s.ClientType,
 			&s.Model,
 			&s.TotalRequests, &s.SuccessfulRequests, &s.FailedRequests, &s.TotalDurationMs,
 			&s.InputTokens, &s.OutputTokens, &s.CacheRead, &s.CacheWrite, &s.Cost,
@@ -524,6 +545,10 @@ func (r *UsageStatsRepository) GetSummary(filter repository.UsageStatsFilter) (*
 	if filter.ProjectID != nil {
 		conditions = append(conditions, "project_id = ?")
 		args = append(args, *filter.ProjectID)
+	}
+	if filter.TenantID != nil {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, *filter.TenantID)
 	}
 	if filter.ClientType != nil {
 		conditions = append(conditions, "client_type = ?")
@@ -614,6 +639,10 @@ func (r *UsageStatsRepository) getSummaryByDimension(filter repository.UsageStat
 		conditions = append(conditions, "project_id = ?")
 		args = append(args, *filter.ProjectID)
 	}
+	if filter.TenantID != nil {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, *filter.TenantID)
+	}
 	if filter.ClientType != nil {
 		conditions = append(conditions, "client_type = ?")
 		args = append(args, *filter.ClientType)
@@ -697,6 +726,10 @@ func (r *UsageStatsRepository) GetSummaryByClientType(filter repository.UsageSta
 	if filter.ProjectID != nil {
 		conditions = append(conditions, "project_id = ?")
 		args = append(args, *filter.ProjectID)
+	}
+	if filter.TenantID != nil {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, *filter.TenantID)
 	}
 	if filter.ClientType != nil {
 		conditions = append(conditions, "client_type = ?")
@@ -1347,6 +1380,7 @@ func (r *UsageStatsRepository) toModel(s *domain.UsageStats) *UsageStats {
 		RouteID:            s.RouteID,
 		ProviderID:         s.ProviderID,
 		ProjectID:          s.ProjectID,
+		TenantID:           s.TenantID,
 		APITokenID:         s.APITokenID,
 		ClientType:         s.ClientType,
 		Model:              s.Model,
@@ -1371,6 +1405,7 @@ func (r *UsageStatsRepository) toDomain(m *UsageStats) *domain.UsageStats {
 		RouteID:            m.RouteID,
 		ProviderID:         m.ProviderID,
 		ProjectID:          m.ProjectID,
+		TenantID:           m.TenantID,
 		APITokenID:         m.APITokenID,
 		ClientType:         m.ClientType,
 		Model:              m.Model,

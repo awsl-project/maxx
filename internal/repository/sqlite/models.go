@@ -111,6 +111,16 @@ func (j *JSONSlice[T]) Scan(value any) error {
 
 // ==================== Entity Models ====================
 
+// Tenant model
+type Tenant struct {
+	SoftDeleteModel
+	Name   string `gorm:"not null"`
+	Slug   string `gorm:"not null;uniqueIndex"`
+	Status string `gorm:"not null;default:'active'"` // active/suspended
+}
+
+func (Tenant) TableName() string { return "tenants" }
+
 // Provider model
 type Provider struct {
 	SoftDeleteModel
@@ -125,8 +135,9 @@ func (Provider) TableName() string { return "providers" }
 // Project model
 type Project struct {
 	SoftDeleteModel
+	TenantID            uint64 `gorm:"default:0;index"`
 	Name                string `gorm:"not null"`
-	Slug                string `gorm:"not null;default:''"`
+	Slug                string `gorm:"not null;default:'';index"`
 	EnabledCustomRoutes string `gorm:"type:text"`
 }
 
@@ -137,6 +148,7 @@ type Session struct {
 	SoftDeleteModel
 	SessionID  string `gorm:"type:varchar(255);not null;uniqueIndex"`
 	ClientType string `gorm:"not null"`
+	TenantID   uint64 `gorm:"default:0;index"`
 	ProjectID  uint64 `gorm:"default:0"`
 	RejectedAt int64  `gorm:"default:0"`
 }
@@ -149,6 +161,7 @@ type Route struct {
 	IsEnabled     int    `gorm:"default:1"`
 	IsNative      int    `gorm:"default:1"`
 	ProjectID     uint64 `gorm:"default:0"`
+	TenantID      uint64 `gorm:"default:0;index"`
 	ClientType    string `gorm:"not null"`
 	ProviderID    uint64 `gorm:"not null"`
 	Position      int    `gorm:"default:0"`
@@ -174,6 +187,7 @@ func (RetryConfig) TableName() string { return "retry_configs" }
 type RoutingStrategy struct {
 	SoftDeleteModel
 	ProjectID uint64 `gorm:"default:0"`
+	TenantID  uint64 `gorm:"default:0;index"`
 	Type      string `gorm:"not null"`
 	Config    string `gorm:"type:text"`
 }
@@ -188,6 +202,7 @@ type APIToken struct {
 	Name        string `gorm:"not null"`
 	Description string `gorm:"default:''"`
 	ProjectID   uint64 `gorm:"default:0"`
+	TenantID    uint64 `gorm:"default:0;index"`
 	IsEnabled   int    `gorm:"default:1"`
 	ExpiresAt   int64  `gorm:"default:0"`
 	LastUsedAt  int64  `gorm:"default:0"`
@@ -259,6 +274,7 @@ type ProxyRequest struct {
 	IsStream                    int    `gorm:"default:0"`
 	StatusCode                  int    `gorm:"default:0"`
 	ProjectID                   uint64 `gorm:"default:0"`
+	TenantID                    uint64 `gorm:"default:0;index"`
 	APITokenID                  uint64 `gorm:"default:0"`
 }
 
@@ -281,6 +297,7 @@ type ProxyUpstreamAttempt struct {
 	Cache1hWriteCount uint64 `gorm:"column:cache_1h_write_count;default:0"`
 	Cost              uint64 `gorm:"default:0"`
 	IsStream          int    `gorm:"default:0"`
+	TenantID          uint64 `gorm:"default:0;index"`
 	StartTime         int64  `gorm:"default:0"`
 	EndTime           int64  `gorm:"default:0"`
 	DurationMs        int64  `gorm:"default:0"`
@@ -333,6 +350,7 @@ type UsageStats struct {
 	RouteID            uint64 `gorm:"default:0;uniqueIndex:idx_usage_stats_unique;index:idx_usage_stats_route_id"`
 	ProviderID         uint64 `gorm:"default:0;uniqueIndex:idx_usage_stats_unique;index:idx_usage_stats_provider_id"`
 	ProjectID          uint64 `gorm:"default:0;uniqueIndex:idx_usage_stats_unique;index:idx_usage_stats_project_id"`
+	TenantID           uint64 `gorm:"default:0;uniqueIndex:idx_usage_stats_unique;index:idx_usage_stats_tenant_id"`
 	APITokenID         uint64 `gorm:"default:0;uniqueIndex:idx_usage_stats_unique;index:idx_usage_stats_api_token_id"`
 	ClientType         string `gorm:"type:varchar(64);default:'';uniqueIndex:idx_usage_stats_unique"`
 	Model              string `gorm:"type:varchar(128);default:'';uniqueIndex:idx_usage_stats_unique;index:idx_usage_stats_model"`
@@ -374,6 +392,7 @@ func (SchemaMigration) TableName() string { return "schema_migrations" }
 // AllModels returns all GORM models for auto-migration
 func AllModels() []any {
 	return []any{
+		&Tenant{},
 		&Provider{},
 		&Project{},
 		&Session{},

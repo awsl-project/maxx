@@ -33,6 +33,9 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	now := time.Now()
 	p.CreatedAt = now
 	p.UpdatedAt = now
+	if p.TenantID == 0 {
+		p.TenantID = domain.DefaultTenantID
+	}
 
 	model := r.toModel(p)
 	if err := r.db.gorm.Create(model).Error; err != nil {
@@ -48,6 +51,9 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 
 func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	p.UpdatedAt = time.Now()
+	if p.TenantID == 0 {
+		p.TenantID = domain.DefaultTenantID
+	}
 	model := r.toModel(p)
 	return r.db.gorm.Save(model).Error
 }
@@ -78,7 +84,7 @@ func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest
 func (r *ProxyRequestRepository) ListCursor(limit int, before, after uint64) ([]*domain.ProxyRequest, error) {
 	// 使用 Select 排除大字段
 	query := r.db.gorm.Model(&ProxyRequest{}).
-		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id")
+		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, tenant_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id")
 
 	if after > 0 {
 		query = query.Where("id > ?", after)
@@ -128,10 +134,12 @@ func (r *ProxyRequestRepository) MarkStaleAsFailed(currentInstanceID string) (in
 // UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 func (r *ProxyRequestRepository) UpdateProjectIDBySessionID(sessionID string, projectID uint64) (int64, error) {
 	now := time.Now().UnixMilli()
+	tenantExpr := gorm.Expr("(SELECT tenant_id FROM projects WHERE id = ?)", projectID)
 	result := r.db.gorm.Model(&ProxyRequest{}).
 		Where("session_id = ?", sessionID).
 		Updates(map[string]any{
 			"project_id": projectID,
+			"tenant_id":  tenantExpr,
 			"updated_at": now,
 		})
 	if result.Error != nil {
@@ -181,34 +189,35 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 			CreatedAt: toTimestamp(p.CreatedAt),
 			UpdatedAt: toTimestamp(p.UpdatedAt),
 		},
-		InstanceID:                 p.InstanceID,
-		RequestID:                  p.RequestID,
-		SessionID:                  p.SessionID,
-		ClientType:                 string(p.ClientType),
-		RequestModel:               p.RequestModel,
-		ResponseModel:              p.ResponseModel,
-		StartTime:                  toTimestamp(p.StartTime),
-		EndTime:                    toTimestamp(p.EndTime),
-		DurationMs:                 p.Duration.Milliseconds(),
-		IsStream:                   boolToInt(p.IsStream),
-		Status:                     p.Status,
-		StatusCode:                 p.StatusCode,
-		RequestInfo:                toJSON(p.RequestInfo),
-		ResponseInfo:               toJSON(p.ResponseInfo),
-		Error:                      p.Error,
-		ProxyUpstreamAttemptCount:  p.ProxyUpstreamAttemptCount,
+		InstanceID:                  p.InstanceID,
+		RequestID:                   p.RequestID,
+		SessionID:                   p.SessionID,
+		ClientType:                  string(p.ClientType),
+		RequestModel:                p.RequestModel,
+		ResponseModel:               p.ResponseModel,
+		StartTime:                   toTimestamp(p.StartTime),
+		EndTime:                     toTimestamp(p.EndTime),
+		DurationMs:                  p.Duration.Milliseconds(),
+		IsStream:                    boolToInt(p.IsStream),
+		Status:                      p.Status,
+		StatusCode:                  p.StatusCode,
+		RequestInfo:                 toJSON(p.RequestInfo),
+		ResponseInfo:                toJSON(p.ResponseInfo),
+		Error:                       p.Error,
+		ProxyUpstreamAttemptCount:   p.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,
-		RouteID:                    p.RouteID,
-		ProviderID:                 p.ProviderID,
-		ProjectID:                  p.ProjectID,
-		InputTokenCount:            p.InputTokenCount,
-		OutputTokenCount:           p.OutputTokenCount,
-		CacheReadCount:             p.CacheReadCount,
-		CacheWriteCount:            p.CacheWriteCount,
-		Cache5mWriteCount:          p.Cache5mWriteCount,
-		Cache1hWriteCount:          p.Cache1hWriteCount,
-		Cost:                       p.Cost,
-		APITokenID:                 p.APITokenID,
+		RouteID:                     p.RouteID,
+		ProviderID:                  p.ProviderID,
+		ProjectID:                   p.ProjectID,
+		TenantID:                    p.TenantID,
+		InputTokenCount:             p.InputTokenCount,
+		OutputTokenCount:            p.OutputTokenCount,
+		CacheReadCount:              p.CacheReadCount,
+		CacheWriteCount:             p.CacheWriteCount,
+		Cache5mWriteCount:           p.Cache5mWriteCount,
+		Cache1hWriteCount:           p.Cache1hWriteCount,
+		Cost:                        p.Cost,
+		APITokenID:                  p.APITokenID,
 	}
 }
 
@@ -237,6 +246,7 @@ func (r *ProxyRequestRepository) toDomain(m *ProxyRequest) *domain.ProxyRequest 
 		RouteID:                     m.RouteID,
 		ProviderID:                  m.ProviderID,
 		ProjectID:                   m.ProjectID,
+		TenantID:                    m.TenantID,
 		InputTokenCount:             m.InputTokenCount,
 		OutputTokenCount:            m.OutputTokenCount,
 		CacheReadCount:              m.CacheReadCount,

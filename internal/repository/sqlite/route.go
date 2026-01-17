@@ -20,6 +20,9 @@ func (r *RouteRepository) Create(route *domain.Route) error {
 	now := time.Now()
 	route.CreatedAt = now
 	route.UpdatedAt = now
+	if route.TenantID == 0 {
+		route.TenantID = domain.DefaultTenantID
+	}
 
 	model := r.toModel(route)
 	if err := r.db.gorm.Create(model).Error; err != nil {
@@ -31,6 +34,9 @@ func (r *RouteRepository) Create(route *domain.Route) error {
 
 func (r *RouteRepository) Update(route *domain.Route) error {
 	route.UpdatedAt = time.Now()
+	if route.TenantID == 0 {
+		route.TenantID = domain.DefaultTenantID
+	}
 	model := r.toModel(route)
 	return r.db.gorm.Save(model).Error
 }
@@ -122,6 +128,7 @@ func (r *RouteRepository) toModel(route *domain.Route) *Route {
 		IsEnabled:     isEnabled,
 		IsNative:      isNative,
 		ProjectID:     route.ProjectID,
+		TenantID:      route.TenantID,
 		ClientType:    string(route.ClientType),
 		ProviderID:    route.ProviderID,
 		Position:      route.Position,
@@ -138,6 +145,7 @@ func (r *RouteRepository) toDomain(m *Route) *domain.Route {
 		IsEnabled:     m.IsEnabled == 1,
 		IsNative:      m.IsNative == 1,
 		ProjectID:     m.ProjectID,
+		TenantID:      m.TenantID,
 		ClientType:    domain.ClientType(m.ClientType),
 		ProviderID:    m.ProviderID,
 		Position:      m.Position,

@@ -30,31 +30,31 @@ type DatabaseConfig struct {
 
 // DatabaseRepos 包含所有数据库仓库
 type DatabaseRepos struct {
-	DB                       *sqlite.DB
-	ProviderRepo             repository.ProviderRepository
-	RouteRepo                repository.RouteRepository
-	ProjectRepo              repository.ProjectRepository
-	SessionRepo              repository.SessionRepository
-	RetryConfigRepo          repository.RetryConfigRepository
+	DB                        *sqlite.DB
+	ProviderRepo              repository.ProviderRepository
+	RouteRepo                 repository.RouteRepository
+	ProjectRepo               repository.ProjectRepository
+	SessionRepo               repository.SessionRepository
+	RetryConfigRepo           repository.RetryConfigRepository
 	RoutingStrategyRepo       repository.RoutingStrategyRepository
-	ProxyRequestRepo         repository.ProxyRequestRepository
-	AttemptRepo              repository.ProxyUpstreamAttemptRepository
-	SettingRepo              repository.SystemSettingRepository
-	AntigravityQuotaRepo     repository.AntigravityQuotaRepository
-	CooldownRepo             repository.CooldownRepository
-	FailureCountRepo         repository.FailureCountRepository
+	ProxyRequestRepo          repository.ProxyRequestRepository
+	AttemptRepo               repository.ProxyUpstreamAttemptRepository
+	SettingRepo               repository.SystemSettingRepository
+	AntigravityQuotaRepo      repository.AntigravityQuotaRepository
+	CooldownRepo              repository.CooldownRepository
+	FailureCountRepo          repository.FailureCountRepository
 	CachedProviderRepo        *cached.ProviderRepository
-	CachedRouteRepo          *cached.RouteRepository
-	CachedRetryConfigRepo    *cached.RetryConfigRepository
+	CachedRouteRepo           *cached.RouteRepository
+	CachedRetryConfigRepo     *cached.RetryConfigRepository
 	CachedRoutingStrategyRepo *cached.RoutingStrategyRepository
-	CachedSessionRepo        *cached.SessionRepository
-	CachedProjectRepo        *cached.ProjectRepository
-	APITokenRepo             repository.APITokenRepository
-	CachedAPITokenRepo       *cached.APITokenRepository
-	ModelMappingRepo         repository.ModelMappingRepository
-	CachedModelMappingRepo   *cached.ModelMappingRepository
-	UsageStatsRepo           repository.UsageStatsRepository
-	ResponseModelRepo        repository.ResponseModelRepository
+	CachedSessionRepo         *cached.SessionRepository
+	CachedProjectRepo         *cached.ProjectRepository
+	APITokenRepo              repository.APITokenRepository
+	CachedAPITokenRepo        *cached.APITokenRepository
+	ModelMappingRepo          repository.ModelMappingRepository
+	CachedModelMappingRepo    *cached.ModelMappingRepository
+	UsageStatsRepo            repository.UsageStatsRepository
+	ResponseModelRepo         repository.ResponseModelRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
@@ -118,31 +118,31 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	cachedModelMappingRepo := cached.NewModelMappingRepository(modelMappingRepo)
 
 	repos := &DatabaseRepos{
-		DB:                       db,
-		ProviderRepo:             providerRepo,
-		RouteRepo:                routeRepo,
-		ProjectRepo:              projectRepo,
-		SessionRepo:              sessionRepo,
-		RetryConfigRepo:          retryConfigRepo,
+		DB:                        db,
+		ProviderRepo:              providerRepo,
+		RouteRepo:                 routeRepo,
+		ProjectRepo:               projectRepo,
+		SessionRepo:               sessionRepo,
+		RetryConfigRepo:           retryConfigRepo,
 		RoutingStrategyRepo:       routingStrategyRepo,
-		ProxyRequestRepo:         proxyRequestRepo,
-		AttemptRepo:              attemptRepo,
-		SettingRepo:              settingRepo,
-		AntigravityQuotaRepo:     antigravityQuotaRepo,
-		CooldownRepo:             cooldownRepo,
-		FailureCountRepo:         failureCountRepo,
+		ProxyRequestRepo:          proxyRequestRepo,
+		AttemptRepo:               attemptRepo,
+		SettingRepo:               settingRepo,
+		AntigravityQuotaRepo:      antigravityQuotaRepo,
+		CooldownRepo:              cooldownRepo,
+		FailureCountRepo:          failureCountRepo,
 		CachedProviderRepo:        cachedProviderRepo,
-		CachedRouteRepo:          cachedRouteRepo,
-		CachedRetryConfigRepo:    cachedRetryConfigRepo,
+		CachedRouteRepo:           cachedRouteRepo,
+		CachedRetryConfigRepo:     cachedRetryConfigRepo,
 		CachedRoutingStrategyRepo: cachedRoutingStrategyRepo,
-		CachedSessionRepo:        cachedSessionRepo,
-		CachedProjectRepo:        cachedProjectRepo,
-		APITokenRepo:             apiTokenRepo,
-		CachedAPITokenRepo:       cachedAPITokenRepo,
-		ModelMappingRepo:         modelMappingRepo,
-		CachedModelMappingRepo:   cachedModelMappingRepo,
-		UsageStatsRepo:           usageStatsRepo,
-		ResponseModelRepo:        responseModelRepo,
+		CachedSessionRepo:         cachedSessionRepo,
+		CachedProjectRepo:         cachedProjectRepo,
+		APITokenRepo:              apiTokenRepo,
+		CachedAPITokenRepo:        cachedAPITokenRepo,
+		ModelMappingRepo:          modelMappingRepo,
+		CachedModelMappingRepo:    cachedModelMappingRepo,
+		UsageStatsRepo:            usageStatsRepo,
+		ResponseModelRepo:         responseModelRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -279,7 +279,7 @@ func InitializeServerComponents(
 
 	log.Printf("[Core] Creating handlers")
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(repos.CachedAPITokenRepo, repos.SettingRepo)
-	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo, tokenAuthMiddleware)
+	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo, repos.CachedProjectRepo, tokenAuthMiddleware)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
 	kiroHandler := handler.NewKiroHandler(adminService)

@@ -20,6 +20,9 @@ func (r *RoutingStrategyRepository) Create(s *domain.RoutingStrategy) error {
 	now := time.Now()
 	s.CreatedAt = now
 	s.UpdatedAt = now
+	if s.TenantID == 0 {
+		s.TenantID = domain.DefaultTenantID
+	}
 
 	model := r.toModel(s)
 	if err := r.db.gorm.Create(model).Error; err != nil {
@@ -31,6 +34,9 @@ func (r *RoutingStrategyRepository) Create(s *domain.RoutingStrategy) error {
 
 func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
 	s.UpdatedAt = time.Now()
+	if s.TenantID == 0 {
+		s.TenantID = domain.DefaultTenantID
+	}
 	model := r.toModel(s)
 	return r.db.gorm.Save(model).Error
 }
@@ -75,6 +81,7 @@ func (r *RoutingStrategyRepository) toModel(s *domain.RoutingStrategy) *RoutingS
 			DeletedAt: toTimestampPtr(s.DeletedAt),
 		},
 		ProjectID: s.ProjectID,
+		TenantID:  s.TenantID,
 		Type:      string(s.Type),
 		Config:    toJSON(s.Config),
 	}
@@ -87,6 +94,7 @@ func (r *RoutingStrategyRepository) toDomain(m *RoutingStrategy) *domain.Routing
 		UpdatedAt: fromTimestamp(m.UpdatedAt),
 		DeletedAt: fromTimestampPtr(m.DeletedAt),
 		ProjectID: m.ProjectID,
+		TenantID:  m.TenantID,
 		Type:      domain.RoutingStrategyType(m.Type),
 		Config:    fromJSON[*domain.RoutingStrategyConfig](m.Config),
 	}

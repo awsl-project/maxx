@@ -18,6 +18,9 @@ func (r *ProxyUpstreamAttemptRepository) Create(a *domain.ProxyUpstreamAttempt) 
 	now := time.Now()
 	a.CreatedAt = now
 	a.UpdatedAt = now
+	if a.TenantID == 0 {
+		a.TenantID = domain.DefaultTenantID
+	}
 
 	model := r.toModel(a)
 	if err := r.db.gorm.Create(model).Error; err != nil {
@@ -29,6 +32,9 @@ func (r *ProxyUpstreamAttemptRepository) Create(a *domain.ProxyUpstreamAttempt) 
 
 func (r *ProxyUpstreamAttemptRepository) Update(a *domain.ProxyUpstreamAttempt) error {
 	a.UpdatedAt = time.Now()
+	if a.TenantID == 0 {
+		a.TenantID = domain.DefaultTenantID
+	}
 	model := r.toModel(a)
 	return r.db.gorm.Save(model).Error
 }
@@ -61,6 +67,7 @@ func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt)
 		ResponseInfo:      toJSON(a.ResponseInfo),
 		RouteID:           a.RouteID,
 		ProviderID:        a.ProviderID,
+		TenantID:          a.TenantID,
 		InputTokenCount:   a.InputTokenCount,
 		OutputTokenCount:  a.OutputTokenCount,
 		CacheReadCount:    a.CacheReadCount,
@@ -89,6 +96,7 @@ func (r *ProxyUpstreamAttemptRepository) toDomain(m *ProxyUpstreamAttempt) *doma
 		ResponseInfo:      fromJSON[*domain.ResponseInfo](m.ResponseInfo),
 		RouteID:           m.RouteID,
 		ProviderID:        m.ProviderID,
+		TenantID:          m.TenantID,
 		InputTokenCount:   m.InputTokenCount,
 		OutputTokenCount:  m.OutputTokenCount,
 		CacheReadCount:    m.CacheReadCount,

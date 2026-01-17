@@ -266,8 +266,20 @@ func (s *AdminService) UpdateSessionProject(sessionID string, projectID uint64) 
 		return nil, err
 	}
 
+	var tenantID uint64
+	if projectID > 0 {
+		project, err := s.projectRepo.GetByID(projectID)
+		if err != nil {
+			return nil, err
+		}
+		tenantID = project.TenantID
+	}
+
 	// Update session's projectID
 	session.ProjectID = projectID
+	if tenantID > 0 {
+		session.TenantID = tenantID
+	}
 	if err := s.sessionRepo.Update(session); err != nil {
 		return nil, err
 	}
@@ -532,11 +544,29 @@ func (s *AdminService) GetAPIToken(id uint64) (*domain.APIToken, error) {
 }
 
 // CreateAPIToken creates a new API token and returns the plain token (only shown once)
-func (s *AdminService) CreateAPIToken(name, description string, projectID uint64, expiresAt *time.Time) (*domain.APITokenCreateResult, error) {
+func (s *AdminService) CreateAPIToken(name, description string, projectID uint64, tenantID uint64, expiresAt *time.Time) (*domain.APITokenCreateResult, error) {
 	// Generate token
 	plain, prefix, err := generateAPIToken()
 	if err != nil {
 		return nil, err
+	}
+
+	if tenantID == 0 {
+		if !s.isMultiTenantEnabled() {
+			tenantID = domain.DefaultTenantID
+		} else {
+			return nil, fmt.Errorf("tenantID is required")
+		}
+	}
+
+	if projectID > 0 {
+		project, err := s.projectRepo.GetByID(projectID)
+		if err != nil {
+			return nil, err
+		}
+		if project.TenantID != tenantID {
+			return nil, fmt.Errorf("project tenant mismatch")
+		}
 	}
 
 	token := &domain.APIToken{
@@ -545,6 +575,7 @@ func (s *AdminService) CreateAPIToken(name, description string, projectID uint64
 		Name:        name,
 		Description: description,
 		ProjectID:   projectID,
+		TenantID:    tenantID,
 		IsEnabled:   true,
 		ExpiresAt:   expiresAt,
 	}
@@ -560,7 +591,31 @@ func (s *AdminService) CreateAPIToken(name, description string, projectID uint64
 }
 
 func (s *AdminService) UpdateAPIToken(token *domain.APIToken) error {
+	if token.TenantID == 0 {
+		if !s.isMultiTenantEnabled() {
+			token.TenantID = domain.DefaultTenantID
+		} else {
+			return fmt.Errorf("tenantID is required")
+		}
+	}
+	if token.ProjectID > 0 {
+		project, err := s.projectRepo.GetByID(token.ProjectID)
+		if err != nil {
+			return err
+		}
+		if project.TenantID != token.TenantID {
+			return fmt.Errorf("project tenant mismatch")
+		}
+	}
 	return s.apiTokenRepo.Update(token)
+}
+
+func (s *AdminService) isMultiTenantEnabled() bool {
+	val, err := s.settingRepo.Get(domain.SettingKeyMultiTenantEnabled)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(val, "true")
 }
 
 func (s *AdminService) DeleteAPIToken(id uint64) error {
@@ -638,7 +693,7 @@ func (s *AdminService) ResetModelMappingsToDefaults() error {
 // GetAvailableClientTypes returns all available client types for model mapping
 func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 	return []domain.ClientType{
-		"",                       // Empty means applies to all
+		"", // Empty means applies to all
 		domain.ClientTypeClaude,
 		domain.ClientTypeOpenAI,
 		domain.ClientTypeGemini,

@@ -234,7 +234,7 @@ func main() {
 	}
 
 	// Create handlers
-	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, cachedSessionRepo, tokenAuthMiddleware)
+	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, cachedSessionRepo, cachedProjectRepo, tokenAuthMiddleware)
 	adminHandler := handler.NewAdminHandler(adminService, logPath)
 	authHandler := handler.NewAuthHandler(authMiddleware)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)

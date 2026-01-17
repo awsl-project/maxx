@@ -20,6 +20,9 @@ func (r *SessionRepository) Create(s *domain.Session) error {
 	now := time.Now()
 	s.CreatedAt = now
 	s.UpdatedAt = now
+	if s.TenantID == 0 {
+		s.TenantID = domain.DefaultTenantID
+	}
 
 	model := r.toModel(s)
 	if err := r.db.gorm.Create(model).Error; err != nil {
@@ -31,6 +34,9 @@ func (r *SessionRepository) Create(s *domain.Session) error {
 
 func (r *SessionRepository) Update(s *domain.Session) error {
 	s.UpdatedAt = time.Now()
+	if s.TenantID == 0 {
+		s.TenantID = domain.DefaultTenantID
+	}
 	model := r.toModel(s)
 	return r.db.gorm.Save(model).Error
 }
@@ -81,6 +87,7 @@ func (r *SessionRepository) toModel(s *domain.Session) *Session {
 		},
 		SessionID:  s.SessionID,
 		ClientType: string(s.ClientType),
+		TenantID:   s.TenantID,
 		ProjectID:  s.ProjectID,
 		RejectedAt: toTimestampPtr(s.RejectedAt),
 	}
@@ -94,6 +101,7 @@ func (r *SessionRepository) toDomain(m *Session) *domain.Session {
 		DeletedAt:  fromTimestampPtr(m.DeletedAt),
 		SessionID:  m.SessionID,
 		ClientType: domain.ClientType(m.ClientType),
+		TenantID:   m.TenantID,
 		ProjectID:  m.ProjectID,
 		RejectedAt: fromTimestampPtr(m.RejectedAt),
 	}

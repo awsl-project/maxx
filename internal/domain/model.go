@@ -72,6 +72,25 @@ type ProviderConfig struct {
 	Kiro        *ProviderConfigKiro        `json:"kiro,omitempty"`
 }
 
+// Tenant 租户
+type Tenant struct {
+	ID        uint64    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	Name   string `json:"name"`
+	Slug   string `json:"slug"`
+	Status string `json:"status"` // active / suspended
+}
+
+const (
+	DefaultTenantID   uint64 = 1
+	DefaultTenantSlug        = "default"
+)
+
 // Provider 供应商
 type Provider struct {
 	ID        uint64    `json:"id"`
@@ -103,8 +122,9 @@ type Project struct {
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 
-	Name string `json:"name"`
-	Slug string `json:"slug"`
+	TenantID uint64 `json:"tenantId"`
+	Name     string `json:"name"`
+	Slug     string `json:"slug"`
 
 	// 启用自定义路由的 ClientType 列表，空数组表示所有 ClientType 都使用全局路由
 	EnabledCustomRoutes []ClientType `json:"enabledCustomRoutes"`
@@ -123,6 +143,9 @@ type Session struct {
 
 	// 0 表示没有项目
 	ProjectID uint64 `json:"projectID"`
+
+	// 租户 ID（从 Project 继承）
+	TenantID uint64 `json:"tenantId"`
 
 	// RejectedAt 记录会话被拒绝的时间，nil 表示未被拒绝
 	RejectedAt *time.Time `json:"rejectedAt,omitempty"`
@@ -145,6 +168,7 @@ type Route struct {
 
 	// 0 表示没有项目即全局
 	ProjectID  uint64     `json:"projectID"`
+	TenantID   uint64     `json:"tenantId"`
 	ClientType ClientType `json:"clientType"`
 	ProviderID uint64     `json:"providerID"`
 
@@ -216,6 +240,7 @@ type ProxyRequest struct {
 	RouteID    uint64 `json:"routeID"`
 	ProviderID uint64 `json:"providerID"`
 	ProjectID  uint64 `json:"projectID"`
+	TenantID   uint64 `json:"tenantId"`
 
 	// Token 使用情况
 	InputTokenCount  uint64 `json:"inputTokenCount"`
@@ -269,6 +294,7 @@ type ProxyUpstreamAttempt struct {
 
 	RouteID    uint64 `json:"routeID"`
 	ProviderID uint64 `json:"providerID"`
+	TenantID   uint64 `json:"tenantId"`
 
 	// Token 使用情况
 	InputTokenCount  uint64 `json:"inputTokenCount"`
@@ -342,6 +368,7 @@ type RoutingStrategy struct {
 
 	// 0 表示全局策略
 	ProjectID uint64 `json:"projectID"`
+	TenantID  uint64 `json:"tenantId"`
 
 	// 策略类型
 	Type RoutingStrategyType `json:"type"`
@@ -362,6 +389,7 @@ type SystemSetting struct {
 const (
 	SettingKeyProxyPort             = "proxy_port"              // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours = "request_retention_hours" // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyMultiTenantEnabled    = "multi_tenant_enabled"    // 是否启用多租户，默认 false（单租户）
 )
 
 // Antigravity 模型配额
@@ -407,10 +435,10 @@ type ProviderStats struct {
 	ProviderID uint64 `json:"providerID"`
 
 	// 请求统计
-	TotalRequests     uint64  `json:"totalRequests"`
+	TotalRequests      uint64  `json:"totalRequests"`
 	SuccessfulRequests uint64  `json:"successfulRequests"`
-	FailedRequests    uint64  `json:"failedRequests"`
-	SuccessRate       float64 `json:"successRate"` // 0-100
+	FailedRequests     uint64  `json:"failedRequests"`
+	SuccessRate        float64 `json:"successRate"` // 0-100
 
 	// 活动请求（正在处理中）
 	ActiveRequests uint64 `json:"activeRequests"`
@@ -449,6 +477,7 @@ type UsageStats struct {
 	RouteID    uint64 `json:"routeId"`    // 路由 ID，0 表示未知
 	ProviderID uint64 `json:"providerId"` // Provider ID
 	ProjectID  uint64 `json:"projectId"`  // 项目 ID，0 表示未知
+	TenantID   uint64 `json:"tenantId"`   // 租户 ID，0 表示未知
 	APITokenID uint64 `json:"apiTokenId"` // API Token ID，0 表示未知
 	ClientType string `json:"clientType"` // 客户端类型
 	Model      string `json:"model"`      // 请求的模型名称
@@ -500,6 +529,9 @@ type APIToken struct {
 
 	// 关联的项目 ID，0 表示使用全局路由
 	ProjectID uint64 `json:"projectID"`
+
+	// 租户 ID（与项目对齐）
+	TenantID uint64 `json:"tenantId"`
 
 	// 是否启用
 	IsEnabled bool `json:"isEnabled"`
