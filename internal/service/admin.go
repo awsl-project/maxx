@@ -431,16 +431,9 @@ type ProxyStatus struct {
 }
 
 func (s *AdminService) GetProxyStatus(r *http.Request) *ProxyStatus {
-	addr := s.serverAddr
-	port := 9880 // default
-	if idx := strings.LastIndex(addr, ":"); idx >= 0 {
-		if p, err := strconv.Atoi(addr[idx+1:]); err == nil {
-			port = p
-		}
-	}
-
 	// 获取真实的访问地址
-	// 优先使用 X-Forwarded-Host (反向代理场景)
+	// 优先使用 X-Forwarded-Host (反向代理场景)，否则使用 r.Host
+	// r.Host 已经包含了正确的 host:port 格式（标准端口不带端口号）
 	displayAddr := r.Header.Get("X-Forwarded-Host")
 	if displayAddr == "" {
 		displayAddr = r.Host
@@ -448,38 +441,35 @@ func (s *AdminService) GetProxyStatus(r *http.Request) *ProxyStatus {
 	// X-Forwarded-Host 可能包含多个值（逗号分隔），取第一个
 	displayAddr = strings.TrimSpace(strings.Split(displayAddr, ",")[0])
 
-	// 获取真实的端口
-	displayPort := port
-	if xfPort := r.Header.Get("X-Forwarded-Port"); xfPort != "" {
-		if p, err := strconv.Atoi(strings.TrimSpace(strings.Split(xfPort, ",")[0])); err == nil {
-			displayPort = p
-		}
-	}
-
-	// 如果 displayAddr 包含端口，解析出来
-	if host, pStr, err := net.SplitHostPort(displayAddr); err == nil {
-		displayAddr = host
-		if p, err := strconv.Atoi(pStr); err == nil {
-			displayPort = p
-		}
-	}
-
-	// 如果获取不到，回退到 localhost
+	// 如果获取不到，回退到 localhost 和服务器监听端口
 	if displayAddr == "" {
-		displayAddr = "localhost"
-		displayPort = port
+		addr := s.serverAddr
+		port := 9880 // default
+		if idx := strings.LastIndex(addr, ":"); idx >= 0 {
+			if p, err := strconv.Atoi(addr[idx+1:]); err == nil {
+				port = p
+			}
+		}
+		displayAddr = "localhost:" + strconv.Itoa(port)
 	}
 
-	// 标准化 Address：只包含 host，如果端口不是 80 则添加端口
-	finalAddr := displayAddr
-	if displayPort != 80 {
-		finalAddr = displayAddr + ":" + strconv.Itoa(displayPort)
+	// 从 displayAddr 中解析端口（用于 Port 字段）
+	port := 80 // 默认 HTTP 端口
+	if _, portStr, err := net.SplitHostPort(displayAddr); err == nil {
+		// 地址包含端口
+		if p, err := strconv.Atoi(portStr); err == nil {
+			port = p
+		}
+		// displayAddr 保持 host:port 格式不变
+	} else {
+		// 地址不包含端口，说明是标准端口 80
+		// displayAddr 保持原样（不带端口）
 	}
 
 	return &ProxyStatus{
 		Running: true,
-		Address: finalAddr,
-		Port:    displayPort,
+		Address: displayAddr,
+		Port:    port,
 	}
 }
 
