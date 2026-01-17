@@ -1,8 +1,9 @@
 # CI Dockerfile - frontend and backend are pre-built by GitHub Actions
 
-ARG TARGETARCH
-
 FROM alpine:latest
+
+# TARGETARCH is automatically set by Docker Buildx (amd64, arm64, etc.)
+ARG TARGETARCH
 
 RUN apk add --no-cache ca-certificates
 
