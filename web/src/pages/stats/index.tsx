@@ -47,6 +47,9 @@ function getTimeRange(range: TimeRange): { start: string; end: string } {
     case '30d':
       start = now.subtract(30, 'day');
       break;
+    default:
+      start = now.subtract(7, 'day'); // 默认 7 天
+      break;
   }
 
   return { start: start.toISOString(), end };
@@ -106,46 +109,55 @@ function aggregateByHour(stats: UsageStats[] | undefined, timeRange: TimeRange) 
   // 填充实际数据
   if (stats && stats.length > 0) {
     stats.forEach((s) => {
+      if (!s || !s.hour) return; // 跳过无效数据
+
       // 解析后端返回的时间（可能带时区）
       const date = dayjs(s.hour);
+      if (!date.isValid()) return; // 跳过无效日期
+
       const timeKey = getTimeKey(date, isHourly);
       const existing = timeMap.get(timeKey);
       if (existing) {
-        existing.successful += s.successfulRequests;
-        existing.failed += s.failedRequests;
-        existing.inputTokens += s.inputTokens;
-        existing.outputTokens += s.outputTokens;
-        existing.cacheRead += s.cacheRead;
-        existing.cacheWrite += s.cacheWrite;
-        existing.cost += s.cost;
+        existing.successful += s.successfulRequests || 0;
+        existing.failed += s.failedRequests || 0;
+        existing.inputTokens += s.inputTokens || 0;
+        existing.outputTokens += s.outputTokens || 0;
+        existing.cacheRead += s.cacheRead || 0;
+        existing.cacheWrite += s.cacheWrite || 0;
+        existing.cost += s.cost || 0;
       }
     });
   }
 
   // 排序并格式化
   return Array.from(timeMap.values())
-    .sort((a, b) => a.hour.localeCompare(b.hour))
+    .sort((a, b) => (a.hour || '').localeCompare(b.hour || ''))
     .map((item) => ({
       ...item,
       hour: formatHourLabel(item.hour, timeRange),
       // 转换 cost 从微美元到美元
-      cost: item.cost / 1000000,
+      cost: (item.cost || 0) / 1000000,
     }));
 }
 
 function formatHourLabel(hour: string, timeRange: TimeRange): string {
+  if (!hour) return '';
+
   if (timeRange === '24h') {
     // 24h: 显示时间 "14:00"
-    return dayjs(hour + ':00:00').format('HH:mm');
+    const date = dayjs(hour + ':00:00');
+    return date.isValid() ? date.format('HH:mm') : '';
   } else {
     // 7d/30d: 显示日期 "1/17"
     const date = dayjs(hour);
-    return `${date.month() + 1}/${date.date()}`;
+    return date.isValid() ? `${date.month() + 1}/${date.date()}` : '';
   }
 }
 
 // 智能单位格式化函数
 function formatNumber(value: number): string {
+  if (value === null || value === undefined || isNaN(value)) return '0';
+
   const absValue = Math.abs(value);
 
   if (absValue >= 1000000) {
@@ -168,6 +180,7 @@ function formatNumber(value: number): string {
 
 // Cost 格式化函数（添加 $ 符号）
 function formatCost(value: number): string {
+  if (value === null || value === undefined || isNaN(value)) return '$0';
   return `$${formatNumber(value)}`;
 }
 
