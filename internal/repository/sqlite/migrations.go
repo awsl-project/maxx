@@ -18,19 +18,7 @@ type Migration struct {
 
 // 所有迁移按版本号注册
 // 注意：GORM AutoMigrate 会自动处理新增列，这里只需要处理特殊情况（重命名、数据迁移等）
-var migrations = []Migration{
-	// 示例迁移：如果需要重命名列，可以这样写
-	// {
-	// 	Version:     1,
-	// 	Description: "rename old_column to new_column",
-	// 	Up: func(db *gorm.DB) error {
-	// 		if db.Migrator().HasColumn(&SomeModel{}, "old_column") {
-	// 			return db.Migrator().RenameColumn(&SomeModel{}, "old_column", "new_column")
-	// 		}
-	// 		return nil
-	// 	},
-	// },
-}
+var migrations = []Migration{}
 
 // RunMigrations 运行所有待执行的迁移
 func (d *DB) RunMigrations() error {

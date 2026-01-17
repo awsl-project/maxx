@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -102,7 +103,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		Body:    string(requestBody),
 	}
 
-	_ = e.proxyRequestRepo.Create(proxyReq)
+	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
+		log.Printf("[Executor] Failed to create proxy request: %v", err)
+	}
 
 	// Broadcast the new request immediately
 	if e.broadcaster != nil {
@@ -278,7 +281,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				RequestModel:   requestModel,
 				MappedModel:    mappedModel,
 			}
-			_ = e.attemptRepo.Create(attemptRecord)
+			if err := e.attemptRepo.Create(attemptRecord); err != nil {
+				log.Printf("[Executor] Failed to create attempt record: %v", err)
+			}
 			currentAttempt = attemptRecord
 
 			// Increment attempt count when creating a new attempt
