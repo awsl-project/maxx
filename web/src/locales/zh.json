@@ -281,6 +281,7 @@
   "settings": {
     "title": "设置",
     "description": "配置您的 Maxx 实例",
+    "general": "通用",
     "appearance": "外观",
     "themePreference": "主题偏好",
     "theme": {
