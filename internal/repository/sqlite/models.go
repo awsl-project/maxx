@@ -293,7 +293,7 @@ func (ProxyUpstreamAttempt) TableName() string { return "proxy_upstream_attempts
 
 // SystemSetting model
 type SystemSetting struct {
-	Key       string `gorm:"type:varchar(255);primaryKey"`
+	Key       string `gorm:"column:setting_key;type:varchar(255);primaryKey"`
 	Value     string `gorm:"not null"`
 	CreatedAt int64  `gorm:"not null"`
 	UpdatedAt int64  `gorm:"not null"`

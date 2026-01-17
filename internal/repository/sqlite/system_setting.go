@@ -19,7 +19,7 @@ func NewSystemSettingRepository(db *DB) *SystemSettingRepository {
 
 func (r *SystemSettingRepository) Get(key string) (string, error) {
 	var model SystemSetting
-	if err := r.db.gorm.Where("key = ?", key).First(&model).Error; err != nil {
+	if err := r.db.gorm.Where("setting_key = ?", key).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", nil
 		}
@@ -37,14 +37,14 @@ func (r *SystemSettingRepository) Set(key, value string) error {
 		UpdatedAt: now,
 	}
 	return r.db.gorm.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "key"}},
+		Columns:   []clause.Column{{Name: "setting_key"}},
 		DoUpdates: clause.Assignments(map[string]any{"value": value, "updated_at": now}),
 	}).Create(model).Error
 }
 
 func (r *SystemSettingRepository) GetAll() ([]*domain.SystemSetting, error) {
 	var models []SystemSetting
-	if err := r.db.gorm.Order("key").Find(&models).Error; err != nil {
+	if err := r.db.gorm.Order("setting_key").Find(&models).Error; err != nil {
 		return nil, err
 	}
 
@@ -61,5 +61,5 @@ func (r *SystemSettingRepository) GetAll() ([]*domain.SystemSetting, error) {
 }
 
 func (r *SystemSettingRepository) Delete(key string) error {
-	return r.db.gorm.Where("key = ?", key).Delete(&SystemSetting{}).Error
+	return r.db.gorm.Where("setting_key = ?", key).Delete(&SystemSetting{}).Error
 }
