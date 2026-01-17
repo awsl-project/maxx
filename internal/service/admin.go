@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -428,7 +430,7 @@ type ProxyStatus struct {
 	Port    int    `json:"port"`
 }
 
-func (s *AdminService) GetProxyStatus() *ProxyStatus {
+func (s *AdminService) GetProxyStatus(r *http.Request) *ProxyStatus {
 	addr := s.serverAddr
 	port := 9880 // default
 	if idx := strings.LastIndex(addr, ":"); idx >= 0 {
@@ -437,15 +439,47 @@ func (s *AdminService) GetProxyStatus() *ProxyStatus {
 		}
 	}
 
-	displayAddr := "localhost"
-	if port != 80 {
-		displayAddr = "localhost:" + strconv.Itoa(port)
+	// 获取真实的访问地址
+	// 优先使用 X-Forwarded-Host (反向代理场景)
+	displayAddr := r.Header.Get("X-Forwarded-Host")
+	if displayAddr == "" {
+		displayAddr = r.Host
+	}
+	// X-Forwarded-Host 可能包含多个值（逗号分隔），取第一个
+	displayAddr = strings.TrimSpace(strings.Split(displayAddr, ",")[0])
+
+	// 获取真实的端口
+	displayPort := port
+	if xfPort := r.Header.Get("X-Forwarded-Port"); xfPort != "" {
+		if p, err := strconv.Atoi(strings.TrimSpace(strings.Split(xfPort, ",")[0])); err == nil {
+			displayPort = p
+		}
+	}
+
+	// 如果 displayAddr 包含端口，解析出来
+	if host, pStr, err := net.SplitHostPort(displayAddr); err == nil {
+		displayAddr = host
+		if p, err := strconv.Atoi(pStr); err == nil {
+			displayPort = p
+		}
+	}
+
+	// 如果获取不到，回退到 localhost
+	if displayAddr == "" {
+		displayAddr = "localhost"
+		displayPort = port
+	}
+
+	// 标准化 Address：只包含 host，如果端口不是 80 则添加端口
+	finalAddr := displayAddr
+	if displayPort != 80 {
+		finalAddr = displayAddr + ":" + strconv.Itoa(displayPort)
 	}
 
 	return &ProxyStatus{
 		Running: true,
-		Address: displayAddr,
-		Port:    port,
+		Address: finalAddr,
+		Port:    displayPort,
 	}
 }
 
