@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -13,7 +14,7 @@ type DB struct {
 }
 
 func NewDB(path string) (*DB, error) {
-	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=30000")
 	if err != nil {
 		return nil, err
 	}
@@ -445,20 +446,87 @@ func (d *DB) migrate() error {
 		}
 	}
 
-	// Migration: Add api_token_id column to usage_stats if it doesn't exist
-	var hasUsageStatsAPITokenID bool
-	row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('usage_stats') WHERE name='api_token_id'`)
-	row.Scan(&hasUsageStatsAPITokenID)
+	// Migration: Rebuild usage_stats table to fix UNIQUE constraint
+	// Check if the table has the old UNIQUE constraint (without api_token_id)
+	var hasOldConstraint bool
+	row = d.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='sqlite_autoindex_usage_stats_1'`)
+	row.Scan(&hasOldConstraint)
 
-	if !hasUsageStatsAPITokenID {
-		// 需要重建表以修改 UNIQUE 约束
+	if hasOldConstraint {
+		// SQLite 不支持修改 UNIQUE 约束，需要重建表
 		_, err = d.db.Exec(`
-			ALTER TABLE usage_stats ADD COLUMN api_token_id INTEGER DEFAULT 0;
-			DROP INDEX IF EXISTS sqlite_autoindex_usage_stats_1;
-			CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_stats_unique ON usage_stats(hour, route_id, provider_id, project_id, api_token_id, client_type);
+			-- 创建新表
+			CREATE TABLE IF NOT EXISTS usage_stats_new (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				hour DATETIME NOT NULL,
+				route_id INTEGER DEFAULT 0,
+				provider_id INTEGER DEFAULT 0,
+				project_id INTEGER DEFAULT 0,
+				api_token_id INTEGER DEFAULT 0,
+				client_type TEXT DEFAULT '',
+				total_requests INTEGER DEFAULT 0,
+				successful_requests INTEGER DEFAULT 0,
+				failed_requests INTEGER DEFAULT 0,
+				input_tokens INTEGER DEFAULT 0,
+				output_tokens INTEGER DEFAULT 0,
+				cache_read INTEGER DEFAULT 0,
+				cache_write INTEGER DEFAULT 0,
+				cost INTEGER DEFAULT 0,
+				UNIQUE(hour, route_id, provider_id, project_id, api_token_id, client_type)
+			);
+			-- 迁移数据（清空旧数据，因为约束不兼容）
+			DROP TABLE usage_stats;
+			ALTER TABLE usage_stats_new RENAME TO usage_stats;
+			-- 重建索引
+			CREATE INDEX IF NOT EXISTS idx_usage_stats_hour ON usage_stats(hour);
+			CREATE INDEX IF NOT EXISTS idx_usage_stats_provider_id ON usage_stats(provider_id);
+			CREATE INDEX IF NOT EXISTS idx_usage_stats_route_id ON usage_stats(route_id);
+			CREATE INDEX IF NOT EXISTS idx_usage_stats_project_id ON usage_stats(project_id);
+			CREATE INDEX IF NOT EXISTS idx_usage_stats_api_token_id ON usage_stats(api_token_id);
 		`)
 		if err != nil {
-			// 忽略错误，可能是约束已存在
+			return fmt.Errorf("failed to rebuild usage_stats table: %w", err)
+		}
+	} else {
+		// 检查是否缺少 api_token_id 列（更旧的数据库）
+		var hasAPITokenIDCol bool
+		row = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('usage_stats') WHERE name='api_token_id'`)
+		row.Scan(&hasAPITokenIDCol)
+
+		if !hasAPITokenIDCol {
+			// 同样需要重建表
+			_, err = d.db.Exec(`
+				CREATE TABLE IF NOT EXISTS usage_stats_new (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					hour DATETIME NOT NULL,
+					route_id INTEGER DEFAULT 0,
+					provider_id INTEGER DEFAULT 0,
+					project_id INTEGER DEFAULT 0,
+					api_token_id INTEGER DEFAULT 0,
+					client_type TEXT DEFAULT '',
+					total_requests INTEGER DEFAULT 0,
+					successful_requests INTEGER DEFAULT 0,
+					failed_requests INTEGER DEFAULT 0,
+					input_tokens INTEGER DEFAULT 0,
+					output_tokens INTEGER DEFAULT 0,
+					cache_read INTEGER DEFAULT 0,
+					cache_write INTEGER DEFAULT 0,
+					cost INTEGER DEFAULT 0,
+					UNIQUE(hour, route_id, provider_id, project_id, api_token_id, client_type)
+				);
+				DROP TABLE usage_stats;
+				ALTER TABLE usage_stats_new RENAME TO usage_stats;
+				CREATE INDEX IF NOT EXISTS idx_usage_stats_hour ON usage_stats(hour);
+				CREATE INDEX IF NOT EXISTS idx_usage_stats_provider_id ON usage_stats(provider_id);
+				CREATE INDEX IF NOT EXISTS idx_usage_stats_route_id ON usage_stats(route_id);
+				CREATE INDEX IF NOT EXISTS idx_usage_stats_project_id ON usage_stats(project_id);
+				CREATE INDEX IF NOT EXISTS idx_usage_stats_api_token_id ON usage_stats(api_token_id);
+			`)
+			if err != nil {
+				return fmt.Errorf("failed to rebuild usage_stats table: %w", err)
+			}
 		}
 	}
 

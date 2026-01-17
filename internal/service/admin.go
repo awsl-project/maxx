@@ -468,8 +468,8 @@ func (s *AdminService) GetProxyStatus(r *http.Request) *ProxyStatus {
 
 	return &ProxyStatus{
 		Running: true,
-		Address: displayAddr,
-		Port:    port,
+		Address: finalAddr,
+		Port:    displayPort,
 	}
 }
 

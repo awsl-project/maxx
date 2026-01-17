@@ -41,9 +41,10 @@ func (d *BackgroundTaskDeps) runTasks() {
 	log.Println("[Task] Starting background tasks")
 
 	// 聚合统计数据
-	if count, err := d.UsageStats.Aggregate(); err != nil {
+	count, err := d.UsageStats.Aggregate()
+	if err != nil {
 		log.Printf("[Task] Failed to aggregate usage stats: %v", err)
-	} else if count > 0 {
+	} else {
 		log.Printf("[Task] Aggregated %d usage stats records", count)
 	}
 

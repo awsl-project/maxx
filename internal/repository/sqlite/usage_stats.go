@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -42,31 +43,6 @@ func (r *UsageStatsRepository) Upsert(stats *domain.UsageStats) error {
 		stats.TotalRequests, stats.SuccessfulRequests, stats.FailedRequests,
 		stats.InputTokens, stats.OutputTokens, stats.CacheRead, stats.CacheWrite, stats.Cost,
 	)
-	return err
-}
-
-// UpsertRaw 直接插入原始数据
-func (r *UsageStatsRepository) UpsertRaw(
-	hour time.Time, routeID, providerID, projectID uint64, clientType string,
-	total, success, failed, input, output, cacheR, cacheW int64, cost float64,
-) error {
-	_, err := r.db.Exec(`
-		INSERT INTO usage_stats (
-			created_at, hour, route_id, provider_id, project_id, client_type,
-			total_requests, successful_requests, failed_requests,
-			input_tokens, output_tokens, cache_read, cache_write, cost
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(hour, route_id, provider_id, project_id, client_type) DO UPDATE SET
-			total_requests = excluded.total_requests,
-			successful_requests = excluded.successful_requests,
-			failed_requests = excluded.failed_requests,
-			input_tokens = excluded.input_tokens,
-			output_tokens = excluded.output_tokens,
-			cache_read = excluded.cache_read,
-			cache_write = excluded.cache_write,
-			cost = excluded.cost
-	`, time.Now(), hour, routeID, providerID, projectID, clientType,
-		total, success, failed, input, output, cacheR, cacheW, cost)
 	return err
 }
 
@@ -272,12 +248,24 @@ func (r *UsageStatsRepository) GetLatestHour() (*time.Time, error) {
 		return nil, nil
 	}
 
-	var hour time.Time
-	if err := rows.Scan(&hour); err != nil {
+	var hourStr *string
+	if err := rows.Scan(&hourStr); err != nil {
 		return nil, err
 	}
-	if hour.IsZero() {
+	if hourStr == nil || *hourStr == "" {
 		return nil, nil
+	}
+
+	// 尝试多种格式解析
+	hour, err := time.Parse(time.RFC3339, *hourStr)
+	if err != nil {
+		hour, err = time.Parse("2006-01-02 15:04:05", *hourStr)
+		if err != nil {
+			hour, err = time.Parse("2006-01-02 15", *hourStr)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	return &hour, nil
 }
@@ -352,16 +340,23 @@ func (r *UsageStatsRepository) Aggregate() (int, error) {
 	// 增量聚合：找到最新的聚合时间
 	var startTime time.Time
 	latestHour, err := r.GetLatestHour()
-	if err != nil || latestHour == nil {
+	if err != nil {
+		log.Printf("[Aggregate] GetLatestHour error: %v", err)
+		startTime = time.Now().AddDate(0, 0, -30)
+	} else if latestHour == nil {
+		log.Printf("[Aggregate] No existing stats, using 30 days ago")
 		startTime = time.Now().AddDate(0, 0, -30)
 	} else {
+		log.Printf("[Aggregate] Latest hour: %v", *latestHour)
 		startTime = latestHour.Add(-time.Hour)
 	}
+
+	log.Printf("[Aggregate] Query range: %v ~ %v", startTime, currentHour)
 
 	// 聚合数据
 	rows, err := r.db.Query(`
 		SELECT
-			strftime('%Y-%m-%d %H:00:00', a.created_at) as hour,
+			substr(a.created_at, 1, 13) as hour,
 			COALESCE(r.route_id, 0), COALESCE(a.provider_id, 0),
 			COALESCE(r.project_id, 0), COALESCE(r.api_token_id, 0), COALESCE(r.client_type, ''),
 			COUNT(*),
@@ -378,6 +373,7 @@ func (r *UsageStatsRepository) Aggregate() (int, error) {
 		GROUP BY hour, r.route_id, a.provider_id, r.project_id, r.api_token_id, r.client_type
 	`, startTime, currentHour)
 	if err != nil {
+		log.Printf("[Aggregate] Query error: %v", err)
 		return 0, err
 	}
 	defer rows.Close()
@@ -393,11 +389,14 @@ func (r *UsageStatsRepository) Aggregate() (int, error) {
 			&stats.InputTokens, &stats.OutputTokens, &stats.CacheRead, &stats.CacheWrite, &stats.Cost,
 		)
 		if err != nil {
+			log.Printf("[Aggregate] Scan error: %v", err)
 			continue
 		}
-		stats.Hour, _ = time.Parse("2006-01-02 15:04:05", hourStr)
+		stats.Hour, _ = time.Parse("2006-01-02 15", hourStr)
 		statsList = append(statsList, stats)
 	}
+
+	log.Printf("[Aggregate] Found %d records to upsert", len(statsList))
 
 	if len(statsList) == 0 {
 		return 0, nil
