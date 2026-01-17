@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -428,7 +429,7 @@ type ProxyStatus struct {
 	Port    int    `json:"port"`
 }
 
-func (s *AdminService) GetProxyStatus() *ProxyStatus {
+func (s *AdminService) GetProxyStatus(r *http.Request) *ProxyStatus {
 	addr := s.serverAddr
 	port := 9880 // default
 	if idx := strings.LastIndex(addr, ":"); idx >= 0 {
@@ -437,9 +438,18 @@ func (s *AdminService) GetProxyStatus() *ProxyStatus {
 		}
 	}
 
-	displayAddr := "localhost"
-	if port != 80 {
-		displayAddr = "localhost:" + strconv.Itoa(port)
+	// 获取真实的访问地址
+	// 优先使用 X-Forwarded-Host (反向代理场景)
+	displayAddr := r.Header.Get("X-Forwarded-Host")
+	if displayAddr == "" {
+		displayAddr = r.Host
+	}
+	// 如果获取不到，回退到 localhost
+	if displayAddr == "" {
+		displayAddr = "localhost"
+		if port != 80 {
+			displayAddr = "localhost:" + strconv.Itoa(port)
+		}
 	}
 
 	return &ProxyStatus{

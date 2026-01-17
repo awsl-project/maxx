@@ -793,7 +793,7 @@ func (h *AdminHandler) handleProxyStatus(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	writeJSON(w, http.StatusOK, h.svc.GetProxyStatus())
+	writeJSON(w, http.StatusOK, h.svc.GetProxyStatus(r))
 }
 
 // Provider stats handler
