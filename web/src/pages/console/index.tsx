@@ -99,9 +99,9 @@ export function ConsolePage() {
             {logs.map((log, index) => (
               <div
                 key={index}
-                className="px-3 py-1.5 rounded-md hover:bg-accent text-foreground transition-colors wrap-break-words whitespace-pre-wrap"
+                className="text-xs px-3 py-1.5 rounded-md hover:bg-accent text-foreground transition-colors wrap-break-words whitespace-pre-wrap"
               >
-                <div className="opacity-50 text-[10px] select-none inline-block w-8 mr-2 text-right">
+                <div className="opacity-50 select-none inline-block w-8 mr-2 text-right">
                   {index + 1}
                 </div>
                 {log}
