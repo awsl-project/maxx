@@ -99,19 +99,16 @@ function DataRetentionSection() {
   const { t } = useTranslation();
 
   const requestRetentionDays = settings?.request_retention_days ?? '7';
-  const statsRetentionDays = settings?.stats_retention_days ?? '30';
 
   const [requestDraft, setRequestDraft] = useState('');
-  const [statsDraft, setStatsDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
       setRequestDraft(requestRetentionDays);
-      setStatsDraft(statsRetentionDays);
       setInitialized(true);
     }
-  }, [isLoading, initialized, requestRetentionDays, statsRetentionDays]);
+  }, [isLoading, initialized, requestRetentionDays]);
 
   useEffect(() => {
     if (initialized) {
@@ -119,30 +116,15 @@ function DataRetentionSection() {
     }
   }, [requestRetentionDays, initialized]);
 
-  useEffect(() => {
-    if (initialized) {
-      setStatsDraft(statsRetentionDays);
-    }
-  }, [statsRetentionDays, initialized]);
-
-  const hasChanges =
-    initialized && (requestDraft !== requestRetentionDays || statsDraft !== statsRetentionDays);
+  const hasChanges = initialized && requestDraft !== requestRetentionDays;
 
   const handleSave = async () => {
     const requestNum = parseInt(requestDraft, 10);
-    const statsNum = parseInt(statsDraft, 10);
 
     if (!isNaN(requestNum) && requestNum >= 0 && requestDraft !== requestRetentionDays) {
       await updateSetting.mutateAsync({
         key: 'request_retention_days',
         value: requestDraft,
-      });
-    }
-
-    if (!isNaN(statsNum) && statsNum >= 0 && statsDraft !== statsRetentionDays) {
-      await updateSetting.mutateAsync({
-        key: 'stats_retention_days',
-        value: statsDraft,
       });
     }
   };
@@ -166,35 +148,19 @@ function DataRetentionSection() {
         </div>
       </CardHeader>
       <CardContent className="p-6">
-        <div className="grid grid-cols-2 gap-6">
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-muted-foreground shrink-0">
-              {t('settings.requestRetentionDays')}
-            </label>
-            <Input
-              type="number"
-              value={requestDraft}
-              onChange={(e) => setRequestDraft(e.target.value)}
-              className="w-24"
-              min={0}
-              disabled={updateSetting.isPending}
-            />
-            <span className="text-xs text-muted-foreground">{t('common.days')}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-muted-foreground shrink-0">
-              {t('settings.statsRetentionDays')}
-            </label>
-            <Input
-              type="number"
-              value={statsDraft}
-              onChange={(e) => setStatsDraft(e.target.value)}
-              className="w-24"
-              min={0}
-              disabled={updateSetting.isPending}
-            />
-            <span className="text-xs text-muted-foreground">{t('common.days')}</span>
-          </div>
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-muted-foreground shrink-0">
+            {t('settings.requestRetentionDays')}
+          </label>
+          <Input
+            type="number"
+            value={requestDraft}
+            onChange={(e) => setRequestDraft(e.target.value)}
+            className="w-24"
+            min={0}
+            disabled={updateSetting.isPending}
+          />
+          <span className="text-xs text-muted-foreground">{t('common.days')}</span>
         </div>
       </CardContent>
     </Card>

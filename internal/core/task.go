@@ -10,8 +10,7 @@ import (
 )
 
 const (
-	defaultRequestRetentionDays = 0  // 0 表示默认不清理
-	defaultStatsRetentionDays   = 0  // 0 表示默认不清理
+	defaultRequestRetentionDays = 7 // 默认保留 7 天
 )
 
 // BackgroundTaskDeps 后台任务依赖

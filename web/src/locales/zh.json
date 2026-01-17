@@ -309,10 +309,8 @@
     "matchPattern": "匹配模式",
     "targetModel": "目标模型",
     "dataRetention": "数据保留",
-    "requestRetentionDays": "请求记录",
+    "requestRetentionDays": "请求记录保留天数",
     "requestRetentionDaysDesc": "超过此天数的请求记录将被自动清理，0 表示不清理",
-    "statsRetentionDays": "统计数据",
-    "statsRetentionDaysDesc": "超过此天数的统计数据将被自动清理，0 表示不清理",
     "retentionDaysHint": "0 表示不清理"
   },
   "modelMappings": {
