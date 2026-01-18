@@ -166,7 +166,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 	}
 
 	// Match routes
-	routes, err := e.router.Match(clientType, projectID)
+	routes, err := e.router.Match(&router.MatchContext{
+		ClientType:   clientType,
+		ProjectID:    projectID,
+		RequestModel: requestModel,
+		APITokenID:   apiTokenID,
+	})
 	if err != nil {
 		proxyReq.Status = "FAILED"
 		proxyReq.Error = "no routes available"
@@ -258,6 +263,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		}
 
 		// Determine model mapping
+		// Model mapping is done in Executor after Router has filtered by SupportModels
 		clientType := ctxutil.GetClientType(ctx)
 		mappedModel := e.mapModel(requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, projectID, apiTokenID)
 		ctx = ctxutil.WithMappedModel(ctx, mappedModel)

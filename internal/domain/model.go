@@ -96,6 +96,11 @@ type Provider struct {
 
 	// 支持的 Client
 	SupportedClientTypes []ClientType `json:"supportedClientTypes"`
+
+	// 支持的模型列表（通配符模式）
+	// 如果配置了，在 Route 匹配时会检查前置映射后的模型是否在支持列表中
+	// 空数组表示支持所有模型
+	SupportModels []string `json:"supportModels,omitempty"`
 }
 
 type Project struct {

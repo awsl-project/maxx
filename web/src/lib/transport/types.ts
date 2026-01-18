@@ -49,6 +49,7 @@ export interface Provider {
   logo?: string; // Logo URL or data URI
   config: ProviderConfig | null;
   supportedClientTypes: ClientType[];
+  supportModels?: string[]; // 支持的模型列表（通配符模式），空数组表示支持所有模型
 }
 
 // supportedClientTypes 可选，后端会根据 provider type 自动设置
@@ -57,6 +58,7 @@ export type CreateProviderData = Omit<
   'id' | 'createdAt' | 'updatedAt' | 'supportedClientTypes'
 > & {
   supportedClientTypes?: ClientType[];
+  supportModels?: string[];
 };
 
 // ===== Project =====

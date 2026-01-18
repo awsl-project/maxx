@@ -84,6 +84,7 @@ func (r *ProviderRepository) toModel(p *domain.Provider) *Provider {
 		Name:                 p.Name,
 		Config:               toJSON(p.Config),
 		SupportedClientTypes: toJSON(p.SupportedClientTypes),
+		SupportModels:        toJSON(p.SupportModels),
 	}
 }
 
@@ -98,5 +99,6 @@ func (r *ProviderRepository) toDomain(m *Provider) *domain.Provider {
 		Name:                 m.Name,
 		Config:               fromJSON[*domain.ProviderConfig](m.Config),
 		SupportedClientTypes: fromJSON[[]domain.ClientType](m.SupportedClientTypes),
+		SupportModels:        fromJSON[[]string](m.SupportModels),
 	}
 }

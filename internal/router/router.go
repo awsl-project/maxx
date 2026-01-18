@@ -19,6 +19,14 @@ type MatchedRoute struct {
 	RetryConfig     *domain.RetryConfig
 }
 
+// MatchContext contains all context needed for route matching
+type MatchContext struct {
+	ClientType   domain.ClientType
+	ProjectID    uint64
+	RequestModel string
+	APITokenID   uint64
+}
+
 // Router handles route matching and selection
 type Router struct {
 	routeRepo           *cached.RouteRepository
@@ -98,7 +106,11 @@ func (r *Router) RemoveAdapter(providerID uint64) {
 }
 
 // Match returns matched routes for a client type and project
-func (r *Router) Match(clientType domain.ClientType, projectID uint64) ([]*MatchedRoute, error) {
+func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
+	clientType := ctx.ClientType
+	projectID := ctx.ProjectID
+	requestModel := ctx.RequestModel
+
 	routes := r.routeRepo.GetAll()
 
 	// Check if ClientType has custom routes enabled for this project
@@ -175,7 +187,7 @@ func (r *Router) Match(clientType domain.ClientType, projectID uint64) ([]*Match
 	providers := r.providerRepo.GetAll()
 
 	for _, route := range filtered {
-		provider, ok := providers[route.ProviderID]
+		prov, ok := providers[route.ProviderID]
 		if !ok {
 			continue
 		}
@@ -190,6 +202,15 @@ func (r *Router) Match(clientType domain.ClientType, projectID uint64) ([]*Match
 			continue
 		}
 
+		// Check if provider supports the request model
+		// SupportModels check is done BEFORE mapping
+		// If SupportModels is configured, check if the request model is supported
+		if len(prov.SupportModels) > 0 && requestModel != "" {
+			if !r.isModelSupported(requestModel, prov.SupportModels) {
+				continue
+			}
+		}
+
 		var retryConfig *domain.RetryConfig
 		if route.RetryConfigID != 0 {
 			retryConfig, _ = r.retryConfigRepo.GetByID(route.RetryConfigID)
@@ -200,7 +221,7 @@ func (r *Router) Match(clientType domain.ClientType, projectID uint64) ([]*Match
 
 		matched = append(matched, &MatchedRoute{
 			Route:           route,
-			Provider:        provider,
+			Provider:        prov,
 			ProviderAdapter: adp,
 			RetryConfig:     retryConfig,
 		})
@@ -211,6 +232,16 @@ func (r *Router) Match(clientType domain.ClientType, projectID uint64) ([]*Match
 	}
 
 	return matched, nil
+}
+
+// isModelSupported checks if a model matches any pattern in the support list
+func (r *Router) isModelSupported(model string, supportModels []string) bool {
+	for _, pattern := range supportModels {
+		if domain.MatchWildcard(pattern, model) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) getRoutingStrategy(projectID uint64) *domain.RoutingStrategy {

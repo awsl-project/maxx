@@ -118,6 +118,7 @@ type Provider struct {
 	Name                 string `gorm:"not null"`
 	Config               string `gorm:"type:longtext"`
 	SupportedClientTypes string `gorm:"type:text"`
+	SupportModels        string `gorm:"type:text"`
 }
 
 func (Provider) TableName() string { return "providers" }

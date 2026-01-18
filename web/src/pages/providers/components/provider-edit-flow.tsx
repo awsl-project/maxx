@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Globe, ChevronLeft, Key, Check, Trash2, Plus, ArrowRight, Zap } from 'lucide-react'
+import { Globe, ChevronLeft, Key, Check, Trash2, Plus, ArrowRight, Zap, Filter } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -167,6 +167,97 @@ function ProviderModelMappings({ provider }: { provider: Provider }) {
   )
 }
 
+// Provider Supported Models Section
+function ProviderSupportModels({
+  supportModels,
+  onChange,
+}: {
+  supportModels: string[]
+  onChange: (models: string[]) => void
+}) {
+  const { t } = useTranslation()
+  const [newModel, setNewModel] = useState('')
+
+  const handleAddModel = () => {
+    if (!newModel.trim()) return
+    const trimmedModel = newModel.trim()
+    if (!supportModels.includes(trimmedModel)) {
+      onChange([...supportModels, trimmedModel])
+    }
+    setNewModel('')
+  }
+
+  const handleRemoveModel = (model: string) => {
+    onChange(supportModels.filter(m => m !== model))
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4 border-b border-border pb-2">
+        <Filter size={18} className="text-blue-500" />
+        <h4 className="text-lg font-semibold text-foreground">
+          {t('providers.supportModels.title', 'Supported Models')}
+        </h4>
+        <span className="text-sm text-muted-foreground">
+          ({supportModels.length})
+        </span>
+      </div>
+
+      <div className="bg-card border border-border rounded-xl p-4">
+        <p className="text-xs text-muted-foreground mb-4">
+          {t('providers.supportModels.desc', 'Configure which models this provider supports. If empty, all models are supported. Supports wildcards like claude-* or gemini-*.')}
+        </p>
+
+        {supportModels.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {supportModels.map((model) => (
+              <div
+                key={model}
+                className="flex items-center gap-1 bg-muted/50 border border-border rounded-lg px-3 py-1.5"
+              >
+                <span className="text-sm">{model}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveModel(model)}
+                  className="text-muted-foreground hover:text-destructive ml-1"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {supportModels.length === 0 && (
+          <div className="text-center py-6 mb-4">
+            <p className="text-muted-foreground text-sm">
+              {t('providers.supportModels.empty', 'No model filter configured. All models will be supported.')}
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 pt-4 border-t border-border">
+          <ModelInput
+            value={newModel}
+            onChange={setNewModel}
+            placeholder={t('providers.supportModels.placeholder', 'e.g. claude-* or gemini-2.5-*')}
+            className="flex-1 min-w-0 h-8 text-sm"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleAddModel}
+            disabled={!newModel.trim()}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {t('common.add')}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface ProviderEditFlowProps {
   provider: Provider;
   onClose: () => void;
@@ -177,6 +268,7 @@ type EditFormData = {
   baseURL: string;
   apiKey: string;
   clients: ClientConfig[];
+  supportModels: string[];
 };
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
@@ -202,6 +294,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     baseURL: provider.config?.custom?.baseURL || '',
     apiKey: provider.config?.custom?.apiKey || '',
     clients: initClients(),
+    supportModels: provider.supportModels || [],
   });
 
   const updateClient = (clientId: ClientType, updates: Partial<ClientConfig>) => {
@@ -245,6 +338,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           },
         },
         supportedClientTypes,
+        supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
       };
 
       await updateProvider.mutateAsync({ id: Number(provider.id), data });
@@ -419,6 +513,12 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             </h3>
             <ClientsConfigSection clients={formData.clients} onUpdateClient={updateClient} />
           </div>
+
+          {/* Provider Supported Models Filter */}
+          <ProviderSupportModels
+            supportModels={formData.supportModels}
+            onChange={(models) => setFormData((prev) => ({ ...prev, supportModels: models }))}
+          />
 
           {/* Provider Model Mappings */}
           <ProviderModelMappings provider={provider} />
