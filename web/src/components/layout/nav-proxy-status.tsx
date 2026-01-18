@@ -60,9 +60,7 @@ export function NavProxyStatus() {
 
   return (
     <div className="h-auto border-none p-2 flex items-center gap-2 w-full rounded-lg transition-all group">
-      <div
-        className="w-8 h-8 rounded-lg bg-emerald-400/10 flex items-center justify-center shrink-0 transition-colors cursor-default"
-      >
+      <div className="w-8 h-8 rounded-lg bg-emerald-400/10 flex items-center justify-center shrink-0 transition-colors cursor-default">
         <Radio size={16} className="text-emerald-400" />
       </div>
       <div className="flex flex-col items-start flex-1 min-w-0">

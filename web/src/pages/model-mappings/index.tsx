@@ -141,7 +141,7 @@ export function ModelMappingsPage() {
   const [newProviderType, setNewProviderType] = useState('antigravity');
 
   // Filter only global scope mappings
-  const rules = (mappings || []).filter(m => !m.scope || m.scope === 'global')
+  const rules = (mappings || []).filter((m) => !m.scope || m.scope === 'global');
 
   const sensors = useSensors(
     useSensor(PointerSensor),

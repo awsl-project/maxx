@@ -5,7 +5,12 @@
 
 import { useMemo } from 'react';
 import { useUsageStats, getTimeRange, type TimeRangePreset } from './use-usage-stats';
-import type { UsageStatsFilter, ProviderStats, UsageStats, StatsGranularity } from '@/lib/transport';
+import type {
+  UsageStatsFilter,
+  ProviderStats,
+  UsageStats,
+  StatsGranularity,
+} from '@/lib/transport';
 
 // Route 统计数据类型
 export interface RouteStats {

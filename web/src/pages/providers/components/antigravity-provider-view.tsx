@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react';
 import {
   Wand2,
   Mail,
@@ -10,26 +10,26 @@ import {
   Plus,
   ArrowRight,
   Zap,
-} from 'lucide-react'
-import { useTranslation } from 'react-i18next'
-import { ClientIcon } from '@/components/icons/client-icons'
+} from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { ClientIcon } from '@/components/icons/client-icons';
 import type {
   Provider,
   AntigravityQuotaData,
   AntigravityModelQuota,
   ModelMapping,
   ModelMappingInput,
-} from '@/lib/transport'
-import { getTransport } from '@/lib/transport'
+} from '@/lib/transport';
+import { getTransport } from '@/lib/transport';
 import {
   useModelMappings,
   useCreateModelMapping,
   useUpdateModelMapping,
   useDeleteModelMapping,
-} from '@/hooks/queries'
-import { Button } from '@/components/ui'
-import { ModelInput } from '@/components/ui/model-input'
-import { ANTIGRAVITY_COLOR } from '../types'
+} from '@/hooks/queries';
+import { Button } from '@/components/ui';
+import { ModelInput } from '@/components/ui/model-input';
+import { ANTIGRAVITY_COLOR } from '../types';
 
 interface AntigravityProviderViewProps {
   provider: Provider;
@@ -128,25 +128,25 @@ function ModelQuotaCard({ model }: { model: AntigravityModelQuota }) {
 
 // Provider Model Mappings Section
 function ProviderModelMappings({ provider }: { provider: Provider }) {
-  const { t } = useTranslation()
-  const { data: allMappings } = useModelMappings()
-  const createMapping = useCreateModelMapping()
-  const updateMapping = useUpdateModelMapping()
-  const deleteMapping = useDeleteModelMapping()
-  const [newPattern, setNewPattern] = useState('')
-  const [newTarget, setNewTarget] = useState('')
+  const { t } = useTranslation();
+  const { data: allMappings } = useModelMappings();
+  const createMapping = useCreateModelMapping();
+  const updateMapping = useUpdateModelMapping();
+  const deleteMapping = useDeleteModelMapping();
+  const [newPattern, setNewPattern] = useState('');
+  const [newTarget, setNewTarget] = useState('');
 
   // Filter mappings for this provider
   const providerMappings = useMemo(() => {
     return (allMappings || []).filter(
-      m => m.scope === 'provider' && m.providerID === provider.id
-    )
-  }, [allMappings, provider.id])
+      (m) => m.scope === 'provider' && m.providerID === provider.id,
+    );
+  }, [allMappings, provider.id]);
 
-  const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending
+  const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
 
   const handleAddMapping = async () => {
-    if (!newPattern.trim() || !newTarget.trim()) return
+    if (!newPattern.trim() || !newTarget.trim()) return;
 
     await createMapping.mutateAsync({
       pattern: newPattern.trim(),
@@ -156,10 +156,10 @@ function ProviderModelMappings({ provider }: { provider: Provider }) {
       providerType: 'antigravity',
       priority: providerMappings.length * 10 + 1000,
       isEnabled: true,
-    })
-    setNewPattern('')
-    setNewTarget('')
-  }
+    });
+    setNewPattern('');
+    setNewTarget('');
+  };
 
   const handleUpdateMapping = async (mapping: ModelMapping, data: Partial<ModelMappingInput>) => {
     await updateMapping.mutateAsync({
@@ -173,29 +173,23 @@ function ProviderModelMappings({ provider }: { provider: Provider }) {
         priority: mapping.priority,
         isEnabled: mapping.isEnabled,
       },
-    })
-  }
+    });
+  };
 
   const handleDeleteMapping = async (id: number) => {
-    await deleteMapping.mutateAsync(id)
-  }
+    await deleteMapping.mutateAsync(id);
+  };
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-4 border-b border-border pb-2">
         <Zap size={18} className="text-yellow-500" />
-        <h4 className="text-lg font-semibold text-foreground">
-          {t('modelMappings.title')}
-        </h4>
-        <span className="text-sm text-muted-foreground">
-          ({providerMappings.length})
-        </span>
+        <h4 className="text-lg font-semibold text-foreground">{t('modelMappings.title')}</h4>
+        <span className="text-sm text-muted-foreground">({providerMappings.length})</span>
       </div>
 
       <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">
-          {t('modelMappings.pageDesc')}
-        </p>
+        <p className="text-xs text-muted-foreground mb-4">{t('modelMappings.pageDesc')}</p>
 
         {providerMappings.length > 0 && (
           <div className="space-y-2 mb-4">
@@ -204,7 +198,7 @@ function ProviderModelMappings({ provider }: { provider: Provider }) {
                 <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
                 <ModelInput
                   value={mapping.pattern}
-                  onChange={pattern => handleUpdateMapping(mapping, { pattern })}
+                  onChange={(pattern) => handleUpdateMapping(mapping, { pattern })}
                   placeholder={t('modelMappings.matchPattern')}
                   disabled={isPending}
                   className="flex-1 min-w-0 h-8 text-sm"
@@ -212,7 +206,7 @@ function ProviderModelMappings({ provider }: { provider: Provider }) {
                 <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
                 <ModelInput
                   value={mapping.target}
-                  onChange={target => handleUpdateMapping(mapping, { target })}
+                  onChange={(target) => handleUpdateMapping(mapping, { target })}
                   placeholder={t('modelMappings.targetModel')}
                   disabled={isPending}
                   className="flex-1 min-w-0 h-8 text-sm"
@@ -264,7 +258,7 @@ function ProviderModelMappings({ provider }: { provider: Provider }) {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export function AntigravityProviderView({

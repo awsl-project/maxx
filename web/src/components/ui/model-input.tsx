@@ -68,7 +68,11 @@ const COMMON_MODELS = [
   { id: 'qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', provider: 'NVIDIA' },
   { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', provider: 'NVIDIA' },
   { id: 'google/gemma-3-27b-it', name: 'Gemma 3 27B', provider: 'NVIDIA' },
-  { id: 'meta/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick 17B', provider: 'NVIDIA' },
+  {
+    id: 'meta/llama-4-maverick-17b-128e-instruct',
+    name: 'Llama 4 Maverick 17B',
+    provider: 'NVIDIA',
+  },
   { id: 'mistralai/devstral-2-123b-instruct-2512', name: 'Devstral 2 123B', provider: 'NVIDIA' },
   // Antigravity supported target models (use these as mapping targets)
   {

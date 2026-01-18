@@ -353,7 +353,9 @@ export function ProviderRowContent({
             {/* 对于 Antigravity，显示 Claude Quota；对于其他类型，显示 endpoint */}
             {isAntigravity && claudeInfo ? (
               <div className={cn('flex items-center gap-2 shrink-0', !enabled && 'opacity-40')}>
-                <span className="text-[9px] font-black text-muted-foreground/60 uppercase">Claude</span>
+                <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
+                  Claude
+                </span>
                 <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
                   <div
                     className={cn(

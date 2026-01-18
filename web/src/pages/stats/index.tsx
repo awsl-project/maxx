@@ -17,7 +17,14 @@ import {
   TabsTrigger,
   Button,
 } from '@/components/ui';
-import { useUsageStats, useProviders, useProjects, useAPITokens, useRecalculateUsageStats, useResponseModels } from '@/hooks/queries';
+import {
+  useUsageStats,
+  useProviders,
+  useProjects,
+  useAPITokens,
+  useRecalculateUsageStats,
+  useResponseModels,
+} from '@/hooks/queries';
 import type { UsageStatsFilter, UsageStats, StatsGranularity } from '@/lib/transport';
 import {
   ComposedChart,
@@ -138,7 +145,7 @@ function aggregateForChart(
   stats: UsageStats[] | undefined,
   granularity: StatsGranularity,
   timeRange: TimeRange,
-  timeConfig: TimeRangeConfig
+  timeConfig: TimeRangeConfig,
 ): ChartDataPoint[] {
   const dataMap = new Map<string, ChartDataPoint>();
 
@@ -327,7 +334,7 @@ export function StatsPage() {
   const { data: stats, isLoading } = useUsageStats(filter);
   const chartData = useMemo(
     () => aggregateForChart(stats, timeConfig.granularity, timeRange, timeConfig),
-    [stats, timeConfig, timeRange]
+    [stats, timeConfig, timeRange],
   );
   const recalculateMutation = useRecalculateUsageStats();
 
@@ -354,14 +361,23 @@ export function StatsPage() {
         totalCost: acc.totalCost + s.cost,
         totalDurationMs: acc.totalDurationMs + s.totalDurationMs,
       }),
-      { totalRequests: 0, successfulRequests: 0, failedRequests: 0, totalTokens: 0, totalCost: 0, totalDurationMs: 0 }
+      {
+        totalRequests: 0,
+        successfulRequests: 0,
+        failedRequests: 0,
+        totalTokens: 0,
+        totalCost: 0,
+        totalDurationMs: 0,
+      },
     );
 
     // 基于 totalDurationMs 计算 RPM 和 TPM
     // RPM = (totalRequests / totalDurationMs) * 60000
     // TPM = (totalTokens / totalDurationMs) * 60000
-    const avgRpm = totals.totalDurationMs > 0 ? (totals.totalRequests / totals.totalDurationMs) * 60000 : 0;
-    const avgTpm = totals.totalDurationMs > 0 ? (totals.totalTokens / totals.totalDurationMs) * 60000 : 0;
+    const avgRpm =
+      totals.totalDurationMs > 0 ? (totals.totalRequests / totals.totalDurationMs) * 60000 : 0;
+    const avgTpm =
+      totals.totalDurationMs > 0 ? (totals.totalTokens / totals.totalDurationMs) * 60000 : 0;
 
     return {
       ...totals,
@@ -384,7 +400,9 @@ export function StatsPage() {
             onClick={() => recalculateMutation.mutate()}
             disabled={recalculateMutation.isPending}
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${recalculateMutation.isPending ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${recalculateMutation.isPending ? 'animate-spin' : ''}`}
+            />
             {t('stats.recalculate')}
           </Button>
         }
@@ -480,7 +498,15 @@ export function StatsPage() {
           <SummaryCard
             title={t('stats.successRate')}
             value={`${summary.totalRequests > 0 ? ((summary.successfulRequests / summary.totalRequests) * 100).toFixed(1) : 0}%`}
-            className={summary.totalRequests > 0 && summary.successfulRequests / summary.totalRequests >= 0.95 ? 'text-green-600' : summary.totalRequests > 0 && summary.successfulRequests / summary.totalRequests < 0.8 ? 'text-red-600' : 'text-yellow-600'}
+            className={
+              summary.totalRequests > 0 &&
+              summary.successfulRequests / summary.totalRequests >= 0.95
+                ? 'text-green-600'
+                : summary.totalRequests > 0 &&
+                    summary.successfulRequests / summary.totalRequests < 0.8
+                  ? 'text-red-600'
+                  : 'text-yellow-600'
+            }
           />
           <SummaryCard
             title={t('stats.totalCost')}
@@ -515,30 +541,88 @@ export function StatsPage() {
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="label" className="text-xs" />
                     <YAxis yAxisId="left" className="text-xs" />
-                    <YAxis yAxisId="right" orientation="right" className="text-xs" tickFormatter={(v) => `$${v.toFixed(2)}`} />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      className="text-xs"
+                      tickFormatter={(v) => `$${v.toFixed(2)}`}
+                    />
                     <Tooltip
                       formatter={(value, name) => {
                         const numValue = typeof value === 'number' ? value : 0;
                         const nameStr = name ?? '';
-                        if (nameStr === t('stats.costUSD')) return [`$${numValue.toFixed(4)}`, nameStr];
+                        if (nameStr === t('stats.costUSD'))
+                          return [`$${numValue.toFixed(4)}`, nameStr];
                         return [numValue.toLocaleString(), nameStr];
                       }}
                     />
                     <Legend />
                     {chartView === 'requests' && (
                       <>
-                        <Bar yAxisId="left" dataKey="successful" name={t('stats.successful')} stackId="a" fill="#22c55e" />
-                        <Bar yAxisId="left" dataKey="failed" name={t('stats.failed')} stackId="a" fill="#ef4444" />
-                        <Line yAxisId="right" type="monotone" dataKey="cost" name={t('stats.costUSD')} stroke="#f59e0b" strokeWidth={2} dot={false} />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="successful"
+                          name={t('stats.successful')}
+                          stackId="a"
+                          fill="#22c55e"
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="failed"
+                          name={t('stats.failed')}
+                          stackId="a"
+                          fill="#ef4444"
+                        />
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="cost"
+                          name={t('stats.costUSD')}
+                          stroke="#f59e0b"
+                          strokeWidth={2}
+                          dot={false}
+                        />
                       </>
                     )}
                     {chartView === 'tokens' && (
                       <>
-                        <Bar yAxisId="left" dataKey="inputTokens" name={t('stats.inputTokens')} stackId="a" fill="#3b82f6" />
-                        <Bar yAxisId="left" dataKey="outputTokens" name={t('stats.outputTokens')} stackId="a" fill="#8b5cf6" />
-                        <Bar yAxisId="left" dataKey="cacheRead" name={t('stats.cacheRead')} stackId="a" fill="#22c55e" />
-                        <Bar yAxisId="left" dataKey="cacheWrite" name={t('stats.cacheWrite')} stackId="a" fill="#f59e0b" />
-                        <Line yAxisId="right" type="monotone" dataKey="cost" name={t('stats.costUSD')} stroke="#ef4444" strokeWidth={2} dot={false} />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="inputTokens"
+                          name={t('stats.inputTokens')}
+                          stackId="a"
+                          fill="#3b82f6"
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="outputTokens"
+                          name={t('stats.outputTokens')}
+                          stackId="a"
+                          fill="#8b5cf6"
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="cacheRead"
+                          name={t('stats.cacheRead')}
+                          stackId="a"
+                          fill="#22c55e"
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="cacheWrite"
+                          name={t('stats.cacheWrite')}
+                          stackId="a"
+                          fill="#f59e0b"
+                        />
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="cost"
+                          name={t('stats.costUSD')}
+                          stroke="#ef4444"
+                          strokeWidth={2}
+                          dot={false}
+                        />
                       </>
                     )}
                   </ComposedChart>
@@ -600,7 +684,9 @@ function SummaryCard({
         <div className="text-sm text-muted-foreground">{title}</div>
         <div className={`text-2xl font-bold ${className || ''}`}>
           {value}
-          {subtitle && <span className="text-xs font-normal text-muted-foreground ml-1">{subtitle}</span>}
+          {subtitle && (
+            <span className="text-xs font-normal text-muted-foreground ml-1">{subtitle}</span>
+          )}
         </div>
       </CardContent>
     </Card>

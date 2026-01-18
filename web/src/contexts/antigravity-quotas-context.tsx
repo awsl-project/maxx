@@ -20,7 +20,10 @@ interface AntigravityQuotasProviderProps {
   enabled?: boolean;
 }
 
-export function AntigravityQuotasProvider({ children, enabled = true }: AntigravityQuotasProviderProps) {
+export function AntigravityQuotasProvider({
+  children,
+  enabled = true,
+}: AntigravityQuotasProviderProps) {
   const { data: quotas, isLoading } = useAntigravityBatchQuotas(enabled);
 
   const getQuotaForProvider = (providerId: number): AntigravityQuotaData | undefined => {
@@ -43,7 +46,9 @@ export function useAntigravityQuotasContext() {
 }
 
 // 可选的 hook，用于在没有 Provider 时不抛出错误
-export function useAntigravityQuotaFromContext(providerId: number): AntigravityQuotaData | undefined {
+export function useAntigravityQuotaFromContext(
+  providerId: number,
+): AntigravityQuotaData | undefined {
   const context = useContext(AntigravityQuotasContext);
   return context?.getQuotaForProvider(providerId);
 }

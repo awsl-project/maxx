@@ -125,7 +125,7 @@ export function useUsageStats(filter?: UsageStatsFilter) {
  */
 export function useUsageStatsWithPreset(
   preset: TimeRangePreset,
-  additionalFilter?: Omit<UsageStatsFilter, 'granularity' | 'start' | 'end'>
+  additionalFilter?: Omit<UsageStatsFilter, 'granularity' | 'start' | 'end'>,
 ) {
   const { start, end, granularity } = getTimeRange(preset);
 
