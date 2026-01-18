@@ -132,7 +132,6 @@ func (d *DB) autoMigrate() error {
 	return nil
 }
 
-// adjustTextColumnsForMySQL 将 MySQL 中的 TEXT 字段转换为 LONGTEXT
 func (d *DB) Close() error {
 	sqlDB, err := d.gorm.DB()
 	if err != nil {

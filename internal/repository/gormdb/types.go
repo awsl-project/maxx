@@ -2,6 +2,7 @@ package gormdb
 
 import (
 	"database/sql/driver"
+	"fmt"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
@@ -43,11 +44,13 @@ func (lt *LongText) Scan(value interface{}) error {
 	switch v := value.(type) {
 	case string:
 		*lt = LongText(v)
+		return nil
 	case []byte:
 		*lt = LongText(v)
+		return nil
+	default:
+		return fmt.Errorf("unsupported LongText scan type %T", value)
 	}
-
-	return nil
 }
 
 // String 返回字符串值
