@@ -7,15 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"gorm.io/driver/mysql"
 	"github.com/glebarez/sqlite"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 type DB struct {
-	gorm     *gorm.DB
-	dialector string // "sqlite" or "mysql"
+	gorm      *gorm.DB
+	dialector string // "sqlite", "mysql", or "postgres"
 }
 
 // GormDB returns the underlying GORM DB instance
@@ -38,6 +39,7 @@ func NewDB(path string) (*DB, error) {
 // DSN formats:
 //   - SQLite: "sqlite:///path/to/db.sqlite" or just "/path/to/db.sqlite"
 //   - MySQL:  "mysql://user:password@tcp(host:port)/dbname?parseTime=true"
+//   - PostgreSQL: "postgres://user:password@host:port/dbname?sslmode=disable"
 func NewDBWithDSN(dsn string) (*DB, error) {
 	var dialector gorm.Dialector
 	var dialectorName string
@@ -48,6 +50,11 @@ func NewDBWithDSN(dsn string) (*DB, error) {
 		dialector = mysql.Open(mysqlDSN)
 		dialectorName = "mysql"
 		log.Printf("[DB] Connecting to MySQL database")
+	} else if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		// PostgreSQL DSN: postgres://user:password@host:port/dbname?sslmode=disable
+		dialector = postgres.Open(dsn)
+		dialectorName = "postgres"
+		log.Printf("[DB] Connecting to PostgreSQL database")
 	} else {
 		// SQLite DSN: sqlite:///path/to/db.sqlite or just /path/to/db.sqlite
 		sqlitePath := strings.TrimPrefix(dsn, "sqlite://")
