@@ -213,7 +213,7 @@ export function ActivityHeatmap({
                           )}
                         />
                       </TooltipTrigger>
-                      <TooltipContent side="top" sideOffset={8}>
+                      <TooltipContent side="top" sideOffset={8} className="pointer-events-none">
                         <div className="flex flex-col gap-0.5">
                           <span className="font-semibold">{formatDate(day.date)}</span>
                           <span className="tabular-nums">
