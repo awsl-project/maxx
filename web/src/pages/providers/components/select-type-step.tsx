@@ -41,6 +41,8 @@ export function SelectTypeStep() {
         selectedTemplate: templateId,
         name: template.name,
         clients: updatedClients,
+        modelMappings: template.modelMappings,
+        logo: template.logoUrl,
       });
 
       goToCustomConfig();

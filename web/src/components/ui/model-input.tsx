@@ -48,6 +48,9 @@ const COMMON_MODELS = [
   { id: '*gpt*', name: 'All GPT models', provider: 'OpenAI' },
   { id: '*o1*', name: 'All o1 models', provider: 'OpenAI' },
   { id: '*o3*', name: 'All o3 models', provider: 'OpenAI' },
+  // NVIDIA/Meta wildcards
+  { id: '*llama*', name: 'All Llama models', provider: 'NVIDIA' },
+  { id: 'meta/*', name: 'All Meta models', provider: 'NVIDIA' },
   // OpenAI models
   { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI' },
   { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI' },
@@ -58,6 +61,15 @@ const COMMON_MODELS = [
   { id: 'o1-mini', name: 'o1 Mini', provider: 'OpenAI' },
   { id: 'o1-pro', name: 'o1 Pro', provider: 'OpenAI' },
   { id: 'o3-mini', name: 'o3 Mini', provider: 'OpenAI' },
+  // NVIDIA models
+  { id: 'minimaxai/minimax-m2.1', name: 'MiniMax M2.1', provider: 'NVIDIA' },
+  { id: 'z-ai/glm4.7', name: 'GLM 4.7', provider: 'NVIDIA' },
+  { id: 'deepseek-ai/deepseek-rl', name: 'DeepSeek RL', provider: 'NVIDIA' },
+  { id: 'qwen/qwen2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B', provider: 'NVIDIA' },
+  { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', provider: 'NVIDIA' },
+  { id: 'google/gemma-3-27b-it', name: 'Gemma 3 27B', provider: 'NVIDIA' },
+  { id: 'meta/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick 17B', provider: 'NVIDIA' },
+  { id: 'mistralai/devstral-2-123b-instruct-2512', name: 'Devstral 2 123B', provider: 'NVIDIA' },
   // Antigravity supported target models (use these as mapping targets)
   {
     id: 'claude-opus-4-5-thinking',
