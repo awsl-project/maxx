@@ -574,6 +574,10 @@
       "nvidia": {
         "name": "NVIDIA NIM",
         "description": "NVIDIA NIM · OpenAI Compatible"
+      },
+      "zhipu": {
+        "name": "Zhipu AI",
+        "description": "Claude Code · GLM-4.7"
       }
     }
   }

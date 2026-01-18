@@ -7,6 +7,7 @@ import freeDuckLogo from '@/assets/icons/free-duck.gif';
 import nvidiaLogo from '@/assets/icons/nvidia.svg';
 import logo88code from '@/assets/icons/88code.svg';
 import aicodemirrorLogo from '@/assets/icons/aicodemirror.png';
+import zhipuLogo from '@/assets/icons/zhipu.svg';
 
 // ===== Provider Type Configuration =====
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
@@ -169,6 +170,19 @@ export const quickTemplates: QuickTemplate[] = [
       openai: 'https://integrate.api.nvidia.com',
     },
     modelMappings: [{ pattern: '*', target: 'minimaxai/minimax-m2.1' }],
+  },
+  {
+    id: 'zhipu',
+    name: '智谱 AI',
+    description: 'Claude Code · GLM-4.7',
+    nameKey: 'addProvider.templates.zhipu.name',
+    descriptionKey: 'addProvider.templates.zhipu.description',
+    icon: 'grid',
+    logoUrl: zhipuLogo,
+    supportedClients: ['claude'],
+    clientBaseURLs: {
+      claude: 'https://open.bigmodel.cn/api/anthropic',
+    },
   },
 ];
 
