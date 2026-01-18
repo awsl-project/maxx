@@ -205,10 +205,10 @@ export function ActivityHeatmap({
                     />
                   ) : (
                     <Tooltip key={day.date}>
-                      <TooltipTrigger>
+                      <TooltipTrigger className="cursor-default">
                         <div
                           className={cn(
-                            'w-3 h-3 rounded-sm cursor-default transition-shadow hover:shadow-[0_0_0_2px_var(--color-background),0_0_0_4px_var(--color-foreground)]',
+                            'w-3 h-3 rounded-sm transition-shadow hover:shadow-[0_0_0_2px_var(--color-background),0_0_0_4px_var(--color-foreground)]',
                             getColorLevel(day.count, maxCount, colorScheme)
                           )}
                         />
