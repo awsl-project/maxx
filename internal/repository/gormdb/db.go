@@ -1,4 +1,4 @@
-package sqlite
+package gormdb
 
 import (
 	"encoding/json"
@@ -120,9 +120,19 @@ func NewDBWithDSN(dsn string) (*DB, error) {
 // autoMigrate uses GORM auto-migration
 func (d *DB) autoMigrate() error {
 	log.Println("[DB] Running GORM auto-migration...")
-	return d.gorm.AutoMigrate(AllModels()...)
+	if err := d.gorm.AutoMigrate(AllModels()...); err != nil {
+		return err
+	}
+
+	// 注意：使用 LongText 类型后，GORM 会自动根据数据库类型选择合适的字段类型
+	// - MySQL: LONGTEXT
+	// - PostgreSQL: TEXT
+	// - SQLite: TEXT
+
+	return nil
 }
 
+// adjustTextColumnsForMySQL 将 MySQL 中的 TEXT 字段转换为 LONGTEXT
 func (d *DB) Close() error {
 	sqlDB, err := d.gorm.DB()
 	if err != nil {

@@ -1,4 +1,4 @@
-package sqlite
+package gormdb
 
 import (
 	"errors"
@@ -76,7 +76,7 @@ func (r *RoutingStrategyRepository) toModel(s *domain.RoutingStrategy) *RoutingS
 		},
 		ProjectID: s.ProjectID,
 		Type:      string(s.Type),
-		Config:    toJSON(s.Config),
+		Config: LongText(toJSON(s.Config)),
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *RoutingStrategyRepository) toDomain(m *RoutingStrategy) *domain.Routing
 		DeletedAt: fromTimestampPtr(m.DeletedAt),
 		ProjectID: m.ProjectID,
 		Type:      domain.RoutingStrategyType(m.Type),
-		Config:    fromJSON[*domain.RoutingStrategyConfig](m.Config),
+		Config:    fromJSON[*domain.RoutingStrategyConfig](string(m.Config)),
 	}
 }
 

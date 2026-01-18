@@ -1,4 +1,4 @@
-package sqlite
+package gormdb
 
 import (
 	"errors"
@@ -82,9 +82,9 @@ func (r *ProviderRepository) toModel(p *domain.Provider) *Provider {
 		},
 		Type:                 p.Type,
 		Name:                 p.Name,
-		Config:               toJSON(p.Config),
-		SupportedClientTypes: toJSON(p.SupportedClientTypes),
-		SupportModels:        toJSON(p.SupportModels),
+		Config:               LongText(toJSON(p.Config)),
+		SupportedClientTypes: LongText(toJSON(p.SupportedClientTypes)),
+		SupportModels:        LongText(toJSON(p.SupportModels)),
 	}
 }
 
@@ -97,8 +97,8 @@ func (r *ProviderRepository) toDomain(m *Provider) *domain.Provider {
 		DeletedAt:            fromTimestampPtr(m.DeletedAt),
 		Type:                 m.Type,
 		Name:                 m.Name,
-		Config:               fromJSON[*domain.ProviderConfig](m.Config),
-		SupportedClientTypes: fromJSON[[]domain.ClientType](m.SupportedClientTypes),
-		SupportModels:        fromJSON[[]string](m.SupportModels),
+		Config:               fromJSON[*domain.ProviderConfig](string(m.Config)),
+		SupportedClientTypes: fromJSON[[]domain.ClientType](string(m.SupportedClientTypes)),
+		SupportModels:        fromJSON[[]string](string(m.SupportModels)),
 	}
 }

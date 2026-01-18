@@ -1,4 +1,4 @@
-package sqlite
+package gormdb
 
 import (
 	"database/sql/driver"
@@ -114,11 +114,11 @@ func (j *JSONSlice[T]) Scan(value any) error {
 // Provider model
 type Provider struct {
 	SoftDeleteModel
-	Type                 string `gorm:"not null"`
-	Name                 string `gorm:"not null"`
-	Config               string `gorm:"type:text"`
-	SupportedClientTypes string `gorm:"type:text"`
-	SupportModels        string `gorm:"type:text"`
+	Type                 string   `gorm:"not null"`
+	Name                 string   `gorm:"not null"`
+	Config               LongText
+	SupportedClientTypes LongText
+	SupportModels        LongText
 }
 
 func (Provider) TableName() string { return "providers" }
@@ -126,9 +126,9 @@ func (Provider) TableName() string { return "providers" }
 // Project model
 type Project struct {
 	SoftDeleteModel
-	Name                string `gorm:"not null"`
-	Slug                string `gorm:"not null;default:''"`
-	EnabledCustomRoutes string `gorm:"type:text"`
+	Name                string   `gorm:"not null"`
+	Slug                string   `gorm:"not null;default:''"`
+	EnabledCustomRoutes LongText
 }
 
 func (Project) TableName() string { return "projects" }
@@ -174,9 +174,9 @@ func (RetryConfig) TableName() string { return "retry_configs" }
 // RoutingStrategy model
 type RoutingStrategy struct {
 	SoftDeleteModel
-	ProjectID uint64 `gorm:"default:0"`
-	Type      string `gorm:"not null"`
-	Config    string `gorm:"type:text"`
+	ProjectID uint64   `gorm:"default:0"`
+	Type      string   `gorm:"not null"`
+	Config    LongText
 }
 
 func (RoutingStrategy) TableName() string { return "routing_strategies" }
@@ -217,12 +217,12 @@ func (ModelMapping) TableName() string { return "model_mappings" }
 // AntigravityQuota model
 type AntigravityQuota struct {
 	SoftDeleteModel
-	Email            string `gorm:"type:varchar(255);not null;uniqueIndex"`
-	SubscriptionTier string `gorm:"default:'FREE'"`
-	IsForbidden      int    `gorm:"default:0"`
-	Models           string `gorm:"type:text"`
+	Email            string   `gorm:"type:varchar(255);not null;uniqueIndex"`
+	SubscriptionTier string   `gorm:"default:'FREE'"`
+	IsForbidden      int      `gorm:"default:0"`
+	Models           LongText
 	Name             string `gorm:"default:''"`
-	Picture          string `gorm:"type:text"`
+	Picture          LongText
 	GCPProjectID     string `gorm:"column:gcp_project_id;default:''"`
 }
 
@@ -233,19 +233,19 @@ func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 // ProxyRequest model
 type ProxyRequest struct {
 	BaseModel
-	InstanceID                  string `gorm:"type:text"`
-	RequestID                   string `gorm:"type:text"`
+	InstanceID                  LongText
+	RequestID                   LongText
 	SessionID                   string `gorm:"type:varchar(255);index"`
-	ClientType                  string `gorm:"type:text"`
-	RequestModel                string `gorm:"type:text"`
-	ResponseModel               string `gorm:"type:text"`
+	ClientType                  LongText
+	RequestModel                LongText
+	ResponseModel               LongText
 	StartTime                   int64  `gorm:"default:0"`
 	EndTime                     int64  `gorm:"default:0"`
 	DurationMs                  int64  `gorm:"default:0"`
-	Status                      string `gorm:"type:text"`
-	RequestInfo                 string `gorm:"type:text"`
-	ResponseInfo                string `gorm:"type:text"`
-	Error                       string `gorm:"type:text"`
+	Status                      LongText
+	RequestInfo                 LongText
+	ResponseInfo                LongText
+	Error                       LongText
 	ProxyUpstreamAttemptCount   uint64 `gorm:"default:0"`
 	FinalProxyUpstreamAttemptID uint64 `gorm:"default:0"`
 	InputTokenCount             uint64 `gorm:"default:0"`
@@ -268,10 +268,10 @@ func (ProxyRequest) TableName() string { return "proxy_requests" }
 // ProxyUpstreamAttempt model
 type ProxyUpstreamAttempt struct {
 	BaseModel
-	Status            string `gorm:"type:text"`
+	Status            LongText
 	ProxyRequestID    uint64 `gorm:"index"`
-	RequestInfo       string `gorm:"type:text"`
-	ResponseInfo      string `gorm:"type:text"`
+	RequestInfo       LongText
+	ResponseInfo      LongText
 	RouteID           uint64
 	ProviderID        uint64
 	InputTokenCount   uint64 `gorm:"default:0"`
@@ -294,10 +294,10 @@ func (ProxyUpstreamAttempt) TableName() string { return "proxy_upstream_attempts
 
 // SystemSetting model
 type SystemSetting struct {
-	Key       string `gorm:"column:setting_key;type:varchar(255);primaryKey"`
-	Value     string `gorm:"type:text;not null"`
-	CreatedAt int64  `gorm:"not null"`
-	UpdatedAt int64  `gorm:"not null"`
+	Key       string   `gorm:"column:setting_key;type:varchar(255);primaryKey"`
+	Value     LongText `gorm:"not null"`
+	CreatedAt int64    `gorm:"not null"`
+	UpdatedAt int64    `gorm:"not null"`
 }
 
 func (SystemSetting) TableName() string { return "system_settings" }
