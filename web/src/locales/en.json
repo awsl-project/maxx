@@ -36,7 +36,9 @@
     "days": "days",
     "hours": "hours",
     "global": "Global",
-    "initFailed": "Failed to Initialize"
+    "initFailed": "Failed to Initialize",
+    "search": "Search",
+    "searchProviders": "Search providers..."
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -568,6 +570,10 @@
       "freeduck": {
         "name": "Free Duck",
         "description": "Free site · Claude Code only"
+      },
+      "nvidia": {
+        "name": "NVIDIA NIM",
+        "description": "NVIDIA NIM · OpenAI Compatible"
       }
     }
   }

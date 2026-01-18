@@ -46,6 +46,7 @@ export interface Provider {
   updatedAt: string;
   type: string;
   name: string;
+  logo?: string; // Logo URL or data URI
   config: ProviderConfig | null;
   supportedClientTypes: ClientType[];
 }

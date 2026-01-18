@@ -36,7 +36,9 @@
     "days": "天",
     "hours": "小时",
     "global": "全局",
-    "initFailed": "初始化失败"
+    "initFailed": "初始化失败",
+    "search": "搜索",
+    "searchProviders": "搜索 Provider..."
   },
   "nav": {
     "dashboard": "仪表板",
@@ -567,6 +569,10 @@
       "freeduck": {
         "name": "Free Duck",
         "description": "免费站点 · 只有 Claude Code"
+      },
+      "nvidia": {
+        "name": "NVIDIA NIM",
+        "description": "NVIDIA NIM · OpenAI 兼容"
       }
     }
   }
