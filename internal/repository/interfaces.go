@@ -111,6 +111,8 @@ type UsageStatsRepository interface {
 	Query(filter UsageStatsFilter) ([]*domain.UsageStats, error)
 	// QueryWithRealtime 查询统计数据并合并当前周期的实时数据
 	QueryWithRealtime(filter UsageStatsFilter) ([]*domain.UsageStats, error)
+	// QueryDashboardData 查询 Dashboard 所需的所有数据（单次请求，并发执行）
+	QueryDashboardData() (*domain.DashboardData, error)
 	// GetSummary 获取汇总统计数据（总计）
 	GetSummary(filter UsageStatsFilter) (*domain.UsageStatsSummary, error)
 	// GetSummaryByProvider 按 Provider 维度获取汇总统计

@@ -127,3 +127,18 @@ export {
 
 // Response Model hooks
 export { responseModelKeys, useResponseModels } from './use-response-models';
+
+// Dashboard Stats hooks
+export {
+  useDashboardData,
+  useDashboardSummary,
+  useAllTimeStats,
+  useActivityHeatmap,
+  useTopModels,
+  use24HourTrend,
+  useFirstUseDate,
+  useDashboardProviderStats,
+  type DashboardSummary,
+  type HeatmapDataPoint,
+  type ModelRanking,
+} from './use-dashboard-stats';

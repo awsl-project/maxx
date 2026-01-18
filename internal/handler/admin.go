@@ -80,6 +80,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleModelMappings(w, r, id)
 	case "usage-stats":
 		h.handleUsageStats(w, r)
+	case "dashboard":
+		h.handleDashboard(w, r)
 	case "response-models":
 		h.handleResponseModels(w, r)
 	default:
@@ -1245,6 +1247,22 @@ func (h *AdminHandler) handleResponseModels(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, names)
+}
+
+// handleDashboard handles GET /admin/dashboard
+// Returns all dashboard data in a single request
+func (h *AdminHandler) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	data, err := h.svc.GetDashboardData()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

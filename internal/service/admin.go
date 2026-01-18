@@ -653,6 +653,11 @@ func (s *AdminService) GetUsageStats(filter repository.UsageStatsFilter) ([]*dom
 	return s.usageStatsRepo.QueryWithRealtime(filter)
 }
 
+// GetDashboardData returns all dashboard data in a single query
+func (s *AdminService) GetDashboardData() (*domain.DashboardData, error) {
+	return s.usageStatsRepo.QueryDashboardData()
+}
+
 // RecalculateUsageStats clears all usage stats and recalculates from raw data
 func (s *AdminService) RecalculateUsageStats() error {
 	return s.usageStatsRepo.ClearAndRecalculate()

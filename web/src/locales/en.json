@@ -78,7 +78,29 @@
     "fast": "Fast",
     "fastDesc": "Low latency routing",
     "insights": "Insights",
-    "insightsDesc": "Real-time analytics"
+    "insightsDesc": "Real-time analytics",
+    "todayRequests": "Today's Requests",
+    "todayTokens": "Today's Tokens",
+    "todayCost": "Today's Cost",
+    "successRate": "Success Rate",
+    "healthy": "Healthy",
+    "warning": "Warning",
+    "critical": "Critical",
+    "trend24h": "24h Trend",
+    "usageStats": "Usage Stats",
+    "firstUse": "Usage Duration",
+    "daysAgo": "days",
+    "totalRequests": "Total Requests",
+    "totalTokens": "Total Tokens",
+    "totalCost": "Total Cost",
+    "activityHeatmap": "Activity Heatmap",
+    "topModels": "Top Models",
+    "providerStatus": "Provider Status",
+    "cooldownActive": "Cooldown Active",
+    "viewAll": "View All",
+    "activeSessions": "Active Sessions",
+    "requests": "Requests",
+    "cost": "Cost"
   },
   "requests": {
     "title": "Requests",
@@ -314,7 +336,10 @@
     "dataRetention": "Data Retention",
     "requestRetentionHours": "Request Retention",
     "requestRetentionHoursDesc": "Requests older than this will be automatically cleaned up, 0 means no cleanup",
-    "retentionHoursHint": "0 = no cleanup"
+    "retentionHoursHint": "0 = no cleanup",
+    "timezone": "Timezone",
+    "timezoneDesc": "Timezone for statistics aggregation and dashboard date calculations",
+    "selectTimezone": "Select timezone..."
   },
   "modelMappings": {
     "title": "Model Mappings",

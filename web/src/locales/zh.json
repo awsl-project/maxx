@@ -78,7 +78,29 @@
     "fast": "快速",
     "fastDesc": "低延迟路由",
     "insights": "洞察",
-    "insightsDesc": "实时分析"
+    "insightsDesc": "实时分析",
+    "todayRequests": "今日请求",
+    "todayTokens": "今日 Token",
+    "todayCost": "今日成本",
+    "successRate": "成功率",
+    "healthy": "健康",
+    "warning": "警告",
+    "critical": "异常",
+    "trend24h": "24 小时趋势",
+    "usageStats": "使用统计",
+    "firstUse": "使用时长",
+    "daysAgo": "天",
+    "totalRequests": "总请求数",
+    "totalTokens": "总 Token",
+    "totalCost": "总成本",
+    "activityHeatmap": "活动热力图",
+    "topModels": "热门模型",
+    "providerStatus": "提供商状态",
+    "cooldownActive": "冷却保护中",
+    "viewAll": "查看全部",
+    "activeSessions": "活跃会话",
+    "requests": "请求",
+    "cost": "成本"
   },
   "requests": {
     "title": "请求",
@@ -314,7 +336,10 @@
     "dataRetention": "数据保留",
     "requestRetentionHours": "请求记录保留时间",
     "requestRetentionHoursDesc": "超过此时间的请求记录将被自动清理，0 表示不清理",
-    "retentionHoursHint": "0 表示不清理"
+    "retentionHoursHint": "0 表示不清理",
+    "timezone": "时区",
+    "timezoneDesc": "用于统计数据聚合和仪表板日期计算的时区",
+    "selectTimezone": "选择时区..."
   },
   "modelMappings": {
     "title": "模型映射",

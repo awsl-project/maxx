@@ -41,6 +41,7 @@ import type {
   RoutePositionUpdate,
   UsageStats,
   UsageStatsFilter,
+  DashboardData,
 } from './types';
 
 /**
@@ -158,6 +159,9 @@ export interface Transport {
   // ===== Usage Stats API =====
   getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]>;
   recalculateUsageStats(): Promise<void>;
+
+  // ===== Dashboard API =====
+  getDashboardData(): Promise<DashboardData>;
 
   // ===== Response Model API =====
   getResponseModels(): Promise<string[]>;

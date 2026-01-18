@@ -44,6 +44,7 @@ import type {
   RoutePositionUpdate,
   UsageStats,
   UsageStatsFilter,
+  DashboardData,
 } from './types';
 
 export class HttpTransport implements Transport {
@@ -514,6 +515,13 @@ export class HttpTransport implements Transport {
 
   async recalculateUsageStats(): Promise<void> {
     await this.client.post('/usage-stats/recalculate');
+  }
+
+  // ===== Dashboard API =====
+
+  async getDashboardData(): Promise<DashboardData> {
+    const { data } = await this.client.get<DashboardData>('/dashboard');
+    return data;
   }
 
   // ===== Response Model API =====

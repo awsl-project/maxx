@@ -47,3 +47,6 @@ export { Tabs, TabsList, TabsTrigger, TabsContent } from './tabs';
 
 // Marquee Background
 export { MarqueeBackground } from './marquee-background';
+
+// Activity Heatmap
+export { ActivityHeatmap } from './activity-heatmap';
