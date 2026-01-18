@@ -253,26 +253,26 @@ export function AntigravityTokenImport() {
               className={cn(
                 'relative group p-4 rounded-xl border-2 transition-all duration-200 text-left',
                 mode === 'oauth'
-                  ? 'border-accent bg-accent/5 shadow-sm'
-                  : 'border-border hover:border-accent/50 bg-muted hover:bg-accent',
+                  ? 'border-primary bg-primary/10 shadow-md'
+                  : 'border-border hover:border-primary/30 bg-secondary/50 hover:bg-secondary',
               )}
             >
               <div className="flex items-start gap-4">
                 <div
                   className={cn(
-                    'w-10 h-10 rounded-lg flex items-center justify-center transition-colors',
+                    'size-10 rounded-md flex items-center justify-center transition-colors',
                     mode === 'oauth'
-                      ? 'bg-accent/20 text-accent'
-                      : 'bg-accent text-muted-foreground group-hover:text-accent',
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-secondary-foreground group-hover:bg-primary/20',
                   )}
                 >
                   <ExternalLink size={20} />
                 </div>
-                <div>
+                <div className="flex-1">
                   <div
                     className={cn(
                       'font-semibold mb-1',
-                      mode === 'oauth' ? 'text-accent' : 'text-foreground',
+                      mode === 'oauth' ? 'text-primary' : 'text-foreground',
                     )}
                   >
                     OAuth Connect
@@ -283,7 +283,7 @@ export function AntigravityTokenImport() {
                 </div>
               </div>
               {mode === 'oauth' && (
-                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-accent" />
+                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-primary" />
               )}
             </button>
 
@@ -292,26 +292,26 @@ export function AntigravityTokenImport() {
               className={cn(
                 'relative group p-4 rounded-xl border-2 transition-all duration-200 text-left',
                 mode === 'token'
-                  ? 'border-accent bg-accent/5 shadow-sm'
-                  : 'border-border hover:border-accent/50 bg-muted hover:bg-accent',
+                  ? 'border-primary bg-primary/10 shadow-md'
+                  : 'border-border hover:border-primary/30 bg-secondary/50 hover:bg-secondary',
               )}
             >
               <div className="flex items-start gap-4">
                 <div
                   className={cn(
-                    'w-10 h-10 rounded-lg flex items-center justify-center transition-colors',
+                    'size-10 rounded-md flex items-center justify-center transition-colors',
                     mode === 'token'
-                      ? 'bg-accent/20 text-accent'
-                      : 'bg-accent text-muted-foreground group-hover:text-accent',
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-secondary-foreground group-hover:bg-primary/20',
                   )}
                 >
                   <Key size={20} />
                 </div>
-                <div>
+                <div className="flex-1">
                   <div
                     className={cn(
                       'font-semibold mb-1',
-                      mode === 'token' ? 'text-accent' : 'text-foreground',
+                      mode === 'token' ? 'text-primary' : 'text-foreground',
                     )}
                   >
                     Manual Token
@@ -322,7 +322,7 @@ export function AntigravityTokenImport() {
                 </div>
               </div>
               {mode === 'token' && (
-                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-accent" />
+                <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-primary" />
               )}
             </button>
           </div>
