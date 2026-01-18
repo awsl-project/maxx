@@ -14,7 +14,8 @@ export function NavProxyStatus() {
   const proxyAddress = proxyStatus?.address ?? '...';
   const fullUrl = `http://${proxyAddress}`;
   const isCollapsed = state === 'collapsed';
-
+  const versionDisplay = proxyStatus?.version ?? '...';
+  console.log('proxyStatus', proxyStatus);
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(fullUrl);
@@ -47,6 +48,7 @@ export function NavProxyStatus() {
         </TooltipTrigger>
         <TooltipContent side="right" align="center">
           <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">v{versionDisplay}</span>
             <span className="text-xs text-text-muted">{t('proxy.listeningOn')}</span>
             <span className="font-mono font-medium">{proxyAddress}</span>
             <span className="text-xs text-emerald-400">
@@ -64,8 +66,8 @@ export function NavProxyStatus() {
         <Radio size={16} className="text-emerald-400" />
       </div>
       <div className="flex flex-col items-start flex-1 min-w-0">
-        <span className="text-caption text-text-muted">{t('proxy.listeningOn')}</span>
-        <span className="font-mono font-medium text-text-primary truncate">{proxyAddress}</span>
+        <span className="text-caption text-text-muted">v{versionDisplay} {t('proxy.listeningOn')}</span>
+        <span className="font-mono font-medium text-text-primary break-all">{proxyAddress}</span>
       </div>
       <button
         type="button"
