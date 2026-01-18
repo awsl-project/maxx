@@ -57,8 +57,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Stage 3: Final runtime image
 FROM alpine:latest
 
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates
+# Install runtime dependencies (tzdata for timezone support)
+RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 

@@ -21,7 +21,26 @@ func NewUsageStatsRepository(db *DB) *UsageStatsRepository {
 	return &UsageStatsRepository{db: db}
 }
 
-// TruncateToGranularity 将时间截断到指定粒度的时间桶
+// getConfiguredTimezone 获取配置的时区，默认 Asia/Shanghai
+func (r *UsageStatsRepository) getConfiguredTimezone() *time.Location {
+	var value string
+	err := r.db.gorm.Table("system_settings").
+		Where("key = ?", domain.SettingKeyTimezone).
+		Pluck("value", &value).Error
+	if err != nil || value == "" {
+		value = "Asia/Shanghai" // 默认时区
+	}
+
+	loc, err := time.LoadLocation(value)
+	if err != nil {
+		log.Printf("[UsageStats] Invalid timezone %q, falling back to UTC+8: %v", value, err)
+		// 手动创建 UTC+8 时区作为 fallback（避免 Docker 容器无 tzdata 导致 panic）
+		loc = time.FixedZone("UTC+8", 8*60*60)
+	}
+	return loc
+}
+
+// TruncateToGranularity 将时间截断到指定粒度的时间桶（使用 UTC）
 func TruncateToGranularity(t time.Time, g domain.Granularity) time.Time {
 	t = t.UTC()
 	switch g {
@@ -40,6 +59,30 @@ func TruncateToGranularity(t time.Time, g domain.Granularity) time.Time {
 		return time.Date(t.Year(), t.Month(), t.Day()-(weekday-1), 0, 0, 0, 0, time.UTC)
 	case domain.GranularityMonth:
 		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+	default:
+		return t.Truncate(time.Hour)
+	}
+}
+
+// TruncateToGranularityInTimezone 将时间截断到指定粒度的时间桶（使用指定时区）
+func TruncateToGranularityInTimezone(t time.Time, g domain.Granularity, loc *time.Location) time.Time {
+	t = t.In(loc)
+	switch g {
+	case domain.GranularityMinute:
+		return t.Truncate(time.Minute)
+	case domain.GranularityHour:
+		return t.Truncate(time.Hour)
+	case domain.GranularityDay:
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+	case domain.GranularityWeek:
+		// 截断到周一
+		weekday := int(t.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		return time.Date(t.Year(), t.Month(), t.Day()-(weekday-1), 0, 0, 0, 0, loc)
+	case domain.GranularityMonth:
+		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc)
 	default:
 		return t.Truncate(time.Hour)
 	}
@@ -990,9 +1033,23 @@ func (r *UsageStatsRepository) AggregateMinute() (int, error) {
 }
 
 // RollUp 从细粒度上卷到粗粒度
+// 对于 day/week/month 粒度，使用配置的时区来划分边界
 func (r *UsageStatsRepository) RollUp(from, to domain.Granularity) (int, error) {
 	now := time.Now().UTC()
-	currentBucket := TruncateToGranularity(now, to)
+
+	// 对于 day 及以上粒度，使用配置的时区
+	var loc *time.Location
+	if to == domain.GranularityDay || to == domain.GranularityWeek || to == domain.GranularityMonth {
+		loc = r.getConfiguredTimezone()
+	}
+
+	// 计算当前时间桶
+	var currentBucket time.Time
+	if loc != nil {
+		currentBucket = TruncateToGranularityInTimezone(now, to, loc)
+	} else {
+		currentBucket = TruncateToGranularity(now, to)
+	}
 
 	// 获取目标粒度的最新时间桶
 	latestBucket, _ := r.GetLatestTimeBucket(to)
@@ -1035,9 +1092,14 @@ func (r *UsageStatsRepository) RollUp(from, to domain.Granularity) (int, error) 
 	statsMap := make(map[rollupKey]*domain.UsageStats)
 
 	for _, m := range models {
-		// 截断到目标粒度
+		// 截断到目标粒度（使用配置的时区）
 		t := fromTimestamp(m.TimeBucket)
-		targetBucket := TruncateToGranularity(t, to).UnixMilli()
+		var targetBucket int64
+		if loc != nil {
+			targetBucket = TruncateToGranularityInTimezone(t, to, loc).UnixMilli()
+		} else {
+			targetBucket = TruncateToGranularity(t, to).UnixMilli()
+		}
 
 		key := rollupKey{
 			targetBucket: targetBucket,
@@ -1095,9 +1157,23 @@ func (r *UsageStatsRepository) RollUp(from, to domain.Granularity) (int, error) 
 }
 
 // RollUpAll 从细粒度上卷到粗粒度（处理所有历史数据，用于重新计算）
+// 对于 day/week/month 粒度，使用配置的时区来划分边界
 func (r *UsageStatsRepository) RollUpAll(from, to domain.Granularity) (int, error) {
 	now := time.Now().UTC()
-	currentBucket := TruncateToGranularity(now, to)
+
+	// 对于 day 及以上粒度，使用配置的时区
+	var loc *time.Location
+	if to == domain.GranularityDay || to == domain.GranularityWeek || to == domain.GranularityMonth {
+		loc = r.getConfiguredTimezone()
+	}
+
+	// 计算当前时间桶
+	var currentBucket time.Time
+	if loc != nil {
+		currentBucket = TruncateToGranularityInTimezone(now, to, loc)
+	} else {
+		currentBucket = TruncateToGranularity(now, to)
+	}
 
 	// 查询所有源粒度数据
 	var models []UsageStats
@@ -1120,9 +1196,14 @@ func (r *UsageStatsRepository) RollUpAll(from, to domain.Granularity) (int, erro
 	statsMap := make(map[rollupKey]*domain.UsageStats)
 
 	for _, m := range models {
-		// 截断到目标粒度
+		// 截断到目标粒度（使用配置的时区）
 		t := fromTimestamp(m.TimeBucket)
-		targetBucket := TruncateToGranularity(t, to).UnixMilli()
+		var targetBucket int64
+		if loc != nil {
+			targetBucket = TruncateToGranularityInTimezone(t, to, loc).UnixMilli()
+		} else {
+			targetBucket = TruncateToGranularity(t, to).UnixMilli()
+		}
 
 		key := rollupKey{
 			targetBucket: targetBucket,
@@ -1392,4 +1473,602 @@ func (r *UsageStatsRepository) toDomainList(models []UsageStats) []*domain.Usage
 		results[i] = r.toDomain(&m)
 	}
 	return results
+}
+
+// QueryDashboardData 查询 Dashboard 所需的所有数据（单次请求）
+// 优化：只执行 3 次主查询
+//   1. 历史 day 粒度数据 (371天) → 热力图、昨日、Provider统计(30天)
+//   2. 今日实时 hour 粒度 (QueryWithRealtime) → 今日统计、24h趋势、今日热力图
+//   3. 全量 month 粒度 (QueryWithRealtime) → 全量统计、Top模型(全量)
+func (r *UsageStatsRepository) QueryDashboardData() (*domain.DashboardData, error) {
+	// 获取配置的时区
+	loc := r.getConfiguredTimezone()
+	now := time.Now().In(loc)
+
+	// 使用配置的时区计算今日、昨日等
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	yesterdayStart := todayStart.Add(-24 * time.Hour)
+	days30Ago := todayStart.Add(-30 * 24 * time.Hour)
+	days371Ago := todayStart.Add(-371 * 24 * time.Hour) // 53周
+
+	hours24Ago := now.Add(-24 * time.Hour)
+
+	var (
+		mu     sync.Mutex
+		result = &domain.DashboardData{
+			ProviderStats: make(map[uint64]domain.DashboardProviderStats),
+			Timezone:      loc.String(),
+		}
+		g errgroup.Group
+	)
+
+	// 查询1: 历史 day 粒度数据 (371天，不含今天)
+	// 用于：热力图历史、昨日统计、Provider统计(30天)
+	g.Go(func() error {
+		query := `
+			SELECT time_bucket, provider_id, model,
+				SUM(total_requests), SUM(successful_requests),
+				SUM(input_tokens + output_tokens + cache_read + cache_write), SUM(cost)
+			FROM usage_stats
+			WHERE granularity = 'day'
+			AND time_bucket >= ? AND time_bucket < ?
+			GROUP BY time_bucket, provider_id, model
+		`
+		rows, err := r.db.gorm.Raw(query, toTimestamp(days371Ago), toTimestamp(todayStart)).Rows()
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		// 初始化热力图（使用配置的时区格式化日期）
+		days := int(now.Sub(days371Ago).Hours()/24) + 1
+		heatmapData := make(map[string]uint64, days)
+		for i := 0; i < days; i++ {
+			date := days371Ago.Add(time.Duration(i) * 24 * time.Hour).In(loc)
+			heatmapData[date.Format("2006-01-02")] = 0
+		}
+
+		var yesterdaySummary domain.DashboardDaySummary
+		providerData := make(map[uint64]*struct {
+			requests   uint64
+			successful uint64
+		})
+
+		for rows.Next() {
+			var bucket int64
+			var providerID uint64
+			var model string
+			var requests, successful, tokens, cost uint64
+			if err := rows.Scan(&bucket, &providerID, &model, &requests, &successful, &tokens, &cost); err != nil {
+				continue
+			}
+
+			bucketTime := fromTimestamp(bucket).In(loc)
+			dateStr := bucketTime.Format("2006-01-02")
+
+			// 热力图
+			heatmapData[dateStr] += requests
+
+			// 昨日统计
+			if !bucketTime.Before(yesterdayStart) && bucketTime.Before(todayStart) {
+				yesterdaySummary.Requests += requests
+				yesterdaySummary.Tokens += tokens
+				yesterdaySummary.Cost += cost
+			}
+
+			// Provider统计 (30天)
+			if !bucketTime.Before(days30Ago) && providerID > 0 {
+				if _, ok := providerData[providerID]; !ok {
+					providerData[providerID] = &struct {
+						requests   uint64
+						successful uint64
+					}{}
+				}
+				providerData[providerID].requests += requests
+				providerData[providerID].successful += successful
+			}
+		}
+
+		mu.Lock()
+		// 设置昨日
+		result.Yesterday = yesterdaySummary
+
+		// 设置 Provider 统计 (30天)
+		for providerID, data := range providerData {
+			var successRate float64
+			if data.requests > 0 {
+				successRate = float64(data.successful) / float64(data.requests) * 100
+			}
+			result.ProviderStats[providerID] = domain.DashboardProviderStats{
+				Requests:    data.requests,
+				SuccessRate: successRate,
+			}
+		}
+
+		// 暂存热力图数据（后面会补充今天的）
+		result.Heatmap = make([]domain.DashboardHeatmapPoint, 0, days)
+		for i := 0; i < days; i++ {
+			date := days371Ago.Add(time.Duration(i) * 24 * time.Hour).In(loc)
+			dateStr := date.Format("2006-01-02")
+			result.Heatmap = append(result.Heatmap, domain.DashboardHeatmapPoint{
+				Date:  dateStr,
+				Count: heatmapData[dateStr],
+			})
+		}
+		mu.Unlock()
+		return nil
+	})
+
+	// 查询2: 今日实时 hour 粒度 (QueryWithRealtime)
+	// 用于：今日统计、24h趋势、今日热力图、Provider今日RPM/TPM
+	g.Go(func() error {
+		filter := repository.UsageStatsFilter{
+			Granularity: domain.GranularityHour,
+			StartTime:   &hours24Ago,
+		}
+		stats, err := r.QueryWithRealtime(filter)
+		if err != nil {
+			return err
+		}
+
+		// 初始化 24 小时趋势（使用配置的时区）
+		hourMap := make(map[string]uint64, 24)
+		for i := 0; i < 24; i++ {
+			hour := hours24Ago.Add(time.Duration(i) * time.Hour).In(loc).Truncate(time.Hour)
+			hourMap[hour.Format("15:04")] = 0
+		}
+
+		var todaySummary domain.DashboardDaySummary
+		var todaySuccessful uint64
+		var todayRequests uint64
+		var todayDurationMs uint64
+
+		// Provider 今日统计（用于计算 RPM/TPM）
+		providerTodayData := make(map[uint64]*struct {
+			requests   uint64
+			tokens     uint64
+			durationMs uint64
+		})
+
+		for _, s := range stats {
+			// 24h趋势（使用配置的时区）
+			hourStr := s.TimeBucket.In(loc).Format("15:04")
+			hourMap[hourStr] += s.TotalRequests
+
+			// 今日统计（只统计今天的数据）
+			if !s.TimeBucket.Before(todayStart) {
+				todaySummary.Requests += s.TotalRequests
+				todaySuccessful += s.SuccessfulRequests
+				todaySummary.Tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
+				todaySummary.Cost += s.Cost
+				todayRequests += s.TotalRequests
+				todayDurationMs += s.TotalDurationMs
+
+				// Provider 今日数据
+				if s.ProviderID > 0 {
+					if _, ok := providerTodayData[s.ProviderID]; !ok {
+						providerTodayData[s.ProviderID] = &struct {
+							requests   uint64
+							tokens     uint64
+							durationMs uint64
+						}{}
+					}
+					providerTodayData[s.ProviderID].requests += s.TotalRequests
+					providerTodayData[s.ProviderID].tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
+					providerTodayData[s.ProviderID].durationMs += s.TotalDurationMs
+				}
+			}
+		}
+
+		if todaySummary.Requests > 0 {
+			todaySummary.SuccessRate = float64(todaySuccessful) / float64(todaySummary.Requests) * 100
+		}
+
+		// 计算 RPM 和 TPM（基于请求处理总时间）
+		// RPM = (totalRequests / totalDurationMs) * 60000
+		// TPM = (totalTokens / totalDurationMs) * 60000
+		if todayDurationMs > 0 {
+			todaySummary.RPM = (float64(todaySummary.Requests) / float64(todayDurationMs)) * 60000
+			todaySummary.TPM = (float64(todaySummary.Tokens) / float64(todayDurationMs)) * 60000
+		}
+
+		// 构建24h趋势数组（使用配置的时区）
+		trend := make([]domain.DashboardTrendPoint, 0, 24)
+		for i := 0; i < 24; i++ {
+			hour := hours24Ago.Add(time.Duration(i) * time.Hour).In(loc).Truncate(time.Hour)
+			hourStr := hour.Format("15:04")
+			trend = append(trend, domain.DashboardTrendPoint{
+				Hour:     hourStr,
+				Requests: hourMap[hourStr],
+			})
+		}
+
+		mu.Lock()
+		result.Today = todaySummary
+		result.Trend24h = trend
+
+		// 补充今日热力图
+		if len(result.Heatmap) > 0 {
+			todayDateStr := todayStart.Format("2006-01-02")
+			for i := range result.Heatmap {
+				if result.Heatmap[i].Date == todayDateStr {
+					result.Heatmap[i].Count = todayRequests
+					break
+				}
+			}
+		}
+
+		// 补充 Provider 今日 RPM/TPM
+		for providerID, data := range providerTodayData {
+			if data.durationMs > 0 {
+				rpm := (float64(data.requests) / float64(data.durationMs)) * 60000
+				tpm := (float64(data.tokens) / float64(data.durationMs)) * 60000
+				if existing, ok := result.ProviderStats[providerID]; ok {
+					existing.RPM = rpm
+					existing.TPM = tpm
+					result.ProviderStats[providerID] = existing
+				} else {
+					// 如果 Provider 只有今天的数据（30天统计中没有）
+					result.ProviderStats[providerID] = domain.DashboardProviderStats{
+						Requests: data.requests,
+						RPM:      rpm,
+						TPM:      tpm,
+					}
+				}
+			}
+		}
+		mu.Unlock()
+		return nil
+	})
+
+	// 查询3: 全量 month 粒度 (QueryWithRealtime)
+	// 用于：全量统计、Top模型(全量)
+	g.Go(func() error {
+		filter := repository.UsageStatsFilter{
+			Granularity: domain.GranularityMonth,
+		}
+		stats, err := r.QueryWithRealtime(filter)
+		if err != nil {
+			return err
+		}
+
+		var allTimeSummary domain.DashboardAllTimeSummary
+		modelData := make(map[string]*struct {
+			requests uint64
+			tokens   uint64
+		})
+
+		for _, s := range stats {
+			allTimeSummary.Requests += s.TotalRequests
+			allTimeSummary.Tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
+			allTimeSummary.Cost += s.Cost
+
+			// Top模型（全量）
+			if s.Model != "" {
+				tokens := s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
+				if _, ok := modelData[s.Model]; !ok {
+					modelData[s.Model] = &struct {
+						requests uint64
+						tokens   uint64
+					}{}
+				}
+				modelData[s.Model].requests += s.TotalRequests
+				modelData[s.Model].tokens += tokens
+			}
+		}
+
+		// 从 proxy_requests 表获取真正的首次使用时间
+		var firstRequestTime *int64
+		err = r.db.gorm.Raw("SELECT MIN(created_at) FROM proxy_requests").Scan(&firstRequestTime).Error
+		if err == nil && firstRequestTime != nil && *firstRequestTime > 0 {
+			firstUse := fromTimestamp(*firstRequestTime)
+			allTimeSummary.FirstUseDate = &firstUse
+			allTimeSummary.DaysSinceFirstUse = int(now.Sub(firstUse).Hours() / 24)
+		}
+
+		mu.Lock()
+		result.AllTime = allTimeSummary
+		result.TopModels = r.getTopModels(modelData, 3)
+		mu.Unlock()
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// getTopModels 从 model->stats map 中提取 Top N 模型
+func (r *UsageStatsRepository) getTopModels(modelData map[string]*struct {
+	requests uint64
+	tokens   uint64
+}, limit int) []domain.DashboardModelStats {
+	// 转换为切片并排序
+	type modelReq struct {
+		model    string
+		requests uint64
+		tokens   uint64
+	}
+	models := make([]modelReq, 0, len(modelData))
+	for model, data := range modelData {
+		models = append(models, modelReq{model, data.requests, data.tokens})
+	}
+
+	// 按请求数降序排序
+	for i := 0; i < len(models)-1; i++ {
+		for j := i + 1; j < len(models); j++ {
+			if models[j].requests > models[i].requests {
+				models[i], models[j] = models[j], models[i]
+			}
+		}
+	}
+
+	// 取前 N 个
+	result := make([]domain.DashboardModelStats, 0, limit)
+	for i := 0; i < len(models) && i < limit; i++ {
+		result = append(result, domain.DashboardModelStats{
+			Model:    models[i].model,
+			Requests: models[i].requests,
+			Tokens:   models[i].tokens,
+		})
+	}
+	return result
+}
+
+// aggregateToSummary 将 UsageStats 列表聚合为 DashboardDaySummary
+func (r *UsageStatsRepository) aggregateToSummary(stats []*domain.UsageStats) domain.DashboardDaySummary {
+	var result domain.DashboardDaySummary
+	var successfulRequests uint64
+
+	for _, s := range stats {
+		result.Requests += s.TotalRequests
+		successfulRequests += s.SuccessfulRequests
+		result.Tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
+		result.Cost += s.Cost
+	}
+
+	if result.Requests > 0 {
+		result.SuccessRate = float64(successfulRequests) / float64(result.Requests) * 100
+	}
+
+	return result
+}
+
+// statsToHeatmap 将 UsageStats 列表转换为热力图数据
+func (r *UsageStatsRepository) statsToHeatmap(stats []*domain.UsageStats, start, end time.Time) []domain.DashboardHeatmapPoint {
+	// 初始化所有日期
+	days := int(end.Sub(start).Hours() / 24)
+	dateMap := make(map[string]uint64, days)
+	for i := 0; i < days; i++ {
+		date := start.Add(time.Duration(i) * 24 * time.Hour)
+		dateStr := date.Format("2006-01-02")
+		dateMap[dateStr] = 0
+	}
+
+	// 按天聚合
+	for _, s := range stats {
+		dateStr := s.TimeBucket.Format("2006-01-02")
+		dateMap[dateStr] += s.TotalRequests
+	}
+
+	// 转换为有序数组
+	result := make([]domain.DashboardHeatmapPoint, 0, days)
+	for i := 0; i < days; i++ {
+		date := start.Add(time.Duration(i) * 24 * time.Hour)
+		dateStr := date.Format("2006-01-02")
+		result = append(result, domain.DashboardHeatmapPoint{
+			Date:  dateStr,
+			Count: dateMap[dateStr],
+		})
+	}
+
+	return result
+}
+
+// statsToTrend24h 将 UsageStats 列表转换为 24 小时趋势数据
+func (r *UsageStatsRepository) statsToTrend24h(stats []*domain.UsageStats, start, end time.Time) []domain.DashboardTrendPoint {
+	// 初始化 24 小时
+	hourMap := make(map[string]uint64, 24)
+	for i := 0; i < 24; i++ {
+		hour := start.Add(time.Duration(i) * time.Hour).Truncate(time.Hour)
+		hourStr := hour.Format("15:04")
+		hourMap[hourStr] = 0
+	}
+
+	// 按小时聚合
+	for _, s := range stats {
+		hourStr := s.TimeBucket.Format("15:04")
+		hourMap[hourStr] += s.TotalRequests
+	}
+
+	// 转换为有序数组
+	result := make([]domain.DashboardTrendPoint, 0, 24)
+	for i := 0; i < 24; i++ {
+		hour := start.Add(time.Duration(i) * time.Hour).Truncate(time.Hour)
+		hourStr := hour.Format("15:04")
+		result = append(result, domain.DashboardTrendPoint{
+			Hour:     hourStr,
+			Requests: hourMap[hourStr],
+		})
+	}
+
+	return result
+}
+
+// statsToProviderStats 将 UsageStats 列表转换为 Provider 统计
+func (r *UsageStatsRepository) statsToProviderStats(stats []*domain.UsageStats) map[uint64]domain.DashboardProviderStats {
+	// 按 Provider 聚合
+	providerMap := make(map[uint64]*struct {
+		requests   uint64
+		successful uint64
+	})
+
+	for _, s := range stats {
+		if s.ProviderID == 0 {
+			continue
+		}
+		if _, ok := providerMap[s.ProviderID]; !ok {
+			providerMap[s.ProviderID] = &struct {
+				requests   uint64
+				successful uint64
+			}{}
+		}
+		providerMap[s.ProviderID].requests += s.TotalRequests
+		providerMap[s.ProviderID].successful += s.SuccessfulRequests
+	}
+
+	// 转换为结果
+	result := make(map[uint64]domain.DashboardProviderStats)
+	for providerID, data := range providerMap {
+		var successRate float64
+		if data.requests > 0 {
+			successRate = float64(data.successful) / float64(data.requests) * 100
+		}
+		result[providerID] = domain.DashboardProviderStats{
+			Requests:    data.requests,
+			SuccessRate: successRate,
+		}
+	}
+
+	return result
+}
+
+// queryDashboardAllTimeStats 查询全量统计和首次使用日期
+func (r *UsageStatsRepository) queryDashboardAllTimeStats() (domain.DashboardDaySummary, *time.Time, error) {
+	var result domain.DashboardDaySummary
+
+	// 查询全量统计（使用 month 粒度）
+	query := `
+		SELECT
+			COALESCE(SUM(total_requests), 0),
+			COALESCE(SUM(input_tokens + output_tokens + cache_read + cache_write), 0),
+			COALESCE(SUM(cost), 0),
+			MIN(time_bucket)
+		FROM usage_stats
+		WHERE granularity = 'month'
+	`
+
+	var totalRequests, tokens, cost uint64
+	var minBucket *int64
+	err := r.db.gorm.Raw(query).Row().Scan(&totalRequests, &tokens, &cost, &minBucket)
+	if err != nil {
+		return result, nil, err
+	}
+
+	result.Requests = totalRequests
+	result.Tokens = tokens
+	result.Cost = cost
+
+	var firstUse *time.Time
+	if minBucket != nil && *minBucket > 0 {
+		t := fromTimestamp(*minBucket)
+		firstUse = &t
+	}
+
+	return result, firstUse, nil
+}
+
+// queryDashboardHeatmap 查询热力图数据
+// 历史数据用 day 粒度预聚合，今天用 QueryWithRealtime 获取实时数据
+func (r *UsageStatsRepository) queryDashboardHeatmap(start, todayStart, end time.Time) ([]domain.DashboardHeatmapPoint, error) {
+	// 初始化所有日期
+	days := int(end.Sub(start).Hours()/24) + 1
+	dateMap := make(map[string]uint64, days)
+	for i := 0; i < days; i++ {
+		date := start.Add(time.Duration(i) * 24 * time.Hour)
+		dateStr := date.Format("2006-01-02")
+		dateMap[dateStr] = 0
+	}
+
+	// 1. 查询历史天数据（今天之前，使用 day 粒度预聚合）
+	if todayStart.After(start) {
+		query := `
+			SELECT time_bucket, SUM(total_requests) as count
+			FROM usage_stats
+			WHERE granularity = 'day'
+			AND time_bucket >= ? AND time_bucket < ?
+			GROUP BY time_bucket
+		`
+		rows, err := r.db.gorm.Raw(query, toTimestamp(start), toTimestamp(todayStart)).Rows()
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var bucket int64
+			var count uint64
+			if err := rows.Scan(&bucket, &count); err != nil {
+				continue
+			}
+			dateStr := fromTimestamp(bucket).Format("2006-01-02")
+			dateMap[dateStr] += count
+		}
+	}
+
+	// 2. 查询今天的实时数据（使用 QueryWithRealtime）
+	todayFilter := repository.UsageStatsFilter{
+		Granularity: domain.GranularityDay,
+		StartTime:   &todayStart,
+	}
+	todayStats, err := r.QueryWithRealtime(todayFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	// 聚合今天的数据
+	todayDateStr := todayStart.Format("2006-01-02")
+	for _, s := range todayStats {
+		dateMap[todayDateStr] += s.TotalRequests
+	}
+
+	// 转换为有序数组
+	result := make([]domain.DashboardHeatmapPoint, 0, days)
+	for i := 0; i < days; i++ {
+		date := start.Add(time.Duration(i) * 24 * time.Hour)
+		dateStr := date.Format("2006-01-02")
+		result = append(result, domain.DashboardHeatmapPoint{
+			Date:  dateStr,
+			Count: dateMap[dateStr],
+		})
+	}
+
+	return result, nil
+}
+
+// queryDashboardTopModels 查询 Top N 模型
+func (r *UsageStatsRepository) queryDashboardTopModels(limit int) ([]domain.DashboardModelStats, error) {
+	query := `
+		SELECT
+			model,
+			SUM(total_requests) as requests
+		FROM usage_stats
+		WHERE granularity = 'month' AND model != ''
+		GROUP BY model
+		ORDER BY requests DESC
+		LIMIT ?
+	`
+
+	rows, err := r.db.gorm.Raw(query, limit).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []domain.DashboardModelStats
+	for rows.Next() {
+		var model string
+		var requests uint64
+		if err := rows.Scan(&model, &requests); err != nil {
+			continue
+		}
+		result = append(result, domain.DashboardModelStats{
+			Model:    model,
+			Requests: requests,
+		})
+	}
+
+	return result, nil
 }

@@ -579,3 +579,63 @@ export interface ResponseModel {
   lastSeenAt: string;
   useCount: number;
 }
+
+// ===== Dashboard API Types =====
+
+/** Dashboard 日统计摘要 */
+export interface DashboardDaySummary {
+  requests: number;
+  tokens: number;
+  cost: number;
+  successRate?: number;
+  rpm?: number; // Requests Per Minute (今日平均)
+  tpm?: number; // Tokens Per Minute (今日平均)
+}
+
+/** Dashboard 全量统计摘要 */
+export interface DashboardAllTimeSummary {
+  requests: number;
+  tokens: number;
+  cost: number;
+  firstUseDate?: string;
+  daysSinceFirstUse: number;
+}
+
+/** Dashboard 热力图数据点 */
+export interface DashboardHeatmapPoint {
+  date: string;
+  count: number;
+}
+
+/** Dashboard 模型统计 */
+export interface DashboardModelStats {
+  model: string;
+  requests: number;
+  tokens: number;
+}
+
+/** Dashboard 趋势数据点 */
+export interface DashboardTrendPoint {
+  hour: string;
+  requests: number;
+}
+
+/** Dashboard Provider 统计 */
+export interface DashboardProviderStats {
+  requests: number;
+  successRate: number;
+  rpm?: number; // Requests Per Minute (今日平均)
+  tpm?: number; // Tokens Per Minute (今日平均)
+}
+
+/** Dashboard 聚合数据 - 单个 API 返回所有 Dashboard 所需数据 */
+export interface DashboardData {
+  today: DashboardDaySummary;
+  yesterday: DashboardDaySummary;
+  allTime: DashboardAllTimeSummary;
+  heatmap: DashboardHeatmapPoint[];
+  topModels: DashboardModelStats[];
+  trend24h: DashboardTrendPoint[];
+  providerStats: Record<number, DashboardProviderStats>;
+  timezone: string; // 配置的时区，如 "Asia/Shanghai"
+}

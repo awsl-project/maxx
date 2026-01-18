@@ -370,6 +370,7 @@ type SystemSetting struct {
 const (
 	SettingKeyProxyPort             = "proxy_port"              // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours = "request_retention_hours" // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyTimezone              = "timezone"                // 时区设置，默认 Asia/Shanghai
 )
 
 // Antigravity 模型配额
@@ -692,4 +693,64 @@ func indexOf(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+// ===== Dashboard API Types =====
+
+// DashboardDaySummary 日统计摘要
+type DashboardDaySummary struct {
+	Requests    uint64  `json:"requests"`
+	Tokens      uint64  `json:"tokens"`
+	Cost        uint64  `json:"cost"`
+	SuccessRate float64 `json:"successRate,omitempty"`
+	RPM         float64 `json:"rpm,omitempty"` // Requests Per Minute (今日平均)
+	TPM         float64 `json:"tpm,omitempty"` // Tokens Per Minute (今日平均)
+}
+
+// DashboardAllTimeSummary 全量统计摘要
+type DashboardAllTimeSummary struct {
+	Requests          uint64     `json:"requests"`
+	Tokens            uint64     `json:"tokens"`
+	Cost              uint64     `json:"cost"`
+	FirstUseDate      *time.Time `json:"firstUseDate,omitempty"`
+	DaysSinceFirstUse int        `json:"daysSinceFirstUse"`
+}
+
+// DashboardHeatmapPoint 热力图数据点
+type DashboardHeatmapPoint struct {
+	Date  string `json:"date"`
+	Count uint64 `json:"count"`
+}
+
+// DashboardModelStats 模型统计
+type DashboardModelStats struct {
+	Model    string `json:"model"`
+	Requests uint64 `json:"requests"`
+	Tokens   uint64 `json:"tokens"`
+}
+
+// DashboardTrendPoint 趋势数据点
+type DashboardTrendPoint struct {
+	Hour     string `json:"hour"`
+	Requests uint64 `json:"requests"`
+}
+
+// DashboardProviderStats Provider 统计
+type DashboardProviderStats struct {
+	Requests    uint64  `json:"requests"`
+	SuccessRate float64 `json:"successRate"`
+	RPM         float64 `json:"rpm,omitempty"` // Requests Per Minute (今日平均)
+	TPM         float64 `json:"tpm,omitempty"` // Tokens Per Minute (今日平均)
+}
+
+// DashboardData Dashboard 聚合数据
+type DashboardData struct {
+	Today         DashboardDaySummary               `json:"today"`
+	Yesterday     DashboardDaySummary               `json:"yesterday"`
+	AllTime       DashboardAllTimeSummary           `json:"allTime"`
+	Heatmap       []DashboardHeatmapPoint           `json:"heatmap"`
+	TopModels     []DashboardModelStats             `json:"topModels"`
+	Trend24h      []DashboardTrendPoint             `json:"trend24h"`
+	ProviderStats map[uint64]DashboardProviderStats `json:"providerStats"`
+	Timezone      string                            `json:"timezone"` // 配置的时区，如 "Asia/Shanghai"
 }

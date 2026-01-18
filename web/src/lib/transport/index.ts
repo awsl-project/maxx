@@ -66,6 +66,14 @@ export type {
   UsageStats,
   UsageStatsFilter,
   StatsGranularity,
+  // Dashboard
+  DashboardData,
+  DashboardDaySummary,
+  DashboardAllTimeSummary,
+  DashboardHeatmapPoint,
+  DashboardModelStats,
+  DashboardTrendPoint,
+  DashboardProviderStats,
 } from './types';
 
 export type { Transport, TransportType, TransportConfig } from './interface';
