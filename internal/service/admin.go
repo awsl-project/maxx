@@ -25,6 +25,7 @@ type ProviderAdapterRefresher interface {
 // AdminService provides business logic for admin operations
 // Both HTTP handlers and Wails bindings call this service
 type AdminService struct {
+	dialectorName       string // Database type: "sqlite", "mysql", "postgres"
 	providerRepo        repository.ProviderRepository
 	routeRepo           repository.RouteRepository
 	projectRepo         repository.ProjectRepository
@@ -44,6 +45,7 @@ type AdminService struct {
 
 // NewAdminService creates a new admin service
 func NewAdminService(
+	dialectorName string,
 	providerRepo repository.ProviderRepository,
 	routeRepo repository.RouteRepository,
 	projectRepo repository.ProjectRepository,
@@ -61,6 +63,7 @@ func NewAdminService(
 	adapterRefresher ProviderAdapterRefresher,
 ) *AdminService {
 	return &AdminService{
+		dialectorName:       dialectorName,
 		providerRepo:        providerRepo,
 		routeRepo:           routeRepo,
 		projectRepo:         projectRepo,
@@ -411,6 +414,8 @@ func (s *AdminService) GetSettings() (map[string]string, error) {
 	for _, setting := range settings {
 		result[setting.Key] = setting.Value
 	}
+	// Add database type information
+	result["database_type"] = s.dialectorName
 	return result, nil
 }
 

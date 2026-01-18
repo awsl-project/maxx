@@ -260,6 +260,7 @@ func InitializeServerComponents(
 
 	log.Printf("[Core] Creating admin service")
 	adminService := service.NewAdminService(
+		repos.DB.Dialector(),
 		repos.CachedProviderRepo,
 		repos.CachedRouteRepo,
 		repos.ProjectRepo,

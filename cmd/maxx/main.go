@@ -202,6 +202,7 @@ func main() {
 
 	// Create admin service
 	adminService := service.NewAdminService(
+		db.Dialector(),
 		cachedProviderRepo,
 		cachedRouteRepo,
 		cachedProjectRepo, // Use cached repository so updates are visible to Router
