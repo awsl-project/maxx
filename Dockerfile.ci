@@ -5,7 +5,7 @@ FROM alpine:latest
 # TARGETARCH is automatically set by Docker Buildx (amd64, arm64, etc.)
 ARG TARGETARCH
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
