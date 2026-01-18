@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	ctxutil "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -30,6 +31,7 @@ type Executor struct {
 	projectWaiter      *waiter.ProjectWaiter
 	instanceID         string
 	statsAggregator    *stats.StatsAggregator
+	converter          *converter.Registry
 }
 
 // NewExecutor creates a new executor
@@ -56,6 +58,7 @@ func NewExecutor(
 		projectWaiter:      projectWaiter,
 		instanceID:         instanceID,
 		statsAggregator:    statsAggregator,
+		converter:          converter.GetGlobalRegistry(),
 	}
 }
 
@@ -259,6 +262,44 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		mappedModel := e.mapModel(requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, projectID, apiTokenID)
 		ctx = ctxutil.WithMappedModel(ctx, mappedModel)
 
+		// Format conversion: check if client type is supported by provider
+		// If not, convert request to a supported format
+		originalClientType := clientType
+		targetClientType := clientType
+		needsConversion := false
+
+		supportedTypes := matchedRoute.ProviderAdapter.SupportedClientTypes()
+		if e.converter.NeedConvert(clientType, supportedTypes) {
+			targetClientType = GetPreferredTargetType(supportedTypes, clientType)
+			if targetClientType != clientType {
+				needsConversion = true
+				log.Printf("[Executor] Format conversion needed: %s -> %s for provider %s",
+					clientType, targetClientType, matchedRoute.Provider.Name)
+
+				// Convert request body
+				requestBody := ctxutil.GetRequestBody(ctx)
+				convertedBody, convErr := e.converter.TransformRequest(
+					clientType, targetClientType, requestBody, mappedModel, isStream)
+				if convErr != nil {
+					log.Printf("[Executor] Request conversion failed: %v, proceeding with original format", convErr)
+					needsConversion = false
+				} else {
+					// Update context with converted body and new client type
+					ctx = ctxutil.WithRequestBody(ctx, convertedBody)
+					ctx = ctxutil.WithClientType(ctx, targetClientType)
+					ctx = ctxutil.WithOriginalClientType(ctx, originalClientType)
+
+					// Convert request URI to match the target client type
+					originalURI := ctxutil.GetRequestURI(ctx)
+					convertedURI := ConvertRequestURI(originalURI, clientType, targetClientType)
+					if convertedURI != originalURI {
+						ctx = ctxutil.WithRequestURI(ctx, convertedURI)
+						log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
+					}
+				}
+			}
+		}
+
 		// Get retry config
 		retryConfig := e.getRetryConfig(matchedRoute.RetryConfig)
 
@@ -306,15 +347,39 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			eventChan := domain.NewAdapterEventChan()
 			attemptCtx = ctxutil.WithEventChan(attemptCtx, eventChan)
 
+			// Start real-time event processing goroutine
+			// This ensures RequestInfo is broadcast as soon as adapter sends it
+			eventDone := make(chan struct{})
+			go e.processAdapterEventsRealtime(eventChan, attemptRecord, eventDone)
+
 			// Wrap ResponseWriter to capture actual client response
+			// If format conversion is needed, use ConvertingResponseWriter
+			var responseWriter http.ResponseWriter
+			var convertingWriter *ConvertingResponseWriter
 			responseCapture := NewResponseCapture(w)
 
-			// Execute request
-			err := matchedRoute.ProviderAdapter.Execute(attemptCtx, responseCapture, req, matchedRoute.Provider)
+			if needsConversion {
+				// Use ConvertingResponseWriter to transform response from targetType back to originalType
+				convertingWriter = NewConvertingResponseWriter(
+					responseCapture, e.converter, originalClientType, targetClientType, isStream)
+				responseWriter = convertingWriter
+			} else {
+				responseWriter = responseCapture
+			}
 
-			// Process events from adapter (drain channel)
-			e.processAdapterEvents(eventChan, attemptRecord)
+			// Execute request
+			err := matchedRoute.ProviderAdapter.Execute(attemptCtx, responseWriter, req, matchedRoute.Provider)
+
+			// For non-streaming responses with conversion, finalize the conversion
+			if needsConversion && convertingWriter != nil && !isStream {
+				if finalizeErr := convertingWriter.Finalize(); finalizeErr != nil {
+					log.Printf("[Executor] Response conversion finalize failed: %v", finalizeErr)
+				}
+			}
+
+			// Close event channel and wait for processing goroutine to finish
 			eventChan.Close()
+			<-eventDone
 
 			if err == nil {
 				// Success - set end time and duration
@@ -714,6 +779,57 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 		default:
 			// No more events
 			return
+		}
+	}
+}
+
+// processAdapterEventsRealtime processes events in real-time during adapter execution
+// It broadcasts updates immediately when RequestInfo/ResponseInfo are received
+func (e *Executor) processAdapterEventsRealtime(eventChan domain.AdapterEventChan, attempt *domain.ProxyUpstreamAttempt, done chan struct{}) {
+	defer close(done)
+
+	if eventChan == nil || attempt == nil {
+		return
+	}
+
+	for event := range eventChan {
+		if event == nil {
+			continue
+		}
+
+		needsBroadcast := false
+
+		switch event.Type {
+		case domain.EventRequestInfo:
+			if event.RequestInfo != nil {
+				attempt.RequestInfo = event.RequestInfo
+				needsBroadcast = true
+			}
+		case domain.EventResponseInfo:
+			if event.ResponseInfo != nil {
+				attempt.ResponseInfo = event.ResponseInfo
+				needsBroadcast = true
+			}
+		case domain.EventMetrics:
+			if event.Metrics != nil {
+				attempt.InputTokenCount = event.Metrics.InputTokens
+				attempt.OutputTokenCount = event.Metrics.OutputTokens
+				attempt.CacheReadCount = event.Metrics.CacheReadCount
+				attempt.CacheWriteCount = event.Metrics.CacheCreationCount
+				attempt.Cache5mWriteCount = event.Metrics.Cache5mCreationCount
+				attempt.Cache1hWriteCount = event.Metrics.Cache1hCreationCount
+				needsBroadcast = true
+			}
+		case domain.EventResponseModel:
+			if event.ResponseModel != "" {
+				attempt.ResponseModel = event.ResponseModel
+				needsBroadcast = true
+			}
+		}
+
+		// Broadcast update immediately for real-time visibility
+		if needsBroadcast && e.broadcaster != nil {
+			e.broadcaster.BroadcastProxyUpstreamAttempt(attempt)
 		}
 	}
 }

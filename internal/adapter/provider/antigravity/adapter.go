@@ -49,8 +49,9 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 }
 
 func (a *AntigravityAdapter) SupportedClientTypes() []domain.ClientType {
-	// Antigravity natively supports Claude, OpenAI, and Gemini by converting to Gemini/v1internal API
-	return []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeGemini}
+	// Antigravity natively supports Claude and Gemini by converting to Gemini/v1internal API
+	// OpenAI requests will be converted to Claude format by Executor before reaching this adapter
+	return []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeGemini}
 }
 
 func (a *AntigravityAdapter) Execute(ctx context.Context, w http.ResponseWriter, req *http.Request, provider *domain.Provider) error {
