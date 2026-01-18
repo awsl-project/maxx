@@ -501,10 +501,10 @@ func (s *AdminService) GetLogs(limit int) (*LogsResult, error) {
 func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 	switch provider.Type {
 	case "antigravity":
-		// Antigravity natively supports Claude, OpenAI, and Gemini
+		// Antigravity natively supports Claude and Gemini
+		// OpenAI requests will be converted to Claude format by Executor
 		provider.SupportedClientTypes = []domain.ClientType{
 			domain.ClientTypeClaude,
-			domain.ClientTypeOpenAI,
 			domain.ClientTypeGemini,
 		}
 	case "kiro":

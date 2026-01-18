@@ -14,7 +14,6 @@ import (
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	ctxutil "github.com/awsl-project/maxx/internal/context"
-	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/usage"
 )
@@ -24,8 +23,7 @@ func init() {
 }
 
 type CustomAdapter struct {
-	provider  *domain.Provider
-	converter *converter.Registry
+	provider *domain.Provider
 }
 
 func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
@@ -33,8 +31,7 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 		return nil, fmt.Errorf("provider %s missing custom config", p.Name)
 	}
 	return &CustomAdapter{
-		provider:  p,
-		converter: converter.NewRegistry(),
+		provider: p,
 	}, nil
 }
 
@@ -50,22 +47,12 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 	// Determine if streaming
 	stream := isStreamRequest(requestBody)
 
-	// Determine target client type for the provider
-	// If provider supports the client's type natively, use it directly
-	// Otherwise, find a supported type and convert
-	targetType := clientType
-	needsConversion := false
-	if !a.supportsClientType(clientType) {
-		// Find a supported type (prefer OpenAI as it's most common)
-		for _, supported := range a.provider.SupportedClientTypes {
-			targetType = supported
-			break
-		}
-		needsConversion = true
-	}
+	// Note: Format conversion is now handled by Executor layer
+	// The clientType in context is already the correct type that this provider supports
+	// We use clientType directly for URL building and auth header selection
 
 	// Build upstream URL
-	baseURL := a.getBaseURL(targetType)
+	baseURL := a.getBaseURL(clientType)
 	requestURI := ctxutil.GetRequestURI(ctx)
 
 	// For Gemini, update model in URL path if mapping is configured
@@ -87,7 +74,7 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 
 	// Override auth headers with provider's credentials
 	if a.provider.Config.Custom.APIKey != "" {
-		setAuthHeader(upstreamReq, targetType, a.provider.Config.Custom.APIKey)
+		setAuthHeader(upstreamReq, clientType, a.provider.Config.Custom.APIKey)
 	}
 
 	// Send request info via EventChannel
@@ -100,12 +87,14 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 		})
 	}
 
-	// Execute request
-	client := &http.Client{}
+	// Execute request with reasonable timeout
+	client := &http.Client{
+		Timeout: 10 * time.Minute, // Long timeout for LLM requests
+	}
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-		proxyErr.IsNetworkError = true // Mark as network error (connection timeout, DNS failure, etc.)
+		proxyErr.IsNetworkError = true
 		return proxyErr
 	}
 	defer resp.Body.Close()
@@ -144,10 +133,12 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 	}
 
 	// Handle response
+	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
+	// Adapters simply pass through the upstream response
 	if stream {
-		return a.handleStreamResponse(ctx, w, resp, clientType, targetType, needsConversion)
+		return a.handleStreamResponse(ctx, w, resp, clientType)
 	}
-	return a.handleNonStreamResponse(ctx, w, resp, clientType, targetType, needsConversion)
+	return a.handleNonStreamResponse(ctx, w, resp, clientType)
 }
 
 func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
@@ -167,7 +158,7 @@ func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
 	return config.BaseURL
 }
 
-func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType, targetType domain.ClientType, needsConversion bool) error {
+func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType domain.ClientType) error {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
@@ -197,28 +188,21 @@ func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.Resp
 	}
 
 	// Extract and send responseModel
-	if responseModel := extractResponseModel(body, targetType); responseModel != "" {
+	if responseModel := extractResponseModel(body, clientType); responseModel != "" {
 		eventChan.SendResponseModel(responseModel)
 	}
 
-	var responseBody []byte
-	if needsConversion {
-		responseBody, err = a.converter.TransformResponse(targetType, clientType, body)
-		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
-		}
-	} else {
-		responseBody = body
-	}
+	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
+	// Adapter simply passes through the upstream response body
 
 	// Copy upstream headers (except those we override)
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(responseBody)
+	_, _ = w.Write(body)
 	return nil
 }
 
-func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType, targetType domain.ClientType, needsConversion bool) error {
+func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType domain.ClientType) error {
 	eventChan := ctxutil.GetEventChan(ctx)
 
 	// Send initial response info (for streaming, we only capture status and headers)
@@ -251,10 +235,8 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
 	}
 
-	var state *converter.TransformState
-	if needsConversion {
-		state = converter.NewTransformState()
-	}
+	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
+	// Adapter simply passes through the upstream SSE data
 
 	// Collect all SSE events for response body and token extraction
 	var sseBuffer strings.Builder
@@ -285,7 +267,7 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 			}
 
 			// Extract and send responseModel
-			if responseModel := extractResponseModelFromSSE(sseBuffer.String(), targetType); responseModel != "" {
+			if responseModel := extractResponseModelFromSSE(sseBuffer.String(), clientType); responseModel != "" {
 				eventChan.SendResponseModel(responseModel)
 			}
 		}
@@ -369,20 +351,10 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 					}
 				}
 
-				var output []byte
-				if needsConversion {
-					// Transform the chunk
-					transformed, transformErr := a.converter.TransformStreamChunk(targetType, clientType, []byte(line), state)
-					if transformErr != nil {
-						continue // Skip malformed chunks
-					}
-					output = transformed
-				} else {
-					output = []byte(line)
-				}
-
-				if len(output) > 0 {
-					_, writeErr := w.Write(output)
+				// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
+				// Adapter simply passes through the upstream SSE data
+				if len(line) > 0 {
+					_, writeErr := w.Write([]byte(line))
 					if writeErr != nil {
 						// Client disconnected
 						sendFinalEvents()

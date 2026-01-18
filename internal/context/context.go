@@ -11,26 +11,31 @@ import (
 type contextKey string
 
 const (
-	CtxKeyClientType      contextKey = "client_type"
-	CtxKeySessionID       contextKey = "session_id"
-	CtxKeyProjectID       contextKey = "project_id"
-	CtxKeyRequestModel    contextKey = "request_model"
-	CtxKeyMappedModel     contextKey = "mapped_model"
-	CtxKeyResponseModel   contextKey = "response_model"
-	CtxKeyProxyRequest    contextKey = "proxy_request"
-	CtxKeyRequestBody     contextKey = "request_body"
-	CtxKeyUpstreamAttempt contextKey = "upstream_attempt"
-	CtxKeyRequestHeaders  contextKey = "request_headers"
-	CtxKeyRequestURI      contextKey = "request_uri"
-	CtxKeyBroadcaster     contextKey = "broadcaster"
-	CtxKeyIsStream        contextKey = "is_stream"
-	CtxKeyAPITokenID      contextKey = "api_token_id"
-	CtxKeyEventChan       contextKey = "event_chan"
+	CtxKeyClientType         contextKey = "client_type"
+	CtxKeyOriginalClientType contextKey = "original_client_type" // Original client type before format conversion
+	CtxKeySessionID          contextKey = "session_id"
+	CtxKeyProjectID          contextKey = "project_id"
+	CtxKeyRequestModel       contextKey = "request_model"
+	CtxKeyMappedModel        contextKey = "mapped_model"
+	CtxKeyResponseModel      contextKey = "response_model"
+	CtxKeyProxyRequest       contextKey = "proxy_request"
+	CtxKeyRequestBody        contextKey = "request_body"
+	CtxKeyUpstreamAttempt    contextKey = "upstream_attempt"
+	CtxKeyRequestHeaders     contextKey = "request_headers"
+	CtxKeyRequestURI         contextKey = "request_uri"
+	CtxKeyBroadcaster        contextKey = "broadcaster"
+	CtxKeyIsStream           contextKey = "is_stream"
+	CtxKeyAPITokenID         contextKey = "api_token_id"
+	CtxKeyEventChan          contextKey = "event_chan"
 )
 
 // Setters
 func WithClientType(ctx context.Context, ct domain.ClientType) context.Context {
 	return context.WithValue(ctx, CtxKeyClientType, ct)
+}
+
+func WithOriginalClientType(ctx context.Context, ct domain.ClientType) context.Context {
+	return context.WithValue(ctx, CtxKeyOriginalClientType, ct)
 }
 
 func WithSessionID(ctx context.Context, sid string) context.Context {
@@ -76,6 +81,13 @@ func WithRequestURI(ctx context.Context, uri string) context.Context {
 // Getters
 func GetClientType(ctx context.Context) domain.ClientType {
 	if v, ok := ctx.Value(CtxKeyClientType).(domain.ClientType); ok {
+		return v
+	}
+	return ""
+}
+
+func GetOriginalClientType(ctx context.Context) domain.ClientType {
+	if v, ok := ctx.Value(CtxKeyOriginalClientType).(domain.ClientType); ok {
 		return v
 	}
 	return ""
