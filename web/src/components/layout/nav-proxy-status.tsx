@@ -15,7 +15,6 @@ export function NavProxyStatus() {
   const fullUrl = `http://${proxyAddress}`;
   const isCollapsed = state === 'collapsed';
   const versionDisplay = proxyStatus?.version ?? '...';
-  console.log('proxyStatus', proxyStatus);
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(fullUrl);
