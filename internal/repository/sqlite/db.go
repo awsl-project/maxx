@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -15,7 +16,7 @@ import (
 
 type DB struct {
 	gorm     *gorm.DB
-	dialector string // "sqlite" or "mysql"
+	dialector string // "sqlite", "mysql", or "postgres"
 }
 
 // GormDB returns the underlying GORM DB instance
@@ -23,7 +24,7 @@ func (d *DB) GormDB() *gorm.DB {
 	return d.gorm
 }
 
-// Dialector returns the database dialector type ("sqlite" or "mysql")
+// Dialector returns the database dialector type ("sqlite", "mysql", or "postgres")
 func (d *DB) Dialector() string {
 	return d.dialector
 }
@@ -38,17 +39,37 @@ func NewDB(path string) (*DB, error) {
 // DSN formats:
 //   - SQLite: "sqlite:///path/to/db.sqlite" or just "/path/to/db.sqlite"
 //   - MySQL:  "mysql://user:password@tcp(host:port)/dbname?parseTime=true"
+//   - PostgreSQL: "host=localhost port=5432 user=postgres password=secret dbname=mydb sslmode=disable timezone=UTC" (libpq format)
 func NewDBWithDSN(dsn string) (*DB, error) {
 	var dialector gorm.Dialector
 	var dialectorName string
 
-	if strings.HasPrefix(dsn, "mysql://") {
+	// 确定数据库类型
+	switch {
+	case strings.HasPrefix(dsn, "mysql://"):
+		dialectorName = "mysql"
+	case strings.Contains(dsn, "host=") || strings.Contains(dsn, "dbname="):
+		// PostgreSQL libpq format: contains key=value pairs
+		dialectorName = "postgres"
+	case strings.HasPrefix(dsn, "sqlite://"), !strings.Contains(dsn, "://"):
+		// sqlite:// 开头或者没有协议前缀（默认 SQLite）
+		dialectorName = "sqlite"
+	default:
+		return nil, fmt.Errorf("unsupported database type in DSN: %s (supported: mysql://, postgresql libpq format, sqlite://)", dsn)
+	}
+
+	// 根据数据库类型创建连接器
+	switch dialectorName {
+	case "mysql":
 		// MySQL DSN: mysql://user:password@tcp(host:port)/dbname?parseTime=true
 		mysqlDSN := strings.TrimPrefix(dsn, "mysql://")
 		dialector = mysql.Open(mysqlDSN)
-		dialectorName = "mysql"
 		log.Printf("[DB] Connecting to MySQL database")
-	} else {
+	case "postgres":
+		// PostgreSQL DSN: libpq format (e.g., "host=localhost port=5432 user=postgres dbname=mydb sslmode=disable")
+		dialector = postgres.Open(dsn)
+		log.Printf("[DB] Connecting to PostgreSQL database")
+	case "sqlite":
 		// SQLite DSN: sqlite:///path/to/db.sqlite or just /path/to/db.sqlite
 		sqlitePath := strings.TrimPrefix(dsn, "sqlite://")
 		// Add SQLite options for WAL mode and busy timeout
@@ -56,7 +77,6 @@ func NewDBWithDSN(dsn string) (*DB, error) {
 			sqlitePath += "?_journal_mode=WAL&_busy_timeout=30000"
 		}
 		dialector = sqlite.Open(sqlitePath)
-		dialectorName = "sqlite"
 		log.Printf("[DB] Connecting to SQLite database: %s", sqlitePath)
 	}
 

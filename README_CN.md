@@ -211,7 +211,7 @@ build-desktop.bat
 
 ## 数据库配置
 
-Maxx 支持 SQLite（默认）和 MySQL 数据库。
+Maxx 支持 SQLite（默认）、MySQL 和 PostgreSQL 数据库。
 
 ### SQLite（默认）
 
@@ -264,6 +264,55 @@ services:
 
 volumes:
   mysql-data:
+    driver: local
+```
+
+### PostgreSQL
+
+设置 `MAXX_DSN` 环境变量：
+
+```bash
+# PostgreSQL DSN 格式（libpq 格式）
+export MAXX_DSN="host=localhost port=5432 user=maxx password=secret dbname=maxx sslmode=disable timezone=UTC"
+
+# 示例
+export MAXX_DSN="host=127.0.0.1 port=5432 user=maxx password=secret dbname=maxx sslmode=disable timezone=UTC"
+```
+
+**Docker Compose 使用 PostgreSQL：**
+
+```yaml
+services:
+  maxx:
+    image: ghcr.io/awsl-project/maxx:latest
+    container_name: maxx
+    restart: unless-stopped
+    ports:
+      - "9880:9880"
+    environment:
+      - MAXX_DSN=host=postgres port=5432 user=maxx password=secret dbname=maxx sslmode=disable timezone=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18
+    container_name: maxx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: maxx
+      POSTGRES_USER: maxx
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maxx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
     driver: local
 ```
 

@@ -209,7 +209,7 @@ wails build
 
 ## Database Configuration
 
-Maxx supports SQLite (default) and MySQL databases.
+Maxx supports SQLite (default), MySQL and PostgreSQL databases.
 
 ### SQLite (Default)
 
@@ -262,6 +262,55 @@ services:
 
 volumes:
   mysql-data:
+    driver: local
+```
+
+### PostgreSQL
+
+Set the `MAXX_DSN` environment variable:
+
+```bash
+# PostgreSQL DSN format (libpq format)
+export MAXX_DSN="host=localhost port=5432 user=maxx password=secret dbname=maxx sslmode=disable timezone=UTC"
+
+# Example
+export MAXX_DSN="host=127.0.0.1 port=5432 user=maxx password=secret dbname=maxx sslmode=disable timezone=UTC"
+```
+
+**Docker Compose with PostgreSQL:**
+
+```yaml
+services:
+  maxx:
+    image: ghcr.io/awsl-project/maxx:latest
+    container_name: maxx
+    restart: unless-stopped
+    ports:
+      - "9880:9880"
+    environment:
+      - MAXX_DSN=host=postgres port=5432 user=maxx password=secret dbname=maxx sslmode=disable timezone=UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18
+    container_name: maxx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: maxx
+      POSTGRES_USER: maxx
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maxx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
     driver: local
 ```
 

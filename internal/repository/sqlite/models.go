@@ -116,7 +116,7 @@ type Provider struct {
 	SoftDeleteModel
 	Type                 string `gorm:"not null"`
 	Name                 string `gorm:"not null"`
-	Config               string `gorm:"type:longtext"`
+	Config               string `gorm:"type:text"`
 	SupportedClientTypes string `gorm:"type:text"`
 	SupportModels        string `gorm:"type:text"`
 }
@@ -222,7 +222,7 @@ type AntigravityQuota struct {
 	IsForbidden      int    `gorm:"default:0"`
 	Models           string `gorm:"type:text"`
 	Name             string `gorm:"default:''"`
-	Picture          string `gorm:"type:longtext"`
+	Picture          string `gorm:"type:text"`
 	GCPProjectID     string `gorm:"column:gcp_project_id;default:''"`
 }
 
@@ -243,9 +243,9 @@ type ProxyRequest struct {
 	EndTime                     int64  `gorm:"default:0"`
 	DurationMs                  int64  `gorm:"default:0"`
 	Status                      string `gorm:"type:text"`
-	RequestInfo                 string `gorm:"type:longtext"`
-	ResponseInfo                string `gorm:"type:longtext"`
-	Error                       string `gorm:"type:longtext"`
+	RequestInfo                 string `gorm:"type:text"`
+	ResponseInfo                string `gorm:"type:text"`
+	Error                       string `gorm:"type:text"`
 	ProxyUpstreamAttemptCount   uint64 `gorm:"default:0"`
 	FinalProxyUpstreamAttemptID uint64 `gorm:"default:0"`
 	InputTokenCount             uint64 `gorm:"default:0"`
@@ -270,8 +270,8 @@ type ProxyUpstreamAttempt struct {
 	BaseModel
 	Status            string `gorm:"type:text"`
 	ProxyRequestID    uint64 `gorm:"index"`
-	RequestInfo       string `gorm:"type:longtext"`
-	ResponseInfo      string `gorm:"type:longtext"`
+	RequestInfo       string `gorm:"type:text"`
+	ResponseInfo      string `gorm:"type:text"`
 	RouteID           uint64
 	ProviderID        uint64
 	InputTokenCount   uint64 `gorm:"default:0"`
@@ -295,7 +295,7 @@ func (ProxyUpstreamAttempt) TableName() string { return "proxy_upstream_attempts
 // SystemSetting model
 type SystemSetting struct {
 	Key       string `gorm:"column:setting_key;type:varchar(255);primaryKey"`
-	Value     string `gorm:"type:longtext;not null"`
+	Value     string `gorm:"type:text;not null"`
 	CreatedAt int64  `gorm:"not null"`
 	UpdatedAt int64  `gorm:"not null"`
 }
