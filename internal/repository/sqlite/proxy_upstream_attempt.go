@@ -1,4 +1,4 @@
-package gormdb
+package sqlite
 
 import (
 	"time"
@@ -51,14 +51,14 @@ func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt)
 		StartTime:         toTimestamp(a.StartTime),
 		EndTime:           toTimestamp(a.EndTime),
 		DurationMs:        a.Duration.Milliseconds(),
-		Status: LongText(a.Status),
+		Status:            a.Status,
 		ProxyRequestID:    a.ProxyRequestID,
 		IsStream:          boolToInt(a.IsStream),
 		RequestModel:      a.RequestModel,
 		MappedModel:       a.MappedModel,
 		ResponseModel:     a.ResponseModel,
-		RequestInfo: LongText(toJSON(a.RequestInfo)),
-		ResponseInfo: LongText(toJSON(a.ResponseInfo)),
+		RequestInfo:       toJSON(a.RequestInfo),
+		ResponseInfo:      toJSON(a.ResponseInfo),
 		RouteID:           a.RouteID,
 		ProviderID:        a.ProviderID,
 		InputTokenCount:   a.InputTokenCount,
@@ -79,14 +79,14 @@ func (r *ProxyUpstreamAttemptRepository) toDomain(m *ProxyUpstreamAttempt) *doma
 		StartTime:         fromTimestamp(m.StartTime),
 		EndTime:           fromTimestamp(m.EndTime),
 		Duration:          time.Duration(m.DurationMs) * time.Millisecond,
-		Status: string(m.Status),
+		Status:            m.Status,
 		ProxyRequestID:    m.ProxyRequestID,
 		IsStream:          m.IsStream == 1,
 		RequestModel:      m.RequestModel,
 		MappedModel:       m.MappedModel,
 		ResponseModel:     m.ResponseModel,
-		RequestInfo:       fromJSON[*domain.RequestInfo](string(m.RequestInfo)),
-		ResponseInfo:      fromJSON[*domain.ResponseInfo](string(m.ResponseInfo)),
+		RequestInfo:       fromJSON[*domain.RequestInfo](m.RequestInfo),
+		ResponseInfo:      fromJSON[*domain.ResponseInfo](m.ResponseInfo),
 		RouteID:           m.RouteID,
 		ProviderID:        m.ProviderID,
 		InputTokenCount:   m.InputTokenCount,

@@ -13,7 +13,7 @@ import (
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
-	"github.com/awsl-project/maxx/internal/repository/gormdb"
+	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
 	"github.com/awsl-project/maxx/internal/stats"
@@ -30,7 +30,7 @@ type DatabaseConfig struct {
 
 // DatabaseRepos 包含所有数据库仓库
 type DatabaseRepos struct {
-	DB                       *gormdb.DB
+	DB                       *sqlite.DB
 	ProviderRepo             repository.ProviderRepository
 	RouteRepo                repository.RouteRepository
 	ProjectRepo              repository.ProjectRepository
@@ -74,37 +74,37 @@ type ServerComponents struct {
 
 // InitializeDatabase 初始化数据库和所有仓库
 func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
-	var db *gormdb.DB
+	var db *sqlite.DB
 	var err error
 
 	// 优先使用 DSN，否则使用 DBPath（向后兼容）
 	if config.DSN != "" {
 		log.Printf("[Core] Initializing database with DSN")
-		db, err = gormdb.NewDBWithDSN(config.DSN)
+		db, err = sqlite.NewDBWithDSN(config.DSN)
 	} else {
 		log.Printf("[Core] Initializing database: %s", config.DBPath)
-		db, err = gormdb.NewDB(config.DBPath)
+		db, err = sqlite.NewDB(config.DBPath)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	providerRepo := gormdb.NewProviderRepository(db)
-	routeRepo := gormdb.NewRouteRepository(db)
-	projectRepo := gormdb.NewProjectRepository(db)
-	sessionRepo := gormdb.NewSessionRepository(db)
-	retryConfigRepo := gormdb.NewRetryConfigRepository(db)
-	routingStrategyRepo := gormdb.NewRoutingStrategyRepository(db)
-	proxyRequestRepo := gormdb.NewProxyRequestRepository(db)
-	attemptRepo := gormdb.NewProxyUpstreamAttemptRepository(db)
-	settingRepo := gormdb.NewSystemSettingRepository(db)
-	antigravityQuotaRepo := gormdb.NewAntigravityQuotaRepository(db)
-	cooldownRepo := gormdb.NewCooldownRepository(db)
-	failureCountRepo := gormdb.NewFailureCountRepository(db)
-	apiTokenRepo := gormdb.NewAPITokenRepository(db)
-	modelMappingRepo := gormdb.NewModelMappingRepository(db)
-	usageStatsRepo := gormdb.NewUsageStatsRepository(db)
-	responseModelRepo := gormdb.NewResponseModelRepository(db)
+	providerRepo := sqlite.NewProviderRepository(db)
+	routeRepo := sqlite.NewRouteRepository(db)
+	projectRepo := sqlite.NewProjectRepository(db)
+	sessionRepo := sqlite.NewSessionRepository(db)
+	retryConfigRepo := sqlite.NewRetryConfigRepository(db)
+	routingStrategyRepo := sqlite.NewRoutingStrategyRepository(db)
+	proxyRequestRepo := sqlite.NewProxyRequestRepository(db)
+	attemptRepo := sqlite.NewProxyUpstreamAttemptRepository(db)
+	settingRepo := sqlite.NewSystemSettingRepository(db)
+	antigravityQuotaRepo := sqlite.NewAntigravityQuotaRepository(db)
+	cooldownRepo := sqlite.NewCooldownRepository(db)
+	failureCountRepo := sqlite.NewFailureCountRepository(db)
+	apiTokenRepo := sqlite.NewAPITokenRepository(db)
+	modelMappingRepo := sqlite.NewModelMappingRepository(db)
+	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
+	responseModelRepo := sqlite.NewResponseModelRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -260,7 +260,6 @@ func InitializeServerComponents(
 
 	log.Printf("[Core] Creating admin service")
 	adminService := service.NewAdminService(
-		repos.DB.Dialector(),
 		repos.CachedProviderRepo,
 		repos.CachedRouteRepo,
 		repos.ProjectRepo,

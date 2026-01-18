@@ -1,4 +1,4 @@
-package gormdb
+package sqlite
 
 import (
 	"time"

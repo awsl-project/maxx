@@ -334,7 +334,6 @@
     "matchPattern": "匹配模式",
     "targetModel": "目标模型",
     "dataRetention": "数据保留",
-    "currentDatabaseType": "当前数据库类型",
     "requestRetentionHours": "请求记录保留时间",
     "requestRetentionHoursDesc": "超过此时间的请求记录将被自动清理，0 表示不清理",
     "retentionHoursHint": "0 表示不清理",

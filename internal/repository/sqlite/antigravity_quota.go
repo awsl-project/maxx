@@ -1,4 +1,4 @@
-package gormdb
+package sqlite
 
 import (
 	"time"
@@ -95,11 +95,11 @@ func (r *AntigravityQuotaRepository) toModel(q *domain.AntigravityQuota) *Antigr
 		},
 		Email:            q.Email,
 		Name:             q.Name,
-		Picture:          LongText(q.Picture),
+		Picture:          q.Picture,
 		GCPProjectID:     q.GCPProjectID,
 		SubscriptionTier: q.SubscriptionTier,
 		IsForbidden:      boolToInt(q.IsForbidden),
-		Models:           LongText(toJSON(q.Models)),
+		Models:           toJSON(q.Models),
 	}
 }
 
@@ -111,11 +111,11 @@ func (r *AntigravityQuotaRepository) toDomain(m *AntigravityQuota) *domain.Antig
 		DeletedAt:        fromTimestampPtr(m.DeletedAt),
 		Email:            m.Email,
 		Name:             m.Name,
-		Picture:          string(m.Picture),
+		Picture:          m.Picture,
 		GCPProjectID:     m.GCPProjectID,
 		SubscriptionTier: m.SubscriptionTier,
 		IsForbidden:      m.IsForbidden == 1,
-		Models:           fromJSON[[]domain.AntigravityModelQuota](string(m.Models)),
+		Models:           fromJSON[[]domain.AntigravityModelQuota](m.Models),
 	}
 }
 

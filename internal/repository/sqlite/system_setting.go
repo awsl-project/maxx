@@ -1,4 +1,4 @@
-package gormdb
+package sqlite
 
 import (
 	"errors"
@@ -25,14 +25,14 @@ func (r *SystemSettingRepository) Get(key string) (string, error) {
 		}
 		return "", err
 	}
-	return string(model.Value), nil
+	return model.Value, nil
 }
 
 func (r *SystemSettingRepository) Set(key, value string) error {
 	now := time.Now().UnixMilli()
 	model := &SystemSetting{
 		Key:       key,
-		Value:     LongText(value),
+		Value:     value,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -52,7 +52,7 @@ func (r *SystemSettingRepository) GetAll() ([]*domain.SystemSetting, error) {
 	for i, m := range models {
 		settings[i] = &domain.SystemSetting{
 			Key:       m.Key,
-			Value: string(m.Value),
+			Value:     m.Value,
 			CreatedAt: fromTimestamp(m.CreatedAt),
 			UpdatedAt: fromTimestamp(m.UpdatedAt),
 		}

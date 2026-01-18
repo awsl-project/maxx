@@ -334,7 +334,6 @@
     "matchPattern": "Match Pattern",
     "targetModel": "Target Model",
     "dataRetention": "Data Retention",
-    "currentDatabaseType": "Current Database Type",
     "requestRetentionHours": "Request Retention",
     "requestRetentionHoursDesc": "Requests older than this will be automatically cleaned up, 0 means no cleanup",
     "retentionHoursHint": "0 = no cleanup",

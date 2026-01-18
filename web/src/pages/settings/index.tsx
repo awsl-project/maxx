@@ -169,29 +169,6 @@ function DataRetentionSection() {
   const { t } = useTranslation();
 
   const requestRetentionHours = settings?.request_retention_hours ?? '168';
-  const databaseType = settings?.database_type;
-
-  // Format database type display name
-  const getDatabaseDisplayName = (type: string | undefined) => {
-    if (!type) return null;
-    const typeMap: Record<string, string> = {
-      sqlite: 'SQLite',
-      mysql: 'MySQL',
-      postgres: 'PostgreSQL',
-    };
-    return typeMap[type.toLowerCase()] || type;
-  };
-
-  // Get database badge color
-  const getDatabaseBadgeClass = (type: string | undefined) => {
-    if (!type) return 'bg-muted text-muted-foreground';
-    const colorMap: Record<string, string> = {
-      sqlite: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-      mysql: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-      postgres: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
-    };
-    return colorMap[type.toLowerCase()] || 'bg-muted text-muted-foreground';
-  };
 
   const [requestDraft, setRequestDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
@@ -240,22 +217,7 @@ function DataRetentionSection() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="p-6 space-y-4">
-        {/* Database Info Section */}
-        {databaseType && (
-          <div className="rounded-lg border border-border bg-muted/30 p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">{t('settings.currentDatabaseType')}:</span>
-              <span
-                className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ring-gray-500/10 ${getDatabaseBadgeClass(databaseType)}`}
-              >
-                {getDatabaseDisplayName(databaseType)}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Retention Hours Section */}
+      <CardContent className="p-6">
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-muted-foreground shrink-0">
             {t('settings.requestRetentionHours')}

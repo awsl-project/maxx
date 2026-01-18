@@ -1,4 +1,4 @@
-package gormdb
+package sqlite
 
 import (
 	"errors"
@@ -124,7 +124,7 @@ func (r *ProjectRepository) toModel(p *domain.Project) *Project {
 		},
 		Name:                p.Name,
 		Slug:                p.Slug,
-		EnabledCustomRoutes: LongText(toJSON(p.EnabledCustomRoutes)),
+		EnabledCustomRoutes: toJSON(p.EnabledCustomRoutes),
 	}
 }
 
@@ -136,7 +136,7 @@ func (r *ProjectRepository) toDomain(m *Project) *domain.Project {
 		DeletedAt:           fromTimestampPtr(m.DeletedAt),
 		Name:                m.Name,
 		Slug:                m.Slug,
-		EnabledCustomRoutes: fromJSON[[]domain.ClientType](string(m.EnabledCustomRoutes)),
+		EnabledCustomRoutes: fromJSON[[]domain.ClientType](m.EnabledCustomRoutes),
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository/cached"
-	"github.com/awsl-project/maxx/internal/repository/gormdb"
+	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
@@ -74,35 +74,35 @@ func main() {
 	logPath := filepath.Join(dataDirPath, "maxx.log")
 
 	// Initialize database (DSN > default SQLite path)
-	var db *gormdb.DB
+	var db *sqlite.DB
 	var err error
 	if dsn := os.Getenv("MAXX_DSN"); dsn != "" {
 		log.Printf("Using database DSN from MAXX_DSN environment variable")
-		db, err = gormdb.NewDBWithDSN(dsn)
+		db, err = sqlite.NewDBWithDSN(dsn)
 	} else {
-		db, err = gormdb.NewDB(dbPath)
+		db, err = sqlite.NewDB(dbPath)
 	}
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
 	// Create repositories
-	providerRepo := gormdb.NewProviderRepository(db)
-	routeRepo := gormdb.NewRouteRepository(db)
-	projectRepo := gormdb.NewProjectRepository(db)
-	sessionRepo := gormdb.NewSessionRepository(db)
-	retryConfigRepo := gormdb.NewRetryConfigRepository(db)
-	routingStrategyRepo := gormdb.NewRoutingStrategyRepository(db)
-	proxyRequestRepo := gormdb.NewProxyRequestRepository(db)
-	attemptRepo := gormdb.NewProxyUpstreamAttemptRepository(db)
-	settingRepo := gormdb.NewSystemSettingRepository(db)
-	antigravityQuotaRepo := gormdb.NewAntigravityQuotaRepository(db)
-	cooldownRepo := gormdb.NewCooldownRepository(db)
-	failureCountRepo := gormdb.NewFailureCountRepository(db)
-	apiTokenRepo := gormdb.NewAPITokenRepository(db)
-	modelMappingRepo := gormdb.NewModelMappingRepository(db)
-	usageStatsRepo := gormdb.NewUsageStatsRepository(db)
-	responseModelRepo := gormdb.NewResponseModelRepository(db)
+	providerRepo := sqlite.NewProviderRepository(db)
+	routeRepo := sqlite.NewRouteRepository(db)
+	projectRepo := sqlite.NewProjectRepository(db)
+	sessionRepo := sqlite.NewSessionRepository(db)
+	retryConfigRepo := sqlite.NewRetryConfigRepository(db)
+	routingStrategyRepo := sqlite.NewRoutingStrategyRepository(db)
+	proxyRequestRepo := sqlite.NewProxyRequestRepository(db)
+	attemptRepo := sqlite.NewProxyUpstreamAttemptRepository(db)
+	settingRepo := sqlite.NewSystemSettingRepository(db)
+	antigravityQuotaRepo := sqlite.NewAntigravityQuotaRepository(db)
+	cooldownRepo := sqlite.NewCooldownRepository(db)
+	failureCountRepo := sqlite.NewFailureCountRepository(db)
+	apiTokenRepo := sqlite.NewAPITokenRepository(db)
+	modelMappingRepo := sqlite.NewModelMappingRepository(db)
+	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
+	responseModelRepo := sqlite.NewResponseModelRepository(db)
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
@@ -202,7 +202,6 @@ func main() {
 
 	// Create admin service
 	adminService := service.NewAdminService(
-		db.Dialector(),
 		cachedProviderRepo,
 		cachedRouteRepo,
 		cachedProjectRepo, // Use cached repository so updates are visible to Router

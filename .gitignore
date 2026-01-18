@@ -3,9 +3,6 @@
 *.db-shm
 *.db-wal
 
-# Docker Compose local configs
-docker-compose.postgres.yml
-
 # Binary
 maxx
 build/bin/
