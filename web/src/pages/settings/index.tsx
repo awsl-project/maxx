@@ -79,18 +79,18 @@ function GeneralSection() {
 
   return (
     <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
+      <CardHeader className="border-b border-border">
         <CardTitle className="text-base font-medium flex items-center gap-2">
           <Monitor className="h-4 w-4 text-muted-foreground" />
           {t('settings.general')}
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-6 space-y-6">
+      <CardContent className="space-y-6">
         {/* Theme Selection */}
         <div className="space-y-3">
           <Tabs defaultValue="default" className="w-full">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-medium text-foreground">
+            <div className="flex items-center justify-between mb-3 ">
+              <div className="text-sm font-medium text-muted-foreground">
                 {t('settings.themePreference')}
               </div>
               <TabsList className="inline-flex">
@@ -173,7 +173,7 @@ function GeneralSection() {
         </div>
 
         {/* Language Selection */}
-        <div className="flex items-center gap-6 pt-4 border-t border-border">
+        <div className="flex gap-6 pt-4 border-t border-border flex-col">
           <div className="text-sm font-medium text-muted-foreground w-40 shrink-0">
             {t('settings.languagePreference')}
           </div>
@@ -236,7 +236,7 @@ function TimezoneSection() {
 
   return (
     <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
+      <CardHeader className="border-b border-border">
         <div>
           <CardTitle className="text-base font-medium flex items-center gap-2">
             <Globe className="h-4 w-4 text-muted-foreground" />
@@ -245,7 +245,7 @@ function TimezoneSection() {
           <p className="text-xs text-muted-foreground mt-1">{t('settings.timezoneDesc')}</p>
         </div>
       </CardHeader>
-      <CardContent className="p-6">
+      <CardContent>
         <Select
           value={currentTimezone}
           onValueChange={(v) => v && handleTimezoneChange(v)}
@@ -307,7 +307,7 @@ function DataRetentionSection() {
 
   return (
     <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
+      <CardHeader className="border-b border-border">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base font-medium flex items-center gap-2">
@@ -321,7 +321,7 @@ function DataRetentionSection() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="p-6">
+      <CardContent>
         <div className="flex items-center gap-3">
           <div className="text-sm font-medium text-muted-foreground shrink-0">
             {t('settings.requestRetentionHours')}
@@ -370,13 +370,13 @@ function ForceProjectSection() {
 
   return (
     <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
+      <CardHeader className="border-b border-border">
         <CardTitle className="text-base font-medium flex items-center gap-2">
           <FolderOpen className="h-4 w-4 text-muted-foreground" />
           {t('settings.forceProjectBinding')}
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-6 space-y-4">
+      <CardContent className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-medium text-foreground">
@@ -579,7 +579,7 @@ function BackupSection() {
 
   return (
     <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
+      <CardHeader className="border-b border-border">
         <div>
           <CardTitle className="text-base font-medium flex items-center gap-2">
             <Archive className="h-4 w-4 text-muted-foreground" />
@@ -588,7 +588,7 @@ function BackupSection() {
           <p className="text-xs text-muted-foreground mt-1">{t('settings.backupDesc')}</p>
         </div>
       </CardHeader>
-      <CardContent className="p-6 space-y-4">
+      <CardContent className="space-y-4">
         {/* Warning about sensitive data */}
         <div className="flex items-start gap-2 p-3 rounded-md bg-amber-500/10 border border-amber-500/20">
           <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />

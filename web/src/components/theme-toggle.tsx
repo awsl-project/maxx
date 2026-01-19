@@ -22,29 +22,89 @@ export function ThemeToggle() {
   const luxuryThemes = getLuxuryThemes();
   const currentTheme = getThemeMetadata(theme);
   const [hoveredTheme, setHoveredTheme] = React.useState<ThemeMetadata | null>(null);
+  const [focusedIndex, setFocusedIndex] = React.useState<number>(-1);
+  const swatchRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
 
   // Display hovered theme or current theme as fallback
   const displayTheme = hoveredTheme || currentTheme;
 
-  // Get icon based on current theme
-  const getThemeIcon = () => {
+  // Keyboard navigation handler
+  const handleKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const allThemes = [...defaultThemes, ...luxuryThemes];
+      const currentIndex = focusedIndex >= 0 ? focusedIndex : allThemes.findIndex((t) => t.id === theme);
+
+      switch (e.key) {
+        case 'ArrowRight':
+        case 'ArrowDown': {
+          e.preventDefault();
+          const nextIndex = (currentIndex + 1) % allThemes.length;
+          setFocusedIndex(nextIndex);
+          swatchRefs.current[nextIndex]?.focus();
+          break;
+        }
+
+        case 'ArrowLeft':
+        case 'ArrowUp': {
+          e.preventDefault();
+          const prevIndex = currentIndex <= 0 ? allThemes.length - 1 : currentIndex - 1;
+          setFocusedIndex(prevIndex);
+          swatchRefs.current[prevIndex]?.focus();
+          break;
+        }
+
+        case 'Enter':
+        case ' ':
+          e.preventDefault();
+          if (focusedIndex >= 0) {
+            setTheme(allThemes[focusedIndex].id);
+          }
+          break;
+
+        case 'Escape':
+          e.preventDefault();
+          setFocusedIndex(-1);
+          break;
+
+        case 'Home':
+          e.preventDefault();
+          setFocusedIndex(0);
+          swatchRefs.current[0]?.focus();
+          break;
+
+        case 'End': {
+          e.preventDefault();
+          const lastIndex = allThemes.length - 1;
+          setFocusedIndex(lastIndex);
+          swatchRefs.current[lastIndex]?.focus();
+          break;
+        }
+      }
+    },
+    [focusedIndex, theme, defaultThemes, luxuryThemes, setTheme],
+  );
+
+  // Get icon based on current theme - memoized for performance
+  const getThemeIcon = React.useMemo(() => {
+    const iconClassName = 'transition-transform duration-200 hover:rotate-12 hover:scale-110';
+
     // System theme
     if (theme === 'system') {
-      return <Laptop className="transition-transform hover:rotate-12" />;
+      return <Laptop className={iconClassName} />;
     }
 
     // Luxury themes - use sparkles icon
     if (currentTheme.category === 'luxury') {
-      return <Sparkles className="transition-transform hover:rotate-12" />;
+      return <Sparkles className={iconClassName} />;
     }
 
     // Default light/dark themes
     if (theme === 'light' || currentTheme.baseMode === 'light') {
-      return <Sun className="transition-transform hover:rotate-12" />;
+      return <Sun className={iconClassName} />;
     }
 
-    return <Moon className="transition-transform hover:rotate-12" />;
-  };
+    return <Moon className={iconClassName} />;
+  }, [theme, currentTheme.category, currentTheme.baseMode]);
 
   return (
     <DropdownMenu>
@@ -56,30 +116,28 @@ export function ThemeToggle() {
             variant="ghost"
             size="icon-sm"
           >
-            {getThemeIcon()}
+            {getThemeIcon}
             <span className="sr-only">Select theme - Current: {currentTheme.name}</span>
           </Button>
         )}
       />
-      <DropdownMenuContent align="end" className="w-80 p-0 overflow-hidden">
+      <DropdownMenuContent align="end" className="w-80 p-0 overflow-hidden" onKeyDown={handleKeyDown}>
         <div className="p-4 space-y-4">
           {/* Default Themes Section */}
           <div>
             <h3 className="mb-3 text-sm font-medium text-muted-foreground">Default Themes</h3>
             <div className="grid grid-cols-3 gap-2">
-              {defaultThemes.map((themeOption) => (
+              {defaultThemes.map((themeOption, index) => (
                 <ThemeSwatch
                   key={themeOption.id}
                   theme={themeOption.id}
                   name={themeOption.name}
-                  description={themeOption.description}
                   accentColor={themeOption.accentColor}
-                  primaryColor={themeOption.primaryColor}
-                  secondaryColor={themeOption.secondaryColor}
                   isActive={theme === themeOption.id}
                   onClick={() => setTheme(themeOption.id)}
                   onHover={() => setHoveredTheme(themeOption)}
                   onLeave={() => setHoveredTheme(null)}
+                  swatchRef={(el) => (swatchRefs.current[index] = el)}
                 />
               ))}
             </div>
@@ -89,20 +147,17 @@ export function ThemeToggle() {
           <div>
             <h3 className="mb-3 text-sm font-medium text-muted-foreground">Luxury Themes</h3>
             <div className="grid grid-cols-3 gap-2">
-              {luxuryThemes.map((themeOption) => (
+              {luxuryThemes.map((themeOption, index) => (
                 <ThemeSwatch
                   key={themeOption.id}
                   theme={themeOption.id}
                   name={themeOption.name}
-                  description={themeOption.description}
-                  brandInspiration={themeOption.brandInspiration}
                   accentColor={themeOption.accentColor}
-                  primaryColor={themeOption.primaryColor}
-                  secondaryColor={themeOption.secondaryColor}
                   isActive={theme === themeOption.id}
                   onClick={() => setTheme(themeOption.id)}
                   onHover={() => setHoveredTheme(themeOption)}
                   onLeave={() => setHoveredTheme(null)}
+                  swatchRef={(el) => (swatchRefs.current[defaultThemes.length + index] = el)}
                 />
               ))}
             </div>
@@ -110,9 +165,16 @@ export function ThemeToggle() {
         </div>
 
         {/* Preview Area - Fixed at bottom */}
-        <div className="border-t border-border bg-muted/30 p-4 h-[180px] flex flex-col">
+        <div className="border-t border-border bg-muted/30 p-4 h-[180px] flex flex-col transition-all duration-200">
           <div className="space-y-2 animate-in fade-in-0 duration-200">
-            <div className="font-semibold text-sm text-foreground">{displayTheme.name}</div>
+            <div className="flex items-center justify-between">
+              <div className="font-semibold text-sm text-foreground">{displayTheme.name}</div>
+              {hoveredTheme && hoveredTheme.id !== theme && (
+                <span className="text-xs text-muted-foreground animate-in fade-in-0 duration-150">
+                  Preview
+                </span>
+              )}
+            </div>
             <div className="text-xs text-muted-foreground">{displayTheme.description}</div>
             {displayTheme.brandInspiration && (
               <div className="text-xs text-muted-foreground italic border-l-2 border-accent pl-2">
@@ -153,15 +215,12 @@ export function ThemeToggle() {
 interface ThemeSwatchProps {
   theme: Theme;
   name: string;
-  description: string;
-  brandInspiration?: string;
   accentColor: string;
-  primaryColor: string;
-  secondaryColor: string;
   isActive: boolean;
   onClick: () => void;
   onHover: () => void;
   onLeave: () => void;
+  swatchRef?: (el: HTMLButtonElement | null) => void;
 }
 
 function ThemeSwatch({
@@ -172,26 +231,33 @@ function ThemeSwatch({
   onClick,
   onHover,
   onLeave,
+  swatchRef,
 }: ThemeSwatchProps) {
   return (
     <button
+      ref={swatchRef}
       type="button"
       onClick={onClick}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
       className={cn(
-        'group relative flex flex-col items-center gap-2 rounded-lg p-3 transition-colors',
-        'hover:bg-accent/50',
+        'group relative flex flex-col items-center gap-2 rounded-lg p-3',
+        'transition-all duration-200',
+        'hover:bg-accent/50 hover:scale-[1.02]',
+        'active:scale-[0.98]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2',
         isActive && 'bg-accent/30',
       )}
-      aria-label={`Select ${name} theme`}
+      aria-label={`Select ${name} theme${isActive ? ' (currently selected)' : ''}`}
+      tabIndex={0}
     >
       {/* Color Swatch */}
       <div className="relative">
         <div
           className={cn(
-            'h-10 w-10 rounded-full border-2 transition-all',
-            isActive ? 'border-primary scale-110' : 'border-border',
+            'h-10 w-10 rounded-full transition-all duration-300',
+            'hover:scale-105 active:scale-95',
+            isActive ? 'scale-110 ring-2 ring-primary ring-offset-2 ring-offset-background' : '',
           )}
           style={{
             background:
@@ -202,9 +268,9 @@ function ThemeSwatch({
         />
         {/* Checkmark for active theme */}
         {isActive && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="rounded-full bg-background p-0.5">
-              <Check className="h-4 w-4 text-primary" />
+          <div className="absolute inset-0 flex items-center justify-center animate-in zoom-in-95 fade-in-0 duration-200">
+            <div className="rounded-full bg-background/90 backdrop-blur-sm p-0.5 shadow-sm">
+              <Check className="h-4 w-4 text-primary animate-in zoom-in-50 duration-300" />
             </div>
           </div>
         )}
