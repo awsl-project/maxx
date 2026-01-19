@@ -12,7 +12,7 @@ interface StreamingBadgeProps {
   color?: string;
   /** 自定义类名 */
   className?: string;
-  /** 显示变体: 'corner' 用于卡片右上角, 'inline' 用于行内显示 */
+  /** 显示变体：'corner' 用于卡片右上角，'inline' 用于行内显示 */
   variant?: 'corner' | 'inline';
 }
 
@@ -37,8 +37,10 @@ export function StreamingBadge({
   return (
     <span
       className={cn(
-        'font-extrabold animate-pulse-soft text-center bg-secondary/95 backdrop-blur-sm',
-        isCorner ? 'px-2.5 py-1 text-xs border-l-2 border-b-2' : 'w-5 h-5 text-[10px] border rounded-sm flex items-center justify-center',
+        'font-extrabold animate-pulse-soft text-center bg-secondary/95 backdrop-blur-sm text-secondary-foreground',
+        isCorner
+          ? 'px-2.5 py-1 text-xs border-l-2 border-b-2'
+          : 'w-5 h-5 text-[10px] border rounded-sm flex items-center justify-center',
         className,
       )}
       style={{

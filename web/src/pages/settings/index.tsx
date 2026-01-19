@@ -27,8 +27,11 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
 } from '@/components/ui';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { PageHeader } from '@/components/layout/page-header';
 import { useSettings, useUpdateSetting } from '@/hooks/queries';
 import { useTransport } from '@/lib/transport/context';
@@ -85,228 +88,95 @@ function GeneralSection() {
       <CardContent className="p-6 space-y-6">
         {/* Theme Selection */}
         <div className="space-y-3">
-          <label className="text-sm font-medium text-foreground">
-            {t('settings.themePreference')}
-          </label>
-
-          {/* Default Themes */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Default Themes</p>
-            <div className="grid grid-cols-3 gap-2">
-              {defaultThemes.map((themeOption) => (
-                <Tooltip key={themeOption.id}>
-                  <TooltipTrigger
-                    render={(props) => (
-                      <button
-                        {...props}
-                        type="button"
-                        onClick={() => setTheme(themeOption.id)}
-                        className={cn(
-                          'relative flex flex-col items-center gap-2 rounded-lg p-3 transition-colors border-2',
-                          'hover:bg-accent/50',
-                          theme === themeOption.id
-                            ? 'border-primary bg-accent/30'
-                            : 'border-border bg-card',
-                        )}
-                        title={themeOption.description}
-                      >
-                        {/* Color Swatch */}
-                        <div className="relative">
-                          <div
-                            className={cn(
-                              'h-10 w-10 rounded-full border-2 transition-all',
-                              theme === themeOption.id
-                                ? 'border-primary scale-110'
-                                : 'border-border',
-                            )}
-                            style={{
-                              background:
-                                themeOption.id === 'system'
-                                  ? 'linear-gradient(135deg, oklch(0.3261 0 0) 50%, oklch(0.9848 0 0) 50%)'
-                                  : themeOption.accentColor,
-                            }}
-                          />
-                          {theme === themeOption.id && (
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <div className="rounded-full bg-background p-0.5">
-                                <Check className="h-4 w-4 text-primary" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        {/* Theme Name */}
-                        <span
-                          className={cn(
-                            'text-xs font-medium text-center leading-tight',
-                            theme === themeOption.id ? 'text-foreground' : 'text-muted-foreground',
-                          )}
-                        >
-                          {themeOption.name}
-                        </span>
-                      </button>
-                    )}
-                  />
-                  <TooltipContent side="top" className="w-56 p-4 bg-card border border-border">
-                    <div className="space-y-2">
-                      <div className="font-semibold text-sm text-foreground">
-                        {themeOption.name}
-                      </div>
-                      <div className="text-xs text-muted-foreground">{themeOption.description}</div>
-                      {/* Color Preview Swatches */}
-                      <div className="space-y-1.5 pt-2 border-t border-border">
-                        <div className="text-xs font-medium text-muted-foreground">
-                          Color Preview
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="space-y-1">
-                            <div
-                              className="h-10 rounded-md border-2 border-border shadow-sm"
-                              style={{ background: themeOption.accentColor }}
-                            />
-                            <div className="text-[10px] text-center text-muted-foreground">
-                              Accent
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <div
-                              className="h-10 rounded-md border-2 border-border shadow-sm"
-                              style={{ background: themeOption.primaryColor }}
-                            />
-                            <div className="text-[10px] text-center text-muted-foreground">
-                              Primary
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <div
-                              className="h-10 rounded-md border-2 border-border shadow-sm"
-                              style={{ background: themeOption.secondaryColor }}
-                            />
-                            <div className="text-[10px] text-center text-muted-foreground">
-                              Secondary
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              ))}
+          <Tabs defaultValue="default" className="w-full">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-medium text-foreground">
+                {t('settings.themePreference')}
+              </div>
+              <TabsList className="inline-flex">
+                <TabsTrigger value="default">Default</TabsTrigger>
+                <TabsTrigger value="luxury">Luxury</TabsTrigger>
+              </TabsList>
             </div>
-          </div>
 
-          {/* Luxury Themes */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Luxury Themes</p>
-            <div className="grid grid-cols-3 gap-2">
-              {luxuryThemes.map((themeOption) => (
-                <Tooltip key={themeOption.id}>
-                  <TooltipTrigger
-                    render={(props) => (
-                      <button
-                        {...props}
-                        type="button"
-                        onClick={() => setTheme(themeOption.id)}
-                        className={cn(
-                          'relative flex flex-col items-center gap-2 rounded-lg p-3 transition-colors border-2',
-                          'hover:bg-accent/50',
-                          theme === themeOption.id
-                            ? 'border-primary bg-accent/30'
-                            : 'border-border bg-card',
-                        )}
-                        title={`${themeOption.description}${themeOption.brandInspiration ? ` • Inspired by ${themeOption.brandInspiration}` : ''}`}
-                      >
-                        {/* Color Swatch */}
-                        <div className="relative">
-                          <div
-                            className={cn(
-                              'h-10 w-10 rounded-full border-2 transition-all',
-                              theme === themeOption.id
-                                ? 'border-primary scale-110'
-                                : 'border-border',
-                            )}
-                            style={{
-                              background: themeOption.accentColor,
-                            }}
-                          />
-                          {theme === themeOption.id && (
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <div className="rounded-full bg-background p-0.5">
-                                <Check className="h-4 w-4 text-primary" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        {/* Theme Name */}
-                        <span
-                          className={cn(
-                            'text-xs font-medium text-center leading-tight',
-                            theme === themeOption.id ? 'text-foreground' : 'text-muted-foreground',
-                          )}
-                        >
-                          {themeOption.name}
-                        </span>
-                      </button>
-                    )}
-                  />
-                  <TooltipContent side="top" className="w-56 p-4 bg-card border border-border">
-                    <div className="space-y-2">
-                      <div className="font-semibold text-sm text-foreground">
-                        {themeOption.name}
-                      </div>
-                      <div className="text-xs text-muted-foreground">{themeOption.description}</div>
-                      {themeOption.brandInspiration && (
-                        <div className="text-xs text-muted-foreground italic border-l-2 border-accent pl-2">
-                          Inspired by {themeOption.brandInspiration}
-                        </div>
+            <TabsContent value="default" className="mt-0">
+              <div className="flex flex-wrap gap-2">
+                {defaultThemes.map((themeOption) => {
+                  const displayColor =
+                    themeOption.id === 'light'
+                      ? 'oklch(0.95 0 0)'
+                      : themeOption.id === 'dark'
+                        ? 'oklch(0.25 0 0)'
+                        : themeOption.accentColor;
+
+                  return (
+                    <button
+                      key={themeOption.id}
+                      type="button"
+                      onClick={() => setTheme(themeOption.id)}
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-2 rounded-md transition-all',
+                        'border',
+                        theme === themeOption.id
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/50 hover:bg-muted/50',
                       )}
-                      {/* Color Preview Swatches */}
-                      <div className="space-y-1.5 pt-2 border-t border-border">
-                        <div className="text-xs font-medium text-muted-foreground">
-                          Color Preview
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="space-y-1">
-                            <div
-                              className="h-10 rounded-md border-2 border-border shadow-sm"
-                              style={{ background: themeOption.accentColor }}
-                            />
-                            <div className="text-[10px] text-center text-muted-foreground">
-                              Accent
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <div
-                              className="h-10 rounded-md border-2 border-border shadow-sm"
-                              style={{ background: themeOption.primaryColor }}
-                            />
-                            <div className="text-[10px] text-center text-muted-foreground">
-                              Primary
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <div
-                              className="h-10 rounded-md border-2 border-border shadow-sm"
-                              style={{ background: themeOption.secondaryColor }}
-                            />
-                            <div className="text-[10px] text-center text-muted-foreground">
-                              Secondary
-                            </div>
-                          </div>
-                        </div>
+                      aria-label={`Select ${themeOption.name} theme`}
+                    >
+                      {/* Color indicator */}
+                      <div className="flex gap-0.5">
+                        <div
+                          className="w-3 h-3 rounded-full ring-1 ring-black/10"
+                          style={{ background: displayColor }}
+                        />
                       </div>
+
+                      {/* Theme name */}
+                      <span className="text-sm font-medium">{themeOption.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="luxury" className="mt-0">
+              <div className="flex flex-wrap gap-2">
+                {luxuryThemes.map((themeOption) => (
+                  <button
+                    key={themeOption.id}
+                    type="button"
+                    onClick={() => setTheme(themeOption.id)}
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-md transition-all',
+                      'border',
+                      theme === themeOption.id
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50 hover:bg-muted/50',
+                    )}
+                    aria-label={`Select ${themeOption.name} theme`}
+                  >
+                    {/* Color indicator */}
+                    <div className="flex gap-0.5">
+                      <div
+                        className="w-3 h-3 rounded-full ring-1 ring-black/10"
+                        style={{ background: themeOption.primaryColor }}
+                      />
                     </div>
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </div>
-          </div>
+
+                    {/* Theme name */}
+                    <span className="text-sm font-medium">{themeOption.name}</span>
+                  </button>
+                ))}
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Language Selection */}
         <div className="flex items-center gap-6 pt-4 border-t border-border">
-          <label className="text-sm font-medium text-muted-foreground w-40 shrink-0">
+          <div className="text-sm font-medium text-muted-foreground w-40 shrink-0">
             {t('settings.languagePreference')}
-          </label>
+          </div>
           <div className="flex flex-wrap gap-3">
             {languages.map(({ value, label }) => (
               <Button
@@ -453,9 +323,9 @@ function DataRetentionSection() {
       </CardHeader>
       <CardContent className="p-6">
         <div className="flex items-center gap-3">
-          <label className="text-sm font-medium text-muted-foreground shrink-0">
+          <div className="text-sm font-medium text-muted-foreground shrink-0">
             {t('settings.requestRetentionHours')}
-          </label>
+          </div>
           <Input
             type="number"
             value={requestDraft}
@@ -509,9 +379,9 @@ function ForceProjectSection() {
       <CardContent className="p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <label className="text-sm font-medium text-foreground">
+            <div className="text-sm font-medium text-foreground">
               {t('settings.enableForceProjectBinding')}
-            </label>
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
               {t('settings.forceProjectBindingDesc')}
             </p>
@@ -525,9 +395,9 @@ function ForceProjectSection() {
 
         {forceProjectEnabled && (
           <div className="flex items-center gap-6 pt-4 border-t border-border">
-            <label className="text-sm font-medium text-muted-foreground w-32 shrink-0">
+            <div className="text-sm font-medium text-muted-foreground w-32 shrink-0">
               {t('settings.waitTimeout')}
-            </label>
+            </div>
             <Input
               type="number"
               value={timeout}
