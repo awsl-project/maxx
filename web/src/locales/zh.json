@@ -223,7 +223,8 @@
     "customRoutesDisabled": "自定义路由已禁用",
     "usingGlobalRoutesDesc": "{{client}} 当前正在使用全局路由。切换开关以为此客户端类型启用项目特定的路由。",
     "routesConfigured_one": "为该项目配置了 1 条路由",
-    "routesConfigured_other": "为该项目配置了 {{count}} 条路由"
+    "routesConfigured_other": "为该项目配置了 {{count}} 条路由",
+    "sortAntigravity": "一键排序 Antigravity"
   },
   "console": {
     "title": "控制台",

@@ -3,8 +3,8 @@
  * Used by both global routes and project routes
  */
 
-import { useState, useMemo } from 'react';
-import { Plus, RefreshCw, Zap } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import { Plus, RefreshCw, Zap, ArrowUpDown } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -43,8 +43,9 @@ import {
 } from '@/pages/client-routes/components/provider-row';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import { Button } from '../ui';
-import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
+import { AntigravityQuotasProvider, useAntigravityQuotasContext } from '@/contexts/antigravity-quotas-context';
 import { CooldownsProvider } from '@/contexts/cooldowns-context';
+import { useTranslation } from 'react-i18next';
 
 interface ClientTypeRoutesContentProps {
   clientType: ClientType;
@@ -69,9 +70,11 @@ function ClientTypeRoutesContentInner({
   projectID,
   searchQuery = '',
 }: ClientTypeRoutesContentProps) {
+  const { t } = useTranslation();
   const [activeId, setActiveId] = useState<string | null>(null);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const queryClient = useQueryClient();
+  const { quotas } = useAntigravityQuotasContext();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -154,6 +157,89 @@ function ClientTypeRoutesContentInner({
 
     return available;
   }, [providers, clientRoutes, searchQuery]);
+
+  // Check if there are any Antigravity routes
+  const hasAntigravityRoutes = useMemo(() => {
+    return items.some((item) => item.provider.type === 'antigravity' && item.route);
+  }, [items]);
+
+  // Get Claude model resetTime from Antigravity quota
+  const getClaudeResetTime = useCallback(
+    (providerId: number): Date | null => {
+      const quota = quotas?.[providerId];
+      if (!quota || quota.isForbidden || !quota.models) return null;
+      const claudeModel = quota.models.find((m) => m.name.includes('claude'));
+      if (!claudeModel) return null;
+      try {
+        return new Date(claudeModel.resetTime);
+      } catch {
+        return null;
+      }
+    },
+    [quotas],
+  );
+
+  // Sort Antigravity routes by resetTime (earliest first), keeping non-Antigravity routes in place
+  const handleSortAntigravity = useCallback(() => {
+    // Get indices of Antigravity items in the original list
+    const antigravityIndices: number[] = [];
+    const antigravityItems: ProviderConfigItem[] = [];
+
+    items.forEach((item, index) => {
+      if (item.provider.type === 'antigravity' && item.route) {
+        antigravityIndices.push(index);
+        antigravityItems.push(item);
+      }
+    });
+
+    // Sort Antigravity items by resetTime (earliest first)
+    const sortedAntigravityItems = [...antigravityItems].sort((a, b) => {
+      const resetTimeA = getClaudeResetTime(a.provider.id);
+      const resetTimeB = getClaudeResetTime(b.provider.id);
+
+      // Items without resetTime go to the end
+      if (!resetTimeA && !resetTimeB) return 0;
+      if (!resetTimeA) return 1;
+      if (!resetTimeB) return -1;
+
+      return resetTimeA.getTime() - resetTimeB.getTime();
+    });
+
+    // Build new items array: put sorted Antigravity items back into their original positions
+    const newItems = [...items];
+    antigravityIndices.forEach((originalIndex, sortedIndex) => {
+      newItems[originalIndex] = sortedAntigravityItems[sortedIndex];
+    });
+
+    // Update positions for all items
+    const updates: Record<number, number> = {};
+    newItems.forEach((item, i) => {
+      if (item.route) {
+        updates[item.route.id] = i + 1;
+      }
+    });
+
+    if (Object.keys(updates).length > 0) {
+      // Optimistic update
+      queryClient.setQueryData(routeKeys.list(), (oldRoutes: typeof allRoutes) => {
+        if (!oldRoutes) return oldRoutes;
+        return oldRoutes.map((route) => {
+          const newPosition = updates[route.id];
+          if (newPosition !== undefined) {
+            return { ...route, position: newPosition };
+          }
+          return route;
+        });
+      });
+
+      // Send API request
+      updatePositions.mutate(updates, {
+        onError: () => {
+          queryClient.invalidateQueries({ queryKey: routeKeys.list() });
+        },
+      });
+    }
+  }, [items, getClaudeResetTime, queryClient, updatePositions]);
 
   const activeItem = activeId ? items.find((item) => item.id === activeId) : null;
 
@@ -253,131 +339,147 @@ function ClientTypeRoutesContentInner({
     <div className="flex flex-col h-full px-6">
       <div className="flex-1 overflow-y-auto px-lg py-6">
         <div className="mx-auto max-w-[1400px] space-y-6">
-            {/* Routes List */}
-            {items.length > 0 ? (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
+          {/* Sort Antigravity Button */}
+          {hasAntigravityRoutes && (
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSortAntigravity}
+                disabled={updatePositions.isPending}
+                className="gap-2"
               >
-                <SortableContext
-                  items={items.map((item) => item.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div className="space-y-2">
-                    {items.map((item, index) => (
-                      <SortableProviderRow
-                        key={item.id}
-                        item={item}
-                        index={index}
-                        clientType={clientType}
-                        streamingCount={
-                          countsByProviderAndClient.get(`${item.provider.id}:${clientType}`) || 0
-                        }
-                        stats={providerStats[item.provider.id]}
-                        isToggling={toggleRoute.isPending || createRoute.isPending}
-                        onToggle={() => handleToggle(item)}
-                        onDelete={item.route ? () => handleDeleteRoute(item.route!.id) : undefined}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
+                <ArrowUpDown size={14} />
+                {t('routes.sortAntigravity')}
+              </Button>
+            </div>
+          )}
 
-                <DragOverlay dropAnimation={null}>
-                  {activeItem && (
-                    <ProviderRowContent
-                      item={activeItem}
-                      index={items.findIndex((i) => i.id === activeItem.id)}
+          {/* Routes List */}
+          {items.length > 0 ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={items.map((item) => item.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-2">
+                  {items.map((item, index) => (
+                    <SortableProviderRow
+                      key={item.id}
+                      item={item}
+                      index={index}
                       clientType={clientType}
                       streamingCount={
-                        countsByProviderAndClient.get(`${activeItem.provider.id}:${clientType}`) ||
-                        0
+                        countsByProviderAndClient.get(`${item.provider.id}:${clientType}`) || 0
                       }
-                      stats={providerStats[activeItem.provider.id]}
-                      isToggling={false}
-                      isOverlay
-                      onToggle={() => {}}
+                      stats={providerStats[item.provider.id]}
+                      isToggling={toggleRoute.isPending || createRoute.isPending}
+                      onToggle={() => handleToggle(item)}
+                      onDelete={item.route ? () => handleDeleteRoute(item.route!.id) : undefined}
                     />
-                  )}
-                </DragOverlay>
-              </DndContext>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                <p className="text-body">No routes configured for {getClientName(clientType)}</p>
-                <p className="text-caption mt-sm">Add a route below to get started</p>
-              </div>
-            )}
-
-            {/* Add Route Section - Card Style */}
-            {availableProviders.length > 0 && (
-              <div className="pt-4 border-t border-border/50 ">
-                <div className="flex items-center gap-2 mb-6">
-                  <Plus size={14} style={{ color }} />
-                  <span className="text-caption font-medium text-muted-foreground">
-                    Available Providers
-                  </span>
+                  ))}
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {availableProviders.map((provider) => {
-                    const isNative = (provider.supportedClientTypes || []).includes(clientType);
-                    const providerColor = getProviderColor(provider.type as ProviderType);
-                    return (
-                      <Button
-                        key={provider.id}
-                        variant={null}
-                        onClick={() => handleAddRoute(provider, isNative)}
-                        disabled={createRoute.isPending}
-                        className="h-auto group relative flex items-center justify-between gap-4 p-4 rounded-xl border border-border/40 bg-background hover:bg-secondary/50 hover:border-border shadow-sm hover:shadow transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
-                      >
-                        {/* Left: Provider Icon & Info */}
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div
-                            className="relative w-11 h-11 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300 group-hover:scale-105"
-                            style={{
-                              backgroundColor: `${providerColor}20`,
-                              color: providerColor,
-                            }}
-                          >
-                            <span className="relative text-xl font-black">
-                              {provider.name.charAt(0).toUpperCase()}
-                            </span>
+              </SortableContext>
+
+              <DragOverlay dropAnimation={null}>
+                {activeItem && (
+                  <ProviderRowContent
+                    item={activeItem}
+                    index={items.findIndex((i) => i.id === activeItem.id)}
+                    clientType={clientType}
+                    streamingCount={
+                      countsByProviderAndClient.get(`${activeItem.provider.id}:${clientType}`) ||
+                      0
+                    }
+                    stats={providerStats[activeItem.provider.id]}
+                    isToggling={false}
+                    isOverlay
+                    onToggle={() => {}}
+                  />
+                )}
+              </DragOverlay>
+            </DndContext>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <p className="text-body">No routes configured for {getClientName(clientType)}</p>
+              <p className="text-caption mt-sm">Add a route below to get started</p>
+            </div>
+          )}
+
+          {/* Add Route Section - Card Style */}
+          {availableProviders.length > 0 && (
+            <div className="pt-4 border-t border-border/50 ">
+              <div className="flex items-center gap-2 mb-6">
+                <Plus size={14} style={{ color }} />
+                <span className="text-caption font-medium text-muted-foreground">
+                  Available Providers
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {availableProviders.map((provider) => {
+                  const isNative = (provider.supportedClientTypes || []).includes(clientType);
+                  const providerColor = getProviderColor(provider.type as ProviderType);
+                  return (
+                    <Button
+                      key={provider.id}
+                      variant={null}
+                      onClick={() => handleAddRoute(provider, isNative)}
+                      disabled={createRoute.isPending}
+                      className="h-auto group relative flex items-center justify-between gap-4 p-4 rounded-xl border border-border/40 bg-background hover:bg-secondary/50 hover:border-border shadow-sm hover:shadow transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
+                    >
+                      {/* Left: Provider Icon & Info */}
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div
+                          className="relative w-11 h-11 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300 group-hover:scale-105"
+                          style={{
+                            backgroundColor: `${providerColor}20`,
+                            color: providerColor,
+                          }}
+                        >
+                          <span className="relative text-xl font-black">
+                            {provider.name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[14px] font-semibold text-foreground truncate leading-tight mb-1">
+                            {provider.name}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[14px] font-semibold text-foreground truncate leading-tight mb-1">
-                              {provider.name}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-medium text-muted-foreground/80 capitalize leading-tight">
-                                {provider.type}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-medium text-muted-foreground/80 capitalize leading-tight">
+                              {provider.type}
+                            </span>
+                            {isNative ? (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                <Zap size={10} className="fill-current opacity-30" />
+                                NATIVE
                               </span>
-                              {isNative ? (
-                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                  <Zap size={10} className="fill-current opacity-30" />
-                                  NATIVE
-                                </span>
-                              ) : (
-                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                  <RefreshCw size={10} />
-                                  CONV
-                                </span>
-                              )}
-                            </div>
+                            ) : (
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                <RefreshCw size={10} />
+                                CONV
+                              </span>
+                            )}
                           </div>
                         </div>
+                      </div>
 
-                        {/* Right: Add Icon */}
-                        <Plus
-                          size={20}
-                          style={{ color: providerColor }}
-                          className="opacity-50 group-hover:opacity-100 group-hover:scale-110 transition-all duration-300 shrink-0"
-                        />
-                      </Button>
-                    );
-                  })}
-                </div>
+                      {/* Right: Add Icon */}
+                      <Plus
+                        size={20}
+                        style={{ color: providerColor }}
+                        className="opacity-50 group-hover:opacity-100 group-hover:scale-110 transition-all duration-300 shrink-0"
+                      />
+                    </Button>
+                  );
+                })}
               </div>
-            )}
+            </div>
+          )}
         </div>
       </div>
     </div>

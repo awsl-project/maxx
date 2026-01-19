@@ -223,7 +223,8 @@
     "customRoutesDisabled": "Custom Routes Disabled",
     "usingGlobalRoutesDesc": "{{client}} is currently using global routes. Toggle switch to enable project-specific routing for this client type.",
     "routesConfigured_one": "1 route configured for this project",
-    "routesConfigured_other": "{{count}} routes configured for this project"
+    "routesConfigured_other": "{{count}} routes configured for this project",
+    "sortAntigravity": "Sort Antigravity"
   },
   "console": {
     "title": "Console",
