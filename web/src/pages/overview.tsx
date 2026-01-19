@@ -41,6 +41,8 @@ import {
   useSessions,
 } from '@/hooks/queries';
 import { useCooldowns } from '@/hooks/use-cooldowns';
+import { CooldownTimer } from '@/components/cooldown-timer';
+import { useStreamingRequests } from '@/hooks/use-streaming';
 import {
   AreaChart,
   Area,
@@ -200,19 +202,13 @@ export function OverviewPage() {
   const { data: providerStats } = useDashboardProviderStats();
   const { data: requestsData } = useProxyRequests({ limit: 10 });
   const { data: sessions } = useSessions();
-  const { cooldowns, formatRemaining } = useCooldowns();
+  const { cooldowns } = useCooldowns();
+  const { total: activeRequestsCount } = useStreamingRequests();
 
   // 启用请求实时更新
   useProxyRequestUpdates();
 
   const recentRequests = useMemo(() => requestsData?.items ?? [], [requestsData?.items]);
-
-  // 计算正在进行中的请求数量
-  const activeRequestsCount = useMemo(() => {
-    return recentRequests.filter(
-      (req) => req.status !== 'COMPLETED' && req.status !== 'FAILED'
-    ).length;
-  }, [recentRequests]);
 
   // 计算 Provider 使用分布
   const providerDistribution = useMemo(() => {
@@ -583,7 +579,7 @@ export function OverviewPage() {
                                 {provider?.name || `Provider #${cd.providerID}`}
                               </span>
                               <span className="font-mono text-amber-600 dark:text-amber-400">
-                                {formatRemaining(cd)}
+                                <CooldownTimer cooldown={cd} />
                               </span>
                             </div>
                           );

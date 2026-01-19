@@ -278,6 +278,11 @@ export class HttpTransport implements Transport {
     return data ?? 0;
   }
 
+  async getActiveProxyRequests(): Promise<ProxyRequest[]> {
+    const { data } = await this.client.get<ProxyRequest[]>('/requests/active');
+    return data ?? [];
+  }
+
   async getProxyRequest(id: number): Promise<ProxyRequest> {
     const { data } = await this.client.get<ProxyRequest>(`/requests/${id}`);
     return data;

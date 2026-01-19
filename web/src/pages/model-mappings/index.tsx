@@ -150,7 +150,12 @@ export function ModelMappingsPage() {
     }),
   );
 
+  const handleDragStart = () => {
+    document.body.classList.add('is-dragging');
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
+    document.body.classList.remove('is-dragging');
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -284,6 +289,7 @@ export function ModelMappingsPage() {
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
               >
                 <SortableContext

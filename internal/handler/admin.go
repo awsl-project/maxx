@@ -650,11 +650,17 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 }
 
 // ProxyRequest handlers
-// Routes: /admin/requests, /admin/requests/count, /admin/requests/{id}, /admin/requests/{id}/attempts
+// Routes: /admin/requests, /admin/requests/count, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts
 func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
 	// Check for count endpoint: /admin/requests/count
 	if len(parts) > 2 && parts[2] == "count" {
 		h.handleProxyRequestsCount(w, r)
+		return
+	}
+
+	// Check for active endpoint: /admin/requests/active
+	if len(parts) > 2 && parts[2] == "active" {
+		h.handleActiveProxyRequests(w, r)
 		return
 	}
 
@@ -710,6 +716,21 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, http.StatusOK, count)
+}
+
+// ActiveProxyRequests handler - returns all requests with PENDING or IN_PROGRESS status
+func (h *AdminHandler) handleActiveProxyRequests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	requests, err := h.svc.GetActiveProxyRequests()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, requests)
 }
 
 // ProxyUpstreamAttempt handlers

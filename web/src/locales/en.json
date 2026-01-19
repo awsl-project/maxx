@@ -473,6 +473,7 @@
     "clients": "Clients:",
     "notConfigured": "Not configured",
     "clearCooldown": "Clear cooldown",
+    "unfreeze": "Unfreeze",
     "configure": "Configure Provider",
     "configureDescription": "Set up your custom provider connection",
     "create": "Create Provider",

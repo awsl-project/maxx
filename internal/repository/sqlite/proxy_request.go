@@ -93,6 +93,19 @@ func (r *ProxyRequestRepository) ListCursor(limit int, before, after uint64) ([]
 	return r.toDomainList(models), nil
 }
 
+// ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
+func (r *ProxyRequestRepository) ListActive() ([]*domain.ProxyRequest, error) {
+	var models []ProxyRequest
+	if err := r.db.gorm.Model(&ProxyRequest{}).
+		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id").
+		Where("status IN ?", []string{"PENDING", "IN_PROGRESS"}).
+		Order("id DESC").
+		Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return r.toDomainList(models), nil
+}
+
 func (r *ProxyRequestRepository) Count() (int64, error) {
 	return atomic.LoadInt64(&r.count), nil
 }

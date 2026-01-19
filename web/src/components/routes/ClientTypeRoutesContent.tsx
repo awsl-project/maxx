@@ -178,11 +178,13 @@ export function ClientTypeRoutesContent({
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
+    document.body.classList.add('is-dragging');
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveId(null);
+    document.body.classList.remove('is-dragging');
 
     if (!over || active.id === over.id) return;
 

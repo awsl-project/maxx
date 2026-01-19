@@ -3,7 +3,7 @@
  * 追踪实时活动请求状态
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getTransport, type ProxyRequest, type ClientType } from '@/lib/transport';
 
 export interface StreamingState {
@@ -22,29 +22,49 @@ export interface StreamingState {
 }
 
 /**
+ * 判断请求是否为活跃状态
+ */
+function isActiveRequest(request: ProxyRequest): boolean {
+  return request.status === 'PENDING' || request.status === 'IN_PROGRESS';
+}
+
+/**
  * 追踪实时活动的 streaming 请求
  * 通过 WebSocket 事件更新状态
  * 注意：React Query 缓存更新由 useProxyRequestUpdates 处理
  */
 export function useStreamingRequests(): StreamingState {
   const [activeRequests, setActiveRequests] = useState<Map<string, ProxyRequest>>(new Map());
+  const isInitialized = useRef(false);
+
+  // 从 API 加载当前活跃请求
+  const loadActiveRequests = useCallback(async () => {
+    try {
+      const transport = getTransport();
+      const activeList = await transport.getActiveProxyRequests();
+      const activeMap = new Map<string, ProxyRequest>();
+
+      for (const request of activeList) {
+        activeMap.set(request.requestID, request);
+      }
+
+      setActiveRequests(activeMap);
+    } catch (error) {
+      console.error('Failed to load active requests:', error);
+    }
+  }, []);
 
   // 处理请求更新
   const handleRequestUpdate = useCallback((request: ProxyRequest) => {
     setActiveRequests((prev) => {
       const next = new Map(prev);
 
-      // 已完成、失败、取消或拒绝的请求从活动列表中移除
-      if (
-        request.status === 'COMPLETED' ||
-        request.status === 'FAILED' ||
-        request.status === 'CANCELLED' ||
-        request.status === 'REJECTED'
-      ) {
-        next.delete(request.requestID);
-      } else {
+      if (isActiveRequest(request)) {
         // PENDING 或 IN_PROGRESS 的请求添加到活动列表
         next.set(request.requestID, request);
+      } else {
+        // 已完成、失败、取消或拒绝的请求从活动列表中移除
+        next.delete(request.requestID);
       }
 
       return next;
@@ -56,23 +76,29 @@ export function useStreamingRequests(): StreamingState {
   useEffect(() => {
     const transport = getTransport();
 
+    // 初始化时加载当前活跃请求
+    if (!isInitialized.current) {
+      isInitialized.current = true;
+      loadActiveRequests();
+    }
+
     // 订阅请求更新事件 (连接由 main.tsx 统一管理)
     const unsubscribe = transport.subscribe<ProxyRequest>(
       'proxy_request_update',
       handleRequestUpdate,
     );
 
-    // 订阅 WebSocket 重连事件，清空活动请求列表
-    // 因为断开期间可能有请求完成，重连后需要重新同步状态
+    // 订阅 WebSocket 重连事件，重新加载活跃请求
+    // 因为断开期间可能有请求完成或新增
     const unsubscribeReconnect = transport.subscribe('_ws_reconnected', () => {
-      setActiveRequests(new Map());
+      loadActiveRequests();
     });
 
     return () => {
       unsubscribe();
       unsubscribeReconnect();
     };
-  }, [handleRequestUpdate]);
+  }, [handleRequestUpdate, loadActiveRequests]);
 
   // 计算按 clientType 和 providerID 的统计
   const countsByClient = new Map<ClientType, number>();

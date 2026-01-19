@@ -392,6 +392,10 @@ func (s *AdminService) GetProxyRequest(id uint64) (*domain.ProxyRequest, error) 
 	return s.proxyRequestRepo.GetByID(id)
 }
 
+func (s *AdminService) GetActiveProxyRequests() ([]*domain.ProxyRequest, error) {
+	return s.proxyRequestRepo.ListActive()
+}
+
 func (s *AdminService) GetProxyUpstreamAttempts(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error) {
 	return s.attemptRepo.ListByProxyRequestID(proxyRequestID)
 }

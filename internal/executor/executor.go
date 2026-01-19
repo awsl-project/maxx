@@ -514,6 +514,24 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				e.broadcaster.BroadcastProxyRequest(proxyReq)
 			}
 
+			// Handle cooldown BEFORE checking context cancellation
+			// This ensures network errors trigger cooldown even if context is cancelled
+			proxyErr, ok := err.(*domain.ProxyError)
+			if ok {
+				log.Printf("[Executor] ProxyError - IsNetworkError: %v, IsServerError: %v, Retryable: %v, Provider: %d",
+					proxyErr.IsNetworkError, proxyErr.IsServerError, proxyErr.Retryable, matchedRoute.Provider.ID)
+				// Handle cooldown (unified cooldown logic for all providers)
+				e.handleCooldown(attemptCtx, proxyErr, matchedRoute.Provider)
+				// Broadcast cooldown update event to frontend
+				if e.broadcaster != nil {
+					e.broadcaster.BroadcastMessage("cooldown_update", map[string]interface{}{
+						"providerID": matchedRoute.Provider.ID,
+					})
+				}
+			} else {
+				log.Printf("[Executor] Error is not ProxyError, type: %T, error: %v", err, err)
+			}
+
 			// Check if it's a context cancellation (client disconnect)
 			if ctx.Err() != nil {
 				// Set final status before returning to ensure it's persisted
@@ -529,14 +547,10 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				return ctx.Err()
 			}
 
-			// Check if retryable
-			proxyErr, ok := err.(*domain.ProxyError)
+			// Check if retryable (proxyErr already checked above)
 			if !ok {
 				break // Move to next route
 			}
-
-			// Handle cooldown (unified cooldown logic for all providers)
-			e.handleCooldown(attemptCtx, proxyErr, matchedRoute.Provider)
 
 			if !proxyErr.Retryable {
 				break // Move to next route
@@ -665,9 +679,14 @@ func (e *Executor) handleCooldown(ctx context.Context, proxyErr *domain.ProxyErr
 	if proxyErr.RateLimitInfo != nil && proxyErr.RateLimitInfo.ClientType != "" {
 		clientType = proxyErr.RateLimitInfo.ClientType
 	}
-	// Fallback to current request's clientType if not specified
+	// Fallback to original client type (before format conversion) if not specified
 	if clientType == "" {
-		clientType = string(ctxutil.GetClientType(ctx))
+		// Prefer original client type over converted type
+		if origCT := ctxutil.GetOriginalClientType(ctx); origCT != "" {
+			clientType = string(origCT)
+		} else {
+			clientType = string(ctxutil.GetClientType(ctx))
+		}
 	}
 
 	// Determine cooldown reason and explicit time

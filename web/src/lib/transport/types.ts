@@ -276,6 +276,7 @@ export type WSMessageType =
   | 'antigravity_oauth_result'
   | 'new_session_pending'
   | 'session_pending_cancelled'
+  | 'cooldown_update'
   | '_ws_reconnected'; // 内部事件：WebSocket 重连成功
 
 export interface WSMessage<T = unknown> {

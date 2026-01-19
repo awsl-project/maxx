@@ -109,9 +109,9 @@ func (m *Manager) RecordFailure(providerID uint64, clientType string, reason Coo
 	// Get policy for this reason
 	policy, ok := m.policies[reason]
 	if !ok {
-		// Fallback to fixed 1-minute cooldown if no policy found
-		policy = &FixedDurationPolicy{Duration: 1 * time.Minute}
-		log.Printf("[Cooldown] Warning: No policy found for reason=%s, using default 1-minute cooldown", reason)
+		// Fallback to fixed 5-second cooldown if no policy found
+		policy = &FixedDurationPolicy{Duration: 5 * time.Second}
+		log.Printf("[Cooldown] Warning: No policy found for reason=%s, using default 5-second cooldown", reason)
 	}
 
 	// Calculate cooldown duration

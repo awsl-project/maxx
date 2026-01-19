@@ -14,7 +14,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-border">
-      <SidebarHeader>
+      <SidebarHeader className="h-[73px] border-b border-border justify-center">
         <NavProxyStatus />
       </SidebarHeader>
 

@@ -1,4 +1,4 @@
-import { ChevronRight, Activity, Mail, Globe } from 'lucide-react';
+import { Activity, Mail, Globe } from 'lucide-react';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { MarqueeBackground } from '@/components/ui/marquee-background';
@@ -30,49 +30,6 @@ function formatCost(microUsd: number): string {
     return `$${usd.toFixed(3)}`;
   }
   return `$${usd.toFixed(4)}`;
-}
-
-// 图标位置计算
-type IconSlot = { left: number; top: number; zIndex: number };
-
-function getIconSlots(count: number): IconSlot[] {
-  const iconSize = 32; // h-8 w-8
-  const overlapRatio = 0.15;
-  const step = iconSize * (1 - overlapRatio); // 27.2px
-  const containerWidth = 104;
-
-  if (count === 1) {
-    return [{ left: (containerWidth - iconSize) / 2, top: 0, zIndex: 1 }];
-  }
-
-  if (count === 2) {
-    const totalWidth = iconSize + step;
-    const startX = (containerWidth - totalWidth) / 2;
-    return [
-      { left: startX, top: 0, zIndex: 1 },
-      { left: startX + step, top: 0, zIndex: 2 },
-    ];
-  }
-
-  if (count === 3) {
-    const totalWidth = iconSize + step;
-    const startX = (containerWidth - totalWidth) / 2;
-    return [
-      { left: startX + step / 2, top: 0, zIndex: 3 }, // 上方居中
-      { left: startX, top: step, zIndex: 1 }, // 下方左
-      { left: startX + step, top: step, zIndex: 2 }, // 下方右
-    ];
-  }
-
-  // count >= 4
-  const totalWidth = iconSize + step;
-  const startX = (containerWidth - totalWidth) / 2;
-  return [
-    { left: startX, top: 0, zIndex: 1 },
-    { left: startX + step, top: 0, zIndex: 2 },
-    { left: startX, top: step, zIndex: 3 },
-    { left: startX + step, top: step, zIndex: 4 },
-  ];
 }
 
 interface ProviderRowProps {
@@ -172,13 +129,13 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
     <div
       onClick={onClick}
       className={cn(
-        'group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden',
+        'group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden cursor-pointer',
         streamingCount > 0
-          ? 'bg-card border-transparent ring-1 ring-black/5 dark:ring-white/10'
-          : 'bg-card/60 border-border hover:border-accent/30 hover:bg-card shadow-sm cursor-pointer',
+          ? 'bg-card ring-1 ring-black/5 dark:ring-white/10'
+          : 'bg-card/60 border-border hover:bg-card hover:border-primary/40 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)] hover:scale-[1.01] shadow-sm',
       )}
       style={{
-        borderColor: streamingCount > 0 ? `${color}40` : undefined,
+        borderColor: streamingCount > 0 ? `${color}60` : undefined,
         boxShadow: streamingCount > 0 ? `0 0 20px ${color}15` : undefined,
       }}
     >
@@ -187,45 +144,31 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
       {/* Streaming Badge - 右上角 */}
       {streamingCount > 0 && (
         <div className="absolute top-0 right-0 z-20">
-          <StreamingBadge count={streamingCount} color={color} />
+          <StreamingBadge count={streamingCount} color={color} variant="corner" className="rounded-tr-xl rounded-bl-lg" />
         </div>
       )}
 
-      {/* Supported Clients - 左侧居中 */}
-      <div
-        className={cn(
-          'relative z-10 flex shrink-0 items-center w-[104px] overflow-visible',
-          provider.supportedClientTypes && provider.supportedClientTypes.length >= 3
-            ? 'h-[60px]'
-            : 'h-[32px]',
-        )}
-      >
+      {/* Supported Clients - 左侧一排重叠居中 */}
+      <div className="relative z-10 flex shrink-0 items-center justify-center w-[80px]">
         {provider.supportedClientTypes?.length > 0 ? (
-          <div className="relative w-full h-full">
-            {getIconSlots(
-              Math.min(provider.supportedClientTypes.length, 4),
-            ).map((slot, index) => {
-              const ct = provider.supportedClientTypes[index];
-              if (!ct) return null;
-              return (
-                <div
-                  key={ct}
-                  className="absolute flex h-8 w-8 items-center justify-center rounded-full bg-background ring-2 ring-border transition-all hover:scale-110 hover:z-50"
-                  style={{
-                    left: `${slot.left}px`,
-                    top: `${slot.top}px`,
-                    zIndex: slot.zIndex,
-                  }}
-                  title={
-                    index === 3 && provider.supportedClientTypes.length > 4
-                      ? `${ct} +${provider.supportedClientTypes.length - 4}`
-                      : ct
-                  }
-                >
-                  <ClientIcon type={ct} size={20} />
-                </div>
-              );
-            })}
+          <div className="relative flex items-center h-7" style={{ width: `${28 + (Math.min(provider.supportedClientTypes.length, 4) - 1) * 18}px` }}>
+            {provider.supportedClientTypes.slice(0, 4).map((ct, index) => (
+              <div
+                key={ct}
+                className="absolute flex h-7 w-7 items-center justify-center rounded-full bg-background ring-1 ring-border transition-all hover:scale-110 hover:z-50"
+                style={{
+                  left: `${index * 18}px`,
+                  zIndex: 4 - index,
+                }}
+                title={
+                  index === 3 && provider.supportedClientTypes.length > 4
+                    ? `${ct} +${provider.supportedClientTypes.length - 4}`
+                    : ct
+                }
+              >
+                <ClientIcon type={ct} size={16} />
+              </div>
+            ))}
           </div>
         ) : (
           <span className="text-xs text-muted-foreground font-mono">-</span>
@@ -236,16 +179,6 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
       <div className="relative z-10 flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <h3 className="text-[15px] font-bold text-foreground truncate">{provider.name}</h3>
-          <span
-            className="px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-black flex items-center gap-1"
-            style={{ backgroundColor: `${color}15`, color }}
-          >
-            <div
-              className="w-1 h-1 rounded-full animate-pulse"
-              style={{ backgroundColor: color }}
-            />
-            {typeConfig.label}
-          </span>
         </div>
         <div className="flex items-center gap-3">
           {/* 对于 Antigravity，显示 Claude Quota；对于其他类型，显示邮箱/endpoint */}
@@ -394,13 +327,6 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
             <span className="text-[10px] font-bold uppercase tracking-widest">No Activity</span>
           </div>
         )}
-      </div>
-
-      {/* Navigation Icon */}
-      <div className="relative z-10 shrink-0 ml-1">
-        <div className="p-2 rounded-full text-muted-foreground group-hover:text-foreground group-hover:bg-muted transition-all transform group-hover:translate-x-1">
-          <ChevronRight size={20} />
-        </div>
       </div>
     </div>
   );

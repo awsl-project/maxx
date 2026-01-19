@@ -473,6 +473,7 @@
     "clients": "客户端：",
     "notConfigured": "未配置",
     "clearCooldown": "清除冷却",
+    "unfreeze": "解冻",
     "configure": "配置提供商",
     "configureDescription": "设置您的自定义提供商连接",
     "create": "创建提供商",

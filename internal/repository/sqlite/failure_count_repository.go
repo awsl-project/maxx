@@ -77,6 +77,11 @@ func (r *FailureCountRepository) Delete(providerID uint64, clientType string, re
 }
 
 func (r *FailureCountRepository) DeleteAll(providerID uint64, clientType string) error {
+	// If clientType is empty, delete ALL failure counts for this provider
+	if clientType == "" {
+		return r.db.gorm.Where("provider_id = ?", providerID).Delete(&FailureCount{}).Error
+	}
+	// Otherwise, delete only for the specific clientType
 	return r.db.gorm.Where("provider_id = ? AND client_type = ?", providerID, clientType).Delete(&FailureCount{}).Error
 }
 

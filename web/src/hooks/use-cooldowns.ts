@@ -1,10 +1,12 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { getTransport } from '@/lib/transport';
 import type { Cooldown } from '@/lib/transport';
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 
 export function useCooldowns() {
   const queryClient = useQueryClient();
+  // Force re-render counter to trigger updates when cooldowns expire
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const {
     data: cooldowns = [],
@@ -13,9 +15,21 @@ export function useCooldowns() {
   } = useQuery({
     queryKey: ['cooldowns'],
     queryFn: () => getTransport().getCooldowns(),
-    // 不再轮询，改为通过 WebSocket 事件触发刷新 (useProxyRequestUpdates)
     staleTime: 3000,
   });
+
+  // Subscribe to cooldown_update WebSocket event
+  useEffect(() => {
+    const transport = getTransport();
+    const unsubscribe = transport.subscribe('cooldown_update', () => {
+      // Invalidate and refetch cooldowns when a cooldown update is received
+      queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [queryClient]);
 
   // Mutation for clearing cooldown
   const clearCooldownMutation = useMutation({
@@ -26,7 +40,7 @@ export function useCooldowns() {
     },
   });
 
-  // Setup timeouts for each cooldown to invalidate when they expire
+  // Setup timeouts for each cooldown to force re-render when they expire
   useEffect(() => {
     if (cooldowns.length === 0) {
       return;
@@ -42,9 +56,10 @@ export function useCooldowns() {
       // If cooldown will expire in the future, set a timeout
       if (delay > 0) {
         const timeout = setTimeout(() => {
-          // Invalidate query when cooldown expires
-          queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
-        }, delay);
+          // Force re-render when cooldown expires
+          // This ensures getCooldownForProvider returns undefined for expired cooldowns
+          setRefreshKey((prev) => prev + 1);
+        }, delay + 100); // Add small buffer to ensure time has passed
         timeouts.push(timeout);
       }
     });
@@ -53,26 +68,43 @@ export function useCooldowns() {
       // Clear all timeouts on cleanup
       timeouts.forEach((timeout) => clearTimeout(timeout));
     };
-  }, [cooldowns, queryClient]);
+  }, [cooldowns]);
 
-  // Helper to get cooldown for a specific provider
-  const getCooldownForProvider = (providerId: number, clientType?: string) => {
-    return cooldowns.find(
-      (cd: Cooldown) =>
-        cd.providerID === providerId &&
-        (cd.clientType === '' ||
-          cd.clientType === 'all' ||
-          (clientType && cd.clientType === clientType)),
-    );
-  };
+  // Helper to get cooldown for a specific provider (excludes expired cooldowns)
+  // Use useCallback with refreshKey to ensure new reference when cooldowns expire
+  const getCooldownForProvider = useCallback((providerId: number, clientType?: string) => {
+    return cooldowns.find((cd: Cooldown) => {
+      // Check if cooldown matches provider and client type
+      const matchesProvider = cd.providerID === providerId;
+      const matchesClientType =
+        cd.clientType === '' ||
+        cd.clientType === 'all' ||
+        (clientType && cd.clientType === clientType);
+
+      if (!matchesProvider || !matchesClientType) {
+        return false;
+      }
+
+      // Check if cooldown is still active (not expired)
+      const untilTime =
+        cd.untilTime || ((cd as unknown as Record<string, unknown>).until as string);
+      if (!untilTime) {
+        return false;
+      }
+      const until = new Date(untilTime).getTime();
+      const now = Date.now();
+      return until > now;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cooldowns, refreshKey]);
 
   // Helper to check if provider is in cooldown
-  const isProviderInCooldown = (providerId: number, clientType?: string) => {
+  const isProviderInCooldown = useCallback((providerId: number, clientType?: string) => {
     return !!getCooldownForProvider(providerId, clientType);
-  };
+  }, [getCooldownForProvider]);
 
   // Helper to get remaining time as seconds
-  const getRemainingSeconds = (cooldown: Cooldown) => {
+  const getRemainingSeconds = useCallback((cooldown: Cooldown) => {
     // Handle both 'untilTime' and 'until' field names for backward compatibility
     const untilTime =
       cooldown.untilTime || ((cooldown as unknown as Record<string, unknown>).until as string);
@@ -82,10 +114,10 @@ export function useCooldowns() {
     const now = new Date();
     const diff = until.getTime() - now.getTime();
     return Math.max(0, Math.floor(diff / 1000));
-  };
+  }, []);
 
   // Helper to format remaining time
-  const formatRemaining = (cooldown: Cooldown) => {
+  const formatRemaining = useCallback((cooldown: Cooldown) => {
     const seconds = getRemainingSeconds(cooldown);
 
     if (Number.isNaN(seconds) || seconds === 0) return 'Expired';
@@ -101,12 +133,12 @@ export function useCooldowns() {
     } else {
       return `${String(secs).padStart(2, '0')}s`;
     }
-  };
+  }, [getRemainingSeconds]);
 
   // Helper to clear cooldown
-  const clearCooldown = (providerId: number) => {
+  const clearCooldown = useCallback((providerId: number) => {
     clearCooldownMutation.mutate(providerId);
-  };
+  }, [clearCooldownMutation]);
 
   return {
     cooldowns,

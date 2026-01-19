@@ -8,6 +8,7 @@ import {
   useProviders,
   useProjects,
   useAPITokens,
+  useSettings,
 } from '@/hooks/queries';
 import {
   Activity,
@@ -29,7 +30,6 @@ import {
   TableHeader,
   TableRow,
   Badge,
-  Button,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
@@ -64,6 +64,13 @@ export function RequestsPage() {
   const { data: providers = [] } = useProviders();
   const { data: projects = [] } = useProjects();
   const { data: apiTokens = [] } = useAPITokens();
+  const { data: settings } = useSettings();
+
+  // Check if API Token auth is enabled
+  const apiTokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
+
+  // Check if there are any projects
+  const hasProjects = projects.length > 0;
 
   // Subscribe to real-time updates
   useProxyRequestUpdates();
@@ -116,10 +123,19 @@ export function RequestsPage() {
         title={t('requests.title')}
         description={t('requests.description', { count: total })}
       >
-        <Button onClick={handleRefresh} disabled={isLoading}>
+        <button
+          onClick={handleRefresh}
+          disabled={isLoading}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+            'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
+            'text-muted-foreground hover:text-foreground',
+            isLoading && 'opacity-50 cursor-not-allowed',
+          )}
+        >
           <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
           <span>{t('requests.refresh')}</span>
-        </Button>
+        </button>
       </PageHeader>
 
       {/* Content */}
@@ -143,16 +159,20 @@ export function RequestsPage() {
                 <TableRow className="hover:bg-transparent border-none text-sm">
                   <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
                   <TableHead className="w-[120px] font-medium">{t('requests.client')}</TableHead>
-                  <TableHead className="w-[180px] font-medium">{t('requests.model')}</TableHead>
-                  <TableHead className="w-[100px] font-medium">{t('requests.project')}</TableHead>
-                  <TableHead className="w-[100px] font-medium">{t('requests.token')}</TableHead>
-                  <TableHead className="w-[120px] font-medium">{t('requests.provider')}</TableHead>
+                  <TableHead className="min-w-[250px] font-medium">{t('requests.model')}</TableHead>
+                  {hasProjects && (
+                    <TableHead className="w-[100px] font-medium">{t('requests.project')}</TableHead>
+                  )}
+                  {apiTokenAuthEnabled && (
+                    <TableHead className="w-[100px] font-medium">{t('requests.token')}</TableHead>
+                  )}
+                  <TableHead className="min-w-[100px] font-medium">{t('requests.provider')}</TableHead>
                   <TableHead className="w-[100px] font-medium">{t('common.status')}</TableHead>
-                  <TableHead className="w-[60px] font-medium">{t('requests.code')}</TableHead>
-                  <TableHead className="w-[80px] text-right font-medium">
+                  <TableHead className="w-[60px] text-center font-medium">{t('requests.code')}</TableHead>
+                  <TableHead className="w-[80px] text-center font-medium">
                     {t('requests.duration')}
                   </TableHead>
-                  <TableHead className="w-[80px] text-right font-medium">
+                  <TableHead className="w-[80px] text-center font-medium">
                     {t('requests.cost')}
                   </TableHead>
                   <TableHead
@@ -162,25 +182,25 @@ export function RequestsPage() {
                     {t('requests.attShort')}
                   </TableHead>
                   <TableHead
-                    className="w-[65px] text-right font-medium"
+                    className="w-[65px] text-center font-medium"
                     title={t('requests.inputTokens')}
                   >
                     {t('requests.inShort')}
                   </TableHead>
                   <TableHead
-                    className="w-[65px] text-right font-medium"
+                    className="w-[65px] text-center font-medium"
                     title={t('requests.outputTokens')}
                   >
                     {t('requests.outShort')}
                   </TableHead>
                   <TableHead
-                    className="w-[65px] text-right font-medium"
+                    className="w-[65px] text-center font-medium"
                     title={t('requests.cacheRead')}
                   >
                     {t('requests.cacheRShort')}
                   </TableHead>
                   <TableHead
-                    className="w-[65px] text-right font-medium"
+                    className="w-[65px] text-center font-medium"
                     title={t('requests.cacheWrite')}
                   >
                     {t('requests.cacheWShort')}
@@ -195,6 +215,8 @@ export function RequestsPage() {
                     providerName={providerMap.get(req.providerID)}
                     projectName={projectMap.get(req.projectID)}
                     tokenName={tokenMap.get(req.apiTokenID)}
+                    showProjectColumn={hasProjects}
+                    showTokenColumn={apiTokenAuthEnabled}
                     onClick={() => navigate(`/requests/${req.id}`)}
                   />
                 ))}
@@ -205,8 +227,8 @@ export function RequestsPage() {
       </div>
 
       {/* Pagination */}
-      <div className="py-2 flex items-center justify-between px-6 border-t border-border bg-surface-primary shrink-0">
-        <span className="text-xs text-text-secondary">
+      <div className="h-12 flex items-center justify-between px-6 border-t border-border bg-card/50 backdrop-blur-sm shrink-0">
+        <span className="text-xs text-muted-foreground">
           {total > 0
             ? t('requests.pageInfo', {
                 page: pageIndex + 1,
@@ -215,16 +237,40 @@ export function RequestsPage() {
               })
             : t('requests.noItems')}
         </span>
-        <div className="flex items-center gap-1">
-          <Button onClick={goToPrevPage} disabled={pageIndex === 0}>
-            <ChevronLeft size={16} />
-          </Button>
-          <span className="text-xs text-text-secondary min-w-[60px] text-center font-medium">
-            {t('requests.page', { current: pageIndex + 1 })}
-          </span>
-          <Button onClick={goToNextPage} disabled={!hasMore}>
-            <ChevronRight size={16} />
-          </Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={goToPrevPage}
+            disabled={pageIndex === 0}
+            className={cn(
+              'w-8 h-8 rounded-lg flex items-center justify-center transition-all',
+              pageIndex === 0
+                ? 'text-muted-foreground/30 cursor-not-allowed'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent',
+            )}
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <div className="flex items-center justify-center min-w-[48px] h-8 px-3 rounded-lg bg-muted/50 border border-border/50">
+            <span className="text-sm font-bold text-foreground tabular-nums">
+              {pageIndex + 1}
+            </span>
+            <span className="text-sm text-muted-foreground mx-1">/</span>
+            <span className="text-sm text-muted-foreground tabular-nums">
+              {Math.ceil(total / PAGE_SIZE) || 1}
+            </span>
+          </div>
+          <button
+            onClick={goToNextPage}
+            disabled={!hasMore}
+            className={cn(
+              'w-8 h-8 rounded-lg flex items-center justify-center transition-all',
+              !hasMore
+                ? 'text-muted-foreground/30 cursor-not-allowed'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent',
+            )}
+          >
+            <ChevronRight size={18} />
+          </button>
         </div>
       </div>
     </div>
@@ -339,12 +385,16 @@ function LogRow({
   providerName,
   projectName,
   tokenName,
+  showProjectColumn,
+  showTokenColumn,
   onClick,
 }: {
   request: ProxyRequest;
   providerName?: string;
   projectName?: string;
   tokenName?: string;
+  showProjectColumn?: boolean;
+  showTokenColumn?: boolean;
   onClick: () => void;
 }) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
@@ -386,13 +436,11 @@ function LogRow({
     if (ns === undefined || ns === null) return '-';
     // If it's live duration (ms), convert directly to seconds
     if (isPending && liveDuration !== null) {
-      return `${(liveDuration / 1000).toFixed(1)}s`;
+      return `${(liveDuration / 1000).toFixed(2)}s`;
     }
-    // If it's stored duration (nanoseconds), use base formatter
-    // But simplify to only show ms or seconds for list view
-    const ms = ns / 1_000_000;
-    if (ms < 1000) return `${ms.toFixed(0)}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
+    // Convert nanoseconds to seconds with 2 decimal places
+    const seconds = ns / 1_000_000_000;
+    return `${seconds.toFixed(2)}s`;
   };
 
   const formatTime = (dateStr: string) => {
@@ -444,11 +492,9 @@ function LogRow({
 
       {/* Client */}
       <TableCell className="py-1">
-        <div className="flex items-center gap-2">
-          <div className="p-1 rounded bg-muted text-text-secondary">
-            <ClientIcon type={request.clientType} size={16} />
-          </div>
-          <span className="text-sm text-foreground capitalize font-medium truncate max-w-[100px]">
+        <div className="flex items-center gap-1.5">
+          <ClientIcon type={request.clientType} size={16} className="shrink-0" />
+          <span className="text-sm text-foreground capitalize font-medium">
             {request.clientType}
           </span>
         </div>
@@ -456,45 +502,49 @@ function LogRow({
 
       {/* Model */}
       <TableCell className="py-1">
-        <div className="flex flex-col max-w-[200px]">
+        <div className="flex items-center gap-2">
           <span
-            className="text-sm text-foreground truncate font-medium"
+            className="text-sm text-foreground font-medium"
             title={request.requestModel}
           >
             {request.requestModel || '-'}
           </span>
           {request.responseModel && request.responseModel !== request.requestModel && (
-            <span className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
-              <span className="opacity-50">→</span> {request.responseModel}
+            <span className="text-[10px] text-muted-foreground shrink-0">
+              → {request.responseModel}
             </span>
           )}
         </div>
       </TableCell>
 
       {/* Project */}
-      <TableCell className="py-1">
-        <span
-          className="text-sm text-muted-foreground truncate max-w-[100px] block"
-          title={projectName}
-        >
-          {projectName || '-'}
-        </span>
-      </TableCell>
+      {showProjectColumn && (
+        <TableCell className="py-1">
+          <span
+            className="text-sm text-muted-foreground truncate max-w-[100px] block"
+            title={projectName}
+          >
+            {projectName || '-'}
+          </span>
+        </TableCell>
+      )}
 
       {/* Token */}
-      <TableCell className="py-1">
-        <span
-          className="text-sm text-muted-foreground truncate max-w-[100px] block"
-          title={tokenName}
-        >
-          {tokenName || '-'}
-        </span>
-      </TableCell>
+      {showTokenColumn && (
+        <TableCell className="py-1">
+          <span
+            className="text-sm text-muted-foreground truncate max-w-[100px] block"
+            title={tokenName}
+          >
+            {tokenName || '-'}
+          </span>
+        </TableCell>
+      )}
 
       {/* Provider */}
       <TableCell className="py-1">
         <span
-          className="text-sm text-muted-foreground truncate max-w-[120px] block"
+          className="text-sm text-muted-foreground"
           title={providerName}
         >
           {providerName || '-'}
@@ -507,7 +557,7 @@ function LogRow({
       </TableCell>
 
       {/* Code */}
-      <TableCell className="py-1">
+      <TableCell className="py-1 text-center">
         <span
           className={cn(
             'font-mono text-xs font-medium px-1.5 py-0.5 rounded',
@@ -523,14 +573,14 @@ function LogRow({
       </TableCell>
 
       {/* Duration */}
-      <TableCell className="py-1 text-right">
+      <TableCell className="py-1 text-center">
         <span className={`text-sm font-mono ${durationColor}`}>
           {formatDuration(displayDuration)}
         </span>
       </TableCell>
 
       {/* Cost */}
-      <TableCell className="py-1 text-right">
+      <TableCell className="py-1 text-center">
         <CostCell cost={request.cost} />
       </TableCell>
 
@@ -541,29 +591,29 @@ function LogRow({
             {request.proxyUpstreamAttemptCount}
           </span>
         ) : request.proxyUpstreamAttemptCount === 1 ? (
-          <span className="text-sm text-muted-foreground">1</span>
+          <span className="text-sm text-muted-foreground/30">1</span>
         ) : (
-          <span className="text-sm text-muted-foreground opacity-30">-</span>
+          <span className="text-sm text-muted-foreground/30">-</span>
         )}
       </TableCell>
 
       {/* Input Tokens - sky blue */}
-      <TableCell className="py-1 text-right">
+      <TableCell className="py-1 text-center">
         <TokenCell count={request.inputTokenCount} color="text-sky-400" />
       </TableCell>
 
       {/* Output Tokens - emerald green */}
-      <TableCell className="py-1 text-right">
+      <TableCell className="py-1 text-center">
         <TokenCell count={request.outputTokenCount} color="text-emerald-400" />
       </TableCell>
 
       {/* Cache Read - violet */}
-      <TableCell className="py-1 text-right">
+      <TableCell className="py-1 text-center">
         <TokenCell count={request.cacheReadCount} color="text-violet-400" />
       </TableCell>
 
       {/* Cache Write - amber */}
-      <TableCell className="py-1 text-right">
+      <TableCell className="py-1 text-center">
         <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
       </TableCell>
     </TableRow>

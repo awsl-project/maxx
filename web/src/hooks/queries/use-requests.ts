@@ -105,10 +105,7 @@ export function useProxyRequestUpdates() {
           queryClient.invalidateQueries({ queryKey: ['dashboard'] });
           // 刷新 provider stats（因为统计数据变化了）
           queryClient.invalidateQueries({ queryKey: ['providers', 'stats'] });
-        }
-
-        // 请求失败时还需要刷新 cooldowns（可能触发了冷却）
-        if (updatedRequest.status === 'FAILED') {
+          // 刷新 cooldowns（请求可能触发了冷却，即使最终成功也可能有 provider 进入冷却）
           queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
         }
       },

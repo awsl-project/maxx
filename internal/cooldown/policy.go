@@ -20,25 +20,25 @@ func (p *FixedDurationPolicy) CalculateCooldown(failureCount int) time.Duration 
 }
 
 // LinearIncrementalPolicy increases cooldown linearly with each failure
-// Formula: baseMinutes * failureCount
+// Formula: baseSeconds * failureCount
 type LinearIncrementalPolicy struct {
-	BaseMinutes int
-	MaxMinutes  int // Optional cap, 0 means no limit
+	BaseSeconds int
+	MaxSeconds  int // Optional cap, 0 means no limit
 }
 
 func (p *LinearIncrementalPolicy) CalculateCooldown(failureCount int) time.Duration {
-	minutes := p.BaseMinutes * failureCount
-	if p.MaxMinutes > 0 && minutes > p.MaxMinutes {
-		minutes = p.MaxMinutes
+	seconds := p.BaseSeconds * failureCount
+	if p.MaxSeconds > 0 && seconds > p.MaxSeconds {
+		seconds = p.MaxSeconds
 	}
-	return time.Duration(minutes) * time.Minute
+	return time.Duration(seconds) * time.Second
 }
 
 // ExponentialBackoffPolicy increases cooldown exponentially with each failure
-// Formula: baseMinutes * (2 ^ (failureCount - 1))
+// Formula: baseSeconds * (2 ^ (failureCount - 1))
 type ExponentialBackoffPolicy struct {
-	BaseMinutes int
-	MaxMinutes  int // Optional cap, 0 means no limit
+	BaseSeconds int
+	MaxSeconds  int // Optional cap, 0 means no limit
 }
 
 func (p *ExponentialBackoffPolicy) CalculateCooldown(failureCount int) time.Duration {
@@ -46,16 +46,16 @@ func (p *ExponentialBackoffPolicy) CalculateCooldown(failureCount int) time.Dura
 		return 0
 	}
 
-	minutes := p.BaseMinutes
+	seconds := p.BaseSeconds
 	for i := 1; i < failureCount; i++ {
-		minutes *= 2
-		if p.MaxMinutes > 0 && minutes > p.MaxMinutes {
-			minutes = p.MaxMinutes
+		seconds *= 2
+		if p.MaxSeconds > 0 && seconds > p.MaxSeconds {
+			seconds = p.MaxSeconds
 			break
 		}
 	}
 
-	return time.Duration(minutes) * time.Minute
+	return time.Duration(seconds) * time.Second
 }
 
 // CooldownReason represents the reason for cooldown
@@ -75,32 +75,32 @@ const (
 // those times will be used directly instead of these policies
 func DefaultPolicies() map[CooldownReason]CooldownPolicy {
 	return map[CooldownReason]CooldownPolicy{
-		// Server errors (5xx): linear increment (1min, 2min, 3min, ... max 10min)
+		// Server errors (5xx): linear increment (5s, 10s, 15s, ... max 10min)
 		ReasonServerError: &LinearIncrementalPolicy{
-			BaseMinutes: 1,
-			MaxMinutes:  10,
+			BaseSeconds: 5,
+			MaxSeconds:  600, // 10 minutes
 		},
-		// Network errors: exponential backoff (1min, 2min, 4min, 8min, ... max 30min)
+		// Network errors: exponential backoff (5s, 10s, 20s, 40s, ... max 30min)
 		ReasonNetworkError: &ExponentialBackoffPolicy{
-			BaseMinutes: 1,
-			MaxMinutes:  30,
+			BaseSeconds: 5,
+			MaxSeconds:  1800, // 30 minutes
 		},
 		// Quota exhausted: fixed 1 hour (only used as fallback when API doesn't return reset time)
 		ReasonQuotaExhausted: &FixedDurationPolicy{
 			Duration: 1 * time.Hour,
 		},
-		// Rate limit: fixed 1 minute (only used as fallback when API doesn't return Retry-After)
+		// Rate limit: fixed 5 seconds (only used as fallback when API doesn't return Retry-After)
 		ReasonRateLimit: &FixedDurationPolicy{
-			Duration: 1 * time.Minute,
+			Duration: 5 * time.Second,
 		},
-		// Concurrent limit: fixed 10 seconds (only used as fallback)
+		// Concurrent limit: fixed 5 seconds (only used as fallback)
 		ReasonConcurrentLimit: &FixedDurationPolicy{
-			Duration: 10 * time.Second,
+			Duration: 5 * time.Second,
 		},
-		// Unknown error: linear increment (1min, 2min, 3min, ... max 5min)
+		// Unknown error: linear increment (5s, 10s, 15s, ... max 5min)
 		ReasonUnknown: &LinearIncrementalPolicy{
-			BaseMinutes: 1,
-			MaxMinutes:  5,
+			BaseSeconds: 5,
+			MaxSeconds:  300, // 5 minutes
 		},
 	}
 }
