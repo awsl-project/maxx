@@ -43,7 +43,10 @@ import {
 } from '@/pages/client-routes/components/provider-row';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import { Button } from '../ui';
-import { AntigravityQuotasProvider, useAntigravityQuotasContext } from '@/contexts/antigravity-quotas-context';
+import {
+  AntigravityQuotasProvider,
+  useAntigravityQuotasContext,
+} from '@/contexts/antigravity-quotas-context';
 import { CooldownsProvider } from '@/contexts/cooldowns-context';
 import { useTranslation } from 'react-i18next';
 
@@ -206,9 +209,7 @@ function ClientTypeRoutesContentInner({
     });
 
     // Collect original positions (sorted by position value)
-    const originalPositions = antigravityItems
-      .map((a) => a.position)
-      .sort((a, b) => a - b);
+    const originalPositions = antigravityItems.map((a) => a.position).sort((a, b) => a - b);
 
     // Build updates: assign sorted items to the original position slots
     // Only update Antigravity routes, leaving Other types unchanged
@@ -394,8 +395,7 @@ function ClientTypeRoutesContentInner({
                     index={items.findIndex((i) => i.id === activeItem.id)}
                     clientType={clientType}
                     streamingCount={
-                      countsByProviderAndClient.get(`${activeItem.provider.id}:${clientType}`) ||
-                      0
+                      countsByProviderAndClient.get(`${activeItem.provider.id}:${clientType}`) || 0
                     }
                     stats={providerStats[activeItem.provider.id]}
                     isToggling={false}
@@ -447,13 +447,10 @@ function ClientTypeRoutesContentInner({
                           </span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-[14px] font-semibold text-foreground truncate leading-tight mb-1">
-                            {provider.name}
-                          </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-medium text-muted-foreground/80 capitalize leading-tight">
-                              {provider.type}
-                            </span>
+                            <div className="text-[14px] font-semibold text-foreground truncate leading-tight mb-1">
+                              {provider.name}
+                            </div>
                             {isNative ? (
                               <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                                 <Zap size={10} className="fill-current opacity-30" />
@@ -466,6 +463,9 @@ function ClientTypeRoutesContentInner({
                               </span>
                             )}
                           </div>
+                          <span className="text-[11px] font-medium text-muted-foreground/80 capitalize leading-tight">
+                            {provider.type}
+                          </span>
                         </div>
                       </div>
 
