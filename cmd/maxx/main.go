@@ -174,15 +174,26 @@ func main() {
 	}()
 	log.Println("[Cooldown] Background cleanup started (runs every 1 hour)")
 
-	// Start background tasks
-	core.StartBackgroundTasks(core.BackgroundTaskDeps{
-		UsageStats:   usageStatsRepo,
-		ProxyRequest: proxyRequestRepo,
-		Settings:     settingRepo,
-	})
-
 	// Create WebSocket hub
 	wsHub := handler.NewWebSocketHub()
+
+	// Create Antigravity task service for periodic quota refresh and auto-sorting
+	antigravityTaskSvc := service.NewAntigravityTaskService(
+		cachedProviderRepo,
+		cachedRouteRepo,
+		antigravityQuotaRepo,
+		settingRepo,
+		proxyRequestRepo,
+		wsHub,
+	)
+
+	// Start background tasks
+	core.StartBackgroundTasks(core.BackgroundTaskDeps{
+		UsageStats:         usageStatsRepo,
+		ProxyRequest:       proxyRequestRepo,
+		Settings:           settingRepo,
+		AntigravityTaskSvc: antigravityTaskSvc,
+	})
 
 	// Setup log output to broadcast via WebSocket
 	logWriter := handler.NewWebSocketLogWriter(wsHub, os.Stdout, logPath)
@@ -251,6 +262,7 @@ func main() {
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	authHandler := handler.NewAuthHandler(authMiddleware)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
+	antigravityHandler.SetTaskService(antigravityTaskSvc)
 	kiroHandler := handler.NewKiroHandler(adminService)
 
 	// Use already-created cached project repository for project proxy handler

@@ -21,6 +21,7 @@ type AntigravityHandler struct {
 	svc          *service.AdminService
 	quotaRepo    repository.AntigravityQuotaRepository
 	oauthManager *antigravity.OAuthManager
+	taskSvc      *service.AntigravityTaskService
 }
 
 // NewAntigravityHandler creates a new Antigravity handler
@@ -32,6 +33,11 @@ func NewAntigravityHandler(svc *service.AdminService, quotaRepo repository.Antig
 	}
 }
 
+// SetTaskService sets the AntigravityTaskService for background task operations
+func (h *AntigravityHandler) SetTaskService(taskSvc *service.AntigravityTaskService) {
+	h.taskSvc = taskSvc
+}
+
 // ServeHTTP routes Antigravity requests
 // Routes:
 //   POST /antigravity/validate-token - 验证单个 refresh token
@@ -40,6 +46,8 @@ func NewAntigravityHandler(svc *service.AdminService, quotaRepo repository.Antig
 //   GET  /antigravity/providers/quotas - 批量获取所有 Antigravity provider 的配额信息
 //   POST /antigravity/oauth/start - 启动 OAuth 流程
 //   GET  /antigravity/oauth/callback - OAuth 回调
+//   POST /antigravity/refresh-quotas - 强制刷新所有配额
+//   POST /antigravity/sort-routes - 手动排序路由
 func (h *AntigravityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/antigravity")
 	path = strings.TrimSuffix(path, "/")
@@ -55,6 +63,18 @@ func (h *AntigravityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// POST /antigravity/validate-tokens
 	if len(parts) >= 2 && parts[1] == "validate-tokens" && r.Method == http.MethodPost {
 		h.handleValidateTokens(w, r)
+		return
+	}
+
+	// POST /antigravity/refresh-quotas - 强制刷新所有配额
+	if len(parts) >= 2 && parts[1] == "refresh-quotas" && r.Method == http.MethodPost {
+		h.handleForceRefreshQuotas(w, r)
+		return
+	}
+
+	// POST /antigravity/sort-routes - 手动排序路由
+	if len(parts) >= 2 && parts[1] == "sort-routes" && r.Method == http.MethodPost {
+		h.handleSortRoutes(w, r)
 		return
 	}
 
@@ -368,6 +388,8 @@ type BatchQuotaResult struct {
 }
 
 // GetBatchQuotas 批量获取所有 Antigravity provider 的配额信息（供 HTTP handler 和 Wails 共用）
+// 优先从数据库返回缓存数据，即使过期也会返回（避免 API 请求阻塞）
+// 配额刷新由后台任务负责
 func (h *AntigravityHandler) GetBatchQuotas(ctx context.Context) (*BatchQuotaResult, error) {
 	// 获取所有 providers
 	providers, err := h.svc.GetProviders()
@@ -388,30 +410,19 @@ func (h *AntigravityHandler) GetBatchQuotas(ctx context.Context) (*BatchQuotaRes
 		config := provider.Config.Antigravity
 		email := config.Email
 
-		// 尝试从数据库获取缓存的配额
+		// 优先从数据库获取缓存的配额（无论是否过期）
 		if email != "" && h.quotaRepo != nil {
 			cachedQuota, err := h.quotaRepo.GetByEmail(email)
 			if err == nil && cachedQuota != nil {
-				// 检查是否过期（10分钟）- 如果未过期，直接使用缓存
-				if time.Since(cachedQuota.UpdatedAt).Seconds() < 600 {
-					result.Quotas[provider.ID] = h.domainQuotaToResponse(cachedQuota)
-					continue
-				}
+				result.Quotas[provider.ID] = h.domainQuotaToResponse(cachedQuota)
+				continue
 			}
 		}
 
-		// 缓存过期或不存在，从 API 获取最新配额
+		// 数据库没有缓存，尝试从 API 获取
 		quota, err := antigravity.FetchQuotaForProvider(ctx, config.RefreshToken, config.ProjectID)
 		if err != nil {
-			// 如果 API 失败，尝试使用过期的缓存数据
-			if email != "" && h.quotaRepo != nil {
-				cachedQuota, _ := h.quotaRepo.GetByEmail(email)
-				if cachedQuota != nil {
-					result.Quotas[provider.ID] = h.domainQuotaToResponse(cachedQuota)
-					continue
-				}
-			}
-			// 跳过此 provider，不中断整体查询
+			// API 失败，跳过此 provider
 			continue
 		}
 
@@ -440,6 +451,33 @@ func (h *AntigravityHandler) handleGetBatchQuotas(w http.ResponseWriter, r *http
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleForceRefreshQuotas 强制刷新所有 Antigravity 配额
+func (h *AntigravityHandler) handleForceRefreshQuotas(w http.ResponseWriter, r *http.Request) {
+	if h.taskSvc == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task service not available"})
+		return
+	}
+
+	refreshed := h.taskSvc.ForceRefreshQuotas(r.Context())
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"refreshed": refreshed,
+	})
+}
+
+// handleSortRoutes 手动排序 Antigravity 路由
+func (h *AntigravityHandler) handleSortRoutes(w http.ResponseWriter, r *http.Request) {
+	if h.taskSvc == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task service not available"})
+		return
+	}
+
+	h.taskSvc.SortRoutes(r.Context())
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+	})
 }
 
 // ============================================================================

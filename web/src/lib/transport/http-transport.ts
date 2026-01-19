@@ -401,6 +401,13 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async refreshAntigravityQuotas(): Promise<{ success: boolean; refreshed: number }> {
+    const { data } = await axios.post<{ success: boolean; refreshed: number }>(
+      '/api/antigravity/refresh-quotas',
+    );
+    return data;
+  }
+
   // ===== Model Mapping API =====
 
   async getModelMappings(): Promise<ModelMapping[]> {

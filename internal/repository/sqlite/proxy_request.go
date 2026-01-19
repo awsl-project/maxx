@@ -187,6 +187,16 @@ func (r *ProxyRequestRepository) DeleteOlderThan(before time.Time) (int64, error
 	return affected, nil
 }
 
+// HasRecentRequests 检查指定时间之后是否有请求记录
+func (r *ProxyRequestRepository) HasRecentRequests(since time.Time) (bool, error) {
+	sinceTs := toTimestamp(since)
+	var count int64
+	if err := r.db.gorm.Model(&ProxyRequest{}).Where("created_at >= ?", sinceTs).Limit(1).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 	return &ProxyRequest{
 		BaseModel: BaseModel{

@@ -78,6 +78,8 @@ type ProxyRequestRepository interface {
 	MarkStaleAsFailed(currentInstanceID string) (int64, error)
 	// DeleteOlderThan 删除指定时间之前的请求记录
 	DeleteOlderThan(before time.Time) (int64, error)
+	// HasRecentRequests 检查指定时间之后是否有请求记录
+	HasRecentRequests(since time.Time) (bool, error)
 }
 
 type ProxyUpstreamAttemptRepository interface {

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Plus, Layers, Download, Upload, Search } from 'lucide-react';
+import { Plus, Layers, Download, Upload, Search, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useProviders, useAllProviderStats } from '@/hooks/queries';
@@ -22,6 +22,7 @@ export function ProvidersPage() {
   const { countsByProvider } = useStreamingRequests();
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshingQuotas, setIsRefreshingQuotas] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -108,6 +109,23 @@ export function ProvidersPage() {
         errors: [`Import failed: ${error}`],
       });
       setTimeout(() => setImportStatus(null), 5000);
+    }
+  };
+
+  // Refresh Antigravity quotas
+  const handleRefreshQuotas = async () => {
+    if (isRefreshingQuotas) return;
+
+    setIsRefreshingQuotas(true);
+    try {
+      const transport = getTransport();
+      await transport.refreshAntigravityQuotas();
+      // Invalidate quota cache - key matches useAntigravityBatchQuotas
+      queryClient.invalidateQueries({ queryKey: ['providers', 'antigravity-batch-quotas'] });
+    } catch (error) {
+      console.error('Refresh quotas failed:', error);
+    } finally {
+      setIsRefreshingQuotas(false);
     }
   };
 
@@ -204,6 +222,23 @@ export function ProvidersPage() {
                           {config.label}
                         </h3>
                         <div className="h-px flex-1 bg-border/50 ml-2" />
+                        {/* Refresh Quotas Button - Only for Antigravity */}
+                        {typeKey === 'antigravity' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleRefreshQuotas}
+                            disabled={isRefreshingQuotas}
+                            className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                            title={t('providers.refreshQuotas')}
+                          >
+                            <RefreshCw
+                              size={12}
+                              className={isRefreshingQuotas ? 'animate-spin' : ''}
+                            />
+                            <span>{t('common.refresh')}</span>
+                          </Button>
+                        )}
                       </div>
                       <div className="space-y-3">
                         {typeProviders.map((provider) => (

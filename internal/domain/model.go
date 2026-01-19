@@ -368,9 +368,11 @@ type SystemSetting struct {
 
 // 系统设置 Key 常量
 const (
-	SettingKeyProxyPort             = "proxy_port"              // 代理服务器端口，默认 9880
-	SettingKeyRequestRetentionHours = "request_retention_hours" // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyTimezone              = "timezone"                // 时区设置，默认 Asia/Shanghai
+	SettingKeyProxyPort              = "proxy_port"               // 代理服务器端口，默认 9880
+	SettingKeyRequestRetentionHours  = "request_retention_hours"  // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyTimezone               = "timezone"                 // 时区设置，默认 Asia/Shanghai
+	SettingKeyQuotaRefreshInterval   = "quota_refresh_interval"   // Antigravity 配额刷新间隔（分钟），0 表示禁用
+	SettingKeyAutoSortAntigravity    = "auto_sort_antigravity"    // 是否自动排序 Antigravity 路由，"true" 或 "false"
 )
 
 // Antigravity 模型配额

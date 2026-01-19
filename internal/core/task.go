@@ -1,12 +1,14 @@
 package core
 
 import (
+	"context"
 	"log"
 	"strconv"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/service"
 )
 
 const (
@@ -15,9 +17,10 @@ const (
 
 // BackgroundTaskDeps 后台任务依赖
 type BackgroundTaskDeps struct {
-	UsageStats   repository.UsageStatsRepository
-	ProxyRequest repository.ProxyRequestRepository
-	Settings     repository.SystemSettingRepository
+	UsageStats          repository.UsageStatsRepository
+	ProxyRequest        repository.ProxyRequestRepository
+	Settings            repository.SystemSettingRepository
+	AntigravityTaskSvc  *service.AntigravityTaskService
 }
 
 // StartBackgroundTasks 启动所有后台任务
@@ -65,6 +68,11 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 			deps.runCleanupTasks()
 		}
 	}()
+
+	// Antigravity 配额刷新任务（动态间隔）
+	if deps.AntigravityTaskSvc != nil {
+		go deps.runAntigravityQuotaRefresh()
+	}
 
 	log.Println("[Task] Background tasks started (minute:30s, hour:1m, day:5m, cleanup:1h)")
 }
@@ -122,5 +130,26 @@ func (d *BackgroundTaskDeps) cleanupOldRequests() {
 		log.Printf("[Task] Failed to delete old requests: %v", err)
 	} else if deleted > 0 {
 		log.Printf("[Task] Deleted %d requests older than %d hours", deleted, retentionHours)
+	}
+}
+
+// runAntigravityQuotaRefresh 定期刷新 Antigravity 配额
+func (d *BackgroundTaskDeps) runAntigravityQuotaRefresh() {
+	time.Sleep(30 * time.Second) // 初始延迟
+
+	for {
+		interval := d.AntigravityTaskSvc.GetRefreshInterval()
+		if interval <= 0 {
+			// 禁用状态，每分钟检查一次配置
+			time.Sleep(1 * time.Minute)
+			continue
+		}
+
+		// 执行刷新
+		ctx := context.Background()
+		d.AntigravityTaskSvc.RefreshQuotas(ctx)
+
+		// 等待下一次刷新
+		time.Sleep(time.Duration(interval) * time.Minute)
 	}
 }
