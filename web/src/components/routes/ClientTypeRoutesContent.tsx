@@ -181,21 +181,21 @@ function ClientTypeRoutesContentInner({
 
   // Sort Antigravity routes by resetTime (earliest first), keeping non-Antigravity routes in place
   const handleSortAntigravity = useCallback(() => {
-    // Get indices of Antigravity items in the original list
-    const antigravityIndices: number[] = [];
-    const antigravityItems: ProviderConfigItem[] = [];
+    // Collect Antigravity items with their current positions
+    const antigravityItems: { item: ProviderConfigItem; position: number }[] = [];
 
-    items.forEach((item, index) => {
+    items.forEach((item) => {
       if (item.provider.type === 'antigravity' && item.route) {
-        antigravityIndices.push(index);
-        antigravityItems.push(item);
+        antigravityItems.push({ item, position: item.route.position });
       }
     });
 
+    if (antigravityItems.length < 2) return; // Nothing to sort
+
     // Sort Antigravity items by resetTime (earliest first)
-    const sortedAntigravityItems = [...antigravityItems].sort((a, b) => {
-      const resetTimeA = getClaudeResetTime(a.provider.id);
-      const resetTimeB = getClaudeResetTime(b.provider.id);
+    const sortedItems = [...antigravityItems].sort((a, b) => {
+      const resetTimeA = getClaudeResetTime(a.item.provider.id);
+      const resetTimeB = getClaudeResetTime(b.item.provider.id);
 
       // Items without resetTime go to the end
       if (!resetTimeA && !resetTimeB) return 0;
@@ -205,17 +205,18 @@ function ClientTypeRoutesContentInner({
       return resetTimeA.getTime() - resetTimeB.getTime();
     });
 
-    // Build new items array: put sorted Antigravity items back into their original positions
-    const newItems = [...items];
-    antigravityIndices.forEach((originalIndex, sortedIndex) => {
-      newItems[originalIndex] = sortedAntigravityItems[sortedIndex];
-    });
+    // Collect original positions (sorted by position value)
+    const originalPositions = antigravityItems
+      .map((a) => a.position)
+      .sort((a, b) => a - b);
 
-    // Update positions for all items
+    // Build updates: assign sorted items to the original position slots
+    // Only update Antigravity routes, leaving Other types unchanged
     const updates: Record<number, number> = {};
-    newItems.forEach((item, i) => {
-      if (item.route) {
-        updates[item.route.id] = i + 1;
+    sortedItems.forEach((sorted, index) => {
+      const newPosition = originalPositions[index];
+      if (sorted.item.route && sorted.item.route.position !== newPosition) {
+        updates[sorted.item.route.id] = newPosition;
       }
     });
 

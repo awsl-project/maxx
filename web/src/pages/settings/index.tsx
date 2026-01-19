@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Moon, Sun, Monitor, Laptop, FolderOpen, Database, Globe, Archive, Download, Upload, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Settings, Moon, Sun, Monitor, Laptop, FolderOpen, Database, Globe, Archive, Download, Upload, AlertTriangle, CheckCircle, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input, Switch, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui';
@@ -28,6 +28,7 @@ export function SettingsPage() {
           <TimezoneSection />
           <DataRetentionSection />
           <ForceProjectSection />
+          <AntigravitySection />
           <BackupSection />
         </div>
       </div>
@@ -309,6 +310,104 @@ function ForceProjectSection() {
             <span className="text-xs text-muted-foreground">{t('settings.waitTimeoutRange')}</span>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AntigravitySection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+
+  const autoSortEnabled = settings?.auto_sort_antigravity === 'true';
+  const refreshInterval = settings?.quota_refresh_interval || '0';
+
+  const [intervalDraft, setIntervalDraft] = useState('');
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !initialized) {
+      setIntervalDraft(refreshInterval);
+      setInitialized(true);
+    }
+  }, [isLoading, initialized, refreshInterval]);
+
+  useEffect(() => {
+    if (initialized) {
+      setIntervalDraft(refreshInterval);
+    }
+  }, [refreshInterval, initialized]);
+
+  const hasChanges = initialized && intervalDraft !== refreshInterval;
+
+  const handleAutoSortToggle = async (checked: boolean) => {
+    await updateSetting.mutateAsync({
+      key: 'auto_sort_antigravity',
+      value: checked ? 'true' : 'false',
+    });
+  };
+
+  const handleSaveInterval = async () => {
+    const intervalNum = parseInt(intervalDraft, 10);
+    if (!isNaN(intervalNum) && intervalNum >= 0 && intervalDraft !== refreshInterval) {
+      await updateSetting.mutateAsync({
+        key: 'quota_refresh_interval',
+        value: intervalDraft,
+      });
+    }
+  };
+
+  if (isLoading || !initialized) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Zap className="h-4 w-4 text-muted-foreground" />
+              {t('settings.antigravity')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.antigravityDesc')}</p>
+          </div>
+          <Button onClick={handleSaveInterval} disabled={!hasChanges || updateSetting.isPending} size="sm">
+            {updateSetting.isPending ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-muted-foreground shrink-0">
+            {t('settings.quotaRefreshInterval')}
+          </label>
+          <Input
+            type="number"
+            value={intervalDraft}
+            onChange={(e) => setIntervalDraft(e.target.value)}
+            className="w-24"
+            min={0}
+            disabled={updateSetting.isPending}
+          />
+          <span className="text-xs text-muted-foreground">{t('settings.minutes')}</span>
+          <span className="text-xs text-muted-foreground">({t('settings.quotaRefreshIntervalDesc')})</span>
+        </div>
+
+        <div className="flex items-center justify-between pt-4 border-t border-border">
+          <div>
+            <label className="text-sm font-medium text-foreground">
+              {t('settings.autoSortAntigravity')}
+            </label>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.autoSortAntigravityDesc')}
+            </p>
+          </div>
+          <Switch
+            checked={autoSortEnabled}
+            onCheckedChange={handleAutoSortToggle}
+            disabled={updateSetting.isPending}
+          />
+        </div>
       </CardContent>
     </Card>
   );

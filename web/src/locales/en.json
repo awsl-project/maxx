@@ -161,7 +161,8 @@
     "noProvidersHint": "Click \"Add Provider\" to create one",
     "importProviders": "Import Providers",
     "exportProviders": "Export Providers",
-    "importCompleted": "Import completed: {{imported}} imported, {{skipped}} skipped"
+    "importCompleted": "Import completed: {{imported}} imported, {{skipped}} skipped",
+    "refreshQuotas": "Refresh quotas for all Antigravity providers"
   },
   "projects": {
     "title": "Projects",
@@ -360,7 +361,14 @@
     "updated": "Updated",
     "importWarnings": "Warnings",
     "importErrors": "Errors",
-    "backupContainsSensitive": "Backup file contains sensitive information (API keys, etc.), keep it safe"
+    "backupContainsSensitive": "Backup file contains sensitive information (API keys, etc.), keep it safe",
+    "antigravity": "Antigravity Settings",
+    "antigravityDesc": "Configure automatic quota refresh and route sorting for Antigravity providers",
+    "quotaRefreshInterval": "Quota Refresh Interval",
+    "quotaRefreshIntervalDesc": "How often to automatically refresh Antigravity quotas (0 = disabled)",
+    "minutes": "minutes",
+    "autoSortAntigravity": "Auto-Sort Routes",
+    "autoSortAntigravityDesc": "Automatically sort Antigravity routes by Claude model reset time (earliest first) after quota refresh"
   },
   "modelMappings": {
     "title": "Model Mappings",

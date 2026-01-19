@@ -130,6 +130,7 @@ export interface Transport {
   ): Promise<AntigravityQuotaData>;
   getAntigravityBatchQuotas(): Promise<Record<number, AntigravityQuotaData>>;
   startAntigravityOAuth(): Promise<{ authURL: string; state: string }>;
+  refreshAntigravityQuotas(): Promise<{ success: boolean; refreshed: number }>;
 
   // ===== Model Mapping API =====
   getModelMappings(): Promise<ModelMapping[]>;

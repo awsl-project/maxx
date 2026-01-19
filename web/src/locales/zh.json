@@ -161,7 +161,8 @@
     "noProvidersHint": "点击「添加提供商」创建一个",
     "importProviders": "导入提供商",
     "exportProviders": "导出提供商",
-    "importCompleted": "导入完成：{{imported}} 个已导入，{{skipped}} 个已跳过"
+    "importCompleted": "导入完成：{{imported}} 个已导入，{{skipped}} 个已跳过",
+    "refreshQuotas": "刷新所有 Antigravity 的额度"
   },
   "projects": {
     "title": "项目",
@@ -360,7 +361,14 @@
     "updated": "已更新",
     "importWarnings": "警告",
     "importErrors": "错误",
-    "backupContainsSensitive": "备份文件包含敏感信息（API 密钥等），请妥善保管"
+    "backupContainsSensitive": "备份文件包含敏感信息（API 密钥等），请妥善保管",
+    "antigravity": "Antigravity 设置",
+    "antigravityDesc": "配置 Antigravity 账号的自动配额刷新和路由排序",
+    "quotaRefreshInterval": "配额刷新间隔",
+    "quotaRefreshIntervalDesc": "自动刷新 Antigravity 配额的频率（0 = 禁用）",
+    "minutes": "分钟",
+    "autoSortAntigravity": "自动排序路由",
+    "autoSortAntigravityDesc": "配额刷新后自动按 Claude 模型重置时间排序 Antigravity 路由（最早重置的优先）"
   },
   "modelMappings": {
     "title": "模型映射",

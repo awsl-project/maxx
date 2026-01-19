@@ -42,13 +42,27 @@ interface ProviderRowProps {
 // 获取 Claude 模型额度百分比和重置时间
 function getClaudeQuotaInfo(
   quota: AntigravityQuotaData | undefined,
-): { percentage: number; resetTime: string } | null {
+): { percentage: number; resetTime: string; lastUpdated: number } | null {
   if (!quota || quota.isForbidden || !quota.models) return null;
-  const claudeModel = quota.models.find((m) => m.name.includes('claude'));
+  const claudeModel = quota.models.find((m) => m.name.toLowerCase().includes('claude'));
   if (!claudeModel) return null;
   return {
     percentage: claudeModel.percentage,
     resetTime: claudeModel.resetTime,
+    lastUpdated: quota.lastUpdated,
+  };
+}
+
+// 获取 Image 模型额度百分比
+function getImageQuotaInfo(
+  quota: AntigravityQuotaData | undefined,
+): { percentage: number; resetTime: string } | null {
+  if (!quota || quota.isForbidden || !quota.models) return null;
+  const imageModel = quota.models.find((m) => m.name.toLowerCase().includes('image'));
+  if (!imageModel) return null;
+  return {
+    percentage: imageModel.percentage,
+    resetTime: imageModel.resetTime,
   };
 }
 
@@ -75,6 +89,21 @@ function formatResetTime(resetTime: string, t: (key: string) => string): string 
   } catch {
     return '-';
   }
+}
+
+// 格式化 lastUpdated 为相对时间
+function formatLastUpdated(timestamp: number): string {
+  if (!timestamp) return '';
+  const now = Date.now();
+  const diff = now - timestamp * 1000;
+  const minutes = Math.floor(diff / (1000 * 60));
+
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
 }
 
 // 格式化 Kiro 重置天数
@@ -120,6 +149,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
   // 从批量查询上下文获取 Antigravity 额度
   const antigravityQuota = useAntigravityQuotaFromContext(provider.id);
   const claudeInfo = isAntigravity ? getClaudeQuotaInfo(antigravityQuota) : null;
+  const imageInfo = isAntigravity ? getImageQuotaInfo(antigravityQuota) : null;
 
   // 仅为 Kiro provider 获取额度
   const { data: kiroQuota } = useKiroQuota(provider.id, isKiro);
@@ -181,28 +211,63 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
           <h3 className="text-[15px] font-bold text-foreground truncate">{provider.name}</h3>
         </div>
         <div className="flex items-center gap-3">
-          {/* 对于 Antigravity，显示 Claude Quota；对于其他类型，显示邮箱/endpoint */}
-          {isAntigravity && claudeInfo ? (
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
-                Claude
-              </span>
-              <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-all duration-1000',
-                    claudeInfo.percentage >= 50
-                      ? 'bg-emerald-500'
-                      : claudeInfo.percentage >= 20
-                        ? 'bg-amber-500'
-                        : 'bg-red-500',
-                  )}
-                  style={{ width: `${claudeInfo.percentage}%` }}
-                />
-              </div>
-              <span className="text-[9px] font-mono text-muted-foreground/60">
-                {formatResetTime(claudeInfo.resetTime, t)}
-              </span>
+          {/* 对于 Antigravity，显示 Claude 和 Imagen Quota；对于其他类型，显示邮箱/endpoint */}
+          {isAntigravity && (claudeInfo || imageInfo) ? (
+            <div className="flex items-center gap-3 shrink-0">
+              {/* Claude Quota */}
+              {claudeInfo && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
+                    Claude
+                  </span>
+                  <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-all duration-1000',
+                        claudeInfo.percentage >= 50
+                          ? 'bg-emerald-500'
+                          : claudeInfo.percentage >= 20
+                            ? 'bg-amber-500'
+                            : 'bg-red-500',
+                      )}
+                      style={{ width: `${claudeInfo.percentage}%` }}
+                    />
+                  </div>
+                  <span className="text-[9px] font-mono text-muted-foreground/60">
+                    {formatResetTime(claudeInfo.resetTime, t)}
+                  </span>
+                </div>
+              )}
+              {/* Image Quota */}
+              {imageInfo && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
+                    Image
+                  </span>
+                  <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-all duration-1000',
+                        imageInfo.percentage >= 50
+                          ? 'bg-emerald-500'
+                          : imageInfo.percentage >= 20
+                            ? 'bg-amber-500'
+                            : 'bg-red-500',
+                      )}
+                      style={{ width: `${imageInfo.percentage}%` }}
+                    />
+                  </div>
+                  <span className="text-[9px] font-mono text-muted-foreground/60">
+                    {formatResetTime(imageInfo.resetTime, t)}
+                  </span>
+                </div>
+              )}
+              {/* Last Updated */}
+              {claudeInfo && (
+                <span className="text-[8px] font-mono text-muted-foreground/40" title="Last updated">
+                  @{formatLastUpdated(claudeInfo.lastUpdated)}
+                </span>
+              )}
             </div>
           ) : (
             <div
