@@ -11,7 +11,6 @@ import { SidebarRenderer } from './sidebar-renderer';
 import { sidebarConfig } from './sidebar-config';
 
 export function AppSidebar() {
-
   return (
     <Sidebar collapsible="icon" className="border-border">
       <SidebarHeader className="h-[73px] border-b border-border justify-center">
@@ -22,10 +21,10 @@ export function AppSidebar() {
         <SidebarRenderer config={sidebarConfig} />
       </SidebarContent>
 
-      <SidebarFooter>
-        <div className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:items-stretch">
-          <ThemeToggle className="order-2 group-data-[collapsible=icon]:order-1" />
-          <SidebarTrigger className="order-1 group-data-[collapsible=icon]:order-2" />
+      <SidebarFooter className="border-t border-border">
+        <div className="flex items-center justify-between gap-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-1">
+          <ThemeToggle />
+          <SidebarTrigger />
         </div>
       </SidebarFooter>
     </Sidebar>

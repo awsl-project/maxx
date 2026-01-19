@@ -8,6 +8,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { getDefaultThemes, getLuxuryThemes, type Theme, getThemeMetadata } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { Button } from './ui';
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -17,26 +18,25 @@ export function ThemeToggle() {
 
   // Get icon based on current theme
   const getThemeIcon = () => {
-    if (theme === 'system')
-      return <Laptop className="h-[1.2rem] w-[1.2rem] transition-transform hover:rotate-12" />;
+    if (theme === 'system') return <Laptop className="transition-transform hover:rotate-12" />;
     if (theme === 'light' || currentTheme.baseMode === 'light')
-      return <Sun className="h-[1.2rem] w-[1.2rem] transition-transform hover:rotate-12" />;
-    return <Moon className="h-[1.2rem] w-[1.2rem] transition-transform hover:rotate-12" />;
+      return <Sun className="transition-transform hover:rotate-12" />;
+    return <Moon className="transition-transform hover:rotate-12" />;
   };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={(props) => (
-          <button
+          <Button
             {...props}
-            type="button"
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground h-9 w-9"
             title={`Current theme: ${currentTheme.name}`}
+            variant="ghost"
+            size="icon-sm"
           >
             {getThemeIcon()}
             <span className="sr-only">Select theme - Current: {currentTheme.name}</span>
-          </button>
+          </Button>
         )}
       />
       <DropdownMenuContent align="end" className="w-80 p-4 overflow-visible">
@@ -166,7 +166,7 @@ function ThemeSwatch({
           </button>
         )}
       />
-      <TooltipContent side="top" className="w-56 p-4 bg-card border border-border">
+      <TooltipContent className="w-56 p-4 bg-card border border-border">
         <div className="space-y-2">
           <div className="font-semibold text-sm text-foreground">{name}</div>
           <div className="text-xs text-muted-foreground">{description}</div>
