@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BarChart3, RefreshCw } from 'lucide-react';
@@ -18,6 +20,12 @@ import {
   Button,
 } from '@/components/ui';
 import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart';
+import {
   useUsageStats,
   useProviders,
   useProjects,
@@ -26,17 +34,7 @@ import {
   useResponseModels,
 } from '@/hooks/queries';
 import type { UsageStatsFilter, UsageStats, StatsGranularity } from '@/lib/transport';
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from 'recharts';
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 
 type TimeRange = '1h' | '24h' | '7d' | '30d' | '90d' | 'all';
 
@@ -84,7 +82,7 @@ function getTimeRangeConfig(range: TimeRange): TimeRangeConfig {
       break;
     case 'all':
       // 最近 12 个月
-      start = new Date(now.getFullYear(), now.getMonth() - 11, 1); // 12个月前的月初
+      start = new Date(now.getFullYear(), now.getMonth() - 11, 1); // 12 个月前的月初
       granularity = 'month';
       durationMinutes = 365 * 24 * 60; // 约一年
       break;
@@ -252,11 +250,11 @@ function formatLabel(key: string, granularity: StatsGranularity, timeRange: Time
     const [hour, minute] = timePart.split(':').map(Number);
     date = new Date(year, month - 1, day, hour || 0, minute || 0);
   } else if (key.length === 7) {
-    // 月份格式: YYYY-MM
+    // 月份格式：YYYY-MM
     const [year, month] = key.split('-').map(Number);
     date = new Date(year, month - 1, 1);
   } else {
-    // 日期格式: YYYY-MM-DD
+    // 日期格式：YYYY-MM-DD
     const [year, month, day] = key.split('-').map(Number);
     date = new Date(year, month - 1, day);
   }
@@ -297,6 +295,37 @@ function formatNumber(num: number): string {
 }
 
 type ChartView = 'requests' | 'tokens';
+
+const chartConfig = {
+  successful: {
+    label: 'Successful',
+    color: 'var(--chart-success)',
+  },
+  failed: {
+    label: 'Failed',
+    color: 'var(--chart-error)',
+  },
+  cost: {
+    label: 'Cost (USD)',
+    color: 'var(--chart-warning)',
+  },
+  inputTokens: {
+    label: 'Input Tokens',
+    color: 'var(--chart-info)',
+  },
+  outputTokens: {
+    label: 'Output Tokens',
+    color: 'var(--chart-primary)',
+  },
+  cacheRead: {
+    label: 'Cache Read',
+    color: 'var(--chart-success)',
+  },
+  cacheWrite: {
+    label: 'Cache Write',
+    color: 'var(--chart-warning)',
+  },
+} satisfies ChartConfig;
 
 export function StatsPage() {
   const { t } = useTranslation();
@@ -501,11 +530,11 @@ export function StatsPage() {
             className={
               summary.totalRequests > 0 &&
               summary.successfulRequests / summary.totalRequests >= 0.95
-                ? 'text-green-600'
+                ? 'text-(--color-chart-1)'
                 : summary.totalRequests > 0 &&
                     summary.successfulRequests / summary.totalRequests < 0.8
-                  ? 'text-red-600'
-                  : 'text-yellow-600'
+                  ? 'text-(--color-chart-2)'
+                  : 'text-(--color-chart-3)'
             }
           />
           <SummaryCard
@@ -519,7 +548,7 @@ export function StatsPage() {
         ) : chartData.length === 0 ? (
           <div className="text-center text-muted-foreground py-8">{t('common.noData')}</div>
         ) : (
-          <Card className="flex flex-col flex-1 min-h-0">
+          <Card className="flex flex-col min-h-0">
             <CardHeader className="flex flex-row items-center justify-between shrink-0">
               <CardTitle>{t('stats.chart')}</CardTitle>
               <Tabs value={chartView} onValueChange={(v) => setChartView(v as ChartView)}>
@@ -529,105 +558,126 @@ export function StatsPage() {
                 </TabsList>
               </Tabs>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 overflow-x-auto">
-              <div
-                style={{
-                  minWidth: `${Math.max(chartData.length * 60, 600)}px`,
-                  height: '100%',
-                }}
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="label" className="text-xs" />
-                    <YAxis yAxisId="left" className="text-xs" />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
-                      className="text-xs"
-                      tickFormatter={(v) => `$${v.toFixed(2)}`}
-                    />
-                    <Tooltip
-                      formatter={(value, name) => {
-                        const numValue = typeof value === 'number' ? value : 0;
-                        const nameStr = name ?? '';
-                        if (nameStr === t('stats.costUSD'))
-                          return [`$${numValue.toFixed(4)}`, nameStr];
-                        return [numValue.toLocaleString(), nameStr];
-                      }}
-                    />
-                    <Legend />
-                    {chartView === 'requests' && (
-                      <>
-                        <Bar
-                          yAxisId="left"
-                          dataKey="successful"
-                          name={t('stats.successful')}
-                          stackId="a"
-                          fill="#22c55e"
-                        />
-                        <Bar
-                          yAxisId="left"
-                          dataKey="failed"
-                          name={t('stats.failed')}
-                          stackId="a"
-                          fill="#ef4444"
-                        />
-                        <Line
-                          yAxisId="right"
-                          type="monotone"
-                          dataKey="cost"
-                          name={t('stats.costUSD')}
-                          stroke="#f59e0b"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                      </>
-                    )}
-                    {chartView === 'tokens' && (
-                      <>
-                        <Bar
-                          yAxisId="left"
-                          dataKey="inputTokens"
-                          name={t('stats.inputTokens')}
-                          stackId="a"
-                          fill="#3b82f6"
-                        />
-                        <Bar
-                          yAxisId="left"
-                          dataKey="outputTokens"
-                          name={t('stats.outputTokens')}
-                          stackId="a"
-                          fill="#8b5cf6"
-                        />
-                        <Bar
-                          yAxisId="left"
-                          dataKey="cacheRead"
-                          name={t('stats.cacheRead')}
-                          stackId="a"
-                          fill="#22c55e"
-                        />
-                        <Bar
-                          yAxisId="left"
-                          dataKey="cacheWrite"
-                          name={t('stats.cacheWrite')}
-                          stackId="a"
-                          fill="#f59e0b"
-                        />
-                        <Line
-                          yAxisId="right"
-                          type="monotone"
-                          dataKey="cost"
-                          name={t('stats.costUSD')}
-                          stroke="#ef4444"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                      </>
-                    )}
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
+            <CardContent className="flex-1 min-h-0">
+              <ChartContainer config={chartConfig} className="h-[400px] w-full">
+                <ComposedChart
+                  data={chartData}
+                  margin={{
+                    left: 12,
+                    right: 12,
+                    top: 12,
+                    bottom: 12,
+                  }}
+                >
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    className="text-xs"
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    className="text-xs"
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    className="text-xs"
+                    tickFormatter={(v) => `$${v.toFixed(2)}`}
+                  />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        labelFormatter={(value) => value}
+                        formatter={(value, name) => {
+                          const numValue = typeof value === 'number' ? value : 0;
+                          const nameStr = name ?? '';
+                          if (nameStr === t('stats.costUSD'))
+                            return [`$${numValue.toFixed(4)}`, nameStr];
+                          return [numValue.toLocaleString(), nameStr];
+                        }}
+                      />
+                    }
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
+                  {chartView === 'requests' && (
+                    <>
+                      <Bar
+                        yAxisId="left"
+                        dataKey="successful"
+                        name={t('stats.successful')}
+                        stackId="a"
+                        fill="var(--chart-success)"
+                      />
+                      <Bar
+                        yAxisId="left"
+                        dataKey="failed"
+                        name={t('stats.failed')}
+                        stackId="a"
+                        fill="var(--chart-error)"
+                      />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="cost"
+                        name={t('stats.costUSD')}
+                        stroke="var(--chart-warning)"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    </>
+                  )}
+                  {chartView === 'tokens' && (
+                    <>
+                      <Bar
+                        yAxisId="left"
+                        dataKey="inputTokens"
+                        name={t('stats.inputTokens')}
+                        stackId="a"
+                        fill="var(--chart-info)"
+                      />
+                      <Bar
+                        yAxisId="left"
+                        dataKey="outputTokens"
+                        name={t('stats.outputTokens')}
+                        stackId="a"
+                        fill="var(--chart-primary)"
+                      />
+                      <Bar
+                        yAxisId="left"
+                        dataKey="cacheRead"
+                        name={t('stats.cacheRead')}
+                        stackId="a"
+                        fill="var(--chart-success)"
+                      />
+                      <Bar
+                        yAxisId="left"
+                        dataKey="cacheWrite"
+                        name={t('stats.cacheWrite')}
+                        stackId="a"
+                        fill="var(--chart-warning)"
+                      />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="cost"
+                        name={t('stats.costUSD')}
+                        stroke="var(--chart-error)"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    </>
+                  )}
+                </ComposedChart>
+              </ChartContainer>
             </CardContent>
           </Card>
         )}

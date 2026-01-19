@@ -29,11 +29,18 @@
   --border: oklch(0.9404 0 0);
   --input: oklch(0.9404 0 0);
   --ring: oklch(0.7716 0 0);
-  --chart-1: oklch(0.8241 0.1251 84.4866);
-  --chart-2: oklch(0.8006 0.1116 203.6044);
-  --chart-3: oklch(0.4198 0.1693 266.7798);
-  --chart-4: oklch(0.9214 0.0762 125.5777);
-  --chart-5: oklch(0.9151 0.1032 116.1913);
+  --chart-1: oklch(0.6447 0.1234 166.1234);
+  --chart-2: oklch(0.6983 0.1337 142.5);
+  --chart-3: oklch(0.7232 0.15 60.6307);
+  --chart-4: oklch(0.6192 0.2037 312.7283);
+  --chart-5: oklch(0.6123 0.2093 6.3856);
+
+  /* 语义化图表颜色 */
+  --chart-success: oklch(0.6447 0.1234 166.1234);  /* 绿色 - 成功 */
+  --chart-error: oklch(0.6123 0.2093 6.3856);      /* 红色 - 失败 */
+  --chart-warning: oklch(0.7232 0.15 60.6307);     /* 黄色 - 警告 */
+  --chart-info: oklch(0.6983 0.1337 142.5);        /* 青色 - 信息 */
+  --chart-primary: oklch(0.6192 0.2037 312.7283);  /* 紫色 - 主要 */
   --radius: 0.625rem;
   --sidebar: oklch(0.9886 0 0);
   --sidebar-foreground: oklch(0.2644 0 0);
@@ -114,6 +121,13 @@
   --chart-3: oklch(0.7232 0.15 60.6307);
   --chart-4: oklch(0.6192 0.2037 312.7283);
   --chart-5: oklch(0.6123 0.2093 6.3856);
+
+  /* 语义化图表颜色 - 深色主题 */
+  --chart-success: oklch(0.6983 0.1337 165.4626);  /* 青绿色 - 成功 */
+  --chart-error: oklch(0.6123 0.2093 6.3856);      /* 红色 - 失败 */
+  --chart-warning: oklch(0.7232 0.15 60.6307);     /* 黄色 - 警告 */
+  --chart-info: oklch(0.5292 0.1931 262.1292);     /* 紫色 - 信息 */
+  --chart-primary: oklch(0.6192 0.2037 312.7283);  /* 粉紫色 - 主要 */
   --sidebar: oklch(0.2103 0.0059 285.8835);
   --sidebar-foreground: oklch(0.9676 0.0013 286.3752);
   --sidebar-primary: oklch(0.4878 0.217 264.3876);
@@ -173,9 +187,16 @@
   --ring: oklch(0.62 0.16 50);
   --chart-1: oklch(0.62 0.16 50);
   --chart-2: oklch(0.72 0.14 80);
-  --chart-3: oklch(0.48 0.10 45);
+  --chart-3: oklch(0.58 0.15 38);
   --chart-4: oklch(0.68 0.12 65);
-  --chart-5: oklch(0.58 0.15 38);
+  --chart-5: oklch(0.48 0.10 45);
+
+  /* 语义化图表颜色 - Hermès 主题 */
+  --chart-success: oklch(0.72 0.14 80);   /* 金黄色 - 成功 */
+  --chart-error: oklch(0.48 0.10 45);     /* 深棕色 - 失败 */
+  --chart-warning: oklch(0.62 0.16 50);   /* 主橙色 - 警告 */
+  --chart-info: oklch(0.68 0.12 65);      /* 浅橙色 - 信息 */
+  --chart-primary: oklch(0.58 0.15 38);   /* 深橙色 - 主要 */
   --radius: 1.25rem;
   --sidebar: oklch(0.96 0.018 58);
   --sidebar-foreground: oklch(0.28 0.03 45);
@@ -232,9 +253,16 @@
   --ring: oklch(0.68 0.11 192);
   --chart-1: oklch(0.68 0.11 192);
   --chart-2: oklch(0.72 0.13 188);
-  --chart-3: oklch(0.64 0.09 198);
-  --chart-4: oklch(0.76 0.008 210);
-  --chart-5: oklch(0.58 0.10 184);
+  --chart-3: oklch(0.58 0.10 184);
+  --chart-4: oklch(0.64 0.09 198);
+  --chart-5: oklch(0.76 0.008 210);
+
+  /* 语义化图表颜色 - Tiffany 主题 */
+  --chart-success: oklch(0.72 0.13 188);  /* 浅蓝色 - 成功 */
+  --chart-error: oklch(0.58 0.10 184);    /* 深青色 - 失败 */
+  --chart-warning: oklch(0.76 0.008 210); /* 浅灰蓝 - 警告 */
+  --chart-info: oklch(0.68 0.11 192);     /* 主蓝色 - 信息 */
+  --chart-primary: oklch(0.64 0.09 198);  /* 中蓝色 - 主要 */
   --radius: 1.125rem;
   --sidebar: oklch(0.97 0.006 198);
   --sidebar-foreground: oklch(0.28 0.015 215);
@@ -291,9 +319,16 @@
   --ring: oklch(0.78 0.13 82);
   --chart-1: oklch(0.78 0.13 82);
   --chart-2: oklch(0.98 0.002 280);
-  --chart-3: oklch(0.68 0.008 280);
-  --chart-4: oklch(0.62 0.11 78);
+  --chart-3: oklch(0.62 0.11 78);
+  --chart-4: oklch(0.68 0.008 280);
   --chart-5: oklch(0.52 0.09 86);
+
+  /* 语义化图表颜色 - Chanel 主题 */
+  --chart-success: oklch(0.78 0.13 82);   /* 金色 - 成功 */
+  --chart-error: oklch(0.52 0.09 86);     /* 深金色 - 失败 */
+  --chart-warning: oklch(0.62 0.11 78);   /* 浅金色 - 警告 */
+  --chart-info: oklch(0.98 0.002 280);    /* 白色 - 信息 */
+  --chart-primary: oklch(0.68 0.008 280); /* 灰色 - 主要 */
   --radius: 0.25rem;
   --sidebar: oklch(0.16 0.004 280);
   --sidebar-foreground: oklch(0.96 0.002 280);
@@ -351,8 +386,15 @@
   --chart-1: oklch(0.42 0.20 18);
   --chart-2: oklch(0.74 0.15 82);
   --chart-3: oklch(0.68 0.14 78);
-  --chart-4: oklch(0.52 0.17 26);
-  --chart-5: oklch(0.58 0.12 68);
+  --chart-4: oklch(0.58 0.12 68);
+  --chart-5: oklch(0.52 0.17 26);
+
+  /* 语义化图表颜色 - Cartier 主题 */
+  --chart-success: oklch(0.74 0.15 82);   /* 金色 - 成功 */
+  --chart-error: oklch(0.42 0.20 18);     /* 深红色 - 失败 */
+  --chart-warning: oklch(0.68 0.14 78);   /* 玫瑰金 - 警告 */
+  --chart-info: oklch(0.58 0.12 68);      /* 暖棕色 - 信息 */
+  --chart-primary: oklch(0.52 0.17 26);   /* 深棕红 - 主要 */
   --radius: 0.5rem;
   --sidebar: oklch(0.22 0.042 18);
   --sidebar-foreground: oklch(0.94 0.015 45);
@@ -409,9 +451,16 @@
   --ring: oklch(0.58 0.09 62);
   --chart-1: oklch(0.58 0.09 62);
   --chart-2: oklch(0.48 0.20 22);
-  --chart-3: oklch(0.22 0.008 280);
-  --chart-4: oklch(0.68 0.07 68);
-  --chart-5: oklch(0.54 0.11 58);
+  --chart-3: oklch(0.68 0.07 68);
+  --chart-4: oklch(0.54 0.11 58);
+  --chart-5: oklch(0.22 0.008 280);
+
+  /* 语义化图表颜色 - Burberry 主题 */
+  --chart-success: oklch(0.68 0.07 68);   /* 浅卡其色 - 成功 */
+  --chart-error: oklch(0.48 0.20 22);     /* 深红色 - 失败 */
+  --chart-warning: oklch(0.58 0.09 62);   /* 卡其色 - 警告 */
+  --chart-info: oklch(0.54 0.11 58);      /* 暖棕色 - 信息 */
+  --chart-primary: oklch(0.22 0.008 280); /* 黑色 - 主要 */
   --radius: 0.625rem;
   --sidebar: oklch(0.93 0.02 67);
   --sidebar-foreground: oklch(0.23 0.008 72);
@@ -469,8 +518,15 @@
   --chart-1: oklch(0.38 0.14 152);
   --chart-2: oklch(0.70 0.15 78);
   --chart-3: oklch(0.42 0.20 18);
-  --chart-4: oklch(0.48 0.12 162);
-  --chart-5: oklch(0.58 0.10 142);
+  --chart-4: oklch(0.58 0.10 142);
+  --chart-5: oklch(0.48 0.12 162);
+
+  /* 语义化图表颜色 - Gucci 主题 */
+  --chart-success: oklch(0.58 0.10 142);  /* 翠绿色 - 成功 */
+  --chart-error: oklch(0.42 0.20 18);     /* 深红色 - 失败 */
+  --chart-warning: oklch(0.70 0.15 78);   /* 金色 - 警告 */
+  --chart-info: oklch(0.38 0.14 152);     /* 主绿色 - 信息 */
+  --chart-primary: oklch(0.48 0.12 162);  /* 青绿色 - 主要 */
   --radius: 0.75rem;
   --sidebar: oklch(0.20 0.042 157);
   --sidebar-foreground: oklch(0.94 0.018 82);
@@ -527,9 +583,16 @@
   --ring: oklch(0.66 0.09 22);
   --chart-1: oklch(0.52 0.018 258);
   --chart-2: oklch(0.66 0.09 22);
-  --chart-3: oklch(0.72 0.008 252);
-  --chart-4: oklch(0.58 0.025 256);
-  --chart-5: oklch(0.64 0.045 268);
+  --chart-3: oklch(0.58 0.025 256);
+  --chart-4: oklch(0.64 0.045 268);
+  --chart-5: oklch(0.72 0.008 252);
+
+  /* 语义化图表颜色 - Dior 主题 */
+  --chart-success: oklch(0.64 0.045 268);  /* 紫蓝色 - 成功 */
+  --chart-error: oklch(0.66 0.09 22);      /* 玫瑰金 - 失败 */
+  --chart-warning: oklch(0.58 0.025 256);  /* 浅紫色 - 警告 */
+  --chart-info: oklch(0.52 0.018 258);     /* 主灰紫 - 信息 */
+  --chart-primary: oklch(0.72 0.008 252);  /* 浅灰色 - 主要 */
   --radius: 0.875rem;
   --sidebar: oklch(0.95 0.004 260);
   --sidebar-foreground: oklch(0.30 0.008 262);
@@ -581,6 +644,13 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+
+  /* 语义化图表颜色映射 (Tailwind 可用) */
+  --color-chart-success: var(--chart-success);
+  --color-chart-error: var(--chart-error);
+  --color-chart-warning: var(--chart-warning);
+  --color-chart-info: var(--chart-info);
+  --color-chart-primary: var(--chart-primary);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);

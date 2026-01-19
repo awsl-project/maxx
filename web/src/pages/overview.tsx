@@ -26,6 +26,12 @@ import {
   CardTitle,
   ActivityHeatmap,
 } from '@/components/ui';
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart';
 import { PageHeader } from '@/components/layout/page-header';
 import {
   useDashboardSummary,
@@ -48,10 +54,15 @@ import {
   Area,
   XAxis,
   YAxis,
-  Tooltip,
-  ResponsiveContainer,
 } from 'recharts';
 import { cn } from '@/lib/utils';
+
+const chartConfig = {
+  requests: {
+    label: 'Requests',
+    color: 'var(--color-chart-1)',
+  },
+} satisfies ChartConfig;
 
 // 格式化数字（K, M, B）
 function formatNumber(num: number): string {
@@ -356,59 +367,56 @@ export function OverviewPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-[180px]">
+                <ChartContainer config={chartConfig} className="h-[180px] w-full">
                   {trendLoading ? (
                     <div className="h-full flex items-center justify-center text-muted-foreground">
                       {t('common.loading')}
                     </div>
                   ) : trendData && trendData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={trendData}>
-                        <defs>
-                          <linearGradient id="colorRequests" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <XAxis
-                          dataKey="hour"
-                          tick={{ fontSize: 10 }}
-                          tickLine={false}
-                          axisLine={false}
-                          interval="preserveStartEnd"
-                        />
-                        <YAxis hide />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: 'hsl(var(--card))',
-                            border: '1px solid hsl(var(--border))',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                          }}
-                          formatter={(value, name) => {
-                            const numValue = typeof value === 'number' ? value : 0;
-                            return [
-                              name === 'requests' ? numValue.toLocaleString() : `$${numValue.toFixed(4)}`,
-                              name === 'requests' ? t('dashboard.requests') : t('dashboard.cost'),
-                            ];
-                          }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="requests"
-                          stroke="#3b82f6"
-                          fillOpacity={1}
-                          fill="url(#colorRequests)"
-                          strokeWidth={2}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <AreaChart data={trendData}>
+                      <defs>
+                        <linearGradient id="colorRequests" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--color-chart-1)" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="var(--color-chart-1)" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis
+                        dataKey="hour"
+                        tick={{ fontSize: 10 }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis hide />
+                      <ChartTooltip
+                        content={
+                          <ChartTooltipContent
+                            labelFormatter={(value) => value}
+                            formatter={(value, name) => {
+                              const numValue = typeof value === 'number' ? value : 0;
+                              return [
+                                name === 'requests' ? numValue.toLocaleString() : `$${numValue.toFixed(4)}`,
+                                name === 'requests' ? t('dashboard.requests') : t('dashboard.cost'),
+                              ];
+                            }}
+                          />
+                        }
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="requests"
+                        stroke="var(--color-chart-1)"
+                        fillOpacity={1}
+                        fill="url(#colorRequests)"
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
                   ) : (
                     <div className="h-full flex items-center justify-center text-muted-foreground">
                       {t('common.noData')}
                     </div>
                   )}
-                </div>
+                </ChartContainer>
               </CardContent>
             </Card>
 
