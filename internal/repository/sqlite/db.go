@@ -60,7 +60,7 @@ func NewDBWithDSN(dsn string) (*DB, error) {
 		sqlitePath := strings.TrimPrefix(dsn, "sqlite://")
 		// Add SQLite options for WAL mode and busy timeout
 		if !strings.Contains(sqlitePath, "?") {
-			sqlitePath += "?_journal_mode=WAL&_busy_timeout=30000"
+			sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(30000)"
 		}
 		dialector = sqlite.Open(sqlitePath)
 		dialectorName = "sqlite"
