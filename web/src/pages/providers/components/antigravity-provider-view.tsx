@@ -266,6 +266,7 @@ export function AntigravityProviderView({
   onDelete,
   onClose,
 }: AntigravityProviderViewProps) {
+  const { t } = useTranslation();
   const [quota, setQuota] = useState<AntigravityQuotaData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -299,16 +300,13 @@ export function AntigravityProviderView({
           </button>
           <div>
             <h2 className="text-headline font-semibold text-foreground">{provider.name}</h2>
-            <p className="text-caption text-muted-foreground">Antigravity Provider</p>
+            <p className="text-caption text-muted-foreground">{t('providers.antigravityType')}</p>
           </div>
         </div>
-        <button
-          onClick={onDelete}
-          className="btn bg-error/10 text-error hover:bg-error/20 flex items-center gap-2"
-        >
+        <Button onClick={onDelete} variant="destructive">
           <Trash2 size={14} />
-          Delete
-        </button>
+          {t('common.delete')}
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -337,7 +335,7 @@ export function AntigravityProviderView({
 
               <div className="flex flex-col items-end gap-1 text-right">
                 <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
-                  Project ID
+                  {t('providers.projectId')}
                 </div>
                 <div className="text-sm font-mono text-foreground bg-card px-2 py-1 rounded border border-border/50">
                   {provider.config?.antigravity?.projectID || '-'}
@@ -348,7 +346,7 @@ export function AntigravityProviderView({
             <div className="mt-6 pt-6 border-t border-border/50 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-1.5">
-                  Endpoint
+                  {t('providers.endpoint')}
                 </div>
                 <div className="font-mono text-sm text-foreground break-all">
                   {provider.config?.antigravity?.endpoint || '-'}
@@ -360,14 +358,14 @@ export function AntigravityProviderView({
           {/* Quota Section */}
           <div>
             <div className="flex items-center justify-between mb-4 border-b border-border pb-2">
-              <h4 className="text-lg font-semibold text-foreground">Model Quotas</h4>
+              <h4 className="text-lg font-semibold text-foreground">{t('providers.modelQuotas')}</h4>
               <button
                 onClick={() => fetchQuota(true)}
                 disabled={loading}
                 className="btn bg-muted hover:bg-accent text-foreground flex items-center gap-2 text-sm"
               >
                 <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                Refresh
+                {t('providers.refresh')}
               </button>
             </div>
 
@@ -383,9 +381,9 @@ export function AntigravityProviderView({
                   <Lock size={24} className="text-error" />
                 </div>
                 <div>
-                  <h5 className="font-semibold text-error">Access Forbidden</h5>
+                  <h5 className="font-semibold text-error">{t('providers.accessForbidden')}</h5>
                   <p className="text-sm text-error/80">
-                    This account has been restricted. Please check your Google Cloud account status.
+                    {t('providers.accountRestricted')}
                   </p>
                 </div>
               </div>
@@ -397,7 +395,7 @@ export function AntigravityProviderView({
               </div>
             ) : !loading ? (
               <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-xl border border-dashed border-border">
-                No quota information available
+                {t('providers.noQuotaInfo')}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -415,7 +413,7 @@ export function AntigravityProviderView({
 
             {quota?.lastUpdated && (
               <p className="text-xs text-muted-foreground mt-4 text-right">
-                Last updated: {new Date(quota.lastUpdated * 1000).toLocaleString()}
+                {t('providers.lastUpdated', { time: new Date(quota.lastUpdated * 1000).toLocaleString() })}
               </p>
             )}
           </div>
@@ -426,7 +424,7 @@ export function AntigravityProviderView({
           {/* Supported Clients */}
           <div>
             <h4 className="text-lg font-semibold text-foreground mb-4 border-b border-border pb-2">
-              Supported Clients
+              {t('providers.supportedClients')}
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {provider.supportedClientTypes?.length > 0 ? (
@@ -438,13 +436,13 @@ export function AntigravityProviderView({
                     <ClientIcon type={ct} size={28} />
                     <div>
                       <div className="text-sm font-semibold text-foreground capitalize">{ct}</div>
-                      <div className="text-xs text-muted-foreground">Enabled</div>
+                      <div className="text-xs text-muted-foreground">{t('providers.enabled')}</div>
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="col-span-full text-center py-8 text-muted-foreground bg-muted/30 rounded-xl border border-dashed border-border">
-                  No clients configured
+                  {t('providers.noClientsConfigured')}
                 </div>
               )}
             </div>

@@ -206,17 +206,14 @@ function ProviderSupportModels({
       <div className="flex items-center gap-2 mb-4 border-b border-border pb-2">
         <Filter size={18} className="text-blue-500" />
         <h4 className="text-lg font-semibold text-foreground">
-          {t('providers.supportModels.title', 'Supported Models')}
+          {t('providers.supportModels.title')}
         </h4>
         <span className="text-sm text-muted-foreground">({supportModels.length})</span>
       </div>
 
       <div className="bg-card border border-border rounded-xl p-4">
         <p className="text-xs text-muted-foreground mb-4">
-          {t(
-            'providers.supportModels.desc',
-            'Configure which models this provider supports. If empty, all models are supported. Supports wildcards like claude-* or gemini-*.',
-          )}
+          {t('providers.supportModels.desc')}
         </p>
 
         {supportModels.length > 0 && (
@@ -242,10 +239,7 @@ function ProviderSupportModels({
         {supportModels.length === 0 && (
           <div className="text-center py-6 mb-4">
             <p className="text-muted-foreground text-sm">
-              {t(
-                'providers.supportModels.empty',
-                'No model filter configured. All models will be supported.',
-              )}
+              {t('providers.supportModels.empty')}
             </p>
           </div>
         )}
@@ -254,7 +248,7 @@ function ProviderSupportModels({
           <ModelInput
             value={newModel}
             onChange={setNewModel}
-            placeholder={t('providers.supportModels.placeholder', 'e.g. claude-* or gemini-2.5-*')}
+            placeholder={t('providers.supportModels.placeholder')}
             className="flex-1 min-w-0 h-8 text-sm"
           />
           <Button variant="outline" size="sm" onClick={handleAddModel} disabled={!newModel.trim()}>
@@ -423,19 +417,19 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             <ChevronLeft size={20} />
           </Button>
           <div>
-            <h2 className="text-headline font-semibold text-foreground">Edit Provider</h2>
+            <h2 className="text-headline font-semibold text-foreground">{t('provider.edit')}</h2>
             <p className="text-caption text-muted-foreground">
-              Update your custom provider settings
+              {t('provider.editDescription')}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={() => setShowDeleteConfirm(true)} variant={'destructive'}>
             <Trash2 size={14} />
-            Delete
+            {t('provider.delete')}
           </Button>
           <Button onClick={onClose} variant={'secondary'}>
-            Cancel
+            {t('provider.cancel')}
           </Button>
           <Button onClick={handleSave} disabled={saving || !isValid()} variant={'default'}>
             {saving ? (
@@ -455,13 +449,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              1. Basic Information
+              {t('provider.basicInfo')}
             </h3>
 
             <div className="grid gap-6">
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">
-                  Display Name
+                  {t('provider.displayName')}
                 </label>
                 <Input
                   type="text"
@@ -477,7 +471,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Globe size={14} />
-                      <span>API Endpoint</span>
+                      <span>{t('provider.apiEndpoint')}</span>
                     </div>
                   </label>
                   <Input
@@ -493,7 +487,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     className="w-full"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Optional if client-specific URLs are set below.
+                    {t('provider.optionalUrlNote')}
                   </p>
                 </div>
 
@@ -501,7 +495,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Key size={14} />
-                      <span>API Key (leave empty to keep current)</span>
+                      <span>{t('provider.apiKeyEdit')}</span>
                     </div>
                   </label>
                   <Input
@@ -518,7 +512,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              2. Client Configuration
+              {t('provider.clientConfig')}
             </h3>
             <ClientsConfigSection clients={formData.clients} onUpdateClient={updateClient} />
           </div>
@@ -535,7 +529,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           {saveStatus === 'error' && (
             <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-error" />
-              Failed to update provider. Please check your connection and try again.
+              {t('provider.updateError')}
             </div>
           )}
         </div>
@@ -570,16 +564,14 @@ function DeleteConfirmModal({
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
       <DialogContent className="w-[400px]">
         <DialogHeader>
-          <DialogTitle>Delete Provider?</DialogTitle>
+          <DialogTitle>{t('providers.deleteConfirm.title')}</DialogTitle>
           <DialogDescription>
-            Are you sure you want to delete{' '}
-            <span className="font-medium text-foreground">"{providerName}"</span>? This action
-            cannot be undone.
+            {t('providers.deleteConfirm.description', { name: providerName })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button onClick={onCancel} variant={'secondary'} className="px-4">
-            Cancel
+            {t('provider.cancel')}
           </Button>
           <Button onClick={onConfirm} disabled={deleting} variant={'destructive'} className="px-4">
             {deleting ? t('common.deleting') : t('common.delete')}

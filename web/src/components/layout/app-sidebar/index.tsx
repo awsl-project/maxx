@@ -24,8 +24,8 @@ export function AppSidebar() {
 
       <SidebarFooter>
         <div className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:items-stretch">
-          <ThemeToggle />
-          <SidebarTrigger />
+          <ThemeToggle className="order-2 group-data-[collapsible=icon]:order-1" />
+          <SidebarTrigger className="order-1 group-data-[collapsible=icon]:order-2" />
         </div>
       </SidebarFooter>
     </Sidebar>
