@@ -384,9 +384,15 @@ export const THEME_REGISTRY: Record<Theme, ThemeMetadata> = {
 };
 
 /**
- * Get theme metadata
+ * Get theme metadata with runtime validation
+ * Returns 'system' theme metadata as fallback for invalid theme IDs
  */
 export function getThemeMetadata(theme: Theme): ThemeMetadata {
+  // Runtime check for invalid theme IDs (e.g., stale values from localStorage)
+  if (!(theme in THEME_REGISTRY)) {
+    console.warn(`Invalid theme ID "${theme}" detected. Falling back to "system" theme.`);
+    return THEME_REGISTRY.system;
+  }
   return THEME_REGISTRY[theme];
 }
 

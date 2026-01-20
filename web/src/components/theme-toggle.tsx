@@ -54,12 +54,20 @@ export function ThemeToggle() {
         }
 
         case 'Enter':
-        case ' ':
+        case ' ': {
+          // Find the active element index - either from state or from DOM focus
+          const activeIndex =
+            focusedIndex >= 0
+              ? focusedIndex
+              : swatchRefs.current.findIndex((el) => el === document.activeElement);
+
+          if (activeIndex < 0) return;
+
           e.preventDefault();
-          if (focusedIndex >= 0) {
-            setTheme(allThemes[focusedIndex].id);
-          }
+          setFocusedIndex(activeIndex);
+          setTheme(allThemes[activeIndex].id);
           break;
+        }
 
         case 'Escape':
           e.preventDefault();

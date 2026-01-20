@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { type Theme, getThemeBaseMode, isLuxuryTheme } from '@/lib/theme';
+import { type Theme, getThemeBaseMode, isLuxuryTheme, THEME_REGISTRY } from '@/lib/theme';
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -29,9 +29,22 @@ export function ThemeProvider({
   storageKey = 'maxx-ui-theme',
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme,
-  );
+  const [theme, setTheme] = useState<Theme>(() => {
+    const storedTheme = localStorage.getItem(storageKey) as Theme;
+
+    // Validate stored theme exists in registry
+    if (storedTheme && storedTheme in THEME_REGISTRY) {
+      return storedTheme;
+    }
+
+    // If invalid theme found, clean up localStorage and use default
+    if (storedTheme) {
+      console.warn(`Invalid theme "${storedTheme}" found in localStorage. Resetting to default.`);
+      localStorage.removeItem(storageKey);
+    }
+
+    return defaultTheme;
+  });
 
   const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>('light');
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import {
   Settings,
   Monitor,
@@ -660,20 +660,20 @@ function BackupSection() {
                 {t('settings.updated')}
               </div>
               {Object.entries(importResult.summary).map(([key, summary]) => (
-                <>
-                  <div key={`${key}-label`} className="capitalize">
+                <Fragment key={key}>
+                  <div className="capitalize">
                     {key}
                   </div>
-                  <div key={`${key}-imported`} className="text-center text-green-600">
+                  <div className="text-center text-green-600">
                     {summary.imported}
                   </div>
-                  <div key={`${key}-skipped`} className="text-center text-muted-foreground">
+                  <div className="text-center text-muted-foreground">
                     {summary.skipped}
                   </div>
-                  <div key={`${key}-updated`} className="text-center text-blue-600">
+                  <div className="text-center text-blue-600">
                     {summary.updated}
                   </div>
-                </>
+                </Fragment>
               ))}
             </div>
 
