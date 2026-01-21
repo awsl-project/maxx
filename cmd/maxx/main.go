@@ -177,18 +177,25 @@ func main() {
 		log.Printf("Warning: Failed to initialize adapters: %v", err)
 	}
 
-	// Start cooldown cleanup goroutine
+	// Start cooldown cleanup goroutine with graceful shutdown support
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			before := len(cooldown.Default().GetAllCooldowns())
-			cooldown.Default().CleanupExpired()
-			after := len(cooldown.Default().GetAllCooldowns())
+		for {
+			select {
+			case <-cleanupCtx.Done():
+				log.Println("[Cooldown] Background cleanup stopped")
+				return
+			case <-ticker.C:
+				before := len(cooldown.Default().GetAllCooldowns())
+				cooldown.Default().CleanupExpired()
+				after := len(cooldown.Default().GetAllCooldowns())
 
-			if before != after {
-				log.Printf("[Cooldown] Cleanup completed: removed %d expired entries", before-after)
+				if before != after {
+					log.Printf("[Cooldown] Cleanup completed: removed %d expired entries", before-after)
+				}
 			}
 		}
 	}()
@@ -394,6 +401,10 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), core.HTTPShutdownTimeout)
 	defer cancel()
 
+	// Stop background cleanup task
+	cleanupCancel()
+
+	// Stop pprof manager
 	if err := pprofMgr.Stop(shutdownCtx); err != nil {
 		log.Printf("Warning: Failed to stop pprof manager: %v", err)
 	}

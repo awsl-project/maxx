@@ -51,21 +51,31 @@ func (m *PprofManager) loadConfig() (*PprofConfig, error) {
 	}
 
 	// 读取是否启用
-	if enabledStr, err := m.settingRepo.Get(domain.SettingKeyEnablePprof); err == nil && enabledStr != "" {
+	enabledStr, err := m.settingRepo.Get(domain.SettingKeyEnablePprof)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get enable_pprof setting: %w", err)
+	}
+	if enabledStr != "" {
 		config.Enabled = enabledStr == "true"
 	}
 
 	// 读取端口
-	if portStr, err := m.settingRepo.Get(domain.SettingKeyPprofPort); err == nil && portStr != "" {
+	portStr, err := m.settingRepo.Get(domain.SettingKeyPprofPort)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pprof_port setting: %w", err)
+	}
+	if portStr != "" {
 		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port <= 65535 {
 			config.Port = port
 		}
 	}
 
 	// 读取密码
-	if password, err := m.settingRepo.Get(domain.SettingKeyPprofPassword); err == nil {
-		config.Password = password
+	password, err := m.settingRepo.Get(domain.SettingKeyPprofPassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pprof_password setting: %w", err)
 	}
+	config.Password = password
 
 	return config, nil
 }

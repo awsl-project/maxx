@@ -539,6 +539,7 @@ function PprofSection() {
   const [passwordDraft, setPasswordDraft] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
     if (!isLoading && !initialized) {
@@ -559,14 +560,30 @@ function PprofSection() {
     }
   }, [pprofEnabled, pprofPort, pprofPassword, initialized]);
 
+  // Clear password error when password changes
+  useEffect(() => {
+    if (passwordDraft) {
+      setPasswordError('');
+    }
+  }, [passwordDraft]);
+
+  const isPasswordInvalid = usePasswordDraft && !passwordDraft.trim();
+
   const hasChanges =
     initialized &&
+    !isPasswordInvalid &&
     (enabledDraft !== pprofEnabled ||
       portDraft !== pprofPort ||
       usePasswordDraft !== (pprofPassword !== '') ||
       (usePasswordDraft && passwordDraft !== pprofPassword));
 
   const handleSave = async () => {
+    // Validate password if protection is enabled
+    if (usePasswordDraft && !passwordDraft.trim()) {
+      setPasswordError(t('settings.pprofPasswordRequired'));
+      return;
+    }
+
     try {
       // Save enabled state
       if (enabledDraft !== pprofEnabled) {
@@ -681,32 +698,40 @@ function PprofSection() {
 
             {/* Password input (only shown when password protection is enabled) */}
             {usePasswordDraft && (
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-muted-foreground shrink-0 w-20">
-                  {t('settings.pprofPassword')}
-                </label>
-                <div className="flex-1 max-w-md relative">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    value={passwordDraft}
-                    onChange={(e) => setPasswordDraft(e.target.value)}
-                    placeholder={t('settings.pprofPasswordPlaceholder')}
-                    disabled={updateSetting.isPending}
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    tabIndex={-1}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-muted-foreground shrink-0 w-20">
+                    {t('settings.pprofPassword')}
+                  </label>
+                  <div className="flex-1 max-w-md relative">
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      value={passwordDraft}
+                      onChange={(e) => setPasswordDraft(e.target.value)}
+                      placeholder={t('settings.pprofPasswordPlaceholder')}
+                      disabled={updateSetting.isPending}
+                      className={`pr-10 ${passwordError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
+                {passwordError && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-20 shrink-0"></div>
+                    <p className="text-xs text-red-500 flex-1 max-w-md">{passwordError}</p>
+                  </div>
+                )}
               </div>
             )}
 
