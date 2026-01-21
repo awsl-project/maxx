@@ -232,6 +232,7 @@ func main() {
 	clientAdapter := client.NewAdapter()
 
 	// Create admin service
+	pprofMgr := core.NewPprofManager(settingRepo)
 	adminService := service.NewAdminService(
 		cachedProviderRepo,
 		cachedRouteRepo,
@@ -249,7 +250,13 @@ func main() {
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
 		wsHub,
+		pprofMgr, // Pprof reloader
 	)
+
+	// Start pprof manager (will check system settings)
+	if err := pprofMgr.Start(context.Background()); err != nil {
+		log.Printf("Warning: Failed to start pprof manager: %v", err)
+	}
 
 	// Create backup service
 	backupService := service.NewBackupService(

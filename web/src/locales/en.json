@@ -395,7 +395,21 @@
     "quotaRefreshIntervalDesc": "How often to automatically refresh Antigravity quotas (0 = disabled)",
     "minutes": "minutes",
     "autoSortAntigravity": "Auto-Sort Routes",
-    "autoSortAntigravityDesc": "Automatically sort Antigravity routes by Claude model reset time (earliest first) after quota refresh"
+    "autoSortAntigravityDesc": "Automatically sort Antigravity routes by Claude model reset time (earliest first) after quota refresh",
+    "pprof": "Performance Profiling (pprof)",
+    "pprofDesc": "Go profiling tool for diagnosing CPU, memory, goroutine performance issues",
+    "enablePprof": "Enable pprof",
+    "enablePprofDesc": "Access pprof profiling interface via specified port when enabled",
+    "pprofPort": "Port",
+    "pprofPortDesc": "Default 6060",
+    "enablePasswordProtection": "Enable Password Protection",
+    "enablePasswordProtectionDesc": "Require username and password to access pprof when enabled",
+    "pprofPassword": "Password",
+    "pprofPasswordPlaceholder": "Leave empty for no password",
+    "pprofAccessHint": "Access URL",
+    "pprofAuthHint": "Authentication",
+    "pprofUsername": "Username",
+    "pprofPasswordRequired": "Password required"
   },
   "modelMappings": {
     "title": "Model Mappings",

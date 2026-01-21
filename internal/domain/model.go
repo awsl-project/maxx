@@ -395,6 +395,9 @@ const (
 	SettingKeyTimezone               = "timezone"                 // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval   = "quota_refresh_interval"   // Antigravity 配额刷新间隔（分钟），0 表示禁用
 	SettingKeyAutoSortAntigravity    = "auto_sort_antigravity"    // 是否自动排序 Antigravity 路由，"true" 或 "false"
+	SettingKeyEnablePprof            = "enable_pprof"             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
+	SettingKeyPprofPort              = "pprof_port"               // pprof 服务端口，默认 6060
+	SettingKeyPprofPassword          = "pprof_password"           // pprof 访问密码，为空表示不需要密码
 )
 
 // Antigravity 模型配额

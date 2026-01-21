@@ -214,6 +214,7 @@ func (a *LauncherApp) startServerAsync() {
 		DataDir:     a.dataDir,
 		InstanceID:  a.instanceID,
 		Components:  components,
+		SettingRepo: dbRepos.SettingRepo,
 		ServeStatic: true, // 关键：启用静态文件服务
 	}
 

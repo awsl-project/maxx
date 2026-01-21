@@ -11,6 +11,9 @@ import {
   AlertTriangle,
   CheckCircle,
   Zap,
+  Activity,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
@@ -33,7 +36,7 @@ import {
   TabsContent,
 } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
-import { useSettings, useUpdateSetting } from '@/hooks/queries';
+import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useTransport } from '@/lib/transport/context';
 import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
 import { getDefaultThemes, getLuxuryThemes } from '@/lib/theme';
@@ -58,6 +61,7 @@ export function SettingsPage() {
           <DataRetentionSection />
           <ForceProjectSection />
           <AntigravitySection />
+          <PprofSection />
           <BackupSection />
         </div>
       </div>
@@ -514,6 +518,221 @@ function AntigravitySection() {
             disabled={updateSetting.isPending}
           />
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PprofSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const deleteSetting = useDeleteSetting();
+  const { t } = useTranslation();
+
+  const pprofEnabled = settings?.enable_pprof === 'true';
+  const pprofPort = settings?.pprof_port || '6060';
+  const pprofPassword = settings?.pprof_password || '';
+
+  const [enabledDraft, setEnabledDraft] = useState(false);
+  const [portDraft, setPortDraft] = useState('');
+  const [usePasswordDraft, setUsePasswordDraft] = useState(false);
+  const [passwordDraft, setPasswordDraft] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !initialized) {
+      setEnabledDraft(pprofEnabled);
+      setPortDraft(pprofPort);
+      setUsePasswordDraft(pprofPassword !== '');
+      setPasswordDraft(pprofPassword);
+      setInitialized(true);
+    }
+  }, [isLoading, initialized, pprofEnabled, pprofPort, pprofPassword]);
+
+  useEffect(() => {
+    if (initialized) {
+      setEnabledDraft(pprofEnabled);
+      setPortDraft(pprofPort);
+      setUsePasswordDraft(pprofPassword !== '');
+      setPasswordDraft(pprofPassword);
+    }
+  }, [pprofEnabled, pprofPort, pprofPassword, initialized]);
+
+  const hasChanges =
+    initialized &&
+    (enabledDraft !== pprofEnabled ||
+      portDraft !== pprofPort ||
+      usePasswordDraft !== (pprofPassword !== '') ||
+      (usePasswordDraft && passwordDraft !== pprofPassword));
+
+  const handleSave = async () => {
+    // Save enabled state
+    if (enabledDraft !== pprofEnabled) {
+      await updateSetting.mutateAsync({
+        key: 'enable_pprof',
+        value: enabledDraft ? 'true' : 'false',
+      });
+    }
+
+    // Save port
+    const portNum = parseInt(portDraft, 10);
+    if (portNum >= 1 && portNum <= 65535 && portDraft !== pprofPort) {
+      await updateSetting.mutateAsync({
+        key: 'pprof_port',
+        value: portDraft,
+      });
+    }
+
+    // Handle password: delete from database if disabled, otherwise save
+    if (!usePasswordDraft && pprofPassword !== '') {
+      // Password protection disabled and old password exists - delete it
+      await deleteSetting.mutateAsync('pprof_password');
+    } else if (usePasswordDraft && passwordDraft !== pprofPassword) {
+      // Password protection enabled and password changed - save new password
+      await updateSetting.mutateAsync({
+        key: 'pprof_password',
+        value: passwordDraft,
+      });
+    }
+  };
+
+  if (isLoading || !initialized) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+              {t('settings.pprof')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.pprofDesc')}</p>
+          </div>
+          <Button
+            onClick={handleSave}
+            disabled={!hasChanges || updateSetting.isPending || deleteSetting.isPending}
+            size="sm"
+          >
+            {updateSetting.isPending || deleteSetting.isPending ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        {/* Enable pprof */}
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-sm font-medium text-foreground">
+              {t('settings.enablePprof')}
+            </label>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.enablePprofDesc')}
+            </p>
+          </div>
+          <Switch
+            checked={enabledDraft}
+            onCheckedChange={setEnabledDraft}
+            disabled={updateSetting.isPending}
+          />
+        </div>
+
+        {enabledDraft && (
+          <>
+            {/* Port */}
+            <div className="flex items-center gap-3 pt-4 border-t border-border">
+              <label className="text-sm font-medium text-muted-foreground shrink-0 w-20">
+                {t('settings.pprofPort')}
+              </label>
+              <Input
+                type="number"
+                value={portDraft}
+                onChange={(e) => setPortDraft(e.target.value)}
+                className="w-32"
+                min={1}
+                max={65535}
+                disabled={updateSetting.isPending}
+              />
+              <span className="text-xs text-muted-foreground">
+                {t('settings.pprofPortDesc')}
+              </span>
+            </div>
+
+            {/* Password protection toggle */}
+            <div className="flex items-center justify-between pt-4 border-t border-border">
+              <div>
+                <label className="text-sm font-medium text-foreground">
+                  {t('settings.enablePasswordProtection')}
+                </label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('settings.enablePasswordProtectionDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={usePasswordDraft}
+                onCheckedChange={setUsePasswordDraft}
+                disabled={updateSetting.isPending}
+              />
+            </div>
+
+            {/* Password input (only shown when password protection is enabled) */}
+            {usePasswordDraft && (
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-muted-foreground shrink-0 w-20">
+                  {t('settings.pprofPassword')}
+                </label>
+                <div className="flex-1 max-w-md relative">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    value={passwordDraft}
+                    onChange={(e) => setPasswordDraft(e.target.value)}
+                    placeholder={t('settings.pprofPasswordPlaceholder')}
+                    disabled={updateSetting.isPending}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Access hint */}
+            {enabledDraft && (
+              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1 flex-1">
+                  <p className="flex items-center gap-2">
+                    <span>{t('settings.pprofAccessHint')}:</span>
+                    <a
+                      href={`http://localhost:${portDraft}/debug/pprof/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+                    >
+                      http://localhost:{portDraft}/debug/pprof/
+                    </a>
+                  </p>
+                  {usePasswordDraft && (
+                    <p>
+                      {t('settings.pprofAuthHint')}: {t('settings.pprofUsername')}: pprof /{' '}
+                      {t('settings.pprofPasswordRequired')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </CardContent>
     </Card>
   );

@@ -395,7 +395,21 @@
     "quotaRefreshIntervalDesc": "自动刷新 Antigravity 配额的频率（0 = 禁用）",
     "minutes": "分钟",
     "autoSortAntigravity": "自动排序路由",
-    "autoSortAntigravityDesc": "配额刷新后自动按 Claude 模型重置时间排序 Antigravity 路由（最早重置的优先）"
+    "autoSortAntigravityDesc": "配额刷新后自动按 Claude 模型重置时间排序 Antigravity 路由（最早重置的优先）",
+    "pprof": "性能分析 (pprof)",
+    "pprofDesc": "Go 性能分析工具，用于诊断 CPU、内存、协程等性能问题",
+    "enablePprof": "启用 pprof",
+    "enablePprofDesc": "开启后可通过指定端口访问 pprof 性能分析接口",
+    "pprofPort": "端口",
+    "pprofPortDesc": "默认 6060",
+    "enablePasswordProtection": "启用密码保护",
+    "enablePasswordProtectionDesc": "开启后需要输入用户名和密码才能访问 pprof",
+    "pprofPassword": "密码",
+    "pprofPasswordPlaceholder": "留空表示无需密码",
+    "pprofAccessHint": "访问地址",
+    "pprofAuthHint": "认证信息",
+    "pprofUsername": "用户名",
+    "pprofPasswordRequired": "需要密码"
   },
   "modelMappings": {
     "title": "模型映射",
