@@ -405,7 +405,7 @@
     "enablePasswordProtection": "启用密码保护",
     "enablePasswordProtectionDesc": "开启后需要输入用户名和密码才能访问 pprof",
     "pprofPassword": "密码",
-    "pprofPasswordPlaceholder": "留空表示无需密码",
+    "pprofPasswordPlaceholder": "请输入访问密码",
     "pprofAccessHint": "访问地址",
     "pprofAuthHint": "认证信息",
     "pprofUsername": "用户名",

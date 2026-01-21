@@ -405,7 +405,7 @@
     "enablePasswordProtection": "Enable Password Protection",
     "enablePasswordProtectionDesc": "Require username and password to access pprof when enabled",
     "pprofPassword": "Password",
-    "pprofPasswordPlaceholder": "Leave empty for no password",
+    "pprofPasswordPlaceholder": "Enter access password",
     "pprofAccessHint": "Access URL",
     "pprofAuthHint": "Authentication",
     "pprofUsername": "Username",
