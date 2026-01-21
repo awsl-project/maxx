@@ -318,7 +318,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				return ctx.Err()
 			}
 
-			// Create attempt record with start time
+			// Create attempt record with start time and request info
 			attemptStartTime := time.Now()
 			attemptRecord := &domain.ProxyUpstreamAttempt{
 				ProxyRequestID: proxyReq.ID,
@@ -329,6 +329,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				StartTime:      attemptStartTime,
 				RequestModel:   requestModel,
 				MappedModel:    mappedModel,
+				RequestInfo:    proxyReq.RequestInfo, // Use original request info initially
 			}
 			if err := e.attemptRepo.Create(attemptRecord); err != nil {
 				log.Printf("[Executor] Failed to create attempt record: %v", err)
