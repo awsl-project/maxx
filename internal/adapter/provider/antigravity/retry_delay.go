@@ -47,7 +47,7 @@ func ParseRetryInfo(statusCode int, body []byte) *RetryInfo {
 	bodyStr := string(body)
 
 	// Parse reason
-	reason := RateLimitReasonUnknown
+	var reason RateLimitReason
 	if statusCode == 429 {
 		reason = parseRateLimitReason(bodyStr)
 	} else {

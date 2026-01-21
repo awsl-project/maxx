@@ -8,7 +8,7 @@ import (
 // buildTools converts Claude tools to Gemini tools format
 // Reference: Antigravity-Manager's build_tools
 func buildTools(claudeReq *ClaudeRequest) interface{} {
-	if claudeReq.Tools == nil || len(claudeReq.Tools) == 0 {
+	if len(claudeReq.Tools) == 0 {
 		return nil
 	}
 

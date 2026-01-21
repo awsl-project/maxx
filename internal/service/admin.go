@@ -482,10 +482,8 @@ func (s *AdminService) GetProxyStatus(r *http.Request) *ProxyStatus {
 			port = p
 		}
 		// displayAddr 保持 host:port 格式不变
-	} else {
-		// 地址不包含端口，说明是标准端口 80
-		// displayAddr 保持原样（不带端口）
 	}
+	// else: 地址不包含端口，说明是标准端口 80，displayAddr 保持原样
 
 	return &ProxyStatus{
 		Running: true,
@@ -663,9 +661,8 @@ func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 // ===== Usage Stats API =====
 
 // GetUsageStats queries usage statistics with optional filters
-// Uses QueryWithRealtime to include current period's real-time data
 func (s *AdminService) GetUsageStats(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	return s.usageStatsRepo.QueryWithRealtime(filter)
+	return s.usageStatsRepo.Query(filter)
 }
 
 // GetDashboardData returns all dashboard data in a single query

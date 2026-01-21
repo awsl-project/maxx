@@ -465,9 +465,7 @@ const (
 	GranularityMinute Granularity = "minute"
 	GranularityHour   Granularity = "hour"
 	GranularityDay    Granularity = "day"
-	GranularityWeek   Granularity = "week"
 	GranularityMonth  Granularity = "month"
-	GranularityYear   Granularity = "year"
 )
 
 // UsageStats 使用统计汇总（多层级时间聚合）
@@ -492,6 +490,7 @@ type UsageStats struct {
 	SuccessfulRequests uint64 `json:"successfulRequests"`
 	FailedRequests     uint64 `json:"failedRequests"`
 	TotalDurationMs    uint64 `json:"totalDurationMs"` // 累计请求耗时（毫秒）
+	TotalTTFTMs        uint64 `json:"totalTtftMs"`     // 累计首字时长（毫秒）
 
 	// Token 统计
 	InputTokens  uint64 `json:"inputTokens"`
@@ -789,4 +788,15 @@ type Progress struct {
 	Total      int    `json:"total"`      // Total items to process
 	Percentage int    `json:"percentage"` // 0-100
 	Message    string `json:"message"`    // Human-readable message
+}
+
+// AggregateEvent represents a progress event during stats aggregation
+type AggregateEvent struct {
+	Phase     string      `json:"phase"`      // "aggregate_minute", "rollup_hour", "rollup_day", "rollup_month"
+	From      Granularity `json:"from"`       // Source granularity (for rollup)
+	To        Granularity `json:"to"`         // Target granularity
+	StartTime int64       `json:"start_time"` // Start of time range (unix ms)
+	EndTime   int64       `json:"end_time"`   // End of time range (unix ms)
+	Count     int         `json:"count"`      // Number of records created/updated
+	Error     error       `json:"-"`          // Error if any (not serialized)
 }

@@ -25,36 +25,18 @@ type BackgroundTaskDeps struct {
 
 // StartBackgroundTasks 启动所有后台任务
 func StartBackgroundTasks(deps BackgroundTaskDeps) {
-	// 分钟级聚合任务（每 30 秒）- 实时聚合原始数据到分钟
+	// 统计聚合任务（每 30 秒）- 聚合原始数据并自动 rollup 到各粒度
 	go func() {
 		time.Sleep(5 * time.Second) // 初始延迟
-		deps.runMinuteAggregation()
+		for range deps.UsageStats.AggregateAndRollUp() {
+			// drain the channel to wait for completion
+		}
 
 		ticker := time.NewTicker(30 * time.Second)
 		for range ticker.C {
-			deps.runMinuteAggregation()
-		}
-	}()
-
-	// 小时级 Roll-up（每分钟）- 分钟 → 小时
-	go func() {
-		time.Sleep(10 * time.Second) // 初始延迟
-		deps.runHourlyRollup()
-
-		ticker := time.NewTicker(1 * time.Minute)
-		for range ticker.C {
-			deps.runHourlyRollup()
-		}
-	}()
-
-	// 天级 Roll-up（每 5 分钟）- 小时 → 天/周/月
-	go func() {
-		time.Sleep(15 * time.Second) // 初始延迟
-		deps.runDailyRollup()
-
-		ticker := time.NewTicker(5 * time.Minute)
-		for range ticker.C {
-			deps.runDailyRollup()
+			for range deps.UsageStats.AggregateAndRollUp() {
+				// drain the channel to wait for completion
+			}
 		}
 	}()
 
@@ -74,27 +56,7 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 		go deps.runAntigravityQuotaRefresh()
 	}
 
-	log.Println("[Task] Background tasks started (minute:30s, hour:1m, day:5m, cleanup:1h)")
-}
-
-// runMinuteAggregation 分钟级聚合：从原始数据聚合到分钟
-func (d *BackgroundTaskDeps) runMinuteAggregation() {
-	_, _ = d.UsageStats.AggregateMinute()
-}
-
-// runHourlyRollup 小时级 Roll-up：分钟 → 小时
-func (d *BackgroundTaskDeps) runHourlyRollup() {
-	_, _ = d.UsageStats.RollUp(domain.GranularityMinute, domain.GranularityHour)
-}
-
-// runDailyRollup 天级 Roll-up：小时 → 天/周/月
-func (d *BackgroundTaskDeps) runDailyRollup() {
-	// 小时 → 天
-	_, _ = d.UsageStats.RollUp(domain.GranularityHour, domain.GranularityDay)
-	// 天 → 周
-	_, _ = d.UsageStats.RollUp(domain.GranularityDay, domain.GranularityWeek)
-	// 天 → 月
-	_, _ = d.UsageStats.RollUp(domain.GranularityDay, domain.GranularityMonth)
+	log.Println("[Task] Background tasks started (aggregation:30s, cleanup:1h)")
 }
 
 // runCleanupTasks 清理任务：清理过期数据

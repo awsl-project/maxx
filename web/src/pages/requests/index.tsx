@@ -533,28 +533,27 @@ function LogRow({
     <TableRow
       onClick={onClick}
       className={cn(
-        'cursor-pointer group border-none transition-none relative',
+        'cursor-pointer group transition-colors',
         // Zebra striping - applies to all rows as base layer
         zebraClass,
-        // Base hover - use before pseudo element for overlay effect
-        'before:absolute before:inset-0 before:pointer-events-none before:transition-colors',
-        !isRecent && 'hover:before:bg-accent/30',
+        // Base hover effect (stronger background change)
+        !isRecent && !isFailed && !isPending && 'hover:bg-accent/50',
 
-        // Failed state - Red left border (via shadow), blend with zebra
+        // Failed state - Red background only (testing without border)
         isFailed && cn(
-          'shadow-[inset_4px_0_0_0_#ef4444]',
-          index % 2 === 1 ? 'bg-red-500/25' : 'bg-red-500/20'
+          index % 2 === 1 ? 'bg-red-500/25' : 'bg-red-500/20',
+          'hover:bg-red-500/40'
         ),
 
         // Active/Pending state - Blue left border + Marquee animation
-        isPending && 'shadow-[inset_4px_0_0_0_#0078D4] animate-marquee-row',
+        isPending && 'animate-marquee-row',
 
         // New Item Flash Animation
-        isRecent && !isPending && 'bg-accent/20 shadow-[inset_4px_0_0_0_#0078D4]',
+        isRecent && !isPending && 'bg-accent/20',
       )}
     >
       {/* Time - 显示结束时间，如果没有结束时间则显示开始时间（更浅样式） */}
-      <TableCell className="py-1 font-mono text-sm whitespace-nowrap">
+      <TableCell className="w-[180px] px-2 py-1 font-mono text-sm whitespace-nowrap">
         {request.endTime && new Date(request.endTime).getTime() > 0 ? (
           <span className="text-foreground font-medium">{formatTime(request.endTime)}</span>
         ) : (
@@ -563,7 +562,7 @@ function LogRow({
       </TableCell>
 
       {/* Client */}
-      <TableCell className="py-1">
+      <TableCell className="w-[120px] px-2 py-1">
         <div className="flex items-center gap-1.5">
           <ClientIcon type={request.clientType} size={16} className="shrink-0" />
           <span className="text-sm text-foreground capitalize font-medium">
@@ -573,7 +572,7 @@ function LogRow({
       </TableCell>
 
       {/* Model */}
-      <TableCell className="py-1">
+      <TableCell className="min-w-[250px] px-2 py-1">
         <div className="flex items-center gap-2">
           <span
             className="text-sm text-foreground font-medium"
@@ -591,7 +590,7 @@ function LogRow({
 
       {/* Project */}
       {showProjectColumn && (
-        <TableCell className="py-1">
+        <TableCell className="w-[100px] px-2 py-1">
           <span
             className="text-sm text-muted-foreground truncate max-w-[100px] block"
             title={projectName}
@@ -603,7 +602,7 @@ function LogRow({
 
       {/* Token */}
       {showTokenColumn && (
-        <TableCell className="py-1">
+        <TableCell className="w-[100px] px-2 py-1">
           <span
             className="text-sm text-muted-foreground truncate max-w-[100px] block"
             title={tokenName}
@@ -614,7 +613,7 @@ function LogRow({
       )}
 
       {/* Provider */}
-      <TableCell className="py-1">
+      <TableCell className="min-w-[100px] px-2 py-1">
         <span
           className="text-sm text-muted-foreground"
           title={providerName}
@@ -624,12 +623,12 @@ function LogRow({
       </TableCell>
 
       {/* Status */}
-      <TableCell className="py-1">
+      <TableCell className="w-[100px] px-2 py-1">
         <RequestStatusBadge status={request.status} />
       </TableCell>
 
       {/* Code */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[60px] px-2 py-1 text-center">
         <span
           className={cn(
             'font-mono text-xs font-medium px-1.5 py-0.5 rounded',
@@ -645,7 +644,7 @@ function LogRow({
       </TableCell>
 
       {/* TTFT (Time To First Token) */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[60px] px-2 py-1 text-center">
         <span className="text-xs font-mono text-muted-foreground">
           {request.ttft && request.ttft > 0
             ? `${(request.ttft / 1_000_000_000).toFixed(2)}s`
@@ -654,7 +653,7 @@ function LogRow({
       </TableCell>
 
       {/* Duration */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[80px] px-2 py-1 text-center">
         <span
           className={`text-xs font-mono ${durationColor}`}
           title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
@@ -664,7 +663,7 @@ function LogRow({
       </TableCell>
 
       {/* Attempts */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[45px] px-2 py-1 text-center">
         {request.proxyUpstreamAttemptCount > 1 ? (
           <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning/10 text-warning text-[10px] font-bold">
             {request.proxyUpstreamAttemptCount}
@@ -677,27 +676,27 @@ function LogRow({
       </TableCell>
 
       {/* Input Tokens - sky blue */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[65px] px-2 py-1 text-center">
         <TokenCell count={request.inputTokenCount} color="text-sky-400" />
       </TableCell>
 
       {/* Output Tokens - emerald green */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[65px] px-2 py-1 text-center">
         <TokenCell count={request.outputTokenCount} color="text-emerald-400" />
       </TableCell>
 
       {/* Cache Read - violet */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[65px] px-2 py-1 text-center">
         <TokenCell count={request.cacheReadCount} color="text-violet-400" />
       </TableCell>
 
       {/* Cache Write - amber */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[65px] px-2 py-1 text-center">
         <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
       </TableCell>
 
       {/* Cost */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[80px] px-2 py-1 text-center">
         <CostCell cost={request.cost} />
       </TableCell>
     </TableRow>
@@ -829,7 +828,7 @@ function StatusFilter({
         if (value === 'all') {
           onSelect(undefined);
         } else {
-          onSelect(value);
+          onSelect(value ?? undefined);
         }
       }}
     >

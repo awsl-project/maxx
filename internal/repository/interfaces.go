@@ -141,10 +141,8 @@ type UsageStatsRepository interface {
 	Upsert(stats *domain.UsageStats) error
 	// BatchUpsert 批量更新或插入统计记录
 	BatchUpsert(stats []*domain.UsageStats) error
-	// Query 查询统计数据，支持按粒度、时间范围、路由、Provider、项目过滤
+	// Query 查询统计数据（包含当前时间桶的实时数据补全）
 	Query(filter UsageStatsFilter) ([]*domain.UsageStats, error)
-	// QueryWithRealtime 查询统计数据并合并当前周期的实时数据
-	QueryWithRealtime(filter UsageStatsFilter) ([]*domain.UsageStats, error)
 	// QueryDashboardData 查询 Dashboard 所需的所有数据（单次请求，并发执行）
 	QueryDashboardData() (*domain.DashboardData, error)
 	// GetSummary 获取汇总统计数据（总计）
@@ -165,10 +163,10 @@ type UsageStatsRepository interface {
 	GetLatestTimeBucket(granularity domain.Granularity) (*time.Time, error)
 	// GetProviderStats 获取 Provider 统计数据
 	GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error)
-	// AggregateMinute 从原始数据聚合到分钟级别
-	AggregateMinute() (int, error)
-	// RollUp 从细粒度上卷到粗粒度
-	RollUp(from, to domain.Granularity) (int, error)
+	// AggregateAndRollUp 聚合原始数据到分钟级别，并自动 rollup 到各个粗粒度
+	// 返回一个 channel，发送每个阶段的进度事件，channel 会在完成后关闭
+	// 调用者可以 range 遍历 channel 获取进度，或直接忽略（异步执行）
+	AggregateAndRollUp() <-chan domain.AggregateEvent
 	// ClearAndRecalculate 清空统计数据并重新从原始数据计算
 	ClearAndRecalculate() error
 	// ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度

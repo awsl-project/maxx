@@ -304,7 +304,6 @@ func convertGeminiToClaudeResponse(geminiBody []byte, requestModel string) ([]by
 				"thinking":  "",
 				"signature": trailingSignature,
 			})
-			trailingSignature = ""
 		}
 	}
 

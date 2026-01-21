@@ -52,7 +52,7 @@ func (c *codexToGeminiRequest) Transform(body []byte, model string, stream bool)
 				switch itemType {
 				case "message":
 					role := mapCodexRoleToGemini(m["role"])
-					content, _ := m["content"]
+					content := m["content"]
 					var parts []GeminiPart
 					switch c := content.(type) {
 					case string:

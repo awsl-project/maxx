@@ -1254,8 +1254,6 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 		filter.Granularity = domain.GranularityHour
 	case "day":
 		filter.Granularity = domain.GranularityDay
-	case "week":
-		filter.Granularity = domain.GranularityWeek
 	case "month":
 		filter.Granularity = domain.GranularityMonth
 	default:

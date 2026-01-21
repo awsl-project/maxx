@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	goruntime "runtime"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/desktop"
 	"github.com/awsl-project/maxx/internal/handler"
@@ -44,7 +45,7 @@ func main() {
 	go func() {
 		// 等待 app context 初始化
 		for appCtx == nil {
-			// 等待 OnStartup 设置 appCtx
+			time.Sleep(10 * time.Millisecond) // 等待 OnStartup 设置 appCtx
 		}
 		tray := desktop.NewTrayManager(appCtx, app)
 		tray.Start()

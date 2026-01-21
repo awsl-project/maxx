@@ -586,7 +586,7 @@ func copyResponseHeaders(dst, src http.Header) {
 // Supports multiple API formats: OpenAI, Anthropic, Gemini, etc.
 func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.ClientType) *domain.RateLimitInfo {
 	var resetTime time.Time
-	var rateLimitType string = "rate_limit_exceeded"
+	var rateLimitType = "rate_limit_exceeded"
 
 	// Method 1: Parse Retry-After header
 	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
@@ -704,7 +704,6 @@ func extractResponseModel(body []byte, targetType domain.ClientType) string {
 
 	return ""
 }
-
 
 // extractResponseModelFromSSE extracts the model name from SSE content based on target type
 func extractResponseModelFromSSE(sseContent string, targetType domain.ClientType) string {
