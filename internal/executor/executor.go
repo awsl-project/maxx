@@ -234,6 +234,8 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 		// If current attempt is still IN_PROGRESS, mark as cancelled/failed
 		if currentAttempt != nil && currentAttempt.Status == "IN_PROGRESS" {
+			currentAttempt.EndTime = time.Now()
+			currentAttempt.Duration = currentAttempt.EndTime.Sub(currentAttempt.StartTime)
 			if ctx.Err() != nil {
 				currentAttempt.Status = "CANCELLED"
 			} else {
