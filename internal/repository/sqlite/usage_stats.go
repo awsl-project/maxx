@@ -59,6 +59,8 @@ func TruncateToGranularity(t time.Time, g domain.Granularity) time.Time {
 		return time.Date(t.Year(), t.Month(), t.Day()-(weekday-1), 0, 0, 0, 0, time.UTC)
 	case domain.GranularityMonth:
 		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+	case domain.GranularityYear:
+		return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
 	default:
 		return t.Truncate(time.Hour)
 	}
@@ -83,6 +85,8 @@ func TruncateToGranularityInTimezone(t time.Time, g domain.Granularity, loc *tim
 		return time.Date(t.Year(), t.Month(), t.Day()-(weekday-1), 0, 0, 0, 0, loc)
 	case domain.GranularityMonth:
 		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc)
+	case domain.GranularityYear:
+		return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, loc)
 	default:
 		return t.Truncate(time.Hour)
 	}
@@ -196,10 +200,12 @@ func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*dom
 //   - 1月17日 10:00-10:28: usage_stats (granularity='minute')
 //   - 1月17日 10:29-10:30: proxy_upstream_attempts (实时)
 func (r *UsageStatsRepository) QueryWithRealtime(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	now := time.Now().UTC()
-	currentBucket := TruncateToGranularity(now, filter.Granularity)
-	currentWeek := TruncateToGranularity(now, domain.GranularityWeek)
-	currentDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	loc := r.getConfiguredTimezone()
+	now := time.Now().In(loc)
+	currentBucket := TruncateToGranularityInTimezone(now, filter.Granularity, loc)
+	currentMonth := TruncateToGranularityInTimezone(now, domain.GranularityMonth, loc)
+	currentWeek := TruncateToGranularityInTimezone(now, domain.GranularityWeek, loc)
+	currentDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	currentHour := now.Truncate(time.Hour)
 	currentMinute := now.Truncate(time.Minute)
 	twoMinutesAgo := currentMinute.Add(-time.Minute)
@@ -224,8 +230,9 @@ func (r *UsageStatsRepository) QueryWithRealtime(filter repository.UsageStatsFil
 	}
 
 	// 2. 对于当前时间桶，并发分层查询（每层用最粗粒度的预聚合数据）：
-	//    - 已完成的周: usage_stats (granularity='week') [仅 month 粒度]
-	//    - 已完成的天: usage_stats (granularity='day') [week/month 粒度]
+	//    - 已完成的月: usage_stats (granularity='month') [仅 year 粒度]
+	//    - 已完成的周: usage_stats (granularity='week') [month/year 粒度]
+	//    - 已完成的天: usage_stats (granularity='day') [week/month/year 粒度]
 	//    - 已完成的小时: usage_stats (granularity='hour')
 	//    - 已完成的分钟: usage_stats (granularity='minute')
 	//    - 最近 2 分钟: proxy_upstream_attempts (实时)
@@ -236,22 +243,42 @@ func (r *UsageStatsRepository) QueryWithRealtime(filter repository.UsageStatsFil
 		g        errgroup.Group
 	)
 
-	// 2a. 查询当前时间桶内已完成的周数据 (仅 month 粒度需要)
-	if filter.Granularity == domain.GranularityMonth && currentWeek.After(currentBucket) {
+	// 2a-0. 查询当前年内已完成的月数据 (仅 year 粒度需要)
+	if filter.Granularity == domain.GranularityYear && currentMonth.After(currentBucket) {
 		g.Go(func() error {
-			weekStats, err := r.queryStatsInRange(domain.GranularityWeek, currentBucket, currentWeek, filter)
+			monthStats, err := r.queryStatsInRange(domain.GranularityMonth, currentBucket, currentMonth, filter)
 			if err != nil {
 				return err
 			}
 			mu.Lock()
-			allStats = append(allStats, weekStats...)
+			allStats = append(allStats, monthStats...)
 			mu.Unlock()
 			return nil
 		})
 	}
 
-	// 2b. 查询当前周（或当前时间桶）内已完成的天数据 (week/month 粒度需要)
-	if filter.Granularity == domain.GranularityWeek || filter.Granularity == domain.GranularityMonth {
+	// 2a. 查询当前月（或当前时间桶）内已完成的周数据 (month/year 粒度需要)
+	if filter.Granularity == domain.GranularityMonth || filter.Granularity == domain.GranularityYear {
+		weekStart := currentMonth
+		if currentBucket.After(currentMonth) {
+			weekStart = currentBucket
+		}
+		if currentWeek.After(weekStart) {
+			g.Go(func() error {
+				weekStats, err := r.queryStatsInRange(domain.GranularityWeek, weekStart, currentWeek, filter)
+				if err != nil {
+					return err
+				}
+				mu.Lock()
+				allStats = append(allStats, weekStats...)
+				mu.Unlock()
+				return nil
+			})
+		}
+	}
+
+	// 2b. 查询当前周（或当前时间桶）内已完成的天数据 (week/month/year 粒度需要)
+	if filter.Granularity == domain.GranularityWeek || filter.Granularity == domain.GranularityMonth || filter.Granularity == domain.GranularityYear {
 		dayStart := currentWeek
 		if currentBucket.After(currentWeek) {
 			dayStart = currentBucket
@@ -323,11 +350,16 @@ func (r *UsageStatsRepository) QueryWithRealtime(filter repository.UsageStatsFil
 		return nil, err
 	}
 
-	// 3. 将所有数据聚合为当前时间桶
-	currentBucketStats := r.aggregateToTargetBucket(allStats, currentBucket, filter.Granularity)
-
-	// 4. 将当前时间桶数据合并到结果中（替换预聚合数据）
-	results = r.mergeCurrentBucketStats(results, currentBucketStats, currentBucket, filter.Granularity)
+	// 3. 对于分钟粒度，直接将实时数据合并（保留各分钟的独立数据）
+	//    对于其他粒度，将所有数据聚合为当前时间桶
+	if filter.Granularity == domain.GranularityMinute {
+		// 分钟粒度：直接合并实时分钟数据，每个分钟保持独立
+		results = r.mergeRealtimeMinuteStats(results, allStats, currentBucket)
+	} else {
+		// 其他粒度：聚合到当前时间桶
+		currentBucketStats := r.aggregateToTargetBucket(allStats, currentBucket, filter.Granularity)
+		results = r.mergeCurrentBucketStats(results, currentBucketStats, currentBucket, filter.Granularity)
+	}
 
 	return results, nil
 }
@@ -458,8 +490,49 @@ func (r *UsageStatsRepository) mergeCurrentBucketStats(
 	return append(currentBucketStats, filtered...)
 }
 
+// mergeRealtimeMinuteStats 合并实时分钟数据到结果中（分钟粒度专用）
+// 保留各分钟的独立数据，替换预聚合中对应分钟桶的数据
+func (r *UsageStatsRepository) mergeRealtimeMinuteStats(
+	results []*domain.UsageStats,
+	realtimeStats []*domain.UsageStats,
+	currentBucket time.Time,
+) []*domain.UsageStats {
+	if len(realtimeStats) == 0 {
+		return results
+	}
+
+	// 收集实时数据中的所有分钟桶时间
+	realtimeBuckets := make(map[int64]bool)
+	for _, s := range realtimeStats {
+		realtimeBuckets[s.TimeBucket.UnixMilli()] = true
+	}
+
+	// 从历史结果中移除这些分钟桶的数据（将被实时数据替换）
+	filtered := make([]*domain.UsageStats, 0, len(results))
+	for _, s := range results {
+		if s.Granularity != domain.GranularityMinute || !realtimeBuckets[s.TimeBucket.UnixMilli()] {
+			filtered = append(filtered, s)
+		}
+	}
+
+	// 合并实时数据和历史数据，按时间倒序排列
+	merged := append(realtimeStats, filtered...)
+
+	// 按 TimeBucket 倒序排列
+	for i := 0; i < len(merged)-1; i++ {
+		for j := i + 1; j < len(merged); j++ {
+			if merged[j].TimeBucket.After(merged[i].TimeBucket) {
+				merged[i], merged[j] = merged[j], merged[i]
+			}
+		}
+	}
+
+	return merged
+}
+
 // queryRecentMinutesStats 查询最近 2 分钟的实时统计数据
 // 只查询已完成的请求，使用 end_time 作为时间条件
+// 返回按分钟桶分组的数据，每个分钟桶的数据独立返回
 func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
 	var conditions []string
 	var args []interface{}
@@ -494,25 +567,23 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 		args = append(args, *filter.Model)
 	}
 
+	// 查询原始数据，在 Go 中聚合（避免 SQLite 类型问题，性能更好）
 	query := `
 		SELECT
+			a.end_time,
 			COALESCE(r.route_id, 0), COALESCE(a.provider_id, 0),
 			COALESCE(r.project_id, 0), COALESCE(r.api_token_id, 0), COALESCE(r.client_type, ''),
 			COALESCE(a.response_model, ''),
-			COUNT(*),
-			SUM(CASE WHEN a.status = 'COMPLETED' THEN 1 ELSE 0 END),
-			SUM(CASE WHEN a.status IN ('FAILED', 'CANCELLED') THEN 1 ELSE 0 END),
-			COALESCE(SUM(a.duration_ms), 0),
-			COALESCE(SUM(a.input_token_count), 0),
-			COALESCE(SUM(a.output_token_count), 0),
-			COALESCE(SUM(a.cache_read_count), 0),
-			COALESCE(SUM(a.cache_write_count), 0),
-			COALESCE(SUM(a.cost), 0)
+			a.status,
+			COALESCE(a.duration_ms, 0),
+			COALESCE(a.input_token_count, 0),
+			COALESCE(a.output_token_count, 0),
+			COALESCE(a.cache_read_count, 0),
+			COALESCE(a.cache_write_count, 0),
+			COALESCE(a.cost, 0)
 		FROM proxy_upstream_attempts a
 		LEFT JOIN proxy_requests r ON a.proxy_request_id = r.id
-		WHERE ` + strings.Join(conditions, " AND ") + `
-		GROUP BY r.route_id, a.provider_id, r.project_id, r.api_token_id, r.client_type, a.response_model
-	`
+		WHERE ` + strings.Join(conditions, " AND ")
 
 	rows, err := r.db.gorm.Raw(query, args...).Rows()
 	if err != nil {
@@ -520,24 +591,95 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 	}
 	defer rows.Close()
 
-	var results []*domain.UsageStats
+	// 在 Go 中按分钟桶聚合
+	type aggKey struct {
+		minuteBucket int64
+		routeID      uint64
+		providerID   uint64
+		projectID    uint64
+		apiTokenID   uint64
+		clientType   string
+		model        string
+	}
+	statsMap := make(map[aggKey]*domain.UsageStats)
+
 	for rows.Next() {
-		s := &domain.UsageStats{
-			TimeBucket:  startMinute, // 会在合并时被替换为目标时间桶
-			Granularity: domain.GranularityMinute,
-		}
+		var endTime int64
+		var routeID, providerID, projectID, apiTokenID uint64
+		var clientType, model, status string
+		var durationMs, inputTokens, outputTokens, cacheRead, cacheWrite, cost uint64
+
 		err := rows.Scan(
-			&s.RouteID, &s.ProviderID, &s.ProjectID, &s.APITokenID, &s.ClientType,
-			&s.Model,
-			&s.TotalRequests, &s.SuccessfulRequests, &s.FailedRequests, &s.TotalDurationMs,
-			&s.InputTokens, &s.OutputTokens, &s.CacheRead, &s.CacheWrite, &s.Cost,
+			&endTime, &routeID, &providerID, &projectID, &apiTokenID, &clientType,
+			&model, &status, &durationMs,
+			&inputTokens, &outputTokens, &cacheRead, &cacheWrite, &cost,
 		)
 		if err != nil {
-			return nil, err
+			continue
 		}
+
+		// 在 Go 中截断到分钟
+		minuteBucket := (endTime / 60000) * 60000
+
+		key := aggKey{
+			minuteBucket: minuteBucket,
+			routeID:      routeID,
+			providerID:   providerID,
+			projectID:    projectID,
+			apiTokenID:   apiTokenID,
+			clientType:   clientType,
+			model:        model,
+		}
+
+		var successful, failed uint64
+		if status == "COMPLETED" {
+			successful = 1
+		} else {
+			failed = 1
+		}
+
+		if s, ok := statsMap[key]; ok {
+			s.TotalRequests++
+			s.SuccessfulRequests += successful
+			s.FailedRequests += failed
+			s.TotalDurationMs += durationMs
+			s.InputTokens += inputTokens
+			s.OutputTokens += outputTokens
+			s.CacheRead += cacheRead
+			s.CacheWrite += cacheWrite
+			s.Cost += cost
+		} else {
+			statsMap[key] = &domain.UsageStats{
+				Granularity:        domain.GranularityMinute,
+				TimeBucket:         fromTimestamp(minuteBucket),
+				RouteID:            routeID,
+				ProviderID:         providerID,
+				ProjectID:          projectID,
+				APITokenID:         apiTokenID,
+				ClientType:         clientType,
+				Model:              model,
+				TotalRequests:      1,
+				SuccessfulRequests: successful,
+				FailedRequests:     failed,
+				TotalDurationMs:    durationMs,
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
+				CacheRead:          cacheRead,
+				CacheWrite:         cacheWrite,
+				Cost:               cost,
+			}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	results := make([]*domain.UsageStats, 0, len(statsMap))
+	for _, s := range statsMap {
 		results = append(results, s)
 	}
-	return results, rows.Err()
+	return results, nil
 }
 
 // GetSummary 获取汇总统计数据（总计）
@@ -1260,33 +1402,218 @@ func (r *UsageStatsRepository) RollUpAll(from, to domain.Granularity) (int, erro
 	return len(statsList), r.BatchUpsert(statsList)
 }
 
+// RollUpAllWithProgress 从细粒度上卷到粗粒度，带进度报告
+func (r *UsageStatsRepository) RollUpAllWithProgress(from, to domain.Granularity, progressFn func(current, total int)) (int, error) {
+	now := time.Now().UTC()
+
+	// 对于 day 及以上粒度，使用配置的时区
+	var loc *time.Location
+	if to == domain.GranularityDay || to == domain.GranularityWeek || to == domain.GranularityMonth {
+		loc = r.getConfiguredTimezone()
+	}
+
+	// 计算当前时间桶
+	var currentBucket time.Time
+	if loc != nil {
+		currentBucket = TruncateToGranularityInTimezone(now, to, loc)
+	} else {
+		currentBucket = TruncateToGranularity(now, to)
+	}
+
+	// 查询所有源粒度数据
+	var models []UsageStats
+	err := r.db.gorm.Where("granularity = ? AND time_bucket < ?", from, toTimestamp(currentBucket)).
+		Find(&models).Error
+	if err != nil {
+		return 0, err
+	}
+
+	total := len(models)
+	if total == 0 {
+		return 0, nil
+	}
+
+	// 报告初始进度
+	if progressFn != nil {
+		progressFn(0, total)
+	}
+
+	// 使用 map 聚合数据
+	type rollupKey struct {
+		targetBucket int64
+		routeID      uint64
+		providerID   uint64
+		projectID    uint64
+		apiTokenID   uint64
+		clientType   string
+		model        string
+	}
+	statsMap := make(map[rollupKey]*domain.UsageStats)
+
+	for i, m := range models {
+		// 截断到目标粒度（使用配置的时区）
+		t := fromTimestamp(m.TimeBucket)
+		var targetBucket int64
+		if loc != nil {
+			targetBucket = TruncateToGranularityInTimezone(t, to, loc).UnixMilli()
+		} else {
+			targetBucket = TruncateToGranularity(t, to).UnixMilli()
+		}
+
+		key := rollupKey{
+			targetBucket: targetBucket,
+			routeID:      m.RouteID,
+			providerID:   m.ProviderID,
+			projectID:    m.ProjectID,
+			apiTokenID:   m.APITokenID,
+			clientType:   m.ClientType,
+			model:        m.Model,
+		}
+
+		if s, ok := statsMap[key]; ok {
+			s.TotalRequests += m.TotalRequests
+			s.SuccessfulRequests += m.SuccessfulRequests
+			s.FailedRequests += m.FailedRequests
+			s.TotalDurationMs += m.TotalDurationMs
+			s.InputTokens += m.InputTokens
+			s.OutputTokens += m.OutputTokens
+			s.CacheRead += m.CacheRead
+			s.CacheWrite += m.CacheWrite
+			s.Cost += m.Cost
+		} else {
+			statsMap[key] = &domain.UsageStats{
+				Granularity:        to,
+				TimeBucket:         time.UnixMilli(targetBucket),
+				RouteID:            m.RouteID,
+				ProviderID:         m.ProviderID,
+				ProjectID:          m.ProjectID,
+				APITokenID:         m.APITokenID,
+				ClientType:         m.ClientType,
+				Model:              m.Model,
+				TotalRequests:      m.TotalRequests,
+				SuccessfulRequests: m.SuccessfulRequests,
+				FailedRequests:     m.FailedRequests,
+				TotalDurationMs:    m.TotalDurationMs,
+				InputTokens:        m.InputTokens,
+				OutputTokens:       m.OutputTokens,
+				CacheRead:          m.CacheRead,
+				CacheWrite:         m.CacheWrite,
+				Cost:               m.Cost,
+			}
+		}
+
+		// 每 100 条报告一次进度
+		if progressFn != nil && (i+1)%100 == 0 {
+			progressFn(i+1, total)
+		}
+	}
+
+	// 报告最终进度
+	if progressFn != nil {
+		progressFn(total, total)
+	}
+
+	if len(statsMap) == 0 {
+		return 0, nil
+	}
+
+	statsList := make([]*domain.UsageStats, 0, len(statsMap))
+	for _, s := range statsMap {
+		statsList = append(statsList, s)
+	}
+
+	return len(statsList), r.BatchUpsert(statsList)
+}
+
 // ClearAndRecalculate 清空统计数据并重新从原始数据计算
 func (r *UsageStatsRepository) ClearAndRecalculate() error {
+	return r.ClearAndRecalculateWithProgress(nil)
+}
+
+// ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
+func (r *UsageStatsRepository) ClearAndRecalculateWithProgress(progress chan<- domain.Progress) error {
+	sendProgress := func(phase string, current, total int, message string) {
+		if progress == nil {
+			return
+		}
+		percentage := 0
+		if total > 0 {
+			percentage = current * 100 / total
+		}
+		progress <- domain.Progress{
+			Phase:      phase,
+			Current:    current,
+			Total:      total,
+			Percentage: percentage,
+			Message:    message,
+		}
+	}
+
 	// 1. 清空所有统计数据
+	sendProgress("clearing", 0, 100, "Clearing existing stats...")
 	if err := r.db.gorm.Exec(`DELETE FROM usage_stats`).Error; err != nil {
 		return fmt.Errorf("failed to clear usage_stats: %w", err)
 	}
 
-	// 2. 重新聚合分钟级数据（从所有历史数据）
-	_, err := r.aggregateAllMinutes()
+	// 2. 重新聚合分钟级数据（从所有历史数据）- 带进度
+	_, err := r.aggregateAllMinutesWithProgress(func(current, total int) {
+		sendProgress("aggregating", current, total, fmt.Sprintf("Aggregating attempts: %d/%d", current, total))
+	})
 	if err != nil {
 		return fmt.Errorf("failed to aggregate minutes: %w", err)
 	}
 
-	// 3. Roll-up 到各个粒度（使用完整时间范围）
-	_, _ = r.RollUpAll(domain.GranularityMinute, domain.GranularityHour)
-	_, _ = r.RollUpAll(domain.GranularityHour, domain.GranularityDay)
-	_, _ = r.RollUpAll(domain.GranularityDay, domain.GranularityWeek)
-	_, _ = r.RollUpAll(domain.GranularityDay, domain.GranularityMonth)
+	// 3. Roll-up 到各个粒度（使用完整时间范围）- 带进度
+	_, _ = r.RollUpAllWithProgress(domain.GranularityMinute, domain.GranularityHour, func(current, total int) {
+		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to hourly: %d/%d", current, total))
+	})
 
+	_, _ = r.RollUpAllWithProgress(domain.GranularityHour, domain.GranularityDay, func(current, total int) {
+		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to daily: %d/%d", current, total))
+	})
+
+	_, _ = r.RollUpAllWithProgress(domain.GranularityDay, domain.GranularityWeek, func(current, total int) {
+		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to weekly: %d/%d", current, total))
+	})
+
+	_, _ = r.RollUpAllWithProgress(domain.GranularityDay, domain.GranularityMonth, func(current, total int) {
+		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to monthly: %d/%d", current, total))
+	})
+
+	sendProgress("completed", 100, 100, "Stats recalculation completed")
 	return nil
 }
 
 // aggregateAllMinutes 从所有历史数据聚合分钟级统计
 // 只聚合已完成的请求，使用 end_time 作为时间桶
 func (r *UsageStatsRepository) aggregateAllMinutes() (int, error) {
+	return r.aggregateAllMinutesWithProgress(nil)
+}
+
+// aggregateAllMinutesWithProgress 从所有历史数据聚合分钟级统计，带进度回调
+// progressFn 会在每处理一定数量的记录后调用，参数为 (current, total)
+func (r *UsageStatsRepository) aggregateAllMinutesWithProgress(progressFn func(current, total int)) (int, error) {
 	now := time.Now().UTC()
 	currentMinute := now.Truncate(time.Minute)
+
+	// 1. 首先获取总数以便报告进度
+	var totalCount int64
+	countQuery := `SELECT COUNT(*) FROM proxy_upstream_attempts WHERE end_time < ? AND status IN ('COMPLETED', 'FAILED', 'CANCELLED')`
+	if err := r.db.gorm.Raw(countQuery, toTimestamp(currentMinute)).Scan(&totalCount).Error; err != nil {
+		return 0, err
+	}
+
+	if totalCount == 0 {
+		if progressFn != nil {
+			progressFn(0, 0)
+		}
+		return 0, nil
+	}
+
+	// 报告初始进度
+	if progressFn != nil {
+		progressFn(0, int(totalCount))
+	}
 
 	query := `
 		SELECT
@@ -1326,6 +1653,10 @@ func (r *UsageStatsRepository) aggregateAllMinutes() (int, error) {
 	statsMap := make(map[aggKey]*domain.UsageStats)
 	responseModels := make(map[string]bool)
 
+	// 进度跟踪
+	processedCount := 0
+	const progressInterval = 100 // 每处理100条报告一次进度
+
 	for rows.Next() {
 		var endTime int64
 		var routeID, providerID, projectID, apiTokenID uint64
@@ -1342,6 +1673,12 @@ func (r *UsageStatsRepository) aggregateAllMinutes() (int, error) {
 		if err != nil {
 			log.Printf("[aggregateAllMinutes] Scan error: %v", err)
 			continue
+		}
+
+		processedCount++
+		// 定期报告进度
+		if progressFn != nil && processedCount%progressInterval == 0 {
+			progressFn(processedCount, int(totalCount))
 		}
 
 		// 记录 response model
@@ -1393,6 +1730,11 @@ func (r *UsageStatsRepository) aggregateAllMinutes() (int, error) {
 				Cost:               cost,
 			}
 		}
+	}
+
+	// 报告最终进度
+	if progressFn != nil {
+		progressFn(processedCount, int(totalCount))
 	}
 
 	// 记录 response models 到独立表

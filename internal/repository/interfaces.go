@@ -59,6 +59,11 @@ type SessionRepository interface {
 	List() ([]*domain.Session, error)
 }
 
+// ProxyRequestFilter 请求列表过滤条件
+type ProxyRequestFilter struct {
+	ProviderID *uint64 // Provider ID，nil 表示不过滤
+}
+
 type ProxyRequestRepository interface {
 	Create(req *domain.ProxyRequest) error
 	Update(req *domain.ProxyRequest) error
@@ -67,10 +72,13 @@ type ProxyRequestRepository interface {
 	// ListCursor 基于游标的分页查询
 	// before: 获取 id < before 的记录 (向后翻页)
 	// after: 获取 id > after 的记录 (向前翻页/获取新数据)
-	ListCursor(limit int, before, after uint64) ([]*domain.ProxyRequest, error)
+	// filter: 可选的过滤条件
+	ListCursor(limit int, before, after uint64, filter *ProxyRequestFilter) ([]*domain.ProxyRequest, error)
 	// ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
 	ListActive() ([]*domain.ProxyRequest, error)
 	Count() (int64, error)
+	// CountWithFilter 带过滤条件的计数
+	CountWithFilter(filter *ProxyRequestFilter) (int64, error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 	UpdateProjectIDBySessionID(sessionID string, projectID uint64) (int64, error)
 	// MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
@@ -80,12 +88,33 @@ type ProxyRequestRepository interface {
 	DeleteOlderThan(before time.Time) (int64, error)
 	// HasRecentRequests 检查指定时间之后是否有请求记录
 	HasRecentRequests(since time.Time) (bool, error)
+	// UpdateCost updates only the cost field of a request
+	UpdateCost(id uint64, cost uint64) error
+	// AddCost adds a delta to the cost field of a request (can be negative)
+	AddCost(id uint64, delta int64) error
+	// BatchUpdateCosts updates costs for multiple requests in a single transaction
+	BatchUpdateCosts(updates map[uint64]uint64) error
+	// RecalculateCostsFromAttempts recalculates all request costs by summing their attempt costs
+	RecalculateCostsFromAttempts() (int64, error)
+	// RecalculateCostsFromAttemptsWithProgress recalculates all request costs with progress reporting via channel
+	RecalculateCostsFromAttemptsWithProgress(progress chan<- domain.Progress) (int64, error)
 }
 
 type ProxyUpstreamAttemptRepository interface {
 	Create(attempt *domain.ProxyUpstreamAttempt) error
 	Update(attempt *domain.ProxyUpstreamAttempt) error
 	ListByProxyRequestID(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error)
+	// ListAll returns all attempts (for cost recalculation)
+	ListAll() ([]*domain.ProxyUpstreamAttempt, error)
+	// CountAll returns total count of attempts
+	CountAll() (int64, error)
+	// StreamForCostCalc iterates through all attempts for cost calculation
+	// Calls the callback with batches of minimal data, returns early if callback returns error
+	StreamForCostCalc(batchSize int, callback func(batch []*domain.AttemptCostData) error) error
+	// UpdateCost updates only the cost field of an attempt
+	UpdateCost(id uint64, cost uint64) error
+	// BatchUpdateCosts updates costs for multiple attempts in a single transaction
+	BatchUpdateCosts(updates map[uint64]uint64) error
 }
 
 type SystemSettingRepository interface {
@@ -141,6 +170,8 @@ type UsageStatsRepository interface {
 	RollUp(from, to domain.Granularity) (int, error)
 	// ClearAndRecalculate 清空统计数据并重新从原始数据计算
 	ClearAndRecalculate() error
+	// ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
+	ClearAndRecalculateWithProgress(progress chan<- domain.Progress) error
 }
 
 // UsageStatsFilter 统计查询过滤条件

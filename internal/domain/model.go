@@ -239,7 +239,7 @@ type ProxyRequest struct {
 	Cache5mWriteCount uint64 `json:"cache5mWriteCount"`
 	Cache1hWriteCount uint64 `json:"cache1hWriteCount"`
 
-	// 成本 (微美元，1 USD = 1,000,000)
+	// 成本 (纳美元，1 USD = 1,000,000,000 nanoUSD)
 	Cost uint64 `json:"cost"`
 
 	// 使用的 API Token ID，0 表示未使用 Token
@@ -293,6 +293,22 @@ type ProxyUpstreamAttempt struct {
 	Cache1hWriteCount uint64 `json:"cache1hWriteCount"`
 
 	Cost uint64 `json:"cost"`
+}
+
+// AttemptCostData contains minimal data needed for cost recalculation
+type AttemptCostData struct {
+	ID               uint64
+	ProxyRequestID   uint64
+	ResponseModel    string
+	MappedModel      string
+	RequestModel     string
+	InputTokenCount  uint64
+	OutputTokenCount uint64
+	CacheReadCount   uint64
+	CacheWriteCount  uint64
+	Cache5mWriteCount uint64
+	Cache1hWriteCount uint64
+	Cost             uint64
 }
 
 // 重试配置
@@ -432,7 +448,7 @@ type ProviderStats struct {
 	TotalCacheRead    uint64 `json:"totalCacheRead"`
 	TotalCacheWrite   uint64 `json:"totalCacheWrite"`
 
-	// 成本 (微美元)
+	// 成本 (纳美元)
 	TotalCost uint64 `json:"totalCost"`
 }
 
@@ -445,6 +461,7 @@ const (
 	GranularityDay    Granularity = "day"
 	GranularityWeek   Granularity = "week"
 	GranularityMonth  Granularity = "month"
+	GranularityYear   Granularity = "year"
 )
 
 // UsageStats 使用统计汇总（多层级时间聚合）
@@ -476,7 +493,7 @@ type UsageStats struct {
 	CacheRead    uint64 `json:"cacheRead"`
 	CacheWrite   uint64 `json:"cacheWrite"`
 
-	// 成本 (微美元)
+	// 成本 (纳美元)
 	Cost uint64 `json:"cost"`
 }
 
@@ -755,4 +772,15 @@ type DashboardData struct {
 	Trend24h      []DashboardTrendPoint             `json:"trend24h"`
 	ProviderStats map[uint64]DashboardProviderStats `json:"providerStats"`
 	Timezone      string                            `json:"timezone"` // 配置的时区，如 "Asia/Shanghai"
+}
+
+// ===== Progress Reporting =====
+
+// Progress represents a progress update for long-running operations
+type Progress struct {
+	Phase      string `json:"phase"`      // Current phase of the operation
+	Current    int    `json:"current"`    // Current item being processed
+	Total      int    `json:"total"`      // Total items to process
+	Percentage int    `json:"percentage"` // 0-100
+	Message    string `json:"message"`    // Human-readable message
 }

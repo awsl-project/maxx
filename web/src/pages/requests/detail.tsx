@@ -1,6 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTransport } from '@/lib/transport';
 import {
   useProxyRequest,
   useProxyUpstreamAttempts,
@@ -10,6 +12,7 @@ import {
   useSessions,
   useRoutes,
   useAPITokens,
+  requestKeys,
 } from '@/hooks/queries';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { RequestHeader } from './detail/RequestHeader';
@@ -22,6 +25,8 @@ type SelectionType = { type: 'request' } | { type: 'attempt'; attemptId: number 
 export function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { transport } = useTransport();
+  const queryClient = useQueryClient();
   const { data: request, isLoading, error } = useProxyRequest(Number(id));
   const { data: attempts } = useProxyUpstreamAttempts(Number(id));
   const { data: providers } = useProviders();
@@ -33,6 +38,18 @@ export function RequestDetailPage() {
     type: 'request',
   });
   const [activeTab, setActiveTab] = useState<'request' | 'response' | 'metadata'>('request');
+
+  // Recalculate cost mutation
+  const recalculateMutation = useMutation({
+    mutationFn: () => transport.recalculateRequestCost(Number(id)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: requestKeys.detail(Number(id)) });
+    },
+  });
+
+  const handleRecalculateCost = useCallback(() => {
+    recalculateMutation.mutate();
+  }, [recalculateMutation]);
 
   useProxyRequestUpdates();
 
@@ -120,7 +137,12 @@ export function RequestDetailPage() {
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background w-full ">
       {/* Header */}
-      <RequestHeader request={request} onBack={() => navigate('/requests')} />
+      <RequestHeader
+        request={request}
+        onBack={() => navigate('/requests')}
+        onRecalculateCost={handleRecalculateCost}
+        isRecalculating={recalculateMutation.isPending}
+      />
 
       {/* Error Banner */}
       {request.error && (

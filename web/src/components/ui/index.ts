@@ -23,7 +23,15 @@ export { Badge, badgeVariants } from './badge';
 export { Input } from './input';
 
 // Select
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
+export {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from './select';
 
 // Dialog
 export {
@@ -50,3 +58,18 @@ export { MarqueeBackground } from './marquee-background';
 
 // Activity Heatmap
 export { ActivityHeatmap } from './activity-heatmap';
+
+// Progress
+export { Progress } from './progress';
+
+// Sheet
+export {
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+  SheetDescription,
+} from './sheet';

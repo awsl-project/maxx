@@ -404,7 +404,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 						Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
 						Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
 					}
-					attemptRecord.Cost = pricing.GlobalCalculator().Calculate(attemptRecord.MappedModel, metrics)
+					// Use ResponseModel for pricing (actual model from API response), fallback to MappedModel
+					pricingModel := attemptRecord.ResponseModel
+					if pricingModel == "" {
+						pricingModel = attemptRecord.MappedModel
+					}
+					attemptRecord.Cost = pricing.GlobalCalculator().Calculate(pricingModel, metrics)
 				}
 
 				_ = e.attemptRepo.Update(attemptRecord)
@@ -476,7 +481,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 					Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
 					Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
 				}
-				attemptRecord.Cost = pricing.GlobalCalculator().Calculate(attemptRecord.MappedModel, metrics)
+				// Use ResponseModel for pricing (actual model from API response), fallback to MappedModel
+				pricingModel := attemptRecord.ResponseModel
+				if pricingModel == "" {
+					pricingModel = attemptRecord.MappedModel
+				}
+				attemptRecord.Cost = pricing.GlobalCalculator().Calculate(pricingModel, metrics)
 			}
 
 			_ = e.attemptRepo.Update(attemptRecord)

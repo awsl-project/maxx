@@ -275,6 +275,7 @@ func InitializeServerComponents(
 		repos.ResponseModelRepo,
 		addr,
 		r,
+		wailsBroadcaster,
 	)
 
 	log.Printf("[Core] Creating backup service")

@@ -228,6 +228,7 @@ func main() {
 		responseModelRepo,
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
+		wsHub,
 	)
 
 	// Create backup service

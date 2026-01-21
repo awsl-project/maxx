@@ -188,7 +188,7 @@ type ProxyRequest struct {
 	RequestModel                string   `gorm:"size:128"`
 	ResponseModel               string   `gorm:"size:128"`
 	StartTime                   int64
-	EndTime                     int64
+	EndTime                     int64  `gorm:"index"`
 	DurationMs                  int64
 	Status                      string   `gorm:"size:64"`
 	RequestInfo                 LongText

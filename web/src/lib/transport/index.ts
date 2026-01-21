@@ -66,6 +66,10 @@ export type {
   UsageStats,
   UsageStatsFilter,
   StatsGranularity,
+  RecalculateRequestCostResult,
+  RecalculateCostsResult,
+  RecalculateCostsProgress,
+  RecalculateStatsProgress,
   // Dashboard
   DashboardData,
   DashboardDaySummary,
@@ -74,6 +78,9 @@ export type {
   DashboardModelStats,
   DashboardTrendPoint,
   DashboardProviderStats,
+  // Pricing
+  ModelPricing,
+  PriceTable,
 } from './types';
 
 export type { Transport, TransportType, TransportConfig } from './interface';

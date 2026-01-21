@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -20,7 +20,7 @@ import {
   AlertTriangle,
   Ban,
 } from 'lucide-react';
-import type { ProxyRequest, ProxyRequestStatus } from '@/lib/transport';
+import type { ProxyRequest, ProxyRequestStatus, Provider } from '@/lib/transport';
 import { ClientIcon } from '@/components/icons/client-icons';
 import {
   Table,
@@ -30,9 +30,26 @@ import {
   TableHeader,
   TableRow,
   Badge,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
+
+type ProviderTypeKey = 'antigravity' | 'kiro' | 'custom';
+
+const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'custom'];
+
+const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
+  antigravity: 'Antigravity',
+  kiro: 'Kiro',
+  custom: 'Custom',
+};
 
 const PAGE_SIZE = 50;
 
@@ -54,13 +71,16 @@ export function RequestsPage() {
   // 使用游标分页：存储每页的 lastId 用于向后翻页
   const [cursors, setCursors] = useState<(number | undefined)[]>([undefined]);
   const [pageIndex, setPageIndex] = useState(0);
+  // Provider 过滤器
+  const [selectedProviderId, setSelectedProviderId] = useState<number | undefined>(undefined);
 
   const currentCursor = cursors[pageIndex];
   const { data, isLoading, refetch } = useProxyRequests({
     limit: PAGE_SIZE,
     before: currentCursor,
+    providerId: selectedProviderId,
   });
-  const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount();
+  const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(selectedProviderId);
   const { data: providers = [] } = useProviders();
   const { data: projects = [] } = useProjects();
   const { data: apiTokens = [] } = useAPITokens();
@@ -115,6 +135,13 @@ export function RequestsPage() {
     refetchCount();
   };
 
+  // Provider 过滤器变化时重置分页
+  const handleProviderFilterChange = (providerId: number | undefined) => {
+    setSelectedProviderId(providerId);
+    setCursors([undefined]);
+    setPageIndex(0);
+  };
+
   return (
     <div className="flex flex-col h-full bg-background">
       <PageHeader
@@ -123,6 +150,14 @@ export function RequestsPage() {
         title={t('requests.title')}
         description={t('requests.description', { count: total })}
       >
+        {/* Provider Filter */}
+        {providers.length > 0 && (
+          <ProviderFilter
+            providers={providers}
+            selectedProviderId={selectedProviderId}
+            onSelect={handleProviderFilterChange}
+          />
+        )}
         <button
           onClick={handleRefresh}
           disabled={isLoading}
@@ -341,33 +376,34 @@ function TokenCell({ count, color }: { count: number; color: string }) {
   }
 
   const formatTokens = (n: number) => {
+    // >= 5位数 (10000+) 使用 K/M 格式
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-    return n.toString();
+    if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`;
+    // 4位数及以下使用千分位分隔符
+    return n.toLocaleString();
   };
 
   return <span className={`text-xs font-mono ${color}`}>{formatTokens(count)}</span>;
 }
 
-// 微美元转美元 (1 USD = 1,000,000 microUSD)
-const MICRO_USD_PER_USD = 1_000_000;
-function microToUSD(microUSD: number): number {
-  return microUSD / MICRO_USD_PER_USD;
+// 纳美元转美元 (1 USD = 1,000,000,000 nanoUSD)
+// 向下取整到 6 位小数 (microUSD 精度)
+function nanoToUSD(nanoUSD: number): number {
+  return Math.floor(nanoUSD / 1000) / 1_000_000;
 }
 
-// Cost Cell Component (接收 microUSD)
+// Cost Cell Component (接收 nanoUSD)
 function CostCell({ cost }: { cost: number }) {
   if (cost === 0) {
     return <span className="text-caption text-muted-foreground font-mono">-</span>;
   }
 
-  const usd = microToUSD(cost);
+  const usd = nanoToUSD(cost);
 
+  // 完整显示小数，去除末尾多余的 0 (最多 6 位)
   const formatCost = (c: number) => {
-    if (c < 0.001) return '<$0.001';
-    if (c < 0.01) return `$${c.toFixed(4)}`;
-    if (c < 1) return `$${c.toFixed(3)}`;
-    return `$${c.toFixed(2)}`;
+    const formatted = c.toFixed(6).replace(/\.?0+$/, '');
+    return `$${formatted}`;
   };
 
   const getCostColor = (c: number) => {
@@ -485,9 +521,13 @@ function LogRow({
         isRecent && !isPending && 'bg-accent/20 shadow-[inset_3px_0_0_0_#0078D4]',
       )}
     >
-      {/* Time */}
-      <TableCell className="py-1 font-mono text-sm text-foreground font-medium whitespace-nowrap">
-        {formatTime(request.startTime || request.createdAt)}
+      {/* Time - 显示结束时间，如果没有结束时间则显示开始时间（更浅样式） */}
+      <TableCell className="py-1 font-mono text-sm whitespace-nowrap">
+        {request.endTime && new Date(request.endTime).getTime() > 0 ? (
+          <span className="text-foreground font-medium">{formatTime(request.endTime)}</span>
+        ) : (
+          <span className="text-muted-foreground">{formatTime(request.startTime || request.createdAt)}</span>
+        )}
       </TableCell>
 
       {/* Client */}
@@ -574,7 +614,10 @@ function LogRow({
 
       {/* Duration */}
       <TableCell className="py-1 text-center">
-        <span className={`text-sm font-mono ${durationColor}`}>
+        <span
+          className={`text-sm font-mono ${durationColor}`}
+          title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
+        >
           {formatDuration(displayDuration)}
         </span>
       </TableCell>
@@ -617,6 +660,84 @@ function LogRow({
         <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
       </TableCell>
     </TableRow>
+  );
+}
+
+// Provider Filter Component using Select
+function ProviderFilter({
+  providers,
+  selectedProviderId,
+  onSelect,
+}: {
+  providers: Provider[];
+  selectedProviderId: number | undefined;
+  onSelect: (providerId: number | undefined) => void;
+}) {
+  const { t } = useTranslation();
+
+  // Group providers by type and sort alphabetically
+  const groupedProviders = useMemo(() => {
+    const groups: Record<ProviderTypeKey, Provider[]> = {
+      antigravity: [],
+      kiro: [],
+      custom: [],
+    };
+
+    providers.forEach((p) => {
+      const type = p.type as ProviderTypeKey;
+      if (groups[type]) {
+        groups[type].push(p);
+      } else {
+        groups.custom.push(p);
+      }
+    });
+
+    // Sort alphabetically within each group
+    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
+      groups[key].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return groups;
+  }, [providers]);
+
+  // Get selected provider name for display
+  const selectedProvider = providers.find((p) => p.id === selectedProviderId);
+  const displayText = selectedProvider?.name ?? t('requests.allProviders');
+
+  return (
+    <Select
+      value={selectedProviderId !== undefined ? String(selectedProviderId) : 'all'}
+      onValueChange={(value) => {
+        if (value === 'all') {
+          onSelect(undefined);
+        } else {
+          onSelect(Number(value));
+        }
+      }}
+    >
+      <SelectTrigger className="w-48 h-8" size="sm">
+        <SelectValue>{displayText}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">
+          {t('requests.allProviders')}
+        </SelectItem>
+        {PROVIDER_TYPE_ORDER.map((typeKey) => {
+          const typeProviders = groupedProviders[typeKey];
+          if (typeProviders.length === 0) return null;
+          return (
+            <SelectGroup key={typeKey}>
+              <SelectLabel>{PROVIDER_TYPE_LABELS[typeKey]}</SelectLabel>
+              {typeProviders.map((provider) => (
+                <SelectItem key={provider.id} value={String(provider.id)}>
+                  {provider.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          );
+        })}
+      </SelectContent>
+    </Select>
   );
 }
 

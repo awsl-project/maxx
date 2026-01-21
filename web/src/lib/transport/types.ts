@@ -254,6 +254,8 @@ export interface CursorPaginationParams {
   before?: number;
   /** 获取 id 大于此值的记录 (向前翻页/获取新数据) */
   after?: number;
+  /** 按 Provider ID 过滤 */
+  providerId?: number;
 }
 
 /** 游标分页响应 */
@@ -277,6 +279,8 @@ export type WSMessageType =
   | 'new_session_pending'
   | 'session_pending_cancelled'
   | 'cooldown_update'
+  | 'recalculate_costs_progress'
+  | 'recalculate_stats_progress'
   | '_ws_reconnected'; // 内部事件：WebSocket 重连成功
 
 export interface WSMessage<T = unknown> {
@@ -523,7 +527,7 @@ export interface CreateAPITokenData {
 // ===== Usage Stats =====
 
 /** 统计数据时间粒度 */
-export type StatsGranularity = 'minute' | 'hour' | 'day' | 'week' | 'month';
+export type StatsGranularity = 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year';
 
 export interface UsageStats {
   id: number;
@@ -570,6 +574,41 @@ export interface UsageStatsFilter {
   apiTokenId?: number;
   clientType?: string;
   model?: string; // 模型名称
+}
+
+/** RecalculateCostsResult - 全量成本重算结果 */
+export interface RecalculateCostsResult {
+  totalAttempts: number;
+  updatedAttempts: number;
+  updatedRequests: number;
+  message: string;
+}
+
+/** RecalculateCostsProgress - 成本重算进度更新 */
+export interface RecalculateCostsProgress {
+  phase: 'calculating' | 'updating_attempts' | 'updating_requests' | 'completed';
+  current: number;
+  total: number;
+  percentage: number;
+  message: string;
+}
+
+/** RecalculateStatsProgress - 统计重算进度更新 */
+export interface RecalculateStatsProgress {
+  phase: 'clearing' | 'aggregating' | 'rollup' | 'completed';
+  current: number;
+  total: number;
+  percentage: number;
+  message: string;
+}
+
+/** RecalculateRequestCostResult - 单条请求成本重算结果 */
+export interface RecalculateRequestCostResult {
+  requestId: number;
+  oldCost: number;
+  newCost: number;
+  updatedAttempts: number;
+  message: string;
 }
 
 /** Response Model - 记录所有出现过的 response model */
@@ -746,4 +785,28 @@ export interface DashboardData {
   trend24h: DashboardTrendPoint[];
   providerStats: Record<number, DashboardProviderStats>;
   timezone: string; // 配置的时区，如 "Asia/Shanghai"
+}
+
+// ===== Pricing API Types =====
+
+/** 单个模型的价格配置 - 价格单位：微美元/百万tokens */
+export interface ModelPricing {
+  modelId: string;
+  inputPriceMicro: number; // 输入价格 (microUSD/M tokens)
+  outputPriceMicro: number; // 输出价格 (microUSD/M tokens)
+  cacheReadPriceMicro?: number; // 缓存读取价格，默认 input / 10
+  cache5mWritePriceMicro?: number; // 5分钟缓存写入，默认 input * 1.25
+  cache1hWritePriceMicro?: number; // 1小时缓存写入，默认 input * 2
+  has1mContext?: boolean; // 是否支持 1M context
+  context1mThreshold?: number; // 1M context 阈值，默认 200000
+  inputPremiumNum?: number; // 超阈值 input 倍率分子
+  inputPremiumDenom?: number; // 超阈值 input 倍率分母
+  outputPremiumNum?: number; // 超阈值 output 倍率分子
+  outputPremiumDenom?: number; // 超阈值 output 倍率分母
+}
+
+/** 完整价格表 */
+export interface PriceTable {
+  version: string;
+  models: Record<string, ModelPricing>;
 }
