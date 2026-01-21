@@ -116,6 +116,8 @@ type ProxyUpstreamAttemptRepository interface {
 	UpdateCost(id uint64, cost uint64) error
 	// BatchUpdateCosts updates costs for multiple attempts in a single transaction
 	BatchUpdateCosts(updates map[uint64]uint64) error
+	// MarkStaleAttemptsFailed marks stale attempts as failed with proper end_time and duration
+	MarkStaleAttemptsFailed() (int64, error)
 }
 
 type SystemSettingRepository interface {

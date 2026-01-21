@@ -150,11 +150,13 @@ func (r *ProxyRequestRepository) CountWithFilter(filter *repository.ProxyRequest
 
 // MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
 // Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
+// Sets proper end_time and duration_ms for complete failure handling
 func (r *ProxyRequestRepository) MarkStaleAsFailed(currentInstanceID string) (int64, error) {
 	timeoutThreshold := time.Now().Add(-30 * time.Minute).UnixMilli()
 	now := time.Now().UnixMilli()
 
 	// Use raw SQL for complex CASE expression
+	// Sets end_time = now and calculates duration_ms = now - start_time
 	result := r.db.gorm.Exec(`
 		UPDATE proxy_requests
 		SET status = 'FAILED',
@@ -162,13 +164,18 @@ func (r *ProxyRequestRepository) MarkStaleAsFailed(currentInstanceID string) (in
 		        WHEN instance_id IS NULL OR instance_id != ? THEN 'Server restarted'
 		        ELSE 'Request timed out (stuck in progress)'
 		    END,
+		    end_time = ?,
+		    duration_ms = CASE
+		        WHEN start_time > 0 THEN ? - start_time
+		        ELSE 0
+		    END,
 		    updated_at = ?
 		WHERE status IN ('PENDING', 'IN_PROGRESS')
 		  AND (
 		      (instance_id IS NULL OR instance_id != ?)
 		      OR (start_time < ? AND start_time > 0)
 		  )`,
-		currentInstanceID, now, currentInstanceID, timeoutThreshold,
+		currentInstanceID, now, now, now, currentInstanceID, timeoutThreshold,
 	)
 	if result.Error != nil {
 		return 0, result.Error

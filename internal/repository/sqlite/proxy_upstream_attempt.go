@@ -133,6 +133,34 @@ func (r *ProxyUpstreamAttemptRepository) UpdateCost(id uint64, cost uint64) erro
 	return r.db.gorm.Model(&ProxyUpstreamAttempt{}).Where("id = ?", id).Update("cost", cost).Error
 }
 
+// MarkStaleAttemptsFailed marks all IN_PROGRESS/PENDING attempts belonging to stale requests as FAILED
+// This should be called after MarkStaleAsFailed on proxy_requests to clean up orphaned attempts
+// Sets proper end_time and duration_ms for complete failure handling
+func (r *ProxyUpstreamAttemptRepository) MarkStaleAttemptsFailed() (int64, error) {
+	now := time.Now().UnixMilli()
+
+	// Update attempts that belong to FAILED requests but are still in progress
+	result := r.db.gorm.Exec(`
+		UPDATE proxy_upstream_attempts
+		SET status = 'FAILED',
+		    end_time = ?,
+		    duration_ms = CASE
+		        WHEN start_time > 0 THEN ? - start_time
+		        ELSE 0
+		    END,
+		    updated_at = ?
+		WHERE status IN ('PENDING', 'IN_PROGRESS')
+		  AND proxy_request_id IN (
+		      SELECT id FROM proxy_requests WHERE status = 'FAILED'
+		  )`,
+		now, now, now,
+	)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return result.RowsAffected, nil
+}
+
 // BatchUpdateCosts updates costs for multiple attempts in a single transaction
 func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uint64) error {
 	if len(updates) == 0 {

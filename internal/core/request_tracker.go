@@ -14,6 +14,9 @@ type RequestTracker struct {
 	wg          sync.WaitGroup
 	shutdownCh  chan struct{}
 	isShutdown  atomic.Bool
+	// notifyCh is used to notify when a request completes during shutdown
+	notifyCh chan struct{}
+	notifyMu sync.Mutex
 }
 
 // NewRequestTracker creates a new request tracker
@@ -36,8 +39,23 @@ func (t *RequestTracker) Add() bool {
 
 // Done decrements the active request count
 func (t *RequestTracker) Done() {
-	atomic.AddInt64(&t.activeCount, -1)
+	remaining := atomic.AddInt64(&t.activeCount, -1)
 	t.wg.Done()
+
+	// Notify shutdown goroutine if shutting down
+	if t.isShutdown.Load() {
+		t.notifyMu.Lock()
+		ch := t.notifyCh
+		t.notifyMu.Unlock()
+		if ch != nil {
+			select {
+			case ch <- struct{}{}:
+			default:
+				// Non-blocking send, channel might be full or closed
+			}
+		}
+		log.Printf("[RequestTracker] Request completed, %d remaining", remaining)
+	}
 }
 
 // ActiveCount returns the current number of active requests
@@ -97,8 +115,12 @@ func (t *RequestTracker) ShutdownCh() <-chan struct{} {
 
 // GracefulShutdown initiates graceful shutdown and waits for requests to complete
 // maxWait: maximum time to wait for requests to complete
-// checkInterval: how often to log remaining requests
-func (t *RequestTracker) GracefulShutdown(maxWait time.Duration, checkInterval time.Duration) bool {
+func (t *RequestTracker) GracefulShutdown(maxWait time.Duration) bool {
+	// Setup notify channel before marking shutdown
+	t.notifyMu.Lock()
+	t.notifyCh = make(chan struct{}, 100) // Buffered to avoid blocking Done()
+	t.notifyMu.Unlock()
+
 	t.isShutdown.Store(true)
 	close(t.shutdownCh)
 
@@ -116,9 +138,6 @@ func (t *RequestTracker) GracefulShutdown(maxWait time.Duration, checkInterval t
 		close(done)
 	}()
 
-	ticker := time.NewTicker(checkInterval)
-	defer ticker.Stop()
-
 	deadline := time.After(maxWait)
 
 	for {
@@ -126,9 +145,14 @@ func (t *RequestTracker) GracefulShutdown(maxWait time.Duration, checkInterval t
 		case <-done:
 			log.Printf("[RequestTracker] All requests completed, shutdown clean")
 			return true
-		case <-ticker.C:
-			remaining := t.ActiveCount()
-			log.Printf("[RequestTracker] Waiting for %d active requests to complete...", remaining)
+		case <-t.notifyCh:
+			// Request completed notification received, log is printed in Done()
+			// Check if all done
+			if t.ActiveCount() == 0 {
+				<-done // Wait for wg.Wait() to complete
+				log.Printf("[RequestTracker] All requests completed, shutdown clean")
+				return true
+			}
 		case <-deadline:
 			remaining := t.ActiveCount()
 			log.Printf("[RequestTracker] Timeout reached, %d requests still active, forcing shutdown", remaining)

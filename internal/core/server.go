@@ -13,8 +13,6 @@ import (
 const (
 	// GracefulShutdownTimeout is the maximum time to wait for active requests
 	GracefulShutdownTimeout = 2 * time.Minute
-	// GracefulShutdownCheckInterval is how often to log remaining requests
-	GracefulShutdownCheckInterval = 5 * time.Second
 	// HTTPShutdownTimeout is the timeout for HTTP server shutdown after requests complete
 	HTTPShutdownTimeout = 5 * time.Second
 )
@@ -136,8 +134,7 @@ func (s *ManagedServer) Stop(ctx context.Context) error {
 		if activeCount > 0 {
 			log.Printf("[Server] Waiting for %d active proxy requests to complete...", activeCount)
 
-			// Use GracefulShutdown with logging
-			completed := tracker.GracefulShutdown(GracefulShutdownTimeout, GracefulShutdownCheckInterval)
+			completed := tracker.GracefulShutdown(GracefulShutdownTimeout)
 			if !completed {
 				log.Printf("[Server] Graceful shutdown timeout, some requests may be interrupted")
 			} else {
@@ -145,7 +142,7 @@ func (s *ManagedServer) Stop(ctx context.Context) error {
 			}
 		} else {
 			// Mark as shutting down to reject new requests
-			tracker.GracefulShutdown(0, time.Second)
+			tracker.GracefulShutdown(0)
 			log.Printf("[Server] No active proxy requests")
 		}
 	}

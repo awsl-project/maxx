@@ -172,6 +172,12 @@ func InitializeServerComponents(
 	} else if count > 0 {
 		log.Printf("[Core] Marked %d stale requests as failed", count)
 	}
+	// Also mark stale upstream attempts as failed
+	if count, err := repos.AttemptRepo.MarkStaleAttemptsFailed(); err != nil {
+		log.Printf("[Core] Warning: Failed to mark stale attempts: %v", err)
+	} else if count > 0 {
+		log.Printf("[Core] Marked %d stale upstream attempts as failed", count)
+	}
 
 	log.Printf("[Core] Loading cached data")
 	if err := repos.CachedProviderRepo.Load(); err != nil {

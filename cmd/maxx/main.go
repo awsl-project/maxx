@@ -121,6 +121,12 @@ func main() {
 	} else if count > 0 {
 		log.Printf("Marked %d stale requests as failed", count)
 	}
+	// Also mark stale upstream attempts as failed
+	if count, err := attemptRepo.MarkStaleAttemptsFailed(); err != nil {
+		log.Printf("Warning: Failed to mark stale attempts: %v", err)
+	} else if count > 0 {
+		log.Printf("Marked %d stale upstream attempts as failed", count)
+	}
 
 	// Create cached repositories
 	cachedProviderRepo := cached.NewProviderRepository(providerRepo)
@@ -344,7 +350,7 @@ func main() {
 	activeCount := requestTracker.ActiveCount()
 	if activeCount > 0 {
 		log.Printf("Waiting for %d active proxy requests to complete...", activeCount)
-		completed := requestTracker.GracefulShutdown(core.GracefulShutdownTimeout, core.GracefulShutdownCheckInterval)
+		completed := requestTracker.GracefulShutdown(core.GracefulShutdownTimeout)
 		if !completed {
 			log.Printf("Graceful shutdown timeout, some requests may be interrupted")
 		} else {
@@ -352,7 +358,7 @@ func main() {
 		}
 	} else {
 		// Mark as shutting down to reject new requests
-		requestTracker.GracefulShutdown(0, time.Second)
+		requestTracker.GracefulShutdown(0)
 		log.Printf("No active proxy requests")
 	}
 
