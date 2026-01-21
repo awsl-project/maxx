@@ -200,8 +200,9 @@ func (m *PprofManager) startServerLocked() error {
 	// 端口绑定成功,设置运行状态
 	m.isRunning = true
 
-	// 在启动 goroutine 前复制需要的配置值，避免 goroutine 中访问 m.config 造成数据竞争
+	// 在启动 goroutine 前复制需要的配置值和 server 实例，避免 goroutine 中访问 m.config 和 m.server 造成数据竞争
 	hasPassword := m.config.Password != ""
+	srv := m.server
 
 	go func() {
 		log.Printf("[Pprof] Starting pprof server on %s", addr)
@@ -210,12 +211,14 @@ func (m *PprofManager) startServerLocked() error {
 		}
 		log.Printf("[Pprof] Access pprof at http://%s/debug/pprof/", addr)
 
-		if err := m.server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("[Pprof] Server error: %v", err)
-			// 服务器异常退出,更新运行状态
-			m.mu.Lock()
-			m.isRunning = false
-			m.mu.Unlock()
+		if srv != nil {
+			if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+				log.Printf("[Pprof] Server error: %v", err)
+				// 服务器异常退出,更新运行状态
+				m.mu.Lock()
+				m.isRunning = false
+				m.mu.Unlock()
+			}
 		}
 	}()
 

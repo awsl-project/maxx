@@ -557,9 +557,9 @@ function PprofSection() {
     if (initialized) {
       const currentHasChanges =
         enabledDraft !== pprofEnabled ||
-        portDraft !== pprofPort ||
-        usePasswordDraft !== (pprofPassword !== '') ||
-        (usePasswordDraft && passwordDraft !== pprofPassword);
+        (enabledDraft && portDraft !== pprofPort) ||
+        (enabledDraft && usePasswordDraft !== (pprofPassword !== '')) ||
+        (enabledDraft && usePasswordDraft && passwordDraft !== pprofPassword);
 
       // 只在没有未保存的更改时更新 draft 状态
       if (!currentHasChanges) {
