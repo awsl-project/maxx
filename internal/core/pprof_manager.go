@@ -5,8 +5,9 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"strconv"
 	"sync"
 	"time"
@@ -159,16 +160,35 @@ func (m *PprofManager) startServerLocked() error {
 
 	addr := fmt.Sprintf("localhost:%d", m.config.Port)
 
+	// 先尝试绑定端口以验证是否可用
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("[Pprof] Failed to bind to %s: %v", addr, err)
+		return fmt.Errorf("failed to bind pprof server to %s: %w", addr, err)
+	}
+
+	// 创建独立的 pprof mux，避免暴露主应用的其他路由
+	pprofMux := http.NewServeMux()
+	pprofMux.HandleFunc("/debug/pprof/", pprof.Index)
+	pprofMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	pprofMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	pprofMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	pprofMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
 	// 创建带密码保护的 handler
-	var handler http.Handler = http.DefaultServeMux
+	var handler http.Handler = pprofMux
 	if m.config.Password != "" {
-		handler = m.basicAuthMiddleware(http.DefaultServeMux)
+		// 在创建中间件时捕获密码值,避免在请求处理时无锁读取 m.config
+		handler = m.basicAuthMiddleware(pprofMux, m.config.Password)
 	}
 
 	m.server = &http.Server{
 		Addr:    addr,
 		Handler: handler,
 	}
+
+	// 端口绑定成功,设置运行状态
+	m.isRunning = true
 
 	go func() {
 		log.Printf("[Pprof] Starting pprof server on %s", addr)
@@ -177,12 +197,15 @@ func (m *PprofManager) startServerLocked() error {
 		}
 		log.Printf("[Pprof] Access pprof at http://%s/debug/pprof/", addr)
 
-		if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := m.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Printf("[Pprof] Server error: %v", err)
+			// 服务器异常退出,更新运行状态
+			m.mu.Lock()
+			m.isRunning = false
+			m.mu.Unlock()
 		}
 	}()
 
-	m.isRunning = true
 	return nil
 }
 
@@ -208,14 +231,15 @@ func (m *PprofManager) stopServerLocked(ctx context.Context) error {
 }
 
 // basicAuthMiddleware 添加基本认证中间件
-func (m *PprofManager) basicAuthMiddleware(next http.Handler) http.Handler {
+// 在创建时捕获密码值,避免在请求处理时访问 m.config 导致数据竞争
+func (m *PprofManager) basicAuthMiddleware(next http.Handler, password string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		username, password, ok := r.BasicAuth()
+		username, reqPassword, ok := r.BasicAuth()
 
-		// 使用 "pprof" 作为用户名，密码从配置读取
+		// 使用 "pprof" 作为用户名，密码从参数获取
 		// 使用 subtle.ConstantTimeCompare 防止时序攻击
 		validUsername := subtle.ConstantTimeCompare([]byte(username), []byte("pprof")) == 1
-		validPassword := subtle.ConstantTimeCompare([]byte(password), []byte(m.config.Password)) == 1
+		validPassword := subtle.ConstantTimeCompare([]byte(reqPassword), []byte(password)) == 1
 
 		if !ok || !validUsername || !validPassword {
 			w.Header().Set("WWW-Authenticate", `Basic realm="pprof"`)

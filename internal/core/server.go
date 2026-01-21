@@ -181,7 +181,9 @@ func (s *ManagedServer) Stop(ctx context.Context) error {
 
 	// 停止 pprof 管理器
 	if s.pprofManager != nil {
-		if err := s.pprofManager.Stop(shutdownCtx); err != nil {
+		pprofCtx, pprofCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer pprofCancel()
+		if err := s.pprofManager.Stop(pprofCtx); err != nil {
 			log.Printf("[Server] Failed to stop pprof manager: %v", err)
 		}
 	}

@@ -450,8 +450,10 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	// 如果更新的是 pprof 相关设置，触发重载
 	switch key {
 	case domain.SettingKeyEnablePprof, domain.SettingKeyPprofPort, domain.SettingKeyPprofPassword:
-		if err := s.pprofReloader.ReloadPprofConfig(); err != nil {
-			return fmt.Errorf("设置已保存，但重载 pprof 失败: %w", err)
+		if s.pprofReloader != nil {
+			if err := s.pprofReloader.ReloadPprofConfig(); err != nil {
+				return fmt.Errorf("设置已保存，但重载 pprof 失败: %w", err)
+			}
 		}
 	}
 
@@ -466,8 +468,10 @@ func (s *AdminService) DeleteSetting(key string) error {
 	// 如果删除的是 pprof 相关设置，触发重载
 	switch key {
 	case domain.SettingKeyEnablePprof, domain.SettingKeyPprofPort, domain.SettingKeyPprofPassword:
-		if err := s.pprofReloader.ReloadPprofConfig(); err != nil {
-			return fmt.Errorf("设置已删除，但重载 pprof 失败: %w", err)
+		if s.pprofReloader != nil {
+			if err := s.pprofReloader.ReloadPprofConfig(); err != nil {
+				return fmt.Errorf("设置已删除，但重载 pprof 失败: %w", err)
+			}
 		}
 	}
 

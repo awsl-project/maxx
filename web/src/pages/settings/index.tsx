@@ -567,33 +567,37 @@ function PprofSection() {
       (usePasswordDraft && passwordDraft !== pprofPassword));
 
   const handleSave = async () => {
-    // Save enabled state
-    if (enabledDraft !== pprofEnabled) {
-      await updateSetting.mutateAsync({
-        key: 'enable_pprof',
-        value: enabledDraft ? 'true' : 'false',
-      });
-    }
+    try {
+      // Save enabled state
+      if (enabledDraft !== pprofEnabled) {
+        await updateSetting.mutateAsync({
+          key: 'enable_pprof',
+          value: enabledDraft ? 'true' : 'false',
+        });
+      }
 
-    // Save port
-    const portNum = parseInt(portDraft, 10);
-    if (portNum >= 1 && portNum <= 65535 && portDraft !== pprofPort) {
-      await updateSetting.mutateAsync({
-        key: 'pprof_port',
-        value: portDraft,
-      });
-    }
+      // Save port
+      const portNum = parseInt(portDraft, 10);
+      if (portNum >= 1 && portNum <= 65535 && portDraft !== pprofPort) {
+        await updateSetting.mutateAsync({
+          key: 'pprof_port',
+          value: portDraft,
+        });
+      }
 
-    // Handle password: delete from database if disabled, otherwise save
-    if (!usePasswordDraft && pprofPassword !== '') {
-      // Password protection disabled and old password exists - delete it
-      await deleteSetting.mutateAsync('pprof_password');
-    } else if (usePasswordDraft && passwordDraft !== pprofPassword) {
-      // Password protection enabled and password changed - save new password
-      await updateSetting.mutateAsync({
-        key: 'pprof_password',
-        value: passwordDraft,
-      });
+      // Handle password: delete from database if disabled, otherwise save
+      if (!usePasswordDraft && pprofPassword !== '') {
+        // Password protection disabled and old password exists - delete it
+        await deleteSetting.mutateAsync('pprof_password');
+      } else if (usePasswordDraft && passwordDraft && passwordDraft !== pprofPassword) {
+        // Password protection enabled and password changed - save new password (only if not empty)
+        await updateSetting.mutateAsync({
+          key: 'pprof_password',
+          value: passwordDraft,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to save pprof settings:', error);
     }
   };
 
@@ -671,7 +675,7 @@ function PprofSection() {
               <Switch
                 checked={usePasswordDraft}
                 onCheckedChange={setUsePasswordDraft}
-                disabled={updateSetting.isPending}
+                disabled={updateSetting.isPending || deleteSetting.isPending}
               />
             </div>
 
@@ -707,30 +711,28 @@ function PprofSection() {
             )}
 
             {/* Access hint */}
-            {enabledDraft && (
-              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1 flex-1">
-                  <p className="flex items-center gap-2">
-                    <span>{t('settings.pprofAccessHint')}:</span>
-                    <a
-                      href={`http://localhost:${portDraft}/debug/pprof/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline hover:text-blue-700 dark:hover:text-blue-300 font-medium"
-                    >
-                      http://localhost:{portDraft}/debug/pprof/
-                    </a>
+            <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+              <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+              <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1 flex-1">
+                <p className="flex items-center gap-2">
+                  <span>{t('settings.pprofAccessHint')}:</span>
+                  <a
+                    href={`http://localhost:${portDraft}/debug/pprof/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+                  >
+                    http://localhost:{portDraft}/debug/pprof/
+                  </a>
+                </p>
+                {usePasswordDraft && (
+                  <p>
+                    {t('settings.pprofAuthHint')}: {t('settings.pprofUsername')}: pprof /{' '}
+                    {t('settings.pprofPasswordRequired')}
                   </p>
-                  {usePasswordDraft && (
-                    <p>
-                      {t('settings.pprofAuthHint')}: {t('settings.pprofUsername')}: pprof /{' '}
-                      {t('settings.pprofPasswordRequired')}
-                    </p>
-                  )}
-                </div>
+                )}
               </div>
-            )}
+            </div>
           </>
         )}
       </CardContent>

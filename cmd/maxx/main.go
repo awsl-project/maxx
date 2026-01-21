@@ -350,6 +350,16 @@ func main() {
 	// Start server in goroutine
 	log.Printf("Starting Maxx server %s on %s", version.Info(), *addr)
 	log.Printf("Data directory: %s", dataDirPath)
+	log.Printf("  Database: %s", dbPath)
+	log.Printf("  Log file: %s", logPath)
+	log.Printf("Admin API: http://localhost%s/api/admin/", *addr)
+	log.Printf("WebSocket: ws://localhost%s/ws", *addr)
+	log.Printf("Proxy endpoints:")
+	log.Printf("  Claude: http://localhost%s/v1/messages", *addr)
+	log.Printf("  OpenAI: http://localhost%s/v1/chat/completions", *addr)
+	log.Printf("  Codex:  http://localhost%s/v1/responses", *addr)
+	log.Printf("  Gemini: http://localhost%s/v1beta/models/{model}:generateContent", *addr)
+	log.Printf("Project proxy: http://localhost%s/{project-slug}/v1/messages (etc.)", *addr)
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -380,10 +390,15 @@ func main() {
 		log.Printf("No active proxy requests")
 	}
 
-	// Step 2: Shutdown HTTP server
+	// Step 2: Stop pprof manager
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), core.HTTPShutdownTimeout)
 	defer cancel()
 
+	if err := pprofMgr.Stop(shutdownCtx); err != nil {
+		log.Printf("Warning: Failed to stop pprof manager: %v", err)
+	}
+
+	// Step 3: Shutdown HTTP server
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server graceful shutdown failed: %v, forcing close", err)
 		if closeErr := server.Close(); closeErr != nil {
