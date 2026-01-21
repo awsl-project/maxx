@@ -12,6 +12,8 @@ const (
 	EventMetrics
 	// EventResponseModel is sent when response model is extracted
 	EventResponseModel
+	// EventFirstToken is sent when the first token/chunk is received (for TTFT tracking)
+	EventFirstToken
 )
 
 // AdapterMetrics contains token usage metrics (avoids import cycle with usage package)
@@ -26,11 +28,12 @@ type AdapterMetrics struct {
 
 // AdapterEvent represents an event from adapter to executor
 type AdapterEvent struct {
-	Type          AdapterEventType
-	RequestInfo   *RequestInfo    // for EventRequestInfo
-	ResponseInfo  *ResponseInfo   // for EventResponseInfo
-	Metrics       *AdapterMetrics // for EventMetrics
-	ResponseModel string          // for EventResponseModel
+	Type           AdapterEventType
+	RequestInfo    *RequestInfo    // for EventRequestInfo
+	ResponseInfo   *ResponseInfo   // for EventResponseInfo
+	Metrics        *AdapterMetrics // for EventMetrics
+	ResponseModel  string          // for EventResponseModel
+	FirstTokenTime int64           // for EventFirstToken (Unix milliseconds)
 }
 
 // AdapterEventChan is used by adapters to send events to executor
@@ -82,6 +85,17 @@ func (ch AdapterEventChan) SendResponseModel(model string) {
 	}
 	select {
 	case ch <- &AdapterEvent{Type: EventResponseModel, ResponseModel: model}:
+	default:
+	}
+}
+
+// SendFirstToken sends first token event with the time when first token was received
+func (ch AdapterEventChan) SendFirstToken(timeMs int64) {
+	if ch == nil || timeMs == 0 {
+		return
+	}
+	select {
+	case ch <- &AdapterEvent{Type: EventFirstToken, FirstTokenTime: timeMs}:
 	default:
 	}
 }

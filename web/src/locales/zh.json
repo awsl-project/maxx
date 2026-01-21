@@ -118,6 +118,7 @@
     "provider": "提供商",
     "code": "状态码",
     "duration": "耗时",
+    "ttft": "首字时长",
     "cost": "费用",
     "attempts": "尝试次数",
     "attShort": "尝试",

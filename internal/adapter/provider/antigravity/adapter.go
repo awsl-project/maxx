@@ -648,6 +648,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 	// Read chunks and accumulate until we have complete lines
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
+	firstChunkSent := false // Track TTFT
 
 	for {
 		// Check context before reading
@@ -700,6 +701,12 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
 					}
 					flusher.Flush()
+
+					// Track TTFT: send first token time on first successful write
+					if !firstChunkSent {
+						firstChunkSent = true
+						eventChan.SendFirstToken(time.Now().UnixMilli())
+					}
 				}
 			}
 		}

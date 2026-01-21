@@ -362,7 +362,7 @@ func (a *KiroAdapter) handleStreamResponse(ctx context.Context, w http.ResponseW
 
 	if err := streamCtx.sendInitialEvents(); err != nil {
 		inTok, outTok := streamCtx.GetTokenCounts()
-		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
+		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel, streamCtx.GetFirstTokenTimeMs())
 		return domain.NewProxyErrorWithMessage(err, false, "failed to send initial events")
 	}
 
@@ -370,32 +370,37 @@ func (a *KiroAdapter) handleStreamResponse(ctx context.Context, w http.ResponseW
 	if err != nil {
 		if ctx.Err() != nil {
 			inTok, outTok := streamCtx.GetTokenCounts()
-			a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
+			a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel, streamCtx.GetFirstTokenTimeMs())
 			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 		}
 
 		_ = streamCtx.sendFinalEvents()
 		inTok, outTok := streamCtx.GetTokenCounts()
-		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
+		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel, streamCtx.GetFirstTokenTimeMs())
 		return nil
 	}
 
 	if err := streamCtx.sendFinalEvents(); err != nil {
 		inTok, outTok := streamCtx.GetTokenCounts()
-		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
+		a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel, streamCtx.GetFirstTokenTimeMs())
 		return domain.NewProxyErrorWithMessage(err, false, "failed to send final events")
 	}
 
 	inTok, outTok := streamCtx.GetTokenCounts()
-	a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel)
+	a.sendFinalEvents(ctx, sseBuffer.String(), inTok, outTok, requestModel, streamCtx.GetFirstTokenTimeMs())
 	return nil
 }
 
 // sendFinalEvents sends final events via EventChannel
-func (a *KiroAdapter) sendFinalEvents(ctx context.Context, body string, inputTokens, outputTokens int, requestModel string) {
+func (a *KiroAdapter) sendFinalEvents(ctx context.Context, body string, inputTokens, outputTokens int, requestModel string, firstTokenTimeMs int64) {
 	eventChan := ctxutil.GetEventChan(ctx)
 	if eventChan == nil {
 		return
+	}
+
+	// Send first token time if available (for TTFT tracking)
+	if firstTokenTimeMs > 0 {
+		eventChan.SendFirstToken(firstTokenTimeMs)
 	}
 
 	// Send response info with body

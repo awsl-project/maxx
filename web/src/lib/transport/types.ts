@@ -181,6 +181,7 @@ export interface ProxyRequest {
   startTime: string;
   endTime: string;
   duration: number; // nanoseconds
+  ttft: number; // nanoseconds - Time To First Token (首字时长)
   isStream: boolean; // 是否为 SSE 流式请求
   status: ProxyRequestStatus;
   statusCode: number; // HTTP 状态码（冗余存储，用于列表查询优化）
@@ -220,6 +221,7 @@ export interface ProxyUpstreamAttempt {
   startTime: string;
   endTime: string;
   duration: number; // nanoseconds
+  ttft: number; // nanoseconds - Time To First Token (首字时长)
   status: ProxyUpstreamAttemptStatus;
   proxyRequestID: number;
   isStream: boolean; // 是否为 SSE 流式请求

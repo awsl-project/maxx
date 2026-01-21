@@ -100,6 +100,15 @@ export function RequestHeader({
           <div className="w-px h-8 bg-border" />
           <div className="text-center px-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+              TTFT
+            </div>
+            <div className="text-sm font-mono font-medium text-muted-foreground">
+              {request.ttft && request.ttft > 0 ? formatDuration(request.ttft) : '-'}
+            </div>
+          </div>
+          <div className="w-px h-8 bg-border" />
+          <div className="text-center px-3">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
               Input
             </div>
             <div className="text-sm font-mono font-medium text-muted-foreground">

@@ -450,6 +450,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 					proxyReq.Cache1hWriteCount = metrics.Cache1hCreationCount
 				}
 				proxyReq.Cost = attemptRecord.Cost
+				proxyReq.TTFT = attemptRecord.TTFT
 
 				_ = e.proxyRequestRepo.Update(proxyReq)
 
@@ -520,6 +521,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				}
 			}
 			proxyReq.Cost = attemptRecord.Cost
+			proxyReq.TTFT = attemptRecord.TTFT
 
 			_ = e.proxyRequestRepo.Update(proxyReq)
 			if e.broadcaster != nil {
@@ -812,6 +814,11 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 				if event.ResponseModel != "" {
 					attempt.ResponseModel = event.ResponseModel
 				}
+			case domain.EventFirstToken:
+				if event.FirstTokenTime > 0 {
+					firstTokenTime := time.UnixMilli(event.FirstTokenTime)
+					attempt.TTFT = firstTokenTime.Sub(attempt.StartTime)
+				}
 			}
 		default:
 			// No more events
@@ -860,6 +867,13 @@ func (e *Executor) processAdapterEventsRealtime(eventChan domain.AdapterEventCha
 		case domain.EventResponseModel:
 			if event.ResponseModel != "" {
 				attempt.ResponseModel = event.ResponseModel
+				needsBroadcast = true
+			}
+		case domain.EventFirstToken:
+			if event.FirstTokenTime > 0 {
+				// Calculate TTFT as duration from start time to first token time
+				firstTokenTime := time.UnixMilli(event.FirstTokenTime)
+				attempt.TTFT = firstTokenTime.Sub(attempt.StartTime)
 				needsBroadcast = true
 			}
 		}

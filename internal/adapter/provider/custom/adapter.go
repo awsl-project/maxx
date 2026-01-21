@@ -316,6 +316,7 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 	// Use buffer-based approach to handle incomplete lines properly
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
+	firstChunkSent := false // Track TTFT
 
 	for {
 		// Check context before reading
@@ -361,6 +362,12 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
 					}
 					flusher.Flush()
+
+					// Track TTFT: send first token time on first successful write
+					if !firstChunkSent {
+						firstChunkSent = true
+						eventChan.SendFirstToken(time.Now().UnixMilli())
+					}
 				}
 			}
 		}

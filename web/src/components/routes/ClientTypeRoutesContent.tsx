@@ -43,12 +43,19 @@ import {
 } from '@/pages/client-routes/components/provider-row';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import { Button } from '../ui';
-import {
-  AntigravityQuotasProvider,
-  useAntigravityQuotasContext,
-} from '@/contexts/antigravity-quotas-context';
+import { AntigravityQuotasProvider, useAntigravityQuotasContext } from '@/contexts/antigravity-quotas-context';
 import { CooldownsProvider } from '@/contexts/cooldowns-context';
 import { useTranslation } from 'react-i18next';
+
+type ProviderTypeKey = 'antigravity' | 'kiro' | 'custom';
+
+const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'custom'];
+
+const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
+  antigravity: 'Antigravity',
+  kiro: 'Kiro',
+  custom: 'Custom',
+};
 
 interface ClientTypeRoutesContentProps {
   clientType: ClientType;
@@ -143,8 +150,14 @@ function ClientTypeRoutesContentInner({
     });
   }, [providers, clientRoutes, clientType, searchQuery]);
 
-  // Get available providers (without routes yet)
-  const availableProviders = useMemo((): Provider[] => {
+  // Get available providers (without routes yet), grouped by type and sorted alphabetically
+  const groupedAvailableProviders = useMemo((): Record<ProviderTypeKey, Provider[]> => {
+    const groups: Record<ProviderTypeKey, Provider[]> = {
+      antigravity: [],
+      kiro: [],
+      custom: [],
+    };
+
     let available = providers.filter((p) => {
       const hasRoute = clientRoutes.some((r) => Number(r.providerID) === Number(p.id));
       return !hasRoute;
@@ -158,8 +171,28 @@ function ClientTypeRoutesContentInner({
       );
     }
 
-    return available;
+    // Group by type
+    available.forEach((p) => {
+      const type = p.type as ProviderTypeKey;
+      if (groups[type]) {
+        groups[type].push(p);
+      } else {
+        groups.custom.push(p);
+      }
+    });
+
+    // Sort alphabetically within each group
+    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
+      groups[key].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return groups;
   }, [providers, clientRoutes, searchQuery]);
+
+  // Check if there are any available providers
+  const hasAvailableProviders = useMemo(() => {
+    return PROVIDER_TYPE_ORDER.some((type) => groupedAvailableProviders[type].length > 0);
+  }, [groupedAvailableProviders]);
 
   // Check if there are any Antigravity routes
   const hasAntigravityRoutes = useMemo(() => {
@@ -209,7 +242,9 @@ function ClientTypeRoutesContentInner({
     });
 
     // Collect original positions (sorted by position value)
-    const originalPositions = antigravityItems.map((a) => a.position).sort((a, b) => a - b);
+    const originalPositions = antigravityItems
+      .map((a) => a.position)
+      .sort((a, b) => a - b);
 
     // Build updates: assign sorted items to the original position slots
     // Only update Antigravity routes, leaving Other types unchanged
@@ -395,7 +430,8 @@ function ClientTypeRoutesContentInner({
                     index={items.findIndex((i) => i.id === activeItem.id)}
                     clientType={clientType}
                     streamingCount={
-                      countsByProviderAndClient.get(`${activeItem.provider.id}:${clientType}`) || 0
+                      countsByProviderAndClient.get(`${activeItem.provider.id}:${clientType}`) ||
+                      0
                     }
                     stats={providerStats[activeItem.provider.id]}
                     isToggling={false}
@@ -412,8 +448,8 @@ function ClientTypeRoutesContentInner({
             </div>
           )}
 
-          {/* Add Route Section - Card Style */}
-          {availableProviders.length > 0 && (
+          {/* Add Route Section - Grouped by Type */}
+          {hasAvailableProviders && (
             <div className="pt-4 border-t border-border/50 ">
               <div className="flex items-center gap-2 mb-6">
                 <Plus size={14} style={{ color }} />
@@ -421,61 +457,75 @@ function ClientTypeRoutesContentInner({
                   Available Providers
                 </span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {availableProviders.map((provider) => {
-                  const isNative = (provider.supportedClientTypes || []).includes(clientType);
-                  const providerColor = getProviderColor(provider.type as ProviderType);
-                  return (
-                    <Button
-                      key={provider.id}
-                      variant={null}
-                      onClick={() => handleAddRoute(provider, isNative)}
-                      disabled={createRoute.isPending}
-                      className="h-auto group relative flex items-center justify-between gap-4 p-4 rounded-xl border border-border/40 bg-background hover:bg-secondary/50 hover:border-border shadow-sm hover:shadow transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
-                    >
-                      {/* Left: Provider Icon & Info */}
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div
-                          className="relative w-11 h-11 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300 group-hover:scale-105"
-                          style={{
-                            backgroundColor: `${providerColor}20`,
-                            color: providerColor,
-                          }}
-                        >
-                          <span className="relative text-xl font-black">
-                            {provider.name.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <div className="text-[14px] font-semibold text-foreground truncate leading-tight mb-1">
-                              {provider.name}
-                            </div>
-                            {isNative ? (
-                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                <Zap size={10} className="fill-current opacity-30" />
-                                NATIVE
-                              </span>
-                            ) : (
-                              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                <RefreshCw size={10} />
-                                CONV
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[11px] font-medium text-muted-foreground/80 capitalize leading-tight">
-                            {provider.type}
-                          </span>
-                        </div>
-                      </div>
+              <div className="space-y-6">
+                {PROVIDER_TYPE_ORDER.map((typeKey) => {
+                  const typeProviders = groupedAvailableProviders[typeKey];
+                  if (typeProviders.length === 0) return null;
 
-                      {/* Right: Add Icon */}
-                      <Plus
-                        size={20}
-                        style={{ color: providerColor }}
-                        className="opacity-50 group-hover:opacity-100 group-hover:scale-110 transition-all duration-300 shrink-0"
-                      />
-                    </Button>
+                  return (
+                    <div key={typeKey}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          {PROVIDER_TYPE_LABELS[typeKey]}
+                        </span>
+                        <div className="h-px flex-1 bg-border/50" />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {typeProviders.map((provider) => {
+                          const isNative = (provider.supportedClientTypes || []).includes(clientType);
+                          const providerColor = getProviderColor(provider.type as ProviderType);
+                          return (
+                            <Button
+                              key={provider.id}
+                              variant={null}
+                              onClick={() => handleAddRoute(provider, isNative)}
+                              disabled={createRoute.isPending}
+                              className="h-auto group relative flex items-center justify-between gap-4 p-4 rounded-xl border border-border/40 bg-background hover:bg-secondary/50 hover:border-border shadow-sm hover:shadow transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
+                            >
+                              {/* Left: Provider Icon & Info */}
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div
+                                  className="relative w-11 h-11 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300 group-hover:scale-105"
+                                  style={{
+                                    backgroundColor: `${providerColor}20`,
+                                    color: providerColor,
+                                  }}
+                                >
+                                  <span className="relative text-xl font-black">
+                                    {provider.name.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[14px] font-semibold text-foreground truncate leading-tight mb-1">
+                                    {provider.name}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {isNative ? (
+                                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                        <Zap size={10} className="fill-current opacity-30" />
+                                        NATIVE
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                        <RefreshCw size={10} />
+                                        CONV
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Right: Add Icon */}
+                              <Plus
+                                size={20}
+                                style={{ color: providerColor }}
+                                className="opacity-50 group-hover:opacity-100 group-hover:scale-110 transition-all duration-300 shrink-0"
+                              />
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
               </div>

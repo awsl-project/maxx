@@ -201,6 +201,9 @@ type ProxyRequest struct {
 	EndTime   time.Time     `json:"endTime"`
 	Duration  time.Duration `json:"duration"`
 
+	// TTFT (Time To First Token) 首字时长，流式接口第一条数据返回的延迟
+	TTFT time.Duration `json:"ttft"`
+
 	// 是否为 SSE 流式请求
 	IsStream bool `json:"isStream"`
 
@@ -255,6 +258,9 @@ type ProxyUpstreamAttempt struct {
 	StartTime time.Time     `json:"startTime"`
 	EndTime   time.Time     `json:"endTime"`
 	Duration  time.Duration `json:"duration"`
+
+	// TTFT (Time To First Token) 首字时长，流式接口第一条数据返回的延迟
+	TTFT time.Duration `json:"ttft"`
 
 	// PENDING, IN_PROGRESS, COMPLETED, FAILED
 	Status string `json:"status"`

@@ -207,6 +207,12 @@ export function RequestsPage() {
                   <TableHead className="w-[80px] text-center font-medium">
                     {t('requests.duration')}
                   </TableHead>
+                  <TableHead
+                    className="w-[60px] text-center font-medium"
+                    title={t('requests.ttft')}
+                  >
+                    TTFT
+                  </TableHead>
                   <TableHead className="w-[80px] text-center font-medium">
                     {t('requests.cost')}
                   </TableHead>
@@ -619,6 +625,15 @@ function LogRow({
           title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
         >
           {formatDuration(displayDuration)}
+        </span>
+      </TableCell>
+
+      {/* TTFT (Time To First Token) */}
+      <TableCell className="py-1 text-center">
+        <span className="text-xs font-mono text-muted-foreground">
+          {request.ttft && request.ttft > 0
+            ? `${(request.ttft / 1_000_000_000).toFixed(2)}s`
+            : '-'}
         </span>
       </TableCell>
 

@@ -118,6 +118,7 @@
     "provider": "Provider",
     "code": "Code",
     "duration": "Duration",
+    "ttft": "Time To First Token",
     "cost": "Cost",
     "attempts": "Attempts",
     "attShort": "Att.",
