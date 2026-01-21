@@ -585,16 +585,24 @@ function PprofSection() {
     }
   }, [portDraft]);
 
+  // Clear port error when disabling pprof
+  useEffect(() => {
+    if (!enabledDraft) {
+      setPortError('');
+    }
+  }, [enabledDraft]);
+
   const isPasswordInvalid = usePasswordDraft && !passwordDraft.trim();
   const portNum = parseInt(portDraft, 10);
-  const isPortInvalid = isNaN(portNum) || portNum < 1 || portNum > 65535;
+  // 只在启用 pprof 时才验证端口
+  const isPortInvalid = enabledDraft && (isNaN(portNum) || portNum < 1 || portNum > 65535);
 
   const hasChanges =
     initialized &&
     !isPasswordInvalid &&
     !isPortInvalid &&
     (enabledDraft !== pprofEnabled ||
-      portDraft !== pprofPort ||
+      (enabledDraft && portDraft !== pprofPort) ||  // 只在启用时检查端口变化
       usePasswordDraft !== (pprofPassword !== '') ||
       (usePasswordDraft && passwordDraft !== pprofPassword));
 
@@ -605,11 +613,13 @@ function PprofSection() {
       return;
     }
 
-    // Validate port
-    const portNum = parseInt(portDraft, 10);
-    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-      setPortError('端口必须在 1-65535 之间');
-      return;
+    // 只在启用 pprof 时验证端口
+    if (enabledDraft) {
+      const portNum = parseInt(portDraft, 10);
+      if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        setPortError(t('settings.pprofPortInvalid'));
+        return;
+      }
     }
 
     try {
@@ -621,13 +631,15 @@ function PprofSection() {
         });
       }
 
-      // Save port
-      const portNum = parseInt(portDraft, 10);
-      if (portNum >= 1 && portNum <= 65535 && portDraft !== pprofPort) {
-        await updateSetting.mutateAsync({
-          key: 'pprof_port',
-          value: portDraft,
-        });
+      // 只在启用 pprof 时保存端口
+      if (enabledDraft) {
+        const portNum = parseInt(portDraft, 10);
+        if (portNum >= 1 && portNum <= 65535 && portDraft !== pprofPort) {
+          await updateSetting.mutateAsync({
+            key: 'pprof_port',
+            value: portDraft,
+          });
+        }
       }
 
       // Handle password: delete from database if disabled, otherwise save
