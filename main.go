@@ -83,12 +83,12 @@ func main() {
 
 	// Run Wails application
 	err = wails.Run(&options.App{
-		Title:              "Maxx",
-		Width:              1280,
-		Height:             800,
-		MinWidth:           1024,
-		MinHeight:          768,
-		HideWindowOnClose:  true,
+		Title:             "Maxx",
+		Width:             1280,
+		Height:            800,
+		MinWidth:          1024,
+		MinHeight:         768,
+		HideWindowOnClose: true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -104,6 +104,10 @@ func main() {
 			app,
 		},
 		Menu: appMenu,
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "8c2e1a4d-6f9b-4e3c-9a7f-2b5d8e4f1c3a",
+			OnSecondInstanceLaunch: app.OnSecondInstanceLaunch,
+		},
 		// 启用 DevTools 方便调试
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,
