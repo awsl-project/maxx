@@ -178,18 +178,25 @@ func main() {
 		log.Printf("Warning: Failed to initialize adapters: %v", err)
 	}
 
-	// Start cooldown cleanup goroutine
+	// Start cooldown cleanup goroutine with graceful shutdown support
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			before := len(cooldown.Default().GetAllCooldowns())
-			cooldown.Default().CleanupExpired()
-			after := len(cooldown.Default().GetAllCooldowns())
+		for {
+			select {
+			case <-cleanupCtx.Done():
+				log.Println("[Cooldown] Background cleanup stopped")
+				return
+			case <-ticker.C:
+				before := len(cooldown.Default().GetAllCooldowns())
+				cooldown.Default().CleanupExpired()
+				after := len(cooldown.Default().GetAllCooldowns())
 
-			if before != after {
-				log.Printf("[Cooldown] Cleanup completed: removed %d expired entries", before-after)
+				if before != after {
+					log.Printf("[Cooldown] Cleanup completed: removed %d expired entries", before-after)
+				}
 			}
 		}
 	}()
@@ -234,6 +241,7 @@ func main() {
 	clientAdapter := client.NewAdapter()
 
 	// Create admin service
+	pprofMgr := core.NewPprofManager(settingRepo)
 	adminService := service.NewAdminService(
 		cachedProviderRepo,
 		cachedRouteRepo,
@@ -252,7 +260,13 @@ func main() {
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
 		wsHub,
+		pprofMgr, // Pprof reloader
 	)
+
+	// Start pprof manager (will check system settings)
+	if err := pprofMgr.Start(context.Background()); err != nil {
+		log.Printf("Warning: Failed to start pprof manager: %v", err)
+	}
 
 	// Create backup service
 	backupService := service.NewBackupService(
@@ -346,6 +360,16 @@ func main() {
 	// Start server in goroutine
 	log.Printf("Starting Maxx server %s on %s", version.Info(), *addr)
 	log.Printf("Data directory: %s", dataDirPath)
+	log.Printf("  Database: %s", dbPath)
+	log.Printf("  Log file: %s", logPath)
+	log.Printf("Admin API: http://localhost%s/api/admin/", *addr)
+	log.Printf("WebSocket: ws://localhost%s/ws", *addr)
+	log.Printf("Proxy endpoints:")
+	log.Printf("  Claude: http://localhost%s/v1/messages", *addr)
+	log.Printf("  OpenAI: http://localhost%s/v1/chat/completions", *addr)
+	log.Printf("  Codex:  http://localhost%s/v1/responses", *addr)
+	log.Printf("  Gemini: http://localhost%s/v1beta/models/{model}:generateContent", *addr)
+	log.Printf("Project proxy: http://localhost%s/{project-slug}/v1/messages (etc.)", *addr)
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -376,10 +400,19 @@ func main() {
 		log.Printf("No active proxy requests")
 	}
 
-	// Step 2: Shutdown HTTP server
+	// Step 2: Stop pprof manager
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), core.HTTPShutdownTimeout)
 	defer cancel()
 
+	// Stop background cleanup task
+	cleanupCancel()
+
+	// Stop pprof manager
+	if err := pprofMgr.Stop(shutdownCtx); err != nil {
+		log.Printf("Warning: Failed to stop pprof manager: %v", err)
+	}
+
+	// Step 3: Shutdown HTTP server
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP server graceful shutdown failed: %v, forcing close", err)
 		if closeErr := server.Close(); closeErr != nil {

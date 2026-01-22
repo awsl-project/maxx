@@ -13,6 +13,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/version"
+	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -152,6 +153,15 @@ func (a *LauncherApp) Startup(ctx context.Context) {
 	log.Printf("[Launcher] Data directory: %s", a.dataDir)
 	log.Printf("[Launcher] Instance ID: %s", a.instanceID)
 
+	// 清理可能占用的端口
+	if a.config != nil {
+		port := a.config.Port
+		log.Printf("[Launcher] 检查端口 %d 是否被占用...", port)
+		if err := TerminateProcessByPort(port); err != nil {
+			log.Printf("[Launcher] 端口清理警告: %v", err)
+		}
+	}
+
 	// 在后台 goroutine 中启动 HTTP Server
 	go a.startServerAsync()
 }
@@ -204,6 +214,7 @@ func (a *LauncherApp) startServerAsync() {
 		DataDir:     a.dataDir,
 		InstanceID:  a.instanceID,
 		Components:  components,
+		SettingRepo: dbRepos.SettingRepo,
 		ServeStatic: true, // 关键：启用静态文件服务
 	}
 
@@ -429,4 +440,21 @@ func (a *LauncherApp) SaveConfig(config DesktopConfig) error {
 // GetDataDir 获取数据目录（暴露给前端）
 func (a *LauncherApp) GetDataDir() string {
 	return a.dataDir
+}
+
+// OnSecondInstanceLaunch 当第二个实例尝试启动时触发
+func (a *LauncherApp) OnSecondInstanceLaunch(data options.SecondInstanceData) {
+	log.Println("[Launcher] 第二个实例尝试启动，激活已有窗口")
+
+	// 如果窗口被最小化了，先还原
+	if a.ctx != nil {
+		runtime.WindowUnminimise(a.ctx)
+
+		// 显示窗口
+		runtime.WindowShow(a.ctx)
+
+		// 强制将窗口置顶并聚焦
+		runtime.WindowSetAlwaysOnTop(a.ctx, true)
+		runtime.WindowSetAlwaysOnTop(a.ctx, false)
+	}
 }

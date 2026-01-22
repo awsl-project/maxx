@@ -46,6 +46,12 @@ type AdminService struct {
 	serverAddr          string
 	adapterRefresher    ProviderAdapterRefresher
 	broadcaster         event.Broadcaster
+	pprofReloader       PprofReloader
+}
+
+// PprofReloader is an interface for reloading pprof configuration
+type PprofReloader interface {
+	ReloadPprofConfig() error
 }
 
 // NewAdminService creates a new admin service
@@ -67,6 +73,7 @@ func NewAdminService(
 	serverAddr string,
 	adapterRefresher ProviderAdapterRefresher,
 	broadcaster event.Broadcaster,
+	pprofReloader PprofReloader,
 ) *AdminService {
 	return &AdminService{
 		providerRepo:        providerRepo,
@@ -86,6 +93,7 @@ func NewAdminService(
 		serverAddr:          serverAddr,
 		adapterRefresher:    adapterRefresher,
 		broadcaster:         broadcaster,
+		pprofReloader:       pprofReloader,
 	}
 }
 
@@ -437,11 +445,39 @@ func (s *AdminService) GetSetting(key string) (string, error) {
 }
 
 func (s *AdminService) UpdateSetting(key, value string) error {
-	return s.settingRepo.Set(key, value)
+	if err := s.settingRepo.Set(key, value); err != nil {
+		return err
+	}
+
+	// 如果更新的是 pprof 相关设置，触发重载
+	switch key {
+	case domain.SettingKeyEnablePprof, domain.SettingKeyPprofPort, domain.SettingKeyPprofPassword:
+		if s.pprofReloader != nil {
+			if err := s.pprofReloader.ReloadPprofConfig(); err != nil {
+				return fmt.Errorf("设置已保存，但重载 pprof 失败: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *AdminService) DeleteSetting(key string) error {
-	return s.settingRepo.Delete(key)
+	if err := s.settingRepo.Delete(key); err != nil {
+		return err
+	}
+
+	// 如果删除的是 pprof 相关设置，触发重载
+	switch key {
+	case domain.SettingKeyEnablePprof, domain.SettingKeyPprofPort, domain.SettingKeyPprofPassword:
+		if s.pprofReloader != nil {
+			if err := s.pprofReloader.ReloadPprofConfig(); err != nil {
+				return fmt.Errorf("设置已删除，但重载 pprof 失败: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // ===== Proxy Status API =====

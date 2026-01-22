@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/handler"
+	"github.com/awsl-project/maxx/internal/repository"
 )
 
 // Graceful shutdown configuration
@@ -19,21 +20,23 @@ const (
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Addr              string
-	DataDir           string
-	InstanceID        string
-	Components        *ServerComponents
-	ServeStatic       bool
+	Addr        string
+	DataDir     string
+	InstanceID  string
+	Components  *ServerComponents
+	SettingRepo repository.SystemSettingRepository
+	ServeStatic bool
 }
 
 // ManagedServer 可管理的服务器（支持启动/停止）
 type ManagedServer struct {
-	config     *ServerConfig
-	httpServer *http.Server
-	mux        *http.ServeMux
-	isRunning  bool
-	ctx        context.Context
-	cancel     context.CancelFunc
+	config       *ServerConfig
+	httpServer   *http.Server
+	pprofManager *PprofManager
+	mux          *http.ServeMux
+	isRunning    bool
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // NewManagedServer 创建可管理的服务器
@@ -43,6 +46,16 @@ func NewManagedServer(config *ServerConfig) (*ManagedServer, error) {
 	s := &ManagedServer{
 		config:    config,
 		isRunning: false,
+	}
+
+	// 从 Components 中获取 PprofManager（如果有）
+	if config.Components != nil && config.Components.PprofManager != nil {
+		s.pprofManager = config.Components.PprofManager
+		log.Printf("[Server] Using pprof manager from components")
+	} else if config.SettingRepo != nil {
+		// 向后兼容：如果 Components 中没有，则自己创建
+		s.pprofManager = NewPprofManager(config.SettingRepo)
+		log.Printf("[Server] Created new pprof manager")
 	}
 
 	s.mux = s.setupRoutes()
@@ -100,7 +113,7 @@ func (s *ManagedServer) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
 	s.httpServer = &http.Server{
-		Addr:    s.config.Addr,
+		Addr:     s.config.Addr,
 		Handler:  s.mux,
 		ErrorLog: nil,
 	}
@@ -111,6 +124,13 @@ func (s *ManagedServer) Start(ctx context.Context) error {
 			log.Printf("[Server] Server error: %v", err)
 		}
 	}()
+
+	// 启动 pprof 管理器
+	if s.pprofManager != nil {
+		if err := s.pprofManager.Start(s.ctx); err != nil {
+			log.Printf("[Server] Failed to start pprof manager: %v", err)
+		}
+	}
 
 	s.isRunning = true
 	log.Printf("[Server] Server started successfully")
@@ -159,6 +179,15 @@ func (s *ManagedServer) Stop(ctx context.Context) error {
 		}
 	}
 
+	// 停止 pprof 管理器
+	if s.pprofManager != nil {
+		pprofCtx, pprofCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer pprofCancel()
+		if err := s.pprofManager.Stop(pprofCtx); err != nil {
+			log.Printf("[Server] Failed to stop pprof manager: %v", err)
+		}
+	}
+
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -191,4 +220,12 @@ func (s *ManagedServer) GetInstanceID() string {
 // GetComponents 获取服务器组件
 func (s *ManagedServer) GetComponents() *ServerComponents {
 	return s.config.Components
+}
+
+// ReloadPprofConfig 重新加载 pprof 配置（支持动态修改）
+func (s *ManagedServer) ReloadPprofConfig() error {
+	if s.pprofManager == nil {
+		return nil
+	}
+	return s.pprofManager.ReloadPprofConfig()
 }

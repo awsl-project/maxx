@@ -73,6 +73,7 @@ type ServerComponents struct {
 	KiroHandler         *handler.KiroHandler
 	ProjectProxyHandler *handler.ProjectProxyHandler
 	RequestTracker      *RequestTracker
+	PprofManager        *PprofManager
 }
 
 // InitializeDatabase 初始化数据库和所有仓库
@@ -286,6 +287,9 @@ func InitializeServerComponents(
 	log.Printf("[Core] Creating client adapter")
 	clientAdapter := client.NewAdapter()
 
+	log.Printf("[Core] Creating pprof manager")
+	pprofMgr := NewPprofManager(repos.SettingRepo)
+
 	log.Printf("[Core] Creating admin service")
 	adminService := service.NewAdminService(
 		repos.CachedProviderRepo,
@@ -305,6 +309,7 @@ func InitializeServerComponents(
 		addr,
 		r,
 		wailsBroadcaster,
+		pprofMgr, // 直接传入 pprofMgr
 	)
 
 	log.Printf("[Core] Creating backup service")
@@ -345,6 +350,7 @@ func InitializeServerComponents(
 		KiroHandler:         kiroHandler,
 		ProjectProxyHandler: projectProxyHandler,
 		RequestTracker:      requestTracker,
+		PprofManager:        pprofMgr,
 	}
 
 	log.Printf("[Core] Server components initialized successfully")
