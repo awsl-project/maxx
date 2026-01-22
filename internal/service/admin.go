@@ -72,7 +72,6 @@ func NewAdminService(
 	adapterRefresher ProviderAdapterRefresher,
 	broadcaster event.Broadcaster,
 	pprofReloader PprofReloader,
->>>>>>> 05404a2 (feat: 添加 pprof 性能分析支持)
 ) *AdminService {
 	return &AdminService{
 		providerRepo:        providerRepo,
