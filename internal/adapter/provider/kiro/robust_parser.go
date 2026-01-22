@@ -9,10 +9,10 @@ import (
 
 // RobustEventStreamParser parses AWS EventStream frames with error recovery.
 type RobustEventStreamParser struct {
-	buffer    *bytes.Buffer
+	buffer     *bytes.Buffer
 	errorCount int
-	maxErrors int
-	mu       sync.Mutex
+	maxErrors  int
+	mu         sync.Mutex
 }
 
 // NewRobustEventStreamParser creates a parser instance.
@@ -47,10 +47,7 @@ func (rp *RobustEventStreamParser) ParseStream(data []byte) ([]*EventStreamMessa
 
 	messages := make([]*EventStreamMessage, 0, 8)
 
-	for {
-		if rp.buffer.Len() < EventStreamMinMessageSize {
-			break
-		}
+	for rp.buffer.Len() >= EventStreamMinMessageSize {
 
 		bufferBytes := rp.buffer.Bytes()
 		if len(bufferBytes) < EventStreamMinMessageSize {

@@ -18,7 +18,40 @@ type Migration struct {
 
 // 所有迁移按版本号注册
 // 注意：GORM AutoMigrate 会自动处理新增列，这里只需要处理特殊情况（重命名、数据迁移等）
-var migrations = []Migration{}
+var migrations = []Migration{
+	{
+		Version:     1,
+		Description: "Convert cost from microUSD to nanoUSD (multiply by 1000)",
+		Up: func(db *gorm.DB) error {
+			// Convert cost in proxy_requests table
+			if err := db.Exec("UPDATE proxy_requests SET cost = cost * 1000 WHERE cost > 0").Error; err != nil {
+				return err
+			}
+			// Convert cost in proxy_upstream_attempts table
+			if err := db.Exec("UPDATE proxy_upstream_attempts SET cost = cost * 1000 WHERE cost > 0").Error; err != nil {
+				return err
+			}
+			// Convert cost in usage_stats table
+			if err := db.Exec("UPDATE usage_stats SET cost = cost * 1000 WHERE cost > 0").Error; err != nil {
+				return err
+			}
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			// Rollback: divide by 1000
+			if err := db.Exec("UPDATE proxy_requests SET cost = cost / 1000").Error; err != nil {
+				return err
+			}
+			if err := db.Exec("UPDATE proxy_upstream_attempts SET cost = cost / 1000").Error; err != nil {
+				return err
+			}
+			if err := db.Exec("UPDATE usage_stats SET cost = cost / 1000").Error; err != nil {
+				return err
+			}
+			return nil
+		},
+	},
+}
 
 // RunMigrations 运行所有待执行的迁移
 func (d *DB) RunMigrations() error {

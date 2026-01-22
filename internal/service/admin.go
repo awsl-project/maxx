@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -11,7 +12,10 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/event"
+	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/awsl-project/maxx/internal/version"
 )
 
@@ -40,6 +44,7 @@ type AdminService struct {
 	responseModelRepo   repository.ResponseModelRepository
 	serverAddr          string
 	adapterRefresher    ProviderAdapterRefresher
+	broadcaster         event.Broadcaster
 }
 
 // NewAdminService creates a new admin service
@@ -59,6 +64,7 @@ func NewAdminService(
 	responseModelRepo repository.ResponseModelRepository,
 	serverAddr string,
 	adapterRefresher ProviderAdapterRefresher,
+	broadcaster event.Broadcaster,
 ) *AdminService {
 	return &AdminService{
 		providerRepo:        providerRepo,
@@ -76,6 +82,7 @@ func NewAdminService(
 		responseModelRepo:   responseModelRepo,
 		serverAddr:          serverAddr,
 		adapterRefresher:    adapterRefresher,
+		broadcaster:         broadcaster,
 	}
 }
 
@@ -360,8 +367,8 @@ type CursorPaginationResult struct {
 	LastID  uint64                 `json:"lastId,omitempty"`
 }
 
-func (s *AdminService) GetProxyRequestsCursor(limit int, before, after uint64) (*CursorPaginationResult, error) {
-	items, err := s.proxyRequestRepo.ListCursor(limit+1, before, after)
+func (s *AdminService) GetProxyRequestsCursor(limit int, before, after uint64, filter *repository.ProxyRequestFilter) (*CursorPaginationResult, error) {
+	items, err := s.proxyRequestRepo.ListCursor(limit+1, before, after, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -386,6 +393,10 @@ func (s *AdminService) GetProxyRequestsCursor(limit int, before, after uint64) (
 
 func (s *AdminService) GetProxyRequestsCount() (int64, error) {
 	return s.proxyRequestRepo.Count()
+}
+
+func (s *AdminService) GetProxyRequestsCountWithFilter(filter *repository.ProxyRequestFilter) (int64, error) {
+	return s.proxyRequestRepo.CountWithFilter(filter)
 }
 
 func (s *AdminService) GetProxyRequest(id uint64) (*domain.ProxyRequest, error) {
@@ -471,10 +482,8 @@ func (s *AdminService) GetProxyStatus(r *http.Request) *ProxyStatus {
 			port = p
 		}
 		// displayAddr 保持 host:port 格式不变
-	} else {
-		// 地址不包含端口，说明是标准端口 80
-		// displayAddr 保持原样（不带端口）
 	}
+	// else: 地址不包含端口，说明是标准端口 80，displayAddr 保持原样
 
 	return &ProxyStatus{
 		Running: true,
@@ -652,9 +661,8 @@ func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 // ===== Usage Stats API =====
 
 // GetUsageStats queries usage statistics with optional filters
-// Uses QueryWithRealtime to include current period's real-time data
 func (s *AdminService) GetUsageStats(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	return s.usageStatsRepo.QueryWithRealtime(filter)
+	return s.usageStatsRepo.Query(filter)
 }
 
 // GetDashboardData returns all dashboard data in a single query
@@ -662,7 +670,269 @@ func (s *AdminService) GetDashboardData() (*domain.DashboardData, error) {
 	return s.usageStatsRepo.QueryDashboardData()
 }
 
+// RecalculateUsageStatsProgress represents progress update for usage stats recalculation
+type RecalculateUsageStatsProgress struct {
+	Phase      string `json:"phase"`      // "clearing", "aggregating", "rollup", "completed"
+	Current    int    `json:"current"`    // Current step being processed
+	Total      int    `json:"total"`      // Total steps to process
+	Percentage int    `json:"percentage"` // 0-100
+	Message    string `json:"message"`    // Human-readable message
+}
+
 // RecalculateUsageStats clears all usage stats and recalculates from raw data
+// This only re-aggregates usage stats, it does NOT recalculate costs
 func (s *AdminService) RecalculateUsageStats() error {
-	return s.usageStatsRepo.ClearAndRecalculate()
+	// Create progress channel
+	progressChan := make(chan domain.Progress, 10)
+
+	// Start goroutine to listen to progress and broadcast via WebSocket
+	go func() {
+		for progress := range progressChan {
+			if s.broadcaster != nil {
+				s.broadcaster.BroadcastMessage("recalculate_stats_progress", RecalculateUsageStatsProgress{
+					Phase:      progress.Phase,
+					Current:    progress.Current,
+					Total:      progress.Total,
+					Percentage: progress.Percentage,
+					Message:    progress.Message,
+				})
+			}
+		}
+	}()
+
+	// Call repository method with progress channel
+	err := s.usageStatsRepo.ClearAndRecalculateWithProgress(progressChan)
+
+	// Close channel when done
+	close(progressChan)
+
+	return err
+}
+
+// RecalculateCostsResult holds the result of cost recalculation
+type RecalculateCostsResult struct {
+	TotalAttempts   int    `json:"totalAttempts"`
+	UpdatedAttempts int    `json:"updatedAttempts"`
+	UpdatedRequests int    `json:"updatedRequests"`
+	Message         string `json:"message"`
+}
+
+// RecalculateCostsProgress represents progress update for cost recalculation
+type RecalculateCostsProgress struct {
+	Phase       string `json:"phase"`       // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
+	Current     int    `json:"current"`     // Current item being processed
+	Total       int    `json:"total"`       // Total items to process
+	Percentage  int    `json:"percentage"`  // 0-100
+	Message     string `json:"message"`     // Human-readable message
+}
+
+// RecalculateCosts recalculates cost for all attempts using the current price table
+// and updates the parent requests' cost accordingly (with streaming batch processing)
+func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
+	result := &RecalculateCostsResult{}
+
+	// Helper to broadcast progress
+	broadcastProgress := func(phase string, current, total int, message string) {
+		if s.broadcaster == nil {
+			return
+		}
+		percentage := 0
+		if total > 0 {
+			percentage = current * 100 / total
+		}
+		s.broadcaster.BroadcastMessage("recalculate_costs_progress", RecalculateCostsProgress{
+			Phase:      phase,
+			Current:    current,
+			Total:      total,
+			Percentage: percentage,
+			Message:    message,
+		})
+	}
+
+	// 1. Get total count first
+	broadcastProgress("calculating", 0, 0, "Counting attempts...")
+	totalCount, err := s.attemptRepo.CountAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to count attempts: %w", err)
+	}
+	result.TotalAttempts = int(totalCount)
+
+	if totalCount == 0 {
+		result.Message = "No attempts to recalculate"
+		broadcastProgress("completed", 0, 0, result.Message)
+		return result, nil
+	}
+
+	broadcastProgress("calculating", 0, int(totalCount), fmt.Sprintf("Processing %d attempts...", totalCount))
+
+	calculator := pricing.GlobalCalculator()
+	processedCount := 0
+	const batchSize = 100
+	affectedRequestIDs := make(map[uint64]struct{})
+
+	// 2. Stream through attempts, process and update each batch immediately
+	err = s.attemptRepo.StreamForCostCalc(batchSize, func(batch []*domain.AttemptCostData) error {
+		attemptUpdates := make(map[uint64]uint64, len(batch))
+
+		for _, attempt := range batch {
+			// Use responseModel if available, otherwise use mappedModel or requestModel
+			model := attempt.ResponseModel
+			if model == "" {
+				model = attempt.MappedModel
+			}
+			if model == "" {
+				model = attempt.RequestModel
+			}
+
+			// Build metrics from attempt data
+			metrics := &usage.Metrics{
+				InputTokens:          attempt.InputTokenCount,
+				OutputTokens:         attempt.OutputTokenCount,
+				CacheReadCount:       attempt.CacheReadCount,
+				CacheCreationCount:   attempt.CacheWriteCount,
+				Cache5mCreationCount: attempt.Cache5mWriteCount,
+				Cache1hCreationCount: attempt.Cache1hWriteCount,
+			}
+
+			// Calculate new cost
+			newCost := calculator.Calculate(model, metrics)
+
+			// Track affected request IDs
+			affectedRequestIDs[attempt.ProxyRequestID] = struct{}{}
+
+			// Track if attempt needs update
+			if newCost != attempt.Cost {
+				attemptUpdates[attempt.ID] = newCost
+			}
+
+			processedCount++
+		}
+
+		// Batch update attempt costs immediately
+		if len(attemptUpdates) > 0 {
+			if err := s.attemptRepo.BatchUpdateCosts(attemptUpdates); err != nil {
+				log.Printf("[RecalculateCosts] Failed to batch update attempts: %v", err)
+			} else {
+				result.UpdatedAttempts += len(attemptUpdates)
+			}
+		}
+
+		// Broadcast progress
+		broadcastProgress("calculating", processedCount, int(totalCount),
+			fmt.Sprintf("Processed %d/%d attempts", processedCount, totalCount))
+
+		// Small delay to allow UI to update (WebSocket messages need time to be processed)
+		time.Sleep(50 * time.Millisecond)
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to stream attempts: %w", err)
+	}
+
+	// 3. Recalculate request costs from attempts (with progress via channel)
+	progressChan := make(chan domain.Progress, 10)
+	go func() {
+		for progress := range progressChan {
+			broadcastProgress(progress.Phase, progress.Current, progress.Total, progress.Message)
+		}
+	}()
+
+	updatedRequests, err := s.proxyRequestRepo.RecalculateCostsFromAttemptsWithProgress(progressChan)
+	close(progressChan)
+
+	if err != nil {
+		log.Printf("[RecalculateCosts] Failed to recalculate request costs: %v", err)
+	} else {
+		result.UpdatedRequests = int(updatedRequests)
+	}
+
+	broadcastProgress("updating_requests", result.UpdatedRequests, result.UpdatedRequests,
+		fmt.Sprintf("Updated %d requests", result.UpdatedRequests))
+
+	result.Message = fmt.Sprintf("Recalculated %d attempts, updated %d attempts and %d requests",
+		result.TotalAttempts, result.UpdatedAttempts, result.UpdatedRequests)
+
+	broadcastProgress("completed", 100, 100, result.Message)
+
+	log.Printf("[RecalculateCosts] %s", result.Message)
+	return result, nil
+}
+
+// RecalculateRequestCostResult holds the result of single request cost recalculation
+type RecalculateRequestCostResult struct {
+	RequestID       uint64 `json:"requestId"`
+	OldCost         uint64 `json:"oldCost"`
+	NewCost         uint64 `json:"newCost"`
+	UpdatedAttempts int    `json:"updatedAttempts"`
+	Message         string `json:"message"`
+}
+
+// RecalculateRequestCost recalculates cost for a single request and its attempts
+func (s *AdminService) RecalculateRequestCost(requestID uint64) (*RecalculateRequestCostResult, error) {
+	result := &RecalculateRequestCostResult{RequestID: requestID}
+
+	// 1. Get the request
+	request, err := s.proxyRequestRepo.GetByID(requestID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get request: %w", err)
+	}
+	result.OldCost = request.Cost
+
+	// 2. Get all attempts for this request
+	attempts, err := s.attemptRepo.ListByProxyRequestID(requestID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list attempts: %w", err)
+	}
+
+	calculator := pricing.GlobalCalculator()
+	var totalCost uint64
+
+	// 3. Recalculate cost for each attempt
+	for _, attempt := range attempts {
+		// Use responseModel if available, otherwise use mappedModel or requestModel
+		model := attempt.ResponseModel
+		if model == "" {
+			model = attempt.MappedModel
+		}
+		if model == "" {
+			model = attempt.RequestModel
+		}
+
+		// Build metrics from attempt data
+		metrics := &usage.Metrics{
+			InputTokens:          attempt.InputTokenCount,
+			OutputTokens:         attempt.OutputTokenCount,
+			CacheReadCount:       attempt.CacheReadCount,
+			CacheCreationCount:   attempt.CacheWriteCount,
+			Cache5mCreationCount: attempt.Cache5mWriteCount,
+			Cache1hCreationCount: attempt.Cache1hWriteCount,
+		}
+
+		// Calculate new cost
+		newCost := calculator.Calculate(model, metrics)
+		totalCost += newCost
+
+		// Update attempt cost if changed
+		if newCost != attempt.Cost {
+			if err := s.attemptRepo.UpdateCost(attempt.ID, newCost); err != nil {
+				log.Printf("[RecalculateRequestCost] Failed to update attempt %d cost: %v", attempt.ID, err)
+				continue
+			}
+			result.UpdatedAttempts++
+		}
+	}
+
+	// 4. Update request cost
+	result.NewCost = totalCost
+	if err := s.proxyRequestRepo.UpdateCost(requestID, totalCost); err != nil {
+		return nil, fmt.Errorf("failed to update request cost: %w", err)
+	}
+
+	result.Message = fmt.Sprintf("Recalculated request %d: %d -> %d (updated %d attempts)",
+		requestID, result.OldCost, result.NewCost, result.UpdatedAttempts)
+
+	log.Printf("[RecalculateRequestCost] %s", result.Message)
+	return result, nil
 }

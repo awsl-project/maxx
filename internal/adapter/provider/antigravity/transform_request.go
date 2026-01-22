@@ -270,7 +270,7 @@ func removeTrailingUnsignedThinking(messages *[]ClaudeMessage) {
 		}
 
 		blocks := parseContentBlocks((*messages)[i].Content)
-		if blocks == nil || len(blocks) == 0 {
+		if len(blocks) == 0 {
 			continue
 		}
 

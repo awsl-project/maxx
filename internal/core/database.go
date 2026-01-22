@@ -70,6 +70,7 @@ type ServerComponents struct {
 	AntigravityHandler  *handler.AntigravityHandler
 	KiroHandler         *handler.KiroHandler
 	ProjectProxyHandler *handler.ProjectProxyHandler
+	RequestTracker      *RequestTracker
 }
 
 // InitializeDatabase 初始化数据库和所有仓库
@@ -170,6 +171,23 @@ func InitializeServerComponents(
 		log.Printf("[Core] Warning: Failed to mark stale requests: %v", err)
 	} else if count > 0 {
 		log.Printf("[Core] Marked %d stale requests as failed", count)
+	}
+	// Also mark stale upstream attempts as failed
+	if count, err := repos.AttemptRepo.MarkStaleAttemptsFailed(); err != nil {
+		log.Printf("[Core] Warning: Failed to mark stale attempts: %v", err)
+	} else if count > 0 {
+		log.Printf("[Core] Marked %d stale upstream attempts as failed", count)
+	}
+	// Fix legacy failed requests/attempts without end_time
+	if count, err := repos.ProxyRequestRepo.FixFailedRequestsWithoutEndTime(); err != nil {
+		log.Printf("[Core] Warning: Failed to fix failed requests without end_time: %v", err)
+	} else if count > 0 {
+		log.Printf("[Core] Fixed %d failed requests without end_time", count)
+	}
+	if count, err := repos.AttemptRepo.FixFailedAttemptsWithoutEndTime(); err != nil {
+		log.Printf("[Core] Warning: Failed to fix failed attempts without end_time: %v", err)
+	} else if count > 0 {
+		log.Printf("[Core] Fixed %d failed attempts without end_time", count)
 	}
 
 	log.Printf("[Core] Loading cached data")
@@ -275,6 +293,7 @@ func InitializeServerComponents(
 		repos.ResponseModelRepo,
 		addr,
 		r,
+		wailsBroadcaster,
 	)
 
 	log.Printf("[Core] Creating backup service")
@@ -298,6 +317,10 @@ func InitializeServerComponents(
 	kiroHandler := handler.NewKiroHandler(adminService)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, repos.CachedProjectRepo)
 
+	log.Printf("[Core] Creating request tracker for graceful shutdown")
+	requestTracker := NewRequestTracker()
+	proxyHandler.SetRequestTracker(requestTracker)
+
 	components := &ServerComponents{
 		Router:              r,
 		WebSocketHub:        wsHub,
@@ -310,6 +333,7 @@ func InitializeServerComponents(
 		AntigravityHandler:  antigravityHandler,
 		KiroHandler:         kiroHandler,
 		ProjectProxyHandler: projectProxyHandler,
+		RequestTracker:      requestTracker,
 	}
 
 	log.Printf("[Core] Server components initialized successfully")

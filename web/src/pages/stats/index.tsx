@@ -1,42 +1,59 @@
-'use client';
-
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BarChart3, RefreshCw } from 'lucide-react';
+import {
+  BarChart3,
+  RefreshCw,
+  Calculator,
+  PanelLeft,
+  Activity,
+  Cpu,
+  Coins,
+  CheckCircle,
+  X,
+} from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Tabs,
   TabsList,
   TabsTrigger,
   Button,
+  Progress,
 } from '@/components/ui';
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from '@/components/ui/chart';
+import { cn } from '@/lib/utils';
 import {
   useUsageStats,
   useProviders,
   useProjects,
   useAPITokens,
   useRecalculateUsageStats,
+  useRecalculateCosts,
   useResponseModels,
 } from '@/hooks/queries';
-import type { UsageStatsFilter, UsageStats, StatsGranularity } from '@/lib/transport';
-import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
+import type {
+  UsageStatsFilter,
+  UsageStats,
+  StatsGranularity,
+  RecalculateCostsProgress,
+  RecalculateStatsProgress,
+} from '@/lib/transport';
+import { getTransport } from '@/lib/transport';
+import {
+  ComposedChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
 
-type TimeRange = '1h' | '24h' | '7d' | '30d' | '90d' | 'all';
+type TimeRange = '1h' | '24h' | '7d' | '30d' | '90d' | 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth' | 'all';
 
 interface TimeRangeConfig {
   start: Date | null; // null means all time
@@ -51,8 +68,12 @@ interface TimeRangeConfig {
 function getTimeRangeConfig(range: TimeRange): TimeRangeConfig {
   const now = new Date();
   let start: Date | null;
+  let end: Date = now;
   let granularity: StatsGranularity;
   let durationMinutes: number;
+
+  // 获取今天的开始时间（00:00:00）
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   switch (range) {
     case '1h':
@@ -80,15 +101,75 @@ function getTimeRangeConfig(range: TimeRange): TimeRangeConfig {
       granularity = 'day';
       durationMinutes = 90 * 24 * 60;
       break;
+    case 'today':
+      start = todayStart;
+      granularity = 'hour';
+      durationMinutes = Math.floor((now.getTime() - todayStart.getTime()) / 60000) || 1;
+      break;
+    case 'yesterday': {
+      const yesterdayStart = new Date(todayStart);
+      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+      start = yesterdayStart;
+      // 减去 1 毫秒，确保不包含今天
+      end = new Date(todayStart.getTime() - 1);
+      granularity = 'hour';
+      durationMinutes = 24 * 60;
+      break;
+    }
+    case 'thisWeek': {
+      // 本周一开始
+      const dayOfWeek = now.getDay();
+      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日为0，需要回退6天
+      const weekStart = new Date(todayStart);
+      weekStart.setDate(weekStart.getDate() - diff);
+      start = weekStart;
+      granularity = 'day';
+      durationMinutes = Math.floor((now.getTime() - weekStart.getTime()) / 60000) || 1;
+      break;
+    }
+    case 'lastWeek': {
+      // 上周一到上周日（不包含本周一）
+      const dayOfWeek = now.getDay();
+      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const thisWeekStart = new Date(todayStart);
+      thisWeekStart.setDate(thisWeekStart.getDate() - diff);
+      const lastWeekStart = new Date(thisWeekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+      start = lastWeekStart;
+      // 减去 1 毫秒，确保不包含本周一
+      end = new Date(thisWeekStart.getTime() - 1);
+      granularity = 'day';
+      durationMinutes = 7 * 24 * 60;
+      break;
+    }
+    case 'thisMonth': {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      start = monthStart;
+      granularity = 'day';
+      durationMinutes = Math.floor((now.getTime() - monthStart.getTime()) / 60000) || 1;
+      break;
+    }
+    case 'lastMonth': {
+      const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      start = lastMonthStart;
+      // 减去 1 毫秒，确保不包含本月第一天
+      end = new Date(thisMonthStart.getTime() - 1);
+      granularity = 'day';
+      // 计算上月天数
+      const lastMonthDays = Math.floor((thisMonthStart.getTime() - lastMonthStart.getTime()) / (24 * 60 * 60 * 1000));
+      durationMinutes = lastMonthDays * 24 * 60;
+      break;
+    }
     case 'all':
-      // 最近 12 个月
-      start = new Date(now.getFullYear(), now.getMonth() - 11, 1); // 12 个月前的月初
-      granularity = 'month';
-      durationMinutes = 365 * 24 * 60; // 约一年
+      // 全部时间，使用 year 粒度
+      start = new Date(now.getFullYear() - 4, 0, 1); // 5年前的1月1日
+      granularity = 'year';
+      durationMinutes = 5 * 365 * 24 * 60;
       break;
   }
 
-  return { start, end: now, granularity, durationMinutes };
+  return { start, end, granularity, durationMinutes };
 }
 
 interface ChartDataPoint {
@@ -130,6 +211,9 @@ function generateTimeAxis(start: Date | null, end: Date, granularity: StatsGranu
         break;
       case 'month':
         current.setMonth(current.getMonth() + 1);
+        break;
+      case 'year':
+        current.setFullYear(current.getFullYear() + 1);
         break;
     }
   }
@@ -198,8 +282,8 @@ function aggregateForChart(
         label: formatLabel(item.label, granularity, timeRange),
         totalRequests,
         successRate: totalRequests > 0 ? (item.successful / totalRequests) * 100 : 0,
-        // 转换 cost 从微美元到美元
-        cost: item.cost / 1000000,
+        // 转换 cost 从纳美元到美元 (1 USD = 1,000,000,000 nanoUSD)
+        cost: item.cost / 1_000_000_000,
       };
     });
 }
@@ -231,6 +315,8 @@ function getAggregationKey(date: Date, granularity: StatsGranularity): string {
     }
     case 'month':
       return `${year}-${month}`;
+    case 'year':
+      return `${year}`;
     default:
       return `${year}-${month}-${day}T${hour}`;
   }
@@ -249,12 +335,16 @@ function formatLabel(key: string, granularity: StatsGranularity, timeRange: Time
     const [year, month, day] = datePart.split('-').map(Number);
     const [hour, minute] = timePart.split(':').map(Number);
     date = new Date(year, month - 1, day, hour || 0, minute || 0);
+  } else if (key.length === 4) {
+    // 年份格式: YYYY
+    const year = Number(key);
+    date = new Date(year, 0, 1);
   } else if (key.length === 7) {
-    // 月份格式：YYYY-MM
+    // 月份格式: YYYY-MM
     const [year, month] = key.split('-').map(Number);
     date = new Date(year, month - 1, 1);
   } else {
-    // 日期格式：YYYY-MM-DD
+    // 日期格式: YYYY-MM-DD
     const [year, month, day] = key.split('-').map(Number);
     date = new Date(year, month - 1, day);
   }
@@ -273,6 +363,8 @@ function formatLabel(key: string, granularity: StatsGranularity, timeRange: Time
       return `Week of ${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
     case 'month':
       return date.toLocaleDateString([], { year: 'numeric', month: 'short' });
+    case 'year':
+      return String(date.getFullYear());
     default:
       return key;
   }
@@ -296,37 +388,6 @@ function formatNumber(num: number): string {
 
 type ChartView = 'requests' | 'tokens';
 
-const chartConfig = {
-  successful: {
-    label: 'Successful',
-    color: 'var(--chart-success)',
-  },
-  failed: {
-    label: 'Failed',
-    color: 'var(--chart-error)',
-  },
-  cost: {
-    label: 'Cost (USD)',
-    color: 'var(--chart-warning)',
-  },
-  inputTokens: {
-    label: 'Input Tokens',
-    color: 'var(--chart-info)',
-  },
-  outputTokens: {
-    label: 'Output Tokens',
-    color: 'var(--chart-primary)',
-  },
-  cacheRead: {
-    label: 'Cache Read',
-    color: 'var(--chart-success)',
-  },
-  cacheWrite: {
-    label: 'Cache Write',
-    color: 'var(--chart-warning)',
-  },
-} satisfies ChartConfig;
-
 export function StatsPage() {
   const { t } = useTranslation();
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
@@ -336,6 +397,49 @@ export function StatsPage() {
   const [apiTokenId, setApiTokenId] = useState<string>('all');
   const [model, setModel] = useState<string>('all');
   const [chartView, setChartView] = useState<ChartView>('requests');
+  const [costsProgress, setCostsProgress] = useState<RecalculateCostsProgress | null>(null);
+  const [statsProgress, setStatsProgress] = useState<RecalculateStatsProgress | null>(null);
+
+  // Reset all filters to 'all'
+  const handleResetFilters = () => {
+    setProviderId('all');
+    setProjectId('all');
+    setClientType('all');
+    setApiTokenId('all');
+    setModel('all');
+  };
+
+  // Subscribe to cost recalculation progress updates via WebSocket
+  useEffect(() => {
+    const transport = getTransport();
+    const unsubscribe = transport.subscribe<RecalculateCostsProgress>(
+      'recalculate_costs_progress',
+      (data) => {
+        setCostsProgress(data);
+        // Clear progress after completion (with a delay to show final message)
+        if (data.phase === 'completed') {
+          setTimeout(() => setCostsProgress(null), 3000);
+        }
+      },
+    );
+    return unsubscribe;
+  }, []);
+
+  // Subscribe to stats recalculation progress updates via WebSocket
+  useEffect(() => {
+    const transport = getTransport();
+    const unsubscribe = transport.subscribe<RecalculateStatsProgress>(
+      'recalculate_stats_progress',
+      (data) => {
+        setStatsProgress(data);
+        // Clear progress after completion (with a delay to show final message)
+        if (data.phase === 'completed') {
+          setTimeout(() => setStatsProgress(null), 3000);
+        }
+      },
+    );
+    return unsubscribe;
+  }, []);
 
   const { data: providers } = useProviders();
   const { data: projects } = useProjects();
@@ -365,7 +469,8 @@ export function StatsPage() {
     () => aggregateForChart(stats, timeConfig.granularity, timeRange, timeConfig),
     [stats, timeConfig, timeRange],
   );
-  const recalculateMutation = useRecalculateUsageStats();
+  const recalculateStatsMutation = useRecalculateUsageStats();
+  const recalculateCostsMutation = useRecalculateCosts();
 
   // 计算汇总数据和 RPM/TPM
   const summary = useMemo(() => {
@@ -375,9 +480,13 @@ export function StatsPage() {
         successfulRequests: 0,
         failedRequests: 0,
         totalTokens: 0,
+        totalCacheRead: 0,
+        totalCacheWrite: 0,
+        cacheHitRate: 0,
         totalCost: 0,
         avgRpm: 0,
         avgTpm: 0,
+        avgTtft: 0,
       };
     }
 
@@ -386,19 +495,40 @@ export function StatsPage() {
         totalRequests: acc.totalRequests + s.totalRequests,
         successfulRequests: acc.successfulRequests + s.successfulRequests,
         failedRequests: acc.failedRequests + s.failedRequests,
-        totalTokens: acc.totalTokens + s.inputTokens + s.outputTokens,
+        // Total tokens = input + output + cache read + cache write
+        totalTokens: acc.totalTokens + s.inputTokens + s.outputTokens + s.cacheRead + s.cacheWrite,
+        totalInputTokens: acc.totalInputTokens + s.inputTokens,
+        totalCacheRead: acc.totalCacheRead + s.cacheRead,
+        totalCacheWrite: acc.totalCacheWrite + s.cacheWrite,
         totalCost: acc.totalCost + s.cost,
         totalDurationMs: acc.totalDurationMs + s.totalDurationMs,
+        totalTtftMs: acc.totalTtftMs + (s.totalTtftMs || 0),
       }),
       {
         totalRequests: 0,
         successfulRequests: 0,
         failedRequests: 0,
         totalTokens: 0,
+        totalInputTokens: 0,
+        totalCacheRead: 0,
+        totalCacheWrite: 0,
         totalCost: 0,
         totalDurationMs: 0,
+        totalTtftMs: 0,
       },
     );
+
+    // 计算缓存命中率 = cacheRead / (inputTokens + cacheRead)
+    // 即：从缓存读取的 token 占实际输入 token 的比例
+    const totalInputWithCache = totals.totalInputTokens + totals.totalCacheRead;
+    const cacheHitRate = totalInputWithCache > 0
+      ? (totals.totalCacheRead / totalInputWithCache) * 100
+      : 0;
+
+    // 计算平均 TTFT (毫秒转秒)
+    const avgTtft = totals.successfulRequests > 0
+      ? totals.totalTtftMs / totals.successfulRequests / 1000
+      : 0;
 
     // 基于 totalDurationMs 计算 RPM 和 TPM
     // RPM = (totalRequests / totalDurationMs) * 60000
@@ -410,8 +540,10 @@ export function StatsPage() {
 
     return {
       ...totals,
+      cacheHitRate,
       avgRpm,
       avgTpm,
+      avgTtft,
     };
   }, [stats]);
 
@@ -423,322 +555,590 @@ export function StatsPage() {
         title={t('stats.title')}
         description={t('stats.description')}
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => recalculateMutation.mutate()}
-            disabled={recalculateMutation.isPending}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${recalculateMutation.isPending ? 'animate-spin' : ''}`}
-            />
-            {t('stats.recalculate')}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => recalculateCostsMutation.mutate()}
+              disabled={recalculateCostsMutation.isPending || recalculateStatsMutation.isPending || !!costsProgress || !!statsProgress}
+            >
+              <Calculator
+                className={`h-4 w-4 mr-2 ${recalculateCostsMutation.isPending || costsProgress ? 'animate-spin' : ''}`}
+              />
+              {t('stats.recalculateCosts')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => recalculateStatsMutation.mutate()}
+              disabled={recalculateStatsMutation.isPending || recalculateCostsMutation.isPending || !!costsProgress || !!statsProgress}
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${recalculateStatsMutation.isPending || statsProgress ? 'animate-spin' : ''}`}
+              />
+              {t('stats.recalculateStats')}
+            </Button>
+          </div>
         }
       />
 
-      <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
-        {/* 过滤器 */}
-        <div className="flex flex-wrap items-center gap-4">
-          <FilterSelect
-            label={t('stats.timeRange')}
-            value={timeRange}
-            onChange={(v) => setTimeRange(v as TimeRange)}
-            options={[
-              { value: '1h', label: t('stats.last1h') },
-              { value: '24h', label: t('stats.last24h') },
-              { value: '7d', label: t('stats.last7d') },
-              { value: '30d', label: t('stats.last30d') },
-              { value: '90d', label: t('stats.last90d') },
-              { value: 'all', label: t('stats.allTime') },
-            ]}
-          />
-          <FilterSelect
-            label={t('stats.provider')}
-            value={providerId}
-            onChange={setProviderId}
-            options={[
-              { value: 'all', label: t('stats.allProviders') },
-              ...(providers?.map((p) => ({
-                value: String(p.id),
-                label: p.name,
-              })) || []),
-            ]}
-          />
-          <FilterSelect
-            label={t('stats.project')}
-            value={projectId}
-            onChange={setProjectId}
-            options={[
-              { value: 'all', label: t('stats.allProjects') },
-              ...(projects?.map((p) => ({
-                value: String(p.id),
-                label: p.name,
-              })) || []),
-            ]}
-          />
-          <FilterSelect
-            label={t('stats.clientType')}
-            value={clientType}
-            onChange={setClientType}
-            options={[
-              { value: 'all', label: t('stats.allClients') },
-              { value: 'claude', label: 'Claude' },
-              { value: 'openai', label: 'OpenAI' },
-              { value: 'codex', label: 'Codex' },
-              { value: 'gemini', label: 'Gemini' },
-            ]}
-          />
-          <FilterSelect
-            label={t('stats.apiToken')}
-            value={apiTokenId}
-            onChange={setApiTokenId}
-            options={[
-              { value: 'all', label: t('stats.allTokens') },
-              ...(apiTokens?.map((t) => ({
-                value: String(t.id),
-                label: t.name,
-              })) || []),
-            ]}
-          />
-          <FilterSelect
-            label={t('stats.model')}
-            value={model}
-            onChange={setModel}
-            options={[
-              { value: 'all', label: t('stats.allModels') },
-              ...(responseModels?.map((m) => ({ value: m, label: m })) || []),
-            ]}
-          />
+      {/* Cost recalculation progress bar */}
+      {costsProgress && (
+        <div className="px-6 pt-4">
+          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{costsProgress.message}</span>
+              {costsProgress.phase !== 'completed' && costsProgress.total > 0 && (
+                <span className="text-muted-foreground">
+                  {costsProgress.percentage}%
+                </span>
+              )}
+            </div>
+            <Progress
+              value={costsProgress.phase === 'completed' ? 100 : costsProgress.percentage}
+              className="h-2"
+            />
+          </div>
         </div>
+      )}
 
-        {/* 汇总卡片 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <SummaryCard
-            title={t('stats.requests')}
-            value={summary.totalRequests.toLocaleString()}
-            subtitle={`${formatNumber(summary.avgRpm)} RPM`}
-          />
-          <SummaryCard
-            title={t('stats.tokens')}
-            value={summary.totalTokens.toLocaleString()}
-            subtitle={`${formatNumber(summary.avgTpm)} TPM`}
-          />
-          <SummaryCard
-            title={t('stats.successRate')}
-            value={`${summary.totalRequests > 0 ? ((summary.successfulRequests / summary.totalRequests) * 100).toFixed(1) : 0}%`}
-            className={
-              summary.totalRequests > 0 &&
-              summary.successfulRequests / summary.totalRequests >= 0.95
-                ? 'text-(--color-chart-1)'
-                : summary.totalRequests > 0 &&
-                    summary.successfulRequests / summary.totalRequests < 0.8
-                  ? 'text-(--color-chart-2)'
-                  : 'text-(--color-chart-3)'
-            }
-          />
-          <SummaryCard
-            title={t('stats.totalCost')}
-            value={`$${(summary.totalCost / 1000000).toFixed(4)}`}
-          />
+      {/* Stats recalculation progress bar */}
+      {statsProgress && (
+        <div className="px-6 pt-4">
+          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{statsProgress.message}</span>
+              {statsProgress.phase !== 'completed' && statsProgress.total > 0 && (
+                <span className="text-muted-foreground">
+                  {statsProgress.percentage}%
+                </span>
+              )}
+            </div>
+            <Progress
+              value={statsProgress.phase === 'completed' ? 100 : statsProgress.percentage}
+              className="h-2"
+            />
+          </div>
         </div>
+      )}
 
-        {isLoading ? (
-          <div className="text-center text-muted-foreground py-8">{t('common.loading')}</div>
-        ) : chartData.length === 0 ? (
-          <div className="text-center text-muted-foreground py-8">{t('common.noData')}</div>
-        ) : (
-          <Card className="flex flex-col min-h-0">
-            <CardHeader className="flex flex-row items-center justify-between shrink-0">
-              <CardTitle>{t('stats.chart')}</CardTitle>
-              <Tabs value={chartView} onValueChange={(v) => setChartView(v as ChartView)}>
-                <TabsList>
-                  <TabsTrigger value="requests">{t('stats.requests')}</TabsTrigger>
-                  <TabsTrigger value="tokens">{t('stats.tokens')}</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </CardHeader>
-            <CardContent className="flex-1 min-h-0">
-              <ChartContainer config={chartConfig} className="h-[400px] w-full">
-                <ComposedChart
-                  data={chartData}
-                  margin={{
-                    left: 12,
-                    right: 12,
-                    top: 12,
-                    bottom: 12,
-                  }}
+      <div className="flex-1 flex overflow-hidden">
+        {/* 左侧筛选栏 */}
+        <div className="w-72 border-r border-border/40 flex-shrink-0">
+          <div className="h-full overflow-y-auto p-4 space-y-6">
+            {/* 标题 */}
+            <div className="flex items-center pb-2 border-b border-border/40">
+              <span className="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
+                <PanelLeft className="h-3.5 w-3.5" />
+                {t('stats.filterConditions')}
+              </span>
+            </div>
+
+            {/* 时间范围 */}
+            <FilterSection
+              label={t('stats.timeRange')}
+              showClear={timeRange !== 'all'}
+              onClear={() => setTimeRange('all')}
+            >
+              {[
+                { value: 'today', label: t('stats.today') },
+                { value: 'yesterday', label: t('stats.yesterday') },
+                { value: 'thisWeek', label: t('stats.thisWeek') },
+                { value: 'lastWeek', label: t('stats.lastWeek') },
+                { value: 'thisMonth', label: t('stats.thisMonth') },
+                { value: 'lastMonth', label: t('stats.lastMonth') },
+                { value: '1h', label: t('stats.last1h') },
+                { value: '24h', label: t('stats.last24h') },
+                { value: '7d', label: t('stats.last7d') },
+                { value: '30d', label: t('stats.last30d') },
+                { value: '90d', label: t('stats.last90d') },
+              ].map((item) => (
+                <FilterChip
+                  key={item.value}
+                  selected={timeRange === item.value}
+                  onClick={() => setTimeRange(item.value as TimeRange)}
                 >
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis
-                    dataKey="label"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    className="text-xs"
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    className="text-xs"
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    className="text-xs"
-                    tickFormatter={(v) => `$${v.toFixed(2)}`}
-                  />
-                  <ChartTooltip
-                    content={
-                      <ChartTooltipContent
-                        labelFormatter={(value) => value}
-                        formatter={(value, name) => {
-                          const numValue = typeof value === 'number' ? value : 0;
-                          const nameStr = name ?? '';
-                          if (nameStr === t('stats.costUSD'))
-                            return [`$${numValue.toFixed(4)}`, nameStr];
-                          return [numValue.toLocaleString(), nameStr];
-                        }}
-                      />
-                    }
-                  />
-                  <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
-                  {chartView === 'requests' && (
-                    <>
-                      <Bar
-                        yAxisId="left"
-                        dataKey="successful"
-                        name={t('stats.successful')}
-                        stackId="a"
-                        fill="var(--chart-success)"
-                      />
-                      <Bar
-                        yAxisId="left"
-                        dataKey="failed"
-                        name={t('stats.failed')}
-                        stackId="a"
-                        fill="var(--chart-error)"
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="cost"
-                        name={t('stats.costUSD')}
-                        stroke="var(--chart-warning)"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </>
-                  )}
-                  {chartView === 'tokens' && (
-                    <>
-                      <Bar
-                        yAxisId="left"
-                        dataKey="inputTokens"
-                        name={t('stats.inputTokens')}
-                        stackId="a"
-                        fill="var(--chart-info)"
-                      />
-                      <Bar
-                        yAxisId="left"
-                        dataKey="outputTokens"
-                        name={t('stats.outputTokens')}
-                        stackId="a"
-                        fill="var(--chart-primary)"
-                      />
-                      <Bar
-                        yAxisId="left"
-                        dataKey="cacheRead"
-                        name={t('stats.cacheRead')}
-                        stackId="a"
-                        fill="var(--chart-success)"
-                      />
-                      <Bar
-                        yAxisId="left"
-                        dataKey="cacheWrite"
-                        name={t('stats.cacheWrite')}
-                        stackId="a"
-                        fill="var(--chart-warning)"
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="cost"
-                        name={t('stats.costUSD')}
-                        stroke="var(--chart-error)"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </>
-                  )}
-                </ComposedChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        )}
+                  {item.label}
+                </FilterChip>
+              ))}
+            </FilterSection>
+
+            {/* Provider - 按类型分组，按名称排序 */}
+            {providers && providers.length > 0 && (
+              <FilterSection
+                label={t('stats.provider')}
+                showClear={providerId !== 'all'}
+                onClear={() => setProviderId('all')}
+              >
+                {(() => {
+                  // 按类型分组
+                  const grouped = providers.reduce(
+                    (acc, p) => {
+                      const type = p.type || 'other';
+                      if (!acc[type]) acc[type] = [];
+                      acc[type].push(p);
+                      return acc;
+                    },
+                    {} as Record<string, typeof providers>,
+                  );
+                  // 类型排序优先级
+                  const typeOrder = ['antigravity', 'kiro', 'custom', 'other'];
+                  const sortedTypes = Object.keys(grouped).sort((a, b) => {
+                    const aIndex = typeOrder.indexOf(a);
+                    const bIndex = typeOrder.indexOf(b);
+                    if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+                    if (aIndex === -1) return 1;
+                    if (bIndex === -1) return -1;
+                    return aIndex - bIndex;
+                  });
+                  return sortedTypes.map((type) => (
+                    <div key={type} className="w-full">
+                      <div className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wide mb-1.5">
+                        {type}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {grouped[type]
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map((p) => (
+                            <FilterChip
+                              key={p.id}
+                              selected={providerId === String(p.id)}
+                              onClick={() => setProviderId(String(p.id))}
+                            >
+                              {p.name}
+                            </FilterChip>
+                          ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </FilterSection>
+            )}
+
+            {/* Project */}
+            {projects && projects.length > 0 && (
+              <FilterSection
+                label={t('stats.project')}
+                showClear={projectId !== 'all'}
+                onClear={() => setProjectId('all')}
+              >
+                {projects.map((p) => (
+                  <FilterChip
+                    key={p.id}
+                    selected={projectId === String(p.id)}
+                    onClick={() => setProjectId(String(p.id))}
+                  >
+                    {p.name}
+                  </FilterChip>
+                ))}
+              </FilterSection>
+            )}
+
+            {/* Client Type */}
+            <FilterSection
+              label={t('stats.clientType')}
+              showClear={clientType !== 'all'}
+              onClear={() => setClientType('all')}
+            >
+              {[
+                { value: 'claude', label: 'Claude' },
+                { value: 'openai', label: 'OpenAI' },
+                { value: 'codex', label: 'Codex' },
+                { value: 'gemini', label: 'Gemini' },
+              ].map((item) => (
+                <FilterChip
+                  key={item.value}
+                  selected={clientType === item.value}
+                  onClick={() => setClientType(item.value)}
+                >
+                  {item.label}
+                </FilterChip>
+              ))}
+            </FilterSection>
+
+            {/* API Token */}
+            {apiTokens && apiTokens.length > 0 && (
+              <FilterSection
+                label={t('stats.apiToken')}
+                showClear={apiTokenId !== 'all'}
+                onClear={() => setApiTokenId('all')}
+              >
+                {apiTokens.map((token) => (
+                  <FilterChip
+                    key={token.id}
+                    selected={apiTokenId === String(token.id)}
+                    onClick={() => setApiTokenId(String(token.id))}
+                  >
+                    {token.name}
+                  </FilterChip>
+                ))}
+              </FilterSection>
+            )}
+
+            {/* Model */}
+            {responseModels && responseModels.length > 0 && (
+              <FilterSection
+                label={t('stats.model')}
+                showClear={model !== 'all'}
+                onClear={() => setModel('all')}
+              >
+                {responseModels.map((m) => (
+                  <FilterChip
+                    key={m}
+                    selected={model === m}
+                    onClick={() => setModel(m)}
+                    title={m}
+                  >
+                    {m}
+                  </FilterChip>
+                ))}
+              </FilterSection>
+            )}
+
+            {/* 重置按钮 */}
+            <Button
+              variant="outline"
+              className="w-full text-xs h-8"
+              onClick={handleResetFilters}
+            >
+              <RefreshCw className="h-3 w-3 mr-2" />
+              {t('common.reset')}
+            </Button>
+          </div>
+        </div>
+
+        {/* 右侧内容区 */}
+        <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-6">
+          <div className="max-w-7xl mx-auto w-full flex flex-col gap-6 flex-1 min-h-0">
+            {/* 当前筛选条件摘要 */}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+              <span className="font-medium text-foreground">{t('stats.filterSummary')}:</span>
+              <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                {timeConfig.start
+                  ? `${timeConfig.start.toLocaleString()} - ${timeConfig.end.toLocaleString()}`
+                  : t('stats.allTime')}
+              </span>
+              {providerId !== 'all' && (
+                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                  {t('stats.provider')}: {providers?.find((p) => String(p.id) === providerId)?.name || providerId}
+                </span>
+              )}
+              {projectId !== 'all' && (
+                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                  {t('stats.project')}: {projects?.find((p) => String(p.id) === projectId)?.name || projectId}
+                </span>
+              )}
+              {clientType !== 'all' && (
+                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                  {t('stats.clientType')}: {clientType}
+                </span>
+              )}
+              {apiTokenId !== 'all' && (
+                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                  {t('stats.apiToken')}: {apiTokens?.find((t) => String(t.id) === apiTokenId)?.name || apiTokenId}
+                </span>
+              )}
+              {model !== 'all' && (
+                <span className="bg-muted/50 px-2 py-0.5 rounded text-xs">
+                  {t('stats.model')}: {model}
+                </span>
+              )}
+            </div>
+
+            {/* 汇总卡片 - 与 Dashboard 一致的排列顺序 */}
+            <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+              <StatCard
+                title={t('stats.requests')}
+                value={summary.totalRequests.toLocaleString()}
+                subtitle={`${formatNumber(summary.avgRpm)} RPM · ${summary.avgTtft.toFixed(2)}s TTFT`}
+                icon={Activity}
+                iconClassName="text-blue-600 dark:text-blue-400"
+              />
+              <StatCard
+                title={t('stats.tokens')}
+                value={formatNumber(summary.totalTokens)}
+                subtitle={`${formatNumber(summary.avgTpm)} TPM · ${summary.cacheHitRate.toFixed(1)}% ${t('stats.cacheHit')}`}
+                icon={Cpu}
+                iconClassName="text-violet-600 dark:text-violet-400"
+              />
+              <StatCard
+                title={t('stats.totalCost')}
+                value={`$${(summary.totalCost / 1_000_000_000).toFixed(4)}`}
+                icon={Coins}
+                iconClassName="text-amber-600 dark:text-amber-400"
+              />
+              <StatCard
+                title={t('stats.successRate')}
+                value={`${summary.totalRequests > 0 ? ((summary.successfulRequests / summary.totalRequests) * 100).toFixed(1) : 0}%`}
+                icon={CheckCircle}
+                iconClassName={cn(
+                  (summary.successfulRequests / summary.totalRequests) >= 0.95
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : (summary.successfulRequests / summary.totalRequests) >= 0.8
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-red-600 dark:text-red-400'
+                )}
+              />
+            </div>
+
+            {isLoading ? (
+              <div className="text-center text-muted-foreground py-8">{t('common.loading')}</div>
+            ) : chartData.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">{t('common.noData')}</div>
+            ) : (
+              <Card className="flex flex-col flex-1 min-h-0 border-border/50 bg-card/50 backdrop-blur-sm">
+                <CardHeader className="flex flex-row items-center justify-between shrink-0 pb-2">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4 text-emerald-500" />
+                    {t('stats.chart')}
+                  </CardTitle>
+                  <Tabs value={chartView} onValueChange={(v) => setChartView(v as ChartView)}>
+                    <TabsList>
+                      <TabsTrigger value="requests">{t('stats.requests')}</TabsTrigger>
+                      <TabsTrigger value="tokens">{t('stats.tokens')}</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </CardHeader>
+                                <CardContent className="flex-1 min-h-0">
+                                  <div className="w-full h-full" style={{ minHeight: '300px' }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                      <ComposedChart data={chartData}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
+                                        <XAxis
+                                          dataKey="label"
+                                          tick={{ fontSize: 11 }}
+                                          tickLine={false}
+                                          axisLine={false}
+                                          interval="preserveStartEnd"
+                                        />
+                                        <YAxis
+                                          yAxisId="left"
+                                          tick={{ fontSize: 11 }}
+                                          tickLine={false}
+                                          axisLine={false}
+                                          tickFormatter={(v) => formatNumber(v)}
+                                        />
+                                        <YAxis
+                                          yAxisId="right"
+                                          orientation="right"
+                                          tick={{ fontSize: 11 }}
+                                          tickLine={false}
+                                          axisLine={false}
+                                          tickFormatter={(v) => `${v.toFixed(2)}`}
+                                        />
+                                        <Tooltip
+                                          contentStyle={{
+                                            backgroundColor: 'var(--card)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '8px',
+                                            fontSize: '12px',
+                                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                          }}
+                                          itemSorter={(a) => (a.name === t('stats.costUSD') ? -1 : 0)}
+                                          formatter={(value, name) => {
+                                            const numValue = typeof value === 'number' ? value : 0;
+                                            const nameStr = name ?? '';
+                                            if (nameStr === t('stats.costUSD'))
+                                              return [`$${numValue.toFixed(4)}`, nameStr];
+                                            return [numValue.toLocaleString(), nameStr];
+                                          }}
+                                        />
+                                        <Legend
+                                          wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+                                          itemSorter={(a) => (a.value === t('stats.costUSD') ? -1 : 0)}
+                                        />
+                                        {chartView === 'requests' && (
+                                          <>
+                                            <Line
+                                              yAxisId="right"
+                                              type="monotone"
+                                              dataKey="cost"
+                                              name={t('stats.costUSD')}
+                                              stroke="var(--color-chart-3)"
+                                              strokeWidth={2}
+                                              dot={false}
+                                            />
+                                            <Bar
+                                              yAxisId="left"
+                                              dataKey="successful"
+                                              name={t('stats.successful')}
+                                              stackId="a"
+                                              fill="var(--color-chart-2)"
+                                              radius={[0, 0, 0, 0]}
+                                            />
+                                            <Bar
+                                              yAxisId="left"
+                                              dataKey="failed"
+                                              name={t('stats.failed')}
+                                              stackId="a"
+                                              fill="var(--color-destructive)"
+                                              radius={[4, 4, 0, 0]}
+                                            />
+                                          </>
+                                        )}
+                                        {chartView === 'tokens' && (
+                                          <>
+                                            <Line
+                                              yAxisId="right"
+                                              type="monotone"
+                                              dataKey="cost"
+                                              name={t('stats.costUSD')}
+                                              stroke="var(--color-chart-3)"
+                                              strokeWidth={2}
+                                              dot={false}
+                                            />
+                                            <Bar
+                                              yAxisId="left"
+                                              dataKey="inputTokens"
+                                              name={t('stats.inputTokens')}
+                                              stackId="a"
+                                              fill="var(--color-chart-1)"
+                                              radius={[0, 0, 0, 0]}
+                                            />
+                                            <Bar
+                                              yAxisId="left"
+                                              dataKey="outputTokens"
+                                              name={t('stats.outputTokens')}
+                                              stackId="a"
+                                              fill="var(--color-chart-2)"
+                                              radius={[0, 0, 0, 0]}
+                                            />
+                                            <Bar
+                                              yAxisId="left"
+                                              dataKey="cacheRead"
+                                              name={t('stats.cacheRead')}
+                                              stackId="a"
+                                              fill="var(--color-chart-4)"
+                                              radius={[0, 0, 0, 0]}
+                                            />
+                                            <Bar
+                                              yAxisId="left"
+                                              dataKey="cacheWrite"
+                                              name={t('stats.cacheWrite')}
+                                              stackId="a"
+                                              fill="var(--color-chart-5)"
+                                              radius={[4, 4, 0, 0]}
+                                            />
+                                          </>
+                                        )}
+                                      </ComposedChart>                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  const selectedLabel = options.find((opt) => opt.value === value)?.label;
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-xs text-muted-foreground">{label}</label>
-      <Select value={value} onValueChange={(v) => v && onChange(v)}>
-        <SelectTrigger className="w-40">
-          <SelectValue>{selectedLabel}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value}>
-              {opt.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function SummaryCard({
+function StatCard({
   title,
   value,
   subtitle,
-  className,
+  icon: Icon,
+  iconClassName,
 }: {
   title: string;
   value: string;
   subtitle?: string;
-  className?: string;
+  icon: React.ElementType;
+  iconClassName?: string;
 }) {
   return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="text-sm text-muted-foreground">{title}</div>
-        <div className={`text-2xl font-bold ${className || ''}`}>
-          {value}
-          {subtitle && (
-            <span className="text-xs font-normal text-muted-foreground ml-1">{subtitle}</span>
-          )}
+    <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              {title}
+            </p>
+            <p className="text-2xl font-bold text-foreground font-mono tracking-tight">
+              {value}
+            </p>
+            {subtitle && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{subtitle}</span>
+              </div>
+            )}
+          </div>
+          <div
+            className={cn(
+              'w-10 h-10 rounded-xl bg-muted flex items-center justify-center box-border border-2 border-transparent transition-shadow duration-300',
+              iconClassName
+            )}
+          >
+            <Icon className="h-5 w-5" />
+          </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function FilterSection({
+  label,
+  children,
+  onClear,
+  showClear,
+}: {
+  label: string;
+  children: React.ReactNode;
+  onClear?: () => void;
+  showClear?: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest pl-1 opacity-80">
+          {label}
+        </label>
+        {onClear && (
+          <button
+            type="button"
+            onClick={onClear}
+            className={cn(
+              "p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors",
+              showClear ? "opacity-100" : "opacity-0 pointer-events-none"
+            )}
+            title="Clear"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FilterChip({
+  selected,
+  onClick,
+  children,
+  title,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={cn(
+        "h-8 px-3 text-sm rounded-full transition-all truncate max-w-full border flex items-center",
+        selected
+          ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
+          : "bg-background text-foreground border-input hover:bg-accent hover:text-accent-foreground"
+      )}
+    >
+      {children}
+    </button>
   );
 }

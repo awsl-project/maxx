@@ -111,7 +111,8 @@ func (a *AntigravityAdapter) Execute(ctx context.Context, w http.ResponseWriter,
 
 		// Transform request based on client type
 		var geminiBody []byte
-		if clientType == domain.ClientTypeClaude {
+		switch clientType {
+		case domain.ClientTypeClaude:
 			// Use direct transformation (no converter dependency)
 			// This combines cache control cleanup, thinking filter, tool loop recovery,
 			// system instruction building, content transformation, tool building, and generation config
@@ -127,10 +128,10 @@ func (a *AntigravityAdapter) Execute(ctx context.Context, w http.ResponseWriter,
 
 			// Apply minimal post-processing for features not yet fully integrated
 			geminiBody = applyClaudePostProcess(geminiBody, sessionID, hasThinking, requestBody, mappedModel)
-		} else if clientType == domain.ClientTypeOpenAI {
+		case domain.ClientTypeOpenAI:
 			// TODO: Implement OpenAI transformation in the future
 			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "OpenAI transformation not yet implemented")
-		} else {
+		default:
 			// For Gemini, unwrap CLI envelope if present
 			geminiBody = unwrapGeminiCLIEnvelope(requestBody)
 		}
@@ -439,12 +440,9 @@ func applyClaudePostProcess(geminiBody []byte, sessionID string, hasThinking boo
 		return geminiBody
 	}
 
-	modified := false
+	modified := InjectToolConfig(request)
 
 	// 1. Inject toolConfig with VALIDATED mode when tools exist
-	if InjectToolConfig(request) {
-		modified = true
-	}
 
 	// 2. Process contents for additional signature validation
 	if contents, ok := request["contents"].([]interface{}); ok {
@@ -545,16 +543,17 @@ func (a *AntigravityAdapter) handleNonStreamResponse(ctx context.Context, w http
 	var responseBody []byte
 
 	// Transform response based on client type
-	if clientType == domain.ClientTypeClaude {
+	switch clientType {
+	case domain.ClientTypeClaude:
 		requestModel := ctxutil.GetRequestModel(ctx)
 		responseBody, err = convertGeminiToClaudeResponse(unwrappedBody, requestModel)
 		if err != nil {
 			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
 		}
-	} else if clientType == domain.ClientTypeOpenAI {
+	case domain.ClientTypeOpenAI:
 		// TODO: Implement OpenAI response transformation
 		return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "OpenAI response transformation not yet implemented")
-	} else {
+	default:
 		// Gemini native
 		responseBody = unwrappedBody
 	}
@@ -648,6 +647,7 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 	// Read chunks and accumulate until we have complete lines
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
+	firstChunkSent := false // Track TTFT
 
 	for {
 		// Check context before reading
@@ -700,6 +700,12 @@ func (a *AntigravityAdapter) handleStreamResponse(ctx context.Context, w http.Re
 						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
 					}
 					flusher.Flush()
+
+					// Track TTFT: send first token time on first successful write
+					if !firstChunkSent {
+						firstChunkSent = true
+						eventChan.SendFirstToken(time.Now().UnixMilli())
+					}
 				}
 			}
 		}

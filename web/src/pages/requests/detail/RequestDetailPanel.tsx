@@ -11,28 +11,209 @@ import {
 } from '@/components/ui';
 import { Server, Code, Database, Info, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { ProxyUpstreamAttempt, ProxyRequest } from '@/lib/transport';
-import { cn } from '@/lib/utils';
+import type { ProxyUpstreamAttempt, ProxyRequest, ModelPricing } from '@/lib/transport';
+import { cn, formatDuration } from '@/lib/utils';
 import { CopyButton, CopyAsCurlButton, DiffButton, EmptyState } from './components';
 import { RequestDetailView } from './RequestDetailView';
+import { usePricing } from '@/hooks/queries';
 
 // Selection type: either the main request or an attempt
 type SelectionType = { type: 'request' } | { type: 'attempt'; attemptId: number };
 
-// 微美元转美元 (1 USD = 1,000,000 microUSD)
-const MICRO_USD_PER_USD = 1_000_000;
-function microToUSD(microUSD: number): number {
-  return microUSD / MICRO_USD_PER_USD;
+function formatCost(nanoUSD: number): string {
+  if (nanoUSD === 0) return '-';
+  // 向下取整到 6 位小数 (microUSD 精度)
+  const usd = Math.floor(nanoUSD / 1000) / 1_000_000;
+  return `$${usd.toFixed(6)}`;
 }
 
-function formatCost(microUSD: number): string {
-  if (microUSD === 0) return '-';
-  const usd = microToUSD(microUSD);
-  if (usd < 0.0001) return '<$0.0001';
-  if (usd < 0.001) return `$${usd.toFixed(5)}`;
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  if (usd < 1) return `$${usd.toFixed(3)}`;
-  return `$${usd.toFixed(2)}`;
+// Cost breakdown item
+export interface CostBreakdownItem {
+  label: string;
+  tokens: number;
+  pricePerM: number; // microUSD/M tokens
+  cost: number; // nanoUSD
+}
+
+// Cost breakdown result
+export interface CostBreakdown {
+  model: string;
+  pricing?: ModelPricing;
+  items: CostBreakdownItem[];
+  totalCost: number; // nanoUSD
+}
+
+// MicroToNano conversion factor
+const MICRO_TO_NANO = 1000;
+
+// Calculate linear cost (same as backend CalculateLinearCost)
+// Returns nanoUSD
+function calculateLinearCost(tokens: number, priceMicro: number): number {
+  // Use BigInt to prevent overflow for large token counts
+  const t = BigInt(tokens);
+  const p = BigInt(priceMicro);
+  const microToNano = BigInt(MICRO_TO_NANO);
+  const tokensPerMillion = BigInt(1_000_000);
+
+  const result = (t * p * microToNano) / tokensPerMillion;
+  return Number(result);
+}
+
+// Calculate tiered cost for 1M context models (same as backend CalculateTieredCost)
+// Returns nanoUSD
+function calculateTieredCost(
+  tokens: number,
+  basePriceMicro: number,
+  premiumNum: number,
+  premiumDenom: number,
+  threshold: number,
+): number {
+  if (tokens <= threshold) {
+    return calculateLinearCost(tokens, basePriceMicro);
+  }
+
+  const baseCostNano = calculateLinearCost(threshold, basePriceMicro);
+  const premiumTokens = tokens - threshold;
+
+  // Use BigInt for premium calculation
+  const t = BigInt(premiumTokens);
+  const p = BigInt(basePriceMicro);
+  const microToNano = BigInt(MICRO_TO_NANO);
+  const tokensPerMillion = BigInt(1_000_000);
+  const num = BigInt(premiumNum);
+  const denom = BigInt(premiumDenom);
+
+  const premiumCostNano = (t * p * microToNano * num) / tokensPerMillion / denom;
+  return baseCostNano + Number(premiumCostNano);
+}
+
+// Calculate cost breakdown from request/attempt data and pricing table
+function calculateCostBreakdown(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadTokens: number,
+  cacheWriteTokens: number,
+  cache5mWriteTokens: number,
+  cache1hWriteTokens: number,
+  priceTable?: Record<string, ModelPricing>,
+): CostBreakdown {
+  const items: CostBreakdownItem[] = [];
+  let pricing: ModelPricing | undefined;
+
+  // Find pricing for model (exact match first, then prefix match)
+  if (priceTable) {
+    pricing = priceTable[model];
+    if (!pricing) {
+      // Try prefix match (find longest matching prefix)
+      let bestMatch: ModelPricing | undefined;
+      let bestLen = 0;
+      for (const [key, p] of Object.entries(priceTable)) {
+        if (model.startsWith(key) && key.length > bestLen) {
+          bestMatch = p;
+          bestLen = key.length;
+        }
+      }
+      pricing = bestMatch;
+    }
+  }
+
+  if (pricing) {
+    // Get 1M context settings
+    const has1MContext = pricing.has1mContext || false;
+    const threshold = pricing.context1mThreshold || 200_000;
+    const inputPremiumNum = pricing.inputPremiumNum || 2;
+    const inputPremiumDenom = pricing.inputPremiumDenom || 1;
+    const outputPremiumNum = pricing.outputPremiumNum || 3;
+    const outputPremiumDenom = pricing.outputPremiumDenom || 2;
+
+    // Input tokens
+    if (inputTokens > 0) {
+      const cost = has1MContext
+        ? calculateTieredCost(
+            inputTokens,
+            pricing.inputPriceMicro,
+            inputPremiumNum,
+            inputPremiumDenom,
+            threshold,
+          )
+        : calculateLinearCost(inputTokens, pricing.inputPriceMicro);
+      items.push({
+        label: 'Input',
+        tokens: inputTokens,
+        pricePerM: pricing.inputPriceMicro,
+        cost,
+      });
+    }
+
+    // Output tokens
+    if (outputTokens > 0) {
+      const cost = has1MContext
+        ? calculateTieredCost(
+            outputTokens,
+            pricing.outputPriceMicro,
+            outputPremiumNum,
+            outputPremiumDenom,
+            threshold,
+          )
+        : calculateLinearCost(outputTokens, pricing.outputPriceMicro);
+      items.push({
+        label: 'Output',
+        tokens: outputTokens,
+        pricePerM: pricing.outputPriceMicro,
+        cost,
+      });
+    }
+
+    // Cache read
+    if (cacheReadTokens > 0) {
+      const cacheReadPrice =
+        pricing.cacheReadPriceMicro || Math.floor(pricing.inputPriceMicro / 10);
+      items.push({
+        label: 'Cache Read',
+        tokens: cacheReadTokens,
+        pricePerM: cacheReadPrice,
+        cost: calculateLinearCost(cacheReadTokens, cacheReadPrice),
+      });
+    }
+
+    // Cache write (5m or 1h)
+    if (cache5mWriteTokens > 0) {
+      const cache5mPrice =
+        pricing.cache5mWritePriceMicro || Math.floor((pricing.inputPriceMicro * 5) / 4);
+      items.push({
+        label: 'Cache Write (5m)',
+        tokens: cache5mWriteTokens,
+        pricePerM: cache5mPrice,
+        cost: calculateLinearCost(cache5mWriteTokens, cache5mPrice),
+      });
+    }
+    if (cache1hWriteTokens > 0) {
+      const cache1hPrice =
+        pricing.cache1hWritePriceMicro || Math.floor(pricing.inputPriceMicro * 2);
+      items.push({
+        label: 'Cache Write (1h)',
+        tokens: cache1hWriteTokens,
+        pricePerM: cache1hPrice,
+        cost: calculateLinearCost(cache1hWriteTokens, cache1hPrice),
+      });
+    }
+    // Fallback: if no 5m/1h breakdown but has cacheWrite
+    if (cache5mWriteTokens === 0 && cache1hWriteTokens === 0 && cacheWriteTokens > 0) {
+      const cacheWritePrice =
+        pricing.cache5mWritePriceMicro || Math.floor((pricing.inputPriceMicro * 5) / 4);
+      items.push({
+        label: 'Cache Write',
+        tokens: cacheWriteTokens,
+        pricePerM: cacheWritePrice,
+        cost: calculateLinearCost(cacheWriteTokens, cacheWritePrice),
+      });
+    }
+  }
+
+  const totalCost = items.reduce((sum, item) => sum + item.cost, 0);
+
+  return { model, pricing, items, totalCost };
 }
 
 function formatJSON(obj: unknown): string {
@@ -68,8 +249,23 @@ export function RequestDetailPanel({
   tokenMap,
 }: RequestDetailPanelProps) {
   const { t } = useTranslation();
+  const { data: priceTable } = usePricing();
   const selectedAttempt =
     selection.type === 'attempt' ? attempts?.find((a) => a.id === selection.attemptId) : null;
+
+  // Calculate cost breakdown for request
+  const requestCostBreakdown = priceTable
+    ? calculateCostBreakdown(
+        request.responseModel || request.requestModel,
+        request.inputTokenCount,
+        request.outputTokenCount,
+        request.cacheReadCount,
+        request.cacheWriteCount,
+        request.cache5mWriteCount || 0,
+        request.cache1hWriteCount || 0,
+        priceTable.models,
+      )
+    : undefined;
 
   if (selection.type === 'request') {
     return (
@@ -83,6 +279,7 @@ export function RequestDetailPanel({
         sessionInfo={sessionMap.get(request.sessionID)}
         projectMap={projectMap}
         tokenName={tokenMap.get(request.apiTokenID)}
+        costBreakdown={requestCostBreakdown}
       />
     );
   }
@@ -407,6 +604,14 @@ export function RequestDetailPanel({
             </CardHeader>
             <CardContent className="pt-4">
               <dl className="space-y-4">
+                <div className="flex justify-between items-center border-b border-border/30 pb-2">
+                  <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    TTFT
+                  </dt>
+                  <dd className="text-sm text-foreground font-mono font-medium">
+                    {selectedAttempt.ttft && selectedAttempt.ttft > 0 ? formatDuration(selectedAttempt.ttft) : '-'}
+                  </dd>
+                </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Input Tokens

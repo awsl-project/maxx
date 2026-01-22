@@ -112,6 +112,7 @@ export {
   useUsageStats,
   useUsageStatsWithPreset,
   useRecalculateUsageStats,
+  useRecalculateCosts,
   selectGranularity,
   getTimeRange,
   type TimeRangePreset,
@@ -142,3 +143,6 @@ export {
   type HeatmapDataPoint,
   type ModelRanking,
 } from './use-dashboard-stats';
+
+// Pricing hooks
+export { pricingKeys, usePricing } from './use-pricing';

@@ -234,6 +234,8 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 		// If current attempt is still IN_PROGRESS, mark as cancelled/failed
 		if currentAttempt != nil && currentAttempt.Status == "IN_PROGRESS" {
+			currentAttempt.EndTime = time.Now()
+			currentAttempt.Duration = currentAttempt.EndTime.Sub(currentAttempt.StartTime)
 			if ctx.Err() != nil {
 				currentAttempt.Status = "CANCELLED"
 			} else {
@@ -316,7 +318,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				return ctx.Err()
 			}
 
-			// Create attempt record with start time
+			// Create attempt record with start time and request info
 			attemptStartTime := time.Now()
 			attemptRecord := &domain.ProxyUpstreamAttempt{
 				ProxyRequestID: proxyReq.ID,
@@ -327,6 +329,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				StartTime:      attemptStartTime,
 				RequestModel:   requestModel,
 				MappedModel:    mappedModel,
+				RequestInfo:    proxyReq.RequestInfo, // Use original request info initially
 			}
 			if err := e.attemptRepo.Create(attemptRecord); err != nil {
 				log.Printf("[Executor] Failed to create attempt record: %v", err)
@@ -404,7 +407,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 						Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
 						Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
 					}
-					attemptRecord.Cost = pricing.GlobalCalculator().Calculate(attemptRecord.MappedModel, metrics)
+					// Use ResponseModel for pricing (actual model from API response), fallback to MappedModel
+					pricingModel := attemptRecord.ResponseModel
+					if pricingModel == "" {
+						pricingModel = attemptRecord.MappedModel
+					}
+					attemptRecord.Cost = pricing.GlobalCalculator().Calculate(pricingModel, metrics)
 				}
 
 				_ = e.attemptRepo.Update(attemptRecord)
@@ -443,6 +451,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 					proxyReq.Cache1hWriteCount = metrics.Cache1hCreationCount
 				}
 				proxyReq.Cost = attemptRecord.Cost
+				proxyReq.TTFT = attemptRecord.TTFT
 
 				_ = e.proxyRequestRepo.Update(proxyReq)
 
@@ -476,7 +485,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 					Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
 					Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
 				}
-				attemptRecord.Cost = pricing.GlobalCalculator().Calculate(attemptRecord.MappedModel, metrics)
+				// Use ResponseModel for pricing (actual model from API response), fallback to MappedModel
+				pricingModel := attemptRecord.ResponseModel
+				if pricingModel == "" {
+					pricingModel = attemptRecord.MappedModel
+				}
+				attemptRecord.Cost = pricing.GlobalCalculator().Calculate(pricingModel, metrics)
 			}
 
 			_ = e.attemptRepo.Update(attemptRecord)
@@ -508,6 +522,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				}
 			}
 			proxyReq.Cost = attemptRecord.Cost
+			proxyReq.TTFT = attemptRecord.TTFT
 
 			_ = e.proxyRequestRepo.Update(proxyReq)
 			if e.broadcaster != nil {
@@ -800,6 +815,11 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 				if event.ResponseModel != "" {
 					attempt.ResponseModel = event.ResponseModel
 				}
+			case domain.EventFirstToken:
+				if event.FirstTokenTime > 0 {
+					firstTokenTime := time.UnixMilli(event.FirstTokenTime)
+					attempt.TTFT = firstTokenTime.Sub(attempt.StartTime)
+				}
 			}
 		default:
 			// No more events
@@ -848,6 +868,13 @@ func (e *Executor) processAdapterEventsRealtime(eventChan domain.AdapterEventCha
 		case domain.EventResponseModel:
 			if event.ResponseModel != "" {
 				attempt.ResponseModel = event.ResponseModel
+				needsBroadcast = true
+			}
+		case domain.EventFirstToken:
+			if event.FirstTokenTime > 0 {
+				// Calculate TTFT as duration from start time to first token time
+				firstTokenTime := time.UnixMilli(event.FirstTokenTime)
+				attempt.TTFT = firstTokenTime.Sub(attempt.StartTime)
 				needsBroadcast = true
 			}
 		}

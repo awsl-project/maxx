@@ -35,7 +35,7 @@
     "react-i18next": "^16.5.3",
     "react-resizable-panels": "^2.1.7",
     "react-router-dom": "^7.11.0",
-    "recharts": "^2.15.4",
+    "recharts": "^3.6.0",
     "shadcn": "^3.6.3",
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.18",

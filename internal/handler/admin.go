@@ -9,6 +9,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/service"
 )
@@ -88,6 +89,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleResponseModels(w, r)
 	case "backup":
 		h.handleBackup(w, r, parts)
+	case "pricing":
+		h.handlePricing(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
@@ -650,7 +653,7 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 }
 
 // ProxyRequest handlers
-// Routes: /admin/requests, /admin/requests/count, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts
+// Routes: /admin/requests, /admin/requests/count, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts, /admin/requests/{id}/recalculate-cost
 func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
 	// Check for count endpoint: /admin/requests/count
 	if len(parts) > 2 && parts[2] == "count" {
@@ -667,6 +670,12 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 	// Check for sub-resource: /admin/requests/{id}/attempts
 	if len(parts) > 3 && parts[3] == "attempts" && id > 0 {
 		h.handleProxyUpstreamAttempts(w, r, id)
+		return
+	}
+
+	// Check for sub-resource: /admin/requests/{id}/recalculate-cost
+	if len(parts) > 3 && parts[3] == "recalculate-cost" && id > 0 {
+		h.handleRecalculateRequestCost(w, r, id)
 		return
 	}
 
@@ -691,7 +700,25 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 			if a := r.URL.Query().Get("after"); a != "" {
 				after, _ = strconv.ParseUint(a, 10, 64)
 			}
-			result, err := h.svc.GetProxyRequestsCursor(limit, before, after)
+
+			// 构建过滤条件
+			var filter *repository.ProxyRequestFilter
+			providerIDStr := r.URL.Query().Get("providerId")
+			statusStr := r.URL.Query().Get("status")
+
+			if providerIDStr != "" || statusStr != "" {
+				filter = &repository.ProxyRequestFilter{}
+				if providerIDStr != "" {
+					if providerID, err := strconv.ParseUint(providerIDStr, 10, 64); err == nil {
+						filter.ProviderID = &providerID
+					}
+				}
+				if statusStr != "" {
+					filter.Status = &statusStr
+				}
+			}
+
+			result, err := h.svc.GetProxyRequestsCursor(limit, before, after, filter)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -710,7 +737,27 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	count, err := h.svc.GetProxyRequestsCount()
+	// 解析过滤参数
+	var filter *repository.ProxyRequestFilter
+	providerIDStr := r.URL.Query().Get("providerId")
+	statusStr := r.URL.Query().Get("status")
+
+	if providerIDStr != "" || statusStr != "" {
+		filter = &repository.ProxyRequestFilter{}
+		if providerIDStr != "" {
+			providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid providerId"})
+				return
+			}
+			filter.ProviderID = &providerID
+		}
+		if statusStr != "" {
+			filter.Status = &statusStr
+		}
+	}
+
+	count, err := h.svc.GetProxyRequestsCountWithFilter(filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -746,6 +793,21 @@ func (h *AdminHandler) handleProxyUpstreamAttempts(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, http.StatusOK, attempts)
+}
+
+// handleRecalculateRequestCost handles POST /admin/requests/{id}/recalculate-cost
+func (h *AdminHandler) handleRecalculateRequestCost(w http.ResponseWriter, r *http.Request, requestID uint64) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	result, err := h.svc.RecalculateRequestCost(requestID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Settings handlers
@@ -1168,6 +1230,11 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 		h.handleRecalculateUsageStats(w, r)
 		return
 	}
+	// Check for recalculate-costs endpoint: /admin/usage-stats/recalculate-costs
+	if strings.HasSuffix(path, "/recalculate-costs") {
+		h.handleRecalculateCosts(w, r)
+		return
+	}
 
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -1187,8 +1254,6 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 		filter.Granularity = domain.GranularityHour
 	case "day":
 		filter.Granularity = domain.GranularityDay
-	case "week":
-		filter.Granularity = domain.GranularityWeek
 	case "month":
 		filter.Granularity = domain.GranularityMonth
 	default:
@@ -1257,6 +1322,22 @@ func (h *AdminHandler) handleRecalculateUsageStats(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "usage stats recalculated successfully"})
+}
+
+// handleRecalculateCosts handles POST /admin/usage-stats/recalculate-costs
+// Recalculates cost for all attempts using the current price table
+func (h *AdminHandler) handleRecalculateCosts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	result, err := h.svc.RecalculateCosts()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleResponseModels handles GET /admin/response-models
@@ -1357,6 +1438,18 @@ func (h *AdminHandler) handleBackupImport(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handlePricing handles GET /admin/pricing
+// Returns the default price table for cost calculation display
+func (h *AdminHandler) handlePricing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	priceTable := pricing.DefaultPriceTable()
+	writeJSON(w, http.StatusOK, priceTable)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

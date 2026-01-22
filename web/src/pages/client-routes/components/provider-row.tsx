@@ -25,16 +25,17 @@ function formatTokens(count: number): string {
   return count.toString();
 }
 
-// 格式化成本 (微美元 → 美元)
-function formatCost(microUsd: number): string {
-  const usd = microUsd / 1_000_000;
+// 格式化成本 (纳美元 → 美元，向下取整到 6 位)
+function formatCost(nanoUsd: number): string {
+  // 向下取整到 6 位小数 (microUSD 精度)
+  const usd = Math.floor(nanoUsd / 1000) / 1_000_000;
   if (usd >= 1) {
     return `$${usd.toFixed(2)}`;
   }
   if (usd >= 0.01) {
     return `$${usd.toFixed(3)}`;
   }
-  return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(6).replace(/\.?0+$/, '')}`;
 }
 
 // Sortable Provider Row

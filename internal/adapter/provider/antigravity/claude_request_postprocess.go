@@ -31,12 +31,9 @@ func PostProcessClaudeRequest(geminiBody []byte, sessionID string, hasThinking b
 		return geminiBody
 	}
 
-	modified := false
+	modified := injectAntigravityIdentity(request)
 
 	// 1. Inject Antigravity identity into system instruction (like Antigravity-Manager)
-	if injectAntigravityIdentity(request) {
-		modified = true
-	}
 
 	// 2. Clean tool input schemas for Gemini compatibility (like Antigravity-Manager)
 	if cleanToolInputSchemas(request) {

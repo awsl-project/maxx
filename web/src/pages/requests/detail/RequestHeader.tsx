@@ -1,24 +1,16 @@
-import { Button, Badge } from '@/components/ui';
-import { ArrowLeft } from 'lucide-react';
+import { Badge, Button } from '@/components/ui';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { statusVariant } from '../index';
 import type { ProxyRequest, ClientType } from '@/lib/transport';
 import { ClientIcon, getClientName, getClientColor } from '@/components/icons/client-icons';
 import { formatDuration } from '@/lib/utils';
 
-// 微美元转美元 (1 USD = 1,000,000 microUSD)
-const MICRO_USD_PER_USD = 1_000_000;
-function microToUSD(microUSD: number): number {
-  return microUSD / MICRO_USD_PER_USD;
-}
-
-function formatCost(microUSD: number): string {
-  if (microUSD === 0) return '-';
-  const usd = microToUSD(microUSD);
-  if (usd < 0.0001) return '<$0.0001';
-  if (usd < 0.001) return `$${usd.toFixed(5)}`;
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  if (usd < 1) return `$${usd.toFixed(3)}`;
-  return `$${usd.toFixed(2)}`;
+function formatCost(nanoUSD: number): string {
+  if (nanoUSD === 0) return '-';
+  // 向下取整到 6 位小数 (microUSD 精度)
+  const usd = Math.floor(nanoUSD / 1000) / 1_000_000;
+  return `$${usd.toFixed(6)}`;
 }
 
 function formatTime(timestamp: string): string {
@@ -35,9 +27,16 @@ function formatTime(timestamp: string): string {
 interface RequestHeaderProps {
   request: ProxyRequest;
   onBack: () => void;
+  onRecalculateCost?: () => void;
+  isRecalculating?: boolean;
 }
 
-export function RequestHeader({ request, onBack }: RequestHeaderProps) {
+export function RequestHeader({
+  request,
+  onBack,
+  onRecalculateCost,
+  isRecalculating,
+}: RequestHeaderProps) {
   return (
     <div className="h-[73px] border-b border-border bg-card px-6 flex items-center">
       <div className="flex items-center justify-between gap-6 w-full">
@@ -91,6 +90,15 @@ export function RequestHeader({ request, onBack }: RequestHeaderProps) {
         <div className="flex items-center gap-4 shrink-0">
           <div className="text-center px-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+              TTFT
+            </div>
+            <div className="text-sm font-mono font-medium text-muted-foreground">
+              {request.ttft && request.ttft > 0 ? formatDuration(request.ttft) : '-'}
+            </div>
+          </div>
+          <div className="w-px h-8 bg-border" />
+          <div className="text-center px-3">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
               Duration
             </div>
             <div className="text-sm font-mono font-medium text-foreground">
@@ -138,8 +146,20 @@ export function RequestHeader({ request, onBack }: RequestHeaderProps) {
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
               Cost
             </div>
-            <div className="text-sm font-mono font-medium text-blue-400">
+            <div className="text-sm font-mono font-medium text-blue-400 flex items-center gap-1">
               {formatCost(request.cost)}
+              {onRecalculateCost && (
+                <Tooltip>
+                  <TooltipTrigger
+                    className="inline-flex items-center justify-center h-5 w-5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+                    onClick={onRecalculateCost}
+                    disabled={isRecalculating}
+                  >
+                    <RefreshCw className={`h-3 w-3 ${isRecalculating ? 'animate-spin' : ''}`} />
+                  </TooltipTrigger>
+                  <TooltipContent>Recalculate Cost</TooltipContent>
+                </Tooltip>
+              )}
             </div>
           </div>
         </div>

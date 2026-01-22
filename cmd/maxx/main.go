@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
@@ -18,9 +21,9 @@ import (
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
+	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/version"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
@@ -117,6 +120,23 @@ func main() {
 		log.Printf("Warning: Failed to mark stale requests: %v", err)
 	} else if count > 0 {
 		log.Printf("Marked %d stale requests as failed", count)
+	}
+	// Also mark stale upstream attempts as failed
+	if count, err := attemptRepo.MarkStaleAttemptsFailed(); err != nil {
+		log.Printf("Warning: Failed to mark stale attempts: %v", err)
+	} else if count > 0 {
+		log.Printf("Marked %d stale upstream attempts as failed", count)
+	}
+	// Fix legacy failed requests/attempts without end_time
+	if count, err := proxyRequestRepo.FixFailedRequestsWithoutEndTime(); err != nil {
+		log.Printf("Warning: Failed to fix failed requests without end_time: %v", err)
+	} else if count > 0 {
+		log.Printf("Fixed %d failed requests without end_time", count)
+	}
+	if count, err := attemptRepo.FixFailedAttemptsWithoutEndTime(); err != nil {
+		log.Printf("Warning: Failed to fix failed attempts without end_time: %v", err)
+	} else if count > 0 {
+		log.Printf("Fixed %d failed attempts without end_time", count)
 	}
 
 	// Create cached repositories
@@ -228,6 +248,7 @@ func main() {
 		responseModelRepo,
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
+		wsHub,
 	)
 
 	// Create backup service
@@ -257,8 +278,12 @@ func main() {
 		log.Println("Proxy token authentication is enabled")
 	}
 
+	// Create request tracker for graceful shutdown
+	requestTracker := core.NewRequestTracker()
+
 	// Create handlers
 	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, cachedSessionRepo, tokenAuthMiddleware)
+	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	authHandler := handler.NewAuthHandler(authMiddleware)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
@@ -309,22 +334,55 @@ func main() {
 	// Wrap with logging middleware
 	loggedMux := handler.LoggingMiddleware(mux)
 
-	// Start server
+	// Create HTTP server
+	server := &http.Server{
+		Addr:    *addr,
+		Handler: loggedMux,
+	}
+
+	// Start server in goroutine
 	log.Printf("Starting Maxx server %s on %s", version.Info(), *addr)
 	log.Printf("Data directory: %s", dataDirPath)
-	log.Printf("  Database: %s", dbPath)
-	log.Printf("  Log file: %s", logPath)
-	log.Printf("Admin API: http://localhost%s/api/admin/", *addr)
-	log.Printf("WebSocket: ws://localhost%s/ws", *addr)
-	log.Printf("Proxy endpoints:")
-	log.Printf("  Claude: http://localhost%s/v1/messages", *addr)
-	log.Printf("  OpenAI: http://localhost%s/v1/chat/completions", *addr)
-	log.Printf("  Codex:  http://localhost%s/v1/responses", *addr)
-	log.Printf("  Gemini: http://localhost%s/v1beta/models/{model}:generateContent", *addr)
-	log.Printf("Project proxy: http://localhost%s/{project-slug}/v1/messages (etc.)", *addr)
 
-	if err := http.ListenAndServe(*addr, loggedMux); err != nil {
-		log.Printf("Server error: %v", err)
-		os.Exit(1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal (SIGINT or SIGTERM)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-sigCh
+	log.Printf("Received signal %v, initiating graceful shutdown...", sig)
+
+	// Step 1: Wait for active proxy requests to complete
+	activeCount := requestTracker.ActiveCount()
+	if activeCount > 0 {
+		log.Printf("Waiting for %d active proxy requests to complete...", activeCount)
+		completed := requestTracker.GracefulShutdown(core.GracefulShutdownTimeout)
+		if !completed {
+			log.Printf("Graceful shutdown timeout, some requests may be interrupted")
+		} else {
+			log.Printf("All proxy requests completed successfully")
+		}
+	} else {
+		// Mark as shutting down to reject new requests
+		requestTracker.GracefulShutdown(0)
+		log.Printf("No active proxy requests")
 	}
+
+	// Step 2: Shutdown HTTP server
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), core.HTTPShutdownTimeout)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server graceful shutdown failed: %v, forcing close", err)
+		if closeErr := server.Close(); closeErr != nil {
+			log.Printf("Force close error: %v", closeErr)
+		}
+	}
+
+	log.Printf("Server stopped")
 }

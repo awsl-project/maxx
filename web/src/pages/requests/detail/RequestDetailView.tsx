@@ -12,20 +12,33 @@ import {
 import { Code, Database, Info, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ProxyRequest, ClientType } from '@/lib/transport';
-import { cn } from '@/lib/utils';
+import { cn, formatDuration } from '@/lib/utils';
 import { ClientIcon, getClientName, getClientColor } from '@/components/icons/client-icons';
 import { CopyButton, CopyAsCurlButton, EmptyState } from './components';
+import type { CostBreakdown } from './RequestDetailPanel';
+
+// 微美元转美元
+const MICRO_USD_PER_USD = 1_000_000;
+
+// 格式化价格 (microUSD/M tokens -> $/M tokens)
+function formatPricePerM(priceMicro: number): string {
+  const usd = priceMicro / MICRO_USD_PER_USD;
+  if (usd < 0.01) return `$${usd.toFixed(4)}/M`;
+  if (usd < 1) return `$${usd.toFixed(2)}/M`;
+  return `$${usd.toFixed(2)}/M`;
+}
 
 interface RequestDetailViewProps {
   request: ProxyRequest;
   activeTab: 'request' | 'response' | 'metadata';
   setActiveTab: (tab: 'request' | 'response' | 'metadata') => void;
   formatJSON: (obj: unknown) => string;
-  formatCost: (microUSD: number) => string;
+  formatCost: (nanoUSD: number) => string;
   projectName?: string;
   sessionInfo?: { clientType: string; projectID: number };
   projectMap: Map<number, string>;
   tokenName?: string;
+  costBreakdown?: CostBreakdown;
 }
 
 export function RequestDetailView({
@@ -38,6 +51,7 @@ export function RequestDetailView({
   sessionInfo,
   projectMap,
   tokenName,
+  costBreakdown,
 }: RequestDetailViewProps) {
   const { t } = useTranslation();
   return (
@@ -345,34 +359,79 @@ export function RequestDetailView({
               <dl className="space-y-4">
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Input Tokens
+                    TTFT
                   </dt>
                   <dd className="text-sm text-foreground font-mono font-medium">
-                    {request.inputTokenCount.toLocaleString()}
+                    {request.ttft && request.ttft > 0 ? formatDuration(request.ttft) : '-'}
+                  </dd>
+                </div>
+                <div className="flex justify-between items-center border-b border-border/30 pb-2">
+                  <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Input Tokens
+                  </dt>
+                  <dd className="text-sm text-foreground font-mono font-medium flex items-center gap-2">
+                    <span>{request.inputTokenCount.toLocaleString()}</span>
+                    {costBreakdown?.items.find((i) => i.label === 'Input') && (
+                      <span className="text-xs text-muted-foreground">
+                        × {formatPricePerM(costBreakdown.items.find((i) => i.label === 'Input')!.pricePerM)} ={' '}
+                        <span className="text-blue-400">
+                          {formatCost(costBreakdown.items.find((i) => i.label === 'Input')!.cost)}
+                        </span>
+                      </span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Output Tokens
                   </dt>
-                  <dd className="text-sm text-foreground font-mono font-medium">
-                    {request.outputTokenCount.toLocaleString()}
+                  <dd className="text-sm text-foreground font-mono font-medium flex items-center gap-2">
+                    <span>{request.outputTokenCount.toLocaleString()}</span>
+                    {costBreakdown?.items.find((i) => i.label === 'Output') && (
+                      <span className="text-xs text-muted-foreground">
+                        × {formatPricePerM(costBreakdown.items.find((i) => i.label === 'Output')!.pricePerM)} ={' '}
+                        <span className="text-blue-400">
+                          {formatCost(costBreakdown.items.find((i) => i.label === 'Output')!.cost)}
+                        </span>
+                      </span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Cache Read
                   </dt>
-                  <dd className="text-sm text-violet-400 font-mono font-medium">
-                    {request.cacheReadCount.toLocaleString()}
+                  <dd className="text-sm text-violet-400 font-mono font-medium flex items-center gap-2">
+                    <span>{request.cacheReadCount.toLocaleString()}</span>
+                    {costBreakdown?.items.find((i) => i.label === 'Cache Read') && (
+                      <span className="text-xs text-muted-foreground">
+                        × {formatPricePerM(costBreakdown.items.find((i) => i.label === 'Cache Read')!.pricePerM)} ={' '}
+                        <span className="text-blue-400">
+                          {formatCost(costBreakdown.items.find((i) => i.label === 'Cache Read')!.cost)}
+                        </span>
+                      </span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Cache Write
                   </dt>
-                  <dd className="text-sm text-amber-400 font-mono font-medium">
-                    {request.cacheWriteCount.toLocaleString()}
+                  <dd className="text-sm text-amber-400 font-mono font-medium flex items-center gap-2">
+                    <span>{request.cacheWriteCount.toLocaleString()}</span>
+                    {(() => {
+                      const cache5m = costBreakdown?.items.find((i) => i.label === 'Cache Write (5m)');
+                      const cache1h = costBreakdown?.items.find((i) => i.label === 'Cache Write (1h)');
+                      const cacheWrite = costBreakdown?.items.find((i) => i.label === 'Cache Write');
+                      const item = cache5m || cache1h || cacheWrite;
+                      if (!item) return null;
+                      return (
+                        <span className="text-xs text-muted-foreground">
+                          × {formatPricePerM(item.pricePerM)} ={' '}
+                          <span className="text-blue-400">{formatCost(item.cost)}</span>
+                        </span>
+                      );
+                    })()}
                   </dd>
                 </div>
                 {(request.cache5mWriteCount > 0 || request.cache1hWriteCount > 0) && (
@@ -382,14 +441,29 @@ export function RequestDetailView({
                       <span className="mx-2">|</span>
                       <span className="text-orange-400/80">1h:</span> {request.cache1hWriteCount}
                     </dt>
+                    <dd className="text-xs text-muted-foreground font-mono">
+                      {(() => {
+                        const cache5m = costBreakdown?.items.find((i) => i.label === 'Cache Write (5m)');
+                        const cache1h = costBreakdown?.items.find((i) => i.label === 'Cache Write (1h)');
+                        const parts: string[] = [];
+                        if (cache5m) parts.push(`5m: ${formatCost(cache5m.cost)}`);
+                        if (cache1h) parts.push(`1h: ${formatCost(cache1h.cost)}`);
+                        return parts.length > 0 ? parts.join(' | ') : null;
+                      })()}
+                    </dd>
                   </div>
                 )}
                 <div className="flex justify-between items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Cost
                   </dt>
-                  <dd className="text-sm text-blue-400 font-mono font-medium">
-                    {formatCost(request.cost)}
+                  <dd className="text-sm font-mono font-medium flex items-center gap-2">
+                    <span className="text-blue-400">{formatCost(request.cost)}</span>
+                    {costBreakdown && costBreakdown.totalCost !== request.cost && (
+                      <span className="text-xs text-amber-400" title="前端计算值与后端不一致">
+                        (计算: {formatCost(costBreakdown.totalCost)})
+                      </span>
+                    )}
                   </dd>
                 </div>
               </dl>

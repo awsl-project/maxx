@@ -59,6 +59,12 @@ type SessionRepository interface {
 	List() ([]*domain.Session, error)
 }
 
+// ProxyRequestFilter 请求列表过滤条件
+type ProxyRequestFilter struct {
+	ProviderID *uint64 // Provider ID，nil 表示不过滤
+	Status     *string // 状态，nil 表示不过滤
+}
+
 type ProxyRequestRepository interface {
 	Create(req *domain.ProxyRequest) error
 	Update(req *domain.ProxyRequest) error
@@ -67,25 +73,55 @@ type ProxyRequestRepository interface {
 	// ListCursor 基于游标的分页查询
 	// before: 获取 id < before 的记录 (向后翻页)
 	// after: 获取 id > after 的记录 (向前翻页/获取新数据)
-	ListCursor(limit int, before, after uint64) ([]*domain.ProxyRequest, error)
+	// filter: 可选的过滤条件
+	ListCursor(limit int, before, after uint64, filter *ProxyRequestFilter) ([]*domain.ProxyRequest, error)
 	// ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
 	ListActive() ([]*domain.ProxyRequest, error)
 	Count() (int64, error)
+	// CountWithFilter 带过滤条件的计数
+	CountWithFilter(filter *ProxyRequestFilter) (int64, error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 	UpdateProjectIDBySessionID(sessionID string, projectID uint64) (int64, error)
 	// MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
 	// Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
 	MarkStaleAsFailed(currentInstanceID string) (int64, error)
+	// FixFailedRequestsWithoutEndTime fixes FAILED requests that have no end_time set
+	FixFailedRequestsWithoutEndTime() (int64, error)
 	// DeleteOlderThan 删除指定时间之前的请求记录
 	DeleteOlderThan(before time.Time) (int64, error)
 	// HasRecentRequests 检查指定时间之后是否有请求记录
 	HasRecentRequests(since time.Time) (bool, error)
+	// UpdateCost updates only the cost field of a request
+	UpdateCost(id uint64, cost uint64) error
+	// AddCost adds a delta to the cost field of a request (can be negative)
+	AddCost(id uint64, delta int64) error
+	// BatchUpdateCosts updates costs for multiple requests in a single transaction
+	BatchUpdateCosts(updates map[uint64]uint64) error
+	// RecalculateCostsFromAttempts recalculates all request costs by summing their attempt costs
+	RecalculateCostsFromAttempts() (int64, error)
+	// RecalculateCostsFromAttemptsWithProgress recalculates all request costs with progress reporting via channel
+	RecalculateCostsFromAttemptsWithProgress(progress chan<- domain.Progress) (int64, error)
 }
 
 type ProxyUpstreamAttemptRepository interface {
 	Create(attempt *domain.ProxyUpstreamAttempt) error
 	Update(attempt *domain.ProxyUpstreamAttempt) error
 	ListByProxyRequestID(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error)
+	// ListAll returns all attempts (for cost recalculation)
+	ListAll() ([]*domain.ProxyUpstreamAttempt, error)
+	// CountAll returns total count of attempts
+	CountAll() (int64, error)
+	// StreamForCostCalc iterates through all attempts for cost calculation
+	// Calls the callback with batches of minimal data, returns early if callback returns error
+	StreamForCostCalc(batchSize int, callback func(batch []*domain.AttemptCostData) error) error
+	// UpdateCost updates only the cost field of an attempt
+	UpdateCost(id uint64, cost uint64) error
+	// BatchUpdateCosts updates costs for multiple attempts in a single transaction
+	BatchUpdateCosts(updates map[uint64]uint64) error
+	// MarkStaleAttemptsFailed marks stale attempts as failed with proper end_time and duration
+	MarkStaleAttemptsFailed() (int64, error)
+	// FixFailedAttemptsWithoutEndTime fixes FAILED attempts that have no end_time set
+	FixFailedAttemptsWithoutEndTime() (int64, error)
 }
 
 type SystemSettingRepository interface {
@@ -111,10 +147,8 @@ type UsageStatsRepository interface {
 	Upsert(stats *domain.UsageStats) error
 	// BatchUpsert 批量更新或插入统计记录
 	BatchUpsert(stats []*domain.UsageStats) error
-	// Query 查询统计数据，支持按粒度、时间范围、路由、Provider、项目过滤
+	// Query 查询统计数据（包含当前时间桶的实时数据补全）
 	Query(filter UsageStatsFilter) ([]*domain.UsageStats, error)
-	// QueryWithRealtime 查询统计数据并合并当前周期的实时数据
-	QueryWithRealtime(filter UsageStatsFilter) ([]*domain.UsageStats, error)
 	// QueryDashboardData 查询 Dashboard 所需的所有数据（单次请求，并发执行）
 	QueryDashboardData() (*domain.DashboardData, error)
 	// GetSummary 获取汇总统计数据（总计）
@@ -135,12 +169,14 @@ type UsageStatsRepository interface {
 	GetLatestTimeBucket(granularity domain.Granularity) (*time.Time, error)
 	// GetProviderStats 获取 Provider 统计数据
 	GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error)
-	// AggregateMinute 从原始数据聚合到分钟级别
-	AggregateMinute() (int, error)
-	// RollUp 从细粒度上卷到粗粒度
-	RollUp(from, to domain.Granularity) (int, error)
+	// AggregateAndRollUp 聚合原始数据到分钟级别，并自动 rollup 到各个粗粒度
+	// 返回一个 channel，发送每个阶段的进度事件，channel 会在完成后关闭
+	// 调用者可以 range 遍历 channel 获取进度，或直接忽略（异步执行）
+	AggregateAndRollUp() <-chan domain.AggregateEvent
 	// ClearAndRecalculate 清空统计数据并重新从原始数据计算
 	ClearAndRecalculate() error
+	// ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
+	ClearAndRecalculateWithProgress(progress chan<- domain.Progress) error
 }
 
 // UsageStatsFilter 统计查询过滤条件

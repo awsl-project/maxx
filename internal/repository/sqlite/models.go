@@ -18,7 +18,7 @@ type LongText string
 
 // GormDBDataType returns the database-specific data type
 func (LongText) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
-	switch db.Dialector.Name() {
+	switch db.Name() {
 	case "mysql":
 		return "longtext"
 	default:
@@ -62,8 +62,8 @@ func (m *BaseModel) BeforeUpdate(tx *gorm.DB) error {
 // Provider model
 type Provider struct {
 	SoftDeleteModel
-	Type                 string   `gorm:"size:64"`
-	Name                 string   `gorm:"size:255"`
+	Type                 string `gorm:"size:64"`
+	Name                 string `gorm:"size:255"`
 	Config               LongText
 	SupportedClientTypes LongText
 	SupportModels        LongText
@@ -74,8 +74,8 @@ func (Provider) TableName() string { return "providers" }
 // Project model
 type Project struct {
 	SoftDeleteModel
-	Name                string   `gorm:"size:255"`
-	Slug                string   `gorm:"size:128"`
+	Name                string `gorm:"size:255"`
+	Slug                string `gorm:"size:128"`
 	EnabledCustomRoutes LongText
 }
 
@@ -95,8 +95,8 @@ func (Session) TableName() string { return "sessions" }
 // Route model
 type Route struct {
 	SoftDeleteModel
-	IsEnabled     int    `gorm:"default:1"`
-	IsNative      int    `gorm:"default:1"`
+	IsEnabled     int `gorm:"default:1"`
+	IsNative      int `gorm:"default:1"`
 	ProjectID     uint64
 	ClientType    string `gorm:"size:64"`
 	ProviderID    uint64
@@ -123,7 +123,7 @@ func (RetryConfig) TableName() string { return "retry_configs" }
 type RoutingStrategy struct {
 	SoftDeleteModel
 	ProjectID uint64
-	Type      string   `gorm:"size:64"`
+	Type      string `gorm:"size:64"`
 	Config    LongText
 }
 
@@ -132,9 +132,9 @@ func (RoutingStrategy) TableName() string { return "routing_strategies" }
 // APIToken model
 type APIToken struct {
 	SoftDeleteModel
-	Token       string   `gorm:"size:255;uniqueIndex"`
-	TokenPrefix string   `gorm:"size:32"`
-	Name        string   `gorm:"size:255"`
+	Token       string `gorm:"size:255;uniqueIndex"`
+	TokenPrefix string `gorm:"size:32"`
+	Name        string `gorm:"size:255"`
 	Description LongText
 	ProjectID   uint64
 	IsEnabled   int `gorm:"default:1"`
@@ -165,13 +165,13 @@ func (ModelMapping) TableName() string { return "model_mappings" }
 // AntigravityQuota model
 type AntigravityQuota struct {
 	SoftDeleteModel
-	Email            string   `gorm:"size:255;uniqueIndex"`
-	SubscriptionTier string   `gorm:"size:64;default:'FREE'"`
+	Email            string `gorm:"size:255;uniqueIndex"`
+	SubscriptionTier string `gorm:"size:64;default:'FREE'"`
 	IsForbidden      int
 	Models           LongText
-	Name             string   `gorm:"size:255"`
+	Name             string `gorm:"size:255"`
 	Picture          LongText
-	GCPProjectID     string   `gorm:"size:128;column:gcp_project_id"`
+	GCPProjectID     string `gorm:"size:128;column:gcp_project_id"`
 }
 
 func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
@@ -181,16 +181,17 @@ func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 // ProxyRequest model
 type ProxyRequest struct {
 	BaseModel
-	InstanceID                  string   `gorm:"size:64"`
-	RequestID                   string   `gorm:"size:64"`
-	SessionID                   string   `gorm:"size:255;index"`
-	ClientType                  string   `gorm:"size:64"`
-	RequestModel                string   `gorm:"size:128"`
-	ResponseModel               string   `gorm:"size:128"`
+	InstanceID                  string `gorm:"size:64"`
+	RequestID                   string `gorm:"size:64"`
+	SessionID                   string `gorm:"size:255;index"`
+	ClientType                  string `gorm:"size:64"`
+	RequestModel                string `gorm:"size:128"`
+	ResponseModel               string `gorm:"size:128"`
 	StartTime                   int64
-	EndTime                     int64
+	EndTime                     int64 `gorm:"index"`
 	DurationMs                  int64
-	Status                      string   `gorm:"size:64"`
+	TTFTMs                      int64
+	Status                      string `gorm:"size:64"`
 	RequestInfo                 LongText
 	ResponseInfo                LongText
 	Error                       LongText
@@ -216,8 +217,8 @@ func (ProxyRequest) TableName() string { return "proxy_requests" }
 // ProxyUpstreamAttempt model
 type ProxyUpstreamAttempt struct {
 	BaseModel
-	Status            string   `gorm:"size:64"`
-	ProxyRequestID    uint64   `gorm:"index"`
+	Status            string `gorm:"size:64"`
+	ProxyRequestID    uint64 `gorm:"index"`
 	RequestInfo       LongText
 	ResponseInfo      LongText
 	RouteID           uint64
@@ -233,6 +234,7 @@ type ProxyUpstreamAttempt struct {
 	StartTime         int64
 	EndTime           int64
 	DurationMs        int64
+	TTFTMs            int64
 	RequestModel      string `gorm:"size:128"`
 	MappedModel       string `gorm:"size:128"`
 	ResponseModel     string `gorm:"size:128"`
@@ -242,7 +244,7 @@ func (ProxyUpstreamAttempt) TableName() string { return "proxy_upstream_attempts
 
 // SystemSetting model
 type SystemSetting struct {
-	Key       string   `gorm:"column:setting_key;size:255;primaryKey"`
+	Key       string `gorm:"column:setting_key;size:255;primaryKey"`
 	Value     LongText
 	CreatedAt int64
 	UpdatedAt int64
@@ -289,6 +291,7 @@ type UsageStats struct {
 	SuccessfulRequests uint64
 	FailedRequests     uint64
 	TotalDurationMs    uint64
+	TotalTTFTMs        uint64
 	InputTokens        uint64
 	OutputTokens       uint64
 	CacheRead          uint64

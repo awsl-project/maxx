@@ -9,6 +9,14 @@ import (
 	"github.com/awsl-project/maxx/internal/handler"
 )
 
+// Graceful shutdown configuration
+const (
+	// GracefulShutdownTimeout is the maximum time to wait for active requests
+	GracefulShutdownTimeout = 2 * time.Minute
+	// HTTPShutdownTimeout is the timeout for HTTP server shutdown after requests complete
+	HTTPShutdownTimeout = 5 * time.Second
+)
+
 // ServerConfig 服务器配置
 type ServerConfig struct {
 	Addr              string
@@ -118,12 +126,33 @@ func (s *ManagedServer) Stop(ctx context.Context) error {
 
 	log.Printf("[Server] Stopping HTTP server on %s", s.config.Addr)
 
-	// 使用较短的超时时间，超时后强制关闭
-	shutdownCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// Step 1: Wait for active proxy requests to complete (graceful shutdown)
+	if s.config.Components != nil && s.config.Components.RequestTracker != nil {
+		tracker := s.config.Components.RequestTracker
+		activeCount := tracker.ActiveCount()
+
+		if activeCount > 0 {
+			log.Printf("[Server] Waiting for %d active proxy requests to complete...", activeCount)
+
+			completed := tracker.GracefulShutdown(GracefulShutdownTimeout)
+			if !completed {
+				log.Printf("[Server] Graceful shutdown timeout, some requests may be interrupted")
+			} else {
+				log.Printf("[Server] All proxy requests completed successfully")
+			}
+		} else {
+			// Mark as shutting down to reject new requests
+			tracker.GracefulShutdown(0)
+			log.Printf("[Server] No active proxy requests")
+		}
+	}
+
+	// Step 2: Shutdown HTTP server (with shorter timeout since requests should be done)
+	shutdownCtx, cancel := context.WithTimeout(ctx, HTTPShutdownTimeout)
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("[Server] Graceful shutdown failed: %v, forcing close", err)
+		log.Printf("[Server] HTTP server graceful shutdown failed: %v, forcing close", err)
 		// 强制关闭
 		if closeErr := s.httpServer.Close(); closeErr != nil {
 			log.Printf("[Server] Force close error: %v", closeErr)

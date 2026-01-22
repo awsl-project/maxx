@@ -66,7 +66,7 @@ func (c *claudeToCodexRequest) Transform(body []byte, model string, stream bool)
 						// Convert tool use to function_call output
 						name, _ := m["name"].(string)
 						id, _ := m["id"].(string)
-						inputData, _ := m["input"]
+						inputData := m["input"]
 						argJSON, _ := json.Marshal(inputData)
 						input = append(input, CodexInputItem{
 							Type:      "function_call",

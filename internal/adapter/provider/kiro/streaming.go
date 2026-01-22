@@ -25,6 +25,7 @@ type streamProcessorContext struct {
 	toolUseIdByBlockIndex map[int]string
 	completedToolUseIds   map[string]bool
 	jsonBytesByBlockIndex map[int]int
+	firstTokenTimeMs     int64 // Unix milliseconds of first token sent (for TTFT tracking)
 }
 
 func newStreamProcessorContext(w http.ResponseWriter, model string, inputTokens int, writer io.Writer) (*streamProcessorContext, error) {
@@ -169,6 +170,12 @@ func (ctx *streamProcessorContext) processEvent(event SSEEvent) error {
 		return err
 	}
 	ctx.flusher.Flush()
+
+	// Track TTFT: record first token time on first successful send
+	if ctx.firstTokenTimeMs == 0 {
+		ctx.firstTokenTimeMs = time.Now().UnixMilli()
+	}
+
 	return nil
 }
 
@@ -320,4 +327,9 @@ func (ctx *streamProcessorContext) GetTokenCounts() (inputTokens int, outputToke
 		}
 	}
 	return ctx.inputTokens, outputTokens
+}
+
+// GetFirstTokenTimeMs returns the first token time in Unix milliseconds (for TTFT tracking)
+func (ctx *streamProcessorContext) GetFirstTokenTimeMs() int64 {
+	return ctx.firstTokenTimeMs
 }

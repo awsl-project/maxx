@@ -78,16 +78,17 @@ function formatNumber(num: number): string {
   return num.toLocaleString();
 }
 
-// 格式化成本
-function formatCost(microUsd: number): string {
-  const usd = microUsd / 1000000;
+// 格式化成本 (纳美元 → 美元，向下取整到 6 位)
+function formatCost(nanoUsd: number): string {
+  // 向下取整到 6 位小数 (microUSD 精度)
+  const usd = Math.floor(nanoUsd / 1000) / 1_000_000;
   if (usd >= 1000) {
     return '$' + (usd / 1000).toFixed(1) + 'K';
   }
   if (usd >= 1) {
     return '$' + usd.toFixed(2);
   }
-  return '$' + usd.toFixed(4);
+  return '$' + usd.toFixed(6).replace(/\.?0+$/, '');
 }
 
 // 格式化相对时间

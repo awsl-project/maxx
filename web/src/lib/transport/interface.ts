@@ -41,10 +41,13 @@ import type {
   RoutePositionUpdate,
   UsageStats,
   UsageStatsFilter,
+  RecalculateCostsResult,
+  RecalculateRequestCostResult,
   DashboardData,
   BackupFile,
   BackupImportOptions,
   BackupImportResult,
+  PriceTable,
 } from './types';
 
 /**
@@ -100,7 +103,7 @@ export interface Transport {
 
   // ===== ProxyRequest API (只读) =====
   getProxyRequests(params?: CursorPaginationParams): Promise<CursorPaginationResult<ProxyRequest>>;
-  getProxyRequestsCount(): Promise<number>;
+  getProxyRequestsCount(providerId?: number, status?: string): Promise<number>;
   getActiveProxyRequests(): Promise<ProxyRequest[]>;
   getProxyRequest(id: number): Promise<ProxyRequest>;
   getProxyUpstreamAttempts(proxyRequestId: number): Promise<ProxyUpstreamAttempt[]>;
@@ -164,6 +167,8 @@ export interface Transport {
   // ===== Usage Stats API =====
   getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]>;
   recalculateUsageStats(): Promise<void>;
+  recalculateCosts(): Promise<RecalculateCostsResult>;
+  recalculateRequestCost(requestId: number): Promise<RecalculateRequestCostResult>;
 
   // ===== Dashboard API =====
   getDashboardData(): Promise<DashboardData>;
@@ -174,6 +179,9 @@ export interface Transport {
   // ===== Backup API =====
   exportBackup(): Promise<BackupFile>;
   importBackup(backup: BackupFile, options?: BackupImportOptions): Promise<BackupImportResult>;
+
+  // ===== Pricing API =====
+  getPricing(): Promise<PriceTable>;
 
   // ===== 实时订阅 =====
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn;

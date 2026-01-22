@@ -74,11 +74,11 @@ func (c *claudeToOpenAIRequest) Transform(body []byte, model string, stream bool
 					case "tool_use":
 						id, _ := m["id"].(string)
 						name, _ := m["name"].(string)
-						input, _ := m["input"]
+						input := m["input"]
 						inputJSON, _ := json.Marshal(input)
 						toolCalls = append(toolCalls, OpenAIToolCall{
-							ID:   id,
-							Type: "function",
+							ID:       id,
+							Type:     "function",
 							Function: OpenAIFunctionCall{Name: name, Arguments: string(inputJSON)},
 						})
 					case "tool_result":
@@ -155,8 +155,8 @@ func (c *claudeToOpenAIResponse) Transform(body []byte) ([]byte, error) {
 		case "tool_use":
 			inputJSON, _ := json.Marshal(block.Input)
 			toolCalls = append(toolCalls, OpenAIToolCall{
-				ID:   block.ID,
-				Type: "function",
+				ID:       block.ID,
+				Type:     "function",
 				Function: OpenAIFunctionCall{Name: block.Name, Arguments: string(inputJSON)},
 			})
 		}

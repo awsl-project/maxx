@@ -140,13 +140,28 @@ export function useUsageStatsWithPreset(
 }
 
 /**
- * 清空并重新计算统计数据
+ * 清空并重新聚合统计数据（不重算成本）
  */
 export function useRecalculateUsageStats() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: () => getTransport().recalculateUsageStats(),
+    onSuccess: () => {
+      // 使所有 usageStats 查询失效，触发重新获取
+      queryClient.invalidateQueries({ queryKey: usageStatsKeys.all });
+    },
+  });
+}
+
+/**
+ * 重新计算所有请求的成本
+ */
+export function useRecalculateCosts() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => getTransport().recalculateCosts(),
     onSuccess: () => {
       // 使所有 usageStats 查询失效，触发重新获取
       queryClient.invalidateQueries({ queryKey: usageStatsKeys.all });

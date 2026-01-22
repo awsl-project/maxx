@@ -31,7 +31,7 @@ func (cesp *CompliantEventStreamParser) Reset() {
 func (cesp *CompliantEventStreamParser) ParseResponse(streamData []byte) (*ParseResult, error) {
 	messages, err := cesp.robustParser.ParseStream(streamData)
 	if err != nil {
-		// Continue with partial messages.
+		_ = err // Continue with partial messages.
 	}
 
 	var allEvents []SSEEvent
@@ -63,7 +63,7 @@ func (cesp *CompliantEventStreamParser) ParseResponse(streamData []byte) (*Parse
 func (cesp *CompliantEventStreamParser) ParseStream(data []byte) ([]SSEEvent, error) {
 	messages, err := cesp.robustParser.ParseStream(data)
 	if err != nil {
-		// Continue with partial messages.
+		_ = err // Continue with partial messages.
 	}
 
 	var allEvents []SSEEvent

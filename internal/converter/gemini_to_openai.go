@@ -105,12 +105,8 @@ func (c *geminiToOpenAIRequest) Transform(body []byte, model string, stream bool
 	for _, tool := range req.Tools {
 		for _, decl := range tool.FunctionDeclarations {
 			openaiReq.Tools = append(openaiReq.Tools, OpenAITool{
-				Type: "function",
-				Function: OpenAIFunction{
-					Name:        decl.Name,
-					Description: decl.Description,
-					Parameters:  decl.Parameters,
-				},
+				Type:     "function",
+				Function: OpenAIFunction(decl),
 			})
 		}
 	}

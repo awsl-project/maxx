@@ -589,7 +589,7 @@ func (s *BackupService) importRoutes(routes []domain.BackupRoute, opts domain.Im
 				continue
 			case "overwrite":
 				summary.Skipped++
-				result.Warnings = append(result.Warnings, fmt.Sprintf("Route overwrite not supported, skipped"))
+				result.Warnings = append(result.Warnings, "Route overwrite not supported, skipped")
 				continue
 			case "error":
 				result.Success = false

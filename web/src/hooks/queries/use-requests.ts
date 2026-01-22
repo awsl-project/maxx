@@ -31,10 +31,10 @@ export function useProxyRequests(params?: CursorPaginationParams) {
 }
 
 // 获取 ProxyRequests 总数
-export function useProxyRequestsCount() {
+export function useProxyRequestsCount(providerId?: number, status?: string) {
   return useQuery({
-    queryKey: ['requestsCount'] as const,
-    queryFn: () => getTransport().getProxyRequestsCount(),
+    queryKey: ['requestsCount', providerId, status] as const,
+    queryFn: () => getTransport().getProxyRequestsCount(providerId, status),
   });
 }
 
@@ -75,28 +75,82 @@ export function useProxyRequestUpdates() {
         queryClient.setQueryData(requestKeys.detail(updatedRequest.id), updatedRequest);
 
         // 更新列表缓存（乐观更新）- 适配 CursorPaginationResult 结构
-        queryClient.setQueriesData<CursorPaginationResult<ProxyRequest>>(
-          { queryKey: requestKeys.lists() },
-          (old) => {
+        // 使用 queryCache 遍历所有匹配的查询，以获取每个查询的过滤参数
+        const queryCache = queryClient.getQueryCache();
+        const listQueries = queryCache.findAll({ queryKey: requestKeys.lists() });
+
+        for (const query of listQueries) {
+          const queryKey = query.queryKey as ReturnType<typeof requestKeys.list>;
+          // 从 queryKey 中提取过滤参数: ['requests', 'list', params]
+          const params = queryKey[2] as CursorPaginationParams | undefined;
+          const filterProviderId = params?.providerId;
+          const filterStatus = params?.status;
+
+          // 检查是否匹配过滤条件的辅助函数
+          const matchesFilter = (request: ProxyRequest) => {
+            if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
+              return false;
+            }
+            if (filterStatus !== undefined && request.status !== filterStatus) {
+              return false;
+            }
+            return true;
+          };
+
+          queryClient.setQueryData<CursorPaginationResult<ProxyRequest>>(queryKey, (old) => {
             if (!old || !old.items) return old;
+
             const index = old.items.findIndex((r) => r.id === updatedRequest.id);
             if (index >= 0) {
+              // 已存在的请求：检查是否仍然匹配过滤条件
+              if (!matchesFilter(updatedRequest)) {
+                // 不再匹配过滤条件，从列表中移除
+                const newItems = old.items.filter((r) => r.id !== updatedRequest.id);
+                return { ...old, items: newItems };
+              }
+              // 仍然匹配，更新
               const newItems = [...old.items];
               newItems[index] = updatedRequest;
               return { ...old, items: newItems };
             }
+
+            // 新请求：检查是否匹配过滤条件
+            if (!matchesFilter(updatedRequest)) {
+              // 不匹配过滤条件，不添加
+              return old;
+            }
+
             // 新请求添加到列表开头（只在首页，即没有 before 参数的查询）
+            if (params?.before) {
+              // 不是首页，不添加新请求
+              return old;
+            }
+
             return {
               ...old,
               items: [updatedRequest, ...old.items],
               firstId: updatedRequest.id,
             };
-          },
-        );
+          });
+        }
 
-        // 新请求时乐观更新 count
+        // 新请求时乐观更新 count（需要考虑每个 count 查询的过滤条件）
         if (isNewRequest) {
-          queryClient.setQueryData<number>(['requestsCount'], (old) => (old ?? 0) + 1);
+          // 遍历所有 requestsCount 缓存
+          const countQueries = queryCache.findAll({ queryKey: ['requestsCount'] });
+          for (const query of countQueries) {
+            // queryKey: ['requestsCount', providerId, status]
+            const filterProviderId = query.queryKey[1] as number | undefined;
+            const filterStatus = query.queryKey[2] as string | undefined;
+            // 如果有过滤条件且不匹配，不更新计数
+            if (filterProviderId !== undefined && updatedRequest.providerID !== filterProviderId) {
+              continue;
+            }
+            if (filterStatus !== undefined && updatedRequest.status !== filterStatus) {
+              continue;
+            }
+            queryClient.setQueryData<number>(query.queryKey, (old) => (old ?? 0) + 1);
+          }
         }
 
         // 请求完成或失败时刷新相关数据

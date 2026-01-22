@@ -5,7 +5,7 @@ import (
 )
 
 // StatsAggregator 统计数据聚合器
-// 仅支持定时同步模式，实时数据由 QueryWithRealtime 直接查询
+// 仅支持定时同步模式，实时数据由 Query 方法直接查询
 type StatsAggregator struct {
 	usageStatsRepo repository.UsageStatsRepository
 }
@@ -17,7 +17,10 @@ func NewStatsAggregator(usageStatsRepo repository.UsageStatsRepository) *StatsAg
 	}
 }
 
-// RunPeriodicSync 定期同步分钟级数据
+// RunPeriodicSync 定期同步统计数据（聚合 + rollup）
+// 通过 range channel 等待所有阶段完成
 func (sa *StatsAggregator) RunPeriodicSync() {
-	_, _ = sa.usageStatsRepo.AggregateMinute()
+	for range sa.usageStatsRepo.AggregateAndRollUp() {
+		// drain the channel to wait for completion
+	}
 }

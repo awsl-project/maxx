@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -20,7 +20,7 @@ import {
   AlertTriangle,
   Ban,
 } from 'lucide-react';
-import type { ProxyRequest, ProxyRequestStatus } from '@/lib/transport';
+import type { ProxyRequest, ProxyRequestStatus, Provider } from '@/lib/transport';
 import { ClientIcon } from '@/components/icons/client-icons';
 import {
   Table,
@@ -30,9 +30,26 @@ import {
   TableHeader,
   TableRow,
   Badge,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
+
+type ProviderTypeKey = 'antigravity' | 'kiro' | 'custom';
+
+const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'custom'];
+
+const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
+  antigravity: 'Antigravity',
+  kiro: 'Kiro',
+  custom: 'Custom',
+};
 
 const PAGE_SIZE = 50;
 
@@ -54,13 +71,19 @@ export function RequestsPage() {
   // 使用游标分页：存储每页的 lastId 用于向后翻页
   const [cursors, setCursors] = useState<(number | undefined)[]>([undefined]);
   const [pageIndex, setPageIndex] = useState(0);
+  // Provider 过滤器
+  const [selectedProviderId, setSelectedProviderId] = useState<number | undefined>(undefined);
+  // Status 过滤器
+  const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
 
   const currentCursor = cursors[pageIndex];
   const { data, isLoading, refetch } = useProxyRequests({
     limit: PAGE_SIZE,
     before: currentCursor,
+    providerId: selectedProviderId,
+    status: selectedStatus,
   });
-  const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount();
+  const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(selectedProviderId, selectedStatus);
   const { data: providers = [] } = useProviders();
   const { data: projects = [] } = useProjects();
   const { data: apiTokens = [] } = useAPITokens();
@@ -115,6 +138,20 @@ export function RequestsPage() {
     refetchCount();
   };
 
+  // Provider 过滤器变化时重置分页
+  const handleProviderFilterChange = (providerId: number | undefined) => {
+    setSelectedProviderId(providerId);
+    setCursors([undefined]);
+    setPageIndex(0);
+  };
+
+  // Status 过滤器变化时重置分页
+  const handleStatusFilterChange = (status: string | undefined) => {
+    setSelectedStatus(status);
+    setCursors([undefined]);
+    setPageIndex(0);
+  };
+
   return (
     <div className="flex flex-col h-full bg-background">
       <PageHeader
@@ -123,6 +160,19 @@ export function RequestsPage() {
         title={t('requests.title')}
         description={t('requests.description', { count: total })}
       >
+        {/* Provider Filter */}
+        {providers.length > 0 && (
+          <ProviderFilter
+            providers={providers}
+            selectedProviderId={selectedProviderId}
+            onSelect={handleProviderFilterChange}
+          />
+        )}
+        {/* Status Filter */}
+        <StatusFilter
+          selectedStatus={selectedStatus}
+          onSelect={handleStatusFilterChange}
+        />
         <button
           onClick={handleRefresh}
           disabled={isLoading}
@@ -169,11 +219,14 @@ export function RequestsPage() {
                   <TableHead className="min-w-[100px] font-medium">{t('requests.provider')}</TableHead>
                   <TableHead className="w-[100px] font-medium">{t('common.status')}</TableHead>
                   <TableHead className="w-[60px] text-center font-medium">{t('requests.code')}</TableHead>
-                  <TableHead className="w-[80px] text-center font-medium">
-                    {t('requests.duration')}
+                  <TableHead
+                    className="w-[60px] text-center font-medium"
+                    title={t('requests.ttft')}
+                  >
+                    TTFT
                   </TableHead>
                   <TableHead className="w-[80px] text-center font-medium">
-                    {t('requests.cost')}
+                    {t('requests.duration')}
                   </TableHead>
                   <TableHead
                     className="w-[45px] text-center font-medium"
@@ -205,13 +258,17 @@ export function RequestsPage() {
                   >
                     {t('requests.cacheWShort')}
                   </TableHead>
+                  <TableHead className="w-[80px] text-center font-medium">
+                    {t('requests.cost')}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {requests.map((req) => (
+                {requests.map((req, index) => (
                   <LogRow
                     key={req.id}
                     request={req}
+                    index={index}
                     providerName={providerMap.get(req.providerID)}
                     projectName={projectMap.get(req.projectID)}
                     tokenName={tokenMap.get(req.apiTokenID)}
@@ -337,37 +394,37 @@ function RequestStatusBadge({ status }: { status: ProxyRequestStatus }) {
 // Token Cell Component - single value with color
 function TokenCell({ count, color }: { count: number; color: string }) {
   if (count === 0) {
-    return <span className="text-caption text-muted-foreground font-mono">-</span>;
+    return <span className="text-xs text-muted-foreground font-mono">-</span>;
   }
 
   const formatTokens = (n: number) => {
+    // >= 5位数 (10000+) 使用 K/M 格式
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-    return n.toString();
+    if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`;
+    // 4位数及以下使用千分位分隔符
+    return n.toLocaleString();
   };
 
   return <span className={`text-xs font-mono ${color}`}>{formatTokens(count)}</span>;
 }
 
-// 微美元转美元 (1 USD = 1,000,000 microUSD)
-const MICRO_USD_PER_USD = 1_000_000;
-function microToUSD(microUSD: number): number {
-  return microUSD / MICRO_USD_PER_USD;
+// 纳美元转美元 (1 USD = 1,000,000,000 nanoUSD)
+// 向下取整到 6 位小数 (microUSD 精度)
+function nanoToUSD(nanoUSD: number): number {
+  return Math.floor(nanoUSD / 1000) / 1_000_000;
 }
 
-// Cost Cell Component (接收 microUSD)
+// Cost Cell Component (接收 nanoUSD)
 function CostCell({ cost }: { cost: number }) {
   if (cost === 0) {
-    return <span className="text-caption text-muted-foreground font-mono">-</span>;
+    return <span className="text-xs text-muted-foreground font-mono">-</span>;
   }
 
-  const usd = microToUSD(cost);
+  const usd = nanoToUSD(cost);
 
+  // 完整显示 6 位小数
   const formatCost = (c: number) => {
-    if (c < 0.001) return '<$0.001';
-    if (c < 0.01) return `$${c.toFixed(4)}`;
-    if (c < 1) return `$${c.toFixed(3)}`;
-    return `$${c.toFixed(2)}`;
+    return `$${c.toFixed(6)}`;
   };
 
   const getCostColor = (c: number) => {
@@ -382,6 +439,7 @@ function CostCell({ cost }: { cost: number }) {
 // Log Row Component
 function LogRow({
   request,
+  index,
   providerName,
   projectName,
   tokenName,
@@ -390,6 +448,7 @@ function LogRow({
   onClick,
 }: {
   request: ProxyRequest;
+  index: number;
   providerName?: string;
   projectName?: string;
   tokenName?: string;
@@ -467,31 +526,43 @@ function LogRow({
   // Get HTTP status code (use denormalized field for list performance)
   const statusCode = request.statusCode || request.responseInfo?.status;
 
+  // Zebra striping base class
+  const zebraClass = index % 2 === 1 ? 'bg-foreground/[0.03]' : '';
+
   return (
     <TableRow
       onClick={onClick}
       className={cn(
-        'cursor-pointer group border-none transition-none',
-        // Base hover
-        !isRecent && 'hover:bg-accent/50',
+        'cursor-pointer group transition-colors',
+        // Zebra striping - applies to all rows as base layer
+        zebraClass,
+        // Base hover effect (stronger background change)
+        !isRecent && !isFailed && !isPending && 'hover:bg-accent/50',
 
-        // Failed state - Red left border (via shadow) and subtle red bg
-        isFailed && 'bg-error/5 hover:bg-error/10 shadow-[inset_3px_0_0_0_rgba(239,68,68,0.4)]',
+        // Failed state - Red background only (testing without border)
+        isFailed && cn(
+          index % 2 === 1 ? 'bg-red-500/25' : 'bg-red-500/20',
+          'hover:bg-red-500/40'
+        ),
 
         // Active/Pending state - Blue left border + Marquee animation
-        isPending && 'shadow-[inset_3px_0_0_0_#0078D4] animate-marquee-row',
+        isPending && 'animate-marquee-row',
 
         // New Item Flash Animation
-        isRecent && !isPending && 'bg-accent/20 shadow-[inset_3px_0_0_0_#0078D4]',
+        isRecent && !isPending && 'bg-accent/20',
       )}
     >
-      {/* Time */}
-      <TableCell className="py-1 font-mono text-sm text-foreground font-medium whitespace-nowrap">
-        {formatTime(request.startTime || request.createdAt)}
+      {/* Time - 显示结束时间，如果没有结束时间则显示开始时间（更浅样式） */}
+      <TableCell className="w-[180px] px-2 py-1 font-mono text-sm whitespace-nowrap">
+        {request.endTime && new Date(request.endTime).getTime() > 0 ? (
+          <span className="text-foreground font-medium">{formatTime(request.endTime)}</span>
+        ) : (
+          <span className="text-muted-foreground">{formatTime(request.startTime || request.createdAt)}</span>
+        )}
       </TableCell>
 
       {/* Client */}
-      <TableCell className="py-1">
+      <TableCell className="w-[120px] px-2 py-1">
         <div className="flex items-center gap-1.5">
           <ClientIcon type={request.clientType} size={16} className="shrink-0" />
           <span className="text-sm text-foreground capitalize font-medium">
@@ -501,7 +572,7 @@ function LogRow({
       </TableCell>
 
       {/* Model */}
-      <TableCell className="py-1">
+      <TableCell className="min-w-[250px] px-2 py-1">
         <div className="flex items-center gap-2">
           <span
             className="text-sm text-foreground font-medium"
@@ -519,7 +590,7 @@ function LogRow({
 
       {/* Project */}
       {showProjectColumn && (
-        <TableCell className="py-1">
+        <TableCell className="w-[100px] px-2 py-1">
           <span
             className="text-sm text-muted-foreground truncate max-w-[100px] block"
             title={projectName}
@@ -531,7 +602,7 @@ function LogRow({
 
       {/* Token */}
       {showTokenColumn && (
-        <TableCell className="py-1">
+        <TableCell className="w-[100px] px-2 py-1">
           <span
             className="text-sm text-muted-foreground truncate max-w-[100px] block"
             title={tokenName}
@@ -542,7 +613,7 @@ function LogRow({
       )}
 
       {/* Provider */}
-      <TableCell className="py-1">
+      <TableCell className="min-w-[100px] px-2 py-1">
         <span
           className="text-sm text-muted-foreground"
           title={providerName}
@@ -552,12 +623,12 @@ function LogRow({
       </TableCell>
 
       {/* Status */}
-      <TableCell className="py-1">
+      <TableCell className="w-[100px] px-2 py-1">
         <RequestStatusBadge status={request.status} />
       </TableCell>
 
       {/* Code */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[60px] px-2 py-1 text-center">
         <span
           className={cn(
             'font-mono text-xs font-medium px-1.5 py-0.5 rounded',
@@ -572,51 +643,209 @@ function LogRow({
         </span>
       </TableCell>
 
+      {/* TTFT (Time To First Token) */}
+      <TableCell className="w-[60px] px-2 py-1 text-center">
+        <span className="text-xs font-mono text-muted-foreground">
+          {request.ttft && request.ttft > 0
+            ? `${(request.ttft / 1_000_000_000).toFixed(2)}s`
+            : '-'}
+        </span>
+      </TableCell>
+
       {/* Duration */}
-      <TableCell className="py-1 text-center">
-        <span className={`text-sm font-mono ${durationColor}`}>
+      <TableCell className="w-[80px] px-2 py-1 text-center">
+        <span
+          className={`text-xs font-mono ${durationColor}`}
+          title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
+        >
           {formatDuration(displayDuration)}
         </span>
       </TableCell>
 
-      {/* Cost */}
-      <TableCell className="py-1 text-center">
-        <CostCell cost={request.cost} />
-      </TableCell>
-
       {/* Attempts */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[45px] px-2 py-1 text-center">
         {request.proxyUpstreamAttemptCount > 1 ? (
           <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning/10 text-warning text-[10px] font-bold">
             {request.proxyUpstreamAttemptCount}
           </span>
         ) : request.proxyUpstreamAttemptCount === 1 ? (
-          <span className="text-sm text-muted-foreground/30">1</span>
+          <span className="text-xs text-muted-foreground/30">1</span>
         ) : (
-          <span className="text-sm text-muted-foreground/30">-</span>
+          <span className="text-xs text-muted-foreground/30">-</span>
         )}
       </TableCell>
 
       {/* Input Tokens - sky blue */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[65px] px-2 py-1 text-center">
         <TokenCell count={request.inputTokenCount} color="text-sky-400" />
       </TableCell>
 
       {/* Output Tokens - emerald green */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[65px] px-2 py-1 text-center">
         <TokenCell count={request.outputTokenCount} color="text-emerald-400" />
       </TableCell>
 
       {/* Cache Read - violet */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[65px] px-2 py-1 text-center">
         <TokenCell count={request.cacheReadCount} color="text-violet-400" />
       </TableCell>
 
       {/* Cache Write - amber */}
-      <TableCell className="py-1 text-center">
+      <TableCell className="w-[65px] px-2 py-1 text-center">
         <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
       </TableCell>
+
+      {/* Cost */}
+      <TableCell className="w-[80px] px-2 py-1 text-center">
+        <CostCell cost={request.cost} />
+      </TableCell>
     </TableRow>
+  );
+}
+
+// Provider Filter Component using Select
+function ProviderFilter({
+  providers,
+  selectedProviderId,
+  onSelect,
+}: {
+  providers: Provider[];
+  selectedProviderId: number | undefined;
+  onSelect: (providerId: number | undefined) => void;
+}) {
+  const { t } = useTranslation();
+
+  // Group providers by type and sort alphabetically
+  const groupedProviders = useMemo(() => {
+    const groups: Record<ProviderTypeKey, Provider[]> = {
+      antigravity: [],
+      kiro: [],
+      custom: [],
+    };
+
+    providers.forEach((p) => {
+      const type = p.type as ProviderTypeKey;
+      if (groups[type]) {
+        groups[type].push(p);
+      } else {
+        groups.custom.push(p);
+      }
+    });
+
+    // Sort alphabetically within each group
+    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
+      groups[key].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return groups;
+  }, [providers]);
+
+  // Get selected provider name for display
+  const selectedProvider = providers.find((p) => p.id === selectedProviderId);
+  const displayText = selectedProvider?.name ?? t('requests.allProviders');
+
+  return (
+    <Select
+      value={selectedProviderId !== undefined ? String(selectedProviderId) : 'all'}
+      onValueChange={(value) => {
+        if (value === 'all') {
+          onSelect(undefined);
+        } else {
+          onSelect(Number(value));
+        }
+      }}
+    >
+      <SelectTrigger className="w-48 h-8" size="sm">
+        <SelectValue>{displayText}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">
+          {t('requests.allProviders')}
+        </SelectItem>
+        {PROVIDER_TYPE_ORDER.map((typeKey) => {
+          const typeProviders = groupedProviders[typeKey];
+          if (typeProviders.length === 0) return null;
+          return (
+            <SelectGroup key={typeKey}>
+              <SelectLabel>{PROVIDER_TYPE_LABELS[typeKey]}</SelectLabel>
+              {typeProviders.map((provider) => (
+                <SelectItem key={provider.id} value={String(provider.id)}>
+                  {provider.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          );
+        })}
+      </SelectContent>
+    </Select>
+  );
+}
+
+// Status Filter Component using Select
+function StatusFilter({
+  selectedStatus,
+  onSelect,
+}: {
+  selectedStatus: string | undefined;
+  onSelect: (status: string | undefined) => void;
+}) {
+  const { t } = useTranslation();
+
+  const statuses: ProxyRequestStatus[] = [
+    'COMPLETED',
+    'FAILED',
+    'IN_PROGRESS',
+    'PENDING',
+    'CANCELLED',
+    'REJECTED',
+  ];
+
+  const getStatusLabel = (status: ProxyRequestStatus) => {
+    switch (status) {
+      case 'PENDING':
+        return t('requests.status.pending');
+      case 'IN_PROGRESS':
+        return t('requests.status.streaming');
+      case 'COMPLETED':
+        return t('requests.status.completed');
+      case 'FAILED':
+        return t('requests.status.failed');
+      case 'CANCELLED':
+        return t('requests.status.cancelled');
+      case 'REJECTED':
+        return t('requests.status.rejected');
+    }
+  };
+
+  const displayText = selectedStatus
+    ? getStatusLabel(selectedStatus as ProxyRequestStatus)
+    : t('requests.allStatuses');
+
+  return (
+    <Select
+      value={selectedStatus ?? 'all'}
+      onValueChange={(value) => {
+        if (value === 'all') {
+          onSelect(undefined);
+        } else {
+          onSelect(value ?? undefined);
+        }
+      }}
+    >
+      <SelectTrigger className="w-32 h-8" size="sm">
+        <SelectValue>{displayText}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">
+          {t('requests.allStatuses')}
+        </SelectItem>
+        {statuses.map((status) => (
+          <SelectItem key={status} value={status}>
+            {getStatusLabel(status)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 

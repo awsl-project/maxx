@@ -1,9 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input } from '@/components/ui';
 import { useCreateRoute, useUpdateRoute, useProviders, useProjects } from '@/hooks/queries';
-import type { ClientType, Route } from '@/lib/transport';
+import type { ClientType, Route, Provider } from '@/lib/transport';
 import { ModelMappingEditor } from '@/pages/providers/components/model-mapping-editor';
+
+type ProviderTypeKey = 'antigravity' | 'kiro' | 'custom';
+
+const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'custom'];
+
+const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
+  antigravity: 'Antigravity',
+  kiro: 'Kiro',
+  custom: 'Custom',
+};
 
 interface RouteFormProps {
   route?: Route;
@@ -26,6 +36,31 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
   const [position, setPosition] = useState('1');
   const [isEnabled, setIsEnabled] = useState(true);
   const [modelMapping, setModelMapping] = useState<Record<string, string>>({});
+
+  // Group providers by type and sort alphabetically
+  const groupedProviders = useMemo(() => {
+    const groups: Record<ProviderTypeKey, Provider[]> = {
+      antigravity: [],
+      kiro: [],
+      custom: [],
+    };
+
+    providers?.forEach((p) => {
+      const type = p.type as ProviderTypeKey;
+      if (groups[type]) {
+        groups[type].push(p);
+      } else {
+        groups.custom.push(p);
+      }
+    });
+
+    // Sort alphabetically within each group
+    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
+      groups[key].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return groups;
+  }, [providers]);
 
   useEffect(() => {
     if (route) {
@@ -96,11 +131,19 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
             <option value="">{t('routes.form.selectProvider')}</option>
-            {providers?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
+            {PROVIDER_TYPE_ORDER.map((typeKey) => {
+              const typeProviders = groupedProviders[typeKey];
+              if (typeProviders.length === 0) return null;
+              return (
+                <optgroup key={typeKey} label={PROVIDER_TYPE_LABELS[typeKey]}>
+                  {typeProviders.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
         </div>
       </div>

@@ -53,9 +53,9 @@ export function ProvidersPage() {
       }
     });
 
-    // 按 id 倒序排列（新创建的在前）
+    // 按名称字母顺序排列
     for (const key of Object.keys(groups) as ProviderTypeKey[]) {
-      groups[key].sort((a, b) => b.id - a.id);
+      groups[key].sort((a, b) => a.name.localeCompare(b.name));
     }
 
     return groups;

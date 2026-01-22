@@ -44,10 +44,13 @@ import type {
   RoutePositionUpdate,
   UsageStats,
   UsageStatsFilter,
+  RecalculateCostsResult,
+  RecalculateRequestCostResult,
   DashboardData,
   BackupFile,
   BackupImportOptions,
   BackupImportResult,
+  PriceTable,
 } from './types';
 
 export class HttpTransport implements Transport {
@@ -273,8 +276,15 @@ export class HttpTransport implements Transport {
     return data ?? { items: [], hasMore: false };
   }
 
-  async getProxyRequestsCount(): Promise<number> {
-    const { data } = await this.client.get<number>('/requests/count');
+  async getProxyRequestsCount(providerId?: number, status?: string): Promise<number> {
+    const params: Record<string, string> = {};
+    if (providerId !== undefined) {
+      params.providerId = String(providerId);
+    }
+    if (status !== undefined) {
+      params.status = status;
+    }
+    const { data } = await this.client.get<number>('/requests/count', { params });
     return data ?? 0;
   }
 
@@ -525,6 +535,7 @@ export class HttpTransport implements Transport {
     if (filter?.projectId) params.set('projectId', String(filter.projectId));
     if (filter?.clientType) params.set('clientType', filter.clientType);
     if (filter?.apiTokenId) params.set('apiTokenId', String(filter.apiTokenId));
+    if (filter?.model) params.set('model', filter.model);
 
     const query = params.toString();
     const url = query ? `/usage-stats?${query}` : '/usage-stats';
@@ -534,6 +545,20 @@ export class HttpTransport implements Transport {
 
   async recalculateUsageStats(): Promise<void> {
     await this.client.post('/usage-stats/recalculate');
+  }
+
+  async recalculateCosts(): Promise<RecalculateCostsResult> {
+    const { data } = await this.client.post<RecalculateCostsResult>(
+      '/usage-stats/recalculate-costs',
+    );
+    return data;
+  }
+
+  async recalculateRequestCost(requestId: number): Promise<RecalculateRequestCostResult> {
+    const { data } = await this.client.post<RecalculateRequestCostResult>(
+      `/requests/${requestId}/recalculate-cost`,
+    );
+    return data;
   }
 
   // ===== Dashboard API =====
@@ -565,6 +590,13 @@ export class HttpTransport implements Transport {
     const query = params.toString();
     const url = query ? `/backup/import?${query}` : '/backup/import';
     const { data } = await this.client.post<BackupImportResult>(url, backup);
+    return data;
+  }
+
+  // ===== Pricing API =====
+
+  async getPricing(): Promise<PriceTable> {
+    const { data } = await this.client.get<PriceTable>('/pricing');
     return data;
   }
 

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
 	ctxutil "github.com/awsl-project/maxx/internal/context"
@@ -14,12 +15,21 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/cached"
 )
 
+// RequestTracker interface for tracking active requests
+type RequestTracker interface {
+	Add() bool
+	Done()
+	IsShuttingDown() bool
+}
+
 // ProxyHandler handles AI API proxy requests
 type ProxyHandler struct {
 	clientAdapter *client.Adapter
 	executor      *executor.Executor
 	sessionRepo   *cached.SessionRepository
 	tokenAuth     *TokenAuthMiddleware
+	tracker       RequestTracker
+	trackerMu     sync.RWMutex
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -37,9 +47,31 @@ func NewProxyHandler(
 	}
 }
 
+// SetRequestTracker sets the request tracker for graceful shutdown
+func (h *ProxyHandler) SetRequestTracker(tracker RequestTracker) {
+	h.trackerMu.Lock()
+	defer h.trackerMu.Unlock()
+	h.tracker = tracker
+}
+
 // ServeHTTP handles proxy requests
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Proxy] Received request: %s %s", r.Method, r.URL.Path)
+
+	// Track request for graceful shutdown
+	h.trackerMu.RLock()
+	tracker := h.tracker
+	h.trackerMu.RUnlock()
+
+	if tracker != nil {
+		if !tracker.Add() {
+			// Server is shutting down, reject new requests
+			log.Printf("[Proxy] Rejecting request during shutdown: %s %s", r.Method, r.URL.Path)
+			writeError(w, http.StatusServiceUnavailable, "server is shutting down")
+			return
+		}
+		defer tracker.Done()
+	}
 
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
