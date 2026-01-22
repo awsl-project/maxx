@@ -361,15 +361,6 @@ func (a *LauncherApp) Quit() {
 		core.CloseDatabase(a.dbRepos)
 	}
 
-	// 清理端口
-	if a.config != nil {
-		port := a.config.Port
-		log.Printf("[Launcher] 退出前清理端口 %d...", port)
-		if err := TerminateProcessByPort(port); err != nil {
-			log.Printf("[Launcher] 端口清理警告: %v", err)
-		}
-	}
-
 	// 退出应用
 	runtime.Quit(a.ctx)
 }
@@ -402,15 +393,6 @@ func (a *LauncherApp) Shutdown(ctx context.Context) {
 	if a.dbRepos != nil {
 		if err := core.CloseDatabase(a.dbRepos); err != nil {
 			log.Printf("[Launcher] Failed to close database: %v", err)
-		}
-	}
-
-	// 清理端口
-	if a.config != nil {
-		port := a.config.Port
-		log.Printf("[Launcher] 关闭前清理端口 %d...", port)
-		if err := TerminateProcessByPort(port); err != nil {
-			log.Printf("[Launcher] 端口清理警告: %v", err)
 		}
 	}
 

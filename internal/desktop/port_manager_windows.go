@@ -61,7 +61,6 @@ func getPIDByPort(port int) (int, error) {
 	}
 
 	lines := strings.Split(out.String(), "\n")
-	portStr := fmt.Sprintf(":%d", port)
 
 	for _, line := range lines {
 		fields := strings.Fields(line)
@@ -72,7 +71,13 @@ func getPIDByPort(port int) (int, error) {
 		localAddr := fields[1]
 		pidStr := fields[len(fields)-1]
 
-		if strings.Contains(localAddr, portStr) {
+		lastColonIdx := strings.LastIndex(localAddr, ":")
+		if lastColonIdx == -1 {
+			continue
+		}
+
+		addrPort := localAddr[lastColonIdx+1:]
+		if addrPort == strconv.Itoa(port) {
 			pid, err := strconv.Atoi(pidStr)
 			if err != nil {
 				continue
