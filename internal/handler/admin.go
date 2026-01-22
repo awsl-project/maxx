@@ -91,6 +91,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleBackup(w, r, parts)
 	case "pricing":
 		h.handlePricing(w, r)
+	case "model-prices":
+		h.handleModelPrices(w, r, id)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
@@ -1441,15 +1443,141 @@ func (h *AdminHandler) handleBackupImport(w http.ResponseWriter, r *http.Request
 }
 
 // handlePricing handles GET /admin/pricing
-// Returns the default price table for cost calculation display
+// Returns the price table for cost calculation display (from database if available)
 func (h *AdminHandler) handlePricing(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
+	// Try to get prices from database first
+	dbPrices, err := h.svc.GetModelPrices()
+	if err == nil && len(dbPrices) > 0 {
+		// Convert database prices to PriceTable format
+		models := make(map[string]*pricing.ModelPricing)
+		for _, p := range dbPrices {
+			models[p.ModelID] = &pricing.ModelPricing{
+				ModelID:                p.ModelID,
+				InputPriceMicro:        p.InputPriceMicro,
+				OutputPriceMicro:       p.OutputPriceMicro,
+				CacheReadPriceMicro:    p.CacheReadPriceMicro,
+				Cache5mWritePriceMicro: p.Cache5mWritePriceMicro,
+				Cache1hWritePriceMicro: p.Cache1hWritePriceMicro,
+				Has1MContext:           p.Has1MContext,
+				Context1MThreshold:     p.Context1MThreshold,
+				InputPremiumNum:        p.InputPremiumNum,
+				InputPremiumDenom:      p.InputPremiumDenom,
+				OutputPremiumNum:       p.OutputPremiumNum,
+				OutputPremiumDenom:     p.OutputPremiumDenom,
+			}
+		}
+		priceTable := &pricing.PriceTable{
+			Version: "db",
+			Models:  models,
+		}
+		writeJSON(w, http.StatusOK, priceTable)
+		return
+	}
+
+	// Fallback to default price table
 	priceTable := pricing.DefaultPriceTable()
 	writeJSON(w, http.StatusOK, priceTable)
+}
+
+// handleModelPrices handles CRUD for /admin/model-prices
+func (h *AdminHandler) handleModelPrices(w http.ResponseWriter, r *http.Request, id uint64) {
+	// Check for special endpoints
+	path := r.URL.Path
+	if strings.HasSuffix(path, "/reset") && r.Method == http.MethodPost {
+		h.handleModelPricesReset(w, r)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		if id > 0 {
+			price, err := h.svc.GetModelPrice(id)
+			if err != nil {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "model price not found"})
+				return
+			}
+			writeJSON(w, http.StatusOK, price)
+		} else {
+			prices, err := h.svc.GetModelPrices()
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusOK, prices)
+		}
+
+	case http.MethodPost:
+		var price domain.ModelPrice
+		if err := json.NewDecoder(r.Body).Decode(&price); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		if err := h.svc.CreateModelPrice(&price); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		// Refresh calculator cache
+		pricing.GlobalCalculator().LoadFromDatabase(mustGetPrices(h.svc))
+		writeJSON(w, http.StatusCreated, price)
+
+	case http.MethodPut:
+		if id == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
+			return
+		}
+		var price domain.ModelPrice
+		if err := json.NewDecoder(r.Body).Decode(&price); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		price.ID = id
+		if err := h.svc.UpdateModelPrice(&price); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		// Refresh calculator cache
+		pricing.GlobalCalculator().LoadFromDatabase(mustGetPrices(h.svc))
+		writeJSON(w, http.StatusOK, price)
+
+	case http.MethodDelete:
+		if id == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
+			return
+		}
+		if err := h.svc.DeleteModelPrice(id); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		// Refresh calculator cache
+		pricing.GlobalCalculator().LoadFromDatabase(mustGetPrices(h.svc))
+		writeJSON(w, http.StatusNoContent, nil)
+
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
+// handleModelPricesReset handles POST /admin/model-prices/reset
+func (h *AdminHandler) handleModelPricesReset(w http.ResponseWriter, r *http.Request) {
+	prices, err := h.svc.ResetModelPricesToDefaults()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	// Refresh calculator cache
+	pricing.GlobalCalculator().LoadFromDatabase(prices)
+	writeJSON(w, http.StatusOK, prices)
+}
+
+// mustGetPrices is a helper to get prices for refreshing calculator
+func mustGetPrices(svc *service.AdminService) []*domain.ModelPrice {
+	prices, _ := svc.GetModelPrices()
+	return prices
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

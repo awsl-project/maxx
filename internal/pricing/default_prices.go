@@ -62,6 +62,15 @@ func initDefaultPrices() *PriceTable {
 		Has1MContext:           true,
 	})
 	pt.Set(&ModelPricing{
+		ModelID:                "claude-sonnet-4-5-20250929",
+		InputPriceMicro:        3_000_000,
+		OutputPriceMicro:       15_000_000,
+		Cache5mWritePriceMicro: 3_750_000,
+		Cache1hWritePriceMicro: 3_750_000,
+		CacheReadPriceMicro:    300_000,
+		Has1MContext:           true,
+	})
+	pt.Set(&ModelPricing{
 		ModelID:                "claude-opus-4-5-20251101",
 		InputPriceMicro:        5_000_000,
 		OutputPriceMicro:       25_000_000,
@@ -89,6 +98,16 @@ func initDefaultPrices() *PriceTable {
 		Cache5mWritePriceMicro: 18_750_000, // $18.75/M
 		Cache1hWritePriceMicro: 18_750_000, // $18.75/M
 		CacheReadPriceMicro:    1_500_000,  // $1.50/M
+	})
+
+	// Claude 4 系列 - 带版本号别名
+	pt.Set(&ModelPricing{
+		ModelID:                "claude-sonnet-4-20250514",
+		InputPriceMicro:        3_000_000,
+		OutputPriceMicro:       15_000_000,
+		Cache5mWritePriceMicro: 3_750_000,
+		Cache1hWritePriceMicro: 3_750_000,
+		CacheReadPriceMicro:    300_000,
 	})
 
 	// ========== Claude 3.7 系列 ==========

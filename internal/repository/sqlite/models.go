@@ -203,6 +203,8 @@ type ProxyRequest struct {
 	CacheWriteCount             uint64
 	Cache5mWriteCount           uint64 `gorm:"column:cache_5m_write_count"`
 	Cache1hWriteCount           uint64 `gorm:"column:cache_1h_write_count"`
+	ModelPriceID                uint64 // 使用的模型价格记录ID
+	Multiplier                  uint64 // 倍率（10000=1倍）
 	Cost                        uint64
 	RouteID                     uint64
 	ProviderID                  uint64
@@ -229,6 +231,8 @@ type ProxyUpstreamAttempt struct {
 	CacheWriteCount   uint64
 	Cache5mWriteCount uint64 `gorm:"column:cache_5m_write_count"`
 	Cache1hWriteCount uint64 `gorm:"column:cache_1h_write_count"`
+	ModelPriceID      uint64 // 使用的模型价格记录ID
+	Multiplier        uint64 // 倍率（10000=1倍）
 	Cost              uint64
 	IsStream          int
 	StartTime         int64
@@ -321,6 +325,27 @@ type SchemaMigration struct {
 
 func (SchemaMigration) TableName() string { return "schema_migrations" }
 
+// ModelPrice model - 模型价格（每个模型可有多条记录，每条代表一个版本）
+type ModelPrice struct {
+	ID                     uint64 `gorm:"primaryKey;autoIncrement"`
+	CreatedAt              int64
+	DeletedAt              int64  `gorm:"index"` // 软删除时间
+	ModelID                string `gorm:"size:128;index"`
+	InputPriceMicro        uint64
+	OutputPriceMicro       uint64
+	CacheReadPriceMicro    uint64
+	Cache5mWritePriceMicro uint64 `gorm:"column:cache_5m_write_price_micro"`
+	Cache1hWritePriceMicro uint64 `gorm:"column:cache_1h_write_price_micro"`
+	Has1MContext           int
+	Context1MThreshold     uint64 `gorm:"column:context_1m_threshold"`
+	InputPremiumNum        uint64
+	InputPremiumDenom      uint64
+	OutputPremiumNum       uint64
+	OutputPremiumDenom     uint64
+}
+
+func (ModelPrice) TableName() string { return "model_prices" }
+
 // ==================== All Models for AutoMigrate ====================
 
 // AllModels returns all GORM models for auto-migration
@@ -342,6 +367,7 @@ func AllModels() []any {
 		&FailureCount{},
 		&UsageStats{},
 		&ResponseModel{},
+		&ModelPrice{},
 		&SchemaMigration{},
 	}
 }

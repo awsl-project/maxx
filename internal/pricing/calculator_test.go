@@ -152,11 +152,11 @@ func TestCalculator_Calculate_WithCache(t *testing.T) {
 	// Cache read: $0.30/M (显式配置)
 	// Cache 5m/1h write: $3.75/M (显式配置)
 	metrics := &usage.Metrics{
-		InputTokens:          100_000, // 100K × $3/M = $0.30 = 300,000 microUSD
-		OutputTokens:         10_000,  // 10K × $15/M = $0.15 = 150,000 microUSD
-		CacheReadCount:       50_000,  // 50K × $0.30/M = $0.015 = 15,000 microUSD
-		Cache5mCreationCount: 20_000,  // 20K × $3.75/M = $0.075 = 75,000 microUSD
-		Cache1hCreationCount: 10_000,  // 10K × $3.75/M = $0.0375 = 37,500 microUSD
+		InputTokens:          100_000, // 100K × $3/M = $0.30 = 300,000,000 nanoUSD
+		OutputTokens:         10_000,  // 10K × $15/M = $0.15 = 150,000,000 nanoUSD
+		CacheReadCount:       50_000,  // 50K × $0.30/M = $0.015 = 15,000,000 nanoUSD
+		Cache5mCreationCount: 20_000,  // 20K × $3.75/M = $0.075 = 75,000,000 nanoUSD
+		Cache1hCreationCount: 10_000,  // 10K × $3.75/M = $0.0375 = 37,500,000 nanoUSD
 	}
 
 	cost := calc.Calculate("claude-sonnet-4-5", metrics)
@@ -164,10 +164,10 @@ func TestCalculator_Calculate_WithCache(t *testing.T) {
 		t.Fatal("Calculate() = 0, want non-zero")
 	}
 
-	// Expected: 300,000 + 150,000 + 15,000 + 75,000 + 37,500 = 577,500 microUSD
-	expectedMicroUSD := uint64(577_500)
-	if cost != expectedMicroUSD {
-		t.Errorf("Calculate() = %d microUSD, want %d microUSD", cost, expectedMicroUSD)
+	// Expected: 300,000,000 + 150,000,000 + 15,000,000 + 75,000,000 + 37,500,000 = 577,500,000 nanoUSD
+	expectedNanoUSD := uint64(577_500_000)
+	if cost != expectedNanoUSD {
+		t.Errorf("Calculate() = %d nanoUSD, want %d nanoUSD", cost, expectedNanoUSD)
 	}
 }
 
@@ -177,14 +177,14 @@ func TestCalculator_Calculate_1MContext(t *testing.T) {
 	// Claude Sonnet 4.5 with 1M context: 超过 200K 时 input×2, output×1.5
 	// input: $3/M, output: $15/M
 	metrics := &usage.Metrics{
-		InputTokens:  300_000, // 200K×$3 + 100K×$3×2 = $0.6 + $0.6 = $1.2 = 1,200,000 microUSD
-		OutputTokens: 50_000,  // 全部低于 200K: 50K×$15/M = $0.75 = 750,000 microUSD
+		InputTokens:  300_000, // 200K×$3 + 100K×$3×2 = $0.6 + $0.6 = $1.2 = 1,200,000,000 nanoUSD
+		OutputTokens: 50_000,  // 全部低于 200K: 50K×$15/M = $0.75 = 750,000,000 nanoUSD
 	}
 
 	cost := calc.Calculate("claude-sonnet-4-5", metrics)
-	expectedMicroUSD := uint64(1_200_000 + 750_000)
-	if cost != expectedMicroUSD {
-		t.Errorf("Calculate() = %d microUSD, want %d microUSD", cost, expectedMicroUSD)
+	expectedNanoUSD := uint64(1_200_000_000 + 750_000_000)
+	if cost != expectedNanoUSD {
+		t.Errorf("Calculate() = %d nanoUSD, want %d nanoUSD", cost, expectedNanoUSD)
 	}
 }
 

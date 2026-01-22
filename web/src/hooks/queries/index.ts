@@ -146,3 +146,14 @@ export {
 
 // Pricing hooks
 export { pricingKeys, usePricing } from './use-pricing';
+
+// Model Price hooks
+export {
+  modelPriceKeys,
+  useModelPrices,
+  useModelPrice,
+  useCreateModelPrice,
+  useUpdateModelPrice,
+  useDeleteModelPrice,
+  useResetModelPricesToDefaults,
+} from './use-model-prices';

@@ -9,6 +9,7 @@ import {
   Key,
   Zap,
   BarChart3,
+  DollarSign,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -107,6 +108,13 @@ export const sidebarConfig: SidebarConfig = {
           to: '/model-mappings',
           icon: Zap,
           labelKey: 'nav.modelMappings',
+        },
+        {
+          type: 'standard',
+          key: 'model-prices',
+          to: '/model-prices',
+          icon: DollarSign,
+          labelKey: 'nav.modelPrices',
         },
         {
           type: 'standard',

@@ -22,6 +22,9 @@ type ProviderConfigCustom struct {
 	// 某个 Client 有特殊的 BaseURL
 	ClientBaseURL map[ClientType]string `json:"clientBaseURL,omitempty"`
 
+	// 某个 Client 的价格倍率 (10000=1倍，15000=1.5倍)
+	ClientMultiplier map[ClientType]uint64 `json:"clientMultiplier,omitempty"`
+
 	// Model 映射: RequestModel → MappedModel
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
@@ -242,6 +245,10 @@ type ProxyRequest struct {
 	Cache5mWriteCount uint64 `json:"cache5mWriteCount"`
 	Cache1hWriteCount uint64 `json:"cache1hWriteCount"`
 
+	// 价格信息（来自最终 Attempt）
+	ModelPriceID uint64 `json:"modelPriceId"` // 使用的模型价格记录ID
+	Multiplier   uint64 `json:"multiplier"`   // 倍率（10000=1倍）
+
 	// 成本 (纳美元，1 USD = 1,000,000,000 nanoUSD)
 	Cost uint64 `json:"cost"`
 
@@ -297,6 +304,10 @@ type ProxyUpstreamAttempt struct {
 	CacheWriteCount   uint64 `json:"cacheWriteCount"`
 	Cache5mWriteCount uint64 `json:"cache5mWriteCount"`
 	Cache1hWriteCount uint64 `json:"cache1hWriteCount"`
+
+	// 价格信息
+	ModelPriceID uint64 `json:"modelPriceId"` // 使用的模型价格记录ID
+	Multiplier   uint64 `json:"multiplier"`   // 倍率（10000=1倍）
 
 	Cost uint64 `json:"cost"`
 }
@@ -390,15 +401,38 @@ type SystemSetting struct {
 
 // 系统设置 Key 常量
 const (
-	SettingKeyProxyPort              = "proxy_port"               // 代理服务器端口，默认 9880
-	SettingKeyRequestRetentionHours  = "request_retention_hours"  // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyTimezone               = "timezone"                 // 时区设置，默认 Asia/Shanghai
-	SettingKeyQuotaRefreshInterval   = "quota_refresh_interval"   // Antigravity 配额刷新间隔（分钟），0 表示禁用
-	SettingKeyAutoSortAntigravity    = "auto_sort_antigravity"    // 是否自动排序 Antigravity 路由，"true" 或 "false"
-	SettingKeyEnablePprof            = "enable_pprof"             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
-	SettingKeyPprofPort              = "pprof_port"               // pprof 服务端口，默认 6060
-	SettingKeyPprofPassword          = "pprof_password"           // pprof 访问密码，为空表示不需要密码
+	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
+	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyRequestDetailRetentionSeconds = "request_detail_retention_seconds" // 请求详情保留秒数，-1=永久保存(默认)，0=不保存，>0=保留秒数
+	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
+	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
+	SettingKeyAutoSortAntigravity           = "auto_sort_antigravity"            // 是否自动排序 Antigravity 路由，"true" 或 "false"
+	SettingKeyEnablePprof                   = "enable_pprof"                     // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
+	SettingKeyPprofPort                     = "pprof_port"                       // pprof 服务端口，默认 6060
+	SettingKeyPprofPassword                 = "pprof_password"                   // pprof 访问密码，为空表示不需要密码
 )
+
+// ModelPrice 模型价格（每个模型可有多条记录，每条代表一个版本）
+type ModelPrice struct {
+	ID        uint64    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	ModelID   string    `json:"modelId"` // 模型名称/前缀，如 "claude-sonnet-4"
+
+	// 基础价格 (microUSD/M tokens)
+	InputPriceMicro        uint64 `json:"inputPriceMicro"`
+	OutputPriceMicro       uint64 `json:"outputPriceMicro"`
+	CacheReadPriceMicro    uint64 `json:"cacheReadPriceMicro"`
+	Cache5mWritePriceMicro uint64 `json:"cache5mWritePriceMicro"`
+	Cache1hWritePriceMicro uint64 `json:"cache1hWritePriceMicro"`
+
+	// 1M Context 分层定价
+	Has1MContext       bool   `json:"has1mContext"`
+	Context1MThreshold uint64 `json:"context1mThreshold"`
+	InputPremiumNum    uint64 `json:"inputPremiumNum"`
+	InputPremiumDenom  uint64 `json:"inputPremiumDenom"`
+	OutputPremiumNum   uint64 `json:"outputPremiumNum"`
+	OutputPremiumDenom uint64 `json:"outputPremiumDenom"`
+}
 
 // Antigravity 模型配额
 type AntigravityModelQuota struct {

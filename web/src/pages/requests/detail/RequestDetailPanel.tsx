@@ -267,6 +267,29 @@ export function RequestDetailPanel({
       )
     : undefined;
 
+  // Calculate cost breakdown for selected attempt
+  const attemptCostBreakdown =
+    selectedAttempt && priceTable
+      ? calculateCostBreakdown(
+          selectedAttempt.responseModel || selectedAttempt.mappedModel || selectedAttempt.requestModel,
+          selectedAttempt.inputTokenCount,
+          selectedAttempt.outputTokenCount,
+          selectedAttempt.cacheReadCount,
+          selectedAttempt.cacheWriteCount,
+          selectedAttempt.cache5mWriteCount || 0,
+          selectedAttempt.cache1hWriteCount || 0,
+          priceTable.models,
+        )
+      : undefined;
+
+  // Helper to format price per million tokens
+  const formatPricePerM = (priceMicro: number): string => {
+    const usd = priceMicro / 1_000_000;
+    if (usd < 0.01) return `$${usd.toFixed(4)}/M`;
+    if (usd < 1) return `$${usd.toFixed(2)}/M`;
+    return `$${usd.toFixed(2)}/M`;
+  };
+
   if (selection.type === 'request') {
     return (
       <RequestDetailView
@@ -616,32 +639,69 @@ export function RequestDetailPanel({
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Input Tokens
                   </dt>
-                  <dd className="text-sm text-foreground font-mono font-medium">
-                    {selectedAttempt.inputTokenCount.toLocaleString()}
+                  <dd className="text-sm text-foreground font-mono font-medium flex items-center gap-2">
+                    <span>{selectedAttempt.inputTokenCount.toLocaleString()}</span>
+                    {attemptCostBreakdown?.items.find((i) => i.label === 'Input') && (
+                      <span className="text-xs text-muted-foreground">
+                        × {formatPricePerM(attemptCostBreakdown.items.find((i) => i.label === 'Input')!.pricePerM)} ={' '}
+                        <span className="text-blue-400">
+                          {formatCost(attemptCostBreakdown.items.find((i) => i.label === 'Input')!.cost)}
+                        </span>
+                      </span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Output Tokens
                   </dt>
-                  <dd className="text-sm text-foreground font-mono font-medium">
-                    {selectedAttempt.outputTokenCount.toLocaleString()}
+                  <dd className="text-sm text-foreground font-mono font-medium flex items-center gap-2">
+                    <span>{selectedAttempt.outputTokenCount.toLocaleString()}</span>
+                    {attemptCostBreakdown?.items.find((i) => i.label === 'Output') && (
+                      <span className="text-xs text-muted-foreground">
+                        × {formatPricePerM(attemptCostBreakdown.items.find((i) => i.label === 'Output')!.pricePerM)} ={' '}
+                        <span className="text-blue-400">
+                          {formatCost(attemptCostBreakdown.items.find((i) => i.label === 'Output')!.cost)}
+                        </span>
+                      </span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Cache Read
                   </dt>
-                  <dd className="text-sm text-violet-400 font-mono font-medium">
-                    {selectedAttempt.cacheReadCount.toLocaleString()}
+                  <dd className="text-sm text-violet-400 font-mono font-medium flex items-center gap-2">
+                    <span>{selectedAttempt.cacheReadCount.toLocaleString()}</span>
+                    {attemptCostBreakdown?.items.find((i) => i.label === 'Cache Read') && (
+                      <span className="text-xs text-muted-foreground">
+                        × {formatPricePerM(attemptCostBreakdown.items.find((i) => i.label === 'Cache Read')!.pricePerM)} ={' '}
+                        <span className="text-blue-400">
+                          {formatCost(attemptCostBreakdown.items.find((i) => i.label === 'Cache Read')!.cost)}
+                        </span>
+                      </span>
+                    )}
                   </dd>
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Cache Write
                   </dt>
-                  <dd className="text-sm text-amber-400 font-mono font-medium">
-                    {selectedAttempt.cacheWriteCount.toLocaleString()}
+                  <dd className="text-sm text-amber-400 font-mono font-medium flex items-center gap-2">
+                    <span>{selectedAttempt.cacheWriteCount.toLocaleString()}</span>
+                    {(() => {
+                      const cache5m = attemptCostBreakdown?.items.find((i) => i.label === 'Cache Write (5m)');
+                      const cache1h = attemptCostBreakdown?.items.find((i) => i.label === 'Cache Write (1h)');
+                      const cacheWrite = attemptCostBreakdown?.items.find((i) => i.label === 'Cache Write');
+                      const item = cache5m || cache1h || cacheWrite;
+                      if (!item) return null;
+                      return (
+                        <span className="text-xs text-muted-foreground">
+                          × {formatPricePerM(item.pricePerM)} ={' '}
+                          <span className="text-blue-400">{formatCost(item.cost)}</span>
+                        </span>
+                      );
+                    })()}
                   </dd>
                 </div>
                 {(selectedAttempt.cache5mWriteCount > 0 ||
@@ -654,14 +714,57 @@ export function RequestDetailPanel({
                       <span className="text-orange-400/80">1h:</span>{' '}
                       {selectedAttempt.cache1hWriteCount}
                     </dt>
+                    <dd className="text-xs text-muted-foreground font-mono">
+                      {(() => {
+                        const cache5m = attemptCostBreakdown?.items.find((i) => i.label === 'Cache Write (5m)');
+                        const cache1h = attemptCostBreakdown?.items.find((i) => i.label === 'Cache Write (1h)');
+                        const parts: string[] = [];
+                        if (cache5m) parts.push(`5m: ${formatCost(cache5m.cost)}`);
+                        if (cache1h) parts.push(`1h: ${formatCost(cache1h.cost)}`);
+                        return parts.length > 0 ? parts.join(' | ') : null;
+                      })()}
+                    </dd>
                   </div>
                 )}
+                {/* Subtotal before multiplier - only show when multiplier != 1.0x */}
+                {attemptCostBreakdown && selectedAttempt.multiplier > 0 && selectedAttempt.multiplier !== 10000 && (
+                  <div className="flex justify-between items-center border-b border-border/30 pb-2">
+                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Subtotal
+                    </dt>
+                    <dd className="text-sm text-muted-foreground font-mono font-medium">
+                      {formatCost(attemptCostBreakdown.totalCost)}
+                    </dd>
+                  </div>
+                )}
+                {/* Multiplier row - always show */}
+                <div className="flex justify-between items-center border-b border-border/30 pb-2">
+                  <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Multiplier
+                  </dt>
+                  <dd className={`text-sm font-mono font-medium ${selectedAttempt.multiplier > 0 && selectedAttempt.multiplier !== 10000 ? 'text-yellow-400' : 'text-foreground'}`}>
+                    ×{((selectedAttempt.multiplier > 0 ? selectedAttempt.multiplier : 10000) / 10000).toFixed(2)}
+                  </dd>
+                </div>
                 <div className="flex justify-between items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Cost
                   </dt>
-                  <dd className="text-sm text-blue-400 font-mono font-medium">
-                    {formatCost(selectedAttempt.cost)}
+                  <dd className="text-sm font-mono font-medium flex items-center gap-2">
+                    <span className="text-blue-400">{formatCost(selectedAttempt.cost)}</span>
+                    {attemptCostBreakdown && (() => {
+                      // Calculate expected cost with multiplier applied
+                      const multiplier = selectedAttempt.multiplier > 0 ? selectedAttempt.multiplier : 10000;
+                      const expectedCost = Math.floor(attemptCostBreakdown.totalCost * multiplier / 10000);
+                      if (expectedCost !== selectedAttempt.cost) {
+                        return (
+                          <span className="text-xs text-amber-400" title="前端计算值与后端不一致">
+                            (计算: {formatCost(expectedCost)})
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                   </dd>
                 </div>
               </dl>

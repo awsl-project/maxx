@@ -50,6 +50,9 @@ export {
 // Switch
 export { Switch } from './switch';
 
+// Label
+export { Label } from './label';
+
 // Tabs
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './tabs';
 
@@ -73,3 +76,16 @@ export {
   SheetTitle,
   SheetDescription,
 } from './sheet';
+
+// AlertDialog
+export {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from './alert-dialog';

@@ -106,6 +106,7 @@ func main() {
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
 	responseModelRepo := sqlite.NewResponseModelRepository(db)
+	modelPriceRepo := sqlite.NewModelPriceRepository(db)
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
@@ -218,6 +219,7 @@ func main() {
 	core.StartBackgroundTasks(core.BackgroundTaskDeps{
 		UsageStats:         usageStatsRepo,
 		ProxyRequest:       proxyRequestRepo,
+		AttemptRepo:        attemptRepo,
 		Settings:           settingRepo,
 		AntigravityTaskSvc: antigravityTaskSvc,
 	})
@@ -233,7 +235,7 @@ func main() {
 	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
 
 	// Create executor
-	exec := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, wsHub, projectWaiter, instanceID, statsAggregator)
+	exec := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID, statsAggregator)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()
@@ -254,6 +256,7 @@ func main() {
 		cachedModelMappingRepo,
 		usageStatsRepo,
 		responseModelRepo,
+		modelPriceRepo,
 		*addr,
 		r, // Router implements ProviderAdapterRefresher interface
 		wsHub,

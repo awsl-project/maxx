@@ -192,13 +192,14 @@ export type ClientConfig = {
   name: string;
   enabled: boolean;
   urlOverride: string;
+  multiplier: number; // 10000=1倍
 };
 
 export const defaultClients: ClientConfig[] = [
-  { id: 'claude', name: 'Claude', enabled: true, urlOverride: '' },
-  { id: 'openai', name: 'OpenAI', enabled: false, urlOverride: '' },
-  { id: 'codex', name: 'Codex', enabled: false, urlOverride: '' },
-  { id: 'gemini', name: 'Gemini', enabled: false, urlOverride: '' },
+  { id: 'claude', name: 'Claude', enabled: true, urlOverride: '', multiplier: 10000 },
+  { id: 'openai', name: 'OpenAI', enabled: false, urlOverride: '', multiplier: 10000 },
+  { id: 'codex', name: 'Codex', enabled: false, urlOverride: '', multiplier: 10000 },
+  { id: 'gemini', name: 'Gemini', enabled: false, urlOverride: '', multiplier: 10000 },
 ];
 
 // Form data types

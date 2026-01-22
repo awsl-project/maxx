@@ -51,6 +51,8 @@ import type {
   BackupImportOptions,
   BackupImportResult,
   PriceTable,
+  ModelPrice,
+  ModelPriceInput,
 } from './types';
 
 export class HttpTransport implements Transport {
@@ -597,6 +599,37 @@ export class HttpTransport implements Transport {
 
   async getPricing(): Promise<PriceTable> {
     const { data } = await this.client.get<PriceTable>('/pricing');
+    return data;
+  }
+
+  // ===== Model Price API =====
+
+  async getModelPrices(): Promise<ModelPrice[]> {
+    const { data } = await this.client.get<ModelPrice[]>('/model-prices');
+    return data;
+  }
+
+  async getModelPrice(id: number): Promise<ModelPrice> {
+    const { data } = await this.client.get<ModelPrice>(`/model-prices/${id}`);
+    return data;
+  }
+
+  async createModelPrice(input: ModelPriceInput): Promise<ModelPrice> {
+    const { data } = await this.client.post<ModelPrice>('/model-prices', input);
+    return data;
+  }
+
+  async updateModelPrice(id: number, input: ModelPriceInput): Promise<ModelPrice> {
+    const { data } = await this.client.put<ModelPrice>(`/model-prices/${id}`, input);
+    return data;
+  }
+
+  async deleteModelPrice(id: number): Promise<void> {
+    await this.client.delete(`/model-prices/${id}`);
+  }
+
+  async resetModelPricesToDefaults(): Promise<ModelPrice[]> {
+    const { data } = await this.client.post<ModelPrice[]>('/model-prices/reset');
     return data;
   }
 

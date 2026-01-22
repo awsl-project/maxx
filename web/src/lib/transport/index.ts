@@ -81,6 +81,8 @@ export type {
   // Pricing
   ModelPricing,
   PriceTable,
+  ModelPrice,
+  ModelPriceInput,
 } from './types';
 
 export type { Transport, TransportType, TransportConfig } from './interface';

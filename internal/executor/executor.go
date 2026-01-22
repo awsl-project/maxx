@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/converter"
@@ -27,6 +28,7 @@ type Executor struct {
 	retryConfigRepo    repository.RetryConfigRepository
 	sessionRepo        repository.SessionRepository
 	modelMappingRepo   repository.ModelMappingRepository
+	settingsRepo       repository.SystemSettingRepository
 	broadcaster        event.Broadcaster
 	projectWaiter      *waiter.ProjectWaiter
 	instanceID         string
@@ -42,6 +44,7 @@ func NewExecutor(
 	rcr repository.RetryConfigRepository,
 	sessionRepo repository.SessionRepository,
 	modelMappingRepo repository.ModelMappingRepository,
+	settingsRepo repository.SystemSettingRepository,
 	bc event.Broadcaster,
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
@@ -54,6 +57,7 @@ func NewExecutor(
 		retryConfigRepo:    rcr,
 		sessionRepo:        sessionRepo,
 		modelMappingRepo:   modelMappingRepo,
+		settingsRepo:       settingsRepo,
 		broadcaster:        bc,
 		projectWaiter:      projectWaiter,
 		instanceID:         instanceID,
@@ -412,7 +416,18 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 					if pricingModel == "" {
 						pricingModel = attemptRecord.MappedModel
 					}
-					attemptRecord.Cost = pricing.GlobalCalculator().Calculate(pricingModel, metrics)
+					// Get multiplier from provider config
+					multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
+					result := pricing.GlobalCalculator().CalculateWithResult(pricingModel, metrics, multiplier)
+					attemptRecord.Cost = result.Cost
+					attemptRecord.ModelPriceID = result.ModelPriceID
+					attemptRecord.Multiplier = result.Multiplier
+				}
+
+				// 检查是否需要立即清理 attempt 详情（设置为 0 时不保存）
+				if e.shouldClearRequestDetail() {
+					attemptRecord.RequestInfo = nil
+					attemptRecord.ResponseInfo = nil
 				}
 
 				_ = e.attemptRepo.Update(attemptRecord)
@@ -429,6 +444,8 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				proxyReq.EndTime = time.Now()
 				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 				proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
+				proxyReq.ModelPriceID = attemptRecord.ModelPriceID
+				proxyReq.Multiplier = attemptRecord.Multiplier
 				proxyReq.ResponseModel = mappedModel // Record the actual model used
 
 				// Capture actual client response (what was sent to client, e.g. Claude format)
@@ -452,6 +469,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				}
 				proxyReq.Cost = attemptRecord.Cost
 				proxyReq.TTFT = attemptRecord.TTFT
+
+				// 检查是否需要立即清理 proxyReq 详情（设置为 0 时不保存）
+				if e.shouldClearRequestDetail() {
+					proxyReq.RequestInfo = nil
+					proxyReq.ResponseInfo = nil
+				}
 
 				_ = e.proxyRequestRepo.Update(proxyReq)
 
@@ -490,7 +513,18 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				if pricingModel == "" {
 					pricingModel = attemptRecord.MappedModel
 				}
-				attemptRecord.Cost = pricing.GlobalCalculator().Calculate(pricingModel, metrics)
+				// Get multiplier from provider config
+				multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
+				result := pricing.GlobalCalculator().CalculateWithResult(pricingModel, metrics, multiplier)
+				attemptRecord.Cost = result.Cost
+				attemptRecord.ModelPriceID = result.ModelPriceID
+				attemptRecord.Multiplier = result.Multiplier
+			}
+
+			// 检查是否需要立即清理 attempt 详情（设置为 0 时不保存）
+			if e.shouldClearRequestDetail() {
+				attemptRecord.RequestInfo = nil
+				attemptRecord.ResponseInfo = nil
 			}
 
 			_ = e.attemptRepo.Update(attemptRecord)
@@ -501,6 +535,8 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 			// Update proxyReq with latest attempt info (even on failure)
 			proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
+			proxyReq.ModelPriceID = attemptRecord.ModelPriceID
+			proxyReq.Multiplier = attemptRecord.Multiplier
 
 			// Capture actual client response (even on failure, if any response was sent)
 			if responseCapture.Body() != "" {
@@ -603,6 +639,13 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 	if lastErr != nil {
 		proxyReq.Error = lastErr.Error()
 	}
+
+	// 检查是否需要立即清理详情（设置为 0 时不保存）
+	if e.shouldClearRequestDetail() {
+		proxyReq.RequestInfo = nil
+		proxyReq.ResponseInfo = nil
+	}
+
 	_ = e.proxyRequestRepo.Update(proxyReq)
 
 	// Broadcast to WebSocket clients
@@ -884,5 +927,43 @@ func (e *Executor) processAdapterEventsRealtime(eventChan domain.AdapterEventCha
 			e.broadcaster.BroadcastProxyUpstreamAttempt(attempt)
 		}
 	}
+}
+
+// getRequestDetailRetentionSeconds 获取请求详情保留秒数
+// 返回值：-1=永久保存，0=不保存，>0=保留秒数
+func (e *Executor) getRequestDetailRetentionSeconds() int {
+	if e.settingsRepo == nil {
+		return -1 // 默认永久保存
+	}
+	val, err := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSeconds)
+	if err != nil || val == "" {
+		return -1 // 默认永久保存
+	}
+	seconds, err := strconv.Atoi(val)
+	if err != nil {
+		return -1
+	}
+	return seconds
+}
+
+// shouldClearRequestDetail 检查是否应该立即清理请求详情
+// 当设置为 0 时返回 true
+func (e *Executor) shouldClearRequestDetail() bool {
+	return e.getRequestDetailRetentionSeconds() == 0
+}
+
+// getProviderMultiplier 获取 Provider 针对特定 ClientType 的倍率
+// 返回 10000 表示 1 倍，15000 表示 1.5 倍
+func getProviderMultiplier(provider *domain.Provider, clientType domain.ClientType) uint64 {
+	if provider == nil || provider.Config == nil || provider.Config.Custom == nil {
+		return 10000 // 默认 1 倍
+	}
+	if provider.Config.Custom.ClientMultiplier == nil {
+		return 10000
+	}
+	if multiplier, ok := provider.Config.Custom.ClientMultiplier[clientType]; ok && multiplier > 0 {
+		return multiplier
+	}
+	return 10000
 }
 

@@ -13,6 +13,7 @@ export interface ProviderConfigCustom {
   baseURL: string;
   apiKey: string;
   clientBaseURL?: Partial<Record<ClientType, string>>;
+  clientMultiplier?: Partial<Record<ClientType, number>>; // 10000=1倍
   modelMapping?: Record<string, string>;
 }
 
@@ -200,6 +201,9 @@ export interface ProxyRequest {
   cacheWriteCount: number;
   cache5mWriteCount: number;
   cache1hWriteCount: number;
+  // 价格信息（来自最终 Attempt）
+  modelPriceId: number; // 使用的模型价格记录ID
+  multiplier: number; // 倍率（10000=1倍）
   cost: number;
   // API Token ID
   apiTokenID: number;
@@ -239,6 +243,9 @@ export interface ProxyUpstreamAttempt {
   cacheWriteCount: number;
   cache5mWriteCount: number;
   cache1hWriteCount: number;
+  // 价格信息
+  modelPriceId: number; // 使用的模型价格记录ID
+  multiplier: number; // 倍率（10000=1倍）
   cost: number;
 }
 
@@ -814,4 +821,40 @@ export interface ModelPricing {
 export interface PriceTable {
   version: string;
   models: Record<string, ModelPricing>;
+}
+
+// ===== Model Price (Database) =====
+
+/** 数据库中的模型价格记录 */
+export interface ModelPrice {
+  id: number;
+  createdAt: string;
+  modelId: string;
+  inputPriceMicro: number;
+  outputPriceMicro: number;
+  cacheReadPriceMicro: number;
+  cache5mWritePriceMicro: number;
+  cache1hWritePriceMicro: number;
+  has1mContext: boolean;
+  context1mThreshold: number;
+  inputPremiumNum: number;
+  inputPremiumDenom: number;
+  outputPremiumNum: number;
+  outputPremiumDenom: number;
+}
+
+/** 创建/更新模型价格的请求 */
+export interface ModelPriceInput {
+  modelId: string;
+  inputPriceMicro: number;
+  outputPriceMicro: number;
+  cacheReadPriceMicro?: number;
+  cache5mWritePriceMicro?: number;
+  cache1hWritePriceMicro?: number;
+  has1mContext?: boolean;
+  context1mThreshold?: number;
+  inputPremiumNum?: number;
+  inputPremiumDenom?: number;
+  outputPremiumNum?: number;
+  outputPremiumDenom?: number;
 }

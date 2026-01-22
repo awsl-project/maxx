@@ -101,6 +101,8 @@ type ProxyRequestRepository interface {
 	RecalculateCostsFromAttempts() (int64, error)
 	// RecalculateCostsFromAttemptsWithProgress recalculates all request costs with progress reporting via channel
 	RecalculateCostsFromAttemptsWithProgress(progress chan<- domain.Progress) (int64, error)
+	// ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
+	ClearDetailOlderThan(before time.Time) (int64, error)
 }
 
 type ProxyUpstreamAttemptRepository interface {
@@ -122,6 +124,8 @@ type ProxyUpstreamAttemptRepository interface {
 	MarkStaleAttemptsFailed() (int64, error)
 	// FixFailedAttemptsWithoutEndTime fixes FAILED attempts that have no end_time set
 	FixFailedAttemptsWithoutEndTime() (int64, error)
+	// ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
+	ClearDetailOlderThan(before time.Time) (int64, error)
 }
 
 type SystemSettingRepository interface {
@@ -226,4 +230,29 @@ type ResponseModelRepository interface {
 	List() ([]*domain.ResponseModel, error)
 	// ListNames 获取所有 response model 名称
 	ListNames() ([]string, error)
+}
+
+type ModelPriceRepository interface {
+	// Create 创建新的价格记录（用于价格变更）
+	Create(price *domain.ModelPrice) error
+	// BatchCreate 批量创建价格记录
+	BatchCreate(prices []*domain.ModelPrice) error
+	// GetByID 获取指定ID的价格记录
+	GetByID(id uint64) (*domain.ModelPrice, error)
+	// GetCurrentByModelID 获取模型的当前价格（最新记录），支持前缀匹配
+	GetCurrentByModelID(modelID string) (*domain.ModelPrice, error)
+	// ListCurrentPrices 获取所有模型的当前价格（用于初始化 Calculator）
+	ListCurrentPrices() ([]*domain.ModelPrice, error)
+	// ListByModelID 获取模型的价格历史
+	ListByModelID(modelID string) ([]*domain.ModelPrice, error)
+	// Count 获取价格记录总数
+	Count() (int64, error)
+	// Delete 删除价格记录（软删除）
+	Delete(id uint64) error
+	// Update 更新价格记录
+	Update(price *domain.ModelPrice) error
+	// SoftDeleteAll 软删除所有价格记录
+	SoftDeleteAll() error
+	// ResetToDefaults 重置为默认价格（软删除现有记录，插入默认价格）
+	ResetToDefaults() ([]*domain.ModelPrice, error)
 }

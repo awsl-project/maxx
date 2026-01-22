@@ -236,6 +236,22 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 	})
 }
 
+// ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
+func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time) (int64, error) {
+	beforeTs := toTimestamp(before)
+	now := time.Now().UnixMilli()
+
+	result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
+		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
+		Updates(map[string]any{
+			"request_info":  nil,
+			"response_info": nil,
+			"updated_at":    now,
+		})
+
+	return result.RowsAffected, result.Error
+}
+
 func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
 	return &ProxyUpstreamAttempt{
 		BaseModel: BaseModel{
@@ -263,6 +279,8 @@ func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt)
 		CacheWriteCount:   a.CacheWriteCount,
 		Cache5mWriteCount: a.Cache5mWriteCount,
 		Cache1hWriteCount: a.Cache1hWriteCount,
+		ModelPriceID:      a.ModelPriceID,
+		Multiplier:        a.Multiplier,
 		Cost:              a.Cost,
 	}
 }
@@ -292,6 +310,8 @@ func (r *ProxyUpstreamAttemptRepository) toDomain(m *ProxyUpstreamAttempt) *doma
 		CacheWriteCount:   m.CacheWriteCount,
 		Cache5mWriteCount: m.Cache5mWriteCount,
 		Cache1hWriteCount: m.Cache1hWriteCount,
+		ModelPriceID:      m.ModelPriceID,
+		Multiplier:        m.Multiplier,
 		Cost:              m.Cost,
 	}
 }

@@ -1,7 +1,11 @@
 // Package pricing 提供模型定价和成本计算功能
 package pricing
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/awsl-project/maxx/internal/domain"
+)
 
 // ModelPricing 单个模型的价格配置
 // 价格单位：微美元/百万tokens (microUSD/M tokens)
@@ -70,6 +74,15 @@ func (pt *PriceTable) Set(pricing *ModelPricing) {
 	pt.Models[pricing.ModelID] = pricing
 }
 
+// All 返回所有模型价格
+func (pt *PriceTable) All() []*ModelPricing {
+	prices := make([]*ModelPricing, 0, len(pt.Models))
+	for _, p := range pt.Models {
+		prices = append(prices, p)
+	}
+	return prices
+}
+
 // GetEffectiveCacheReadPriceMicro 获取有效的缓存读取价格 (microUSD/M tokens)
 // 如果未设置，返回 inputPriceMicro / 10
 func (p *ModelPricing) GetEffectiveCacheReadPriceMicro() uint64 {
@@ -119,6 +132,22 @@ func (p *ModelPricing) GetInputPremiumFraction() (num, denom uint64) {
 	return
 }
 
+// GetInputPremiumNum 获取超阈值input倍率分子（默认2）
+func (p *ModelPricing) GetInputPremiumNum() uint64 {
+	if p.InputPremiumNum > 0 {
+		return p.InputPremiumNum
+	}
+	return 2
+}
+
+// GetInputPremiumDenom 获取超阈值input倍率分母（默认1）
+func (p *ModelPricing) GetInputPremiumDenom() uint64 {
+	if p.InputPremiumDenom > 0 {
+		return p.InputPremiumDenom
+	}
+	return 1
+}
+
 // GetOutputPremiumFraction 获取超阈值output倍率（分数）
 // 默认 3/2 = 1.5
 func (p *ModelPricing) GetOutputPremiumFraction() (num, denom uint64) {
@@ -130,4 +159,45 @@ func (p *ModelPricing) GetOutputPremiumFraction() (num, denom uint64) {
 		denom = 2
 	}
 	return
+}
+
+// GetOutputPremiumNum 获取超阈值output倍率分子（默认3）
+func (p *ModelPricing) GetOutputPremiumNum() uint64 {
+	if p.OutputPremiumNum > 0 {
+		return p.OutputPremiumNum
+	}
+	return 3
+}
+
+// GetOutputPremiumDenom 获取超阈值output倍率分母（默认2）
+func (p *ModelPricing) GetOutputPremiumDenom() uint64 {
+	if p.OutputPremiumDenom > 0 {
+		return p.OutputPremiumDenom
+	}
+	return 2
+}
+
+// ConvertToDBPrices 将内置价格表转换为数据库价格记录
+func ConvertToDBPrices(pt *PriceTable) []*domain.ModelPrice {
+	prices := make([]*domain.ModelPrice, 0, len(pt.Models))
+
+	for _, mp := range pt.Models {
+		price := &domain.ModelPrice{
+			ModelID:                mp.ModelID,
+			InputPriceMicro:        mp.InputPriceMicro,
+			OutputPriceMicro:       mp.OutputPriceMicro,
+			CacheReadPriceMicro:    mp.CacheReadPriceMicro,
+			Cache5mWritePriceMicro: mp.Cache5mWritePriceMicro,
+			Cache1hWritePriceMicro: mp.Cache1hWritePriceMicro,
+			Has1MContext:           mp.Has1MContext,
+			Context1MThreshold:     mp.Context1MThreshold,
+			InputPremiumNum:        mp.InputPremiumNum,
+			InputPremiumDenom:      mp.InputPremiumDenom,
+			OutputPremiumNum:       mp.OutputPremiumNum,
+			OutputPremiumDenom:     mp.OutputPremiumDenom,
+		}
+		prices = append(prices, price)
+	}
+
+	return prices
 }

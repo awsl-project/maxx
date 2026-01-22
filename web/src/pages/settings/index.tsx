@@ -277,32 +277,46 @@ function DataRetentionSection() {
   const { t } = useTranslation();
 
   const requestRetentionHours = settings?.request_retention_hours ?? '168';
+  const requestDetailRetentionSeconds = settings?.request_detail_retention_seconds ?? '-1';
 
   const [requestDraft, setRequestDraft] = useState('');
+  const [detailDraft, setDetailDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
       setRequestDraft(requestRetentionHours);
+      setDetailDraft(requestDetailRetentionSeconds);
       setInitialized(true);
     }
-  }, [isLoading, initialized, requestRetentionHours]);
+  }, [isLoading, initialized, requestRetentionHours, requestDetailRetentionSeconds]);
 
   useEffect(() => {
     if (initialized) {
       setRequestDraft(requestRetentionHours);
+      setDetailDraft(requestDetailRetentionSeconds);
     }
-  }, [requestRetentionHours, initialized]);
+  }, [requestRetentionHours, requestDetailRetentionSeconds, initialized]);
 
-  const hasChanges = initialized && requestDraft !== requestRetentionHours;
+  const hasChanges =
+    initialized &&
+    (requestDraft !== requestRetentionHours || detailDraft !== requestDetailRetentionSeconds);
 
   const handleSave = async () => {
     const requestNum = parseInt(requestDraft, 10);
+    const detailNum = parseInt(detailDraft, 10);
 
     if (!isNaN(requestNum) && requestNum >= 0 && requestDraft !== requestRetentionHours) {
       await updateSetting.mutateAsync({
         key: 'request_retention_hours',
         value: requestDraft,
+      });
+    }
+
+    if (!isNaN(detailNum) && detailNum >= -1 && detailDraft !== requestDetailRetentionSeconds) {
+      await updateSetting.mutateAsync({
+        key: 'request_detail_retention_seconds',
+        value: detailDraft,
       });
     }
   };
@@ -325,7 +339,7 @@ function DataRetentionSection() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <div className="flex items-center gap-3">
           <div className="text-sm font-medium text-muted-foreground shrink-0">
             {t('settings.requestRetentionHours')}
@@ -340,6 +354,22 @@ function DataRetentionSection() {
           />
           <span className="text-xs text-muted-foreground">{t('common.hours')}</span>
         </div>
+
+        <div className="flex items-center gap-3 pt-4 border-t border-border">
+          <div className="text-sm font-medium text-muted-foreground shrink-0">
+            {t('settings.requestDetailRetention')}
+          </div>
+          <Input
+            type="number"
+            value={detailDraft}
+            onChange={(e) => setDetailDraft(e.target.value)}
+            className="w-24"
+            min={-1}
+            disabled={updateSetting.isPending}
+          />
+          <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+        </div>
+        <p className="text-xs text-muted-foreground">{t('settings.requestDetailRetentionDesc')}</p>
       </CardContent>
     </Card>
   );

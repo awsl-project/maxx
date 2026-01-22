@@ -412,6 +412,22 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 	return totalUpdated, nil
 }
 
+// ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
+func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time) (int64, error) {
+	beforeTs := toTimestamp(before)
+	now := time.Now().UnixMilli()
+
+	result := r.db.gorm.Model(&ProxyRequest{}).
+		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
+		Updates(map[string]any{
+			"request_info":  nil,
+			"response_info": nil,
+			"updated_at":    now,
+		})
+
+	return result.RowsAffected, result.Error
+}
+
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 	return &ProxyRequest{
 		BaseModel: BaseModel{
@@ -446,6 +462,8 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 		CacheWriteCount:            p.CacheWriteCount,
 		Cache5mWriteCount:          p.Cache5mWriteCount,
 		Cache1hWriteCount:          p.Cache1hWriteCount,
+		ModelPriceID:               p.ModelPriceID,
+		Multiplier:                 p.Multiplier,
 		Cost:                       p.Cost,
 		APITokenID:                 p.APITokenID,
 	}
@@ -483,6 +501,8 @@ func (r *ProxyRequestRepository) toDomain(m *ProxyRequest) *domain.ProxyRequest 
 		CacheWriteCount:             m.CacheWriteCount,
 		Cache5mWriteCount:           m.Cache5mWriteCount,
 		Cache1hWriteCount:           m.Cache1hWriteCount,
+		ModelPriceID:                m.ModelPriceID,
+		Multiplier:                  m.Multiplier,
 		Cost:                        m.Cost,
 		APITokenID:                  m.APITokenID,
 	}

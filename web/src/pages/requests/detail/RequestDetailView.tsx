@@ -453,17 +453,45 @@ export function RequestDetailView({
                     </dd>
                   </div>
                 )}
+                {/* Subtotal before multiplier - only show when multiplier != 1.0x */}
+                {costBreakdown && request.multiplier > 0 && request.multiplier !== 10000 && (
+                  <div className="flex justify-between items-center border-b border-border/30 pb-2">
+                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Subtotal
+                    </dt>
+                    <dd className="text-sm text-muted-foreground font-mono font-medium">
+                      {formatCost(costBreakdown.totalCost)}
+                    </dd>
+                  </div>
+                )}
+                {/* Multiplier row - always show */}
+                <div className="flex justify-between items-center border-b border-border/30 pb-2">
+                  <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Multiplier
+                  </dt>
+                  <dd className={`text-sm font-mono font-medium ${request.multiplier > 0 && request.multiplier !== 10000 ? 'text-yellow-400' : 'text-foreground'}`}>
+                    ×{((request.multiplier > 0 ? request.multiplier : 10000) / 10000).toFixed(2)}
+                  </dd>
+                </div>
                 <div className="flex justify-between items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Cost
                   </dt>
                   <dd className="text-sm font-mono font-medium flex items-center gap-2">
                     <span className="text-blue-400">{formatCost(request.cost)}</span>
-                    {costBreakdown && costBreakdown.totalCost !== request.cost && (
-                      <span className="text-xs text-amber-400" title="前端计算值与后端不一致">
-                        (计算: {formatCost(costBreakdown.totalCost)})
-                      </span>
-                    )}
+                    {costBreakdown && (() => {
+                      // Calculate expected cost with multiplier applied
+                      const multiplier = request.multiplier > 0 ? request.multiplier : 10000;
+                      const expectedCost = Math.floor(costBreakdown.totalCost * multiplier / 10000);
+                      if (expectedCost !== request.cost) {
+                        return (
+                          <span className="text-xs text-amber-400" title="前端计算值与后端不一致">
+                            (计算: {formatCost(expectedCost)})
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                   </dd>
                 </div>
               </dl>

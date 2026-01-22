@@ -11,6 +11,7 @@ import (
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
+	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
@@ -55,6 +56,7 @@ type DatabaseRepos struct {
 	CachedModelMappingRepo   *cached.ModelMappingRepository
 	UsageStatsRepo           repository.UsageStatsRepository
 	ResponseModelRepo        repository.ResponseModelRepository
+	ModelPriceRepo           repository.ModelPriceRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
@@ -107,6 +109,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
 	responseModelRepo := sqlite.NewResponseModelRepository(db)
+	modelPriceRepo := sqlite.NewModelPriceRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -145,6 +148,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		CachedModelMappingRepo:   cachedModelMappingRepo,
 		UsageStatsRepo:           usageStatsRepo,
 		ResponseModelRepo:        responseModelRepo,
+		ModelPriceRepo:           modelPriceRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -214,6 +218,11 @@ func InitializeServerComponents(
 		log.Printf("[Core] Warning: Failed to load model mappings cache: %v", err)
 	}
 
+	// Initialize model prices and load into Calculator
+	if err := initializeModelPrices(repos.ModelPriceRepo); err != nil {
+		log.Printf("[Core] Warning: Failed to initialize model prices: %v", err)
+	}
+
 	log.Printf("[Core] Creating router")
 	r := router.NewRouter(
 		repos.CachedRouteRepo,
@@ -268,6 +277,7 @@ func InitializeServerComponents(
 		repos.CachedRetryConfigRepo,
 		repos.CachedSessionRepo,
 		repos.CachedModelMappingRepo,
+		repos.SettingRepo,
 		wailsBroadcaster,
 		projectWaiter,
 		instanceID,
@@ -295,6 +305,7 @@ func InitializeServerComponents(
 		repos.CachedModelMappingRepo,
 		repos.UsageStatsRepo,
 		repos.ResponseModelRepo,
+		repos.ModelPriceRepo,
 		addr,
 		r,
 		wailsBroadcaster,
@@ -351,5 +362,48 @@ func CloseDatabase(repos *DatabaseRepos) error {
 	if repos != nil && repos.DB != nil {
 		return repos.DB.Close()
 	}
+	return nil
+}
+
+// initializeModelPrices 初始化模型价格
+// 如果数据库为空，从内置默认价格表导入
+// 然后加载到全局 Calculator
+func initializeModelPrices(repo repository.ModelPriceRepository) error {
+	// 检查是否有价格记录
+	count, err := repo.Count()
+	if err != nil {
+		return err
+	}
+
+	// 如果为空，导入默认价格
+	if count == 0 {
+		log.Printf("[Core] Model prices table is empty, seeding with defaults")
+		if err := seedDefaultModelPrices(repo); err != nil {
+			return err
+		}
+	}
+
+	// 加载当前价格到 Calculator
+	prices, err := repo.ListCurrentPrices()
+	if err != nil {
+		return err
+	}
+
+	pricing.GlobalCalculator().LoadFromDatabase(prices)
+	return nil
+}
+
+// seedDefaultModelPrices 从内置价格表导入默认价格
+func seedDefaultModelPrices(repo repository.ModelPriceRepository) error {
+	pt := pricing.DefaultPriceTable()
+
+	// 将 ModelPricing 转换为 domain.ModelPrice
+	prices := pricing.ConvertToDBPrices(pt)
+
+	if err := repo.BatchCreate(prices); err != nil {
+		return err
+	}
+
+	log.Printf("[Core] Seeded %d model prices from defaults", len(prices))
 	return nil
 }

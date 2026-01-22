@@ -48,6 +48,8 @@ import type {
   BackupImportOptions,
   BackupImportResult,
   PriceTable,
+  ModelPrice,
+  ModelPriceInput,
 } from './types';
 
 /**
@@ -182,6 +184,14 @@ export interface Transport {
 
   // ===== Pricing API =====
   getPricing(): Promise<PriceTable>;
+
+  // ===== Model Price API =====
+  getModelPrices(): Promise<ModelPrice[]>;
+  getModelPrice(id: number): Promise<ModelPrice>;
+  createModelPrice(data: ModelPriceInput): Promise<ModelPrice>;
+  updateModelPrice(id: number, data: ModelPriceInput): Promise<ModelPrice>;
+  deleteModelPrice(id: number): Promise<void>;
+  resetModelPricesToDefaults(): Promise<ModelPrice[]>;
 
   // ===== 实时订阅 =====
   subscribe<T = unknown>(eventType: WSMessageType, callback: EventCallback<T>): UnsubscribeFn;

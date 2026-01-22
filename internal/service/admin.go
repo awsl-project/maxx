@@ -42,6 +42,7 @@ type AdminService struct {
 	modelMappingRepo    repository.ModelMappingRepository
 	usageStatsRepo      repository.UsageStatsRepository
 	responseModelRepo   repository.ResponseModelRepository
+	modelPriceRepo      repository.ModelPriceRepository
 	serverAddr          string
 	adapterRefresher    ProviderAdapterRefresher
 	broadcaster         event.Broadcaster
@@ -68,6 +69,7 @@ func NewAdminService(
 	modelMappingRepo repository.ModelMappingRepository,
 	usageStatsRepo repository.UsageStatsRepository,
 	responseModelRepo repository.ResponseModelRepository,
+	modelPriceRepo repository.ModelPriceRepository,
 	serverAddr string,
 	adapterRefresher ProviderAdapterRefresher,
 	broadcaster event.Broadcaster,
@@ -87,6 +89,7 @@ func NewAdminService(
 		modelMappingRepo:    modelMappingRepo,
 		usageStatsRepo:      usageStatsRepo,
 		responseModelRepo:   responseModelRepo,
+		modelPriceRepo:      modelPriceRepo,
 		serverAddr:          serverAddr,
 		adapterRefresher:    adapterRefresher,
 		broadcaster:         broadcaster,
@@ -971,4 +974,46 @@ func (s *AdminService) RecalculateRequestCost(requestID uint64) (*RecalculateReq
 
 	log.Printf("[RecalculateRequestCost] %s", result.Message)
 	return result, nil
+}
+
+// ===== Model Price API =====
+
+// GetModelPrices returns all current model prices
+func (s *AdminService) GetModelPrices() ([]*domain.ModelPrice, error) {
+	return s.modelPriceRepo.ListCurrentPrices()
+}
+
+// GetModelPrice returns a single model price by ID
+func (s *AdminService) GetModelPrice(id uint64) (*domain.ModelPrice, error) {
+	return s.modelPriceRepo.GetByID(id)
+}
+
+// CreateModelPrice creates a new model price record
+func (s *AdminService) CreateModelPrice(price *domain.ModelPrice) error {
+	return s.modelPriceRepo.Create(price)
+}
+
+// UpdateModelPrice updates an existing model price (creates a new version)
+// In practice, this creates a new price record for the same model
+func (s *AdminService) UpdateModelPrice(price *domain.ModelPrice) error {
+	// For versioned pricing, we create a new record instead of updating
+	// Clear the ID so GORM generates a new one
+	price.ID = 0
+	price.CreatedAt = time.Time{}
+	return s.modelPriceRepo.Create(price)
+}
+
+// DeleteModelPrice deletes a model price record
+func (s *AdminService) DeleteModelPrice(id uint64) error {
+	return s.modelPriceRepo.Delete(id)
+}
+
+// GetModelPriceHistory returns all price records for a model
+func (s *AdminService) GetModelPriceHistory(modelID string) ([]*domain.ModelPrice, error) {
+	return s.modelPriceRepo.ListByModelID(modelID)
+}
+
+// ResetModelPricesToDefaults resets all model prices to defaults (soft deletes existing)
+func (s *AdminService) ResetModelPricesToDefaults() ([]*domain.ModelPrice, error) {
+	return s.modelPriceRepo.ResetToDefaults()
 }

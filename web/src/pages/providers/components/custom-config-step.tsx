@@ -34,9 +34,13 @@ export function CustomConfigStep() {
     try {
       const supportedClientTypes = formData.clients.filter((c) => c.enabled).map((c) => c.id);
       const clientBaseURL: Partial<Record<ClientType, string>> = {};
+      const clientMultiplier: Partial<Record<ClientType, number>> = {};
       formData.clients.forEach((c) => {
         if (c.enabled && c.urlOverride) {
           clientBaseURL[c.id] = c.urlOverride;
+        }
+        if (c.enabled && c.multiplier !== 10000) {
+          clientMultiplier[c.id] = c.multiplier;
         }
       });
 
@@ -49,6 +53,7 @@ export function CustomConfigStep() {
             baseURL: formData.baseURL,
             apiKey: formData.apiKey,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
+            clientMultiplier: Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
           },
         },
         supportedClientTypes,

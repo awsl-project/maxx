@@ -288,7 +288,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     return defaultClients.map((client) => {
       const isEnabled = supportedTypes.includes(client.id);
       const urlOverride = provider.config?.custom?.clientBaseURL?.[client.id] || '';
-      return { ...client, enabled: isEnabled, urlOverride };
+      const multiplier = provider.config?.custom?.clientMultiplier?.[client.id] || 10000;
+      return { ...client, enabled: isEnabled, urlOverride, multiplier };
     });
   };
 
@@ -324,9 +325,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     try {
       const supportedClientTypes = formData.clients.filter((c) => c.enabled).map((c) => c.id);
       const clientBaseURL: Partial<Record<ClientType, string>> = {};
+      const clientMultiplier: Partial<Record<ClientType, number>> = {};
       formData.clients.forEach((c) => {
         if (c.enabled && c.urlOverride) {
           clientBaseURL[c.id] = c.urlOverride;
+        }
+        if (c.enabled && c.multiplier !== 10000) {
+          clientMultiplier[c.id] = c.multiplier;
         }
       });
 
@@ -338,6 +343,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             baseURL: formData.baseURL,
             apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
+            clientMultiplier: Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
           },
         },
         supportedClientTypes,
