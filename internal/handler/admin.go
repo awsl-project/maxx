@@ -397,6 +397,15 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		// Validate required fields
+		if project.Name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+			return
+		}
+		if project.Slug == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "slug is required"})
+			return
+		}
 		project.ID = existing.ID
 		project.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProject(&project); err != nil {

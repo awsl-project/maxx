@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui';
-import { useProjectBySlug, useDeleteProject, projectKeys } from '@/hooks/queries';
+import { useProject, useDeleteProject, projectKeys } from '@/hooks/queries';
 import {
   ArrowLeft,
   Trash2,
@@ -21,10 +21,10 @@ import { RequestsTab } from './tabs/requests';
 type TabId = 'overview' | 'routes' | 'sessions' | 'requests';
 
 export function ProjectDetailPage() {
-  const { slug } = useParams<{ slug: string }>();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: project, isLoading, error } = useProjectBySlug(slug ?? '');
+  const { data: project, isLoading, error } = useProject(Number(id) || 0);
   const deleteProject = useDeleteProject();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 

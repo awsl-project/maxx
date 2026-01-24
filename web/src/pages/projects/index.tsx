@@ -31,14 +31,14 @@ export function ProjectsPage() {
           setShowForm(false);
           setName('');
           // 创建后自动跳转到详情页
-          navigate(`/projects/${project.slug}`);
+          navigate(`/projects/${project.id}`);
         },
       },
     );
   };
 
-  const handleRowClick = (slug: string) => {
-    navigate(`/projects/${slug}`);
+  const handleRowClick = (id: number) => {
+    navigate(`/projects/${id}`);
   };
 
   return (
@@ -95,7 +95,7 @@ export function ProjectsPage() {
               <Card
                 key={project.id}
                 className="group border-border bg-surface-primary cursor-pointer hover:border-accent/50 hover:shadow-card-hover transition-all duration-200 flex flex-col"
-                onClick={() => handleRowClick(project.slug)}
+                onClick={() => handleRowClick(project.id)}
               >
                 <CardHeader className="pb-4">
                   <div className="flex items-center gap-3 mb-2">

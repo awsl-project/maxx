@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Input, Button } from '@/components/ui';
 import { useUpdateProject, projectKeys } from '@/hooks/queries';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import type { Project } from '@/lib/transport';
 import { Loader2, Save, Copy, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -13,7 +12,6 @@ interface OverviewTabProps {
 
 export function OverviewTab({ project }: OverviewTabProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const updateProject = useUpdateProject();
   const [name, setName] = useState(project.name);
@@ -29,16 +27,12 @@ export function OverviewTab({ project }: OverviewTabProps) {
         data: { name, slug, enabledCustomRoutes: project.enabledCustomRoutes },
       },
       {
-        onSuccess: (updatedProject) => {
+        onSuccess: () => {
           // Invalidate queries
           queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
           queryClient.invalidateQueries({
-            queryKey: projectKeys.slug(project.slug),
+            queryKey: projectKeys.detail(project.id),
           });
-          // If slug changed, navigate to new URL
-          if (slug !== project.slug) {
-            navigate(`/projects/${updatedProject.slug}`, { replace: true });
-          }
         },
       },
     );
