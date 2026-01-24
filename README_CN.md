@@ -9,25 +9,29 @@
 多提供商 AI 代理服务，内置管理界面、路由和使用追踪功能。
 
 ## 功能特性
-- 支持 Claude、OpenAI、Gemini 和 Codex 格式的代理端点
-- 兼容 Claude Code、Codex CLI 等 AI 编程工具，可作为统一的 API 代理网关
-- 管理 API 和 Web UI
-- 提供商路由、重试和配额管理
-- 基于 SQLite 的数据存储
 
-## 如何使用
+- **多协议代理**：支持 Claude、OpenAI、Gemini 和 Codex API 格式
+- **AI 编程工具支持**：兼容 Claude Code、Codex CLI 等 AI 编程工具
+- **供应商管理**：支持自定义中转站、Antigravity (Google)、Kiro (AWS) 供应商类型
+- **智能路由**：优先级路由和加权随机路由策略
+- **多数据库**：支持 SQLite（默认）、MySQL 和 PostgreSQL
+- **使用追踪**：纳美元精度计费，支持请求倍率记录
+- **模型定价**：版本化定价，支持分层定价和缓存价格
+- **管理界面**：Web UI 支持多语言，WebSocket 实时更新
+- **性能分析**：内置 pprof 支持，便于调试
+- **备份恢复**：配置导入导出功能
+
+## 快速开始
 
 Maxx 支持三种部署方式：
 
 | 方式 | 说明 | 适用场景 |
 |------|------|----------|
 | **Docker** | 容器化部署 | 服务器/生产环境 |
-| **桌面应用** | 原生应用带 GUI | 个人使用，简单易用 |
+| **桌面应用** | 原生应用带 GUI | 个人使用 |
 | **本地构建** | 从源码构建 | 开发环境 |
 
-### 方式一：Docker（服务器推荐）
-
-使用 Docker Compose 启动服务：
+### Docker（服务器推荐）
 
 ```bash
 docker compose up -d
@@ -36,7 +40,7 @@ docker compose up -d
 服务将在 `http://localhost:9880` 上运行。
 
 <details>
-<summary>完整的 docker-compose.yml 示例</summary>
+<summary>📄 完整的 docker-compose.yml 示例</summary>
 
 ```yaml
 services:
@@ -48,6 +52,8 @@ services:
       - "9880:9880"
     volumes:
       - maxx-data:/data
+    environment:
+      - MAXX_ADMIN_PASSWORD=your-password  # 可选：启用管理员认证
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9880/health"]
       interval: 30s
@@ -62,26 +68,42 @@ volumes:
 
 </details>
 
-### 方式二：桌面应用（个人使用推荐）
+### 桌面应用（个人使用推荐）
 
-从 [GitHub Releases](https://github.com/awsl-project/maxx/releases) 下载预构建的桌面应用。
+从 [GitHub Releases](https://github.com/awsl-project/maxx/releases) 下载：
 
 | 平台 | 文件 | 说明 |
 |------|------|------|
 | Windows | `maxx.exe` | 直接运行 |
-| macOS (ARM) | `maxx-macOS-arm64.dmg` | Apple Silicon (M1/M2/M3) |
+| macOS (ARM) | `maxx-macOS-arm64.dmg` | Apple Silicon (M1/M2/M3/M4) |
 | macOS (Intel) | `maxx-macOS-amd64.dmg` | Intel 芯片 |
 | Linux | `maxx` | 原生二进制 |
 
-> **macOS 提示：** 如果提示"应用已损坏"，请运行：`sudo xattr -d com.apple.quarantine /Applications/maxx.app`
-
-### 方式三：本地构建
+<details>
+<summary>🍺 macOS Homebrew 安装</summary>
 
 ```bash
-# 运行服务器模式
+# 安装
+brew install --no-quarantine awsl-project/awsl/maxx
+
+# 升级
+brew upgrade --no-quarantine awsl-project/awsl/maxx
+```
+
+> **提示：** 如果提示"应用已损坏"，请运行：`sudo xattr -d com.apple.quarantine /Applications/maxx.app`
+
+</details>
+
+### 本地构建
+
+```bash
+# 服务器模式
 go run cmd/maxx/main.go
 
-# 或使用 Wails 运行桌面模式
+# 启用管理员认证
+MAXX_ADMIN_PASSWORD=your-password go run cmd/maxx/main.go
+
+# 桌面模式 (Wails)
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
@@ -90,7 +112,7 @@ wails dev
 
 ### Claude Code
 
-在 maxx 管理界面中创建项目并生成 API 密钥，然后使用以下方式之一配置 Claude Code：
+在 maxx 管理界面中创建项目并生成 API 密钥。
 
 **settings.json（推荐）**
 
@@ -105,7 +127,8 @@ wails dev
 }
 ```
 
-**Shell 函数（替代方案）**
+<details>
+<summary>🔧 Shell 函数（替代方案）</summary>
 
 添加到你的 shell 配置文件（`~/.bashrc`、`~/.zshrc` 等）：
 
@@ -117,13 +140,13 @@ claude_maxx() {
 }
 ```
 
-然后使用 `claude_maxx` 代替 `claude` 来通过 maxx 运行 Claude Code。
+然后使用 `claude_maxx` 代替 `claude`。
 
-> **提示：** 本地部署时 `ANTHROPIC_AUTH_TOKEN` 可以随意填写。
+</details>
 
 ### Codex CLI
 
-在 `~/.codex/config.toml` 中添加以下配置：
+在 `~/.codex/config.toml` 中添加：
 
 ```toml
 [model_providers.maxx]
@@ -137,92 +160,54 @@ stream_idle_timeout_ms = 300000
 
 然后在运行 Codex CLI 时使用 `--provider maxx` 参数。
 
-## 本地开发
-
-### 国内镜像设置（中国大陆用户推荐）
-
-为了加速依赖下载，建议设置国内镜像源：
-
-**Go Modules Proxy**
-```bash
-go env -w GOPROXY=https://goproxy.cn,direct
-```
-
-**pnpm Registry**
-```bash
-pnpm config set registry https://registry.npmmirror.com
-```
-
-### 服务器模式（浏览器）
-**先构建前端：**
-```bash
-cd web
-pnpm install
-pnpm build
-```
-
-**然后运行后端：**
-```bash
-go run cmd/maxx/main.go
-```
-
-**或运行前端开发服务器（开发调试用）：**
-```bash
-cd web
-pnpm dev
-```
-
-### 桌面模式（Wails）
-详细的桌面应用文档请参阅 `WAILS_README.md`。
-
-快速开始：
-```bash
-# 安装 Wails CLI
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-# 运行桌面应用
-wails dev
-
-# 构建桌面应用
-wails build
-# 或
-build-desktop.bat
-```
-
 ## API 端点
-- 管理 API: http://localhost:9880/admin/
-- Web UI: http://localhost:9880/
-- WebSocket: ws://localhost:9880/ws
-- Claude: http://localhost:9880/v1/messages
-- OpenAI: http://localhost:9880/v1/chat/completions
-- Codex: http://localhost:9880/v1/responses
-- Gemini: http://localhost:9880/v1beta/models/{model}:generateContent
-- 项目代理: http://localhost:9880/{project-slug}/v1/messages (等)
 
-## 数据存储
+| 类型 | 端点 |
+|------|------|
+| Claude | `POST /v1/messages` |
+| OpenAI | `POST /v1/chat/completions` |
+| Codex | `POST /v1/responses` |
+| Gemini | `POST /v1beta/models/{model}:generateContent` |
+| 项目代理 | `/{project-slug}/v1/messages` (等) |
+| 管理 API | `/api/admin/*` |
+| WebSocket | `ws://localhost:9880/ws` |
+| 健康检查 | `GET /health` |
+| Web UI | `http://localhost:9880/` |
 
-| 部署方式 | 数据位置 |
-|----------|----------|
-| Docker | `/data`（通过 volume 挂载） |
-| 桌面应用 (Windows) | `%USERPROFILE%\AppData\Local\maxx\` |
-| 桌面应用 (macOS) | `~/Library/Application Support/maxx/` |
-| 桌面应用 (Linux) | `~/.local/share/maxx/` |
-| 服务器 (非 Docker) | `~/.config/maxx/maxx.db` |
+## 配置说明
 
-## 数据库配置
+### 环境变量
 
-Maxx 支持 SQLite（默认）和 MySQL 数据库。
+| 变量 | 说明 |
+|------|------|
+| `MAXX_ADMIN_PASSWORD` | 启用管理员 JWT 认证 |
+| `MAXX_DSN` | 数据库连接字符串 |
+| `MAXX_DATA_DIR` | 自定义数据目录路径 |
 
-### SQLite（默认）
+### 系统设置
 
-无需配置，数据存储在数据目录下的 `maxx.db` 文件中。
+通过管理界面配置：
 
-### MySQL
+| 设置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `proxy_port` | 代理服务器端口 | `9880` |
+| `request_retention_hours` | 请求日志保留时间（小时） | `168`（7 天） |
+| `request_detail_retention_seconds` | 请求详情保留时间（秒） | `-1`（永久） |
+| `timezone` | 时区设置 | `Asia/Shanghai` |
+| `quota_refresh_interval` | Antigravity 配额刷新间隔（分钟） | `0`（禁用） |
+| `auto_sort_antigravity` | 自动排序 Antigravity 路由 | `false` |
+| `enable_pprof` | 启用 pprof 性能分析 | `false` |
+| `pprof_port` | pprof 服务端口 | `6060` |
+| `pprof_password` | pprof 访问密码 | （空） |
 
-设置 `MAXX_DSN` 环境变量：
+### 数据库配置
+
+Maxx 支持 SQLite（默认）、MySQL 和 PostgreSQL。
+
+<details>
+<summary>🗄️ MySQL 配置</summary>
 
 ```bash
-# MySQL DSN 格式
 export MAXX_DSN="mysql://user:password@tcp(host:port)/dbname?parseTime=true&charset=utf8mb4"
 
 # 示例
@@ -267,9 +252,86 @@ volumes:
     driver: local
 ```
 
+</details>
+
+<details>
+<summary>🐘 PostgreSQL 配置</summary>
+
+```bash
+export MAXX_DSN="postgres://user:password@host:port/dbname?sslmode=disable"
+
+# 示例
+export MAXX_DSN="postgres://maxx:secret@127.0.0.1:5432/maxx?sslmode=disable"
+```
+
+</details>
+
+### 数据存储位置
+
+| 部署方式 | 位置 |
+|----------|------|
+| Docker | `/data`（挂载卷） |
+| 桌面应用 (Windows) | `%USERPROFILE%\AppData\Local\maxx\` |
+| 桌面应用 (macOS) | `~/Library/Application Support/maxx/` |
+| 桌面应用 (Linux) | `~/.local/share/maxx/` |
+| 服务器 (非 Docker) | `~/.config/maxx/maxx.db` |
+
+## 本地开发
+
+<details>
+<summary>🛠️ 开发环境设置</summary>
+
+### 国内镜像设置（中国大陆用户推荐）
+
+```bash
+# Go Modules Proxy
+go env -w GOPROXY=https://goproxy.cn,direct
+
+# pnpm Registry
+pnpm config set registry https://registry.npmmirror.com
+```
+
+### 服务器模式（浏览器）
+
+**先构建前端：**
+```bash
+cd web
+pnpm install
+pnpm build
+```
+
+**然后运行后端：**
+```bash
+go run cmd/maxx/main.go
+```
+
+**或运行前端开发服务器（开发调试用）：**
+```bash
+cd web
+pnpm dev
+```
+
+### 桌面模式（Wails）
+
+详细文档请参阅 `WAILS_README.md`。
+
+```bash
+# 安装 Wails CLI
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+# 运行桌面应用
+wails dev
+
+# 构建桌面应用
+wails build
+```
+
+</details>
+
 ## 发布版本
 
-创建新版本发布有两种方式：
+<details>
+<summary>📦 发布流程</summary>
 
 ### GitHub Actions（推荐）
 
@@ -283,11 +345,11 @@ volumes:
 
 ```bash
 ./release.sh <github_token> <version>
-```
 
-示例：
-```bash
+# 示例
 ./release.sh ghp_xxxx v1.0.0
 ```
 
 两种方式都会自动创建 tag 并生成 release notes。
+
+</details>

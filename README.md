@@ -9,25 +9,29 @@ English | [简体中文](README_CN.md)
 Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
 
 ## Features
-- Proxy endpoints for Claude, OpenAI, Gemini, and Codex formats
-- Compatible with Claude Code, Codex CLI, and other AI coding tools as a unified API proxy gateway
-- Admin API and Web UI
-- Provider routing, retries, and quotas
-- SQLite-backed storage
 
-## Getting Started
+- **Multi-Protocol Proxy**: Claude, OpenAI, Gemini, and Codex API formats
+- **AI Coding Tool Support**: Compatible with Claude Code, Codex CLI, and other AI coding tools
+- **Provider Management**: Custom relay, Antigravity (Google), Kiro (AWS) provider types
+- **Smart Routing**: Priority-based and weighted random routing strategies
+- **Multi-Database**: SQLite (default), MySQL, and PostgreSQL support
+- **Usage Tracking**: Nano-dollar precision billing with request multiplier tracking
+- **Model Pricing**: Versioned pricing with tiered and cache pricing support
+- **Admin Interface**: Web UI with multi-language support and real-time WebSocket updates
+- **Performance Profiling**: Built-in pprof support for debugging
+- **Backup & Restore**: Configuration import/export functionality
+
+## Quick Start
 
 Maxx supports three deployment methods:
 
 | Method | Description | Best For |
 |--------|-------------|----------|
-| **Docker** | Containerized deployment | Server/production use |
-| **Desktop App** | Native application with GUI | Personal use, easy setup |
+| **Docker** | Containerized deployment | Server/production |
+| **Desktop App** | Native application with GUI | Personal use |
 | **Local Build** | Build from source | Development |
 
-### Method 1: Docker (Recommended for Server)
-
-Start the service using Docker Compose:
+### Docker (Recommended for Server)
 
 ```bash
 docker compose up -d
@@ -36,7 +40,7 @@ docker compose up -d
 The service will run at `http://localhost:9880`.
 
 <details>
-<summary>Full docker-compose.yml example</summary>
+<summary>📄 Full docker-compose.yml example</summary>
 
 ```yaml
 services:
@@ -64,18 +68,20 @@ volumes:
 
 </details>
 
-### Method 2: Desktop App (Recommended for Personal Use)
+### Desktop App (Recommended for Personal Use)
 
-Download pre-built desktop applications from [GitHub Releases](https://github.com/awsl-project/maxx/releases).
+Download from [GitHub Releases](https://github.com/awsl-project/maxx/releases):
 
 | Platform | File | Notes |
 |----------|------|-------|
 | Windows | `maxx.exe` | Run directly |
-| macOS (ARM) | `maxx-macOS-arm64.dmg` | Apple Silicon (M1/M2/M3) |
+| macOS (ARM) | `maxx-macOS-arm64.dmg` | Apple Silicon (M1/M2/M3/M4) |
 | macOS (Intel) | `maxx-macOS-amd64.dmg` | Intel chips |
 | Linux | `maxx` | Native binary |
 
-**macOS via Homebrew:**
+<details>
+<summary>🍺 macOS Homebrew Installation</summary>
+
 ```bash
 # Install
 brew install --no-quarantine awsl-project/awsl/maxx
@@ -84,18 +90,20 @@ brew install --no-quarantine awsl-project/awsl/maxx
 brew upgrade --no-quarantine awsl-project/awsl/maxx
 ```
 
-> **macOS Note:** If you see "App is damaged" error, run: `sudo xattr -d com.apple.quarantine /Applications/maxx.app`
+> **Note:** If you see "App is damaged" error, run: `sudo xattr -d com.apple.quarantine /Applications/maxx.app`
 
-### Method 3: Local Build
+</details>
+
+### Local Build
 
 ```bash
-# Run server mode
+# Server mode
 go run cmd/maxx/main.go
 
-# Run with admin authentication enabled
+# With admin authentication
 MAXX_ADMIN_PASSWORD=your-password go run cmd/maxx/main.go
 
-# Or run desktop mode with Wails
+# Desktop mode (Wails)
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
@@ -104,11 +112,11 @@ wails dev
 
 ### Claude Code
 
-Create a project in the maxx admin interface and generate an API key, then configure Claude Code using one of the following methods:
+Create a project in the maxx admin interface and generate an API key.
 
 **settings.json (Recommended)**
 
-Configuration location: `~/.claude/settings.json` or `.claude/settings.json`
+Location: `~/.claude/settings.json` or `.claude/settings.json`
 
 ```json
 {
@@ -119,7 +127,8 @@ Configuration location: `~/.claude/settings.json` or `.claude/settings.json`
 }
 ```
 
-**Shell Function (Alternative)**
+<details>
+<summary>🔧 Shell Function (Alternative)</summary>
 
 Add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.):
 
@@ -131,13 +140,13 @@ claude_maxx() {
 }
 ```
 
-Then use `claude_maxx` instead of `claude` to run Claude Code through maxx.
+Then use `claude_maxx` instead of `claude`.
 
-> **Note:** `ANTHROPIC_AUTH_TOKEN` can be any value for local deployment.
+</details>
 
 ### Codex CLI
 
-Add the following to your `~/.codex/config.toml`:
+Add to `~/.codex/config.toml`:
 
 ```toml
 [model_providers.maxx]
@@ -151,76 +160,54 @@ stream_idle_timeout_ms = 300000
 
 Then use `--provider maxx` when running Codex CLI.
 
-## Local Development
+## API Endpoints
 
-### Server Mode (Browser)
-**Build frontend first:**
-```bash
-cd web
-pnpm install
-pnpm build
-```
+| Type | Endpoint |
+|------|----------|
+| Claude | `POST /v1/messages` |
+| OpenAI | `POST /v1/chat/completions` |
+| Codex | `POST /v1/responses` |
+| Gemini | `POST /v1beta/models/{model}:generateContent` |
+| Project Proxy | `/{project-slug}/v1/messages` (etc.) |
+| Admin API | `/api/admin/*` |
+| WebSocket | `ws://localhost:9880/ws` |
+| Health Check | `GET /health` |
+| Web UI | `http://localhost:9880/` |
 
-**Then run backend:**
-```bash
-go run cmd/maxx/main.go
-```
+## Configuration
 
-**Or run frontend dev server (for development):**
-```bash
-cd web
-pnpm dev
-```
+### Environment Variables
 
-### Desktop Mode (Wails)
-See `WAILS_README.md` for detailed desktop app documentation.
+| Variable | Description |
+|----------|-------------|
+| `MAXX_ADMIN_PASSWORD` | Enable admin authentication with JWT |
+| `MAXX_DSN` | Database connection string |
+| `MAXX_DATA_DIR` | Custom data directory path |
 
-Quick start:
-```bash
-# Install Wails CLI
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+### System Settings
 
-# Run desktop app
-wails dev
+Configurable via Admin UI:
 
-# Build desktop app
-wails build
-```
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `proxy_port` | Proxy server port | `9880` |
+| `request_retention_hours` | Request log retention (hours) | `168` (7 days) |
+| `request_detail_retention_seconds` | Request detail retention (seconds) | `-1` (forever) |
+| `timezone` | Timezone setting | `Asia/Shanghai` |
+| `quota_refresh_interval` | Antigravity quota refresh (minutes) | `0` (disabled) |
+| `auto_sort_antigravity` | Auto-sort Antigravity routes | `false` |
+| `enable_pprof` | Enable pprof profiling | `false` |
+| `pprof_port` | Pprof server port | `6060` |
+| `pprof_password` | Pprof access password | (empty) |
 
-## Endpoints
-- Admin API: http://localhost:9880/admin/
-- Web UI: http://localhost:9880/
-- WebSocket: ws://localhost:9880/ws
-- Claude: http://localhost:9880/v1/messages
-- OpenAI: http://localhost:9880/v1/chat/completions
-- Codex: http://localhost:9880/v1/responses
-- Gemini: http://localhost:9880/v1beta/models/{model}:generateContent
-- Project proxy: http://localhost:9880/{project-slug}/v1/messages (etc.)
+### Database Configuration
 
-## Data
+Maxx supports SQLite (default), MySQL, and PostgreSQL.
 
-| Deployment | Data Location |
-|------------|---------------|
-| Docker | `/data` (mounted via volume) |
-| Desktop (Windows) | `%USERPROFILE%\AppData\Local\maxx\` |
-| Desktop (macOS) | `~/Library/Application Support/maxx/` |
-| Desktop (Linux) | `~/.local/share/maxx/` |
-| Server (non-Docker) | `~/.config/maxx/maxx.db` |
-
-## Database Configuration
-
-Maxx supports SQLite (default) and MySQL databases.
-
-### SQLite (Default)
-
-No configuration needed. Data is stored in `maxx.db` in the data directory.
-
-### MySQL
-
-Set the `MAXX_DSN` environment variable:
+<details>
+<summary>🗄️ MySQL Configuration</summary>
 
 ```bash
-# MySQL DSN format
 export MAXX_DSN="mysql://user:password@tcp(host:port)/dbname?parseTime=true&charset=utf8mb4"
 
 # Example
@@ -265,9 +252,76 @@ volumes:
     driver: local
 ```
 
+</details>
+
+<details>
+<summary>🐘 PostgreSQL Configuration</summary>
+
+```bash
+export MAXX_DSN="postgres://user:password@host:port/dbname?sslmode=disable"
+
+# Example
+export MAXX_DSN="postgres://maxx:secret@127.0.0.1:5432/maxx?sslmode=disable"
+```
+
+</details>
+
+### Data Storage Locations
+
+| Deployment | Location |
+|------------|----------|
+| Docker | `/data` (mounted volume) |
+| Desktop (Windows) | `%USERPROFILE%\AppData\Local\maxx\` |
+| Desktop (macOS) | `~/Library/Application Support/maxx/` |
+| Desktop (Linux) | `~/.local/share/maxx/` |
+| Server (non-Docker) | `~/.config/maxx/maxx.db` |
+
+## Local Development
+
+<details>
+<summary>🛠️ Development Setup</summary>
+
+### Server Mode (Browser)
+
+**Build frontend first:**
+```bash
+cd web
+pnpm install
+pnpm build
+```
+
+**Then run backend:**
+```bash
+go run cmd/maxx/main.go
+```
+
+**Or run frontend dev server (for development):**
+```bash
+cd web
+pnpm dev
+```
+
+### Desktop Mode (Wails)
+
+See `WAILS_README.md` for detailed documentation.
+
+```bash
+# Install Wails CLI
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+# Run desktop app
+wails dev
+
+# Build desktop app
+wails build
+```
+
+</details>
+
 ## Release
 
-There are two ways to create a new release:
+<details>
+<summary>📦 Release Process</summary>
 
 ### GitHub Actions (Recommended)
 
@@ -281,11 +335,11 @@ There are two ways to create a new release:
 
 ```bash
 ./release.sh <github_token> <version>
-```
 
-Example:
-```bash
+# Example
 ./release.sh ghp_xxxx v1.0.0
 ```
 
 Both methods will automatically create a tag and generate release notes.
+
+</details>
