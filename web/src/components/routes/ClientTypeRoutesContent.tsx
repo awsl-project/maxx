@@ -373,9 +373,8 @@ function ClientTypeRoutesContentInner({
   }
 
   return (
-    <div className="flex flex-col h-full px-6">
-      <div className="flex-1 overflow-y-auto px-lg py-6">
-        <div className="mx-auto max-w-[1400px] space-y-6">
+    <div className="px-6 py-6">
+      <div className="mx-auto max-w-[1400px] space-y-6">
           {/* Sort Antigravity Button */}
           {hasAntigravityRoutes && (
             <div className="flex justify-end">
@@ -533,6 +532,5 @@ function ClientTypeRoutesContentInner({
           )}
         </div>
       </div>
-    </div>
   );
 }

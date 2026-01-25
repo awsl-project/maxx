@@ -81,8 +81,8 @@ export function ClientRoutesPage() {
       </div>
 
       {/* Tabs for Global / Projects */}
-      <Tabs value={selectedProjectId} onValueChange={setSelectedProjectId} className="flex-1 flex flex-col">
-        <div className="px-6 py-4 border-b border-border bg-card">
+      <Tabs value={selectedProjectId} onValueChange={setSelectedProjectId} className="flex-1 flex flex-col overflow-hidden">
+        <div className="px-6 py-4 border-b border-border bg-card shrink-0">
           <TabsList>
             {/* Global Tab */}
             <TabsTrigger value="0" className="flex items-center gap-2">
@@ -106,7 +106,7 @@ export function ClientRoutesPage() {
         </div>
 
         {/* Global Tab Content */}
-        <TabsContent value="0" className="flex-1 min-w-0 overflow-hidden m-0">
+        <TabsContent value="0" className="flex-1 overflow-y-auto m-0">
           <ClientTypeRoutesContent
             clientType={activeClientType}
             projectID={0}
@@ -119,9 +119,9 @@ export function ClientRoutesPage() {
           const isCustomRoutesEnabled = (project.enabledCustomRoutes ?? []).includes(activeClientType);
 
           return (
-            <TabsContent key={project.id} value={String(project.id)} className="flex-1 min-w-0 overflow-hidden m-0 flex flex-col">
+            <TabsContent key={project.id} value={String(project.id)} className="flex-1 overflow-y-auto m-0 flex flex-col">
               {/* Custom Routes Toggle Bar */}
-              <div className="h-12 px-6 border-b border-border bg-card flex items-center justify-between">
+              <div className="h-12 px-6 border-b border-border bg-card flex items-center justify-between sticky top-0 z-10">
                 <div className="flex items-center gap-3">
                   <p className="text-sm font-medium">Custom Routes</p>
                   {isCustomRoutesEnabled && (
@@ -144,7 +144,7 @@ export function ClientRoutesPage() {
 
               {/* Content Area */}
               {isCustomRoutesEnabled ? (
-                <div className="flex-1 min-w-0 overflow-hidden">
+                <div className="flex-1">
                   <ClientTypeRoutesContent
                     clientType={activeClientType}
                     projectID={project.id}
