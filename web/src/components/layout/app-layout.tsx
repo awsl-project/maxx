@@ -13,19 +13,21 @@ export function AppLayout() {
   const timeoutSeconds = parseInt(settings?.force_project_timeout || '30', 10);
 
   return (
-    <SidebarProvider className="h-svh! min-h-0! overflow-hidden">
-      <AppSidebar />
-      <SidebarInset className="flex flex-col">
-        {/* Mobile header with sidebar trigger */}
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 md:hidden">
-          <SidebarTrigger />
-        </header>
-        <div className="@container/main flex-1 min-h-0 overflow-hidden">
-          <Outlet />
-        </div>
-      </SidebarInset>
+    <>
+      <SidebarProvider className="h-svh! min-h-0! overflow-hidden">
+        <AppSidebar />
+        <SidebarInset className="flex flex-col">
+          {/* Mobile header with sidebar trigger */}
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 md:hidden">
+            <SidebarTrigger />
+          </header>
+          <div className="@container/main flex-1 min-h-0 overflow-hidden">
+            <Outlet />
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
 
-      {/* Force Project Dialog - only show when enabled */}
+      {/* Force Project Dialog - render outside SidebarProvider to avoid z-index issues */}
       {forceProjectEnabled && (
         <ForceProjectDialog
           event={pendingSession}
@@ -33,6 +35,6 @@ export function AppLayout() {
           timeoutSeconds={timeoutSeconds}
         />
       )}
-    </SidebarProvider>
+    </>
   );
 }

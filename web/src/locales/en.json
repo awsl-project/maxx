@@ -139,6 +139,7 @@
     "noItems": "No items",
     "status": {
       "pending": "Pending",
+      "pendingBinding": "Awaiting Binding",
       "streaming": "Streaming",
       "completed": "Completed",
       "failed": "Failed",
@@ -288,7 +289,16 @@
     "session": "Session",
     "remaining": "Remaining",
     "noProjectsAvailable": "No projects available. Please create a project first.",
-    "projectSelectionRequired": "Project Selection Required"
+    "projectSelectionRequired": "Project Selection Required",
+    "reject": "Reject",
+    "rejecting": "Rejecting...",
+    "confirmBinding": "Confirm Binding",
+    "binding": "Binding...",
+    "timeoutWarning": "If no project is selected within the timeout, the request will be rejected.",
+    "rebindProject": "Rebind Project",
+    "rebindProjectHint": "This request was rejected or has no project binding. You can select a project to rebind.",
+    "bindSuccess": "Project bound successfully",
+    "bindFailed": "Failed to bind project"
   },
   "retryConfigs": {
     "title": "Retry Policy",

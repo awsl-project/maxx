@@ -92,6 +92,9 @@ export function RequestsPage() {
   // Check if API Token auth is enabled
   const apiTokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
 
+  // Check if force project binding is enabled
+  const forceProjectBinding = settings?.force_project_binding === 'true';
+
   // Check if there are any projects
   const hasProjects = projects.length > 0;
 
@@ -274,6 +277,7 @@ export function RequestsPage() {
                     tokenName={tokenMap.get(req.apiTokenID)}
                     showProjectColumn={hasProjects}
                     showTokenColumn={apiTokenAuthEnabled}
+                    forceProjectBinding={forceProjectBinding}
                     onClick={() => navigate(`/requests/${req.id}`)}
                   />
                 ))}
@@ -335,9 +339,30 @@ export function RequestsPage() {
 }
 
 // Request Status Badge Component
-function RequestStatusBadge({ status }: { status: ProxyRequestStatus }) {
+function RequestStatusBadge({
+  status,
+  projectID,
+  forceProjectBinding,
+}: {
+  status: ProxyRequestStatus;
+  projectID?: number;
+  forceProjectBinding?: boolean;
+}) {
   const { t } = useTranslation();
+
+  // Check if pending and waiting for project binding
+  const isPendingBinding =
+    status === 'PENDING' && forceProjectBinding && (!projectID || projectID === 0);
+
   const getStatusConfig = () => {
+    if (isPendingBinding) {
+      return {
+        variant: 'warning' as const,
+        label: t('requests.status.pendingBinding'),
+        icon: <Loader2 size={10} className="mr-1 shrink-0 animate-spin" />,
+      };
+    }
+
     switch (status) {
       case 'PENDING':
         return {
@@ -445,6 +470,7 @@ function LogRow({
   tokenName,
   showProjectColumn,
   showTokenColumn,
+  forceProjectBinding,
   onClick,
 }: {
   request: ProxyRequest;
@@ -454,10 +480,15 @@ function LogRow({
   tokenName?: string;
   showProjectColumn?: boolean;
   showTokenColumn?: boolean;
+  forceProjectBinding?: boolean;
   onClick: () => void;
 }) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
   const isFailed = request.status === 'FAILED';
+  const isPendingBinding =
+    request.status === 'PENDING' &&
+    forceProjectBinding &&
+    (!request.projectID || request.projectID === 0);
   const [isRecent, setIsRecent] = useState(false);
 
   // Live duration calculation for pending requests
@@ -537,7 +568,7 @@ function LogRow({
         // Zebra striping - applies to all rows as base layer
         zebraClass,
         // Base hover effect (stronger background change)
-        !isRecent && !isFailed && !isPending && 'hover:bg-accent/50',
+        !isRecent && !isFailed && !isPending && !isPendingBinding && 'hover:bg-accent/50',
 
         // Failed state - Red background only (testing without border)
         isFailed && cn(
@@ -545,11 +576,18 @@ function LogRow({
           'hover:bg-red-500/40'
         ),
 
+        // Pending binding state - Amber background with left border
+        isPendingBinding && cn(
+          index % 2 === 1 ? 'bg-amber-500/15' : 'bg-amber-500/10',
+          'hover:bg-amber-500/25',
+          'border-l-2 border-l-amber-500'
+        ),
+
         // Active/Pending state - Blue left border + Marquee animation
-        isPending && 'animate-marquee-row',
+        isPending && !isPendingBinding && 'animate-marquee-row',
 
         // New Item Flash Animation
-        isRecent && !isPending && 'bg-accent/20',
+        isRecent && !isPending && !isPendingBinding && 'bg-accent/20',
       )}
     >
       {/* Time - 显示结束时间，如果没有结束时间则显示开始时间（更浅样式） */}
@@ -624,7 +662,11 @@ function LogRow({
 
       {/* Status */}
       <TableCell className="w-[100px] px-2 py-1">
-        <RequestStatusBadge status={request.status} />
+        <RequestStatusBadge
+          status={request.status}
+          projectID={request.projectID}
+          forceProjectBinding={forceProjectBinding}
+        />
       </TableCell>
 
       {/* Code */}
