@@ -4,14 +4,39 @@ import { useTranslation } from 'react-i18next';
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
   Tabs,
   TabsList,
   TabsTrigger,
   TabsContent,
 } from '@/components/ui';
 import { ClientIcon } from '@/components/icons/client-icons';
+
+interface CodeBlockProps {
+  code: string;
+  id: string;
+  copiedCode: string | null;
+  onCopy: (text: string, id: string) => void;
+}
+
+function CodeBlock({ code, id, copiedCode, onCopy }: CodeBlockProps) {
+  return (
+    <div className="relative group">
+      <pre className="bg-muted/50 border border-border rounded-md p-4 overflow-x-auto text-xs font-mono">
+        <code>{code}</code>
+      </pre>
+      <button
+        onClick={() => onCopy(code, id)}
+        className="absolute top-2 right-2 p-2 rounded-md bg-background/80 border border-border opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted"
+      >
+        {copiedCode === id ? (
+          <Check className="h-3 w-3 text-green-500" />
+        ) : (
+          <Copy className="h-3 w-3" />
+        )}
+      </button>
+    </div>
+  );
+}
 
 export function DocumentationPage() {
   const { t } = useTranslation();
@@ -51,24 +76,6 @@ function DocumentationSection() {
     setCopiedCode(id);
     setTimeout(() => setCopiedCode(null), 2000);
   };
-
-  const CodeBlock = ({ code, id }: { code: string; id: string }) => (
-    <div className="relative group">
-      <pre className="bg-muted/50 border border-border rounded-md p-4 overflow-x-auto text-xs font-mono">
-        <code>{code}</code>
-      </pre>
-      <button
-        onClick={() => copyToClipboard(code, id)}
-        className="absolute top-2 right-2 p-2 rounded-md bg-background/80 border border-border opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted"
-      >
-        {copiedCode === id ? (
-          <Check className="h-3 w-3 text-green-500" />
-        ) : (
-          <Copy className="h-3 w-3" />
-        )}
-      </button>
-    </div>
-  );
 
   return (
     <Card className="border-border bg-card">
@@ -134,6 +141,8 @@ function DocumentationSection() {
   }
 }`}
                 id="claude-settings"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -147,6 +156,8 @@ function DocumentationSection() {
     claude "$@"
 }`}
                 id="claude-shell"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -197,6 +208,8 @@ function DocumentationSection() {
               <CodeBlock
                 code="POST http://localhost:9880/v1/chat/completions"
                 id="openai-endpoint"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -213,6 +226,8 @@ function DocumentationSection() {
     ]
   }'`}
                 id="openai-example"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -222,6 +237,8 @@ function DocumentationSection() {
               <CodeBlock
                 code="POST http://localhost:9880/{project-slug}/v1/chat/completions"
                 id="openai-project"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -290,6 +307,8 @@ request_max_retries = 4
 stream_max_retries = 10
 stream_idle_timeout_ms = 300000`}
                 id="codex-config"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -303,6 +322,8 @@ stream_idle_timeout_ms = 300000`}
   }
 }`}
                 id="codex-auth"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -316,6 +337,8 @@ codex --provider maxx
 # 或者设置为默认 provider 后直接使用
 codex`}
                 id="codex-usage"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -366,6 +389,8 @@ codex`}
               <CodeBlock
                 code="POST http://localhost:9880/v1beta/models/{model}:generateContent"
                 id="gemini-endpoint"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -381,6 +406,8 @@ codex`}
     }]
   }'`}
                 id="gemini-example"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
@@ -390,6 +417,8 @@ codex`}
               <CodeBlock
                 code="POST http://localhost:9880/{project-slug}/v1beta/models/{model}:generateContent"
                 id="gemini-project"
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
 
