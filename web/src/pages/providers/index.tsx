@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Plus, Layers, Download, Upload, Search, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { useProviders, useAllProviderStats, useSettings, useUpdateSetting } from '@/hooks/queries';
+import { useProviders, useAllProviderStats, useSettings, useUpdateSetting, useProxyRequestUpdates } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import type { Provider, ImportResult } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
@@ -28,6 +28,9 @@ export function ProvidersPage() {
   const [isRefreshingCodex, setIsRefreshingCodex] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+
+  // 订阅请求更新事件，确保 providerStats 实时刷新
+  useProxyRequestUpdates();
 
   // Settings for auto-sort
   const { data: settings } = useSettings();

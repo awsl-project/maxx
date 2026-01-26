@@ -553,68 +553,27 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 }
 
 // GetSummary 获取汇总统计数据（总计）
+// 复用 queryAllWithRealtime 获取实时数据
 func (r *UsageStatsRepository) GetSummary(filter repository.UsageStatsFilter) (*domain.UsageStatsSummary, error) {
-	var conditions []string
-	var args []interface{}
-
-	conditions = append(conditions, "granularity = ?")
-	args = append(args, filter.Granularity)
-
-	if filter.StartTime != nil {
-		conditions = append(conditions, "time_bucket >= ?")
-		args = append(args, toTimestamp(*filter.StartTime))
-	}
-	if filter.EndTime != nil {
-		conditions = append(conditions, "time_bucket <= ?")
-		args = append(args, toTimestamp(*filter.EndTime))
-	}
-	if filter.RouteID != nil {
-		conditions = append(conditions, "route_id = ?")
-		args = append(args, *filter.RouteID)
-	}
-	if filter.ProviderID != nil {
-		conditions = append(conditions, "provider_id = ?")
-		args = append(args, *filter.ProviderID)
-	}
-	if filter.ProjectID != nil {
-		conditions = append(conditions, "project_id = ?")
-		args = append(args, *filter.ProjectID)
-	}
-	if filter.ClientType != nil {
-		conditions = append(conditions, "client_type = ?")
-		args = append(args, *filter.ClientType)
-	}
-	if filter.APITokenID != nil {
-		conditions = append(conditions, "api_token_id = ?")
-		args = append(args, *filter.APITokenID)
-	}
-	if filter.Model != nil {
-		conditions = append(conditions, "model = ?")
-		args = append(args, *filter.Model)
-	}
-
-	query := `
-		SELECT
-			COALESCE(SUM(total_requests), 0),
-			COALESCE(SUM(successful_requests), 0),
-			COALESCE(SUM(failed_requests), 0),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_read), 0),
-			COALESCE(SUM(cache_write), 0),
-			COALESCE(SUM(cost), 0)
-		FROM usage_stats
-		WHERE ` + strings.Join(conditions, " AND ")
-
-	var s domain.UsageStatsSummary
-	err := r.db.gorm.Raw(query, args...).Row().Scan(
-		&s.TotalRequests, &s.SuccessfulRequests, &s.FailedRequests,
-		&s.TotalInputTokens, &s.TotalOutputTokens,
-		&s.TotalCacheRead, &s.TotalCacheWrite, &s.TotalCost,
-	)
+	// 使用通用的分层查询获取所有数据
+	allStats, err := r.queryAllWithRealtime(filter)
 	if err != nil {
 		return nil, err
 	}
+
+	// 聚合所有数据
+	var s domain.UsageStatsSummary
+	for _, stat := range allStats {
+		s.TotalRequests += stat.TotalRequests
+		s.SuccessfulRequests += stat.SuccessfulRequests
+		s.FailedRequests += stat.FailedRequests
+		s.TotalInputTokens += stat.InputTokens
+		s.TotalOutputTokens += stat.OutputTokens
+		s.TotalCacheRead += stat.CacheRead
+		s.TotalCacheWrite += stat.CacheWrite
+		s.TotalCost += stat.Cost
+	}
+
 	if s.TotalRequests > 0 {
 		s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
 	}
@@ -642,171 +601,107 @@ func (r *UsageStatsRepository) GetSummaryByAPIToken(filter repository.UsageStats
 }
 
 // getSummaryByDimension 通用的按维度聚合方法
+// 复用 queryAllWithRealtime 获取实时数据
 func (r *UsageStatsRepository) getSummaryByDimension(filter repository.UsageStatsFilter, dimension string) (map[uint64]*domain.UsageStatsSummary, error) {
-	var conditions []string
-	var args []interface{}
-
-	conditions = append(conditions, "granularity = ?")
-	args = append(args, filter.Granularity)
-
-	if filter.StartTime != nil {
-		conditions = append(conditions, "time_bucket >= ?")
-		args = append(args, toTimestamp(*filter.StartTime))
-	}
-	if filter.EndTime != nil {
-		conditions = append(conditions, "time_bucket <= ?")
-		args = append(args, toTimestamp(*filter.EndTime))
-	}
-	if filter.RouteID != nil {
-		conditions = append(conditions, "route_id = ?")
-		args = append(args, *filter.RouteID)
-	}
-	if filter.ProviderID != nil {
-		conditions = append(conditions, "provider_id = ?")
-		args = append(args, *filter.ProviderID)
-	}
-	if filter.ProjectID != nil {
-		conditions = append(conditions, "project_id = ?")
-		args = append(args, *filter.ProjectID)
-	}
-	if filter.ClientType != nil {
-		conditions = append(conditions, "client_type = ?")
-		args = append(args, *filter.ClientType)
-	}
-	if filter.APITokenID != nil {
-		conditions = append(conditions, "api_token_id = ?")
-		args = append(args, *filter.APITokenID)
-	}
-	if filter.Model != nil {
-		conditions = append(conditions, "model = ?")
-		args = append(args, *filter.Model)
-	}
-
-	query := fmt.Sprintf(`
-		SELECT
-			%s,
-			COALESCE(SUM(total_requests), 0),
-			COALESCE(SUM(successful_requests), 0),
-			COALESCE(SUM(failed_requests), 0),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_read), 0),
-			COALESCE(SUM(cache_write), 0),
-			COALESCE(SUM(cost), 0)
-		FROM usage_stats
-		WHERE %s
-		GROUP BY %s
-	`, dimension, strings.Join(conditions, " AND "), dimension)
-
-	rows, err := r.db.gorm.Raw(query, args...).Rows()
+	// 使用通用的分层查询获取所有数据
+	allStats, err := r.queryAllWithRealtime(filter)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 
+	// 按维度聚合
 	results := make(map[uint64]*domain.UsageStatsSummary)
-	for rows.Next() {
+	for _, stat := range allStats {
 		var dimID uint64
-		var s domain.UsageStatsSummary
-		err := rows.Scan(
-			&dimID,
-			&s.TotalRequests, &s.SuccessfulRequests, &s.FailedRequests,
-			&s.TotalInputTokens, &s.TotalOutputTokens,
-			&s.TotalCacheRead, &s.TotalCacheWrite, &s.TotalCost,
-		)
-		if err != nil {
-			return nil, err
+		switch dimension {
+		case "provider_id":
+			dimID = stat.ProviderID
+		case "route_id":
+			dimID = stat.RouteID
+		case "project_id":
+			dimID = stat.ProjectID
+		case "api_token_id":
+			dimID = stat.APITokenID
 		}
+
+		if existing, ok := results[dimID]; ok {
+			existing.TotalRequests += stat.TotalRequests
+			existing.SuccessfulRequests += stat.SuccessfulRequests
+			existing.FailedRequests += stat.FailedRequests
+			existing.TotalInputTokens += stat.InputTokens
+			existing.TotalOutputTokens += stat.OutputTokens
+			existing.TotalCacheRead += stat.CacheRead
+			existing.TotalCacheWrite += stat.CacheWrite
+			existing.TotalCost += stat.Cost
+		} else {
+			results[dimID] = &domain.UsageStatsSummary{
+				TotalRequests:      stat.TotalRequests,
+				SuccessfulRequests: stat.SuccessfulRequests,
+				FailedRequests:     stat.FailedRequests,
+				TotalInputTokens:   stat.InputTokens,
+				TotalOutputTokens:  stat.OutputTokens,
+				TotalCacheRead:     stat.CacheRead,
+				TotalCacheWrite:    stat.CacheWrite,
+				TotalCost:          stat.Cost,
+			}
+		}
+	}
+
+	// 计算成功率
+	for _, s := range results {
 		if s.TotalRequests > 0 {
 			s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
 		}
-		results[dimID] = &s
 	}
-	return results, rows.Err()
+
+	return results, nil
 }
 
 // GetSummaryByClientType 按 ClientType 维度获取汇总统计
+// 复用 queryAllWithRealtime 获取实时数据
 func (r *UsageStatsRepository) GetSummaryByClientType(filter repository.UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error) {
-	var conditions []string
-	var args []interface{}
-
-	conditions = append(conditions, "granularity = ?")
-	args = append(args, filter.Granularity)
-
-	if filter.StartTime != nil {
-		conditions = append(conditions, "time_bucket >= ?")
-		args = append(args, toTimestamp(*filter.StartTime))
-	}
-	if filter.EndTime != nil {
-		conditions = append(conditions, "time_bucket <= ?")
-		args = append(args, toTimestamp(*filter.EndTime))
-	}
-	if filter.RouteID != nil {
-		conditions = append(conditions, "route_id = ?")
-		args = append(args, *filter.RouteID)
-	}
-	if filter.ProviderID != nil {
-		conditions = append(conditions, "provider_id = ?")
-		args = append(args, *filter.ProviderID)
-	}
-	if filter.ProjectID != nil {
-		conditions = append(conditions, "project_id = ?")
-		args = append(args, *filter.ProjectID)
-	}
-	if filter.ClientType != nil {
-		conditions = append(conditions, "client_type = ?")
-		args = append(args, *filter.ClientType)
-	}
-	if filter.APITokenID != nil {
-		conditions = append(conditions, "api_token_id = ?")
-		args = append(args, *filter.APITokenID)
-	}
-	if filter.Model != nil {
-		conditions = append(conditions, "model = ?")
-		args = append(args, *filter.Model)
-	}
-
-	query := `
-		SELECT
-			client_type,
-			COALESCE(SUM(total_requests), 0),
-			COALESCE(SUM(successful_requests), 0),
-			COALESCE(SUM(failed_requests), 0),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_read), 0),
-			COALESCE(SUM(cache_write), 0),
-			COALESCE(SUM(cost), 0)
-		FROM usage_stats
-		WHERE ` + strings.Join(conditions, " AND ") + `
-		GROUP BY client_type
-	`
-
-	rows, err := r.db.gorm.Raw(query, args...).Rows()
+	// 使用通用的分层查询获取所有数据
+	allStats, err := r.queryAllWithRealtime(filter)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 
+	// 按 ClientType 聚合
 	results := make(map[string]*domain.UsageStatsSummary)
-	for rows.Next() {
-		var clientType string
-		var s domain.UsageStatsSummary
-		err := rows.Scan(
-			&clientType,
-			&s.TotalRequests, &s.SuccessfulRequests, &s.FailedRequests,
-			&s.TotalInputTokens, &s.TotalOutputTokens,
-			&s.TotalCacheRead, &s.TotalCacheWrite, &s.TotalCost,
-		)
-		if err != nil {
-			return nil, err
+	for _, stat := range allStats {
+		clientType := stat.ClientType
+
+		if existing, ok := results[clientType]; ok {
+			existing.TotalRequests += stat.TotalRequests
+			existing.SuccessfulRequests += stat.SuccessfulRequests
+			existing.FailedRequests += stat.FailedRequests
+			existing.TotalInputTokens += stat.InputTokens
+			existing.TotalOutputTokens += stat.OutputTokens
+			existing.TotalCacheRead += stat.CacheRead
+			existing.TotalCacheWrite += stat.CacheWrite
+			existing.TotalCost += stat.Cost
+		} else {
+			results[clientType] = &domain.UsageStatsSummary{
+				TotalRequests:      stat.TotalRequests,
+				SuccessfulRequests: stat.SuccessfulRequests,
+				FailedRequests:     stat.FailedRequests,
+				TotalInputTokens:   stat.InputTokens,
+				TotalOutputTokens:  stat.OutputTokens,
+				TotalCacheRead:     stat.CacheRead,
+				TotalCacheWrite:    stat.CacheWrite,
+				TotalCost:          stat.Cost,
+			}
 		}
+	}
+
+	// 计算成功率
+	for _, s := range results {
 		if s.TotalRequests > 0 {
 			s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
 		}
-		results[clientType] = &s
 	}
-	return results, rows.Err()
+
+	return results, nil
 }
 
 // DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
@@ -834,149 +729,54 @@ func (r *UsageStatsRepository) GetLatestTimeBucket(granularity domain.Granularit
 }
 
 // GetProviderStats 获取 Provider 统计数据
-// 使用分层查询策略：历史月数据 + 当前月的分层实时数据
+// 使用分层查询策略，复用 queryAllWithRealtime 获取实时数据
 func (r *UsageStatsRepository) GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
+	// 构建过滤条件
+	filter := repository.UsageStatsFilter{
+		Granularity: domain.GranularityMinute, // 使用 minute 粒度以获取最新数据
+	}
+	if clientType != "" {
+		filter.ClientType = &clientType
+	}
+	if projectID > 0 {
+		filter.ProjectID = &projectID
+	}
+
+	// 使用通用的分层查询获取所有数据（包括实时数据）
+	allStats, err := r.queryAllWithRealtime(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	// 按 provider 聚合
 	result := make(map[uint64]*domain.ProviderStats)
-
-	// 获取配置的时区
-	loc := r.getConfiguredTimezone()
-	now := time.Now().In(loc)
-	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
-
-	// 1. 查询历史月数据（当前月之前）
-	historyConditions := []string{"provider_id > 0", "granularity = ?", "time_bucket < ?"}
-	historyArgs := []any{domain.GranularityMonth, toTimestamp(currentMonth)}
-
-	if clientType != "" {
-		historyConditions = append(historyConditions, "client_type = ?")
-		historyArgs = append(historyArgs, clientType)
-	}
-	if projectID > 0 {
-		historyConditions = append(historyConditions, "project_id = ?")
-		historyArgs = append(historyArgs, projectID)
-	}
-
-	historyQuery := `
-		SELECT
-			provider_id,
-			COALESCE(SUM(total_requests), 0),
-			COALESCE(SUM(successful_requests), 0),
-			COALESCE(SUM(failed_requests), 0),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_read), 0),
-			COALESCE(SUM(cache_write), 0),
-			COALESCE(SUM(cost), 0)
-		FROM usage_stats
-		WHERE ` + strings.Join(historyConditions, " AND ") + `
-		GROUP BY provider_id
-	`
-
-	rows, err := r.db.gorm.Raw(historyQuery, historyArgs...).Rows()
-	if err != nil {
-		return nil, err
-	}
-
-	for rows.Next() {
-		var s domain.ProviderStats
-		err := rows.Scan(
-			&s.ProviderID,
-			&s.TotalRequests,
-			&s.SuccessfulRequests,
-			&s.FailedRequests,
-			&s.TotalInputTokens,
-			&s.TotalOutputTokens,
-			&s.TotalCacheRead,
-			&s.TotalCacheWrite,
-			&s.TotalCost,
-		)
-		if err != nil {
-			_ = rows.Close()
-			return nil, err
+	for _, s := range allStats {
+		if s.ProviderID == 0 {
+			continue
 		}
-		result[s.ProviderID] = &s
-	}
-	_ = rows.Close()
-
-	// 2. 查询当前月的 day 粒度数据（使用 day 作为当前月的最粗粒度）
-	currentMonthConditions := []string{"provider_id > 0", "granularity = ?", "time_bucket >= ?"}
-	currentMonthArgs := []any{domain.GranularityDay, toTimestamp(currentMonth)}
-
-	if clientType != "" {
-		currentMonthConditions = append(currentMonthConditions, "client_type = ?")
-		currentMonthArgs = append(currentMonthArgs, clientType)
-	}
-	if projectID > 0 {
-		currentMonthConditions = append(currentMonthConditions, "project_id = ?")
-		currentMonthArgs = append(currentMonthArgs, projectID)
-	}
-
-	currentMonthQuery := `
-		SELECT
-			provider_id,
-			COALESCE(SUM(total_requests), 0),
-			COALESCE(SUM(successful_requests), 0),
-			COALESCE(SUM(failed_requests), 0),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_read), 0),
-			COALESCE(SUM(cache_write), 0),
-			COALESCE(SUM(cost), 0)
-		FROM usage_stats
-		WHERE ` + strings.Join(currentMonthConditions, " AND ") + `
-		GROUP BY provider_id
-	`
-
-	rows, err = r.db.gorm.Raw(currentMonthQuery, currentMonthArgs...).Rows()
-	if err != nil {
-		return nil, err
-	}
-
-	for rows.Next() {
-		var providerID uint64
-		var totalRequests, successfulRequests, failedRequests uint64
-		var inputTokens, outputTokens, cacheRead, cacheWrite, cost uint64
-		err := rows.Scan(
-			&providerID,
-			&totalRequests,
-			&successfulRequests,
-			&failedRequests,
-			&inputTokens,
-			&outputTokens,
-			&cacheRead,
-			&cacheWrite,
-			&cost,
-		)
-		if err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-
-		// 累加到已有数据
-		if existing, ok := result[providerID]; ok {
-			existing.TotalRequests += totalRequests
-			existing.SuccessfulRequests += successfulRequests
-			existing.FailedRequests += failedRequests
-			existing.TotalInputTokens += inputTokens
-			existing.TotalOutputTokens += outputTokens
-			existing.TotalCacheRead += cacheRead
-			existing.TotalCacheWrite += cacheWrite
-			existing.TotalCost += cost
+		if existing, ok := result[s.ProviderID]; ok {
+			existing.TotalRequests += s.TotalRequests
+			existing.SuccessfulRequests += s.SuccessfulRequests
+			existing.FailedRequests += s.FailedRequests
+			existing.TotalInputTokens += s.InputTokens
+			existing.TotalOutputTokens += s.OutputTokens
+			existing.TotalCacheRead += s.CacheRead
+			existing.TotalCacheWrite += s.CacheWrite
+			existing.TotalCost += s.Cost
 		} else {
-			result[providerID] = &domain.ProviderStats{
-				ProviderID:         providerID,
-				TotalRequests:      totalRequests,
-				SuccessfulRequests: successfulRequests,
-				FailedRequests:     failedRequests,
-				TotalInputTokens:   inputTokens,
-				TotalOutputTokens:  outputTokens,
-				TotalCacheRead:     cacheRead,
-				TotalCacheWrite:    cacheWrite,
-				TotalCost:          cost,
+			result[s.ProviderID] = &domain.ProviderStats{
+				ProviderID:         s.ProviderID,
+				TotalRequests:      s.TotalRequests,
+				SuccessfulRequests: s.SuccessfulRequests,
+				FailedRequests:     s.FailedRequests,
+				TotalInputTokens:   s.InputTokens,
+				TotalOutputTokens:  s.OutputTokens,
+				TotalCacheRead:     s.CacheRead,
+				TotalCacheWrite:    s.CacheWrite,
+				TotalCost:          s.Cost,
 			}
 		}
 	}
-	_ = rows.Close()
 
 	// 计算成功率
 	for _, s := range result {
@@ -986,6 +786,135 @@ func (r *UsageStatsRepository) GetProviderStats(clientType string, projectID uin
 	}
 
 	return result, nil
+}
+
+// queryAllWithRealtime 通用的分层查询函数，返回所有统计数据（包括实时数据）
+// 使用分层策略：历史月数据 + 当前月 day 数据 + 今天 hour 数据 + 当前小时 minute 数据 + 最近 2 分钟实时数据
+// 返回扁平的 UsageStats 列表，调用者可自行聚合
+// 如果 filter.EndTime 在 2 分钟之前，说明是纯历史查询，直接使用预聚合数据
+func (r *UsageStatsRepository) queryAllWithRealtime(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+	loc := r.getConfiguredTimezone()
+	now := time.Now().In(loc)
+	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
+	currentDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	currentHour := now.Truncate(time.Hour)
+	currentMinute := now.Truncate(time.Minute)
+	twoMinutesAgo := currentMinute.Add(-time.Minute)
+
+	// 判断是否需要补全实时数据
+	needRealtimeData := filter.EndTime == nil || !filter.EndTime.Before(twoMinutesAgo)
+
+	// 如果不需要实时数据，直接使用历史查询
+	if !needRealtimeData {
+		return r.queryHistorical(filter)
+	}
+
+	// 确定查询的起始时间
+	startTime := time.Time{}
+	if filter.StartTime != nil {
+		startTime = *filter.StartTime
+	}
+
+	var (
+		mu       sync.Mutex
+		allStats []*domain.UsageStats
+		g        errgroup.Group
+	)
+
+	// 1. 查询历史月数据（当前月之前）
+	if startTime.Before(currentMonth) {
+		g.Go(func() error {
+			monthFilter := filter
+			monthFilter.Granularity = domain.GranularityMonth
+			endTime := currentMonth.Add(-time.Millisecond)
+			monthFilter.EndTime = &endTime
+			monthStats, err := r.queryHistorical(monthFilter)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			allStats = append(allStats, monthStats...)
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	// 2. 查询当前月但非今天的 day 数据
+	dayStart := currentMonth
+	if startTime.After(currentMonth) {
+		dayStart = startTime
+	}
+	if currentDay.After(dayStart) {
+		g.Go(func() error {
+			dayStats, err := r.queryStatsInRange(domain.GranularityDay, dayStart, currentDay, filter)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			allStats = append(allStats, dayStats...)
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	// 3. 查询今天但非当前小时的 hour 数据
+	hourStart := currentDay
+	if startTime.After(currentDay) {
+		hourStart = startTime
+	}
+	if currentHour.After(hourStart) {
+		g.Go(func() error {
+			hourStats, err := r.queryStatsInRange(domain.GranularityHour, hourStart, currentHour, filter)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			allStats = append(allStats, hourStats...)
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	// 4. 查询当前小时但非最近 2 分钟的 minute 数据
+	minuteStart := currentHour
+	if startTime.After(currentHour) {
+		minuteStart = startTime
+	}
+	if twoMinutesAgo.After(minuteStart) {
+		g.Go(func() error {
+			minuteStats, err := r.queryStatsInRange(domain.GranularityMinute, minuteStart, twoMinutesAgo, filter)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			allStats = append(allStats, minuteStats...)
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	// 5. 查询最近 2 分钟的实时数据
+	realtimeStart := twoMinutesAgo
+	if startTime.After(twoMinutesAgo) {
+		realtimeStart = startTime
+	}
+	g.Go(func() error {
+		realtimeStats, err := r.queryRecentMinutesStats(realtimeStart, filter)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		allStats = append(allStats, realtimeStats...)
+		mu.Unlock()
+		return nil
+	})
+
+	// 等待所有查询完成
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	return allStats, nil
 }
 
 // aggregateMinute 从原始数据聚合到分钟级别（内部方法）
