@@ -30,6 +30,7 @@ import {
   useDeleteRoute,
   useUpdateRoutePositions,
   useProviderStats,
+  useProxyRequestUpdates,
   routeKeys,
 } from '@/hooks/queries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -83,6 +84,9 @@ function ClientTypeRoutesContentInner({
   const [activeId, setActiveId] = useState<string | null>(null);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const queryClient = useQueryClient();
+
+  // 订阅请求更新事件，确保 providerStats 实时刷新
+  useProxyRequestUpdates();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
