@@ -235,7 +235,7 @@ function DocumentationSection() {
               <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
               <p className="text-xs text-muted-foreground">{t('documentation.projectProxyDesc')}</p>
               <CodeBlock
-                code="POST http://localhost:9880/{project-slug}/v1/chat/completions"
+                code="POST http://localhost:9880/project/{project-slug}/v1/chat/completions"
                 id="openai-project"
                 copiedCode={copiedCode}
                 onCopy={copyToClipboard}

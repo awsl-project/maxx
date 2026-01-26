@@ -146,6 +146,17 @@ type AntigravityQuotaRepository interface {
 	Delete(email string) error
 }
 
+type CodexQuotaRepository interface {
+	// Upsert 更新或插入配额（基于邮箱）
+	Upsert(quota *domain.CodexQuota) error
+	// GetByEmail 根据邮箱获取配额
+	GetByEmail(email string) (*domain.CodexQuota, error)
+	// List 获取所有配额
+	List() ([]*domain.CodexQuota, error)
+	// Delete 删除配额
+	Delete(email string) error
+}
+
 type UsageStatsRepository interface {
 	// Upsert 更新或插入统计记录
 	Upsert(stats *domain.UsageStats) error

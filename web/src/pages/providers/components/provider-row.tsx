@@ -2,10 +2,11 @@ import { Activity, Mail, Globe } from 'lucide-react';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { MarqueeBackground } from '@/components/ui/marquee-background';
-import type { Provider, ProviderStats, AntigravityQuotaData, KiroQuotaData } from '@/lib/transport';
+import type { Provider, ProviderStats, AntigravityQuotaData, KiroQuotaData, CodexQuotaData } from '@/lib/transport';
 import { getProviderTypeConfig } from '../types';
 import { cn } from '@/lib/utils';
 import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-context';
+import { useCodexQuotaFromContext } from '@/contexts/codex-quotas-context';
 import { useKiroQuota } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
 
@@ -137,6 +138,59 @@ function getKiroQuotaInfo(quota: KiroQuotaData | undefined): {
   };
 }
 
+// 获取 Codex 5H 配额信息 (Primary Window)
+function getCodex5HQuotaInfo(
+  quota: CodexQuotaData | undefined,
+): { percentage: number; resetTime: string; lastUpdated: number } | null {
+  if (!quota || quota.isForbidden) return null;
+  const primary = quota.primaryWindow;
+  if (!primary) return null;
+
+  // Calculate remaining percentage
+  const usedPercent = primary.usedPercent ?? 0;
+  const percentage = Math.round(100 - usedPercent);
+
+  // Calculate reset time
+  let resetTime = '';
+  if (primary.resetAt && primary.resetAt > 0) {
+    resetTime = new Date(primary.resetAt * 1000).toISOString();
+  } else if (primary.resetAfterSeconds && primary.resetAfterSeconds > 0) {
+    resetTime = new Date(Date.now() + primary.resetAfterSeconds * 1000).toISOString();
+  }
+
+  return {
+    percentage,
+    resetTime,
+    lastUpdated: quota.lastUpdated,
+  };
+}
+
+// 获取 Codex 周限配额信息 (Secondary Window)
+function getCodexWeekQuotaInfo(
+  quota: CodexQuotaData | undefined,
+): { percentage: number; resetTime: string } | null {
+  if (!quota || quota.isForbidden) return null;
+  const secondary = quota.secondaryWindow;
+  if (!secondary) return null;
+
+  // Calculate remaining percentage
+  const usedPercent = secondary.usedPercent ?? 0;
+  const percentage = Math.round(100 - usedPercent);
+
+  // Calculate reset time
+  let resetTime = '';
+  if (secondary.resetAt && secondary.resetAt > 0) {
+    resetTime = new Date(secondary.resetAt * 1000).toISOString();
+  } else if (secondary.resetAfterSeconds && secondary.resetAfterSeconds > 0) {
+    resetTime = new Date(Date.now() + secondary.resetAfterSeconds * 1000).toISOString();
+  }
+
+  return {
+    percentage,
+    resetTime,
+  };
+}
+
 export function ProviderRow({ provider, stats, streamingCount, onClick }: ProviderRowProps) {
   const { t } = useTranslation();
   // 使用通用配置系统
@@ -146,6 +200,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
 
   const isAntigravity = provider.type === 'antigravity';
   const isKiro = provider.type === 'kiro';
+  const isCodex = provider.type === 'codex';
 
   // 从批量查询上下文获取 Antigravity 额度
   const antigravityQuota = useAntigravityQuotaFromContext(provider.id);
@@ -155,6 +210,11 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
   // 仅为 Kiro provider 获取额度
   const { data: kiroQuota } = useKiroQuota(provider.id, isKiro);
   const kiroInfo = isKiro ? getKiroQuotaInfo(kiroQuota) : null;
+
+  // 从批量查询上下文获取 Codex 额度
+  const codexQuota = useCodexQuotaFromContext(provider.id);
+  const codex5HInfo = isCodex ? getCodex5HQuotaInfo(codexQuota) : null;
+  const codexWeekInfo = isCodex ? getCodexWeekQuotaInfo(codexQuota) : null;
 
   return (
     <div
@@ -212,7 +272,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
           <h3 className="text-[15px] font-bold text-foreground truncate">{provider.name}</h3>
         </div>
         <div className="flex items-center gap-3">
-          {/* 对于 Antigravity，显示 Claude 和 Imagen Quota；对于其他类型，显示邮箱/endpoint */}
+          {/* 对于 Antigravity，显示 Claude 和 Imagen Quota */}
           {isAntigravity && (claudeInfo || imageInfo) ? (
             <div className="flex items-center gap-3 shrink-0">
               {/* Claude Quota */}
@@ -267,6 +327,67 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
               {claudeInfo && (
                 <span className="text-[8px] font-mono text-muted-foreground/40" title="Last updated">
                   @{formatLastUpdated(claudeInfo.lastUpdated)}
+                </span>
+              )}
+            </div>
+          ) : isCodex && (codex5HInfo || codexWeekInfo) ? (
+            <div className="flex items-center gap-3 shrink-0">
+              {/* 5H Quota */}
+              {codex5HInfo && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
+                    5H
+                  </span>
+                  <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-all duration-1000',
+                        codex5HInfo.percentage >= 50
+                          ? 'bg-emerald-500'
+                          : codex5HInfo.percentage >= 20
+                            ? 'bg-amber-500'
+                            : 'bg-red-500',
+                      )}
+                      style={{ width: `${codex5HInfo.percentage}%` }}
+                    />
+                  </div>
+                  {codex5HInfo.resetTime && (
+                    <span className="text-[9px] font-mono text-muted-foreground/60">
+                      {formatResetTime(codex5HInfo.resetTime, t)}
+                    </span>
+                  )}
+                </div>
+              )}
+              {/* Week Quota */}
+              {codexWeekInfo && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
+                    Week
+                  </span>
+                  <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-all duration-1000',
+                        codexWeekInfo.percentage >= 50
+                          ? 'bg-emerald-500'
+                          : codexWeekInfo.percentage >= 20
+                            ? 'bg-amber-500'
+                            : 'bg-red-500',
+                      )}
+                      style={{ width: `${codexWeekInfo.percentage}%` }}
+                    />
+                  </div>
+                  {codexWeekInfo.resetTime && (
+                    <span className="text-[9px] font-mono text-muted-foreground/60">
+                      {formatResetTime(codexWeekInfo.resetTime, t)}
+                    </span>
+                  )}
+                </div>
+              )}
+              {/* Last Updated */}
+              {codex5HInfo && (
+                <span className="text-[8px] font-mono text-muted-foreground/40" title="Last updated">
+                  @{formatLastUpdated(codex5HInfo.lastUpdated)}
                 </span>
               )}
             </div>

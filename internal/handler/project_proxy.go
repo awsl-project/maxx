@@ -29,7 +29,7 @@ func NewProjectProxyHandler(
 // ServeHTTP handles project-prefixed proxy requests
 func (h *ProjectProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse the path to extract project slug and API path
-	// Expected format: /{slug}/v1/messages, /{slug}/v1/chat/completions, etc.
+	// Expected format: /project/{slug}/v1/messages, /project/{slug}/v1/chat/completions, etc.
 	slug, apiPath, ok := h.parseProjectPath(r.URL.Path)
 	if !ok {
 		writeError(w, http.StatusNotFound, "invalid project proxy path")
@@ -57,11 +57,16 @@ func (h *ProjectProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 }
 
 // parseProjectPath extracts the project slug and API path from a project-prefixed URL
-// Input: /my-project/v1/messages
+// Input: /project/my-project/v1/messages
 // Output: ("my-project", "/v1/messages", true)
 func (h *ProjectProxyHandler) parseProjectPath(path string) (slug, apiPath string, ok bool) {
-	// Remove leading slash and split
-	path = strings.TrimPrefix(path, "/")
+	// Must start with /project/
+	if !strings.HasPrefix(path, "/project/") {
+		return "", "", false
+	}
+
+	// Remove /project/ prefix and split
+	path = strings.TrimPrefix(path, "/project/")
 	parts := strings.SplitN(path, "/", 2)
 
 	if len(parts) < 2 {

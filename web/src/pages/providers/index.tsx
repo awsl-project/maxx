@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Plus, Layers, Download, Upload, Search, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { useProviders, useAllProviderStats } from '@/hooks/queries';
+import { useProviders, useAllProviderStats, useSettings, useUpdateSetting } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import type { Provider, ImportResult } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
@@ -10,9 +10,11 @@ import { ProviderRow } from './components/provider-row';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/layout/page-header';
 import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
+import { CodexQuotasProvider } from '@/contexts/codex-quotas-context';
 
 export function ProvidersPage() {
   const { t } = useTranslation();
@@ -23,14 +25,36 @@ export function ProvidersPage() {
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshingQuotas, setIsRefreshingQuotas] = useState(false);
+  const [isRefreshingCodex, setIsRefreshingCodex] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+
+  // Settings for auto-sort
+  const { data: settings } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const autoSortAntigravity = settings?.auto_sort_antigravity === 'true';
+  const autoSortCodex = settings?.auto_sort_codex === 'true';
+
+  const handleToggleAutoSortAntigravity = (checked: boolean) => {
+    updateSetting.mutate({
+      key: 'auto_sort_antigravity',
+      value: checked ? 'true' : 'false',
+    });
+  };
+
+  const handleToggleAutoSortCodex = (checked: boolean) => {
+    updateSetting.mutate({
+      key: 'auto_sort_codex',
+      value: checked ? 'true' : 'false',
+    });
+  };
 
   const groupedProviders = useMemo(() => {
     // 按类型分组，使用配置系统中定义的类型
     const groups: Record<ProviderTypeKey, Provider[]> = {
       antigravity: [],
       kiro: [],
+      codex: [],
       custom: [],
     };
 
@@ -129,6 +153,24 @@ export function ProvidersPage() {
     }
   };
 
+  // Refresh all Codex providers quotas
+  const handleRefreshCodex = async () => {
+    if (isRefreshingCodex) return;
+
+    setIsRefreshingCodex(true);
+    try {
+      const transport = getTransport();
+      // Force refresh all Codex quotas and save to database
+      await transport.refreshCodexQuotas();
+      // Invalidate quota cache - key matches useCodexBatchQuotas
+      queryClient.invalidateQueries({ queryKey: ['providers', 'codex-batch-quotas'] });
+    } catch (error) {
+      console.error('Refresh Codex quotas failed:', error);
+    } finally {
+      setIsRefreshingCodex(false);
+    }
+  };
+
   // Provider list
   return (
     <div className="flex flex-col h-full bg-background">
@@ -205,7 +247,8 @@ export function ProvidersPage() {
             </div>
           ) : (
             <AntigravityQuotasProvider>
-              <div className="space-y-8">
+              <CodexQuotasProvider>
+                <div className="space-y-8">
                 {/* 动态渲染各类型分组 */}
                 {(Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[]).map((typeKey) => {
                   const typeProviders = groupedProviders[typeKey];
@@ -224,20 +267,57 @@ export function ProvidersPage() {
                         <div className="h-px flex-1 bg-border/50 ml-2" />
                         {/* Refresh Quotas Button - Only for Antigravity */}
                         {typeKey === 'antigravity' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleRefreshQuotas}
-                            disabled={isRefreshingQuotas}
-                            className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
-                            title={t('providers.refreshQuotas')}
-                          >
-                            <RefreshCw
-                              size={12}
-                              className={isRefreshingQuotas ? 'animate-spin' : ''}
-                            />
-                            <span>{t('common.refresh')}</span>
-                          </Button>
+                          <>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground">{t('settings.autoSortAntigravity')}</span>
+                              <Switch
+                                checked={autoSortAntigravity}
+                                onCheckedChange={handleToggleAutoSortAntigravity}
+                                disabled={updateSetting.isPending}
+                              />
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleRefreshQuotas}
+                              disabled={isRefreshingQuotas}
+                              className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                              title={t('providers.refreshQuotas')}
+                            >
+                              <RefreshCw
+                                size={12}
+                                className={isRefreshingQuotas ? 'animate-spin' : ''}
+                              />
+                              <span>{t('common.refresh')}</span>
+                            </Button>
+                          </>
+                        )}
+                        {/* Refresh Button - Only for Codex */}
+                        {typeKey === 'codex' && (
+                          <>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground">{t('settings.autoSortCodex')}</span>
+                              <Switch
+                                checked={autoSortCodex}
+                                onCheckedChange={handleToggleAutoSortCodex}
+                                disabled={updateSetting.isPending}
+                              />
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleRefreshCodex}
+                              disabled={isRefreshingCodex}
+                              className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                              title={t('providers.refreshCodex')}
+                            >
+                              <RefreshCw
+                                size={12}
+                                className={isRefreshingCodex ? 'animate-spin' : ''}
+                              />
+                              <span>{t('common.refresh')}</span>
+                            </Button>
+                          </>
                         )}
                       </div>
                       <div className="space-y-3">
@@ -254,7 +334,8 @@ export function ProvidersPage() {
                     </section>
                   );
                 })}
-              </div>
+                </div>
+              </CodexQuotasProvider>
             </AntigravityQuotasProvider>
           )}
         </div>

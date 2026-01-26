@@ -5,13 +5,14 @@ import { useCreateRoute, useUpdateRoute, useProviders, useProjects } from '@/hoo
 import type { ClientType, Route, Provider } from '@/lib/transport';
 import { ModelMappingEditor } from '@/pages/providers/components/model-mapping-editor';
 
-type ProviderTypeKey = 'antigravity' | 'kiro' | 'custom';
+type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
 
-const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'custom'];
+const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'codex', 'custom'];
 
 const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
   antigravity: 'Antigravity',
   kiro: 'Kiro',
+  codex: 'Codex',
   custom: 'Custom',
 };
 
@@ -42,6 +43,7 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
     const groups: Record<ProviderTypeKey, Provider[]> = {
       antigravity: [],
       kiro: [],
+      codex: [],
       custom: [],
     };
 

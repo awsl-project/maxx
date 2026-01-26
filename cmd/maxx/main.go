@@ -100,6 +100,7 @@ func main() {
 	attemptRepo := sqlite.NewProxyUpstreamAttemptRepository(db)
 	settingRepo := sqlite.NewSystemSettingRepository(db)
 	antigravityQuotaRepo := sqlite.NewAntigravityQuotaRepository(db)
+	codexQuotaRepo := sqlite.NewCodexQuotaRepository(db)
 	cooldownRepo := sqlite.NewCooldownRepository(db)
 	failureCountRepo := sqlite.NewFailureCountRepository(db)
 	apiTokenRepo := sqlite.NewAPITokenRepository(db)
@@ -215,6 +216,16 @@ func main() {
 		wsHub,
 	)
 
+	// Create Codex task service for periodic quota refresh and auto-sorting
+	codexTaskSvc := service.NewCodexTaskService(
+		cachedProviderRepo,
+		cachedRouteRepo,
+		codexQuotaRepo,
+		settingRepo,
+		proxyRequestRepo,
+		wsHub,
+	)
+
 	// Start background tasks
 	core.StartBackgroundTasks(core.BackgroundTaskDeps{
 		UsageStats:         usageStatsRepo,
@@ -222,6 +233,7 @@ func main() {
 		AttemptRepo:        attemptRepo,
 		Settings:           settingRepo,
 		AntigravityTaskSvc: antigravityTaskSvc,
+		CodexTaskSvc:       codexTaskSvc,
 	})
 
 	// Setup log output to broadcast via WebSocket
@@ -306,6 +318,8 @@ func main() {
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
 	antigravityHandler.SetTaskService(antigravityTaskSvc)
 	kiroHandler := handler.NewKiroHandler(adminService)
+	codexHandler := handler.NewCodexHandler(adminService, codexQuotaRepo, wsHub)
+	codexHandler.SetTaskService(codexTaskSvc)
 
 	// Use already-created cached project repository for project proxy handler
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, cachedProjectRepo)
@@ -322,6 +336,7 @@ func main() {
 	// Other API routes (no authentication required)
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", antigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", kiroHandler))
+	mux.Handle("/api/codex/", http.StripPrefix("/api", codexHandler))
 
 	// Proxy routes - catch all AI API endpoints
 	// Claude API
@@ -357,6 +372,12 @@ func main() {
 		Handler: loggedMux,
 	}
 
+	// Start Codex OAuth callback server (listens on localhost:1455)
+	codexOAuthServer := core.NewCodexOAuthServer(codexHandler)
+	if err := codexOAuthServer.Start(context.Background()); err != nil {
+		log.Printf("Warning: Failed to start Codex OAuth server: %v", err)
+	}
+
 	// Start server in goroutine
 	log.Printf("Starting Maxx server %s on %s", version.Info(), *addr)
 	log.Printf("Data directory: %s", dataDirPath)
@@ -369,7 +390,7 @@ func main() {
 	log.Printf("  OpenAI: http://localhost%s/v1/chat/completions", *addr)
 	log.Printf("  Codex:  http://localhost%s/v1/responses", *addr)
 	log.Printf("  Gemini: http://localhost%s/v1beta/models/{model}:generateContent", *addr)
-	log.Printf("Project proxy: http://localhost%s/{project-slug}/v1/messages (etc.)", *addr)
+	log.Printf("Project proxy: http://localhost%s/project/{project-slug}/v1/messages (etc.)", *addr)
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -410,6 +431,11 @@ func main() {
 	// Stop pprof manager
 	if err := pprofMgr.Stop(shutdownCtx); err != nil {
 		log.Printf("Warning: Failed to stop pprof manager: %v", err)
+	}
+
+	// Stop Codex OAuth server
+	if err := codexOAuthServer.Stop(shutdownCtx); err != nil {
+		log.Printf("Warning: Failed to stop Codex OAuth server: %v", err)
 	}
 
 	// Step 3: Shutdown HTTP server

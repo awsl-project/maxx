@@ -33,7 +33,30 @@ export function useUpdateSetting() {
   return useMutation({
     mutationFn: ({ key, value }: { key: string; value: string }) =>
       getTransport().updateSetting(key, value),
-    onSuccess: () => {
+    onMutate: async ({ key, value }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: settingsKeys.all });
+
+      // Snapshot the previous value
+      const previousSettings = queryClient.getQueryData<Record<string, string>>(settingsKeys.all);
+
+      // Optimistically update to the new value
+      if (previousSettings) {
+        queryClient.setQueryData(settingsKeys.all, {
+          ...previousSettings,
+          [key]: value,
+        });
+      }
+
+      return { previousSettings };
+    },
+    onError: (_err, _variables, context) => {
+      // If the mutation fails, use the context returned from onMutate to roll back
+      if (context?.previousSettings) {
+        queryClient.setQueryData(settingsKeys.all, context.previousSettings);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: settingsKeys.all });
     },
   });

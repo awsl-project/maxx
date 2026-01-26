@@ -36,6 +36,9 @@ import type {
   Cooldown,
   KiroTokenValidationResult,
   KiroQuotaData,
+  CodexTokenValidationResult,
+  CodexUsageResponse,
+  CodexQuotaData,
   AuthStatus,
   AuthVerifyResult,
   APIToken,
@@ -424,6 +427,11 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async sortAntigravityRoutes(): Promise<{ success: boolean }> {
+    const { data } = await axios.post<{ success: boolean }>('/api/antigravity/sort-routes');
+    return data;
+  }
+
   // ===== Model Mapping API =====
 
   async getModelMappings(): Promise<ModelMapping[]> {
@@ -465,6 +473,53 @@ export class HttpTransport implements Transport {
 
   async getKiroProviderQuota(providerId: number): Promise<KiroQuotaData> {
     const { data } = await axios.get<KiroQuotaData>(`/api/kiro/providers/${providerId}/quota`);
+    return data;
+  }
+
+  // ===== Codex API =====
+
+  async validateCodexToken(refreshToken: string): Promise<CodexTokenValidationResult> {
+    const { data } = await axios.post<CodexTokenValidationResult>('/api/codex/validate-token', {
+      refreshToken,
+    });
+    return data;
+  }
+
+  async startCodexOAuth(): Promise<{ authURL: string; state: string }> {
+    const { data } = await axios.post<{ authURL: string; state: string }>('/api/codex/oauth/start');
+    return data;
+  }
+
+  async refreshCodexProviderInfo(providerId: number): Promise<CodexTokenValidationResult> {
+    const { data } = await axios.post<CodexTokenValidationResult>(
+      `/api/codex/provider/${providerId}/refresh`,
+    );
+    return data;
+  }
+
+  async getCodexProviderUsage(providerId: number): Promise<CodexUsageResponse> {
+    const { data } = await axios.get<CodexUsageResponse>(
+      `/api/codex/provider/${providerId}/usage`,
+    );
+    return data;
+  }
+
+  async getCodexBatchQuotas(): Promise<Record<number, CodexQuotaData>> {
+    const { data } = await axios.get<{ quotas: Record<number, CodexQuotaData> }>(
+      '/api/codex/providers/quotas',
+    );
+    return data.quotas ?? {};
+  }
+
+  async refreshCodexQuotas(): Promise<{ success: boolean; refreshed: boolean }> {
+    const { data } = await axios.post<{ success: boolean; refreshed: boolean }>(
+      '/api/codex/refresh-quotas',
+    );
+    return data;
+  }
+
+  async sortCodexRoutes(): Promise<{ success: boolean }> {
+    const { data } = await axios.post<{ success: boolean }>('/api/codex/sort-routes');
     return data;
   }
 

@@ -35,10 +35,26 @@ export interface ProviderConfigKiro {
   modelMapping?: Record<string, string>;
 }
 
+export interface ProviderConfigCodex {
+  email: string;
+  name?: string;
+  picture?: string;
+  refreshToken: string;
+  accessToken?: string;
+  expiresAt?: string; // RFC3339 format
+  accountId?: string;
+  userId?: string;
+  planType?: string; // e.g., "chatgptplusplan", "chatgptteamplan"
+  subscriptionStart?: string;
+  subscriptionEnd?: string;
+  modelMapping?: Record<string, string>;
+}
+
 export interface ProviderConfig {
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;
   kiro?: ProviderConfigKiro;
+  codex?: ProviderConfigCodex;
 }
 
 export interface Provider {
@@ -287,6 +303,7 @@ export type WSMessageType =
   | 'stats_update'
   | 'log_message'
   | 'antigravity_oauth_result'
+  | 'codex_oauth_result'
   | 'new_session_pending'
   | 'session_pending_cancelled'
   | 'cooldown_update'
@@ -455,6 +472,79 @@ export interface KiroQuotaData {
   is_banned: boolean;
   ban_reason?: string;
   last_updated: number;
+}
+
+// ===== Codex 类型 =====
+
+export interface CodexTokenValidationResult {
+  valid: boolean;
+  error?: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+  accountId?: string;
+  userId?: string;
+  planType?: string;
+  subscriptionStart?: string;
+  subscriptionEnd?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string; // RFC3339 format
+}
+
+export interface CodexOAuthResult {
+  state: string;
+  success: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string; // RFC3339 format
+  email?: string;
+  name?: string;
+  picture?: string;
+  accountId?: string;
+  userId?: string;
+  planType?: string;
+  subscriptionStart?: string;
+  subscriptionEnd?: string;
+  error?: string;
+}
+
+// Codex usage/quota types
+export interface CodexUsageWindow {
+  usedPercent?: number;
+  limitWindowSeconds?: number;
+  resetAfterSeconds?: number;
+  resetAt?: number; // Unix timestamp
+}
+
+export interface CodexRateLimitInfo {
+  allowed?: boolean;
+  limitReached?: boolean;
+  primaryWindow?: CodexUsageWindow;
+  secondaryWindow?: CodexUsageWindow;
+}
+
+export interface CodexUsageResponse {
+  planType?: string;
+  rateLimit?: CodexRateLimitInfo;
+  codeReviewRateLimit?: CodexRateLimitInfo;
+}
+
+// Codex quota data (for batch API response)
+export interface CodexQuotaData {
+  email: string;
+  accountId?: string;
+  planType?: string;
+  isForbidden: boolean;
+  lastUpdated: number; // Unix timestamp
+  primaryWindow?: CodexUsageWindow;
+  secondaryWindow?: CodexUsageWindow;
+  codeReviewWindow?: CodexUsageWindow;
+}
+
+// Codex batch quota result
+export interface CodexBatchQuotaResult {
+  quotas: Record<number, CodexQuotaData>; // providerId -> quota
 }
 
 // ===== 回调类型 =====

@@ -3,10 +3,10 @@
  * 全局路由配置页面 - 显示当前 ClientType 的路由
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Search, Globe, FolderKanban } from 'lucide-react';
+import { Search, Globe, FolderKanban, ArrowUpDown, Zap, Code2 } from 'lucide-react';
 import { ClientIcon, getClientName } from '@/components/icons/client-icons';
 import type { ClientType } from '@/lib/transport';
 import { ClientTypeRoutesContent } from '@/components/routes/ClientTypeRoutesContent';
@@ -19,7 +19,9 @@ import {
   Switch,
   Button,
 } from '@/components/ui';
-import { useProjects, useUpdateProject } from '@/hooks/queries';
+import { useProjects, useUpdateProject, useRoutes, useProviders, routeKeys } from '@/hooks/queries';
+import { useTransport } from '@/lib/transport/context';
+import { useQueryClient } from '@tanstack/react-query';
 
 export function ClientRoutesPage() {
   const { t } = useTranslation();
@@ -27,9 +29,58 @@ export function ClientRoutesPage() {
   const activeClientType = (clientType as ClientType) || 'claude';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('0'); // '0' = Global
+  const [isSorting, setIsSorting] = useState(false);
+
   const { data: projects } = useProjects();
+  const { data: allRoutes } = useRoutes();
+  const { data: providers = [] } = useProviders();
   const sortedProjects = projects?.slice().sort((a, b) => a.id - b.id);
   const updateProject = useUpdateProject();
+  const { transport } = useTransport();
+  const queryClient = useQueryClient();
+
+  // Check if there are any Antigravity/Codex routes in the current scope (Global routes, projectID=0)
+  const { hasAntigravityRoutes, hasCodexRoutes } = useMemo(() => {
+    const globalRoutes = allRoutes?.filter(
+      (r) => r.clientType === activeClientType && r.projectID === 0,
+    ) || [];
+
+    let hasAntigravity = false;
+    let hasCodex = false;
+
+    for (const route of globalRoutes) {
+      const provider = providers.find((p) => p.id === route.providerID);
+      if (provider?.type === 'antigravity') hasAntigravity = true;
+      if (provider?.type === 'codex') hasCodex = true;
+      if (hasAntigravity && hasCodex) break;
+    }
+
+    return { hasAntigravityRoutes: hasAntigravity, hasCodexRoutes: hasCodex };
+  }, [allRoutes, providers, activeClientType]);
+
+  const handleSortAntigravity = async () => {
+    setIsSorting(true);
+    try {
+      await transport.sortAntigravityRoutes();
+      queryClient.invalidateQueries({ queryKey: routeKeys.list() });
+    } catch (error) {
+      console.error('Failed to sort Antigravity routes:', error);
+    } finally {
+      setIsSorting(false);
+    }
+  };
+
+  const handleSortCodex = async () => {
+    setIsSorting(true);
+    try {
+      await transport.sortCodexRoutes();
+      queryClient.invalidateQueries({ queryKey: routeKeys.list() });
+    } catch (error) {
+      console.error('Failed to sort Codex routes:', error);
+    } finally {
+      setIsSorting(false);
+    }
+  };
 
   const handleToggleCustomRoutes = (projectId: number, enabled: boolean) => {
     const project = projects?.find((p) => p.id === projectId);
@@ -86,34 +137,68 @@ export function ClientRoutesPage() {
         {/* Only show tab bar when there are projects */}
         {sortedProjects && sortedProjects.length > 0 && (
           <div className="px-6 py-3 border-b border-border bg-card">
-            <div className="mx-auto max-w-[1400px] flex items-center gap-6">
-              {/* Global Group */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Global</span>
-                <TabsList className="h-8">
-                  <TabsTrigger value="0" className="h-7 px-3 text-xs flex items-center gap-1.5">
-                    <Globe className="h-3.5 w-3.5" />
-                    <span>Default</span>
-                  </TabsTrigger>
-                </TabsList>
+            <div className="mx-auto max-w-[1400px] flex items-center justify-between gap-6">
+              <div className="flex items-center gap-6">
+                {/* Global Group */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Global</span>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="0" className="h-7 px-3 text-xs flex items-center gap-1.5">
+                      <Globe className="h-3.5 w-3.5" />
+                      <span>Default</span>
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                {/* Projects Group */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Projects</span>
+                  <TabsList className="h-8">
+                    {sortedProjects.map((project) => (
+                      <TabsTrigger
+                        key={project.id}
+                        value={String(project.id)}
+                        className="h-7 px-3 text-xs flex items-center gap-1.5"
+                      >
+                        <FolderKanban className="h-3.5 w-3.5" />
+                        <span>{project.name}</span>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
               </div>
 
-              {/* Projects Group */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Projects</span>
-                <TabsList className="h-8">
-                  {sortedProjects.map((project) => (
-                    <TabsTrigger
-                      key={project.id}
-                      value={String(project.id)}
-                      className="h-7 px-3 text-xs flex items-center gap-1.5"
+              {/* Sort Buttons - Only show when viewing Global routes */}
+              {selectedProjectId === '0' && (hasAntigravityRoutes || hasCodexRoutes) && (
+                <div className="flex items-center gap-2">
+                  {hasAntigravityRoutes && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSortAntigravity}
+                      disabled={isSorting}
+                      className="h-8 text-xs"
                     >
-                      <FolderKanban className="h-3.5 w-3.5" />
-                      <span>{project.name}</span>
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
+                      <Zap className="h-3.5 w-3.5 mr-1.5" />
+                      {t('routes.sortAntigravity')}
+                      {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
+                    </Button>
+                  )}
+                  {hasCodexRoutes && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSortCodex}
+                      disabled={isSorting}
+                      className="h-8 text-xs"
+                    >
+                      <Code2 className="h-3.5 w-3.5 mr-1.5" />
+                      {t('routes.sortCodex')}
+                      {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

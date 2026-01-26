@@ -3,8 +3,8 @@
  * Used by both global routes and project routes
  */
 
-import { useState, useMemo, useCallback } from 'react';
-import { Plus, RefreshCw, Zap, ArrowUpDown } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Plus, RefreshCw, Zap } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -43,17 +43,17 @@ import {
 } from '@/pages/client-routes/components/provider-row';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import { Button } from '../ui';
-import { AntigravityQuotasProvider, useAntigravityQuotasContext } from '@/contexts/antigravity-quotas-context';
+import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CooldownsProvider } from '@/contexts/cooldowns-context';
-import { useTranslation } from 'react-i18next';
 
-type ProviderTypeKey = 'antigravity' | 'kiro' | 'custom';
+type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
 
-const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'custom'];
+const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'codex', 'custom'];
 
 const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
   antigravity: 'Antigravity',
   kiro: 'Kiro',
+  codex: 'Codex',
   custom: 'Custom',
 };
 
@@ -80,11 +80,9 @@ function ClientTypeRoutesContentInner({
   projectID,
   searchQuery = '',
 }: ClientTypeRoutesContentProps) {
-  const { t } = useTranslation();
   const [activeId, setActiveId] = useState<string | null>(null);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const queryClient = useQueryClient();
-  const { quotas } = useAntigravityQuotasContext();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -155,6 +153,7 @@ function ClientTypeRoutesContentInner({
     const groups: Record<ProviderTypeKey, Provider[]> = {
       antigravity: [],
       kiro: [],
+      codex: [],
       custom: [],
     };
 
@@ -193,90 +192,6 @@ function ClientTypeRoutesContentInner({
   const hasAvailableProviders = useMemo(() => {
     return PROVIDER_TYPE_ORDER.some((type) => groupedAvailableProviders[type].length > 0);
   }, [groupedAvailableProviders]);
-
-  // Check if there are any Antigravity routes
-  const hasAntigravityRoutes = useMemo(() => {
-    return items.some((item) => item.provider.type === 'antigravity' && item.route);
-  }, [items]);
-
-  // Get Claude model resetTime from Antigravity quota
-  const getClaudeResetTime = useCallback(
-    (providerId: number): Date | null => {
-      const quota = quotas?.[providerId];
-      if (!quota || quota.isForbidden || !quota.models) return null;
-      const claudeModel = quota.models.find((m) => m.name.includes('claude'));
-      if (!claudeModel) return null;
-      try {
-        return new Date(claudeModel.resetTime);
-      } catch {
-        return null;
-      }
-    },
-    [quotas],
-  );
-
-  // Sort Antigravity routes by resetTime (earliest first), keeping non-Antigravity routes in place
-  const handleSortAntigravity = useCallback(() => {
-    // Collect Antigravity items with their current positions
-    const antigravityItems: { item: ProviderConfigItem; position: number }[] = [];
-
-    items.forEach((item) => {
-      if (item.provider.type === 'antigravity' && item.route) {
-        antigravityItems.push({ item, position: item.route.position });
-      }
-    });
-
-    if (antigravityItems.length < 2) return; // Nothing to sort
-
-    // Sort Antigravity items by resetTime (earliest first)
-    const sortedItems = [...antigravityItems].sort((a, b) => {
-      const resetTimeA = getClaudeResetTime(a.item.provider.id);
-      const resetTimeB = getClaudeResetTime(b.item.provider.id);
-
-      // Items without resetTime go to the end
-      if (!resetTimeA && !resetTimeB) return 0;
-      if (!resetTimeA) return 1;
-      if (!resetTimeB) return -1;
-
-      return resetTimeA.getTime() - resetTimeB.getTime();
-    });
-
-    // Collect original positions (sorted by position value)
-    const originalPositions = antigravityItems
-      .map((a) => a.position)
-      .sort((a, b) => a - b);
-
-    // Build updates: assign sorted items to the original position slots
-    // Only update Antigravity routes, leaving Other types unchanged
-    const updates: Record<number, number> = {};
-    sortedItems.forEach((sorted, index) => {
-      const newPosition = originalPositions[index];
-      if (sorted.item.route && sorted.item.route.position !== newPosition) {
-        updates[sorted.item.route.id] = newPosition;
-      }
-    });
-
-    if (Object.keys(updates).length > 0) {
-      // Optimistic update
-      queryClient.setQueryData(routeKeys.list(), (oldRoutes: typeof allRoutes) => {
-        if (!oldRoutes) return oldRoutes;
-        return oldRoutes.map((route) => {
-          const newPosition = updates[route.id];
-          if (newPosition !== undefined) {
-            return { ...route, position: newPosition };
-          }
-          return route;
-        });
-      });
-
-      // Send API request
-      updatePositions.mutate(updates, {
-        onError: () => {
-          queryClient.invalidateQueries({ queryKey: routeKeys.list() });
-        },
-      });
-    }
-  }, [items, getClaudeResetTime, queryClient, updatePositions]);
 
   const activeItem = activeId ? items.find((item) => item.id === activeId) : null;
 
@@ -376,22 +291,6 @@ function ClientTypeRoutesContentInner({
     <div className="flex flex-col h-full min-h-0">
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-[1400px] space-y-6">
-          {/* Sort Antigravity Button */}
-          {hasAntigravityRoutes && (
-            <div className="flex justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSortAntigravity}
-                disabled={updatePositions.isPending}
-                className="gap-2"
-              >
-                <ArrowUpDown size={14} />
-                {t('routes.sortAntigravity')}
-              </Button>
-            </div>
-          )}
-
           {/* Routes List */}
           {items.length > 0 ? (
             <DndContext

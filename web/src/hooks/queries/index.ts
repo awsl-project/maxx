@@ -15,6 +15,7 @@ export {
   useAntigravityQuota,
   useAntigravityBatchQuotas,
   useKiroQuota,
+  useCodexBatchQuotas,
 } from './use-providers';
 
 // Project hooks

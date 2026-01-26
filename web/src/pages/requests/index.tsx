@@ -41,13 +41,14 @@ import {
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 
-type ProviderTypeKey = 'antigravity' | 'kiro' | 'custom';
+type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
 
-const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'custom'];
+const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'codex', 'custom'];
 
 const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
   antigravity: 'Antigravity',
   kiro: 'Kiro',
+  codex: 'Codex',
   custom: 'Custom',
 };
 
@@ -762,6 +763,7 @@ function ProviderFilter({
     const groups: Record<ProviderTypeKey, Provider[]> = {
       antigravity: [],
       kiro: [],
+      codex: [],
       custom: [],
     };
 

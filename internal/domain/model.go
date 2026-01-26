@@ -69,10 +69,49 @@ type ProviderConfigKiro struct {
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
+type ProviderConfigCodex struct {
+	// 邮箱（用于标识帐号）
+	Email string `json:"email"`
+
+	// 用户名
+	Name string `json:"name,omitempty"`
+
+	// 头像
+	Picture string `json:"picture,omitempty"`
+
+	// OpenAI OAuth refresh_token
+	RefreshToken string `json:"refreshToken"`
+
+	// Access token（持久化存储，减少刷新请求）
+	AccessToken string `json:"accessToken,omitempty"`
+
+	// Access token 过期时间 (RFC3339 格式)
+	ExpiresAt string `json:"expiresAt,omitempty"`
+
+	// ChatGPT Account ID (用于 Chatgpt-Account-Id header)
+	AccountID string `json:"accountId,omitempty"`
+
+	// ChatGPT User ID
+	UserID string `json:"userId,omitempty"`
+
+	// 订阅计划类型 (如 "chatgptplusplan", "chatgptteamplan" 等)
+	PlanType string `json:"planType,omitempty"`
+
+	// 订阅开始时间
+	SubscriptionStart string `json:"subscriptionStart,omitempty"`
+
+	// 订阅结束时间
+	SubscriptionEnd string `json:"subscriptionEnd,omitempty"`
+
+	// Model 映射: RequestModel → MappedModel
+	ModelMapping map[string]string `json:"modelMapping,omitempty"`
+}
+
 type ProviderConfig struct {
 	Custom      *ProviderConfigCustom      `json:"custom,omitempty"`
 	Antigravity *ProviderConfigAntigravity `json:"antigravity,omitempty"`
 	Kiro        *ProviderConfigKiro        `json:"kiro,omitempty"`
+	Codex       *ProviderConfigCodex       `json:"codex,omitempty"`
 }
 
 // Provider 供应商
@@ -407,6 +446,7 @@ const (
 	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
 	SettingKeyAutoSortAntigravity           = "auto_sort_antigravity"            // 是否自动排序 Antigravity 路由，"true" 或 "false"
+	SettingKeyAutoSortCodex                 = "auto_sort_codex"                  // 是否自动排序 Codex 路由，"true" 或 "false"
 	SettingKeyEnablePprof                   = "enable_pprof"                     // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
 	SettingKeyPprofPort                     = "pprof_port"                       // pprof 服务端口，默认 6060
 	SettingKeyPprofPassword                 = "pprof_password"                   // pprof 访问密码，为空表示不需要密码
@@ -470,6 +510,53 @@ type AntigravityQuota struct {
 
 	// 各模型配额
 	Models []AntigravityModelQuota `json:"models"`
+}
+
+// Codex 额度窗口信息
+type CodexQuotaWindow struct {
+	UsedPercent        *float64 `json:"usedPercent,omitempty"`
+	LimitWindowSeconds *int64   `json:"limitWindowSeconds,omitempty"`
+	ResetAfterSeconds  *int64   `json:"resetAfterSeconds,omitempty"`
+	ResetAt            *int64   `json:"resetAt,omitempty"` // Unix timestamp
+}
+
+// Codex 限流信息
+type CodexRateLimitInfo struct {
+	Allowed         *bool             `json:"allowed,omitempty"`
+	LimitReached    *bool             `json:"limitReached,omitempty"`
+	PrimaryWindow   *CodexQuotaWindow `json:"primaryWindow,omitempty"`
+	SecondaryWindow *CodexQuotaWindow `json:"secondaryWindow,omitempty"`
+}
+
+// Codex 账户配额（基于邮箱存储）
+type CodexQuota struct {
+	ID        uint64    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// 软删除时间
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// 邮箱作为唯一标识
+	Email string `json:"email"`
+
+	// 账户 ID
+	AccountID string `json:"accountId"`
+
+	// 计划类型 (e.g., chatgptplusplan, chatgptteamplan)
+	PlanType string `json:"planType"`
+
+	// 是否被禁止访问 (403)
+	IsForbidden bool `json:"isForbidden"`
+
+	// 主限流窗口 (5小时限额)
+	PrimaryWindow *CodexQuotaWindow `json:"primaryWindow,omitempty"`
+
+	// 次级限流窗口 (周限额)
+	SecondaryWindow *CodexQuotaWindow `json:"secondaryWindow,omitempty"`
+
+	// 代码审查限流
+	CodeReviewWindow *CodexQuotaWindow `json:"codeReviewWindow,omitempty"`
 }
 
 // Provider 统计信息

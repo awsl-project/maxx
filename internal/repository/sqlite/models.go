@@ -176,6 +176,20 @@ type AntigravityQuota struct {
 
 func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 
+// CodexQuota model
+type CodexQuota struct {
+	SoftDeleteModel
+	Email            string `gorm:"size:255;uniqueIndex"`
+	AccountID        string `gorm:"size:128;column:account_id"`
+	PlanType         string `gorm:"size:64"`
+	IsForbidden      int
+	PrimaryWindow    LongText `gorm:"column:primary_window"`   // JSON
+	SecondaryWindow  LongText `gorm:"column:secondary_window"` // JSON
+	CodeReviewWindow LongText `gorm:"column:code_review_window"` // JSON
+}
+
+func (CodexQuota) TableName() string { return "codex_quotas" }
+
 // ==================== Log/Status/Stats Models (no soft delete) ====================
 
 // ProxyRequest model
@@ -360,6 +374,7 @@ func AllModels() []any {
 		&APIToken{},
 		&ModelMapping{},
 		&AntigravityQuota{},
+		&CodexQuota{},
 		&ProxyRequest{},
 		&ProxyUpstreamAttempt{},
 		&SystemSetting{},

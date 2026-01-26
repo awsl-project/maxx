@@ -454,7 +454,6 @@ function AntigravitySection() {
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
 
-  const autoSortEnabled = settings?.auto_sort_antigravity === 'true';
   const refreshInterval = settings?.quota_refresh_interval || '0';
 
   const [intervalDraft, setIntervalDraft] = useState('');
@@ -475,13 +474,6 @@ function AntigravitySection() {
 
   const hasChanges = initialized && intervalDraft !== refreshInterval;
 
-  const handleAutoSortToggle = async (checked: boolean) => {
-    await updateSetting.mutateAsync({
-      key: 'auto_sort_antigravity',
-      value: checked ? 'true' : 'false',
-    });
-  };
-
   const handleSaveInterval = async () => {
     const intervalNum = parseInt(intervalDraft, 10);
     if (!isNaN(intervalNum) && intervalNum >= 0 && intervalDraft !== refreshInterval) {
@@ -501,9 +493,9 @@ function AntigravitySection() {
           <div>
             <CardTitle className="text-base font-medium flex items-center gap-2">
               <Zap className="h-4 w-4 text-muted-foreground" />
-              {t('settings.antigravity')}
+              {t('settings.quotaSettings')}
             </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">{t('settings.antigravityDesc')}</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.quotaSettingsDesc')}</p>
           </div>
           <Button
             onClick={handleSaveInterval}
@@ -533,20 +525,11 @@ function AntigravitySection() {
           </span>
         </div>
 
-        <div className="flex items-center justify-between pt-4 border-t border-border">
-          <div>
-            <label className="text-sm font-medium text-foreground">
-              {t('settings.autoSortAntigravity')}
-            </label>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('settings.autoSortAntigravityDesc')}
-            </p>
-          </div>
-          <Switch
-            checked={autoSortEnabled}
-            onCheckedChange={handleAutoSortToggle}
-            disabled={updateSetting.isPending}
-          />
+        <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+          <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            {t('settings.routesSortNote')}
+          </p>
         </div>
       </CardContent>
     </Card>

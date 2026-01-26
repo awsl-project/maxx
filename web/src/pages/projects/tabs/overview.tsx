@@ -46,7 +46,7 @@ export function OverviewTab({ project }: OverviewTabProps) {
 
   // Generate project base URL
   const baseUrl = window.location.origin;
-  const projectBaseUrl = `${baseUrl}/${project.slug}/`;
+  const projectBaseUrl = `${baseUrl}/project/${project.slug}/`;
 
   return (
     <div className="p-6 space-y-6">

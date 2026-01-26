@@ -8,6 +8,7 @@ export function useProviderNavigation() {
     goToCustomConfig: () => navigate('/providers/create/custom'),
     goToAntigravity: () => navigate('/providers/create/antigravity'),
     goToKiro: () => navigate('/providers/create/kiro'),
+    goToCodex: () => navigate('/providers/create/codex'),
     goToProviders: () => navigate('/providers'),
     goBack: () => navigate(-1),
   };

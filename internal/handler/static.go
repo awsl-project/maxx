@@ -324,25 +324,8 @@ func NewCombinedHandler(projectProxyHandler *ProjectProxyHandler, staticHandler 
 }
 
 // isProjectProxyPath checks if the path looks like a project-prefixed proxy request
-// e.g., /my-project/v1/messages, /my-project/v1/chat/completions, etc.
+// e.g., /project/my-project/v1/messages, /project/my-project/v1/chat/completions, etc.
 func isProjectProxyPath(urlPath string) bool {
-	// Remove leading slash and split
-	path := strings.TrimPrefix(urlPath, "/")
-	parts := strings.SplitN(path, "/", 2)
-
-	if len(parts) < 2 {
-		return false
-	}
-
-	slug := parts[0]
-	apiPath := "/" + parts[1]
-
-	// Skip known non-project prefixes
-	if slug == "admin" || slug == "antigravity" || slug == "v1" || slug == "v1beta" ||
-		slug == "responses" || slug == "ws" || slug == "health" || slug == "assets" {
-		return false
-	}
-
-	// Check if the API path looks like a known proxy endpoint
-	return isValidAPIPath(apiPath)
+	// Project routes must start with /project/
+	return strings.HasPrefix(urlPath, "/project/")
 }

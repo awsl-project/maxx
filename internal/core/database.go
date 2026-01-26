@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/event"
@@ -42,6 +43,7 @@ type DatabaseRepos struct {
 	AttemptRepo              repository.ProxyUpstreamAttemptRepository
 	SettingRepo              repository.SystemSettingRepository
 	AntigravityQuotaRepo     repository.AntigravityQuotaRepository
+	CodexQuotaRepo           repository.CodexQuotaRepository
 	CooldownRepo             repository.CooldownRepository
 	FailureCountRepo         repository.FailureCountRepository
 	CachedProviderRepo        *cached.ProviderRepository
@@ -71,6 +73,8 @@ type ServerComponents struct {
 	AdminHandler        *handler.AdminHandler
 	AntigravityHandler  *handler.AntigravityHandler
 	KiroHandler         *handler.KiroHandler
+	CodexHandler        *handler.CodexHandler
+	CodexOAuthServer    *CodexOAuthServer
 	ProjectProxyHandler *handler.ProjectProxyHandler
 	RequestTracker      *RequestTracker
 	PprofManager        *PprofManager
@@ -103,6 +107,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	attemptRepo := sqlite.NewProxyUpstreamAttemptRepository(db)
 	settingRepo := sqlite.NewSystemSettingRepository(db)
 	antigravityQuotaRepo := sqlite.NewAntigravityQuotaRepository(db)
+	codexQuotaRepo := sqlite.NewCodexQuotaRepository(db)
 	cooldownRepo := sqlite.NewCooldownRepository(db)
 	failureCountRepo := sqlite.NewFailureCountRepository(db)
 	apiTokenRepo := sqlite.NewAPITokenRepository(db)
@@ -134,6 +139,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		AttemptRepo:              attemptRepo,
 		SettingRepo:              settingRepo,
 		AntigravityQuotaRepo:     antigravityQuotaRepo,
+		CodexQuotaRepo:           codexQuotaRepo,
 		CooldownRepo:             cooldownRepo,
 		FailureCountRepo:         failureCountRepo,
 		CachedProviderRepo:        cachedProviderRepo,
@@ -331,6 +337,8 @@ func InitializeServerComponents(
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
 	kiroHandler := handler.NewKiroHandler(adminService)
+	codexHandler := handler.NewCodexHandler(adminService, repos.CodexQuotaRepo, wailsBroadcaster)
+	codexOAuthServer := NewCodexOAuthServer(codexHandler)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, repos.CachedProjectRepo)
 
 	log.Printf("[Core] Creating request tracker for graceful shutdown")
@@ -348,6 +356,8 @@ func InitializeServerComponents(
 		AdminHandler:        adminHandler,
 		AntigravityHandler:  antigravityHandler,
 		KiroHandler:         kiroHandler,
+		CodexHandler:        codexHandler,
+		CodexOAuthServer:    codexOAuthServer,
 		ProjectProxyHandler: projectProxyHandler,
 		RequestTracker:      requestTracker,
 		PprofManager:        pprofMgr,

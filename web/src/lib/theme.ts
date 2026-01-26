@@ -17,7 +17,8 @@ export type ProviderType =
   | 'mistral'
   | 'custom'
   | 'antigravity'
-  | 'kiro';
+  | 'kiro'
+  | 'codex';
 
 /**
  * Client 类型定义

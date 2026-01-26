@@ -128,3 +128,15 @@ export function useKiroQuota(providerId: number, enabled = true) {
     staleTime: 600000,
   });
 }
+
+// 批量获取所有 Codex Provider 额度
+export function useCodexBatchQuotas(enabled = true) {
+  return useQuery({
+    queryKey: [...providerKeys.all, 'codex-batch-quotas'],
+    queryFn: () => getTransport().getCodexBatchQuotas(),
+    enabled,
+    // 每 10 分钟刷新一次
+    refetchInterval: 600000,
+    staleTime: 600000,
+  });
+}

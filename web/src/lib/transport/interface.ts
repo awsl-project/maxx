@@ -33,6 +33,9 @@ import type {
   Cooldown,
   KiroTokenValidationResult,
   KiroQuotaData,
+  CodexTokenValidationResult,
+  CodexUsageResponse,
+  CodexQuotaData,
   AuthStatus,
   AuthVerifyResult,
   APIToken,
@@ -136,6 +139,7 @@ export interface Transport {
   getAntigravityBatchQuotas(): Promise<Record<number, AntigravityQuotaData>>;
   startAntigravityOAuth(): Promise<{ authURL: string; state: string }>;
   refreshAntigravityQuotas(): Promise<{ success: boolean; refreshed: number }>;
+  sortAntigravityRoutes(): Promise<{ success: boolean }>;
 
   // ===== Model Mapping API =====
   getModelMappings(): Promise<ModelMapping[]>;
@@ -148,6 +152,15 @@ export interface Transport {
   // ===== Kiro API =====
   validateKiroSocialToken(refreshToken: string): Promise<KiroTokenValidationResult>;
   getKiroProviderQuota(providerId: number): Promise<KiroQuotaData>;
+
+  // ===== Codex API =====
+  validateCodexToken(refreshToken: string): Promise<CodexTokenValidationResult>;
+  startCodexOAuth(): Promise<{ authURL: string; state: string }>;
+  refreshCodexProviderInfo(providerId: number): Promise<CodexTokenValidationResult>;
+  getCodexProviderUsage(providerId: number): Promise<CodexUsageResponse>;
+  getCodexBatchQuotas(): Promise<Record<number, CodexQuotaData>>;
+  refreshCodexQuotas(): Promise<{ success: boolean; refreshed: boolean }>;
+  sortCodexRoutes(): Promise<{ success: boolean }>;
 
   // ===== Cooldown API =====
   getCooldowns(): Promise<Cooldown[]>;

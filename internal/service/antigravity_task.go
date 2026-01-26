@@ -20,12 +20,12 @@ const (
 
 // AntigravityTaskService handles periodic quota refresh and auto-sorting
 type AntigravityTaskService struct {
-	providerRepo repository.ProviderRepository
-	routeRepo    repository.RouteRepository
-	quotaRepo    repository.AntigravityQuotaRepository
-	settingRepo  repository.SystemSettingRepository
-	requestRepo  repository.ProxyRequestRepository
-	broadcaster  event.Broadcaster
+	providerRepo      repository.ProviderRepository
+	routeRepo         repository.RouteRepository
+	quotaRepo         repository.AntigravityQuotaRepository
+	settingRepo       repository.SystemSettingRepository
+	requestRepo       repository.ProxyRequestRepository
+	broadcaster       event.Broadcaster
 }
 
 // NewAntigravityTaskService creates a new AntigravityTaskService
@@ -38,12 +38,12 @@ func NewAntigravityTaskService(
 	broadcaster event.Broadcaster,
 ) *AntigravityTaskService {
 	return &AntigravityTaskService{
-		providerRepo: providerRepo,
-		routeRepo:    routeRepo,
-		quotaRepo:    quotaRepo,
-		settingRepo:  settingRepo,
-		requestRepo:  requestRepo,
-		broadcaster:  broadcaster,
+		providerRepo:   providerRepo,
+		routeRepo:      routeRepo,
+		quotaRepo:      quotaRepo,
+		settingRepo:    settingRepo,
+		requestRepo:    requestRepo,
+		broadcaster:    broadcaster,
 	}
 }
 
@@ -416,3 +416,4 @@ func (s *AntigravityTaskService) getClaudeResetTime(quota *domain.AntigravityQuo
 	}
 	return nil
 }
+

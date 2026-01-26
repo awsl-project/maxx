@@ -682,7 +682,7 @@ export function StatsPage() {
                     {} as Record<string, typeof providers>,
                   );
                   // 类型排序优先级
-                  const typeOrder = ['antigravity', 'kiro', 'custom', 'other'];
+                  const typeOrder = ['antigravity', 'kiro', 'codex', 'custom', 'other'];
                   const sortedTypes = Object.keys(grouped).sort((a, b) => {
                     const aIndex = typeOrder.indexOf(a);
                     const bIndex = typeOrder.indexOf(b);

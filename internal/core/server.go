@@ -75,6 +75,7 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	mux.Handle("/api/admin/", http.StripPrefix("/api", components.AdminHandler))
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", components.AntigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))
+	mux.Handle("/api/codex/", http.StripPrefix("/api", components.CodexHandler))
 
 	mux.Handle("/v1/messages", components.ProxyHandler)
 	mux.Handle("/v1/chat/completions", components.ProxyHandler)
@@ -132,6 +133,13 @@ func (s *ManagedServer) Start(ctx context.Context) error {
 		}
 	}
 
+	// 启动 Codex OAuth 回调服务器
+	if s.config.Components != nil && s.config.Components.CodexOAuthServer != nil {
+		if err := s.config.Components.CodexOAuthServer.Start(s.ctx); err != nil {
+			log.Printf("[Server] Failed to start Codex OAuth server: %v", err)
+		}
+	}
+
 	s.isRunning = true
 	log.Printf("[Server] Server started successfully")
 	return nil
@@ -185,6 +193,15 @@ func (s *ManagedServer) Stop(ctx context.Context) error {
 		defer pprofCancel()
 		if err := s.pprofManager.Stop(pprofCtx); err != nil {
 			log.Printf("[Server] Failed to stop pprof manager: %v", err)
+		}
+	}
+
+	// 停止 Codex OAuth 回调服务器
+	if s.config.Components != nil && s.config.Components.CodexOAuthServer != nil {
+		oauthCtx, oauthCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer oauthCancel()
+		if err := s.config.Components.CodexOAuthServer.Stop(oauthCtx); err != nil {
+			log.Printf("[Server] Failed to stop Codex OAuth server: %v", err)
 		}
 	}
 

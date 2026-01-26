@@ -38,6 +38,7 @@ import { defaultClients, type ClientConfig } from '../types';
 import { ClientsConfigSection } from './clients-config-section';
 import { AntigravityProviderView } from './antigravity-provider-view';
 import { KiroProviderView } from './kiro-provider-view';
+import { CodexProviderView } from './codex-provider-view';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ModelInput } from '@/components/ui/model-input';
@@ -399,6 +400,26 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     return (
       <>
         <KiroProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // Codex provider
+  if (provider.type === 'codex') {
+    return (
+      <>
+        <CodexProviderView
           provider={provider}
           onDelete={() => setShowDeleteConfirm(true)}
           onClose={onClose}

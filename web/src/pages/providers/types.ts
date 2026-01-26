@@ -1,7 +1,7 @@
 import type { ClientType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
-import { Wand2, Zap, Server, Mail, Globe } from 'lucide-react';
+import { Wand2, Zap, Server, Mail, Globe, Code2 } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
 import nvidiaLogo from '@/assets/icons/nvidia.svg';
@@ -12,7 +12,7 @@ import zhipuLogo from '@/assets/icons/zhipu.svg';
 // ===== Provider Type Configuration =====
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
 
-export type ProviderTypeKey = 'custom' | 'antigravity' | 'kiro';
+export type ProviderTypeKey = 'custom' | 'antigravity' | 'kiro' | 'codex';
 
 export interface ProviderTypeConfig {
   key: ProviderTypeKey;
@@ -46,6 +46,14 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     getDisplayInfo: (p) => p.config?.kiro?.email || 'Kiro Account',
     hidden: true,
   },
+  codex: {
+    key: 'codex',
+    label: 'Codex',
+    icon: Code2,
+    color: getProviderColorVar('codex'),
+    isAccountBased: true,
+    getDisplayInfo: (p) => p.config?.codex?.email || 'Codex Account',
+  },
   custom: {
     key: 'custom',
     label: 'Custom',
@@ -77,6 +85,7 @@ export function getDisplayIcon(type: string): LucideIcon {
 // 保留旧的导出以保持兼容性
 export const ANTIGRAVITY_COLOR = PROVIDER_TYPE_CONFIGS.antigravity.color;
 export const KIRO_COLOR = PROVIDER_TYPE_CONFIGS.kiro.color;
+export const CODEX_COLOR = PROVIDER_TYPE_CONFIGS.codex.color;
 
 // Model mapping for templates
 export type TemplateModelMapping = {
@@ -204,7 +213,7 @@ export const defaultClients: ClientConfig[] = [
 
 // Form data types
 export type ProviderFormData = {
-  type: 'custom' | 'antigravity' | 'kiro';
+  type: 'custom' | 'antigravity' | 'kiro' | 'codex';
   name: string;
   selectedTemplate: string | null;
   baseURL: string;
@@ -215,4 +224,9 @@ export type ProviderFormData = {
 };
 
 // Create step type
-export type CreateStep = 'select-type' | 'custom-config' | 'antigravity-import' | 'kiro-import';
+export type CreateStep =
+  | 'select-type'
+  | 'custom-config'
+  | 'antigravity-import'
+  | 'kiro-import'
+  | 'codex-import';

@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   FilePlus,
   Cloud,
+  Code2,
 } from 'lucide-react';
 import { quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
 import { Button } from '@/components/ui';
@@ -16,15 +17,18 @@ import { useProviderNavigation } from '../hooks/use-provider-navigation';
 
 export function SelectTypeStep() {
   const { formData, updateFormData } = useProviderForm();
-  const { goToCustomConfig, goToAntigravity, goToKiro, goToProviders } = useProviderNavigation();
+  const { goToCustomConfig, goToAntigravity, goToKiro, goToCodex, goToProviders } =
+    useProviderNavigation();
   const { t } = useTranslation();
 
-  const handleSelectType = (type: 'custom' | 'antigravity' | 'kiro') => {
+  const handleSelectType = (type: 'custom' | 'antigravity' | 'kiro' | 'codex') => {
     updateFormData({ type });
     if (type === 'antigravity') {
       goToAntigravity();
     } else if (type === 'kiro') {
       goToKiro();
+    } else if (type === 'codex') {
+      goToCodex();
     }
   };
 
@@ -131,6 +135,37 @@ export function SelectTypeStep() {
 
                     {formData.type === 'kiro' && (
                       <CheckCircle2 size={20} className="text-provider-kiro shrink-0" />
+                    )}
+                  </div>
+                </Button>
+              )}
+
+              {!PROVIDER_TYPE_CONFIGS.codex.hidden && (
+                <Button
+                  onClick={() => handleSelectType('codex')}
+                  variant="ghost"
+                  className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    formData.type === 'codex'
+                      ? 'border-provider-codex bg-provider-codex/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
+                    <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-codex/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
+                      <Code2 className="size-5 md:size-6 text-provider-codex" />
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
+                        {t('addProvider.codex.name', 'Codex')}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                        {t('addProvider.codex.description', 'OpenAI Codex with OAuth authentication')}
+                      </p>
+                    </div>
+
+                    {formData.type === 'codex' && (
+                      <CheckCircle2 className="size-5 text-provider-codex shrink-0 self-center animate-in zoom-in-50 duration-200" />
                     )}
                   </div>
                 </Button>

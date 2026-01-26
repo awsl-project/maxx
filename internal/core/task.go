@@ -22,6 +22,7 @@ type BackgroundTaskDeps struct {
 	AttemptRepo         repository.ProxyUpstreamAttemptRepository
 	Settings            repository.SystemSettingRepository
 	AntigravityTaskSvc  *service.AntigravityTaskService
+	CodexTaskSvc        *service.CodexTaskService
 }
 
 // StartBackgroundTasks 启动所有后台任务
@@ -58,6 +59,11 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 	// Antigravity 配额刷新任务（动态间隔）
 	if deps.AntigravityTaskSvc != nil {
 		go deps.runAntigravityQuotaRefresh()
+	}
+
+	// Codex 配额刷新任务（动态间隔）
+	if deps.CodexTaskSvc != nil {
+		go deps.runCodexQuotaRefresh()
 	}
 
 	log.Println("[Task] Background tasks started (aggregation:30s, cleanup:1h, detail-cleanup:dynamic)")
@@ -181,6 +187,27 @@ func (d *BackgroundTaskDeps) runAntigravityQuotaRefresh() {
 		// 执行刷新
 		ctx := context.Background()
 		d.AntigravityTaskSvc.RefreshQuotas(ctx)
+
+		// 等待下一次刷新
+		time.Sleep(time.Duration(interval) * time.Minute)
+	}
+}
+
+// runCodexQuotaRefresh 定期刷新 Codex 配额
+func (d *BackgroundTaskDeps) runCodexQuotaRefresh() {
+	time.Sleep(30 * time.Second) // 初始延迟
+
+	for {
+		interval := d.CodexTaskSvc.GetRefreshInterval()
+		if interval <= 0 {
+			// 禁用状态，每分钟检查一次配置
+			time.Sleep(1 * time.Minute)
+			continue
+		}
+
+		// 执行刷新
+		ctx := context.Background()
+		d.CodexTaskSvc.RefreshQuotas(ctx)
 
 		// 等待下一次刷新
 		time.Sleep(time.Duration(interval) * time.Minute)
