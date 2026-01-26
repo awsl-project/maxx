@@ -288,12 +288,16 @@ func (a *CodexAdapter) handleStreamResponse(ctx context.Context, w http.Response
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
 	firstChunkSent := false
+	responseCompleted := false
 
 	for {
 		// Check context
 		select {
 		case <-ctx.Done():
 			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			if responseCompleted {
+				return nil
+			}
 			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 		default:
 		}
@@ -312,10 +316,18 @@ func (a *CodexAdapter) handleStreamResponse(ctx context.Context, w http.Response
 
 				sseBuffer.WriteString(line)
 
+				// Check for response.completed in data line
+				if strings.HasPrefix(line, "data:") && strings.Contains(line, "response.completed") {
+					responseCompleted = true
+				}
+
 				// Write to client
 				_, writeErr := w.Write([]byte(line))
 				if writeErr != nil {
 					a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+					if responseCompleted {
+						return nil
+					}
 					return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
 				}
 				flusher.Flush()
@@ -329,15 +341,13 @@ func (a *CodexAdapter) handleStreamResponse(ctx context.Context, w http.Response
 		}
 
 		if err != nil {
-			if err == io.EOF {
-				a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			if err == io.EOF || responseCompleted {
 				return nil
 			}
 			if ctx.Err() != nil {
-				a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
 				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 			}
-			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
 			return nil
 		}
 	}

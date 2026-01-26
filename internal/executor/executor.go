@@ -226,7 +226,13 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 			proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 			if ctx.Err() != nil {
 				proxyReq.Status = "CANCELLED"
-				proxyReq.Error = "client disconnected"
+				if ctx.Err() == context.Canceled {
+					proxyReq.Error = "client disconnected"
+				} else if ctx.Err() == context.DeadlineExceeded {
+					proxyReq.Error = "request timeout"
+				} else {
+					proxyReq.Error = ctx.Err().Error()
+				}
 			} else {
 				proxyReq.Status = "FAILED"
 			}
@@ -565,10 +571,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				e.broadcaster.BroadcastProxyRequest(proxyReq)
 			}
 
-			// Handle cooldown BEFORE checking context cancellation
-			// This ensures network errors trigger cooldown even if context is cancelled
+			// Handle cooldown only for real server/network errors, NOT client-side cancellations
 			proxyErr, ok := err.(*domain.ProxyError)
-			if ok {
+			if ok && ctx.Err() != context.Canceled {
 				log.Printf("[Executor] ProxyError - IsNetworkError: %v, IsServerError: %v, Retryable: %v, Provider: %d",
 					proxyErr.IsNetworkError, proxyErr.IsServerError, proxyErr.Retryable, matchedRoute.Provider.ID)
 				// Handle cooldown (unified cooldown logic for all providers)
@@ -579,18 +584,24 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 						"providerID": matchedRoute.Provider.ID,
 					})
 				}
-			} else {
+			} else if ok && ctx.Err() == context.Canceled {
+				log.Printf("[Executor] Client disconnected, skipping cooldown for Provider: %d", matchedRoute.Provider.ID)
+			} else if !ok {
 				log.Printf("[Executor] Error is not ProxyError, type: %T, error: %v", err, err)
 			}
 
-			// Check if it's a context cancellation (client disconnect)
+			// Check if context was cancelled or timed out
 			if ctx.Err() != nil {
-				// Set final status before returning to ensure it's persisted
-				// (defer block also handles this, but we want to be explicit and broadcast immediately)
 				proxyReq.Status = "CANCELLED"
 				proxyReq.EndTime = time.Now()
 				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-				proxyReq.Error = "client disconnected"
+				if ctx.Err() == context.Canceled {
+					proxyReq.Error = "client disconnected"
+				} else if ctx.Err() == context.DeadlineExceeded {
+					proxyReq.Error = "request timeout"
+				} else {
+					proxyReq.Error = ctx.Err().Error()
+				}
 				_ = e.proxyRequestRepo.Update(proxyReq)
 				if e.broadcaster != nil {
 					e.broadcaster.BroadcastProxyRequest(proxyReq)
@@ -598,7 +609,7 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				return ctx.Err()
 			}
 
-			// Check if retryable (proxyErr already checked above)
+			// Check if retryable
 			if !ok {
 				break // Move to next route
 			}
@@ -619,7 +630,13 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 					proxyReq.Status = "CANCELLED"
 					proxyReq.EndTime = time.Now()
 					proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-					proxyReq.Error = "client disconnected during retry wait"
+					if ctx.Err() == context.Canceled {
+						proxyReq.Error = "client disconnected during retry wait"
+					} else if ctx.Err() == context.DeadlineExceeded {
+						proxyReq.Error = "request timeout during retry wait"
+					} else {
+						proxyReq.Error = ctx.Err().Error()
+					}
 					_ = e.proxyRequestRepo.Update(proxyReq)
 					if e.broadcaster != nil {
 						e.broadcaster.BroadcastProxyRequest(proxyReq)
