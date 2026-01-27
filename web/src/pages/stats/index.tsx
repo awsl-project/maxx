@@ -52,7 +52,6 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { t } from 'i18next';
 
 type TimeRange = '1h' | '24h' | '7d' | '30d' | '90d' | 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth' | 'all';
 
@@ -1074,6 +1073,8 @@ function FilterSection({
   onClear?: () => void;
   showClear?: boolean;
 }) {
+  const { t } = useTranslation();
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
