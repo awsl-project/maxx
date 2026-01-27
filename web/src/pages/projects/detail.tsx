@@ -13,6 +13,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { OverviewTab } from './tabs/overview';
 import { RoutesTab } from './tabs/routes';
 import { SessionsTab } from './tabs/sessions';
@@ -24,13 +25,14 @@ export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const { data: project, isLoading, error } = useProject(Number(id) || 0);
   const deleteProject = useDeleteProject();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 
   const handleDelete = () => {
     if (!project) return;
-    if (confirm(`Are you sure you want to delete project "${project.name}"?`)) {
+    if (confirm(t('projects.deleteConfirm', { name: project.name }))) {
       deleteProject.mutate(project.id, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
@@ -51,10 +53,10 @@ export function ProjectDetailPage() {
   if (error || !project) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
-        <p className="text-muted-foreground">Project not found</p>
+        <p className="text-muted-foreground">{t('projects.notFound')}</p>
         <Button variant="secondary" onClick={() => navigate('/projects')}>
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Projects
+          {t('projects.backToProjects')}
         </Button>
       </div>
     );
@@ -97,7 +99,7 @@ export function ProjectDetailPage() {
           ) : (
             <>
               <Trash2 className="mr-2 h-4 w-4" />
-              Delete Project
+              {t('projects.deleteProject')}
             </>
           )}
         </Button>
@@ -113,19 +115,19 @@ export function ProjectDetailPage() {
           <TabsList>
             <TabsTrigger value="overview">
               <LayoutGrid className="h-4 w-4 mr-2" />
-              Overview
+              {t('projects.tabs.overview')}
             </TabsTrigger>
             <TabsTrigger value="routes">
               <Route className="h-4 w-4 mr-2" />
-              Routes
+              {t('projects.tabs.routes')}
             </TabsTrigger>
             <TabsTrigger value="sessions">
               <Users className="h-4 w-4 mr-2" />
-              Sessions
+              {t('projects.tabs.sessions')}
             </TabsTrigger>
             <TabsTrigger value="requests">
               <FileText className="h-4 w-4 mr-2" />
-              Requests
+              {t('projects.tabs.requests')}
             </TabsTrigger>
           </TabsList>
         </div>

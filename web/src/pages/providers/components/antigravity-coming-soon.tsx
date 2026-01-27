@@ -1,11 +1,13 @@
 import { Wand2, ChevronLeft } from 'lucide-react';
 import { ANTIGRAVITY_COLOR } from '../types';
+import { useTranslation } from 'react-i18next';
 
 interface AntigravityComingSoonProps {
   onBack: () => void;
 }
 
 export function AntigravityComingSoon({ onBack }: AntigravityComingSoonProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col h-full">
       <div className="h-[73px] flex items-center gap-4 p-lg border-b border-border bg-card">
@@ -17,7 +19,7 @@ export function AntigravityComingSoon({ onBack }: AntigravityComingSoonProps) {
         </button>
         <div>
           <h2 className="text-headline font-semibold text-foreground">Antigravity</h2>
-          <p className="text-caption text-muted-foreground">OAuth Authentication</p>
+          <p className="text-caption text-muted-foreground">{t('providers.oauthAuthentication')}</p>
         </div>
       </div>
 
@@ -30,9 +32,11 @@ export function AntigravityComingSoon({ onBack }: AntigravityComingSoonProps) {
             >
               <Wand2 size={40} style={{ color: ANTIGRAVITY_COLOR }} />
             </div>
-            <h3 className="text-title3 font-semibold text-foreground mb-2">Coming Soon</h3>
+            <h3 className="text-title3 font-semibold text-foreground mb-2">
+              {t('proxy.comingSoon')}
+            </h3>
             <p className="text-body text-muted-foreground text-center max-w-sm">
-              Antigravity OAuth authentication will be available in a future update.
+              {t('providers.antigravityOauthComingSoon')}
             </p>
           </div>
         </div>

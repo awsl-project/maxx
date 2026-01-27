@@ -98,8 +98,8 @@ function GeneralSection() {
                 {t('settings.themePreference')}
               </div>
               <TabsList className="inline-flex">
-                <TabsTrigger value="default">Default</TabsTrigger>
-                <TabsTrigger value="luxury">Luxury</TabsTrigger>
+                <TabsTrigger value="default">{t('settings.themeDefault')}</TabsTrigger>
+                <TabsTrigger value="luxury">{t('settings.themeLuxury')}</TabsTrigger>
               </TabsList>
             </div>
 

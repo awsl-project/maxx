@@ -5,6 +5,7 @@ import { statusVariant } from '../index';
 import type { ProxyRequest, ClientType } from '@/lib/transport';
 import { ClientIcon, getClientName, getClientColor } from '@/components/icons/client-icons';
 import { formatDuration } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 function formatCost(nanoUSD: number): string {
   if (nanoUSD === 0) return '-';
@@ -37,6 +38,7 @@ export function RequestHeader({
   onRecalculateCost,
   isRecalculating,
 }: RequestHeaderProps) {
+  const { t } = useTranslation();
   return (
     <div className="h-[73px] border-b border-border bg-card px-6 flex items-center">
       <div className="flex items-center justify-between gap-6 w-full">
@@ -63,7 +65,7 @@ export function RequestHeader({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-lg font-semibold text-foreground tracking-tight leading-none">
-                {request.requestModel || 'Unknown Model'}
+                {request.requestModel || t('requests.unknownModel')}
               </h2>
               <Badge variant={statusVariant[request.status]} className="capitalize">
                 {request.status.toLowerCase().replace('_', ' ')}
@@ -78,7 +80,8 @@ export function RequestHeader({
                 <>
                   <span>·</span>
                   <span className="text-muted-foreground">
-                    Response: <span className="text-foreground">{request.responseModel}</span>
+                    {t('requests.responseLabel')}{' '}
+                    <span className="text-foreground">{request.responseModel}</span>
                   </span>
                 </>
               )}
@@ -99,7 +102,7 @@ export function RequestHeader({
           <div className="w-px h-8 bg-border" />
           <div className="text-center px-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
-              Duration
+              {t('requests.duration')}
             </div>
             <div className="text-sm font-mono font-medium text-foreground">
               {request.duration ? formatDuration(request.duration) : '-'}
@@ -108,7 +111,7 @@ export function RequestHeader({
           <div className="w-px h-8 bg-border" />
           <div className="text-center px-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
-              Input
+              {t('requests.input')}
             </div>
             <div className="text-sm font-mono font-medium text-muted-foreground">
               {request.inputTokenCount > 0 ? request.inputTokenCount.toLocaleString() : '-'}
@@ -117,7 +120,7 @@ export function RequestHeader({
           <div className="w-px h-8 bg-border" />
           <div className="text-center px-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
-              Output
+              {t('requests.output')}
             </div>
             <div className="text-sm font-mono font-medium text-foreground">
               {request.outputTokenCount > 0 ? request.outputTokenCount.toLocaleString() : '-'}
@@ -126,7 +129,7 @@ export function RequestHeader({
           <div className="w-px h-8 bg-border" />
           <div className="text-center px-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
-              Cache Read
+              {t('requests.cacheRead')}
             </div>
             <div className="text-sm font-mono font-medium text-violet-400">
               {request.cacheReadCount > 0 ? request.cacheReadCount.toLocaleString() : '-'}
@@ -135,7 +138,7 @@ export function RequestHeader({
           <div className="w-px h-8 bg-border" />
           <div className="text-center px-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
-              Cache Write
+              {t('requests.cacheWrite')}
             </div>
             <div className="text-sm font-mono font-medium text-amber-400">
               {request.cacheWriteCount > 0 ? request.cacheWriteCount.toLocaleString() : '-'}
@@ -144,7 +147,7 @@ export function RequestHeader({
           <div className="w-px h-8 bg-border" />
           <div className="text-center px-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
-              Cost
+              {t('requests.cost')}
             </div>
             <div className="text-sm font-mono font-medium text-blue-400 flex items-center gap-1">
               {formatCost(request.cost)}
@@ -157,7 +160,7 @@ export function RequestHeader({
                   >
                     <RefreshCw className={`h-3 w-3 ${isRecalculating ? 'animate-spin' : ''}`} />
                   </TooltipTrigger>
-                  <TooltipContent>Recalculate Cost</TooltipContent>
+                  <TooltipContent>{t('requests.recalculateCost')}</TooltipContent>
                 </Tooltip>
               )}
             </div>

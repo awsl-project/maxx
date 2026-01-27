@@ -26,11 +26,13 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { useCreateProvider } from '@/hooks/queries';
+import { useTranslation } from 'react-i18next';
 
 type ImportMode = 'oauth' | 'token';
 type OAuthStatus = 'idle' | 'waiting' | 'success' | 'error';
 
 export function CodexTokenImport() {
+  const { t } = useTranslation();
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
   const [mode, setMode] = useState<ImportMode>('oauth');
@@ -71,7 +73,7 @@ export function CodexTokenImport() {
         } else {
           // OAuth failed
           setOAuthStatus('error');
-          setError(result.error || 'OAuth authorization failed');
+          setError(result.error || t('providers.codexTokenImport.errors.oauthFailed'));
         }
       }
     });
@@ -98,12 +100,12 @@ export function CodexTokenImport() {
   const handleExchangeCallback = async () => {
     const parsed = parseCallbackUrl(callbackUrl.trim());
     if (!parsed) {
-      setError('Invalid callback URL. Please paste the complete URL from the browser address bar.');
+      setError(t('providers.codexTokenImport.errors.invalidCallbackUrl'));
       return;
     }
 
     if (parsed.state !== oauthState) {
-      setError('State mismatch. Please make sure you are using the callback URL from the current OAuth session.');
+      setError(t('providers.codexTokenImport.errors.stateMismatch'));
       return;
     }
 
@@ -121,11 +123,13 @@ export function CodexTokenImport() {
         }
       } else {
         setOAuthStatus('error');
-        setError(result.error || 'OAuth authorization failed');
+        setError(result.error || t('providers.codexTokenImport.errors.oauthFailed'));
       }
     } catch (err) {
       setOAuthStatus('error');
-      setError(err instanceof Error ? err.message : 'Failed to exchange callback');
+      setError(
+        err instanceof Error ? err.message : t('providers.codexTokenImport.errors.exchangeFailed'),
+      );
     } finally {
       setExchanging(false);
     }
@@ -177,14 +181,18 @@ export function CodexTokenImport() {
       }, 500);
     } catch (err) {
       setOAuthStatus('error');
-      setError(err instanceof Error ? err.message : 'Failed to start OAuth flow');
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('providers.codexTokenImport.errors.startOAuthFailed'),
+      );
     }
   };
 
   // Validate token
   const handleValidate = async () => {
     if (token.trim() === '') {
-      setError('Please enter a valid refresh token');
+      setError(t('providers.codexTokenImport.errors.invalidRefreshToken'));
       return;
     }
 
@@ -196,10 +204,12 @@ export function CodexTokenImport() {
       const result = await getTransport().validateCodexToken(token.trim());
       setValidationResult(result);
       if (!result.valid) {
-        setError(result.error || 'Token validation failed');
+        setError(result.error || t('providers.codexTokenImport.errors.tokenValidationFailed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Validation failed');
+      setError(
+        err instanceof Error ? err.message : t('providers.codexTokenImport.errors.validationFailed'),
+      );
     } finally {
       setValidating(false);
     }
@@ -208,7 +218,7 @@ export function CodexTokenImport() {
   // Create provider from OAuth result
   const handleCreateFromOAuth = async () => {
     if (!oauthResult?.refreshToken) {
-      setError('No valid OAuth result');
+      setError(t('providers.codexTokenImport.errors.oauthResultMissing'));
       return;
     }
 
@@ -238,7 +248,9 @@ export function CodexTokenImport() {
       await createProvider.mutateAsync(providerData);
       goToProviders();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create provider');
+      setError(
+        err instanceof Error ? err.message : t('providers.codexTokenImport.errors.createFailed'),
+      );
     } finally {
       setCreating(false);
     }
@@ -247,7 +259,7 @@ export function CodexTokenImport() {
   // Create provider from token validation
   const handleCreate = async () => {
     if (!validationResult?.valid) {
-      setError('Please validate the token first');
+      setError(t('providers.codexTokenImport.errors.validateFirst'));
       return;
     }
 
@@ -278,7 +290,9 @@ export function CodexTokenImport() {
       await createProvider.mutateAsync(providerData);
       goToProviders();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create provider');
+      setError(
+        err instanceof Error ? err.message : t('providers.codexTokenImport.errors.createFailed'),
+      );
     } finally {
       setCreating(false);
     }
@@ -302,7 +316,7 @@ export function CodexTokenImport() {
               className="w-2 h-2 rounded-full inline-block"
               style={{ backgroundColor: CODEX_COLOR }}
             />
-            Add Codex Account
+            {t('providers.codexTokenImport.title')}
           </h2>
         </div>
       </div>
@@ -317,9 +331,11 @@ export function CodexTokenImport() {
             >
               <Code2 size={32} style={{ color: CODEX_COLOR }} />
             </div>
-            <h1 className="text-2xl font-bold text-foreground">Connect Codex Account</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              {t('providers.codexTokenImport.connectTitle')}
+            </h1>
             <p className="text-muted-foreground mx-auto max-w-md">
-              Sign in with your OpenAI account or import a refresh token manually.
+              {t('providers.codexTokenImport.connectDescription')}
             </p>
           </div>
 
@@ -338,7 +354,7 @@ export function CodexTokenImport() {
               )}
             >
               <Zap size={16} />
-              OAuth Login
+              {t('providers.codexTokenImport.oauthLogin')}
             </button>
             <button
               onClick={() => {
@@ -354,7 +370,7 @@ export function CodexTokenImport() {
               )}
             >
               <Key size={16} />
-              Token Import
+              {t('providers.codexTokenImport.tokenImport')}
             </button>
           </div>
 
@@ -367,9 +383,11 @@ export function CodexTokenImport() {
                     <Zap size={18} style={{ color: CODEX_COLOR }} />
                   </div>
                   <div>
-                    <h3 className="text-base font-semibold text-foreground">OpenAI OAuth</h3>
+                    <h3 className="text-base font-semibold text-foreground">
+                      {t('providers.codexTokenImport.openaiOauth')}
+                    </h3>
                     <p className="text-xs text-muted-foreground">
-                      Sign in with your OpenAI account
+                      {t('providers.codexTokenImport.openaiOauthDesc')}
                     </p>
                   </div>
                 </div>
@@ -381,7 +399,7 @@ export function CodexTokenImport() {
                     style={{ backgroundColor: CODEX_COLOR }}
                   >
                     <ExternalLink size={16} className="mr-2" />
-                    Sign in with OpenAI
+                    {t('providers.codexTokenImport.signInWithOpenAI')}
                   </Button>
                 )}
 
@@ -393,12 +411,14 @@ export function CodexTokenImport() {
                       )}
                       <div>
                         <p className="text-sm font-medium text-foreground">
-                          {popupClosed ? 'Popup window closed' : 'Waiting for authorization...'}
+                          {popupClosed
+                            ? t('providers.codexTokenImport.popupClosed')
+                            : t('providers.codexTokenImport.waitingAuth')}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
                           {popupClosed
-                            ? 'You can paste the callback URL below to continue'
-                            : 'Complete the sign-in in the popup window'}
+                            ? t('providers.codexTokenImport.pasteCallbackHint')
+                            : t('providers.codexTokenImport.completeSignIn')}
                         </p>
                       </div>
                     </div>
@@ -409,8 +429,8 @@ export function CodexTokenImport() {
                         <Link size={14} />
                         <span>
                           {popupClosed
-                            ? 'Copy the auth URL to open in your browser, then paste the callback URL.'
-                            : 'Popup window not working? Copy the auth URL or paste the callback URL manually.'}
+                            ? t('providers.codexTokenImport.copyAuthUrlHint')
+                            : t('providers.codexTokenImport.popupNotWorkingHint')}
                         </span>
                       </div>
 
@@ -425,12 +445,12 @@ export function CodexTokenImport() {
                           {copied ? (
                             <>
                               <Check size={14} className="mr-2 text-success" />
-                              Copied!
+                              {t('common.copied')}
                             </>
                           ) : (
                             <>
                               <Copy size={14} className="mr-2" />
-                              Copy Auth URL
+                              {t('providers.codexTokenImport.copyAuthUrl')}
                             </>
                           )}
                         </Button>
@@ -439,7 +459,7 @@ export function CodexTokenImport() {
                       {/* Callback URL input */}
                       <div className="space-y-2">
                         <label className="text-xs font-medium text-muted-foreground">
-                          Paste Callback URL
+                          {t('providers.codexTokenImport.pasteCallbackUrl')}
                         </label>
                         <Input
                           value={callbackUrl}
@@ -449,7 +469,7 @@ export function CodexTokenImport() {
                           disabled={exchanging}
                         />
                         <p className="text-[10px] text-muted-foreground">
-                          After signing in, copy the URL from your browser's address bar (it will show an error page, that's expected).
+                          {t('providers.codexTokenImport.callbackNote')}
                         </p>
                       </div>
 
@@ -462,10 +482,10 @@ export function CodexTokenImport() {
                         {exchanging ? (
                           <>
                             <Loader2 size={14} className="animate-spin mr-2" />
-                            Exchanging...
+                            {t('providers.codexTokenImport.exchanging')}
                           </>
                         ) : (
-                          'Submit Callback URL'
+                          t('providers.codexTokenImport.submitCallbackUrl')
                         )}
                       </Button>
                     </div>
@@ -485,7 +505,7 @@ export function CodexTokenImport() {
                           }
                         }}
                       >
-                        Cancel
+                        {t('common.cancel')}
                       </Button>
                     </div>
                   </div>
@@ -496,9 +516,12 @@ export function CodexTokenImport() {
                     <div className="bg-success/5 border border-success/20 rounded-xl p-4 flex items-start gap-3">
                       <CheckCircle2 size={20} className="text-success shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-medium text-foreground">Authorization Successful</p>
+                        <p className="text-sm font-medium text-foreground">
+                          {t('providers.codexTokenImport.authorizationSuccessful')}
+                        </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Signed in as {oauthResult.email || oauthResult.name || 'Unknown'}
+                          {t('providers.codexTokenImport.signedInAs')}{' '}
+                          {oauthResult.email || oauthResult.name || t('common.unknown')}
                         </p>
                       </div>
                     </div>
@@ -511,10 +534,10 @@ export function CodexTokenImport() {
                       {creating ? (
                         <>
                           <Loader2 size={16} className="animate-spin mr-2" />
-                          Creating Provider...
+                          {t('providers.codexTokenImport.creatingProvider')}
                         </>
                       ) : (
-                        'Complete Setup'
+                        t('providers.codexTokenImport.completeSetup')
                       )}
                     </Button>
                   </div>
@@ -532,9 +555,11 @@ export function CodexTokenImport() {
                     <ShieldCheck size={18} className="text-foreground" />
                   </div>
                   <div>
-                    <h3 className="text-base font-semibold text-foreground">Credentials</h3>
+                    <h3 className="text-base font-semibold text-foreground">
+                      {t('providers.codexTokenImport.credentials')}
+                    </h3>
                     <p className="text-xs text-muted-foreground">
-                      Import token from{' '}
+                      {t('providers.codexTokenImport.importTokenFrom')}{' '}
                       <a
                         href="https://github.com/router-for-me/CLIProxyAPI"
                         target="_blank"
@@ -551,29 +576,29 @@ export function CodexTokenImport() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground flex items-center justify-between">
                     <span className="flex items-center gap-2">
-                      <Mail size={14} /> Email Address
+                      <Mail size={14} /> {t('providers.codexTokenImport.emailAddress')}
                     </span>
                     <span className="text-[10px] text-muted-foreground bg-accent px-2 py-0.5 rounded-full">
-                      Optional
+                      {t('providers.codexTokenImport.optional')}
                     </span>
                   </label>
                   <Input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. user@example.com"
+                    placeholder={t('providers.codexTokenImport.emailPlaceholder')}
                     className="bg-card"
                     disabled={validating || creating}
                   />
                   <p className="text-[11px] text-muted-foreground pl-1">
-                    Used for display purposes only. Auto-detected if valid token provided.
+                    {t('providers.codexTokenImport.displayOnlyNote')}
                   </p>
                 </div>
 
                 {/* Token Input */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                    <Key size={14} /> Refresh Token
+                    <Key size={14} /> {t('providers.codexTokenImport.refreshToken')}
                   </label>
                   <div className="relative">
                     <textarea
@@ -582,13 +607,13 @@ export function CodexTokenImport() {
                         setToken(e.target.value);
                         setValidationResult(null);
                       }}
-                      placeholder="Paste your refresh token here..."
+                      placeholder={t('providers.codexTokenImport.refreshTokenPlaceholder')}
                       className="w-full h-32 px-4 py-3 rounded-xl border border-border bg-card text-foreground placeholder:text-muted-foreground font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
                       disabled={validating || creating}
                     />
                     {token && (
                       <div className="absolute bottom-3 right-3 text-[10px] text-muted-foreground font-mono bg-muted px-2 py-1 rounded border border-border">
-                        {token.length} chars
+                        {token.length} {t('providers.codexTokenImport.chars')}
                       </div>
                     )}
                   </div>
@@ -604,15 +629,15 @@ export function CodexTokenImport() {
                   {validating ? (
                     <>
                       <Loader2 size={16} className="animate-spin mr-2" />
-                      Validating Token...
+                      {t('providers.codexTokenImport.validatingToken')}
                     </>
                   ) : validationResult?.valid ? (
                     <>
                       <CheckCircle2 size={16} className="text-success mr-2" />
-                      Re-validate
+                      {t('providers.codexTokenImport.revalidate')}
                     </>
                   ) : (
-                    'Validate Token'
+                    t('providers.codexTokenImport.validateToken')
                   )}
                 </Button>
               </div>
@@ -625,11 +650,13 @@ export function CodexTokenImport() {
                       <CheckCircle2 size={24} className="text-success" />
                     </div>
                     <div className="flex-1 space-y-1">
-                      <div className="font-semibold text-foreground">Token Verified Successfully</div>
+                      <div className="font-semibold text-foreground">
+                        {t('providers.codexTokenImport.tokenVerified')}
+                      </div>
                       <div className="text-sm text-muted-foreground">
-                        Ready to connect as{' '}
+                        {t('providers.codexTokenImport.readyToConnectAs')}{' '}
                         <span className="font-medium text-foreground">
-                          {validationResult.email || email || 'Unknown'}
+                          {validationResult.email || email || t('common.unknown')}
                         </span>
                       </div>
 
@@ -657,10 +684,10 @@ export function CodexTokenImport() {
                     {creating ? (
                       <>
                         <Loader2 size={18} className="animate-spin mr-2" />
-                        Creating Provider...
+                        {t('providers.codexTokenImport.creatingProvider')}
                       </>
                     ) : (
-                      'Complete Setup'
+                      t('providers.codexTokenImport.completeSetup')
                     )}
                   </Button>
                 </div>
@@ -673,7 +700,9 @@ export function CodexTokenImport() {
             <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in zoom-in-95">
               <AlertCircle size={20} className="text-error shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-error">Error</p>
+                <p className="text-sm font-medium text-error">
+                  {t('providers.codexTokenImport.error')}
+                </p>
                 <p className="text-xs text-error/80 mt-0.5">{error}</p>
               </div>
             </div>

@@ -70,7 +70,7 @@ function QuotaCard({ quota }: { quota: KiroQuotaData }) {
   return (
     <div className="bg-card border border-border rounded-xl p-6">
       <div className="flex items-center justify-between mb-4">
-        <span className="font-medium text-foreground text-lg">Usage Quota</span>
+        <span className="font-medium text-foreground text-lg">{t('providers.usageQuota')}</span>
         <span className="text-sm text-muted-foreground flex items-center gap-1.5">
           <Clock size={14} />
           {t('proxy.resetsIn')} {formatResetDays(quota.days_until_reset, t)}
@@ -95,18 +95,22 @@ function QuotaCard({ quota }: { quota: KiroQuotaData }) {
         <div className="text-center">
           <div className="text-2xl font-bold text-foreground">{quota.available.toFixed(1)}</div>
           <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
-            Available
+            {t('common.available')}
           </div>
         </div>
         <div className="text-center">
           <div className="text-2xl font-bold text-muted-foreground">{quota.used.toFixed(1)}</div>
-          <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Used</div>
+          <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
+            {t('common.used')}
+          </div>
         </div>
         <div className="text-center">
           <div className="text-2xl font-bold text-muted-foreground">
             {quota.total_limit.toFixed(1)}
           </div>
-          <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Total</div>
+          <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
+            {t('common.total')}
+          </div>
         </div>
       </div>
 
@@ -114,7 +118,7 @@ function QuotaCard({ quota }: { quota: KiroQuotaData }) {
       {quota.free_trial_status && (
         <div className="mt-4 pt-4 border-t border-border/50">
           <span className="text-xs text-muted-foreground">
-            Free Trial:{' '}
+            {t('providers.freeTrial')}:{' '}
             <span className="text-emerald-500 font-medium">{quota.free_trial_status}</span>
           </span>
         </div>
@@ -259,6 +263,7 @@ function ProviderModelMappings({ provider }: { provider: Provider }) {
 }
 
 export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderViewProps) {
+  const { t } = useTranslation();
   const [quota, setQuota] = useState<KiroQuotaData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -292,7 +297,7 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
           </button>
           <div>
             <h2 className="text-headline font-semibold text-foreground">{provider.name}</h2>
-            <p className="text-caption text-muted-foreground">Kiro Provider</p>
+            <p className="text-caption text-muted-foreground">{t('providers.kiroProvider')}</p>
           </div>
         </div>
         <button
@@ -300,7 +305,7 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
           className="btn bg-error/10 text-error hover:bg-error/20 flex items-center gap-2"
         >
           <Trash2 size={14} />
-          Delete
+          {t('common.delete')}
         </button>
       </div>
 
@@ -332,7 +337,7 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
 
               <div className="flex flex-col items-end gap-1 text-right">
                 <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
-                  Auth Method
+                  {t('providers.authMethod')}
                 </div>
                 <div className="text-sm font-mono text-foreground bg-card px-2 py-1 rounded border border-border/50 uppercase">
                   {provider.config?.kiro?.authMethod || 'social'}
@@ -343,7 +348,7 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
             <div className="mt-6 pt-6 border-t border-border/50 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-1.5">
-                  Region
+                  {t('providers.region')}
                 </div>
                 <div className="font-mono text-sm text-foreground">
                   {provider.config?.kiro?.region || 'us-east-1'}
@@ -355,14 +360,14 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
           {/* Quota Section */}
           <div>
             <div className="flex items-center justify-between mb-4 border-b border-border pb-2">
-              <h4 className="text-lg font-semibold text-foreground">Usage Quota</h4>
+              <h4 className="text-lg font-semibold text-foreground">{t('providers.usageQuota')}</h4>
               <button
                 onClick={() => fetchQuota()}
                 disabled={loading}
                 className="btn bg-muted hover:bg-accent text-foreground flex items-center gap-2 text-sm"
               >
                 <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                Refresh
+                {t('common.refresh')}
               </button>
             </div>
 
@@ -378,9 +383,9 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
                   <AlertTriangle size={24} className="text-error" />
                 </div>
                 <div>
-                  <h5 className="font-semibold text-error">Account Banned</h5>
+                  <h5 className="font-semibold text-error">{t('providers.accountBanned')}</h5>
                   <p className="text-sm text-error/80">
-                    {quota.ban_reason || 'This account has been restricted.'}
+                    {quota.ban_reason || t('providers.accountRestrictedShort')}
                   </p>
                 </div>
               </div>
@@ -398,13 +403,15 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
               </div>
             ) : (
               <div className="text-center py-8 text-muted-foreground bg-muted/30 rounded-xl border border-dashed border-border">
-                No quota information available
+                {t('providers.noQuotaInfo')}
               </div>
             )}
 
             {quota?.last_updated && (
               <p className="text-xs text-muted-foreground mt-4 text-right">
-                Last updated: {new Date(quota.last_updated * 1000).toLocaleString()}
+                {t('providers.lastUpdated', {
+                  time: new Date(quota.last_updated * 1000).toLocaleString(),
+                })}
               </p>
             )}
           </div>
@@ -415,7 +422,7 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
           {/* Supported Clients */}
           <div>
             <h4 className="text-lg font-semibold text-foreground mb-4 border-b border-border pb-2">
-              Supported Clients
+              {t('providers.supportedClients')}
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {provider.supportedClientTypes?.length > 0 ? (
@@ -427,13 +434,13 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
                     <ClientIcon type={ct} size={28} />
                     <div>
                       <div className="text-sm font-semibold text-foreground capitalize">{ct}</div>
-                      <div className="text-xs text-muted-foreground">Enabled</div>
+                      <div className="text-xs text-muted-foreground">{t('common.enabled')}</div>
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="col-span-full text-center py-8 text-muted-foreground bg-muted/30 rounded-xl border border-dashed border-border">
-                  No clients configured
+                  {t('providers.noClientsConfigured')}
                 </div>
               )}
             </div>

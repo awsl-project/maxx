@@ -94,13 +94,13 @@ function formatResetTime(resetTime: string, t: (key: string) => string): string 
 }
 
 // 格式化 lastUpdated 为相对时间
-function formatLastUpdated(timestamp: number): string {
+function formatLastUpdated(timestamp: number, t: (key: string) => string): string {
   if (!timestamp) return '';
   const now = Date.now();
   const diff = now - timestamp * 1000;
   const minutes = Math.floor(diff / (1000 * 60));
 
-  if (minutes < 1) return 'now';
+  if (minutes < 1) return t('common.now');
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
@@ -303,7 +303,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
               {imageInfo && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
-                    Image
+                    {t('common.image')}
                   </span>
                   <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
                     <div
@@ -325,8 +325,11 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
               )}
               {/* Last Updated */}
               {claudeInfo && (
-                <span className="text-[8px] font-mono text-muted-foreground/40" title="Last updated">
-                  @{formatLastUpdated(claudeInfo.lastUpdated)}
+                <span
+                  className="text-[8px] font-mono text-muted-foreground/40"
+                  title={t('common.lastUpdated')}
+                >
+                  @{formatLastUpdated(claudeInfo.lastUpdated, t)}
                 </span>
               )}
             </div>
@@ -362,7 +365,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
               {codexWeekInfo && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
-                    Week
+                    {t('common.week')}
                   </span>
                   <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
                     <div
@@ -386,8 +389,11 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
               )}
               {/* Last Updated */}
               {codex5HInfo && (
-                <span className="text-[8px] font-mono text-muted-foreground/40" title="Last updated">
-                  @{formatLastUpdated(codex5HInfo.lastUpdated)}
+                <span
+                  className="text-[8px] font-mono text-muted-foreground/40"
+                  title={t('common.lastUpdated')}
+                >
+                  @{formatLastUpdated(codex5HInfo.lastUpdated, t)}
                 </span>
               )}
             </div>
@@ -412,7 +418,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
         <div className="relative z-10 w-28 flex flex-col gap-1 shrink-0">
           <div className="flex items-center justify-between px-0.5">
             <span className="text-[9px] font-black text-muted-foreground/80 uppercase tracking-tighter">
-              Quota
+              {t('providers.quota')}
             </span>
             {kiroInfo && !kiroInfo.isBanned && (
               <span className="text-[9px] font-mono text-text-muted/60">
@@ -423,7 +429,9 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
           {kiroInfo ? (
             kiroInfo.isBanned ? (
               <div className="h-2 bg-red-500/20 rounded-full flex items-center justify-center">
-                <span className="text-[8px] font-bold text-red-500 uppercase">Banned</span>
+                <span className="text-[8px] font-bold text-red-500 uppercase">
+                  {t('providers.banned')}
+                </span>
               </div>
             ) : (
               <>
@@ -501,7 +509,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
             <div className="w-[1px] h-6 bg-border/40" />
             <div className="flex flex-col items-center min-w-[55px] px-2 py-1">
               <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight">
-                COST
+                {t('common.cost')}
               </span>
               <span className="font-mono font-black text-[12px] text-purple-400">
                 {formatCost(stats.totalCost)}
@@ -509,11 +517,13 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
             </div>
           </>
         ) : (
-          <div className="px-6 py-2 flex items-center gap-2 text-muted-foreground/30">
-            <Activity size={12} />
-            <span className="text-[10px] font-bold uppercase tracking-widest">No Activity</span>
-          </div>
-        )}
+            <div className="px-6 py-2 flex items-center gap-2 text-muted-foreground/30">
+              <Activity size={12} />
+              <span className="text-[10px] font-bold uppercase tracking-widest">
+                {t('common.noActivity')}
+              </span>
+            </div>
+          )}
       </div>
     </div>
   );

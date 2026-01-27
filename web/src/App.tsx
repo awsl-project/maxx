@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +27,18 @@ import { AuthProvider, useAuth } from '@/lib/auth-context';
 function AppRoutes() {
   const { t } = useTranslation();
   const { isAuthenticated, isLoading, login } = useAuth();
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F5') {
+        event.preventDefault();
+        window.location.reload();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   if (isLoading) {
     return (

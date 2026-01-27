@@ -4,6 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, RefreshCw, Zap } from 'lucide-react';
 import {
   DndContext,
@@ -51,11 +52,10 @@ type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
 
 const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'codex', 'custom'];
 
-const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
+const PROVIDER_TYPE_LABELS: Record<Exclude<ProviderTypeKey, 'custom'>, string> = {
   antigravity: 'Antigravity',
   kiro: 'Kiro',
   codex: 'Codex',
-  custom: 'Custom',
 };
 
 interface ClientTypeRoutesContentProps {
@@ -81,6 +81,7 @@ function ClientTypeRoutesContentInner({
   projectID,
   searchQuery = '',
 }: ClientTypeRoutesContentProps) {
+  const { t } = useTranslation();
   const [activeId, setActiveId] = useState<string | null>(null);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const queryClient = useQueryClient();
@@ -286,7 +287,7 @@ function ClientTypeRoutesContentInner({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full p-12">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground">{t('common.loading')}</div>
       </div>
     );
   }
@@ -346,8 +347,10 @@ function ClientTypeRoutesContentInner({
             </DndContext>
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <p className="text-body">No routes configured for {getClientName(clientType)}</p>
-              <p className="text-caption mt-sm">Add a route below to get started</p>
+              <p className="text-body">
+                {t('routes.noRoutesForClient', { client: getClientName(clientType) })}
+              </p>
+              <p className="text-caption mt-sm">{t('routes.addRouteToGetStarted')}</p>
             </div>
           )}
 
@@ -357,7 +360,7 @@ function ClientTypeRoutesContentInner({
               <div className="flex items-center gap-2 mb-6">
                 <Plus size={14} style={{ color }} />
                 <span className="text-caption font-medium text-muted-foreground">
-                  Available Providers
+                  {t('routes.availableProviders')}
                 </span>
               </div>
               <div className="space-y-6">
@@ -369,7 +372,9 @@ function ClientTypeRoutesContentInner({
                     <div key={typeKey}>
                       <div className="flex items-center gap-2 mb-3">
                         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          {PROVIDER_TYPE_LABELS[typeKey]}
+                          {typeKey === 'custom'
+                            ? t('routes.providerType.custom')
+                            : PROVIDER_TYPE_LABELS[typeKey]}
                         </span>
                         <div className="h-px flex-1 bg-border/50" />
                       </div>

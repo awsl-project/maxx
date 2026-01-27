@@ -23,11 +23,13 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { useCreateProvider } from '@/hooks/queries';
+import { useTranslation } from 'react-i18next';
 
 type ImportMode = 'oauth' | 'token';
 type OAuthStatus = 'idle' | 'waiting' | 'success' | 'error';
 
 export function AntigravityTokenImport() {
+  const { t } = useTranslation();
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
   const [mode, setMode] = useState<ImportMode>('token');
@@ -66,7 +68,7 @@ export function AntigravityTokenImport() {
           } else {
             // OAuth failed
             setOAuthStatus('error');
-            setError(result.error || 'OAuth authorization failed');
+            setError(result.error || t('providers.antigravityTokenImport.errors.oauthFailed'));
           }
         }
       },
@@ -113,14 +115,18 @@ export function AntigravityTokenImport() {
       }, 500);
     } catch (err) {
       setOAuthStatus('error');
-      setError(err instanceof Error ? err.message : 'Failed to start OAuth flow');
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('providers.antigravityTokenImport.errors.startOAuthFailed'),
+      );
     }
   };
 
   // 验证 token
   const handleValidate = async () => {
     if (token.trim() === '' || !token.startsWith('1//')) {
-      setError('请输入有效的 refresh token（以 1// 开头）');
+      setError(t('providers.antigravityTokenImport.errors.invalidRefreshToken'));
       return;
     }
 
@@ -132,10 +138,14 @@ export function AntigravityTokenImport() {
       const result = await getTransport().validateAntigravityToken(token.trim());
       setValidationResult(result);
       if (!result.valid) {
-        setError(result.error || 'Token 验证失败');
+        setError(result.error || t('providers.antigravityTokenImport.errors.tokenValidationFailed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '验证失败');
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('providers.antigravityTokenImport.errors.validationFailed'),
+      );
     } finally {
       setValidating(false);
     }
@@ -144,7 +154,7 @@ export function AntigravityTokenImport() {
   // 创建 provider
   const handleCreate = async () => {
     if (!validationResult?.valid) {
-      setError('请先验证 token');
+      setError(t('providers.antigravityTokenImport.errors.validateFirst'));
       return;
     }
 
@@ -171,7 +181,11 @@ export function AntigravityTokenImport() {
       await createProvider.mutateAsync(providerData);
       goToProviders();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '创建失败');
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('providers.antigravityTokenImport.errors.createFailed'),
+      );
     } finally {
       setCreating(false);
     }
@@ -180,7 +194,7 @@ export function AntigravityTokenImport() {
   // 创建 OAuth provider
   const handleOAuthCreate = async () => {
     if (!oauthResult?.refreshToken) {
-      setError('OAuth result not available');
+      setError(t('providers.antigravityTokenImport.errors.oauthResultMissing'));
       return;
     }
 
@@ -205,7 +219,11 @@ export function AntigravityTokenImport() {
       await createProvider.mutateAsync(providerData);
       goToProviders();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '创建失败');
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('providers.antigravityTokenImport.errors.createFailed'),
+      );
     } finally {
       setCreating(false);
     }
@@ -231,7 +249,7 @@ export function AntigravityTokenImport() {
               className="w-2 h-2 rounded-full inline-block"
               style={{ backgroundColor: ANTIGRAVITY_COLOR }}
             />
-            Add Antigravity Account
+            {t('providers.antigravityTokenImport.title')}
           </h2>
         </div>
       </div>
@@ -240,9 +258,11 @@ export function AntigravityTokenImport() {
         <div className="container max-w-2xl mx-auto py-8 px-6 space-y-8">
           {/* Hero Section */}
           <div className="text-center space-y-2 mb-8">
-            <h1 className="text-2xl font-bold text-foreground">Choose Authentication Method</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              {t('providers.antigravityTokenImport.chooseMethodTitle')}
+            </h1>
             <p className="text-muted-foreground mx-auto">
-              Select how you want to connect your Antigravity account to access models.
+              {t('providers.antigravityTokenImport.chooseMethodDesc')}
             </p>
           </div>
 
@@ -275,10 +295,10 @@ export function AntigravityTokenImport() {
                       mode === 'oauth' ? 'text-primary' : 'text-foreground',
                     )}
                   >
-                    OAuth Connect
+                    {t('providers.antigravityTokenImport.oauthConnect')}
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Securely authorize via Google. Best for personal accounts.
+                    {t('providers.antigravityTokenImport.oauthConnectDesc')}
                   </p>
                 </div>
               </div>
@@ -314,10 +334,10 @@ export function AntigravityTokenImport() {
                       mode === 'token' ? 'text-primary' : 'text-foreground',
                     )}
                   >
-                    Manual Token
+                    {t('providers.antigravityTokenImport.manualToken')}
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Paste your refresh token directly. Best for service accounts.
+                    {t('providers.antigravityTokenImport.manualTokenDesc')}
                   </p>
                 </div>
               </div>
@@ -341,17 +361,16 @@ export function AntigravityTokenImport() {
                     <Wand2 size={32} style={{ color: ANTIGRAVITY_COLOR }} />
                   </div>
                   <h3 className="text-lg font-semibold text-foreground mb-2">
-                    OAuth Authorization
+                    {t('providers.antigravityTokenImport.oauthAuthorization')}
                   </h3>
                   <p className="text-sm text-muted-foreground mb-8">
-                    We will redirect you to Google to securely authorize access to your Antigravity
-                    projects.
+                    {t('providers.antigravityTokenImport.oauthAuthorizationDesc')}
                   </p>
 
                   {oauthStatus === 'idle' && (
                     <Button onClick={handleOAuth} variant="default" size="lg" className="gap-2">
                       <ExternalLink size={16} />
-                      Connect with Google
+                      {t('providers.antigravityTokenImport.connectWithGoogle')}
                     </Button>
                   )}
 
@@ -359,10 +378,10 @@ export function AntigravityTokenImport() {
                     <div className="space-y-4">
                       <Button disabled variant="secondary" size="lg" className="gap-2">
                         <Loader2 size={16} className="animate-spin" />
-                        Waiting for authorization...
+                        {t('providers.antigravityTokenImport.waitingAuth')}
                       </Button>
                       <p className="text-xs text-muted-foreground">
-                        Please complete the authorization in the popup window
+                        {t('providers.antigravityTokenImport.completeAuthInPopup')}
                       </p>
                     </div>
                   )}
@@ -377,10 +396,10 @@ export function AntigravityTokenImport() {
                       </div>
                       <div className="flex-1 space-y-1">
                         <div className="font-semibold text-foreground">
-                          Authorization Successful
+                          {t('providers.antigravityTokenImport.authorizationSuccessful')}
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          Ready to connect as{' '}
+                          {t('providers.antigravityTokenImport.readyToConnectAs')}{' '}
                           <span className="font-medium text-foreground">{oauthResult.email}</span>
                         </div>
 
@@ -401,7 +420,8 @@ export function AntigravityTokenImport() {
                                 }
                               />
                               <span className="text-xs font-medium text-muted-foreground">
-                                {oauthResult.quota.subscriptionTier} Tier
+                                {oauthResult.quota.subscriptionTier}{' '}
+                                {t('providers.antigravityTokenImport.tier')}
                               </span>
                             </div>
                           )}
@@ -416,7 +436,9 @@ export function AntigravityTokenImport() {
                   <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in zoom-in-95">
                     <AlertCircle size={20} className="text-error shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-sm font-medium text-error">OAuth Failed</p>
+                      <p className="text-sm font-medium text-error">
+                        {t('providers.antigravityTokenImport.oauthFailed')}
+                      </p>
                       <p className="text-xs text-error/80 mt-0.5">{error}</p>
                     </div>
                   </div>
@@ -432,7 +454,7 @@ export function AntigravityTokenImport() {
                       }}
                       variant="outline"
                     >
-                      Try Again
+                      {t('providers.antigravityTokenImport.tryAgain')}
                     </Button>
                   </div>
                 )}
@@ -448,10 +470,10 @@ export function AntigravityTokenImport() {
                       {creating ? (
                         <>
                           <Loader2 size={18} className="animate-spin mr-2" />
-                          Creating Provider...
+                          {t('providers.antigravityTokenImport.creatingProvider')}
                         </>
                       ) : (
-                        'Complete Setup'
+                        t('providers.antigravityTokenImport.completeSetup')
                       )}
                     </Button>
                   </div>
@@ -465,9 +487,11 @@ export function AntigravityTokenImport() {
                       <ShieldCheck size={18} className="text-foreground" />
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-foreground">Credentials</h3>
+                      <h3 className="text-base font-semibold text-foreground">
+                        {t('providers.antigravityTokenImport.credentials')}
+                      </h3>
                       <p className="text-xs text-muted-foreground">
-                        Enter your account details below
+                        {t('providers.antigravityTokenImport.enterAccountDetails')}
                       </p>
                     </div>
                   </div>
@@ -476,29 +500,29 @@ export function AntigravityTokenImport() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground flex items-center justify-between">
                       <span className="flex items-center gap-2">
-                        <Mail size={14} /> Email Address
+                        <Mail size={14} /> {t('providers.antigravityTokenImport.emailAddress')}
                       </span>
                       <span className="text-[10px] text-muted-foreground bg-accent px-2 py-0.5 rounded-full">
-                        Optional
+                        {t('providers.antigravityTokenImport.optional')}
                       </span>
                     </label>
                     <Input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="e.g. user@example.com"
+                      placeholder={t('providers.antigravityTokenImport.emailPlaceholder')}
                       className="bg-card"
                       disabled={validating || creating}
                     />
                     <p className="text-[11px] text-muted-foreground pl-1">
-                      Used for display purposes only. Auto-detected if valid token provided.
+                      {t('providers.antigravityTokenImport.displayOnlyNote')}
                     </p>
                   </div>
 
                   {/* Token Input */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                      <Key size={14} /> Refresh Token
+                      <Key size={14} /> {t('providers.antigravityTokenImport.refreshToken')}
                     </label>
                     <div className="relative">
                       <textarea
@@ -507,13 +531,13 @@ export function AntigravityTokenImport() {
                           setToken(e.target.value);
                           setValidationResult(null);
                         }}
-                        placeholder="1//0xxx..."
+                        placeholder={t('providers.antigravityTokenImport.refreshTokenPlaceholder')}
                         className="w-full h-32 px-4 py-3 rounded-xl border border-border bg-card text-foreground placeholder:text-muted-foreground font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
                         disabled={validating || creating}
                       />
                       {token && (
                         <div className="absolute bottom-3 right-3 text-[10px] text-muted-foreground font-mono bg-muted px-2 py-1 rounded border border-border">
-                          {token.length} chars
+                          {token.length} {t('providers.antigravityTokenImport.chars')}
                         </div>
                       )}
                     </div>
@@ -529,15 +553,15 @@ export function AntigravityTokenImport() {
                     {validating ? (
                       <>
                         <Loader2 size={16} className="animate-spin mr-2" />
-                        Validating Token...
+                        {t('providers.antigravityTokenImport.validatingToken')}
                       </>
                     ) : validationResult?.valid ? (
                       <>
                         <CheckCircle2 size={16} className="text-success mr-2" />
-                        Re-validate
+                        {t('providers.antigravityTokenImport.revalidate')}
                       </>
                     ) : (
-                      'Validate Token'
+                      t('providers.antigravityTokenImport.validateToken')
                     )}
                   </Button>
                 </div>
@@ -547,7 +571,9 @@ export function AntigravityTokenImport() {
                   <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in zoom-in-95">
                     <AlertCircle size={20} className="text-error shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-sm font-medium text-error">Validation Failed</p>
+                      <p className="text-sm font-medium text-error">
+                        {t('providers.antigravityTokenImport.validationFailed')}
+                      </p>
                       <p className="text-xs text-error/80 mt-0.5">{error}</p>
                     </div>
                   </div>
@@ -562,10 +588,10 @@ export function AntigravityTokenImport() {
                       </div>
                       <div className="flex-1 space-y-1">
                         <div className="font-semibold text-foreground">
-                          Token Verified Successfully
+                          {t('providers.antigravityTokenImport.tokenVerified')}
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          Ready to connect as{' '}
+                          {t('providers.antigravityTokenImport.readyToConnectAs')}{' '}
                           <span className="font-medium text-foreground">
                             {validationResult.userInfo?.email || email}
                           </span>
@@ -588,7 +614,8 @@ export function AntigravityTokenImport() {
                                 }
                               />
                               <span className="text-xs font-medium text-muted-foreground">
-                                {validationResult.quota.subscriptionTier} Tier
+                                {validationResult.quota.subscriptionTier}{' '}
+                                {t('providers.antigravityTokenImport.tier')}
                               </span>
                             </div>
                           )}
@@ -609,10 +636,10 @@ export function AntigravityTokenImport() {
                     {creating ? (
                       <>
                         <Loader2 size={18} className="animate-spin mr-2" />
-                        Creating Provider...
+                        {t('providers.antigravityTokenImport.creatingProvider')}
                       </>
                     ) : (
-                      'Complete Setup'
+                      t('providers.antigravityTokenImport.completeSetup')
                     )}
                   </Button>
                 </div>

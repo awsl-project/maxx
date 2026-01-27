@@ -227,7 +227,7 @@ export function ModelPricesPage() {
                     </div>
                     <div className="w-16 text-center">
                       {price.has1mContext ? (
-                        <span className="text-green-500 text-xs">Yes</span>
+                        <span className="text-green-500 text-xs">{t('common.yes')}</span>
                       ) : (
                         <span className="text-muted-foreground text-xs">-</span>
                       )}

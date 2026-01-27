@@ -89,6 +89,7 @@ function ProjectClientTypeWrapper({
 }
 
 export function RoutesTab({ project }: RoutesTabProps) {
+  const { t } = useTranslation();
   const [activeClientType, setActiveClientType] = useState<ClientType>('claude');
   const queryClient = useQueryClient();
 
@@ -160,7 +161,7 @@ export function RoutesTab({ project }: RoutesTabProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full p-6">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground">{t('common.loading')}</div>
       </div>
     );
   }

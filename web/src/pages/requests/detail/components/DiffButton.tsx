@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui';
 import { GitCompare } from 'lucide-react';
 import { DiffModal } from './DiffModal';
+import { useTranslation } from 'react-i18next';
 
 interface DiffButtonProps {
   clientContent: string;
@@ -10,6 +11,7 @@ interface DiffButtonProps {
 }
 
 export function DiffButton({ clientContent, upstreamContent, title }: DiffButtonProps) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -21,7 +23,7 @@ export function DiffButton({ clientContent, upstreamContent, title }: DiffButton
         className="h-6 px-2 text-[10px] gap-1"
       >
         <GitCompare className="h-3 w-3" />
-        Diff
+        {t('requests.diff.button')}
       </Button>
       <DiffModal
         isOpen={isOpen}

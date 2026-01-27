@@ -86,10 +86,10 @@ export function RoutingStrategiesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Routing Strategies</h2>
+        <h2 className="text-2xl font-bold">{t('routingStrategies.title')}</h2>
         <Button onClick={() => setShowForm(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          Add Strategy
+          {t('routingStrategies.addStrategy')}
         </Button>
       </div>
 
@@ -97,20 +97,22 @@ export function RoutingStrategiesPage() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {editingStrategy ? 'Edit Routing Strategy' : 'New Routing Strategy'}
+              {editingStrategy
+                ? t('routingStrategies.editTitle')
+                : t('routingStrategies.newTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Project</label>
+                  <label className="mb-1 block text-sm font-medium">{t('common.project')}</label>
                   <select
                     value={projectID}
                     onChange={(e) => setProjectID(e.target.value)}
                     className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none"
                   >
-                    <option value="0">Global</option>
+                    <option value="0">{t('common.global')}</option>
                     {projects?.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
@@ -119,14 +121,14 @@ export function RoutingStrategiesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Type</label>
+                  <label className="mb-1 block text-sm font-medium">{t('common.type')}</label>
                   <select
                     value={type}
                     onChange={(e) => setType(e.target.value as RoutingStrategyType)}
                     className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none"
                   >
-                    <option value="priority">Priority (by position)</option>
-                    <option value="weighted_random">Weighted Random</option>
+                    <option value="priority">{t('routingStrategies.priorityByPosition')}</option>
+                    <option value="weighted_random">{t('routingStrategies.weightedRandom')}</option>
                   </select>
                 </div>
               </div>
@@ -158,7 +160,7 @@ export function RoutingStrategiesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
+                  <TableHead>{t('routingStrategies.id')}</TableHead>
                   <TableHead>{t('common.project')}</TableHead>
                   <TableHead>{t('common.type')}</TableHead>
                   <TableHead>{t('common.actions')}</TableHead>
@@ -200,7 +202,7 @@ export function RoutingStrategiesPage() {
                 {(!strategies || strategies.length === 0) && (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center text-gray-500">
-                      No strategies
+                      {t('routingStrategies.noStrategies')}
                     </TableCell>
                   </TableRow>
                 )}

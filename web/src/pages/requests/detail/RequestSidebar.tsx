@@ -80,7 +80,9 @@ export function RequestSidebar({
                   selection.type === 'request' ? 'text-foreground' : 'text-muted-foreground',
                 )}
               >
-                {getClientName(request.clientType as ClientType)} Request
+                {t('requests.clientTypeRequest', {
+                  client: getClientName(request.clientType as ClientType),
+                })}
               </span>
             </div>
             {request.responseInfo && (
@@ -108,7 +110,7 @@ export function RequestSidebar({
       {/* Attempts Section */}
       <div className="h-10 px-4 border-b border-border bg-muted/50 flex items-center justify-between shrink-0">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-          <Server size={12} /> Upstream Attempts
+          <Server size={12} /> {t('requests.upstreamAttempts')}
         </span>
         <Badge variant="outline" className="text-[10px] h-5 px-1.5">
           {attempts?.length || 0}
@@ -141,7 +143,7 @@ export function RequestSidebar({
                           : 'text-muted-foreground group-hover:text-foreground',
                       )}
                     >
-                      Attempt {index + 1}
+                      {t('requests.attemptNumber', { index: index + 1 })}
                     </span>
                   </div>
                   {attempt.responseInfo && (
@@ -160,15 +162,19 @@ export function RequestSidebar({
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span
                     className="flex items-center gap-1.5 truncate max-w-[140px]"
-                    title={providerMap.get(attempt.providerID) || `Provider #${attempt.providerID}`}
+                    title={
+                      providerMap.get(attempt.providerID) ||
+                      t('requests.providerFallback', { id: attempt.providerID })
+                    }
                   >
-                    {providerMap.get(attempt.providerID) || `Provider #${attempt.providerID}`}
+                    {providerMap.get(attempt.providerID) ||
+                      t('requests.providerFallback', { id: attempt.providerID })}
                     {(() => {
                       const route = routeMap.get(attempt.routeID);
                       if (route?.projectID === 0) {
                         return (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 ml-1">
-                            Global
+                            {t('common.global')}
                           </Badge>
                         );
                       } else if (route?.projectID) {

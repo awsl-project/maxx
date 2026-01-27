@@ -77,7 +77,7 @@ export function SessionsTab({ project }: SessionsTabProps) {
                   >
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Users className="h-8 w-8 opacity-20" />
-                      <p>No sessions for this project</p>
+                      <p>{t('sessions.noProjectSessions')}</p>
                     </div>
                   </TableCell>
                 </TableRow>

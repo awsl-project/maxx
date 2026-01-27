@@ -441,6 +441,7 @@ export function StatsPage() {
     return unsubscribe;
   }, []);
 
+
   const { data: providers } = useProviders();
   const { data: projects } = useProjects();
   const { data: apiTokens } = useAPITokens();
@@ -560,7 +561,7 @@ export function StatsPage() {
               variant="outline"
               size="sm"
               onClick={() => recalculateCostsMutation.mutate()}
-              disabled={recalculateCostsMutation.isPending || recalculateStatsMutation.isPending || !!costsProgress || !!statsProgress}
+              disabled={recalculateCostsMutation.isPending || recalculateStatsMutation.isPending || !!costsProgress}
             >
               <Calculator
                 className={`h-4 w-4 mr-2 ${recalculateCostsMutation.isPending || costsProgress ? 'animate-spin' : ''}`}
@@ -571,10 +572,10 @@ export function StatsPage() {
               variant="outline"
               size="sm"
               onClick={() => recalculateStatsMutation.mutate()}
-              disabled={recalculateStatsMutation.isPending || recalculateCostsMutation.isPending || !!costsProgress || !!statsProgress}
+              disabled={recalculateStatsMutation.isPending || recalculateCostsMutation.isPending || !!costsProgress}
             >
               <RefreshCw
-                className={`h-4 w-4 mr-2 ${recalculateStatsMutation.isPending || statsProgress ? 'animate-spin' : ''}`}
+                className={`h-4 w-4 mr-2 ${recalculateStatsMutation.isPending ? 'animate-spin' : ''}`}
               />
               {t('stats.recalculateStats')}
             </Button>
@@ -585,15 +586,7 @@ export function StatsPage() {
       {/* Cost recalculation progress bar */}
       {costsProgress && (
         <div className="px-6 pt-4">
-          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{costsProgress.message}</span>
-              {costsProgress.phase !== 'completed' && costsProgress.total > 0 && (
-                <span className="text-muted-foreground">
-                  {costsProgress.percentage}%
-                </span>
-              )}
-            </div>
+          <div className="bg-muted/50 rounded-lg p-4">
             <Progress
               value={costsProgress.phase === 'completed' ? 100 : costsProgress.percentage}
               className="h-2"
@@ -605,15 +598,7 @@ export function StatsPage() {
       {/* Stats recalculation progress bar */}
       {statsProgress && (
         <div className="px-6 pt-4">
-          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{statsProgress.message}</span>
-              {statsProgress.phase !== 'completed' && statsProgress.total > 0 && (
-                <span className="text-muted-foreground">
-                  {statsProgress.percentage}%
-                </span>
-              )}
-            </div>
+          <div className="bg-muted/50 rounded-lg p-4">
             <Progress
               value={statsProgress.phase === 'completed' ? 100 : statsProgress.percentage}
               className="h-2"
@@ -1088,6 +1073,8 @@ function FilterSection({
   onClear?: () => void;
   showClear?: boolean;
 }) {
+  const { t } = useTranslation();
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -1102,7 +1089,7 @@ function FilterSection({
               "p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors",
               showClear ? "opacity-100" : "opacity-0 pointer-events-none"
             )}
-            title="Clear"
+            title={t('common.clear')}
           >
             <X className="h-3 w-3" />
           </button>

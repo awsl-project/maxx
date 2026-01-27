@@ -3,6 +3,7 @@ import { Button } from '@/components/ui';
 import { Terminal, Check } from 'lucide-react';
 import type { RequestInfo } from '@/lib/transport';
 import { useSetting } from '@/hooks/queries';
+import { useTranslation } from 'react-i18next';
 
 interface CopyAsCurlButtonProps {
   requestInfo: RequestInfo;
@@ -51,6 +52,7 @@ function generateCurlCommand(requestInfo: RequestInfo, proxyPort: string): strin
 }
 
 export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const { data: settingData } = useSetting('proxy_port');
   const proxyPort = settingData?.value || '9880';
@@ -71,7 +73,7 @@ export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
       {copied ? (
         <>
           <Check className="h-3 w-3" />
-          Copied
+          {t('common.copied')}
         </>
       ) : (
         <>

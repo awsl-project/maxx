@@ -101,7 +101,7 @@ export function ModelMappingEditor({
         <ModelInput
           value={newFrom}
           onChange={setNewFrom}
-          placeholder="Request Model"
+          placeholder={t('modelMapping.requestModel')}
           className="flex-1"
           disabled={disabled}
         />
@@ -109,7 +109,7 @@ export function ModelMappingEditor({
         <ModelInput
           value={newTo}
           onChange={setNewTo}
-          placeholder="Mapped Model"
+          placeholder={t('modelMapping.mappedModel')}
           className="flex-1"
           disabled={disabled}
           providers={targetProviders}
@@ -128,8 +128,7 @@ export function ModelMappingEditor({
 
       {entries.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          No model mappings configured. Add mappings to transform request models before sending to
-          upstream.
+          {t('modelMapping.emptyHint')}
         </p>
       )}
     </div>

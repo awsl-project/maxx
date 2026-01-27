@@ -2,6 +2,7 @@ import { useMemo, useEffect } from 'react';
 import * as Diff from 'diff';
 import { Button } from '@/components/ui';
 import { GitCompare, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface DiffModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface DiffModalProps {
 }
 
 export function DiffModal({ isOpen, onClose, title, leftContent, rightContent }: DiffModalProps) {
+  const { t } = useTranslation();
   // Compute diff (must be before any conditional returns)
   const diffResult = useMemo(() => {
     return Diff.diffLines(leftContent, rightContent);
@@ -73,15 +75,15 @@ export function DiffModal({ isOpen, onClose, title, leftContent, rightContent }:
         <div className="h-10 border-b border-border px-6 flex items-center gap-6 shrink-0 bg-muted/20">
           <div className="flex items-center gap-2 text-xs">
             <div className="w-3 h-3 bg-green-500/20 border border-green-500/50 rounded"></div>
-            <span className="text-muted-foreground">Added in Upstream</span>
+            <span className="text-muted-foreground">{t('requests.diff.addedUpstream')}</span>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <div className="w-3 h-3 bg-red-500/20 border border-red-500/50 rounded"></div>
-            <span className="text-muted-foreground">Removed from Client</span>
+            <span className="text-muted-foreground">{t('requests.diff.removedClient')}</span>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <div className="w-3 h-3 bg-muted border border-border rounded"></div>
-            <span className="text-muted-foreground">Unchanged</span>
+            <span className="text-muted-foreground">{t('requests.diff.unchanged')}</span>
           </div>
         </div>
 
@@ -138,7 +140,7 @@ export function DiffModal({ isOpen, onClose, title, leftContent, rightContent }:
                 {diffResult
                   .filter((p) => p.added)
                   .reduce((acc, p) => acc + p.value.split('\n').length - 1, 0)}{' '}
-                lines
+                {t('requests.diff.lines')}
               </span>
             )}
             {diffResult.filter((p) => p.removed).length > 0 && (
@@ -147,12 +149,12 @@ export function DiffModal({ isOpen, onClose, title, leftContent, rightContent }:
                 {diffResult
                   .filter((p) => p.removed)
                   .reduce((acc, p) => acc + p.value.split('\n').length - 1, 0)}{' '}
-                lines
+                {t('requests.diff.lines')}
               </span>
             )}
           </div>
           <Button variant="outline" onClick={onClose}>
-            Close
+            {t('common.close')}
           </Button>
         </div>
       </div>

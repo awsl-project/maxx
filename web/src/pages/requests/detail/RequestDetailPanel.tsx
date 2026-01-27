@@ -345,7 +345,7 @@ export function RequestDetailPanel({
                 )}
               {selectedAttempt.cost > 0 && (
                 <span className="text-blue-400 font-medium">
-                  Cost: {formatCost(selectedAttempt.cost)}
+                  {t('requests.cost')}: {formatCost(selectedAttempt.cost)}
                 </span>
               )}
             </div>
@@ -355,13 +355,13 @@ export function RequestDetailPanel({
         {/* Detail Tabs */}
         <TabsList>
           <TabsTrigger value="request" className="border-none">
-            Request
+            {t('requests.tabs.request')}
           </TabsTrigger>
           <TabsTrigger value="response" className="border-none">
-            Response
+            {t('requests.tabs.response')}
           </TabsTrigger>
           <TabsTrigger value="metadata" className="border-none">
-            Metadata
+            {t('requests.tabs.metadata')}
           </TabsTrigger>
         </TabsList>
       </div>
@@ -384,7 +384,7 @@ export function RequestDetailPanel({
               <div className="flex flex-col min-h-0 gap-3 flex-1">
                 <div className="flex items-center justify-between shrink-0">
                   <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                    <Code size={14} /> Headers
+                    <Code size={14} /> {t('requests.headers')}
                   </h5>
                   <div className="flex items-center gap-2">
                     <DiffButton
@@ -409,9 +409,9 @@ export function RequestDetailPanel({
 
               {selectedAttempt.requestInfo.body && (
                 <div className="flex flex-col min-h-0 gap-3 flex-1">
-                  <div className="flex items-center justify-between shrink-0">
-                    <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                      <Database size={14} /> Body
+                <div className="flex items-center justify-between shrink-0">
+                  <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                      <Database size={14} /> {t('requests.body')}
                     </h5>
                     <div className="flex items-center gap-2">
                       <DiffButton
@@ -481,14 +481,16 @@ export function RequestDetailPanel({
               >
                 {selectedAttempt.responseInfo.status}
               </div>
-              <span className="text-sm text-muted-foreground font-medium">Response Status</span>
+              <span className="text-sm text-muted-foreground font-medium">
+                {t('requests.responseStatus')}
+              </span>
             </div>
 
             <div className="flex flex-col min-h-0 flex-1 gap-6">
               <div className="flex flex-col min-h-0 gap-3 flex-1">
                 <div className="flex items-center justify-between shrink-0">
                   <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                    <Code size={14} /> Headers
+                    <Code size={14} /> {t('requests.headers')}
                   </h5>
                   <CopyButton content={formatJSON(selectedAttempt.responseInfo.headers)} />
                 </div>
@@ -506,9 +508,9 @@ export function RequestDetailPanel({
 
               {selectedAttempt.responseInfo.body && (
                 <div className="flex flex-col min-h-0 gap-3 flex-1">
-                  <div className="flex items-center justify-between shrink-0">
-                    <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                      <Database size={14} /> Body
+                <div className="flex items-center justify-between shrink-0">
+                  <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                      <Database size={14} /> {t('requests.body')}
                     </h5>
                     <CopyButton
                       content={(() => {
@@ -551,14 +553,14 @@ export function RequestDetailPanel({
             <CardHeader className="pb-2 border-b border-border/50">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <Info size={16} className="text-info" />
-                Attempt Info
+                {t('requests.attemptInfo')}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
               <dl className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Attempt ID
+                    {t('requests.attemptIdLabel')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded select-all break-all">
                     #{selectedAttempt.id}
@@ -566,16 +568,16 @@ export function RequestDetailPanel({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Provider
+                    {t('requests.provider')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
                     {providerMap.get(selectedAttempt.providerID) ||
-                      `Provider #${selectedAttempt.providerID}`}
+                      t('requests.providerFallback', { id: selectedAttempt.providerID })}
                   </dd>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Request Model
+                    {t('requests.requestModel')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
                     {selectedAttempt.requestModel || '-'}
@@ -583,32 +585,36 @@ export function RequestDetailPanel({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Mapped Model
+                    {t('requests.mappedModel')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
                     {selectedAttempt.mappedModel || '-'}
                     {selectedAttempt.mappedModel &&
                       selectedAttempt.requestModel !== selectedAttempt.mappedModel && (
-                        <span className="ml-2 text-muted-foreground text-[10px]">(converted)</span>
+                        <span className="ml-2 text-muted-foreground text-[10px]">
+                          {t('requests.converted')}
+                        </span>
                       )}
                   </dd>
                 </div>
                 {selectedAttempt.responseModel && (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                     <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Response Model
+                      {t('requests.responseModel')}
                     </dt>
                     <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
                       {selectedAttempt.responseModel}
                       {selectedAttempt.responseModel !== selectedAttempt.mappedModel && (
-                        <span className="ml-2 text-muted-foreground text-[10px]">(upstream)</span>
+                        <span className="ml-2 text-muted-foreground text-[10px]">
+                          {t('requests.upstream')}
+                        </span>
                       )}
                     </dd>
                   </div>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Status
+                    {t('common.status')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
                     {selectedAttempt.status}
@@ -622,7 +628,7 @@ export function RequestDetailPanel({
             <CardHeader className="pb-2 border-b border-border/50">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <Zap size={16} className="text-warning" />
-                Attempt Usage & Cache
+                {t('requests.attemptUsageCache')}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
@@ -637,7 +643,7 @@ export function RequestDetailPanel({
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Input Tokens
+                    {t('requests.inputTokens')}
                   </dt>
                   <dd className="text-sm text-foreground font-mono font-medium flex items-center gap-2">
                     <span>{selectedAttempt.inputTokenCount.toLocaleString()}</span>
@@ -653,7 +659,7 @@ export function RequestDetailPanel({
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Output Tokens
+                    {t('requests.outputTokens')}
                   </dt>
                   <dd className="text-sm text-foreground font-mono font-medium flex items-center gap-2">
                     <span>{selectedAttempt.outputTokenCount.toLocaleString()}</span>
@@ -669,7 +675,7 @@ export function RequestDetailPanel({
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Cache Read
+                    {t('requests.cacheRead')}
                   </dt>
                   <dd className="text-sm text-violet-400 font-mono font-medium flex items-center gap-2">
                     <span>{selectedAttempt.cacheReadCount.toLocaleString()}</span>
@@ -685,7 +691,7 @@ export function RequestDetailPanel({
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Cache Write
+                    {t('requests.cacheWrite')}
                   </dt>
                   <dd className="text-sm text-amber-400 font-mono font-medium flex items-center gap-2">
                     <span>{selectedAttempt.cacheWriteCount.toLocaleString()}</span>
@@ -730,7 +736,7 @@ export function RequestDetailPanel({
                 {attemptCostBreakdown && selectedAttempt.multiplier > 0 && selectedAttempt.multiplier !== 10000 && (
                   <div className="flex justify-between items-center border-b border-border/30 pb-2">
                     <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Subtotal
+                      {t('requests.subtotal')}
                     </dt>
                     <dd className="text-sm text-muted-foreground font-mono font-medium">
                       {formatCost(attemptCostBreakdown.totalCost)}
@@ -740,7 +746,7 @@ export function RequestDetailPanel({
                 {/* Multiplier row - always show */}
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Multiplier
+                    {t('requests.multiplier')}
                   </dt>
                   <dd className={`text-sm font-mono font-medium ${selectedAttempt.multiplier > 0 && selectedAttempt.multiplier !== 10000 ? 'text-yellow-400' : 'text-foreground'}`}>
                     ×{((selectedAttempt.multiplier > 0 ? selectedAttempt.multiplier : 10000) / 10000).toFixed(2)}
@@ -748,7 +754,7 @@ export function RequestDetailPanel({
                 </div>
                 <div className="flex justify-between items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Cost
+                    {t('requests.cost')}
                   </dt>
                   <dd className="text-sm font-mono font-medium flex items-center gap-2">
                     <span className="text-blue-400">{formatCost(selectedAttempt.cost)}</span>
@@ -758,8 +764,11 @@ export function RequestDetailPanel({
                       const expectedCost = Math.floor(attemptCostBreakdown.totalCost * multiplier / 10000);
                       if (expectedCost !== selectedAttempt.cost) {
                         return (
-                          <span className="text-xs text-amber-400" title="前端计算值与后端不一致">
-                            (计算: {formatCost(expectedCost)})
+                          <span
+                            className="text-xs text-amber-400"
+                            title={t('requests.costMismatchTitle')}
+                          >
+                            {t('requests.calculatedCost', { cost: formatCost(expectedCost) })}
                           </span>
                         );
                       }

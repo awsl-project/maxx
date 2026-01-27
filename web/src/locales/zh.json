@@ -40,7 +40,21 @@
     "global": "全局",
     "initFailed": "初始化失败",
     "search": "搜索",
-    "searchProviders": "搜索 Provider..."
+    "searchProviders": "搜索 Provider...",
+    "lastUpdated": "上次更新",
+    "remaining": "剩余",
+    "now": "刚刚",
+    "image": "图像",
+    "tokens": "Token",
+    "cost": "成本",
+    "yes": "是",
+    "available": "可用",
+    "used": "已用",
+    "total": "总计",
+    "week": "周",
+    "noActivity": "暂无活动",
+    "clear": "清除",
+    "unknown": "未知"
   },
   "nav": {
     "dashboard": "仪表板",
@@ -159,7 +173,45 @@
     "attemptId": "尝试 #{{id}}",
     "compareHeaders": "比较标头 - 客户端 vs 上游",
     "compareBody": "比较正文 - 客户端 vs 上游",
-    "clientRequest": "客户端请求"
+    "clientRequest": "客户端请求",
+    "requestNotFound": "请求不存在",
+    "requestNotFoundDesc": "你要查看的请求不存在或已被删除。",
+    "requestFailed": "请求失败",
+    "unknownModel": "未知模型",
+    "responseLabel": "响应：",
+    "input": "输入",
+    "output": "输出",
+    "recalculateCost": "重新计算成本",
+    "clientTypeRequest": "{{client}} 请求",
+    "upstreamAttempts": "上游尝试",
+    "attemptNumber": "尝试 {{index}}",
+    "providerFallback": "提供商 #{{id}}",
+    "headers": "请求头",
+    "body": "请求体",
+    "responseStatus": "响应状态",
+    "attemptInfo": "尝试信息",
+    "requestInfo": "请求信息",
+    "attemptIdLabel": "尝试 ID",
+    "requestIdLabel": "请求 ID",
+    "instanceId": "实例 ID",
+    "requestModel": "请求模型",
+    "mappedModel": "映射模型",
+    "responseModel": "响应模型",
+    "converted": "（已转换）",
+    "upstream": "（上游）",
+    "attemptUsageCache": "尝试用量与缓存",
+    "usageCache": "用量与缓存",
+    "subtotal": "小计",
+    "multiplier": "倍率",
+    "costMismatchTitle": "前端计算值与后端不一致",
+    "calculatedCost": "（计算：{{cost}}）",
+    "diff": {
+      "addedUpstream": "上游新增",
+      "removedClient": "客户端移除",
+      "unchanged": "未变更",
+      "lines": "行",
+      "button": "差异"
+    }
   },
   "providers": {
     "title": "提供商",
@@ -214,7 +266,151 @@
     "deleteConfirm": {
       "title": "删除提供商？",
       "description": "确定要删除「{{name}}」吗？此操作无法撤销。"
-    }
+    },
+    "oauthAuthentication": "OAuth 认证",
+    "antigravityOauthComingSoon": "Antigravity OAuth 认证将在后续版本提供。",
+    "usageQuota": "使用配额",
+    "freeTrial": "免费试用",
+    "kiroProvider": "Kiro 提供商",
+    "authMethod": "认证方式",
+    "region": "区域",
+    "accountBanned": "账号已封禁",
+    "accountRestrictedShort": "该账号已受限。",
+    "quota": "配额",
+    "banned": "已封禁",
+    "antigravityTokenImport": {
+      "title": "添加 Antigravity 账号",
+      "chooseMethodTitle": "选择认证方式",
+      "chooseMethodDesc": "选择你希望如何连接 Antigravity 账号以访问模型。",
+      "oauthConnect": "OAuth 连接",
+      "oauthConnectDesc": "通过 Google 安全授权，适合个人账号。",
+      "manualToken": "手动 Token",
+      "manualTokenDesc": "直接粘贴 refresh token，适合服务账号。",
+      "oauthAuthorization": "OAuth 授权",
+      "oauthAuthorizationDesc": "我们将跳转到 Google 以安全授权访问你的 Antigravity 项目。",
+      "connectWithGoogle": "使用 Google 连接",
+      "waitingAuth": "等待授权...",
+      "completeAuthInPopup": "请在弹窗中完成授权",
+      "authorizationSuccessful": "授权成功",
+      "readyToConnectAs": "将以以下身份连接",
+      "tier": "等级",
+      "oauthFailed": "OAuth 失败",
+      "tryAgain": "重试",
+      "creatingProvider": "正在创建提供商...",
+      "completeSetup": "完成设置",
+      "credentials": "凭据",
+      "enterAccountDetails": "请输入账号信息",
+      "emailAddress": "邮箱地址",
+      "optional": "可选",
+      "emailPlaceholder": "例如 user@example.com",
+      "displayOnlyNote": "仅用于显示，如提供有效 token 将自动识别。",
+      "refreshToken": "Refresh Token",
+      "refreshTokenPlaceholder": "1//0xxx...",
+      "chars": "字符",
+      "validatingToken": "正在验证 Token...",
+      "revalidate": "重新验证",
+      "validateToken": "验证 Token",
+      "validationFailed": "验证失败",
+      "tokenVerified": "Token 验证成功",
+      "errors": {
+        "oauthFailed": "OAuth 授权失败",
+        "startOAuthFailed": "启动 OAuth 流程失败",
+        "invalidRefreshToken": "请输入有效的 refresh token（以 1// 开头）",
+        "tokenValidationFailed": "Token 验证失败",
+        "validationFailed": "验证失败",
+        "validateFirst": "请先验证 token",
+        "createFailed": "创建失败",
+        "oauthResultMissing": "OAuth 结果不可用"
+      }
+    },
+    "codexTokenImport": {
+      "title": "添加 Codex 账号",
+      "connectTitle": "连接 Codex 账号",
+      "connectDescription": "使用 OpenAI 账号登录或手动导入 refresh token。",
+      "oauthLogin": "OAuth 登录",
+      "tokenImport": "Token 导入",
+      "openaiOauth": "OpenAI OAuth",
+      "openaiOauthDesc": "使用 OpenAI 账号登录",
+      "signInWithOpenAI": "使用 OpenAI 登录",
+      "popupClosed": "弹窗已关闭",
+      "waitingAuth": "等待授权...",
+      "pasteCallbackHint": "你可以在下方粘贴回调地址以继续",
+      "completeSignIn": "请在弹窗中完成登录",
+      "copyAuthUrlHint": "复制授权地址在浏览器打开，然后粘贴回调地址。",
+      "popupNotWorkingHint": "弹窗不可用？复制授权地址或手动粘贴回调地址。",
+      "copyAuthUrl": "复制授权地址",
+      "pasteCallbackUrl": "粘贴回调地址",
+      "callbackNote": "登录后请从浏览器地址栏复制回调 URL（会显示错误页，这是正常的）。",
+      "exchanging": "正在交换...",
+      "submitCallbackUrl": "提交回调地址",
+      "authorizationSuccessful": "授权成功",
+      "signedInAs": "已登录为",
+      "creatingProvider": "正在创建提供商...",
+      "completeSetup": "完成设置",
+      "credentials": "凭据",
+      "importTokenFrom": "从以下来源导入 token",
+      "emailAddress": "邮箱地址",
+      "optional": "可选",
+      "emailPlaceholder": "例如 user@example.com",
+      "displayOnlyNote": "仅用于显示，如提供有效 token 将自动识别。",
+      "refreshToken": "Refresh Token",
+      "refreshTokenPlaceholder": "在此粘贴 refresh token...",
+      "chars": "字符",
+      "validatingToken": "正在验证 Token...",
+      "revalidate": "重新验证",
+      "validateToken": "验证 Token",
+      "tokenVerified": "Token 验证成功",
+      "readyToConnectAs": "将以以下身份连接",
+      "error": "错误",
+      "errors": {
+        "oauthFailed": "OAuth 授权失败",
+        "invalidCallbackUrl": "回调地址无效，请粘贴完整的浏览器地址栏 URL。",
+        "stateMismatch": "State 不匹配，请确保使用当前 OAuth 会话的回调地址。",
+        "exchangeFailed": "交换回调失败",
+        "startOAuthFailed": "启动 OAuth 流程失败",
+        "invalidRefreshToken": "请输入有效的 refresh token",
+        "tokenValidationFailed": "Token 验证失败",
+        "validationFailed": "验证失败",
+        "oauthResultMissing": "未获取到有效的 OAuth 结果",
+        "createFailed": "创建失败",
+        "validateFirst": "请先验证 token"
+      }
+    },
+    "kiroTokenImport": {
+      "title": "添加 Kiro 账号",
+      "importTitle": "导入 Kiro Social Token",
+      "importDescription": "输入 Kiro Social refresh token 以连接账号。",
+      "credentials": "凭据",
+      "credentialsDesc": "输入 Kiro Social 账号信息",
+      "emailAddress": "邮箱地址",
+      "optional": "可选",
+      "emailPlaceholder": "例如 user@example.com",
+      "displayOnlyNote": "仅用于显示，若 token 可用则自动识别。",
+      "refreshToken": "Refresh Token",
+      "refreshTokenPlaceholder": "在此粘贴 Kiro Social refresh token...",
+      "chars": "字符",
+      "validatingToken": "正在验证 Token...",
+      "revalidate": "重新验证",
+      "validateToken": "验证 Token",
+      "validationFailed": "验证失败",
+      "accountBanned": "账号已封禁",
+      "accountBannedDesc": "该账号已被封禁，无法使用。",
+      "reason": "原因",
+      "tokenVerified": "Token 验证成功",
+      "readyToConnectAs": "将以以下身份连接",
+      "defaultAccountName": "Kiro 账号",
+      "usage": "用量",
+      "resetsInDays": "将在 {{days}} 天后重置",
+      "creatingProvider": "正在创建提供商...",
+      "completeSetup": "完成设置",
+      "errors": {
+        "missingRefreshToken": "请输入 refresh token",
+        "validateFirst": "请先验证 token",
+        "bannedAccount": "封禁账号无法创建提供商",
+        "createFailed": "创建失败"
+      }
+    },
+    "accountId": "账号 ID"
   },
   "projects": {
     "title": "项目",
@@ -238,7 +434,24 @@
     "updated": "更新时间：",
     "saveChanges": "保存更改",
     "copyUrl": "复制 URL",
-    "proxyConfigDesc": "使用此基础 URL 通过此项目的配置路由请求。协议（Claude、OpenAI、Gemini）会自动检测。"
+    "proxyConfigDesc": "使用此基础 URL 通过此项目的配置路由请求。协议（Claude、OpenAI、Gemini）会自动检测。",
+    "deleteConfirm": "确定要删除项目“{{name}}”吗？",
+    "notFound": "项目未找到",
+    "backToProjects": "返回项目列表",
+    "deleteProject": "删除项目",
+    "projectFallback": "项目 #{{id}}",
+    "tabs": {
+      "overview": "概览",
+      "routes": "路由",
+      "sessions": "会话",
+      "requests": "请求"
+    },
+    "requests": {
+      "title": "项目请求",
+      "description": "该项目的请求历史",
+      "comingSoon": "项目请求追踪即将上线",
+      "comingSoonNote": "该功能需要在 ProxyRequest 记录中增加 projectID。"
+    }
   },
   "routes": {
     "title": "全局路由",
@@ -278,7 +491,18 @@
     "routesConfigured_one": "为该项目配置了 1 条路由",
     "routesConfigured_other": "为该项目配置了 {{count}} 条路由",
     "sortAntigravity": "一键排序 Antigravity",
-    "sortCodex": "一键排序 Codex"
+    "sortCodex": "一键排序 Codex",
+    "clientRoutesTitle": "{{client}} 路由",
+    "configureRoutingFor": "为 {{client}} 配置路由",
+    "usingProjectRoutes": "使用项目专属路由",
+    "usingGlobalRoutesShort": "该项目当前使用 {{client}} 的全局路由。",
+    "enableCustomRoutes": "启用自定义路由",
+    "providerType": {
+      "custom": "自定义"
+    },
+    "noRoutesForClient": "未为 {{client}} 配置路由",
+    "addRouteToGetStarted": "在下方添加路由以开始使用",
+    "availableProviders": "可用提供方"
   },
   "console": {
     "title": "控制台",
@@ -320,7 +544,8 @@
     "rebindProject": "重新绑定项目",
     "rebindProjectHint": "此请求被拒绝或未绑定项目，您可以重新选择项目进行绑定。",
     "bindSuccess": "项目绑定成功",
-    "bindFailed": "项目绑定失败"
+    "bindFailed": "项目绑定失败",
+    "noProjectSessions": "该项目暂无会话"
   },
   "retryConfigs": {
     "title": "重试策略",
@@ -365,7 +590,12 @@
     "deleteConfirm": "确定要删除此策略吗？",
     "weightedRandom": "加权随机",
     "priority": "优先级",
-    "allStrategies": "所有策略"
+    "allStrategies": "全部策略",
+    "editTitle": "编辑路由策略",
+    "newTitle": "新建路由策略",
+    "priorityByPosition": "按位置优先级",
+    "id": "ID",
+    "noStrategies": "暂无策略"
   },
   "documentation": {
     "title": "文档",
@@ -490,7 +720,9 @@
     "pprofAccessHint": "访问地址",
     "pprofAuthHint": "认证信息",
     "pprofUsername": "用户名",
-    "pprofPasswordRequired": "需要密码"
+    "pprofPasswordRequired": "需要密码",
+    "themeDefault": "默认",
+    "themeLuxury": "奢华"
   },
   "modelMappings": {
     "title": "模型映射",
@@ -663,7 +895,8 @@
     "validationFailed": "验证失败",
     "tokenValidationFailed": "令牌验证失败",
     "multiplier": "价格倍率",
-    "multiplierHint": "(1.00 = 100%)"
+    "multiplierHint": "(1.00 = 100%)",
+    "endpointOverride": "端点覆盖"
   },
   "cooldown": {
     "title": "冷却保护中",
@@ -809,5 +1042,10 @@
         "description": "Claude Code · GLM-4.7"
       }
     }
+  },
+  "modelMapping": {
+    "requestModel": "请求模型",
+    "mappedModel": "映射模型",
+    "emptyHint": "暂无模型映射。添加映射以在发送到上游前转换请求模型。"
   }
 }

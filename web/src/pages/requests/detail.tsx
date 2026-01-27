@@ -164,9 +164,9 @@ export function RequestDetailPage() {
         <div className="p-4 bg-red-400/10 rounded-full">
           <AlertCircle className="h-12 w-12 text-red-400" />
         </div>
-        <h3 className="text-lg font-semibold text-foreground">Request Not Found</h3>
+        <h3 className="text-lg font-semibold text-foreground">{t('requests.requestNotFound')}</h3>
         <p className="text-sm text-muted-foreground">
-          The request you're looking for doesn't exist or has been deleted.
+          {t('requests.requestNotFoundDesc')}
         </p>
       </div>
     );
@@ -187,7 +187,9 @@ export function RequestDetailPage() {
         <div className="shrink-0 bg-red-400/10 border-b border-red-400/20 px-6 py-3 flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
           <div className="flex-1">
-            <h4 className="text-sm font-medium text-red-400 mb-1">Request Failed</h4>
+            <h4 className="text-sm font-medium text-red-400 mb-1">
+              {t('requests.requestFailed')}
+            </h4>
             <pre className="whitespace-pre-wrap wrap-break-words font-mono text-xs text-red-400/90 max-h-24 overflow-auto">
               {request.error}
             </pre>

@@ -33,7 +33,7 @@ export function KiroTokenImport() {
   // 验证 token
   const handleValidate = async () => {
     if (token.trim() === '') {
-      setError('Please enter a refresh token');
+      setError(t('providers.kiroTokenImport.errors.missingRefreshToken'));
       return;
     }
 
@@ -57,13 +57,13 @@ export function KiroTokenImport() {
   // 创建 provider
   const handleCreate = async () => {
     if (!validationResult?.valid) {
-      setError('Please validate the token first');
+      setError(t('providers.kiroTokenImport.errors.validateFirst'));
       return;
     }
 
     // 不允许创建被封禁的账号
     if (validationResult.isBanned) {
-      setError('Cannot create provider for a banned account');
+      setError(t('providers.kiroTokenImport.errors.bannedAccount'));
       return;
     }
 
@@ -88,7 +88,9 @@ export function KiroTokenImport() {
       await createProvider.mutateAsync(providerData);
       goToProviders();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create provider');
+      setError(
+        err instanceof Error ? err.message : t('providers.kiroTokenImport.errors.createFailed'),
+      );
     } finally {
       setCreating(false);
     }
@@ -114,7 +116,7 @@ export function KiroTokenImport() {
               className="w-2 h-2 rounded-full inline-block"
               style={{ backgroundColor: KIRO_COLOR }}
             />
-            Add Kiro Account
+            {t('providers.kiroTokenImport.title')}
           </h2>
         </div>
       </div>
@@ -123,9 +125,11 @@ export function KiroTokenImport() {
         <div className="container max-w-2xl mx-auto py-8 px-6 space-y-8">
           {/* Hero Section */}
           <div className="text-center space-y-2 mb-8">
-            <h1 className="text-2xl font-bold text-foreground">Import Kiro Social Token</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              {t('providers.kiroTokenImport.importTitle')}
+            </h1>
             <p className="text-muted-foreground mx-auto">
-              Enter your Kiro Social refresh token to connect your account.
+              {t('providers.kiroTokenImport.importDescription')}
             </p>
           </div>
 
@@ -137,9 +141,11 @@ export function KiroTokenImport() {
                   <ShieldCheck size={18} className="text-foreground" />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold text-foreground">Credentials</h3>
+                  <h3 className="text-base font-semibold text-foreground">
+                    {t('providers.kiroTokenImport.credentials')}
+                  </h3>
                   <p className="text-xs text-muted-foreground">
-                    Enter your Kiro Social account details
+                    {t('providers.kiroTokenImport.credentialsDesc')}
                   </p>
                 </div>
               </div>
@@ -148,29 +154,29 @@ export function KiroTokenImport() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground flex items-center justify-between">
                   <span className="flex items-center gap-2">
-                    <Mail size={14} /> Email Address
+                    <Mail size={14} /> {t('providers.kiroTokenImport.emailAddress')}
                   </span>
                   <span className="text-[10px] text-muted-foreground bg-accent px-2 py-0.5 rounded-full">
-                    Optional
+                    {t('providers.kiroTokenImport.optional')}
                   </span>
                 </label>
                 <Input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="e.g. user@example.com"
+                  placeholder={t('providers.kiroTokenImport.emailPlaceholder')}
                   className="bg-card"
                   disabled={validating || creating}
                 />
                 <p className="text-[11px] text-muted-foreground pl-1">
-                  Used for display purposes only. Auto-detected from token if available.
+                  {t('providers.kiroTokenImport.displayOnlyNote')}
                 </p>
               </div>
 
               {/* Token Input */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                  <Key size={14} /> Refresh Token
+                  <Key size={14} /> {t('providers.kiroTokenImport.refreshToken')}
                 </label>
                 <div className="relative">
                   <textarea
@@ -179,13 +185,13 @@ export function KiroTokenImport() {
                       setToken(e.target.value);
                       setValidationResult(null);
                     }}
-                    placeholder="Paste your Kiro Social refresh token here..."
+                    placeholder={t('providers.kiroTokenImport.refreshTokenPlaceholder')}
                     className="w-full h-32 px-4 py-3 rounded-xl border border-border bg-card text-foreground placeholder:text-muted-foreground font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
                     disabled={validating || creating}
                   />
                   {token && (
                     <div className="absolute bottom-3 right-3 text-[10px] text-muted-foreground font-mono bg-muted px-2 py-1 rounded border border-border">
-                      {token.length} chars
+                      {token.length} {t('providers.kiroTokenImport.chars')}
                     </div>
                   )}
                 </div>
@@ -201,15 +207,15 @@ export function KiroTokenImport() {
                 {validating ? (
                   <>
                     <Loader2 size={16} className="animate-spin mr-2" />
-                    Validating Token...
+                    {t('providers.kiroTokenImport.validatingToken')}
                   </>
                 ) : validationResult?.valid ? (
                   <>
                     <CheckCircle2 size={16} className="text-success mr-2" />
-                    Re-validate
+                    {t('providers.kiroTokenImport.revalidate')}
                   </>
                 ) : (
-                  'Validate Token'
+                  t('providers.kiroTokenImport.validateToken')
                 )}
               </Button>
             </div>
@@ -219,7 +225,9 @@ export function KiroTokenImport() {
               <div className="bg-error/5 border border-error/20 rounded-xl p-4 flex items-start gap-3 animate-in fade-in zoom-in-95">
                 <AlertCircle size={20} className="text-error shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-error">Validation Failed</p>
+                  <p className="text-sm font-medium text-error">
+                    {t('providers.kiroTokenImport.validationFailed')}
+                  </p>
                   <p className="text-xs text-error/80 mt-0.5">{error}</p>
                 </div>
               </div>
@@ -233,13 +241,15 @@ export function KiroTokenImport() {
                     <Ban size={24} className="text-warning" />
                   </div>
                   <div className="flex-1 space-y-1">
-                    <div className="font-semibold text-foreground">Account Banned</div>
+                    <div className="font-semibold text-foreground">
+                      {t('providers.kiroTokenImport.accountBanned')}
+                    </div>
                     <div className="text-sm text-muted-foreground">
-                      This account has been banned and cannot be used.
+                      {t('providers.kiroTokenImport.accountBannedDesc')}
                     </div>
                     {validationResult.banReason && (
                       <div className="text-xs text-warning mt-2 p-2 bg-warning/5 rounded border border-warning/10">
-                        Reason: {validationResult.banReason}
+                        {t('providers.kiroTokenImport.reason')}: {validationResult.banReason}
                       </div>
                     )}
                   </div>
@@ -255,11 +265,13 @@ export function KiroTokenImport() {
                     <CheckCircle2 size={24} className="text-success" />
                   </div>
                   <div className="flex-1 space-y-1">
-                    <div className="font-semibold text-foreground">Token Verified Successfully</div>
+                    <div className="font-semibold text-foreground">
+                      {t('providers.kiroTokenImport.tokenVerified')}
+                    </div>
                     <div className="text-sm text-muted-foreground">
-                      Ready to connect as{' '}
+                      {t('providers.kiroTokenImport.readyToConnectAs')}{' '}
                       <span className="font-medium text-foreground">
-                        {validationResult.email || email || 'Kiro Account'}
+                        {validationResult.email || email || t('providers.kiroTokenImport.defaultAccountName')}
                       </span>
                     </div>
 
@@ -282,7 +294,7 @@ export function KiroTokenImport() {
                       {validationResult.usageLimit !== undefined && (
                         <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-card border border-border/50">
                           <span className="text-xs text-muted-foreground">
-                            Usage: {validationResult.currentUsage ?? 0} /{' '}
+                            {t('providers.kiroTokenImport.usage')}: {validationResult.currentUsage ?? 0} /{' '}
                             {validationResult.usageLimit}
                           </span>
                         </div>
@@ -290,7 +302,9 @@ export function KiroTokenImport() {
                       {validationResult.daysUntilReset !== undefined && (
                         <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-card border border-border/50">
                           <span className="text-xs text-muted-foreground">
-                            Resets in {validationResult.daysUntilReset} days
+                            {t('providers.kiroTokenImport.resetsInDays', {
+                              days: validationResult.daysUntilReset,
+                            })}
                           </span>
                         </div>
                       )}
@@ -311,10 +325,10 @@ export function KiroTokenImport() {
                 {creating ? (
                   <>
                     <Loader2 size={18} className="animate-spin mr-2" />
-                    Creating Provider...
+                    {t('providers.kiroTokenImport.creatingProvider')}
                   </>
                 ) : (
-                  'Complete Setup'
+                  t('providers.kiroTokenImport.completeSetup')
                 )}
               </Button>
             </div>

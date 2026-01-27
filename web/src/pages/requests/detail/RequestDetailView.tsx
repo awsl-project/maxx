@@ -15,7 +15,7 @@ import type { ProxyRequest, ClientType } from '@/lib/transport';
 import { cn, formatDuration } from '@/lib/utils';
 import { ClientIcon, getClientName, getClientColor } from '@/components/icons/client-icons';
 import { CopyButton, CopyAsCurlButton, EmptyState } from './components';
-import type { CostBreakdown } from './RequestDetailPanel';
+import { type CostBreakdown } from './RequestDetailPanel';
 
 // 微美元转美元
 const MICRO_USD_PER_USD = 1_000_000;
@@ -75,14 +75,18 @@ export function RequestDetailView({
           </div>
           <div>
             <h3 className="text-sm font-medium text-foreground">
-              {getClientName(request.clientType as ClientType)} Request
+              {t('requests.clientTypeRequest', {
+                client: getClientName(request.clientType as ClientType),
+              })}
             </h3>
             <div className="flex items-center gap-3 text-xs text-text-secondary mt-0.5">
               <span>{t('requests.requestId', { id: request.id })}</span>
               <span className="text-text-muted">·</span>
               <span>{request.requestModel}</span>
               {request.cost > 0 && (
-                <span className="text-blue-400 font-medium">Cost: {formatCost(request.cost)}</span>
+                <span className="text-blue-400 font-medium">
+                  {t('requests.cost')}: {formatCost(request.cost)}
+                </span>
               )}
             </div>
           </div>
@@ -120,7 +124,7 @@ export function RequestDetailView({
               <div className="flex flex-col min-h-0 gap-3 flex-1">
                 <div className="flex items-center justify-between shrink-0">
                   <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                    <Code size={14} /> Headers
+                    <Code size={14} /> {t('requests.headers')}
                   </h5>
                   <CopyButton
                     content={formatJSON(request.requestInfo.headers)}
@@ -141,9 +145,9 @@ export function RequestDetailView({
 
               {request.requestInfo.body && (
                 <div className="flex flex-col min-h-0 gap-3 flex-1">
-                  <div className="flex items-center justify-between shrink-0">
-                    <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                      <Database size={14} /> Body
+                <div className="flex items-center justify-between shrink-0">
+                  <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                      <Database size={14} /> {t('requests.body')}
                     </h5>
                     <CopyButton
                       content={(() => {
@@ -195,14 +199,16 @@ export function RequestDetailView({
               >
                 {request.responseInfo.status}
               </div>
-              <span className="text-sm text-muted-foreground font-medium">Response Status</span>
+              <span className="text-sm text-muted-foreground font-medium">
+                {t('requests.responseStatus')}
+              </span>
             </div>
 
             <div className="flex flex-col min-h-0 flex-1 gap-6">
               <div className="flex flex-col min-h-0 gap-3 flex-1">
                 <div className="flex items-center justify-between shrink-0">
                   <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                    <Code size={14} /> Headers
+                    <Code size={14} /> {t('requests.headers')}
                   </h5>
                   <CopyButton
                     content={formatJSON(request.responseInfo.headers)}
@@ -223,9 +229,9 @@ export function RequestDetailView({
 
               {request.responseInfo.body && (
                 <div className="flex flex-col min-h-0 gap-3 flex-1">
-                  <div className="flex items-center justify-between shrink-0">
-                    <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                      <Database size={14} /> Body
+                <div className="flex items-center justify-between shrink-0">
+                  <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                      <Database size={14} /> {t('requests.body')}
                     </h5>
                     <CopyButton
                       content={(() => {
@@ -268,14 +274,14 @@ export function RequestDetailView({
           <Card className="bg-card border-border">
             <CardHeader className="pb-2 border-b border-border/50">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Info size={16} className="text-info" /> Request Info
+                <Info size={16} className="text-info" /> {t('requests.requestInfo')}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
               <dl className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Request ID
+                    {t('requests.requestIdLabel')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded select-all break-all">
                     {request.requestID || '-'}
@@ -283,7 +289,7 @@ export function RequestDetailView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Session ID
+                    {t('sessions.sessionId')}
                   </dt>
                   <dd className="sm:col-span-2">
                     <div className="font-mono text-xs text-foreground bg-muted px-2 py-1 rounded select-all break-all">
@@ -297,7 +303,7 @@ export function RequestDetailView({
                             <span>·</span>
                             <span>
                               {projectMap.get(sessionInfo.projectID) ||
-                                `Project #${sessionInfo.projectID}`}
+                                t('projects.projectFallback', { id: sessionInfo.projectID })}
                             </span>
                           </>
                         )}
@@ -307,7 +313,7 @@ export function RequestDetailView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Instance ID
+                    {t('requests.instanceId')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded select-all break-all">
                     {request.instanceID || '-'}
@@ -315,7 +321,7 @@ export function RequestDetailView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Request Model
+                    {t('requests.requestModel')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
                     {request.requestModel || '-'}
@@ -323,7 +329,7 @@ export function RequestDetailView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Response Model
+                    {t('requests.responseModel')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
                     {request.responseModel || '-'}
@@ -331,7 +337,7 @@ export function RequestDetailView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Project
+                    {t('requests.project')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
                     {projectName || '-'}
@@ -339,7 +345,7 @@ export function RequestDetailView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    API Token
+                    {t('apiTokens.apiToken')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-text-primary bg-muted px-2 py-1 rounded">
                     {tokenName || '-'}
@@ -350,11 +356,11 @@ export function RequestDetailView({
           </Card>
 
           <Card className="bg-card border-border">
-            <CardHeader className="pb-2 border-b border-border/50">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Zap size={16} className="text-warning" /> Usage & Cache
-              </CardTitle>
-            </CardHeader>
+          <CardHeader className="pb-2 border-b border-border/50">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Zap size={16} className="text-warning" /> {t('requests.usageCache')}
+            </CardTitle>
+          </CardHeader>
             <CardContent className="pt-4">
               <dl className="space-y-4">
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
@@ -367,7 +373,7 @@ export function RequestDetailView({
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Input Tokens
+                    {t('requests.inputTokens')}
                   </dt>
                   <dd className="text-sm text-foreground font-mono font-medium flex items-center gap-2">
                     <span>{request.inputTokenCount.toLocaleString()}</span>
@@ -383,7 +389,7 @@ export function RequestDetailView({
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Output Tokens
+                    {t('requests.outputTokens')}
                   </dt>
                   <dd className="text-sm text-foreground font-mono font-medium flex items-center gap-2">
                     <span>{request.outputTokenCount.toLocaleString()}</span>
@@ -399,7 +405,7 @@ export function RequestDetailView({
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Cache Read
+                    {t('requests.cacheRead')}
                   </dt>
                   <dd className="text-sm text-violet-400 font-mono font-medium flex items-center gap-2">
                     <span>{request.cacheReadCount.toLocaleString()}</span>
@@ -415,7 +421,7 @@ export function RequestDetailView({
                 </div>
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Cache Write
+                    {t('requests.cacheWrite')}
                   </dt>
                   <dd className="text-sm text-amber-400 font-mono font-medium flex items-center gap-2">
                     <span>{request.cacheWriteCount.toLocaleString()}</span>
@@ -457,7 +463,7 @@ export function RequestDetailView({
                 {costBreakdown && request.multiplier > 0 && request.multiplier !== 10000 && (
                   <div className="flex justify-between items-center border-b border-border/30 pb-2">
                     <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Subtotal
+                      {t('requests.subtotal')}
                     </dt>
                     <dd className="text-sm text-muted-foreground font-mono font-medium">
                       {formatCost(costBreakdown.totalCost)}
@@ -467,7 +473,7 @@ export function RequestDetailView({
                 {/* Multiplier row - always show */}
                 <div className="flex justify-between items-center border-b border-border/30 pb-2">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Multiplier
+                    {t('requests.multiplier')}
                   </dt>
                   <dd className={`text-sm font-mono font-medium ${request.multiplier > 0 && request.multiplier !== 10000 ? 'text-yellow-400' : 'text-foreground'}`}>
                     ×{((request.multiplier > 0 ? request.multiplier : 10000) / 10000).toFixed(2)}
@@ -475,7 +481,7 @@ export function RequestDetailView({
                 </div>
                 <div className="flex justify-between items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Cost
+                    {t('requests.cost')}
                   </dt>
                   <dd className="text-sm font-mono font-medium flex items-center gap-2">
                     <span className="text-blue-400">{formatCost(request.cost)}</span>
@@ -485,8 +491,11 @@ export function RequestDetailView({
                       const expectedCost = Math.floor(costBreakdown.totalCost * multiplier / 10000);
                       if (expectedCost !== request.cost) {
                         return (
-                          <span className="text-xs text-amber-400" title="前端计算值与后端不一致">
-                            (计算: {formatCost(expectedCost)})
+                          <span
+                            className="text-xs text-amber-400"
+                            title={t('requests.costMismatchTitle')}
+                          >
+                            {t('requests.calculatedCost', { cost: formatCost(expectedCost) })}
                           </span>
                         );
                       }

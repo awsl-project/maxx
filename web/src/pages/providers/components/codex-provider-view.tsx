@@ -434,7 +434,7 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
                   </div>
                   <div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1">
                     <Mail size={14} />
-                    {config?.email || 'Unknown'}
+                    {config?.email || t('common.unknown')}
                   </div>
                   {config?.name && (
                     <div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-0.5">
@@ -448,7 +448,7 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
               {config?.accountId && (
                 <div className="flex flex-col items-end gap-1 text-right">
                   <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
-                    Account ID
+                    {t('providers.accountId')}
                   </div>
                   <div className="text-sm font-mono text-foreground bg-card px-2 py-1 rounded border border-border/50 max-w-[200px] truncate">
                     {config.accountId}

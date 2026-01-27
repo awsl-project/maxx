@@ -111,10 +111,10 @@ export function ClientRoutesPage() {
           </div>
           <div>
             <h2 className="text-lg font-semibold text-foreground leading-tight">
-              {getClientName(activeClientType)} Routes
+              {t('routes.clientRoutesTitle', { client: getClientName(activeClientType) })}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Configure routing for {getClientName(activeClientType)}
+              {t('routes.configureRoutingFor', { client: getClientName(activeClientType) })}
             </p>
           </div>
         </div>
@@ -141,18 +141,22 @@ export function ClientRoutesPage() {
               <div className="flex items-center gap-6">
                 {/* Global Group */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Global</span>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    {t('common.global')}
+                  </span>
                   <TabsList className="h-8">
                     <TabsTrigger value="0" className="h-7 px-3 text-xs flex items-center gap-1.5">
                       <Globe className="h-3.5 w-3.5" />
-                      <span>Default</span>
+                      <span>{t('common.default')}</span>
                     </TabsTrigger>
                   </TabsList>
                 </div>
 
                 {/* Projects Group */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Projects</span>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    {t('nav.projects')}
+                  </span>
                   <TabsList className="h-8">
                     {sortedProjects.map((project) => (
                       <TabsTrigger
@@ -221,16 +225,16 @@ export function ClientRoutesPage() {
               {/* Custom Routes Toggle Bar */}
               <div className="h-12 px-6 border-b border-border bg-card flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
-                  <p className="text-sm font-medium">Custom Routes</p>
+                  <p className="text-sm font-medium">{t('routes.customRoutes')}</p>
                   {isCustomRoutesEnabled && (
                     <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-600 dark:text-green-400 rounded-full">
-                      Enabled
+                      {t('common.enabled')}
                     </span>
                   )}
                   <p className="text-xs text-muted-foreground">
                     {isCustomRoutesEnabled
-                      ? 'Using project-specific routes'
-                      : 'Using global routes'}
+                      ? t('routes.usingProjectRoutes')
+                      : t('routes.usingGlobalRoutes')}
                   </p>
                 </div>
                 <Switch
@@ -257,17 +261,19 @@ export function ClientRoutesPage() {
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold mb-2">
-                        Custom Routes Not Enabled
+                        {t('routes.customRoutesDisabled')}
                       </h3>
                       <p className="text-sm text-muted-foreground">
-                        This project is currently using global routes for {getClientName(activeClientType)}.
+                        {t('routes.usingGlobalRoutesShort', {
+                          client: getClientName(activeClientType),
+                        })}
                       </p>
                     </div>
                     <Button
                       onClick={() => handleToggleCustomRoutes(project.id, true)}
                       disabled={updateProject.isPending}
                     >
-                      Enable Custom Routes
+                      {t('routes.enableCustomRoutes')}
                     </Button>
                   </div>
                 </div>

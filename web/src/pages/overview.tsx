@@ -57,13 +57,6 @@ import {
 } from 'recharts';
 import { cn } from '@/lib/utils';
 
-const chartConfig = {
-  requests: {
-    label: 'Requests',
-    color: 'var(--color-chart-1)',
-  },
-} satisfies ChartConfig;
-
 // 格式化数字（K, M, B）
 function formatNumber(num: number): string {
   if (num >= 1000000000) {
@@ -202,6 +195,12 @@ function StatCard({
 
 export function OverviewPage() {
   const { t } = useTranslation();
+  const chartConfig: ChartConfig = {
+    requests: {
+      label: t('dashboard.requests'),
+      color: 'var(--color-chart-1)',
+    },
+  };
 
   // 数据 hooks
   const { data: summary } = useDashboardSummary();
@@ -641,7 +640,7 @@ export function OverviewPage() {
                               <Clock className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
                             )}
                             <span className="text-sm font-medium truncate">
-                              {req.responseModel || req.requestModel || 'Unknown'}
+                              {req.responseModel || req.requestModel || t('common.unknown')}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">

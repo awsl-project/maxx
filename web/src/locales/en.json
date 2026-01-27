@@ -40,7 +40,21 @@
     "global": "Global",
     "initFailed": "Failed to Initialize",
     "search": "Search",
-    "searchProviders": "Search providers..."
+    "searchProviders": "Search providers...",
+    "lastUpdated": "Last updated",
+    "remaining": "Remaining",
+    "now": "now",
+    "image": "Image",
+    "tokens": "Tokens",
+    "cost": "Cost",
+    "yes": "Yes",
+    "available": "Available",
+    "used": "Used",
+    "total": "Total",
+    "week": "Week",
+    "noActivity": "No Activity",
+    "clear": "Clear",
+    "unknown": "Unknown"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -159,7 +173,45 @@
     "attemptId": "Attempt #{{id}}",
     "compareHeaders": "Compare Headers - Client vs Upstream",
     "compareBody": "Compare Body - Client vs Upstream",
-    "clientRequest": "Client Request"
+    "clientRequest": "Client Request",
+    "requestNotFound": "Request Not Found",
+    "requestNotFoundDesc": "The request you're looking for doesn't exist or has been deleted.",
+    "requestFailed": "Request Failed",
+    "unknownModel": "Unknown Model",
+    "responseLabel": "Response:",
+    "input": "Input",
+    "output": "Output",
+    "recalculateCost": "Recalculate Cost",
+    "clientTypeRequest": "{{client}} Request",
+    "upstreamAttempts": "Upstream Attempts",
+    "attemptNumber": "Attempt {{index}}",
+    "providerFallback": "Provider #{{id}}",
+    "headers": "Headers",
+    "body": "Body",
+    "responseStatus": "Response Status",
+    "attemptInfo": "Attempt Info",
+    "requestInfo": "Request Info",
+    "attemptIdLabel": "Attempt ID",
+    "requestIdLabel": "Request ID",
+    "instanceId": "Instance ID",
+    "requestModel": "Request Model",
+    "mappedModel": "Mapped Model",
+    "responseModel": "Response Model",
+    "converted": "(converted)",
+    "upstream": "(upstream)",
+    "attemptUsageCache": "Attempt Usage & Cache",
+    "usageCache": "Usage & Cache",
+    "subtotal": "Subtotal",
+    "multiplier": "Multiplier",
+    "costMismatchTitle": "Front-end calculation differs from backend",
+    "calculatedCost": "(calc: {{cost}})",
+    "diff": {
+      "addedUpstream": "Added in Upstream",
+      "removedClient": "Removed from Client",
+      "unchanged": "Unchanged",
+      "lines": "lines",
+      "button": "Diff"
+    }
   },
   "providers": {
     "title": "Providers",
@@ -214,7 +266,151 @@
     "deleteConfirm": {
       "title": "Delete Provider?",
       "description": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone."
-    }
+    },
+    "oauthAuthentication": "OAuth Authentication",
+    "antigravityOauthComingSoon": "Antigravity OAuth authentication will be available in a future update.",
+    "usageQuota": "Usage Quota",
+    "freeTrial": "Free Trial",
+    "kiroProvider": "Kiro Provider",
+    "authMethod": "Auth Method",
+    "region": "Region",
+    "accountBanned": "Account Banned",
+    "accountRestrictedShort": "This account has been restricted.",
+    "quota": "Quota",
+    "banned": "Banned",
+    "antigravityTokenImport": {
+      "title": "Add Antigravity Account",
+      "chooseMethodTitle": "Choose Authentication Method",
+      "chooseMethodDesc": "Select how you want to connect your Antigravity account to access models.",
+      "oauthConnect": "OAuth Connect",
+      "oauthConnectDesc": "Securely authorize via Google. Best for personal accounts.",
+      "manualToken": "Manual Token",
+      "manualTokenDesc": "Paste your refresh token directly. Best for service accounts.",
+      "oauthAuthorization": "OAuth Authorization",
+      "oauthAuthorizationDesc": "We will redirect you to Google to securely authorize access to your Antigravity projects.",
+      "connectWithGoogle": "Connect with Google",
+      "waitingAuth": "Waiting for authorization...",
+      "completeAuthInPopup": "Please complete the authorization in the popup window",
+      "authorizationSuccessful": "Authorization Successful",
+      "readyToConnectAs": "Ready to connect as",
+      "tier": "Tier",
+      "oauthFailed": "OAuth Failed",
+      "tryAgain": "Try Again",
+      "creatingProvider": "Creating Provider...",
+      "completeSetup": "Complete Setup",
+      "credentials": "Credentials",
+      "enterAccountDetails": "Enter your account details below",
+      "emailAddress": "Email Address",
+      "optional": "Optional",
+      "emailPlaceholder": "e.g. user@example.com",
+      "displayOnlyNote": "Used for display purposes only. Auto-detected if valid token provided.",
+      "refreshToken": "Refresh Token",
+      "refreshTokenPlaceholder": "1//0xxx...",
+      "chars": "chars",
+      "validatingToken": "Validating Token...",
+      "revalidate": "Re-validate",
+      "validateToken": "Validate Token",
+      "validationFailed": "Validation Failed",
+      "tokenVerified": "Token Verified Successfully",
+      "errors": {
+        "oauthFailed": "OAuth authorization failed",
+        "startOAuthFailed": "Failed to start OAuth flow",
+        "invalidRefreshToken": "Please enter a valid refresh token (starting with 1//)",
+        "tokenValidationFailed": "Token validation failed",
+        "validationFailed": "Validation failed",
+        "validateFirst": "Please validate the token first",
+        "createFailed": "Failed to create provider",
+        "oauthResultMissing": "OAuth result not available"
+      }
+    },
+    "codexTokenImport": {
+      "title": "Add Codex Account",
+      "connectTitle": "Connect Codex Account",
+      "connectDescription": "Sign in with your OpenAI account or import a refresh token manually.",
+      "oauthLogin": "OAuth Login",
+      "tokenImport": "Token Import",
+      "openaiOauth": "OpenAI OAuth",
+      "openaiOauthDesc": "Sign in with your OpenAI account",
+      "signInWithOpenAI": "Sign in with OpenAI",
+      "popupClosed": "Popup window closed",
+      "waitingAuth": "Waiting for authorization...",
+      "pasteCallbackHint": "You can paste the callback URL below to continue",
+      "completeSignIn": "Complete the sign-in in the popup window",
+      "copyAuthUrlHint": "Copy the auth URL to open in your browser, then paste the callback URL.",
+      "popupNotWorkingHint": "Popup window not working? Copy the auth URL or paste the callback URL manually.",
+      "copyAuthUrl": "Copy Auth URL",
+      "pasteCallbackUrl": "Paste Callback URL",
+      "callbackNote": "After signing in, copy the URL from your browser's address bar (it will show an error page, that's expected).",
+      "exchanging": "Exchanging...",
+      "submitCallbackUrl": "Submit Callback URL",
+      "authorizationSuccessful": "Authorization Successful",
+      "signedInAs": "Signed in as",
+      "creatingProvider": "Creating Provider...",
+      "completeSetup": "Complete Setup",
+      "credentials": "Credentials",
+      "importTokenFrom": "Import token from",
+      "emailAddress": "Email Address",
+      "optional": "Optional",
+      "emailPlaceholder": "e.g. user@example.com",
+      "displayOnlyNote": "Used for display purposes only. Auto-detected if valid token provided.",
+      "refreshToken": "Refresh Token",
+      "refreshTokenPlaceholder": "Paste your refresh token here...",
+      "chars": "chars",
+      "validatingToken": "Validating Token...",
+      "revalidate": "Re-validate",
+      "validateToken": "Validate Token",
+      "tokenVerified": "Token Verified Successfully",
+      "readyToConnectAs": "Ready to connect as",
+      "error": "Error",
+      "errors": {
+        "oauthFailed": "OAuth authorization failed",
+        "invalidCallbackUrl": "Invalid callback URL. Please paste the complete URL from the browser address bar.",
+        "stateMismatch": "State mismatch. Please make sure you are using the callback URL from the current OAuth session.",
+        "exchangeFailed": "Failed to exchange callback",
+        "startOAuthFailed": "Failed to start OAuth flow",
+        "invalidRefreshToken": "Please enter a valid refresh token",
+        "tokenValidationFailed": "Token validation failed",
+        "validationFailed": "Validation failed",
+        "oauthResultMissing": "No valid OAuth result",
+        "createFailed": "Failed to create provider",
+        "validateFirst": "Please validate the token first"
+      }
+    },
+    "kiroTokenImport": {
+      "title": "Add Kiro Account",
+      "importTitle": "Import Kiro Social Token",
+      "importDescription": "Enter your Kiro Social refresh token to connect your account.",
+      "credentials": "Credentials",
+      "credentialsDesc": "Enter your Kiro Social account details",
+      "emailAddress": "Email Address",
+      "optional": "Optional",
+      "emailPlaceholder": "e.g. user@example.com",
+      "displayOnlyNote": "Used for display purposes only. Auto-detected from token if available.",
+      "refreshToken": "Refresh Token",
+      "refreshTokenPlaceholder": "Paste your Kiro Social refresh token here...",
+      "chars": "chars",
+      "validatingToken": "Validating Token...",
+      "revalidate": "Re-validate",
+      "validateToken": "Validate Token",
+      "validationFailed": "Validation Failed",
+      "accountBanned": "Account Banned",
+      "accountBannedDesc": "This account has been banned and cannot be used.",
+      "reason": "Reason",
+      "tokenVerified": "Token Verified Successfully",
+      "readyToConnectAs": "Ready to connect as",
+      "defaultAccountName": "Kiro Account",
+      "usage": "Usage",
+      "resetsInDays": "Resets in {{days}} days",
+      "creatingProvider": "Creating Provider...",
+      "completeSetup": "Complete Setup",
+      "errors": {
+        "missingRefreshToken": "Please enter a refresh token",
+        "validateFirst": "Please validate the token first",
+        "bannedAccount": "Cannot create provider for a banned account",
+        "createFailed": "Failed to create provider"
+      }
+    },
+    "accountId": "Account ID"
   },
   "projects": {
     "title": "Projects",
@@ -238,7 +434,24 @@
     "updated": "Updated:",
     "saveChanges": "Save Changes",
     "copyUrl": "Copy URL",
-    "proxyConfigDesc": "Use this base URL to route requests through this project's configuration. The protocol (Claude, OpenAI, Gemini) is automatically detected."
+    "proxyConfigDesc": "Use this base URL to route requests through this project's configuration. The protocol (Claude, OpenAI, Gemini) is automatically detected.",
+    "deleteConfirm": "Are you sure you want to delete project \"{{name}}\"?",
+    "notFound": "Project not found",
+    "backToProjects": "Back to Projects",
+    "deleteProject": "Delete Project",
+    "projectFallback": "Project #{{id}}",
+    "tabs": {
+      "overview": "Overview",
+      "routes": "Routes",
+      "sessions": "Sessions",
+      "requests": "Requests"
+    },
+    "requests": {
+      "title": "Project Requests",
+      "description": "Request history for this project",
+      "comingSoon": "Request tracking by project coming soon",
+      "comingSoonNote": "This feature requires adding projectID to ProxyRequest records."
+    }
   },
   "routes": {
     "title": "Global Routes",
@@ -278,7 +491,18 @@
     "routesConfigured_one": "1 route configured for this project",
     "routesConfigured_other": "{{count}} routes configured for this project",
     "sortAntigravity": "Sort Antigravity",
-    "sortCodex": "Sort Codex"
+    "sortCodex": "Sort Codex",
+    "clientRoutesTitle": "{{client}} Routes",
+    "configureRoutingFor": "Configure routing for {{client}}",
+    "usingProjectRoutes": "Using project-specific routes",
+    "usingGlobalRoutesShort": "This project is currently using global routes for {{client}}.",
+    "enableCustomRoutes": "Enable Custom Routes",
+    "providerType": {
+      "custom": "Custom"
+    },
+    "noRoutesForClient": "No routes configured for {{client}}",
+    "addRouteToGetStarted": "Add a route below to get started",
+    "availableProviders": "Available Providers"
   },
   "console": {
     "title": "Console",
@@ -320,7 +544,8 @@
     "rebindProject": "Rebind Project",
     "rebindProjectHint": "This request was rejected or has no project binding. You can select a project to rebind.",
     "bindSuccess": "Project bound successfully",
-    "bindFailed": "Failed to bind project"
+    "bindFailed": "Failed to bind project",
+    "noProjectSessions": "No sessions for this project"
   },
   "retryConfigs": {
     "title": "Retry Policy",
@@ -365,7 +590,12 @@
     "deleteConfirm": "Are you sure you want to delete this strategy?",
     "weightedRandom": "Weighted Random",
     "priority": "Priority",
-    "allStrategies": "All Strategies"
+    "allStrategies": "All Strategies",
+    "editTitle": "Edit Routing Strategy",
+    "newTitle": "New Routing Strategy",
+    "priorityByPosition": "Priority (by position)",
+    "id": "ID",
+    "noStrategies": "No strategies"
   },
   "documentation": {
     "title": "Documentation",
@@ -490,7 +720,9 @@
     "pprofAccessHint": "Access URL",
     "pprofAuthHint": "Authentication",
     "pprofUsername": "Username",
-    "pprofPasswordRequired": "Password required"
+    "pprofPasswordRequired": "Password required",
+    "themeDefault": "Default",
+    "themeLuxury": "Luxury"
   },
   "modelMappings": {
     "title": "Model Mappings",
@@ -663,7 +895,8 @@
     "validationFailed": "Validation failed",
     "tokenValidationFailed": "Token validation failed",
     "multiplier": "Price Multiplier",
-    "multiplierHint": "(1.00 = 100%)"
+    "multiplierHint": "(1.00 = 100%)",
+    "endpointOverride": "Endpoint Override"
   },
   "cooldown": {
     "title": "Cooldown Protection",
@@ -810,5 +1043,10 @@
         "description": "Claude Code · GLM-4.7"
       }
     }
+  },
+  "modelMapping": {
+    "requestModel": "Request Model",
+    "mappedModel": "Mapped Model",
+    "emptyHint": "No model mappings configured. Add mappings to transform request models before sending to upstream."
   }
 }

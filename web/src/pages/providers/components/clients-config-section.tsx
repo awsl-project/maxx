@@ -95,7 +95,7 @@ export function ClientsConfigSection({ clients, onUpdateClient }: ClientsConfigS
               <div className="space-y-3">
                 <div className="bg-muted/50 rounded-lg p-3 border border-border/50">
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5 uppercase tracking-wide">
-                    Endpoint Override
+                    {t('provider.endpointOverride')}
                   </label>
                   <Input
                     type="text"
