@@ -56,6 +56,12 @@
     "clear": "清除",
     "unknown": "未知"
   },
+  "clientTypes": {
+    "claude": "Claude",
+    "openai": "OpenAI",
+    "codex": "Codex",
+    "gemini": "Gemini"
+  },
   "nav": {
     "dashboard": "仪表板",
     "documentation": "文档",

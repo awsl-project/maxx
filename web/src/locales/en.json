@@ -56,6 +56,12 @@
     "clear": "Clear",
     "unknown": "Unknown"
   },
+  "clientTypes": {
+    "claude": "Claude",
+    "openai": "OpenAI",
+    "codex": "Codex",
+    "gemini": "Gemini"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "documentation": "Docs",

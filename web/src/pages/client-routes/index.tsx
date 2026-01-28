@@ -223,25 +223,27 @@ export function ClientRoutesPage() {
           return (
             <TabsContent key={project.id} value={String(project.id)} className="flex-1 min-h-0 overflow-hidden m-0 flex flex-col">
               {/* Custom Routes Toggle Bar */}
-              <div className="h-12 px-6 border-b border-border bg-card flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-3">
+              <div className="min-h-12 px-6 py-2 border-b border-border bg-card flex items-center justify-between gap-4 shrink-0">
+                <div className="flex flex-1 min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                   <p className="text-sm font-medium">{t('routes.customRoutes')}</p>
                   {isCustomRoutesEnabled && (
                     <span className="text-xs px-2 py-0.5 bg-green-500/10 text-green-600 dark:text-green-400 rounded-full">
                       {t('common.enabled')}
                     </span>
                   )}
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground min-w-0 flex-1 break-words">
                     {isCustomRoutesEnabled
                       ? t('routes.usingProjectRoutes')
                       : t('routes.usingGlobalRoutes')}
                   </p>
                 </div>
-                <Switch
-                  checked={isCustomRoutesEnabled}
-                  onCheckedChange={(checked) => handleToggleCustomRoutes(project.id, checked)}
-                  disabled={updateProject.isPending}
-                />
+                <div className="shrink-0 self-center">
+                  <Switch
+                    checked={isCustomRoutesEnabled}
+                    onCheckedChange={(checked) => handleToggleCustomRoutes(project.id, checked)}
+                    disabled={updateProject.isPending}
+                  />
+                </div>
               </div>
 
               {/* Content Area */}

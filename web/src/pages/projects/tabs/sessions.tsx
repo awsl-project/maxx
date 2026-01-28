@@ -12,6 +12,7 @@ import { useSessions } from '@/hooks/queries';
 import type { Project } from '@/lib/transport';
 import { Loader2, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { getClientTypeLabel } from '../utils';
 
 interface SessionsTabProps {
   project: Project;
@@ -61,7 +62,7 @@ export function SessionsTab({ project }: SessionsTabProps) {
                   </TableCell>
                   <TableCell>
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-accent/10 text-accent">
-                      {session.clientType}
+                      {getClientTypeLabel(t, session.clientType)}
                     </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">

@@ -6,7 +6,7 @@
 import { useState, useMemo } from 'react';
 import { useRoutes, useUpdateProject, projectKeys } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
-import { ClientIcon, getClientName, getClientColor } from '@/components/icons/client-icons';
+import { ClientIcon, getClientColor } from '@/components/icons/client-icons';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui';
 import type { Project, ClientType, Route } from '@/lib/transport';
@@ -14,6 +14,7 @@ import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { useQueryClient } from '@tanstack/react-query';
 import { ClientTypeRoutesContent } from '@/components/routes/ClientTypeRoutesContent';
 import { useTranslation } from 'react-i18next';
+import { getClientTypeLabel } from '../utils';
 
 // 支持的客户端类型列表
 const CLIENT_TYPES: ClientType[] = ['claude', 'openai', 'codex', 'gemini'];
@@ -39,14 +40,15 @@ function ProjectClientTypeWrapper({
   projectRoutes,
 }: ProjectClientTypeWrapperProps) {
   const { t } = useTranslation();
+  const clientLabel = getClientTypeLabel(t, clientType);
   return (
     <div className="flex flex-col h-full">
       {/* Header with Toggle */}
-      <div className="flex items-center justify-between px-lg py-4 border-b border-border bg-card">
+      <div className="flex items-center justify-between px-lg p-4 border-b border-border bg-card">
         <div className="flex items-center gap-4">
           <ClientIcon type={clientType} size={32} />
           <div>
-            <h2 className="text-lg font-semibold text-foreground">{getClientName(clientType)}</h2>
+            <h2 className="text-lg font-semibold text-foreground">{clientLabel}</h2>
             <p className="text-xs text-muted-foreground">
               {isCustomRoutesEnabled
                 ? t('routes.routesConfigured', {
@@ -74,7 +76,7 @@ function ProjectClientTypeWrapper({
             </h3>
             <p className="text-sm text-text-secondary leading-relaxed">
               {t('routes.usingGlobalRoutesDesc', {
-                client: getClientName(clientType),
+                client: clientLabel,
               })}
             </p>
           </div>
@@ -175,6 +177,7 @@ export function RoutesTab({ project }: RoutesTabProps) {
           const routeCount = getRouteCount(clientType);
           const streamingCount = getStreamingCount(clientType);
           const color = getClientColor(clientType);
+          const clientLabel = getClientTypeLabel(t, clientType);
 
           return (
             <button
@@ -188,7 +191,7 @@ export function RoutesTab({ project }: RoutesTabProps) {
               )}
             >
               <ClientIcon type={clientType} size={16} />
-              <span className="text-sm font-medium">{getClientName(clientType)}</span>
+              <span className="text-sm font-medium">{clientLabel}</span>
               {routeCount > 0 && (
                 <span className="text-[10px] font-mono text-muted-foreground">{routeCount}</span>
               )}
