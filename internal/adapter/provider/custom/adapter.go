@@ -68,13 +68,19 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to create upstream request")
 	}
 
-	// Forward original headers (filtered) - preserves anthropic-version, anthropic-beta, user-agent, etc.
-	originalHeaders := ctxutil.GetRequestHeaders(ctx)
-	upstreamReq.Header = originalHeaders
+	// Set headers based on client type
+	if clientType == domain.ClientTypeClaude {
+		// Claude: Use CLI-style headers for better compatibility
+		applyClaudeHeaders(upstreamReq, a.provider.Config.Custom.APIKey, stream)
+	} else {
+		// Other types: Preserve original header forwarding logic
+		originalHeaders := ctxutil.GetRequestHeaders(ctx)
+		upstreamReq.Header = originalHeaders
 
-	// Override auth headers with provider's credentials
-	if a.provider.Config.Custom.APIKey != "" {
-		setAuthHeader(upstreamReq, clientType, a.provider.Config.Custom.APIKey)
+		// Override auth headers with provider's credentials
+		if a.provider.Config.Custom.APIKey != "" {
+			setAuthHeader(upstreamReq, clientType, a.provider.Config.Custom.APIKey)
+		}
 	}
 
 	// Send request info via EventChannel
@@ -101,7 +107,14 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 
 	// Check for error response
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		// Decompress error response if needed (Claude requests use Accept-Encoding)
+		reader, decompErr := decompressResponse(resp)
+		if decompErr != nil {
+			return domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
+		}
+		defer reader.Close()
+
+		body, _ := io.ReadAll(reader)
 		// Send error response info via EventChannel
 		if eventChan := ctxutil.GetEventChan(ctx); eventChan != nil {
 			eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -159,7 +172,14 @@ func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
 }
 
 func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType domain.ClientType) error {
-	body, err := io.ReadAll(resp.Body)
+	// Decompress response body if needed
+	reader, err := decompressResponse(resp)
+	if err != nil {
+		return domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+	}
+	defer reader.Close()
+
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
 	}
@@ -203,6 +223,13 @@ func (a *CustomAdapter) handleNonStreamResponse(ctx context.Context, w http.Resp
 }
 
 func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response, clientType domain.ClientType) error {
+	// Decompress response body if needed
+	reader, err := decompressResponse(resp)
+	if err != nil {
+		return domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+	}
+	defer reader.Close()
+
 	eventChan := ctxutil.GetEventChan(ctx)
 
 	// Send initial response info (for streaming, we only capture status and headers)
@@ -327,7 +354,7 @@ func (a *CustomAdapter) handleStreamResponse(ctx context.Context, w http.Respons
 		default:
 		}
 
-		n, err := resp.Body.Read(buf)
+		n, err := reader.Read(buf)
 		if n > 0 {
 			lineBuffer.Write(buf[:n])
 
@@ -561,6 +588,7 @@ func copyHeadersFiltered(dst, src http.Header) {
 // Response headers to exclude when copying
 var excludedResponseHeaders = map[string]bool{
 	"content-length":    true,
+	"content-encoding":  true, // We decompress the response, so don't tell client it's compressed
 	"transfer-encoding": true,
 	"connection":        true,
 	"keep-alive":        true,

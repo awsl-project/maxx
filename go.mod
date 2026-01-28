@@ -3,12 +3,14 @@ module github.com/awsl-project/maxx
 go 1.25
 
 require (
+	github.com/andybalholm/brotli v1.2.0
 	github.com/bytedance/sonic v1.14.2
 	github.com/getlantern/systray v1.2.2
 	github.com/glebarez/sqlite v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/klauspost/compress v1.18.3
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/sync v0.19.0
 	gorm.io/driver/mysql v1.6.0
