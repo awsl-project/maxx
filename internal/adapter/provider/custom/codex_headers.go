@@ -44,21 +44,62 @@ func applyCodexHeaders(upstreamReq, clientReq *http.Request, apiKey string) {
 	ensureCodexHeader(upstreamReq.Header, clientReq, "Originator", codexOriginator)
 }
 
-// copyCodexPassthroughHeaders copies headers from client request, excluding hop-by-hop and auth
+// copyCodexPassthroughHeaders copies headers from client request, excluding hop-by-hop, auth, and proxy headers
 func copyCodexPassthroughHeaders(dst, src http.Header) {
 	if src == nil {
 		return
 	}
 
-	// Headers to skip
+	// Headers to skip (hop-by-hop, auth, proxy/privacy, and headers we'll set explicitly)
 	skipHeaders := map[string]bool{
+		// Hop-by-hop headers
 		"connection":        true,
 		"keep-alive":        true,
 		"transfer-encoding": true,
 		"upgrade":           true,
-		"authorization":     true,
-		"host":              true,
-		"content-length":    true,
+
+		// Auth headers
+		"authorization": true,
+
+		// Headers set by HTTP client
+		"host":           true,
+		"content-length": true,
+
+		// Proxy/forwarding headers (privacy protection)
+		"x-forwarded-for":    true,
+		"x-forwarded-host":   true,
+		"x-forwarded-proto":  true,
+		"x-forwarded-port":   true,
+		"x-forwarded-server": true,
+		"x-real-ip":          true,
+		"x-client-ip":        true,
+		"x-originating-ip":   true,
+		"x-remote-ip":        true,
+		"x-remote-addr":      true,
+		"forwarded":          true,
+
+		// CDN/Cloud provider headers
+		"cf-connecting-ip": true,
+		"cf-ipcountry":     true,
+		"cf-ray":           true,
+		"cf-visitor":       true,
+		"true-client-ip":   true,
+		"fastly-client-ip": true,
+		"x-azure-clientip": true,
+		"x-azure-fdid":     true,
+		"x-azure-ref":      true,
+
+		// Tracing headers
+		"x-request-id":      true,
+		"x-correlation-id":  true,
+		"x-trace-id":        true,
+		"x-amzn-trace-id":   true,
+		"x-b3-traceid":      true,
+		"x-b3-spanid":       true,
+		"x-b3-parentspanid": true,
+		"x-b3-sampled":      true,
+		"traceparent":       true,
+		"tracestate":        true,
 	}
 
 	for k, vv := range src {

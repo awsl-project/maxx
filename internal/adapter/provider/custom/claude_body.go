@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,11 +12,17 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// Claude Code system prompt for cloaking
+const claudeCodeSystemPrompt = `You are Claude Code, Anthropic's official CLI for Claude.`
+
+// userIDPattern matches Claude Code format: user_[64-hex]_account__session_[uuid-v4]
+var userIDPattern = regexp.MustCompile(`^user_[a-fA-F0-9]{64}_account__session_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
 // processClaudeRequestBody processes Claude request body before sending to upstream.
 // It extracts betas to header, handles thinking/tool_choice constraints,
-// and ensures metadata.user_id is set for Claude Code compatibility.
+// and applies cloaking for non-Claude Code clients.
 // Returns the processed body.
-func processClaudeRequestBody(body []byte, req *http.Request) []byte {
+func processClaudeRequestBody(body []byte, req *http.Request, clientReq *http.Request) []byte {
 	// 1. Extract betas from body and merge to Anthropic-Beta header
 	var betas []string
 	betas, body = extractAndRemoveBetas(body)
@@ -23,35 +30,108 @@ func processClaudeRequestBody(body []byte, req *http.Request) []byte {
 		mergeBetasToHeader(req, betas)
 	}
 
-	// 2. Disable thinking if tool_choice forces tool use
+	// 2. Apply cloaking for non-Claude Code clients
+	// This includes: system prompt injection, fake user_id injection
+	clientUA := ""
+	if clientReq != nil {
+		clientUA = clientReq.Header.Get("User-Agent")
+	}
+	body = applyCloaking(body, clientUA)
+
+	// 3. Disable thinking if tool_choice forces tool use
 	// Anthropic API does not allow thinking when tool_choice is set to "any" or "tool"
 	body = disableThinkingIfToolChoiceForced(body)
 
-	// 3. Ensure metadata.user_id is set (for Claude Code compatibility)
-	// Format: user_{64-hex}_account__session_{uuid}
-	body = ensureMetadataUserID(body)
-
 	return body
 }
 
-// ensureMetadataUserID ensures metadata.user_id is set in Claude Code format.
-// If not present or empty, generates a new one.
-// Format: user_{64-hex}_account__session_{uuid}
-func ensureMetadataUserID(body []byte) []byte {
-	userID := gjson.GetBytes(body, "metadata.user_id").String()
-	if userID != "" {
+// applyCloaking applies cloaking transformations for non-Claude Code clients.
+// Cloaking includes: system prompt injection, fake user_id injection.
+func applyCloaking(body []byte, clientUserAgent string) []byte {
+	// If client is already Claude Code, no cloaking needed
+	if isClaudeCodeClient(clientUserAgent) {
 		return body
 	}
 
-	// Generate Claude Code compatible user_id
-	newUserID := generateClaudeCodeUserID()
-	body, _ = sjson.SetBytes(body, "metadata.user_id", newUserID)
+	// Inject Claude Code system prompt
+	body = injectClaudeCodeSystemPrompt(body)
+
+	// Inject fake user_id
+	body = injectFakeUserID(body)
+
 	return body
 }
 
-// generateClaudeCodeUserID generates a user_id in Claude Code format.
+// isClaudeCodeClient checks if the User-Agent indicates a Claude Code client.
+func isClaudeCodeClient(userAgent string) bool {
+	return strings.HasPrefix(userAgent, "claude-cli")
+}
+
+// injectClaudeCodeSystemPrompt injects Claude Code system prompt into the request.
+// Prepends to existing system messages.
+func injectClaudeCodeSystemPrompt(body []byte) []byte {
+	system := gjson.GetBytes(body, "system")
+
+	// Create Claude Code system instruction entry
+	claudeCodeEntry := map[string]string{
+		"type": "text",
+		"text": claudeCodeSystemPrompt,
+	}
+
+	if !system.Exists() {
+		// No existing system, create new array with Claude Code instruction
+		body, _ = sjson.SetBytes(body, "system", []interface{}{claudeCodeEntry})
+		return body
+	}
+
+	if system.IsArray() {
+		// Prepend Claude Code instruction to existing array
+		existingSystem := system.Array()
+		newSystem := make([]interface{}, 0, len(existingSystem)+1)
+		newSystem = append(newSystem, claudeCodeEntry)
+		for _, entry := range existingSystem {
+			newSystem = append(newSystem, entry.Value())
+		}
+		body, _ = sjson.SetBytes(body, "system", newSystem)
+		return body
+	}
+
+	// system is a string, convert to array format
+	existingText := system.String()
+	if existingText != "" {
+		newSystem := []interface{}{
+			claudeCodeEntry,
+			map[string]string{"type": "text", "text": existingText},
+		}
+		body, _ = sjson.SetBytes(body, "system", newSystem)
+	} else {
+		body, _ = sjson.SetBytes(body, "system", []interface{}{claudeCodeEntry})
+	}
+
+	return body
+}
+
+// injectFakeUserID generates and injects a fake user_id into the request metadata.
+// Only injects if user_id is missing or invalid.
+func injectFakeUserID(body []byte) []byte {
+	existingUserID := gjson.GetBytes(body, "metadata.user_id").String()
+	if existingUserID != "" && isValidUserID(existingUserID) {
+		return body
+	}
+
+	// Generate and inject fake user_id
+	body, _ = sjson.SetBytes(body, "metadata.user_id", generateFakeUserID())
+	return body
+}
+
+// isValidUserID checks if a user_id matches Claude Code format.
+func isValidUserID(userID string) bool {
+	return userIDPattern.MatchString(userID)
+}
+
+// generateFakeUserID generates a fake user_id in Claude Code format.
 // Format: user_{64-hex}_account__session_{uuid}
-func generateClaudeCodeUserID() string {
+func generateFakeUserID() string {
 	// Generate 32 random bytes (64 hex chars)
 	randomBytes := make([]byte, 32)
 	_, _ = rand.Read(randomBytes)

@@ -8,8 +8,8 @@ import (
 const (
 	// Default values used only when client doesn't provide them
 	defaultAnthropicVersion   = "2023-06-01"
-	defaultAnthropicBetaFlags = "claude-code-20250219,interleaved-thinking-2025-05-14"
-	defaultClaudeUserAgent    = "claude-cli/2.1.17 (external, cli)"
+	defaultAnthropicBetaFlags = "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
+	defaultClaudeUserAgent    = "claude-cli/1.0.83 (external, cli)"
 )
 
 // applyClaudeHeaders sets Claude API request headers
@@ -48,14 +48,15 @@ func applyClaudeHeaders(req *http.Request, clientReq *http.Request, apiKey strin
 
 	// 5. Set Stainless headers only if client didn't provide them
 	ensureClaudeHeader(req.Header, clientReq, "X-App", "cli")
+	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Helper-Method", "stream")
 	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Retry-Count", "0")
 	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Runtime-Version", "v24.3.0")
-	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Package-Version", "0.70.0")
+	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Package-Version", "0.55.1")
 	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Runtime", "node")
 	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Lang", "js")
 	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Arch", "arm64")
 	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Os", "MacOS")
-	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Timeout", "600")
+	ensureClaudeHeader(req.Header, clientReq, "X-Stainless-Timeout", "60")
 
 	// 6. Set Accept-Encoding if client didn't provide
 	ensureClaudeHeader(req.Header, clientReq, "Accept-Encoding", "gzip, deflate, br, zstd")
@@ -70,22 +71,63 @@ func applyClaudeHeaders(req *http.Request, clientReq *http.Request, apiKey strin
 	}
 }
 
-// copyClaudePassthroughHeaders copies headers from client request, excluding hop-by-hop and auth
+// copyClaudePassthroughHeaders copies headers from client request, excluding hop-by-hop, auth, and proxy headers
 func copyClaudePassthroughHeaders(dst, src http.Header) {
 	if src == nil {
 		return
 	}
 
-	// Headers to skip (hop-by-hop, auth, and headers we'll set explicitly)
+	// Headers to skip (hop-by-hop, auth, proxy/privacy, and headers we'll set explicitly)
 	skipHeaders := map[string]bool{
+		// Hop-by-hop headers
 		"connection":        true,
 		"keep-alive":        true,
 		"transfer-encoding": true,
 		"upgrade":           true,
-		"authorization":     true,
-		"x-api-key":         true,
-		"host":              true,
-		"content-length":    true,
+
+		// Auth headers (we set these explicitly)
+		"authorization": true,
+		"x-api-key":     true,
+
+		// Headers set by HTTP client
+		"host":           true,
+		"content-length": true,
+
+		// Proxy/forwarding headers (privacy protection)
+		"x-forwarded-for":    true,
+		"x-forwarded-host":   true,
+		"x-forwarded-proto":  true,
+		"x-forwarded-port":   true,
+		"x-forwarded-server": true,
+		"x-real-ip":          true,
+		"x-client-ip":        true,
+		"x-originating-ip":   true,
+		"x-remote-ip":        true,
+		"x-remote-addr":      true,
+		"forwarded":          true,
+
+		// CDN/Cloud provider headers
+		"cf-connecting-ip": true,
+		"cf-ipcountry":     true,
+		"cf-ray":           true,
+		"cf-visitor":       true,
+		"true-client-ip":   true,
+		"fastly-client-ip": true,
+		"x-azure-clientip": true,
+		"x-azure-fdid":     true,
+		"x-azure-ref":      true,
+
+		// Tracing headers
+		"x-request-id":      true,
+		"x-correlation-id":  true,
+		"x-trace-id":        true,
+		"x-amzn-trace-id":   true,
+		"x-b3-traceid":      true,
+		"x-b3-spanid":       true,
+		"x-b3-parentspanid": true,
+		"x-b3-sampled":      true,
+		"traceparent":       true,
+		"tracestate":        true,
 	}
 
 	for k, vv := range src {

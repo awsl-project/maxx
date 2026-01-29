@@ -73,8 +73,8 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 	case domain.ClientTypeClaude:
 		// Claude: Use CLI-style headers with passthrough support
 		applyClaudeHeaders(upstreamReq, req, a.provider.Config.Custom.APIKey, stream)
-		// Process request body: extract betas to header, handle thinking constraints
-		requestBody = processClaudeRequestBody(requestBody, upstreamReq)
+		// Process request body: extract betas to header, handle thinking constraints, apply cloaking
+		requestBody = processClaudeRequestBody(requestBody, upstreamReq, req)
 		upstreamReq.Body = io.NopCloser(bytes.NewReader(requestBody))
 	case domain.ClientTypeCodex:
 		// Codex: Use Codex CLI-style headers with passthrough support
