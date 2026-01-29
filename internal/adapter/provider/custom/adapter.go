@@ -71,8 +71,8 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 	// Set headers based on client type
 	switch clientType {
 	case domain.ClientTypeClaude:
-		// Claude: Use CLI-style headers for better compatibility
-		applyClaudeHeaders(upstreamReq, a.provider.Config.Custom.APIKey, stream)
+		// Claude: Use CLI-style headers with passthrough support
+		applyClaudeHeaders(upstreamReq, req, a.provider.Config.Custom.APIKey, stream)
 	case domain.ClientTypeCodex:
 		// Codex: Use Codex CLI-style headers with passthrough support
 		applyCodexHeaders(upstreamReq, req, a.provider.Config.Custom.APIKey)
