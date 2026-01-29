@@ -2,6 +2,7 @@ package custom
 
 import (
 	"net/http"
+	"strings"
 )
 
 const (
@@ -61,7 +62,7 @@ func copyCodexPassthroughHeaders(dst, src http.Header) {
 	}
 
 	for k, vv := range src {
-		if skipHeaders[http.CanonicalHeaderKey(k)] {
+		if skipHeaders[strings.ToLower(k)] {
 			continue
 		}
 		for _, v := range vv {
