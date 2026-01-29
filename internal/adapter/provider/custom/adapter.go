@@ -69,10 +69,17 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 	}
 
 	// Set headers based on client type
-	if clientType == domain.ClientTypeClaude {
+	switch clientType {
+	case domain.ClientTypeClaude:
 		// Claude: Use CLI-style headers for better compatibility
 		applyClaudeHeaders(upstreamReq, a.provider.Config.Custom.APIKey, stream)
-	} else {
+	case domain.ClientTypeCodex:
+		// Codex: Use Codex CLI-style headers with passthrough support
+		applyCodexHeaders(upstreamReq, req, a.provider.Config.Custom.APIKey)
+	case domain.ClientTypeGemini:
+		// Gemini: Use Gemini-style headers with passthrough support
+		applyGeminiHeaders(upstreamReq, req, a.provider.Config.Custom.APIKey)
+	default:
 		// Other types: Preserve original header forwarding logic
 		originalHeaders := ctxutil.GetRequestHeaders(ctx)
 		upstreamReq.Header = originalHeaders
