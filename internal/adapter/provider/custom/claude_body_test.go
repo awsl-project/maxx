@@ -304,3 +304,22 @@ func TestFieldOrderWithThinking(t *testing.T) {
 
 	t.Logf("Reordered body: %s", resultStr)
 }
+
+func TestNoDuplicateSystemPromptInjection(t *testing.T) {
+	// Body that already has Claude Code system prompt
+	body := []byte(`{
+		"model":"claude-3-5-sonnet",
+		"messages":[{"role":"user","content":"hello"}],
+		"system":[{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."},{"type":"text","text":"Additional instructions"}]
+	}`)
+
+	result := injectClaudeCodeSystemPrompt(body)
+
+	// Count occurrences of "Claude Code"
+	count := strings.Count(string(result), "Claude Code")
+	if count != 1 {
+		t.Errorf("Expected 1 occurrence of 'Claude Code', got %d", count)
+	}
+
+	t.Logf("Result (no duplicate): %s", string(result))
+}

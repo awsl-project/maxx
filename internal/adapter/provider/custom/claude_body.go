@@ -84,8 +84,14 @@ func isClaudeCodeClient(userAgent string) bool {
 
 // injectClaudeCodeSystemPrompt injects Claude Code system prompt into the request.
 // Prepends the Claude Code system prompt to existing system entries.
+// Skips injection if system already contains Claude Code identity.
 func injectClaudeCodeSystemPrompt(body []byte) []byte {
 	system := gjson.GetBytes(body, "system")
+
+	// Check if system already contains Claude Code identity
+	if system.Exists() && strings.Contains(system.Raw, "Claude Code") {
+		return body
+	}
 
 	// Create Claude Code system instruction entry with correct field order: type, text
 	// Using json.RawMessage to preserve field order
