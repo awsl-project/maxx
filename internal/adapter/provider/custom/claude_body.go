@@ -3,7 +3,6 @@ package custom
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"net/http"
 	"regexp"
 	"strings"
 
@@ -19,30 +18,23 @@ const claudeCodeSystemPrompt = `You are Claude Code, Anthropic's official CLI fo
 var userIDPattern = regexp.MustCompile(`^user_[a-fA-F0-9]{64}_account__session_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // processClaudeRequestBody processes Claude request body before sending to upstream.
-// It extracts betas to header, handles thinking/tool_choice constraints,
-// and applies cloaking for non-Claude Code clients.
-// Returns the processed body.
-func processClaudeRequestBody(body []byte, req *http.Request, clientReq *http.Request) []byte {
-	// 1. Extract betas from body and merge to Anthropic-Beta header
-	var betas []string
-	betas, body = extractAndRemoveBetas(body)
-	if len(betas) > 0 {
-		mergeBetasToHeader(req, betas)
-	}
+// Following CLIProxyAPI order:
+// 1. applyCloaking (system prompt injection, fake user_id)
+// 2. disableThinkingIfToolChoiceForced
+// 3. extractAndRemoveBetas
+// Returns processed body and extra betas for header.
+func processClaudeRequestBody(body []byte, clientUserAgent string) ([]byte, []string) {
+	// 1. Apply cloaking (system prompt injection, fake user_id)
+	body = applyCloaking(body, clientUserAgent)
 
-	// 2. Apply cloaking for non-Claude Code clients
-	// This includes: system prompt injection, fake user_id injection
-	clientUA := ""
-	if clientReq != nil {
-		clientUA = clientReq.Header.Get("User-Agent")
-	}
-	body = applyCloaking(body, clientUA)
-
-	// 3. Disable thinking if tool_choice forces tool use
-	// Anthropic API does not allow thinking when tool_choice is set to "any" or "tool"
+	// 2. Disable thinking if tool_choice forces tool use
 	body = disableThinkingIfToolChoiceForced(body)
 
-	return body
+	// 3. Extract betas from body (to be added to header)
+	var extraBetas []string
+	extraBetas, body = extractAndRemoveBetas(body)
+
+	return body, extraBetas
 }
 
 // applyCloaking applies cloaking transformations for non-Claude Code clients.
@@ -143,6 +135,19 @@ func generateFakeUserID() string {
 	return "user_" + hexPart + "_account__session_" + sessionUUID
 }
 
+// disableThinkingIfToolChoiceForced checks if tool_choice forces tool use and disables thinking.
+// Anthropic API does not allow thinking when tool_choice is set to "any" or "tool".
+// See: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#important-considerations
+func disableThinkingIfToolChoiceForced(body []byte) []byte {
+	toolChoiceType := gjson.GetBytes(body, "tool_choice.type").String()
+	// "auto" is allowed with thinking, but "any" or "tool" (specific tool) are not
+	if toolChoiceType == "any" || toolChoiceType == "tool" {
+		// Remove thinking configuration entirely to avoid API error
+		body, _ = sjson.DeleteBytes(body, "thinking")
+	}
+	return body
+}
+
 // extractAndRemoveBetas extracts betas array from request body and removes it.
 // Returns the extracted betas and the modified body.
 func extractAndRemoveBetas(body []byte) ([]string, []byte) {
@@ -164,54 +169,4 @@ func extractAndRemoveBetas(body []byte) ([]string, []byte) {
 
 	body, _ = sjson.DeleteBytes(body, "betas")
 	return betas, body
-}
-
-// mergeBetasToHeader merges extracted betas into Anthropic-Beta header.
-// Existing header values are preserved, duplicates are avoided.
-func mergeBetasToHeader(req *http.Request, betas []string) {
-	if len(betas) == 0 {
-		return
-	}
-
-	// Get existing header value
-	existing := req.Header.Get("Anthropic-Beta")
-	existingSet := make(map[string]bool)
-
-	if existing != "" {
-		for _, b := range strings.Split(existing, ",") {
-			existingSet[strings.TrimSpace(b)] = true
-		}
-	}
-
-	// Add new betas that don't already exist
-	var newBetas []string
-	for _, b := range betas {
-		if !existingSet[b] {
-			newBetas = append(newBetas, b)
-			existingSet[b] = true
-		}
-	}
-
-	// Merge all betas
-	if len(newBetas) > 0 {
-		var allBetas []string
-		if existing != "" {
-			allBetas = append(allBetas, existing)
-		}
-		allBetas = append(allBetas, newBetas...)
-		req.Header.Set("Anthropic-Beta", strings.Join(allBetas, ","))
-	}
-}
-
-// disableThinkingIfToolChoiceForced checks if tool_choice forces tool use and disables thinking.
-// Anthropic API does not allow thinking when tool_choice is set to "any" or "tool".
-// See: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#important-considerations
-func disableThinkingIfToolChoiceForced(body []byte) []byte {
-	toolChoiceType := gjson.GetBytes(body, "tool_choice.type").String()
-	// "auto" is allowed with thinking, but "any" or "tool" (specific tool) are not
-	if toolChoiceType == "any" || toolChoiceType == "tool" {
-		// Remove thinking configuration entirely to avoid API error
-		body, _ = sjson.DeleteBytes(body, "thinking")
-	}
-	return body
 }

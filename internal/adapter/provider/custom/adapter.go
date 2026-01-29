@@ -71,10 +71,19 @@ func (a *CustomAdapter) Execute(ctx context.Context, w http.ResponseWriter, req 
 	// Set headers based on client type
 	switch clientType {
 	case domain.ClientTypeClaude:
-		// Claude: Use CLI-style headers with passthrough support
-		applyClaudeHeaders(upstreamReq, req, a.provider.Config.Custom.APIKey, stream)
-		// Process request body: extract betas to header, handle thinking constraints, apply cloaking
-		requestBody = processClaudeRequestBody(requestBody, upstreamReq, req)
+		// Claude: Following CLIProxyAPI pattern
+		// 1. Process body first (get extraBetas)
+		clientUA := ""
+		if req != nil {
+			clientUA = req.Header.Get("User-Agent")
+		}
+		var extraBetas []string
+		requestBody, extraBetas = processClaudeRequestBody(requestBody, clientUA)
+
+		// 2. Set headers (pass extraBetas for Anthropic-Beta header)
+		applyClaudeHeaders(upstreamReq, req, a.provider.Config.Custom.APIKey, stream, extraBetas)
+
+		// 3. Update request body
 		upstreamReq.Body = io.NopCloser(bytes.NewReader(requestBody))
 	case domain.ClientTypeCodex:
 		// Codex: Use Codex CLI-style headers with passthrough support
