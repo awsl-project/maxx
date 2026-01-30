@@ -730,7 +730,7 @@ export class HttpTransport implements Transport {
     }
 
     this.connectPromise = new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this.config.wsURL);
+      this.ws = new WebSocket(this.buildWsUrl());
 
       this.ws.onopen = () => {
         const isReconnect = this.reconnectAttempts > 0;
@@ -781,6 +781,21 @@ export class HttpTransport implements Transport {
 
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  private buildWsUrl(): string {
+    if (!this.authToken) {
+      return this.config.wsURL;
+    }
+
+    try {
+      const url = new URL(this.config.wsURL, window.location.href);
+      url.searchParams.set('token', this.authToken);
+      return url.toString();
+    } catch {
+      const separator = this.config.wsURL.includes('?') ? '&' : '?';
+      return `${this.config.wsURL}${separator}token=${encodeURIComponent(this.authToken)}`;
+    }
   }
 
   private scheduleReconnect(): void {

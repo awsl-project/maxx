@@ -15,7 +15,12 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // 生产环境需要严格检查
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		host := r.Host
+		return strings.HasPrefix(origin, "http://"+host) || strings.HasPrefix(origin, "https://"+host)
 	},
 }
 
@@ -54,6 +59,14 @@ func (h *WebSocketHub) run() {
 }
 
 func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	auth := NewAuthMiddleware()
+	if auth.IsEnabled() {
+		if !validateWebSocketAuth(r, auth) {
+			writeUnauthorized(w)
+			return
+		}
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -244,4 +257,21 @@ func countNewlines(chunks [][]byte) int {
 		}
 	}
 	return count
+}
+
+func validateWebSocketAuth(r *http.Request, auth *AuthMiddleware) bool {
+	if auth == nil || !auth.IsEnabled() {
+		return true
+	}
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		authHeader := r.Header.Get(AuthHeader)
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+	if token == "" {
+		return false
+	}
+	return auth.ValidateToken(token)
 }

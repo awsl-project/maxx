@@ -5,11 +5,12 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	ctxutil "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
-	ctxutil "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/pricing"
@@ -22,18 +23,18 @@ import (
 
 // Executor handles request execution with retry logic
 type Executor struct {
-	router             *router.Router
-	proxyRequestRepo   repository.ProxyRequestRepository
-	attemptRepo        repository.ProxyUpstreamAttemptRepository
-	retryConfigRepo    repository.RetryConfigRepository
-	sessionRepo        repository.SessionRepository
-	modelMappingRepo   repository.ModelMappingRepository
-	settingsRepo       repository.SystemSettingRepository
-	broadcaster        event.Broadcaster
-	projectWaiter      *waiter.ProjectWaiter
-	instanceID         string
-	statsAggregator    *stats.StatsAggregator
-	converter          *converter.Registry
+	router           *router.Router
+	proxyRequestRepo repository.ProxyRequestRepository
+	attemptRepo      repository.ProxyUpstreamAttemptRepository
+	retryConfigRepo  repository.RetryConfigRepository
+	sessionRepo      repository.SessionRepository
+	modelMappingRepo repository.ModelMappingRepository
+	settingsRepo     repository.SystemSettingRepository
+	broadcaster      event.Broadcaster
+	projectWaiter    *waiter.ProjectWaiter
+	instanceID       string
+	statsAggregator  *stats.StatsAggregator
+	converter        *converter.Registry
 }
 
 // NewExecutor creates a new executor
@@ -51,18 +52,18 @@ func NewExecutor(
 	statsAggregator *stats.StatsAggregator,
 ) *Executor {
 	return &Executor{
-		router:             r,
-		proxyRequestRepo:   prr,
-		attemptRepo:        ar,
-		retryConfigRepo:    rcr,
-		sessionRepo:        sessionRepo,
-		modelMappingRepo:   modelMappingRepo,
-		settingsRepo:       settingsRepo,
-		broadcaster:        bc,
-		projectWaiter:      projectWaiter,
-		instanceID:         instanceID,
-		statsAggregator:    statsAggregator,
-		converter:          converter.GetGlobalRegistry(),
+		router:           r,
+		proxyRequestRepo: prr,
+		attemptRepo:      ar,
+		retryConfigRepo:  rcr,
+		sessionRepo:      sessionRepo,
+		modelMappingRepo: modelMappingRepo,
+		settingsRepo:     settingsRepo,
+		broadcaster:      bc,
+		projectWaiter:    projectWaiter,
+		instanceID:       instanceID,
+		statsAggregator:  statsAggregator,
+		converter:        converter.GetGlobalRegistry(),
 	}
 }
 
@@ -91,23 +92,25 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		APITokenID:   apiTokenID,
 	}
 
-	// Capture client's original request info
+	// Capture client's original request info (optional)
 	requestURI := ctxutil.GetRequestURI(ctx)
 	requestHeaders := ctxutil.GetRequestHeaders(ctx)
 	requestBody := ctxutil.GetRequestBody(ctx)
-	headers := flattenHeaders(requestHeaders)
-	// Go stores Host separately from headers, add it explicitly
-	if req.Host != "" {
-		if headers == nil {
-			headers = make(map[string]string)
+	if !e.shouldClearRequestDetail() {
+		headers := flattenHeaders(requestHeaders)
+		// Go stores Host separately from headers, add it explicitly
+		if req.Host != "" {
+			if headers == nil {
+				headers = make(map[string]string)
+			}
+			headers["Host"] = req.Host
 		}
-		headers["Host"] = req.Host
-	}
-	proxyReq.RequestInfo = &domain.RequestInfo{
-		Method:  req.Method,
-		URL:     requestURI,
-		Headers: headers,
-		Body:    string(requestBody),
+		proxyReq.RequestInfo = &domain.RequestInfo{
+			Method:  req.Method,
+			URL:     requestURI,
+			Headers: sanitizeHeaders(headers),
+			Body:    string(requestBody),
+		}
 	}
 
 	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
@@ -339,7 +342,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 				StartTime:      attemptStartTime,
 				RequestModel:   requestModel,
 				MappedModel:    mappedModel,
-				RequestInfo:    proxyReq.RequestInfo, // Use original request info initially
+			}
+			if !e.shouldClearRequestDetail() {
+				attemptRecord.RequestInfo = proxyReq.RequestInfo // Use original request info initially
 			}
 			if err := e.attemptRepo.Create(attemptRecord); err != nil {
 				log.Printf("[Executor] Failed to create attempt record: %v", err)
@@ -456,10 +461,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 				// Capture actual client response (what was sent to client, e.g. Claude format)
 				// This is different from attemptRecord.ResponseInfo which is upstream response (Gemini format)
-				proxyReq.ResponseInfo = &domain.ResponseInfo{
-					Status:  responseCapture.StatusCode(),
-					Headers: responseCapture.CapturedHeaders(),
-					Body:    responseCapture.Body(),
+				if !e.shouldClearRequestDetail() {
+					proxyReq.ResponseInfo = &domain.ResponseInfo{
+						Status:  responseCapture.StatusCode(),
+						Headers: sanitizeHeaders(responseCapture.CapturedHeaders()),
+						Body:    responseCapture.Body(),
+					}
 				}
 				proxyReq.StatusCode = responseCapture.StatusCode()
 
@@ -546,10 +553,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 			// Capture actual client response (even on failure, if any response was sent)
 			if responseCapture.Body() != "" {
-				proxyReq.ResponseInfo = &domain.ResponseInfo{
-					Status:  responseCapture.StatusCode(),
-					Headers: responseCapture.CapturedHeaders(),
-					Body:    responseCapture.Body(),
+				if !e.shouldClearRequestDetail() {
+					proxyReq.ResponseInfo = &domain.ResponseInfo{
+						Status:  responseCapture.StatusCode(),
+						Headers: sanitizeHeaders(responseCapture.CapturedHeaders()),
+						Body:    responseCapture.Body(),
+					}
 				}
 				proxyReq.StatusCode = responseCapture.StatusCode()
 
@@ -855,11 +864,13 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 
 			switch event.Type {
 			case domain.EventRequestInfo:
-				if event.RequestInfo != nil {
+				if event.RequestInfo != nil && !e.shouldClearRequestDetail() {
+					event.RequestInfo.Headers = sanitizeHeaders(event.RequestInfo.Headers)
 					attempt.RequestInfo = event.RequestInfo
 				}
 			case domain.EventResponseInfo:
-				if event.ResponseInfo != nil {
+				if event.ResponseInfo != nil && !e.shouldClearRequestDetail() {
+					event.ResponseInfo.Headers = sanitizeHeaders(event.ResponseInfo.Headers)
 					attempt.ResponseInfo = event.ResponseInfo
 				}
 			case domain.EventMetrics:
@@ -906,12 +917,14 @@ func (e *Executor) processAdapterEventsRealtime(eventChan domain.AdapterEventCha
 
 		switch event.Type {
 		case domain.EventRequestInfo:
-			if event.RequestInfo != nil {
+			if event.RequestInfo != nil && !e.shouldClearRequestDetail() {
+				event.RequestInfo.Headers = sanitizeHeaders(event.RequestInfo.Headers)
 				attempt.RequestInfo = event.RequestInfo
 				needsBroadcast = true
 			}
 		case domain.EventResponseInfo:
-			if event.ResponseInfo != nil {
+			if event.ResponseInfo != nil && !e.shouldClearRequestDetail() {
+				event.ResponseInfo.Headers = sanitizeHeaders(event.ResponseInfo.Headers)
 				attempt.ResponseInfo = event.ResponseInfo
 				needsBroadcast = true
 			}
@@ -946,19 +959,58 @@ func (e *Executor) processAdapterEventsRealtime(eventChan domain.AdapterEventCha
 	}
 }
 
+// sanitizeHeaders removes sensitive values before persisting/broadcasting
+func sanitizeHeaders(headers map[string]string) map[string]string {
+	if headers == nil {
+		return nil
+	}
+	clean := make(map[string]string, len(headers))
+	for key, value := range headers {
+		lower := strings.ToLower(key)
+		if isSensitiveHeader(lower) {
+			clean[key] = "[REDACTED]"
+			continue
+		}
+		clean[key] = value
+	}
+	return clean
+}
+
+func isSensitiveHeader(lowerKey string) bool {
+	sensitive := []string{
+		"authorization",
+		"proxy-authorization",
+		"x-api-key",
+		"api-key",
+		"x-azure-api-key",
+		"x-goog-api-key",
+		"x-openai-api-key",
+		"x-openai-key",
+		"x-claude-api-key",
+		"cookie",
+		"set-cookie",
+	}
+	for _, key := range sensitive {
+		if lowerKey == key {
+			return true
+		}
+	}
+	return strings.Contains(lowerKey, "token") || strings.Contains(lowerKey, "secret")
+}
+
 // getRequestDetailRetentionSeconds 获取请求详情保留秒数
 // 返回值：-1=永久保存，0=不保存，>0=保留秒数
 func (e *Executor) getRequestDetailRetentionSeconds() int {
 	if e.settingsRepo == nil {
-		return -1 // 默认永久保存
+		return 0 // 默认不保存详情
 	}
 	val, err := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSeconds)
 	if err != nil || val == "" {
-		return -1 // 默认永久保存
+		return 0 // 默认不保存详情
 	}
 	seconds, err := strconv.Atoi(val)
 	if err != nil {
-		return -1
+		return 0
 	}
 	return seconds
 }
@@ -983,4 +1035,3 @@ func getProviderMultiplier(provider *domain.Provider, clientType domain.ClientTy
 	}
 	return 10000
 }
-

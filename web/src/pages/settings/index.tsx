@@ -277,7 +277,7 @@ function DataRetentionSection() {
   const { t } = useTranslation();
 
   const requestRetentionHours = settings?.request_retention_hours ?? '168';
-  const requestDetailRetentionSeconds = settings?.request_detail_retention_seconds ?? '-1';
+  const requestDetailRetentionSeconds = settings?.request_detail_retention_seconds ?? '0';
 
   const [requestDraft, setRequestDraft] = useState('');
   const [detailDraft, setDetailDraft] = useState('');

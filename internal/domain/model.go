@@ -353,18 +353,18 @@ type ProxyUpstreamAttempt struct {
 
 // AttemptCostData contains minimal data needed for cost recalculation
 type AttemptCostData struct {
-	ID               uint64
-	ProxyRequestID   uint64
-	ResponseModel    string
-	MappedModel      string
-	RequestModel     string
-	InputTokenCount  uint64
-	OutputTokenCount uint64
-	CacheReadCount   uint64
-	CacheWriteCount  uint64
+	ID                uint64
+	ProxyRequestID    uint64
+	ResponseModel     string
+	MappedModel       string
+	RequestModel      string
+	InputTokenCount   uint64
+	OutputTokenCount  uint64
+	CacheReadCount    uint64
+	CacheWriteCount   uint64
 	Cache5mWriteCount uint64
 	Cache1hWriteCount uint64
-	Cost             uint64
+	Cost              uint64
 }
 
 // 重试配置
@@ -442,7 +442,7 @@ type SystemSetting struct {
 const (
 	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyRequestDetailRetentionSeconds = "request_detail_retention_seconds" // 请求详情保留秒数，-1=永久保存(默认)，0=不保存，>0=保留秒数
+	SettingKeyRequestDetailRetentionSeconds = "request_detail_retention_seconds" // 请求详情保留秒数，-1=永久保存，0=不保存(默认)，>0=保留秒数
 	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
 	SettingKeyAutoSortAntigravity           = "auto_sort_antigravity"            // 是否自动排序 Antigravity 路由，"true" 或 "false"
@@ -564,10 +564,10 @@ type ProviderStats struct {
 	ProviderID uint64 `json:"providerID"`
 
 	// 请求统计
-	TotalRequests     uint64  `json:"totalRequests"`
+	TotalRequests      uint64  `json:"totalRequests"`
 	SuccessfulRequests uint64  `json:"successfulRequests"`
-	FailedRequests    uint64  `json:"failedRequests"`
-	SuccessRate       float64 `json:"successRate"` // 0-100
+	FailedRequests     uint64  `json:"failedRequests"`
+	SuccessRate        float64 `json:"successRate"` // 0-100
 
 	// 活动请求（正在处理中）
 	ActiveRequests uint64 `json:"activeRequests"`
