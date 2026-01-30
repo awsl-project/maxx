@@ -170,7 +170,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 		})
 	}
 
-	// 7. Export APITokens (without token value)
+	// 7. Export APITokens (including token value for seamless restore)
 	tokens, err := s.apiTokenRepo.List()
 	if err != nil {
 		return nil, fmt.Errorf("failed to export api tokens: %w", err)
@@ -179,6 +179,8 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 		apiTokenIDToName[t.ID] = t.Name
 		backup.Data.APITokens = append(backup.Data.APITokens, domain.BackupAPIToken{
 			Name:        t.Name,
+			Token:       t.Token,
+			TokenPrefix: t.TokenPrefix,
 			Description: t.Description,
 			ProjectSlug: projectIDToSlug[t.ProjectID],
 			IsEnabled:   t.IsEnabled,
@@ -653,11 +655,22 @@ func (s *BackupService) importAPITokens(tokens []domain.BackupAPIToken, opts dom
 			}
 		}
 
-		// Generate new token
-		plain, prefix, err := generateAPIToken()
-		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to generate token for '%s': %v", bt.Name, err))
-			continue
+		// Use exported token if available, otherwise generate new one
+		var plain, prefix string
+		var tokenRestored bool
+		if bt.Token != "" {
+			// Use the token from backup
+			plain = bt.Token
+			prefix = bt.TokenPrefix
+			tokenRestored = true
+		} else {
+			// Generate new token (legacy backup without token value)
+			var err error
+			plain, prefix, err = generateAPIToken()
+			if err != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to generate token for '%s': %v", bt.Name, err))
+				continue
+			}
 		}
 
 		t := &domain.APIToken{
@@ -676,7 +689,11 @@ func (s *BackupService) importAPITokens(tokens []domain.BackupAPIToken, opts dom
 				continue
 			}
 			ctx.apiTokenNameToID[bt.Name] = t.ID
-			result.Warnings = append(result.Warnings, fmt.Sprintf("APIToken '%s' created with new token: %s", bt.Name, plain))
+			if tokenRestored {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("APIToken '%s' restored with original token", bt.Name))
+			} else {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("APIToken '%s' created with new token: %s", bt.Name, plain))
+			}
 		}
 		summary.Imported++
 	}

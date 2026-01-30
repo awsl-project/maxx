@@ -167,6 +167,9 @@ func main() {
 	if err := cachedProjectRepo.Load(); err != nil {
 		log.Printf("Warning: Failed to load projects cache: %v", err)
 	}
+	if err := cachedAPITokenRepo.Load(); err != nil {
+		log.Printf("Warning: Failed to load API tokens cache: %v", err)
+	}
 	if err := cachedModelMappingRepo.Load(); err != nil {
 		log.Printf("Warning: Failed to load model mappings cache: %v", err)
 	}

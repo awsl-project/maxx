@@ -15,14 +15,14 @@ type BackupFile struct {
 
 // BackupData contains all exportable entities
 type BackupData struct {
-	SystemSettings    []BackupSystemSetting    `json:"systemSettings,omitempty"`
-	Providers         []BackupProvider         `json:"providers,omitempty"`
-	Projects          []BackupProject          `json:"projects,omitempty"`
-	RetryConfigs      []BackupRetryConfig      `json:"retryConfigs,omitempty"`
-	Routes            []BackupRoute            `json:"routes,omitempty"`
-	RoutingStrategies []BackupRoutingStrategy  `json:"routingStrategies,omitempty"`
-	APITokens         []BackupAPIToken         `json:"apiTokens,omitempty"`
-	ModelMappings     []BackupModelMapping     `json:"modelMappings,omitempty"`
+	SystemSettings    []BackupSystemSetting   `json:"systemSettings,omitempty"`
+	Providers         []BackupProvider        `json:"providers,omitempty"`
+	Projects          []BackupProject         `json:"projects,omitempty"`
+	RetryConfigs      []BackupRetryConfig     `json:"retryConfigs,omitempty"`
+	Routes            []BackupRoute           `json:"routes,omitempty"`
+	RoutingStrategies []BackupRoutingStrategy `json:"routingStrategies,omitempty"`
+	APITokens         []BackupAPIToken        `json:"apiTokens,omitempty"`
+	ModelMappings     []BackupModelMapping    `json:"modelMappings,omitempty"`
 }
 
 // BackupSystemSetting represents a system setting for backup
@@ -49,19 +49,19 @@ type BackupProject struct {
 
 // BackupRetryConfig represents a retry config for backup
 type BackupRetryConfig struct {
-	Name              string        `json:"name"`
-	IsDefault         bool          `json:"isDefault"`
-	MaxRetries        int           `json:"maxRetries"`
-	InitialIntervalMs int64         `json:"initialIntervalMs"`
-	BackoffRate       float64       `json:"backoffRate"`
-	MaxIntervalMs     int64         `json:"maxIntervalMs"`
+	Name              string  `json:"name"`
+	IsDefault         bool    `json:"isDefault"`
+	MaxRetries        int     `json:"maxRetries"`
+	InitialIntervalMs int64   `json:"initialIntervalMs"`
+	BackoffRate       float64 `json:"backoffRate"`
+	MaxIntervalMs     int64   `json:"maxIntervalMs"`
 }
 
 // BackupRoute represents a route for backup (using names instead of IDs)
 type BackupRoute struct {
 	IsEnabled       bool       `json:"isEnabled"`
 	IsNative        bool       `json:"isNative"`
-	ProjectSlug     string     `json:"projectSlug"`     // empty = global
+	ProjectSlug     string     `json:"projectSlug"` // empty = global
 	ClientType      ClientType `json:"clientType"`
 	ProviderName    string     `json:"providerName"`
 	Position        int        `json:"position"`
@@ -75,9 +75,11 @@ type BackupRoutingStrategy struct {
 	Config      *RoutingStrategyConfig `json:"config,omitempty"`
 }
 
-// BackupAPIToken represents an API token for backup (token value not exported)
+// BackupAPIToken represents an API token for backup
 type BackupAPIToken struct {
 	Name        string     `json:"name"`
+	Token       string     `json:"token,omitempty"`       // plaintext token for import
+	TokenPrefix string     `json:"tokenPrefix,omitempty"` // display prefix
 	Description string     `json:"description"`
 	ProjectSlug string     `json:"projectSlug"` // empty = global
 	IsEnabled   bool       `json:"isEnabled"`
@@ -122,9 +124,9 @@ type ImportResult struct {
 // NewImportResult creates a new ImportResult with initialized fields
 func NewImportResult() *ImportResult {
 	return &ImportResult{
-		Success: true,
-		Summary: make(map[string]ImportSummary),
-		Errors:  []string{},
+		Success:  true,
+		Summary:  make(map[string]ImportSummary),
+		Errors:   []string{},
 		Warnings: []string{},
 	}
 }
