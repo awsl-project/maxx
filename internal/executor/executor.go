@@ -91,23 +91,25 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 		APITokenID:   apiTokenID,
 	}
 
-	// Capture client's original request info
-	requestURI := ctxutil.GetRequestURI(ctx)
-	requestHeaders := ctxutil.GetRequestHeaders(ctx)
-	requestBody := ctxutil.GetRequestBody(ctx)
-	headers := flattenHeaders(requestHeaders)
-	// Go stores Host separately from headers, add it explicitly
-	if req.Host != "" {
-		if headers == nil {
-			headers = make(map[string]string)
+	// Capture client's original request info unless detail retention is disabled.
+	if !e.shouldClearRequestDetail() {
+		requestURI := ctxutil.GetRequestURI(ctx)
+		requestHeaders := ctxutil.GetRequestHeaders(ctx)
+		requestBody := ctxutil.GetRequestBody(ctx)
+		headers := flattenHeaders(requestHeaders)
+		// Go stores Host separately from headers, add it explicitly
+		if req.Host != "" {
+			if headers == nil {
+				headers = make(map[string]string)
+			}
+			headers["Host"] = req.Host
 		}
-		headers["Host"] = req.Host
-	}
-	proxyReq.RequestInfo = &domain.RequestInfo{
-		Method:  req.Method,
-		URL:     requestURI,
-		Headers: headers,
-		Body:    string(requestBody),
+		proxyReq.RequestInfo = &domain.RequestInfo{
+			Method:  req.Method,
+			URL:     requestURI,
+			Headers: headers,
+			Body:    string(requestBody),
+		}
 	}
 
 	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
@@ -456,10 +458,12 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 				// Capture actual client response (what was sent to client, e.g. Claude format)
 				// This is different from attemptRecord.ResponseInfo which is upstream response (Gemini format)
-				proxyReq.ResponseInfo = &domain.ResponseInfo{
-					Status:  responseCapture.StatusCode(),
-					Headers: responseCapture.CapturedHeaders(),
-					Body:    responseCapture.Body(),
+				if !e.shouldClearRequestDetail() {
+					proxyReq.ResponseInfo = &domain.ResponseInfo{
+						Status:  responseCapture.StatusCode(),
+						Headers: responseCapture.CapturedHeaders(),
+						Body:    responseCapture.Body(),
+					}
 				}
 				proxyReq.StatusCode = responseCapture.StatusCode()
 
@@ -546,12 +550,14 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 
 			// Capture actual client response (even on failure, if any response was sent)
 			if responseCapture.Body() != "" {
-				proxyReq.ResponseInfo = &domain.ResponseInfo{
-					Status:  responseCapture.StatusCode(),
-					Headers: responseCapture.CapturedHeaders(),
-					Body:    responseCapture.Body(),
-				}
 				proxyReq.StatusCode = responseCapture.StatusCode()
+				if !e.shouldClearRequestDetail() {
+					proxyReq.ResponseInfo = &domain.ResponseInfo{
+						Status:  responseCapture.StatusCode(),
+						Headers: responseCapture.CapturedHeaders(),
+						Body:    responseCapture.Body(),
+					}
+				}
 
 				// Extract token usage from final client response
 				if metrics := usage.ExtractFromResponse(responseCapture.Body()); metrics != nil {
@@ -906,12 +912,12 @@ func (e *Executor) processAdapterEventsRealtime(eventChan domain.AdapterEventCha
 
 		switch event.Type {
 		case domain.EventRequestInfo:
-			if event.RequestInfo != nil {
+			if !e.shouldClearRequestDetail() && event.RequestInfo != nil {
 				attempt.RequestInfo = event.RequestInfo
 				needsBroadcast = true
 			}
 		case domain.EventResponseInfo:
-			if event.ResponseInfo != nil {
+			if !e.shouldClearRequestDetail() && event.ResponseInfo != nil {
 				attempt.ResponseInfo = event.ResponseInfo
 				needsBroadcast = true
 			}
