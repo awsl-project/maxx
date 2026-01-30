@@ -789,6 +789,8 @@ export interface BackupRoutingStrategy {
 
 export interface BackupAPIToken {
   name: string;
+  token?: string; // plaintext token for backup/restore
+  tokenPrefix?: string; // display prefix
   description: string;
   projectSlug: string;
   isEnabled: boolean;
