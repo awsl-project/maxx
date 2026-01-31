@@ -20,9 +20,10 @@ type TransformState struct {
 
 // ToolCallState tracks tool call conversion state
 type ToolCallState struct {
-	ID        string
-	Name      string
-	Arguments string
+	ID           string
+	Name         string
+	Arguments    string
+	ContentIndex int // assigned Claude content block index
 }
 
 // Usage tracks token usage during streaming

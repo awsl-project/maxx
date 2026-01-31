@@ -102,7 +102,10 @@ func (c *claudeToOpenAIRequest) Transform(body []byte, model string, stream bool
 				openaiMsg.Content = parts
 			}
 		}
-		openaiReq.Messages = append(openaiReq.Messages, openaiMsg)
+		// Only add message if it has actual content (avoid empty user messages)
+		if openaiMsg.Content != nil || len(openaiMsg.ToolCalls) > 0 {
+			openaiReq.Messages = append(openaiReq.Messages, openaiMsg)
+		}
 	}
 
 	// Convert tools
