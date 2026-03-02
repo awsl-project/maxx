@@ -76,6 +76,7 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", components.AntigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))
 	mux.Handle("/api/codex/", http.StripPrefix("/api", components.CodexHandler))
+	mux.Handle("/api/claude/", http.StripPrefix("/api", components.ClaudeHandler))
 
 	mux.Handle("/v1/messages", components.ProxyHandler)
 	mux.Handle("/v1/messages/", components.ProxyHandler)

@@ -569,6 +569,11 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 		provider.SupportedClientTypes = []domain.ClientType{
 			domain.ClientTypeCodex,
 		}
+	case "claude":
+		// Claude natively supports Claude protocol only
+		provider.SupportedClientTypes = []domain.ClientType{
+			domain.ClientTypeClaude,
+		}
 	case "custom":
 		// Custom providers use their configured SupportedClientTypes
 		// If not set, default to OpenAI

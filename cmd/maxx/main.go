@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom" // Register custom adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"   // Register kiro adapter
 	"github.com/awsl-project/maxx/internal/cooldown"
@@ -341,6 +342,7 @@ func main() {
 	kiroHandler := handler.NewKiroHandler(adminService)
 	codexHandler := handler.NewCodexHandler(adminService, codexQuotaRepo, wsHub)
 	codexHandler.SetTaskService(codexTaskSvc)
+	claudeHandler := handler.NewClaudeHandler(adminService, wsHub)
 
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
@@ -359,6 +361,7 @@ func main() {
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", antigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", kiroHandler))
 	mux.Handle("/api/codex/", http.StripPrefix("/api", codexHandler))
+	mux.Handle("/api/claude/", http.StripPrefix("/api", claudeHandler))
 
 	// Proxy routes - catch all AI API endpoints
 	// Claude API
@@ -398,9 +401,11 @@ func main() {
 		Handler: loggedMux,
 	}
 
-	// Initialize Codex OAuth callback server (start on-demand)
+	// Initialize OAuth callback servers (start on-demand)
 	codexOAuthServer := core.NewCodexOAuthServer(codexHandler)
 	codexHandler.SetOAuthServer(codexOAuthServer)
+	claudeOAuthServer := core.NewClaudeOAuthServer(claudeHandler)
+	claudeHandler.SetOAuthServer(claudeOAuthServer)
 
 	var restartInProgress int32
 

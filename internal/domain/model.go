@@ -89,6 +89,26 @@ type ProviderConfigKiro struct {
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
+type ProviderConfigClaude struct {
+	// 邮箱（用于标识帐号）
+	Email string `json:"email"`
+
+	// Anthropic OAuth refresh_token
+	RefreshToken string `json:"refreshToken"`
+
+	// Access token（持久化存储，减少刷新请求）
+	AccessToken string `json:"accessToken,omitempty"`
+
+	// Access token 过期时间 (RFC3339 格式)
+	ExpiresAt string `json:"expiresAt,omitempty"`
+
+	// Organization UUID
+	OrganizationID string `json:"organizationId,omitempty"`
+
+	// Model 映射: RequestModel → MappedModel
+	ModelMapping map[string]string `json:"modelMapping,omitempty"`
+}
+
 type ProviderConfigCodex struct {
 	// 邮箱（用于标识帐号）
 	Email string `json:"email"`
@@ -169,6 +189,7 @@ type ProviderConfig struct {
 	Antigravity          *ProviderConfigAntigravity `json:"antigravity,omitempty"`
 	Kiro                 *ProviderConfigKiro        `json:"kiro,omitempty"`
 	Codex                *ProviderConfigCodex       `json:"codex,omitempty"`
+	Claude               *ProviderConfigClaude      `json:"claude,omitempty"`
 	// 内部运行时字段，仅用于 NewAdapter 委托，不序列化
 	CLIProxyAPIAntigravity *ProviderConfigCLIProxyAPIAntigravity `json:"-"`
 	CLIProxyAPICodex       *ProviderConfigCLIProxyAPICodex       `json:"-"`

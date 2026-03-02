@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
 	"github.com/awsl-project/maxx/internal/converter"
@@ -79,6 +80,8 @@ type ServerComponents struct {
 	KiroHandler         *handler.KiroHandler
 	CodexHandler        *handler.CodexHandler
 	CodexOAuthServer    *CodexOAuthServer
+	ClaudeHandler       *handler.ClaudeHandler
+	ClaudeOAuthServer   *ClaudeOAuthServer
 	ProjectProxyHandler *handler.ProjectProxyHandler
 	RequestTracker      *RequestTracker
 	PprofManager        *PprofManager
@@ -360,6 +363,9 @@ func InitializeServerComponents(
 	codexHandler := handler.NewCodexHandler(adminService, repos.CodexQuotaRepo, wailsBroadcaster)
 	codexOAuthServer := NewCodexOAuthServer(codexHandler)
 	codexHandler.SetOAuthServer(codexOAuthServer)
+	claudeHandler := handler.NewClaudeHandler(adminService, wailsBroadcaster)
+	claudeOAuthServer := NewClaudeOAuthServer(claudeHandler)
+	claudeHandler.SetOAuthServer(claudeOAuthServer)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, repos.CachedProjectRepo)
 
 	log.Printf("[Core] Creating request tracker for graceful shutdown")
@@ -380,6 +386,8 @@ func InitializeServerComponents(
 		KiroHandler:         kiroHandler,
 		CodexHandler:        codexHandler,
 		CodexOAuthServer:    codexOAuthServer,
+		ClaudeHandler:       claudeHandler,
+		ClaudeOAuthServer:   claudeOAuthServer,
 		ProjectProxyHandler: projectProxyHandler,
 		RequestTracker:      requestTracker,
 		PprofManager:        pprofMgr,
