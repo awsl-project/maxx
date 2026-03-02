@@ -49,6 +49,16 @@ export function ClaudeTokenImport() {
   const [oauthState, setOAuthState] = useState<string | null>(null);
   const [oauthResult, setOAuthResult] = useState<ClaudeOAuthResult | null>(null);
   const oauthWindowRef = useRef<Window | null>(null);
+  const oauthPollRef = useRef<number | null>(null);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (oauthPollRef.current !== null) {
+        clearInterval(oauthPollRef.current);
+      }
+    };
+  }, []);
 
   // Manual callback URL state
   const [callbackUrl, setCallbackUrl] = useState('');
@@ -165,19 +175,33 @@ export function ClaudeTokenImport() {
       const left = window.screenX + (window.outerWidth - width) / 2;
       const top = window.screenY + (window.outerHeight - height) / 2;
 
-      oauthWindowRef.current = window.open(
+      const popup = window.open(
         authURL,
         'Claude OAuth',
         `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
       );
 
+      if (!popup) {
+        // Popup was blocked — user can still use the manual callback URL flow
+        setPopupClosed(true);
+        return;
+      }
+
+      oauthWindowRef.current = popup;
+
       // Monitor window closure
-      const checkWindowClosed = setInterval(() => {
+      if (oauthPollRef.current !== null) {
+        clearInterval(oauthPollRef.current);
+      }
+      oauthPollRef.current = window.setInterval(() => {
         if (oauthWindowRef.current?.closed) {
-          clearInterval(checkWindowClosed);
+          if (oauthPollRef.current !== null) {
+            clearInterval(oauthPollRef.current);
+            oauthPollRef.current = null;
+          }
           setPopupClosed(true);
         }
-      }, 500);
+      }, 500) as unknown as number;
     } catch (err) {
       setOAuthStatus('error');
       setError(
@@ -299,10 +323,9 @@ export function ClaudeTokenImport() {
           {/* Hero Section */}
           <div className="text-center space-y-2 mb-8">
             <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner"
-              style={{ backgroundColor: `${CLAUDE_COLOR}15` }}
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner bg-provider-claude/15"
             >
-              <Sparkles size={32} style={{ color: CLAUDE_COLOR }} />
+              <Sparkles size={32} className="text-provider-claude" />
             </div>
             <h1 className="text-2xl font-bold text-foreground">
               {t('providers.claudeTokenImport.connectTitle')}
@@ -352,8 +375,8 @@ export function ClaudeTokenImport() {
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="bg-muted rounded-2xl p-6 border border-border space-y-6 shadow-sm">
                 <div className="flex items-center gap-3 pb-4 border-b border-border/50">
-                  <div className="p-2 rounded-lg" style={{ backgroundColor: `${CLAUDE_COLOR}15` }}>
-                    <Zap size={18} style={{ color: CLAUDE_COLOR }} />
+                  <div className="p-2 rounded-lg bg-provider-claude/15">
+                    <Zap size={18} className="text-provider-claude" />
                   </div>
                   <div>
                     <h3 className="text-base font-semibold text-foreground">
@@ -472,6 +495,10 @@ export function ClaudeTokenImport() {
                         variant="ghost"
                         size="sm"
                         onClick={() => {
+                          if (oauthPollRef.current !== null) {
+                            clearInterval(oauthPollRef.current);
+                            oauthPollRef.current = null;
+                          }
                           setOAuthStatus('idle');
                           setOAuthState(null);
                           setAuthUrl(null);

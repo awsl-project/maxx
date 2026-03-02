@@ -301,10 +301,9 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
             <div className="flex items-start justify-between gap-6">
               <div className="flex items-center gap-4">
                 <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-sm"
-                  style={{ backgroundColor: `${CLAUDE_COLOR}15` }}
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-sm bg-provider-claude/15"
                 >
-                  <Sparkles size={32} style={{ color: CLAUDE_COLOR }} />
+                  <Sparkles size={32} className="text-provider-claude" />
                 </div>
                 <div>
                   <h3 className="text-xl font-bold text-foreground">{provider.name}</h3>
