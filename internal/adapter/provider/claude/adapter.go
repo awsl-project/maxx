@@ -248,7 +248,9 @@ func (a *ClaudeAdapter) getAccessToken(ctx context.Context, forceRefresh bool) (
 	// Refresh token
 	tokenResp, err := RefreshAccessToken(ctx, config.RefreshToken)
 	if err != nil {
-		if strings.TrimSpace(config.AccessToken) != "" {
+		// On force refresh (401 retry), don't fall back to the old token
+		// since it was already rejected by the upstream
+		if !forceRefresh && strings.TrimSpace(config.AccessToken) != "" {
 			return config.AccessToken, nil
 		}
 		return "", err
