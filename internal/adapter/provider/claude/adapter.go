@@ -123,7 +123,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
-			Headers: flattenHeaders(upstreamReq.Header),
+			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
 			Body:    string(requestBody),
 		})
 	}
@@ -252,7 +252,11 @@ func (a *ClaudeAdapter) getAccessToken(ctx context.Context) (string, error) {
 	}
 
 	// Calculate expiration time (with 60s buffer)
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn-60) * time.Second)
+	ttl := tokenResp.ExpiresIn - 60
+	if ttl < 1 {
+		ttl = 1
+	}
+	expiresAt := time.Now().Add(time.Duration(ttl) * time.Second)
 
 	// Update cache
 	a.tokenMu.Lock()
@@ -403,7 +407,7 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 			if ctx.Err() != nil {
 				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
 			}
-			return nil
+			return domain.NewProxyErrorWithMessage(err, true, "stream read error")
 		}
 	}
 }
@@ -547,7 +551,7 @@ func (a *ClaudeAdapter) applyClaudeHeaders(upstreamReq, clientReq *http.Request,
 
 // isClaudeOAuthToken checks if the token is an OAuth access token
 func isClaudeOAuthToken(token string) bool {
-	return strings.Contains(token, "sk-ant-oat")
+	return strings.HasPrefix(token, "sk-ant-oat")
 }
 
 // ensureHeader sets a header only if the client request doesn't already have it
@@ -599,6 +603,18 @@ func flattenHeaders(h http.Header) map[string]string {
 	for k, v := range h {
 		if len(v) > 0 {
 			result[k] = v[0]
+		}
+	}
+	return result
+}
+
+// sanitizeHeadersForEvent returns a header map safe for event channel logging,
+// redacting sensitive auth headers to prevent credential leakage.
+func sanitizeHeadersForEvent(h http.Header) map[string]string {
+	result := flattenHeaders(h)
+	for _, key := range []string{"Authorization", "X-Api-Key"} {
+		if _, ok := result[key]; ok {
+			result[key] = "[REDACTED]"
 		}
 	}
 	return result
@@ -704,6 +720,12 @@ var claudeFilteredHeaders = map[string]bool{
 	"x-azure-clientip": true,
 	"x-azure-fdid":     true,
 	"x-azure-ref":      true,
+
+	// Credential/session headers
+	"cookie":     true,
+	"set-cookie": true,
+	"origin":     true,
+	"referer":    true,
 
 	// Tracing headers
 	"x-request-id":      true,

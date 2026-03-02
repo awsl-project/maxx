@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,13 @@ type ClaudeTokenValidationResult struct {
 
 // ValidateRefreshToken validates a refresh token and retrieves user info
 func ValidateRefreshToken(ctx context.Context, refreshToken string) (*ClaudeTokenValidationResult, error) {
+	if strings.TrimSpace(refreshToken) == "" {
+		return &ClaudeTokenValidationResult{
+			Valid: false,
+			Error: "refresh token is empty",
+		}, nil
+	}
+
 	result := &ClaudeTokenValidationResult{
 		Valid:        false,
 		RefreshToken: refreshToken,

@@ -339,7 +339,7 @@ func (h *ClaudeHandler) RefreshProviderInfo(ctx context.Context, providerID int)
 
 func (h *ClaudeHandler) handleRefreshProviderInfo(w http.ResponseWriter, r *http.Request, idStr string) {
 	providerID, err := strconv.Atoi(idStr)
-	if err != nil {
+	if err != nil || providerID <= 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid provider ID"})
 		return
 	}

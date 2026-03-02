@@ -204,6 +204,15 @@ func (s *ManagedServer) Stop(ctx context.Context) error {
 		}
 	}
 
+	// 停止 Claude OAuth 回调服务器
+	if s.config.Components != nil && s.config.Components.ClaudeOAuthServer != nil {
+		claudeOAuthCtx, claudeOAuthCancel := context.WithTimeout(ctx, 2*time.Second)
+		defer claudeOAuthCancel()
+		if err := s.config.Components.ClaudeOAuthServer.Stop(claudeOAuthCtx); err != nil {
+			log.Printf("[Server] Failed to stop Claude OAuth server: %v", err)
+		}
+	}
+
 	if s.cancel != nil {
 		s.cancel()
 	}

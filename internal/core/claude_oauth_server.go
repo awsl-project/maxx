@@ -38,7 +38,7 @@ func (s *ClaudeOAuthServer) Start(ctx context.Context) error {
 
 	// Handle OAuth callback at /auth/callback (matches OAuthRedirectURI)
 	mux.HandleFunc("/auth/callback", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ClaudeOAuth] Received callback: %s", r.URL.String())
+		log.Printf("[ClaudeOAuth] Received callback: %s", r.URL.Path)
 		newURL := *r.URL
 		newURL.Path = "/claude/oauth/callback"
 		newReq := r.Clone(r.Context())
@@ -53,7 +53,7 @@ func (s *ClaudeOAuthServer) Start(ctx context.Context) error {
 		w.Write([]byte(`{"status":"ok","service":"claude-oauth"}`))
 	})
 
-	addr := fmt.Sprintf(":%d", claude.OAuthCallbackPort)
+	addr := fmt.Sprintf("localhost:%d", claude.OAuthCallbackPort)
 	s.httpServer = &http.Server{
 		Addr:    addr,
 		Handler: mux,

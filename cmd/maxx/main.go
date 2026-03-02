@@ -440,9 +440,12 @@ func main() {
 			log.Printf("Warning: Failed to stop pprof manager: %v", err)
 		}
 
-		// Stop Codex OAuth server
+		// Stop OAuth servers
 		if err := codexOAuthServer.Stop(shutdownCtx); err != nil {
 			log.Printf("Warning: Failed to stop Codex OAuth server: %v", err)
+		}
+		if err := claudeOAuthServer.Stop(shutdownCtx); err != nil {
+			log.Printf("Warning: Failed to stop Claude OAuth server: %v", err)
 		}
 
 		// Step 3: Shutdown HTTP server
