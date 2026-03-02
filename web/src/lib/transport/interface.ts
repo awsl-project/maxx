@@ -37,6 +37,8 @@ import type {
   CodexUsageResponse,
   CodexQuotaData,
   CodexOAuthResult,
+  ClaudeTokenValidationResult,
+  ClaudeOAuthResult,
   AuthStatus,
   AuthVerifyResult,
   APIToken,
@@ -166,6 +168,12 @@ export interface Transport {
   getCodexBatchQuotas(): Promise<Record<number, CodexQuotaData>>;
   refreshCodexQuotas(): Promise<{ success: boolean; refreshed: boolean }>;
   sortCodexRoutes(): Promise<{ success: boolean }>;
+
+  // ===== Claude API =====
+  validateClaudeToken(refreshToken: string): Promise<ClaudeTokenValidationResult>;
+  startClaudeOAuth(): Promise<{ authURL: string; state: string }>;
+  exchangeClaudeOAuthCallback(code: string, state: string): Promise<ClaudeOAuthResult>;
+  refreshClaudeProviderInfo(providerId: number): Promise<ClaudeTokenValidationResult>;
 
   // ===== Cooldown API =====
   getCooldowns(): Promise<Cooldown[]>;

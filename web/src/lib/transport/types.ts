@@ -57,12 +57,22 @@ export interface ProviderConfigCodex {
   useCLIProxyAPI?: boolean;
 }
 
+export interface ProviderConfigClaude {
+  email: string;
+  refreshToken: string;
+  accessToken?: string;
+  expiresAt?: string; // RFC3339 format
+  organizationId?: string;
+  modelMapping?: Record<string, string>;
+}
+
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;
   kiro?: ProviderConfigKiro;
   codex?: ProviderConfigCodex;
+  claude?: ProviderConfigClaude;
 }
 
 export interface Provider {
@@ -314,6 +324,7 @@ export type WSMessageType =
   | 'log_message'
   | 'antigravity_oauth_result'
   | 'codex_oauth_result'
+  | 'claude_oauth_result'
   | 'new_session_pending'
   | 'session_pending_cancelled'
   | 'cooldown_update'
@@ -555,6 +566,29 @@ export interface CodexQuotaData {
 // Codex batch quota result
 export interface CodexBatchQuotaResult {
   quotas: Record<number, CodexQuotaData>; // providerId -> quota
+}
+
+// ===== Claude 类型 =====
+
+export interface ClaudeTokenValidationResult {
+  valid: boolean;
+  error?: string;
+  email?: string;
+  organizationId?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string; // RFC3339 format
+}
+
+export interface ClaudeOAuthResult {
+  state: string;
+  success: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string; // RFC3339 format
+  email?: string;
+  organizationId?: string;
+  error?: string;
 }
 
 // ===== 回调类型 =====

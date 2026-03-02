@@ -64,6 +64,7 @@ export function ProvidersPage() {
       antigravity: [],
       kiro: [],
       codex: [],
+      claude: [],
       custom: [],
     };
 

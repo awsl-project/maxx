@@ -7,6 +7,7 @@ import {
   FilePlus,
   Cloud,
   Code2,
+  Sparkles,
   ChevronLeft,
 } from 'lucide-react';
 import { quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
@@ -18,11 +19,11 @@ import { useProviderNavigation } from '../hooks/use-provider-navigation';
 
 export function SelectTypeStep() {
   const { formData, updateFormData } = useProviderForm();
-  const { goToCustomConfig, goToAntigravity, goToKiro, goToCodex, goToProviders } =
+  const { goToCustomConfig, goToAntigravity, goToKiro, goToCodex, goToClaude, goToProviders } =
     useProviderNavigation();
   const { t } = useTranslation();
 
-  const handleSelectType = (type: 'custom' | 'antigravity' | 'kiro' | 'codex') => {
+  const handleSelectType = (type: 'custom' | 'antigravity' | 'kiro' | 'codex' | 'claude') => {
     updateFormData({ type });
     if (type === 'antigravity') {
       goToAntigravity();
@@ -30,6 +31,8 @@ export function SelectTypeStep() {
       goToKiro();
     } else if (type === 'codex') {
       goToCodex();
+    } else if (type === 'claude') {
+      goToClaude();
     }
   };
 
@@ -162,6 +165,40 @@ export function SelectTypeStep() {
 
                     {formData.type === 'codex' && (
                       <CheckCircle2 className="size-5 text-provider-codex shrink-0 self-center animate-in zoom-in-50 duration-200" />
+                    )}
+                  </div>
+                </Button>
+              )}
+
+              {!PROVIDER_TYPE_CONFIGS.claude.hidden && (
+                <Button
+                  onClick={() => handleSelectType('claude')}
+                  variant="ghost"
+                  className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    formData.type === 'claude'
+                      ? 'border-provider-claude bg-provider-claude/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
+                    <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-claude/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
+                      <Sparkles className="size-5 md:size-6 text-provider-claude" />
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
+                        {t('addProvider.claude.name', 'Claude')}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                        {t(
+                          'addProvider.claude.description',
+                          'Anthropic Claude with OAuth authentication',
+                        )}
+                      </p>
+                    </div>
+
+                    {formData.type === 'claude' && (
+                      <CheckCircle2 className="size-5 text-provider-claude shrink-0 self-center animate-in zoom-in-50 duration-200" />
                     )}
                   </div>
                 </Button>

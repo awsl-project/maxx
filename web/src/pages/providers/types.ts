@@ -1,7 +1,7 @@
 import type { ClientType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
-import { Wand2, Zap, Server, Mail, Globe, Code2 } from 'lucide-react';
+import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
 import nvidiaLogo from '@/assets/icons/nvidia.svg';
@@ -12,7 +12,7 @@ import zhipuLogo from '@/assets/icons/zhipu.svg';
 // ===== Provider Type Configuration =====
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
 
-export type ProviderTypeKey = 'custom' | 'antigravity' | 'kiro' | 'codex';
+export type ProviderTypeKey = 'custom' | 'antigravity' | 'kiro' | 'codex' | 'claude';
 
 export interface ProviderTypeConfig {
   key: ProviderTypeKey;
@@ -54,6 +54,14 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     isAccountBased: true,
     getDisplayInfo: (p) => p.config?.codex?.email || 'Codex Account',
   },
+  claude: {
+    key: 'claude',
+    label: 'Claude',
+    icon: Sparkles,
+    color: getProviderColorVar('claude'),
+    isAccountBased: true,
+    getDisplayInfo: (p) => p.config?.claude?.email || 'Claude Account',
+  },
   custom: {
     key: 'custom',
     label: 'Custom',
@@ -86,6 +94,7 @@ export function getDisplayIcon(type: string): LucideIcon {
 export const ANTIGRAVITY_COLOR = PROVIDER_TYPE_CONFIGS.antigravity.color;
 export const KIRO_COLOR = PROVIDER_TYPE_CONFIGS.kiro.color;
 export const CODEX_COLOR = PROVIDER_TYPE_CONFIGS.codex.color;
+export const CLAUDE_COLOR = PROVIDER_TYPE_CONFIGS.claude.color;
 
 // Model mapping for templates
 export type TemplateModelMapping = {
@@ -213,7 +222,7 @@ export const defaultClients: ClientConfig[] = [
 
 // Form data types
 export type ProviderFormData = {
-  type: 'custom' | 'antigravity' | 'kiro' | 'codex';
+  type: 'custom' | 'antigravity' | 'kiro' | 'codex' | 'claude';
   name: string;
   selectedTemplate: string | null;
   baseURL: string;
@@ -233,4 +242,5 @@ export type CreateStep =
   | 'custom-config'
   | 'antigravity-import'
   | 'kiro-import'
-  | 'codex-import';
+  | 'codex-import'
+  | 'claude-import';

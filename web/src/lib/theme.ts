@@ -18,7 +18,8 @@ export type ProviderType =
   | 'custom'
   | 'antigravity'
   | 'kiro'
-  | 'codex';
+  | 'codex'
+  | 'claude';
 
 /**
  * Client 类型定义

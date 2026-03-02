@@ -39,6 +39,7 @@ import type {
   CodexTokenValidationResult,
   CodexUsageResponse,
   CodexQuotaData,
+  ClaudeTokenValidationResult,
   AuthStatus,
   AuthVerifyResult,
   APIToken,
@@ -540,6 +541,38 @@ export class HttpTransport implements Transport {
 
   async sortCodexRoutes(): Promise<{ success: boolean }> {
     const { data } = await axios.post<{ success: boolean }>('/api/codex/sort-routes');
+    return data;
+  }
+
+  // ===== Claude API =====
+
+  async validateClaudeToken(refreshToken: string): Promise<ClaudeTokenValidationResult> {
+    const { data } = await axios.post<ClaudeTokenValidationResult>('/api/claude/validate-token', {
+      refreshToken,
+    });
+    return data;
+  }
+
+  async startClaudeOAuth(): Promise<{ authURL: string; state: string }> {
+    const { data } = await axios.post<{ authURL: string; state: string }>('/api/claude/oauth/start');
+    return data;
+  }
+
+  async exchangeClaudeOAuthCallback(
+    code: string,
+    state: string,
+  ): Promise<import('./types').ClaudeOAuthResult> {
+    const { data } = await axios.post<import('./types').ClaudeOAuthResult>(
+      '/api/claude/oauth/exchange',
+      { code, state },
+    );
+    return data;
+  }
+
+  async refreshClaudeProviderInfo(providerId: number): Promise<ClaudeTokenValidationResult> {
+    const { data } = await axios.post<ClaudeTokenValidationResult>(
+      `/api/claude/provider/${providerId}/refresh`,
+    );
     return data;
   }
 

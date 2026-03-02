@@ -41,6 +41,7 @@ import { ClientsConfigSection } from './clients-config-section';
 import { AntigravityProviderView } from './antigravity-provider-view';
 import { KiroProviderView } from './kiro-provider-view';
 import { CodexProviderView } from './codex-provider-view';
+import { ClaudeProviderView } from './claude-provider-view';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
@@ -535,6 +536,26 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     return (
       <>
         <CodexProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // Claude provider
+  if (provider.type === 'claude') {
+    return (
+      <>
+        <ClaudeProviderView
           provider={provider}
           onDelete={() => setShowDeleteConfirm(true)}
           onClose={onClose}

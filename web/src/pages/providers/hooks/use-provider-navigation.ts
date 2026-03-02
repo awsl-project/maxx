@@ -9,6 +9,7 @@ export function useProviderNavigation() {
     goToAntigravity: () => navigate('/providers/create/antigravity'),
     goToKiro: () => navigate('/providers/create/kiro'),
     goToCodex: () => navigate('/providers/create/codex'),
+    goToClaude: () => navigate('/providers/create/claude'),
     goToProviders: () => navigate('/providers'),
     goBack: () => navigate(-1),
   };
