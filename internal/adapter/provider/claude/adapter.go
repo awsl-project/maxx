@@ -90,7 +90,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 
 	// Get access token
-	accessToken, err := a.getAccessToken(ctx)
+	accessToken, err := a.getAccessToken(ctx, false)
 	if err != nil {
 		return domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
 	}
@@ -146,8 +146,8 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		a.tokenCache = &TokenCache{}
 		a.tokenMu.Unlock()
 
-		// Get new token
-		accessToken, err = a.getAccessToken(ctx)
+		// Get new token (force refresh to skip persisted token)
+		accessToken, err = a.getAccessToken(ctx, true)
 		if err != nil {
 			return domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
 		}
@@ -209,36 +209,39 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	return a.handleNonStreamResponse(c, resp)
 }
 
-func (a *ClaudeAdapter) getAccessToken(ctx context.Context) (string, error) {
-	// Check cache
-	a.tokenMu.RLock()
-	if a.tokenCache.AccessToken != "" {
-		if a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt) {
-			token := a.tokenCache.AccessToken
-			a.tokenMu.RUnlock()
-			return token, nil
-		}
-	}
-	a.tokenMu.RUnlock()
-
-	// Use persisted access token if present (even if expiry is unknown)
+func (a *ClaudeAdapter) getAccessToken(ctx context.Context, forceRefresh bool) (string, error) {
 	config := a.provider.Config.Claude
-	if strings.TrimSpace(config.AccessToken) != "" {
-		var expiresAt time.Time
-		if strings.TrimSpace(config.ExpiresAt) != "" {
-			if parsed, err := time.Parse(time.RFC3339, config.ExpiresAt); err == nil {
-				expiresAt = parsed
+
+	if !forceRefresh {
+		// Check cache
+		a.tokenMu.RLock()
+		if a.tokenCache.AccessToken != "" {
+			if a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt) {
+				token := a.tokenCache.AccessToken
+				a.tokenMu.RUnlock()
+				return token, nil
 			}
 		}
-		a.tokenMu.Lock()
-		a.tokenCache = &TokenCache{
-			AccessToken: config.AccessToken,
-			ExpiresAt:   expiresAt,
-		}
-		a.tokenMu.Unlock()
+		a.tokenMu.RUnlock()
 
-		if expiresAt.IsZero() || time.Now().Add(60*time.Second).Before(expiresAt) {
-			return config.AccessToken, nil
+		// Use persisted access token if present (even if expiry is unknown)
+		if strings.TrimSpace(config.AccessToken) != "" {
+			var expiresAt time.Time
+			if strings.TrimSpace(config.ExpiresAt) != "" {
+				if parsed, err := time.Parse(time.RFC3339, config.ExpiresAt); err == nil {
+					expiresAt = parsed
+				}
+			}
+			a.tokenMu.Lock()
+			a.tokenCache = &TokenCache{
+				AccessToken: config.AccessToken,
+				ExpiresAt:   expiresAt,
+			}
+			a.tokenMu.Unlock()
+
+			if expiresAt.IsZero() || time.Now().Add(60*time.Second).Before(expiresAt) {
+				return config.AccessToken, nil
+			}
 		}
 	}
 

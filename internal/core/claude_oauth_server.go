@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider/claude"
@@ -16,6 +18,7 @@ import (
 type ClaudeOAuthServer struct {
 	claudeHandler *handler.ClaudeHandler
 	httpServer    *http.Server
+	mu            sync.Mutex
 	isRunning     bool
 }
 
@@ -23,12 +26,14 @@ type ClaudeOAuthServer struct {
 func NewClaudeOAuthServer(claudeHandler *handler.ClaudeHandler) *ClaudeOAuthServer {
 	return &ClaudeOAuthServer{
 		claudeHandler: claudeHandler,
-		isRunning:     false,
 	}
 }
 
 // Start starts the OAuth callback server on port 1456
 func (s *ClaudeOAuthServer) Start(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.isRunning {
 		log.Printf("[ClaudeOAuth] Server already running")
 		return nil
@@ -54,14 +59,20 @@ func (s *ClaudeOAuthServer) Start(ctx context.Context) error {
 	})
 
 	addr := fmt.Sprintf("localhost:%d", claude.OAuthCallbackPort)
+
+	// Pre-listen to verify the port is available before marking as running
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", addr, err)
+	}
+
 	s.httpServer = &http.Server{
-		Addr:    addr,
 		Handler: mux,
 	}
 
 	go func() {
 		log.Printf("[ClaudeOAuth] Starting OAuth callback server on %s", addr)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("[ClaudeOAuth] Server error: %v", err)
 		}
 	}()
@@ -73,6 +84,9 @@ func (s *ClaudeOAuthServer) Start(ctx context.Context) error {
 
 // Stop stops the OAuth callback server
 func (s *ClaudeOAuthServer) Stop(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.isRunning {
 		return nil
 	}
@@ -94,5 +108,7 @@ func (s *ClaudeOAuthServer) Stop(ctx context.Context) error {
 
 // IsRunning checks if the server is running
 func (s *ClaudeOAuthServer) IsRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.isRunning
 }
