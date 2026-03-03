@@ -146,7 +146,7 @@ func (s *AntigravityTaskService) refreshAllQuotas(ctx context.Context) bool {
 			// Fetch quota from API
 			quota, err := antigravity.FetchQuotaForProvider(ctx, config.RefreshToken, config.ProjectID)
 			if err != nil {
-				log.Printf("[AntigravityTask] Failed to fetch quota for provider %d: %v", provider.ID, err)
+				log.Printf("[AntigravityTask] Failed to fetch quota for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
 				continue
 			}
 

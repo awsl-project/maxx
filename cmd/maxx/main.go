@@ -262,7 +262,7 @@ func main() {
 
 	// Ensure default tenant exists
 	if _, err := tenantRepo.GetDefault(); err != nil {
-		log.Printf("Default tenant will be created by migration v3")
+		log.Fatalf("Failed to verify default tenant (migration v3 may be missing): %v", err)
 	}
 
 	// Setup log output to broadcast via WebSocket
