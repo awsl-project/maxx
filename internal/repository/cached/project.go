@@ -34,6 +34,8 @@ func (r *ProjectRepository) Load() error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.cache = make(map[uint64]*domain.Project, len(list))
+	r.slugCache = make(map[projectSlugKey]*domain.Project)
 	for _, p := range list {
 		r.cache[p.ID] = p
 		if p.Slug != "" {

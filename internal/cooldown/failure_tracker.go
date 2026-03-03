@@ -32,7 +32,7 @@ func (ft *FailureTracker) LoadFromDatabase() error {
 		return nil
 	}
 
-	failureCounts, err := ft.repository.GetAll()
+	failureCounts, err := ft.repository.GetAll(domain.TenantIDAll)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (ft *FailureTracker) ResetFailures(providerID uint64, clientType string) {
 
 		// Delete from database
 		if ft.repository != nil {
-			if err := ft.repository.DeleteAll(providerID, clientType); err != nil {
+			if err := ft.repository.DeleteAll(domain.TenantIDAll, providerID, clientType); err != nil {
 				log.Printf("[FailureTracker] Failed to delete failure counts from database: %v", err)
 			}
 		}

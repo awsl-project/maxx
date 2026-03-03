@@ -100,6 +100,11 @@ func (r *SessionRepository) GetOrCreate(tenantID uint64, sessionID string, clien
 		return nil, err
 	}
 
+	// Reject creation with TenantIDAll — it would store TenantID=0
+	if tenantID == domain.TenantIDAll {
+		return nil, domain.ErrNotFound
+	}
+
 	s = &domain.Session{
 		TenantID:   tenantID,
 		SessionID:  sessionID,

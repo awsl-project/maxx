@@ -149,6 +149,8 @@ func (r *APITokenRepository) Load() error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.cache = make(map[uint64]*domain.APIToken, len(tokens))
+	r.tokenCache = make(map[string]*domain.APIToken, len(tokens))
 	for _, t := range tokens {
 		r.cache[t.ID] = t
 		r.tokenCache[t.Token] = t

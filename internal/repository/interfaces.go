@@ -327,22 +327,21 @@ type CooldownInfo struct {
 
 // FailureCountRepository manages failure count persistence
 type FailureCountRepository interface {
-	// Get retrieves a failure count by provider, client type, and reason
-	Get(providerID uint64, clientType string, reason string) (*domain.FailureCount, error)
+	// Get retrieves a failure count by tenant, provider, client type, and reason
+	Get(tenantID uint64, providerID uint64, clientType string, reason string) (*domain.FailureCount, error)
 
-	// GetAll retrieves all failure counts
-	GetAll() ([]*domain.FailureCount, error)
+	// GetAll retrieves all failure counts for a tenant (use TenantIDAll for all)
+	GetAll(tenantID uint64) ([]*domain.FailureCount, error)
 
 	// Upsert inserts or updates a failure count
 	Upsert(fc *domain.FailureCount) error
 
 	// Delete deletes a failure count
-	Delete(providerID uint64, clientType string, reason string) error
+	Delete(tenantID uint64, providerID uint64, clientType string, reason string) error
 
 	// DeleteAll deletes all failure counts for a provider+clientType
-	DeleteAll(providerID uint64, clientType string) error
+	DeleteAll(tenantID uint64, providerID uint64, clientType string) error
 
 	// DeleteExpired deletes failure counts where last failure was too long ago
-	// (e.g., if no failures in last 24 hours, reset the count)
 	DeleteExpired(olderThan int64) error
 }

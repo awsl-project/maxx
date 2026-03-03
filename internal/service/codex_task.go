@@ -224,7 +224,9 @@ func (s *CodexTaskService) saveQuotaToDB(tenantID uint64, email, accountID, plan
 		}
 	}
 
-	s.quotaRepo.Upsert(quota)
+	if err := s.quotaRepo.Upsert(quota); err != nil {
+		log.Printf("[CodexTask] Failed to save quota to DB for %s: %v", email, err)
+	}
 }
 
 // convertCodexWindow converts codex package window to domain window

@@ -12,6 +12,7 @@ import (
 // OAuthSession 表示一个 OAuth 授权会话
 type OAuthSession struct {
 	State     string
+	TenantID  uint64
 	CreatedAt time.Time
 	ExpiresAt time.Time
 }
@@ -58,9 +59,10 @@ func (m *OAuthManager) GenerateState() (string, error) {
 }
 
 // CreateSession 创建新的 OAuth 会话
-func (m *OAuthManager) CreateSession(state string) *OAuthSession {
+func (m *OAuthManager) CreateSession(state string, tenantID uint64) *OAuthSession {
 	session := &OAuthSession{
 		State:     state,
+		TenantID:  tenantID,
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(5 * time.Minute), // 5分钟超时
 	}

@@ -27,6 +27,7 @@ func (r *ProviderRepository) Load() error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.cache = make(map[uint64]*domain.Provider, len(list))
 	for _, p := range list {
 		r.cache[p.ID] = p
 	}

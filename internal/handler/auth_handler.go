@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -125,7 +126,9 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Update last login time
 	now := time.Now()
 	user.LastLoginAt = &now
-	h.userRepo.Update(user)
+	if err := h.userRepo.Update(user); err != nil {
+		log.Printf("[Auth] Failed to update last login time for user %s: %v", user.Username, err)
+	}
 
 	// Get tenant info
 	var tenantName string

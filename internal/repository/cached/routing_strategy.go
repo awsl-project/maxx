@@ -32,6 +32,7 @@ func (r *RoutingStrategyRepository) Load() error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.cache = make(map[routingStrategyCacheKey]*domain.RoutingStrategy, len(list))
 	for _, s := range list {
 		r.cache[routingStrategyCacheKey{TenantID: s.TenantID, ProjectID: s.ProjectID}] = s
 	}
@@ -49,28 +50,18 @@ func (r *RoutingStrategyRepository) Create(s *domain.RoutingStrategy) error {
 }
 
 func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
-	// 先找到旧的缓存键（如果有的话）
-	r.mu.RLock()
-	var oldKey routingStrategyCacheKey
-	var found bool
-	for key, cached := range r.cache {
-		if cached.ID == s.ID {
-			oldKey = key
-			found = true
-			break
-		}
-	}
-	r.mu.RUnlock()
-
 	if err := r.repo.Update(s); err != nil {
 		return err
 	}
 
 	newKey := routingStrategyCacheKey{TenantID: s.TenantID, ProjectID: s.ProjectID}
 	r.mu.Lock()
-	// 如果缓存键改变了，删除旧的缓存条目
-	if found && oldKey != newKey {
-		delete(r.cache, oldKey)
+	// Find and remove old cache entry if key changed
+	for key, cached := range r.cache {
+		if cached.ID == s.ID && key != newKey {
+			delete(r.cache, key)
+			break
+		}
 	}
 	r.cache[newKey] = s
 	r.mu.Unlock()
@@ -78,27 +69,18 @@ func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
 }
 
 func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
-	r.mu.RLock()
-	var cacheKey routingStrategyCacheKey
-	var found bool
-	for key, s := range r.cache {
-		if s.ID == id {
-			cacheKey = key
-			found = true
-			break
-		}
-	}
-	r.mu.RUnlock()
-
 	if err := r.repo.Delete(tenantID, id); err != nil {
 		return err
 	}
 
-	if found {
-		r.mu.Lock()
-		delete(r.cache, cacheKey)
-		r.mu.Unlock()
+	r.mu.Lock()
+	for key, s := range r.cache {
+		if s.ID == id {
+			delete(r.cache, key)
+			break
+		}
 	}
+	r.mu.Unlock()
 	return nil
 }
 

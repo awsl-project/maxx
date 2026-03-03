@@ -170,15 +170,19 @@ type OAuthStartResult struct {
 }
 
 // StartOAuth 启动 OAuth 授权流程
-func (h *AntigravityHandler) StartOAuth(redirectURI string) (*OAuthStartResult, error) {
+func (h *AntigravityHandler) StartOAuth(ctx context.Context, redirectURI string) (*OAuthStartResult, error) {
 	// 生成随机 state token
 	state, err := h.oauthManager.GenerateState()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	// 创建 OAuth 会话
-	h.oauthManager.CreateSession(state)
+	// 创建 OAuth 会话（携带租户 ID，以便回调时使用）
+	tenantID := maxxctx.GetTenantID(ctx)
+	if tenantID == 0 {
+		tenantID = domain.DefaultTenantID
+	}
+	h.oauthManager.CreateSession(state, tenantID)
 
 	// 构建 Google OAuth 授权 URL
 	authURL := antigravity.GetAuthURL(redirectURI, state)
@@ -495,7 +499,7 @@ func (h *AntigravityHandler) handleOAuthStart(w http.ResponseWriter, r *http.Req
 	// 构建回调 URL（使用当前请求的 host）
 	redirectURI := fmt.Sprintf("%s://%s/antigravity/oauth/callback", getScheme(r), r.Host)
 
-	result, err := h.StartOAuth(redirectURI)
+	result, err := h.StartOAuth(r.Context(), redirectURI)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -522,7 +526,8 @@ func (h *AntigravityHandler) handleOAuthCallback(w http.ResponseWriter, r *http.
 		return
 	}
 
-	_ = session // session 可用于将来扩展
+	// 从 OAuth 会话中获取租户 ID
+	tenantID := session.TenantID
 
 	// 构建回调 URL
 	redirectURI := fmt.Sprintf("%s://%s/antigravity/oauth/callback", getScheme(r), r.Host)
@@ -562,7 +567,6 @@ func (h *AntigravityHandler) handleOAuthCallback(w http.ResponseWriter, r *http.
 	}
 
 	// 保存配额到数据库
-	tenantID := maxxctx.GetTenantID(r.Context())
 	h.saveQuotaToDB(tenantID, userInfo.Email, userInfo.Name, userInfo.Picture, projectID, quota)
 
 	// 推送成功结果到前端

@@ -77,8 +77,20 @@ func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain
 	if err := r.repo.BatchUpdatePositions(tenantID, updates); err != nil {
 		return err
 	}
-	// Reload cache to reflect position changes
-	return r.Load()
+	// Apply position updates directly to cache
+	posMap := make(map[uint64]int, len(updates))
+	for _, u := range updates {
+		posMap[u.ID] = u.Position
+	}
+	r.mu.Lock()
+	for _, rt := range r.cache {
+		if pos, ok := posMap[rt.ID]; ok {
+			rt.Position = pos
+		}
+	}
+	r.sortCacheLocked()
+	r.mu.Unlock()
+	return nil
 }
 
 func (r *RouteRepository) GetByID(tenantID uint64, id uint64) (*domain.Route, error) {

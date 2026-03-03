@@ -49,6 +49,8 @@ func (r *RetryConfigRepository) Create(c *domain.RetryConfig) error {
 	if c.IsDefault {
 		if old, ok := r.defaultCache[c.TenantID]; ok && old.ID != c.ID {
 			old.IsDefault = false
+			// Persist the old default's IsDefault=false to DB
+			_ = r.repo.Update(old)
 		}
 		r.defaultCache[c.TenantID] = c
 	}
@@ -65,6 +67,8 @@ func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
 	if c.IsDefault {
 		if old, ok := r.defaultCache[c.TenantID]; ok && old.ID != c.ID {
 			old.IsDefault = false
+			// Persist the old default's IsDefault=false to DB
+			_ = r.repo.Update(old)
 		}
 		r.defaultCache[c.TenantID] = c
 	} else if old, ok := r.defaultCache[c.TenantID]; ok && old.ID == c.ID {

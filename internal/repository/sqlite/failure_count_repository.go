@@ -17,9 +17,9 @@ func NewFailureCountRepository(db *DB) repository.FailureCountRepository {
 	return &FailureCountRepository{db: db}
 }
 
-func (r *FailureCountRepository) Get(providerID uint64, clientType string, reason string) (*domain.FailureCount, error) {
+func (r *FailureCountRepository) Get(tenantID uint64, providerID uint64, clientType string, reason string) (*domain.FailureCount, error) {
 	var model FailureCount
-	err := r.db.gorm.Where("provider_id = ? AND client_type = ? AND reason = ?", providerID, clientType, reason).First(&model).Error
+	err := tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ? AND reason = ?", providerID, clientType, reason).First(&model).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -29,9 +29,9 @@ func (r *FailureCountRepository) Get(providerID uint64, clientType string, reaso
 	return r.toDomain(&model), nil
 }
 
-func (r *FailureCountRepository) GetAll() ([]*domain.FailureCount, error) {
+func (r *FailureCountRepository) GetAll(tenantID uint64) ([]*domain.FailureCount, error) {
 	var models []FailureCount
-	if err := r.db.gorm.Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
@@ -73,17 +73,17 @@ func (r *FailureCountRepository) Upsert(fc *domain.FailureCount) error {
 	return nil
 }
 
-func (r *FailureCountRepository) Delete(providerID uint64, clientType string, reason string) error {
-	return r.db.gorm.Where("provider_id = ? AND client_type = ? AND reason = ?", providerID, clientType, reason).Delete(&FailureCount{}).Error
+func (r *FailureCountRepository) Delete(tenantID uint64, providerID uint64, clientType string, reason string) error {
+	return tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ? AND reason = ?", providerID, clientType, reason).Delete(&FailureCount{}).Error
 }
 
-func (r *FailureCountRepository) DeleteAll(providerID uint64, clientType string) error {
+func (r *FailureCountRepository) DeleteAll(tenantID uint64, providerID uint64, clientType string) error {
 	// If clientType is empty, delete ALL failure counts for this provider
 	if clientType == "" {
-		return r.db.gorm.Where("provider_id = ?", providerID).Delete(&FailureCount{}).Error
+		return tenantScope(r.db.gorm, tenantID).Where("provider_id = ?", providerID).Delete(&FailureCount{}).Error
 	}
 	// Otherwise, delete only for the specific clientType
-	return r.db.gorm.Where("provider_id = ? AND client_type = ?", providerID, clientType).Delete(&FailureCount{}).Error
+	return tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ?", providerID, clientType).Delete(&FailureCount{}).Error
 }
 
 func (r *FailureCountRepository) DeleteExpired(olderThanSeconds int64) error {
