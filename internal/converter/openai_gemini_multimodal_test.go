@@ -166,7 +166,7 @@ func TestOpenAIToGeminiRequest_SystemOnlyUsesSystemInstruction(t *testing.T) {
 	if len(got.Contents) != 1 || got.Contents[0].Role != "user" {
 		t.Fatalf("expected one user content, got %#v", got.Contents)
 	}
-	if len(got.Contents[0].Parts) != 1 || got.Contents[0].Parts[0].Text != " " {
+	if len(got.Contents[0].Parts) != 1 || got.Contents[0].Parts[0].Text != geminiSystemOnlyPlaceholderText {
 		t.Fatalf("expected space user content part, got %#v", got.Contents[0].Parts)
 	}
 }
@@ -199,6 +199,13 @@ func TestOpenAIToGeminiRequest_SystemAndUser(t *testing.T) {
 	}
 	if got.SystemInstruction == nil || len(got.SystemInstruction.Parts) == 0 {
 		t.Fatalf("expected systemInstruction parts")
+	}
+	var fullText strings.Builder
+	for _, part := range got.SystemInstruction.Parts {
+		fullText.WriteString(part.Text)
+	}
+	if !strings.Contains(fullText.String(), "SYS_AND_USER") {
+		t.Fatalf("expected SystemInstruction to contain SYS_AND_USER, got: %q", fullText.String())
 	}
 	if len(got.Contents) != 1 {
 		t.Fatalf("expected 1 content, got %#v", got.Contents)

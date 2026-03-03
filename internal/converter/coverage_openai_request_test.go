@@ -215,7 +215,7 @@ func TestOpenAIToGeminiRequestSystemOnlyAsUser(t *testing.T) {
 	if len(geminiReq.Contents) != 1 || geminiReq.Contents[0].Role != "user" {
 		t.Fatalf("expected user content")
 	}
-	if len(geminiReq.Contents[0].Parts) != 1 || geminiReq.Contents[0].Parts[0].Text != " " {
+	if len(geminiReq.Contents[0].Parts) != 1 || geminiReq.Contents[0].Parts[0].Text != geminiSystemOnlyPlaceholderText {
 		t.Fatalf("expected space user part")
 	}
 }

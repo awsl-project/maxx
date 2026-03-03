@@ -8,6 +8,7 @@ import (
 )
 
 const geminiFunctionThoughtSignature = "skip_thought_signature_validator"
+const geminiSystemOnlyPlaceholderText = " "
 
 func init() {
 	RegisterConverter(domain.ClientTypeOpenAI, domain.ClientTypeGemini, &openaiToGeminiRequest{}, &openaiToGeminiResponse{})
@@ -226,7 +227,7 @@ func (c *openaiToGeminiRequest) Transform(body []byte, model string, stream bool
 	if len(geminiReq.Contents) == 0 && len(systemParts) > 0 {
 		geminiReq.Contents = append(geminiReq.Contents, GeminiContent{
 			Role:  "user",
-			Parts: []GeminiPart{{Text: " "}},
+			Parts: []GeminiPart{{Text: geminiSystemOnlyPlaceholderText}},
 		})
 	}
 	if len(systemParts) > 0 {
