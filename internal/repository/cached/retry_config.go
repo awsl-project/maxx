@@ -86,7 +86,7 @@ func (r *RetryConfigRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *RetryConfigRepository) GetByID(tenantID uint64, id uint64) (*domain.RetryConfig, error) {
     r.mu.RLock()
-    if c, ok := r.cache[id]; ok {
+    if c, ok := r.cache[id]; ok && (tenantID == 0 || c.TenantID == tenantID) {
         r.mu.RUnlock()
         return c, nil
     }
@@ -96,7 +96,7 @@ func (r *RetryConfigRepository) GetByID(tenantID uint64, id uint64) (*domain.Ret
 
 func (r *RetryConfigRepository) GetDefault(tenantID uint64) (*domain.RetryConfig, error) {
     r.mu.RLock()
-    if r.defaultCache != nil {
+    if r.defaultCache != nil && (tenantID == 0 || r.defaultCache.TenantID == tenantID) {
         r.mu.RUnlock()
         return r.defaultCache, nil
     }

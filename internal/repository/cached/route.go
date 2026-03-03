@@ -84,7 +84,7 @@ func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain
 func (r *RouteRepository) GetByID(tenantID uint64, id uint64) (*domain.Route, error) {
 	r.mu.RLock()
 	for _, rt := range r.cache {
-		if rt.ID == id {
+		if rt.ID == id && (tenantID == 0 || rt.TenantID == tenantID) {
 			r.mu.RUnlock()
 			return rt, nil
 		}
@@ -96,7 +96,7 @@ func (r *RouteRepository) GetByID(tenantID uint64, id uint64) (*domain.Route, er
 func (r *RouteRepository) FindByKey(tenantID uint64, projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
 	r.mu.RLock()
 	for _, rt := range r.cache {
-		if rt.ProjectID == projectID && rt.ProviderID == providerID && rt.ClientType == clientType {
+		if rt.ProjectID == projectID && rt.ProviderID == providerID && rt.ClientType == clientType && (tenantID == 0 || rt.TenantID == tenantID) {
 			r.mu.RUnlock()
 			return rt, nil
 		}

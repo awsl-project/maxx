@@ -74,9 +74,11 @@ func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
 func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 	r.mu.RLock()
 	var projectID uint64
+	var found bool
 	for pid, s := range r.cache {
 		if s.ID == id {
 			projectID = pid
+			found = true
 			break
 		}
 	}
@@ -86,15 +88,17 @@ func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 		return err
 	}
 
-	r.mu.Lock()
-	delete(r.cache, projectID)
-	r.mu.Unlock()
+	if found {
+		r.mu.Lock()
+		delete(r.cache, projectID)
+		r.mu.Unlock()
+	}
 	return nil
 }
 
 func (r *RoutingStrategyRepository) GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error) {
 	r.mu.RLock()
-	if s, ok := r.cache[projectID]; ok {
+	if s, ok := r.cache[projectID]; ok && (tenantID == 0 || s.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return s, nil
 	}

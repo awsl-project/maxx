@@ -67,7 +67,7 @@ func (r *ProviderRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *ProviderRepository) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
 	r.mu.RLock()
-	if p, ok := r.cache[id]; ok {
+	if p, ok := r.cache[id]; ok && (tenantID == 0 || p.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return p, nil
 	}

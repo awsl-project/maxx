@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider/claude"
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/service"
 )
@@ -297,7 +298,8 @@ func (h *ClaudeHandler) stopOAuthServerAsync() {
 
 // RefreshProviderInfo refreshes the Claude provider info by re-validating the refresh token
 func (h *ClaudeHandler) RefreshProviderInfo(ctx context.Context, providerID int) (*claude.ClaudeTokenValidationResult, error) {
-	provider, err := h.svc.GetProvider(0, uint64(providerID))
+	tenantID := maxxctx.GetTenantID(ctx)
+	provider, err := h.svc.GetProvider(tenantID, uint64(providerID))
 	if err != nil {
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}
@@ -330,7 +332,7 @@ func (h *ClaudeHandler) RefreshProviderInfo(ctx context.Context, providerID int)
 		provider.Config.Claude.RefreshToken = result.RefreshToken
 	}
 
-	if err := h.svc.UpdateProvider(0, provider); err != nil {
+	if err := h.svc.UpdateProvider(tenantID, provider); err != nil {
 		return nil, fmt.Errorf("failed to update provider: %w", err)
 	}
 

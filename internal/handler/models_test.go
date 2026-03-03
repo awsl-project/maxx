@@ -95,7 +95,7 @@ func TestCollectModelNames(t *testing.T) {
 	}
 
 	handler := NewModelsHandler(responseRepo, providerRepo, mappingRepo)
-	names, err := handler.collectModelNames()
+	names, err := handler.collectModelNames(0)
 	if err != nil {
 		t.Fatalf("collectModelNames error: %v", err)
 	}

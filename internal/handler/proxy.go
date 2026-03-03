@@ -182,7 +182,10 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		}
 	}
 
-	session, _ := h.sessionRepo.GetBySessionID(tenantID, sessionID)
+	session, sessionErr := h.sessionRepo.GetBySessionID(tenantID, sessionID)
+	if sessionErr != nil {
+		log.Printf("[Proxy] Failed to load session %s: %v", sessionID, sessionErr)
+	}
 	if session != nil {
 		if session.ProjectID > 0 {
 			projectID = session.ProjectID

@@ -44,7 +44,7 @@ func (r *SessionRepository) Update(s *domain.Session) error {
 
 func (r *SessionRepository) GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error) {
 	r.mu.RLock()
-	if s, ok := r.cache[sessionID]; ok {
+	if s, ok := r.cache[sessionID]; ok && (tenantID == 0 || s.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return s, nil
 	}
@@ -63,7 +63,7 @@ func (r *SessionRepository) GetBySessionID(tenantID uint64, sessionID string) (*
 
 func (r *SessionRepository) GetOrCreate(tenantID uint64, sessionID string, clientType domain.ClientType) (*domain.Session, error) {
 	r.mu.RLock()
-	if s, ok := r.cache[sessionID]; ok {
+	if s, ok := r.cache[sessionID]; ok && (tenantID == 0 || s.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return s, nil
 	}

@@ -99,7 +99,7 @@ func (r *ProjectRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *ProjectRepository) GetByID(tenantID uint64, id uint64) (*domain.Project, error) {
 	r.mu.RLock()
-	if p, ok := r.cache[id]; ok {
+	if p, ok := r.cache[id]; ok && (tenantID == 0 || p.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return p, nil
 	}
@@ -109,7 +109,7 @@ func (r *ProjectRepository) GetByID(tenantID uint64, id uint64) (*domain.Project
 
 func (r *ProjectRepository) GetBySlug(tenantID uint64, slug string) (*domain.Project, error) {
 	r.mu.RLock()
-	if p, ok := r.slugCache[slug]; ok {
+	if p, ok := r.slugCache[slug]; ok && (tenantID == 0 || p.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return p, nil
 	}

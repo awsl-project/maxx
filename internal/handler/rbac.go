@@ -23,8 +23,13 @@ var memberAllowedResources = map[string]bool{
 func CheckRBAC(r *http.Request, resource string) bool {
 	role := maxxctx.GetUserRole(r.Context())
 
+	// Empty role means no auth context — deny by default
+	if role == "" {
+		return false
+	}
+
 	// Admin has full access
-	if role == string(domain.UserRoleAdmin) || role == "" {
+	if role == string(domain.UserRoleAdmin) {
 		return true
 	}
 

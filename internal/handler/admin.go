@@ -882,7 +882,8 @@ func (h *AdminHandler) handleProxyUpstreamAttempts(w http.ResponseWriter, r *htt
 		return
 	}
 
-	attempts, err := h.svc.GetProxyUpstreamAttempts(proxyRequestID)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	attempts, err := h.svc.GetProxyUpstreamAttempts(tenantID, proxyRequestID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -897,7 +898,8 @@ func (h *AdminHandler) handleRecalculateRequestCost(w http.ResponseWriter, r *ht
 		return
 	}
 
-	result, err := h.svc.RecalculateRequestCost(requestID)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.RecalculateRequestCost(tenantID, requestID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -1029,19 +1031,22 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 
 	switch r.Method {
 	case http.MethodGet:
-		// Get all active cooldowns
+		// Get all active cooldowns, filtered by tenant-owned providers
 		cooldowns := cm.GetAllCooldowns()
 		providers, _ := h.svc.GetProviders(tenantID)
 
-		// Build provider name map
+		// Build provider name map (only tenant's providers)
 		providerNames := make(map[uint64]string)
 		for _, p := range providers {
 			providerNames[p.ID] = p.Name
 		}
 
-		// Build response using GetCooldownInfo to include reason
+		// Build response, only include cooldowns for tenant-owned providers
 		var result []*cooldown.CooldownInfo
 		for key := range cooldowns {
+			if _, owned := providerNames[key.ProviderID]; !owned {
+				continue
+			}
 			info := cm.GetCooldownInfo(key.ProviderID, key.ClientType, providerNames[key.ProviderID])
 			if info != nil {
 				result = append(result, info)
@@ -1053,6 +1058,11 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 	case http.MethodPut:
 		if providerID == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider id required"})
+			return
+		}
+		// Validate provider belongs to this tenant
+		if _, err := h.svc.GetProvider(tenantID, providerID); err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 			return
 		}
 		var body struct {
@@ -1079,6 +1089,11 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 	case http.MethodDelete:
 		if providerID == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider id required"})
+			return
+		}
+		// Validate provider belongs to this tenant
+		if _, err := h.svc.GetProvider(tenantID, providerID); err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 			return
 		}
 		// Clear all cooldowns for this provider (both global and client-type-specific)

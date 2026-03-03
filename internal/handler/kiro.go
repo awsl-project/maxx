@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider/kiro"
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/service"
 )
 
@@ -86,7 +87,8 @@ func (h *KiroHandler) handleValidateSocialToken(w http.ResponseWriter, r *http.R
 // GetProviderQuota 获取 Kiro provider 的配额信息
 func (h *KiroHandler) GetProviderQuota(ctx context.Context, providerID uint64) (*kiro.KiroQuotaData, error) {
 	// 获取 provider
-	provider, err := h.svc.GetProvider(0, providerID)
+	tenantID := maxxctx.GetTenantID(ctx)
+	provider, err := h.svc.GetProvider(tenantID, providerID)
 	if err != nil {
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}

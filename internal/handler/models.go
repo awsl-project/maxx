@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -36,8 +37,9 @@ func (h *ModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenantID := maxxctx.GetTenantID(r.Context())
 	userAgent := r.Header.Get("User-Agent")
-	names, err := h.collectModelNamesForUserAgent(userAgent)
+	names, err := h.collectModelNamesForUserAgent(tenantID, userAgent)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -51,11 +53,11 @@ func (h *ModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, buildOpenAIModelsResponse(names))
 }
 
-func (h *ModelsHandler) collectModelNames() ([]string, error) {
-	return h.collectModelNamesForUserAgent("")
+func (h *ModelsHandler) collectModelNames(tenantID uint64) ([]string, error) {
+	return h.collectModelNamesForUserAgent(tenantID, "")
 }
 
-func (h *ModelsHandler) collectModelNamesForUserAgent(userAgent string) ([]string, error) {
+func (h *ModelsHandler) collectModelNamesForUserAgent(tenantID uint64, userAgent string) ([]string, error) {
 	result := make(map[string]struct{})
 
 	if h.responseModelRepo != nil {
@@ -69,7 +71,7 @@ func (h *ModelsHandler) collectModelNamesForUserAgent(userAgent string) ([]strin
 	}
 
 	if h.providerRepo != nil {
-		providers, err := h.providerRepo.List(0)
+		providers, err := h.providerRepo.List(tenantID)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +83,7 @@ func (h *ModelsHandler) collectModelNamesForUserAgent(userAgent string) ([]strin
 	}
 
 	if h.modelMappingRepo != nil {
-		mappings, err := h.modelMappingRepo.ListEnabled(0)
+		mappings, err := h.modelMappingRepo.ListEnabled(tenantID)
 		if err != nil {
 			return nil, err
 		}

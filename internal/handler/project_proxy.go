@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/repository"
 )
 
@@ -40,7 +41,8 @@ func (h *ProjectProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Look up project by slug
-	project, err := h.projectRepo.GetBySlug(0, slug)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	project, err := h.projectRepo.GetBySlug(tenantID, slug)
 	if err != nil {
 		log.Printf("[ProjectProxy] Project not found for slug: %s", slug)
 		writeError(w, http.StatusNotFound, "project not found")

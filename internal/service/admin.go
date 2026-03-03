@@ -424,7 +424,7 @@ func (s *AdminService) GetActiveProxyRequests(tenantID uint64) ([]*domain.ProxyR
 	return s.proxyRequestRepo.ListActive(tenantID)
 }
 
-func (s *AdminService) GetProxyUpstreamAttempts(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error) {
+func (s *AdminService) GetProxyUpstreamAttempts(tenantID uint64, proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error) {
 	return s.attemptRepo.ListByProxyRequestID(proxyRequestID)
 }
 
@@ -927,11 +927,11 @@ type RecalculateRequestCostResult struct {
 }
 
 // RecalculateRequestCost recalculates cost for a single request and its attempts
-func (s *AdminService) RecalculateRequestCost(requestID uint64) (*RecalculateRequestCostResult, error) {
+func (s *AdminService) RecalculateRequestCost(tenantID uint64, requestID uint64) (*RecalculateRequestCostResult, error) {
 	result := &RecalculateRequestCostResult{RequestID: requestID}
 
 	// 1. Get the request
-	request, err := s.proxyRequestRepo.GetByID(0, requestID)
+	request, err := s.proxyRequestRepo.GetByID(tenantID, requestID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get request: %w", err)
 	}

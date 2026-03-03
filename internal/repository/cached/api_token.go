@@ -75,7 +75,7 @@ func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	r.mu.RLock()
-	if t, ok := r.cache[id]; ok {
+	if t, ok := r.cache[id]; ok && (tenantID == 0 || t.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return t, nil
 	}
@@ -95,7 +95,7 @@ func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APITok
 
 func (r *APITokenRepository) GetByToken(tenantID uint64, token string) (*domain.APIToken, error) {
 	r.mu.RLock()
-	if t, ok := r.tokenCache[token]; ok {
+	if t, ok := r.tokenCache[token]; ok && (tenantID == 0 || t.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return t, nil
 	}

@@ -113,7 +113,7 @@ func (r *ModelMappingRepository) GetByID(tenantID uint64, id uint64) (*domain.Mo
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, m := range r.cache {
-		if m.ID == id {
+		if m.ID == id && (tenantID == 0 || m.TenantID == tenantID) {
 			return m, nil
 		}
 	}

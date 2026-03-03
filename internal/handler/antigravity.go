@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider/antigravity"
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/repository"
@@ -286,8 +287,9 @@ func (h *AntigravityHandler) handleValidateTokens(w http.ResponseWriter, r *http
 
 // GetProviderQuota 获取 provider 的配额信息（供 HTTP handler 和 Wails 共用）
 func (h *AntigravityHandler) GetProviderQuota(ctx context.Context, providerID uint64, forceRefresh bool) (*antigravity.QuotaData, error) {
+	tenantID := maxxctx.GetTenantID(ctx)
 	// 获取 provider
-	provider, err := h.svc.GetProvider(0, providerID)
+	provider, err := h.svc.GetProvider(tenantID, providerID)
 	if err != nil {
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}
@@ -302,7 +304,7 @@ func (h *AntigravityHandler) GetProviderQuota(ctx context.Context, providerID ui
 
 	// 尝试从数据库获取缓存的配额（如果不是强制刷新）
 	if !forceRefresh && email != "" && h.quotaRepo != nil {
-		cachedQuota, err := h.quotaRepo.GetByEmail(0, email)
+		cachedQuota, err := h.quotaRepo.GetByEmail(tenantID, email)
 		if err == nil && cachedQuota != nil {
 			// 检查是否过期（10分钟）
 			if time.Since(cachedQuota.UpdatedAt).Seconds() < 600 {
@@ -316,7 +318,7 @@ func (h *AntigravityHandler) GetProviderQuota(ctx context.Context, providerID ui
 	if err != nil {
 		// 如果 API 失败，尝试返回缓存数据
 		if email != "" && h.quotaRepo != nil {
-			cachedQuota, _ := h.quotaRepo.GetByEmail(0, email)
+			cachedQuota, _ := h.quotaRepo.GetByEmail(tenantID, email)
 			if cachedQuota != nil {
 				return h.domainQuotaToResponse(cachedQuota), nil
 			}
@@ -391,8 +393,9 @@ type BatchQuotaResult struct {
 // 优先从数据库返回缓存数据，即使过期也会返回（避免 API 请求阻塞）
 // 配额刷新由后台任务负责
 func (h *AntigravityHandler) GetBatchQuotas(ctx context.Context) (*BatchQuotaResult, error) {
+	tenantID := maxxctx.GetTenantID(ctx)
 	// 获取所有 providers
-	providers, err := h.svc.GetProviders(0)
+	providers, err := h.svc.GetProviders(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list providers: %w", err)
 	}
@@ -412,7 +415,7 @@ func (h *AntigravityHandler) GetBatchQuotas(ctx context.Context) (*BatchQuotaRes
 
 		// 优先从数据库获取缓存的配额（无论是否过期）
 		if email != "" && h.quotaRepo != nil {
-			cachedQuota, err := h.quotaRepo.GetByEmail(0, email)
+			cachedQuota, err := h.quotaRepo.GetByEmail(tenantID, email)
 			if err == nil && cachedQuota != nil {
 				result.Quotas[provider.ID] = h.domainQuotaToResponse(cachedQuota)
 				continue
@@ -429,7 +432,7 @@ func (h *AntigravityHandler) GetBatchQuotas(ctx context.Context) (*BatchQuotaRes
 		// 保存到数据库
 		if email != "" && h.quotaRepo != nil {
 			var name, picture string
-			if cachedQuota, _ := h.quotaRepo.GetByEmail(0, email); cachedQuota != nil {
+			if cachedQuota, _ := h.quotaRepo.GetByEmail(tenantID, email); cachedQuota != nil {
 				name = cachedQuota.Name
 				picture = cachedQuota.Picture
 			}
