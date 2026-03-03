@@ -73,7 +73,7 @@ export function NavUser() {
   };
 
   const displayUser = {
-    name: user?.username || user?.email || 'Maxx',
+    name: user?.username || 'Maxx',
     avatar: '/logo.png',
   };
 
