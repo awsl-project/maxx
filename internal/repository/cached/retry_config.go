@@ -45,16 +45,19 @@ func (r *RetryConfigRepository) Create(c *domain.RetryConfig) error {
 		return err
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.cache[c.ID] = c
 	if c.IsDefault {
 		if old, ok := r.defaultCache[c.TenantID]; ok && old.ID != c.ID {
+			oldCopy := *old
+			oldCopy.IsDefault = false
+			if err := r.repo.Update(&oldCopy); err != nil {
+				return err
+			}
 			old.IsDefault = false
-			// Persist the old default's IsDefault=false to DB
-			_ = r.repo.Update(old)
 		}
 		r.defaultCache[c.TenantID] = c
 	}
-	r.mu.Unlock()
 	return nil
 }
 
@@ -63,18 +66,21 @@ func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
 		return err
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.cache[c.ID] = c
 	if c.IsDefault {
 		if old, ok := r.defaultCache[c.TenantID]; ok && old.ID != c.ID {
+			oldCopy := *old
+			oldCopy.IsDefault = false
+			if err := r.repo.Update(&oldCopy); err != nil {
+				return err
+			}
 			old.IsDefault = false
-			// Persist the old default's IsDefault=false to DB
-			_ = r.repo.Update(old)
 		}
 		r.defaultCache[c.TenantID] = c
 	} else if old, ok := r.defaultCache[c.TenantID]; ok && old.ID == c.ID {
 		delete(r.defaultCache, c.TenantID)
 	}
-	r.mu.Unlock()
 	return nil
 }
 

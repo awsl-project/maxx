@@ -161,7 +161,10 @@ func (s *CodexTaskService) refreshAllQuotas(ctx context.Context) bool {
 				if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
 					config.RefreshToken = tokenResp.RefreshToken
 				}
-				_ = s.providerRepo.Update(provider)
+				if err := s.providerRepo.Update(provider); err != nil {
+					log.Printf("[CodexTask] Failed to persist refreshed token for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
+					continue
+				}
 			}
 
 			// Fetch quota

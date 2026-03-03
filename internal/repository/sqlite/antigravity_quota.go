@@ -19,7 +19,7 @@ func (r *AntigravityQuotaRepository) Upsert(quota *domain.AntigravityQuota) erro
 	now := time.Now()
 
 	// Try to update first
-	result := r.db.gorm.Model(&AntigravityQuota{}).
+	result := tenantScope(r.db.gorm.Model(&AntigravityQuota{}), quota.TenantID).
 		Where("email = ? AND deleted_at = 0", quota.Email).
 		Updates(map[string]any{
 			"updated_at":        toTimestamp(now),

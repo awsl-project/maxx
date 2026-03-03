@@ -19,7 +19,7 @@ func (r *CodexQuotaRepository) Upsert(quota *domain.CodexQuota) error {
 	now := time.Now()
 
 	// Try to update first
-	result := r.db.gorm.Model(&CodexQuota{}).
+	result := tenantScope(r.db.gorm.Model(&CodexQuota{}), quota.TenantID).
 		Where("email = ? AND deleted_at = 0", quota.Email).
 		Updates(map[string]any{
 			"updated_at":          toTimestamp(now),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -225,6 +226,9 @@ func (h *AntigravityHandler) saveQuotaToDB(tenantID uint64, email, name, picture
 	if h.quotaRepo == nil || email == "" {
 		return
 	}
+	if tenantID == domain.TenantIDAll {
+		tenantID = domain.DefaultTenantID
+	}
 
 	var models []domain.AntigravityModelQuota
 	var subscriptionTier string
@@ -254,7 +258,9 @@ func (h *AntigravityHandler) saveQuotaToDB(tenantID uint64, email, name, picture
 		Models:           models,
 	}
 
-	h.quotaRepo.Upsert(domainQuota)
+	if err := h.quotaRepo.Upsert(domainQuota); err != nil {
+		log.Printf("[Antigravity] Failed to save quota for %s: %v", email, err)
+	}
 }
 
 // handleValidateTokens 批量验证 refresh tokens
@@ -295,6 +301,9 @@ func (h *AntigravityHandler) handleValidateTokens(w http.ResponseWriter, r *http
 // GetProviderQuota 获取 provider 的配额信息（供 HTTP handler 和 Wails 共用）
 func (h *AntigravityHandler) GetProviderQuota(ctx context.Context, providerID uint64, forceRefresh bool) (*antigravity.QuotaData, error) {
 	tenantID := maxxctx.GetTenantID(ctx)
+	if tenantID == domain.TenantIDAll {
+		tenantID = domain.DefaultTenantID
+	}
 	// 获取 provider
 	provider, err := h.svc.GetProvider(tenantID, providerID)
 	if err != nil {
@@ -401,6 +410,9 @@ type BatchQuotaResult struct {
 // 配额刷新由后台任务负责
 func (h *AntigravityHandler) GetBatchQuotas(ctx context.Context) (*BatchQuotaResult, error) {
 	tenantID := maxxctx.GetTenantID(ctx)
+	if tenantID == domain.TenantIDAll {
+		tenantID = domain.DefaultTenantID
+	}
 	// 获取所有 providers
 	providers, err := h.svc.GetProviders(tenantID)
 	if err != nil {

@@ -84,7 +84,7 @@ func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain
 	}
 	r.mu.Lock()
 	for _, rt := range r.cache {
-		if pos, ok := posMap[rt.ID]; ok {
+		if pos, ok := posMap[rt.ID]; ok && (tenantID == domain.TenantIDAll || rt.TenantID == tenantID) {
 			rt.Position = pos
 		}
 	}

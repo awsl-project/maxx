@@ -198,8 +198,8 @@ func (ModelMapping) TableName() string { return "model_mappings" }
 // AntigravityQuota model
 type AntigravityQuota struct {
 	SoftDeleteModel
-	TenantID         uint64 `gorm:"index"`
-	Email            string `gorm:"size:255;uniqueIndex"`
+	TenantID         uint64 `gorm:"uniqueIndex:idx_antigravity_quotas_tenant_email"`
+	Email            string `gorm:"size:255;uniqueIndex:idx_antigravity_quotas_tenant_email"`
 	SubscriptionTier string `gorm:"size:64;default:'FREE'"`
 	IsForbidden      int
 	Models           LongText
@@ -213,8 +213,8 @@ func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 // CodexQuota model
 type CodexQuota struct {
 	SoftDeleteModel
-	TenantID         uint64 `gorm:"index"`
-	Email            string `gorm:"size:255;uniqueIndex"`
+	TenantID         uint64 `gorm:"uniqueIndex:idx_codex_quotas_tenant_email"`
+	Email            string `gorm:"size:255;uniqueIndex:idx_codex_quotas_tenant_email"`
 	AccountID        string `gorm:"size:128;column:account_id"`
 	PlanType         string `gorm:"size:64"`
 	IsForbidden      int

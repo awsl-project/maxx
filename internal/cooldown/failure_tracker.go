@@ -8,7 +8,10 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 )
 
-// FailureTracker manages failure counts and their persistence
+// FailureTracker manages failure counts and their persistence.
+// Cooldown operates at the provider level across all tenants: when a provider is
+// rate-limited, it affects every tenant using that provider. Therefore failure
+// counts are stored with TenantID=TenantIDAll (0) and queries use TenantIDAll.
 type FailureTracker struct {
 	failureCounts map[FailureKey]int
 	repository    repository.FailureCountRepository
@@ -66,6 +69,7 @@ func (ft *FailureTracker) IncrementFailure(providerID uint64, clientType string,
 	// Persist to database
 	if ft.repository != nil {
 		fc := &domain.FailureCount{
+			TenantID:      domain.TenantIDAll, // cooldown is cross-tenant
 			ProviderID:    providerID,
 			ClientType:    clientType,
 			Reason:        string(reason),

@@ -176,7 +176,6 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
-		TenantID uint64 `json:"tenantID"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -188,9 +187,10 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default to default tenant
-	if body.TenantID == 0 {
-		body.TenantID = domain.DefaultTenantID
+	// Use tenant from the authenticated admin's token
+	tenantID := claims.TenantID
+	if tenantID == 0 {
+		tenantID = domain.DefaultTenantID
 	}
 
 	// Hash password
@@ -201,7 +201,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := &domain.User{
-		TenantID:     body.TenantID,
+		TenantID:     tenantID,
 		Username:     body.Username,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
