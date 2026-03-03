@@ -2,6 +2,7 @@ package converter
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -89,6 +90,7 @@ func (c *openaiToGeminiRequest) Transform(body []byte, model string, stream bool
 
 	toolCallNameByID := map[string]string{}
 	toolResponses := map[string]string{}
+	hasToolText := false
 	for _, msg := range req.Messages {
 		if msg.Role == "assistant" {
 			for _, tc := range msg.ToolCalls {
@@ -102,7 +104,11 @@ func (c *openaiToGeminiRequest) Transform(body []byte, model string, stream bool
 		if msg.Role != "tool" || msg.ToolCallID == "" {
 			continue
 		}
-		toolResponses[msg.ToolCallID] = stringifyContent(msg.Content)
+		contentStr := stringifyContent(msg.Content)
+		if strings.TrimSpace(contentStr) != "" {
+			hasToolText = true
+		}
+		toolResponses[msg.ToolCallID] = contentStr
 	}
 
 	var systemParts []GeminiPart
@@ -224,11 +230,15 @@ func (c *openaiToGeminiRequest) Transform(body []byte, model string, stream bool
 			}
 		}
 	}
-	if len(geminiReq.Contents) == 0 && len(systemParts) > 0 {
-		geminiReq.Contents = append(geminiReq.Contents, GeminiContent{
-			Role:  "user",
-			Parts: []GeminiPart{{Text: geminiSystemOnlyPlaceholderText}},
-		})
+	if len(geminiReq.Contents) == 0 {
+		if len(systemParts) > 0 || hasToolText {
+			geminiReq.Contents = append(geminiReq.Contents, GeminiContent{
+				Role:  "user",
+				Parts: []GeminiPart{{Text: geminiSystemOnlyPlaceholderText}},
+			})
+		} else {
+			return nil, fmt.Errorf("no user/system content available")
+		}
 	}
 	if len(systemParts) > 0 {
 		geminiReq.SystemInstruction = &GeminiContent{
