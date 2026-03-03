@@ -56,23 +56,35 @@ func (r *ModelMappingRepository) GetByID(tenantID uint64, id uint64) (*domain.Mo
 	return r.toDomain(&model), nil
 }
 
-func (r *ModelMappingRepository) List(tenantID uint64) ([]*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) listActive(tenantID uint64) ([]ModelMapping, error) {
 	var models []ModelMapping
-	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").Find(&models).Error; err != nil {
+	err := tenantScope(r.db.gorm, tenantID).
+		Where("deleted_at = 0").
+		Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").
+		Find(&models).Error
+	return models, err
+}
+
+func (r *ModelMappingRepository) List(tenantID uint64) ([]*domain.ModelMapping, error) {
+	models, err := r.listActive(tenantID)
+	if err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
 }
 
 func (r *ModelMappingRepository) ListEnabled(tenantID uint64) ([]*domain.ModelMapping, error) {
-	var models []ModelMapping
-	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").Find(&models).Error; err != nil {
+	models, err := r.listActive(tenantID)
+	if err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
 }
 
 func (r *ModelMappingRepository) ListByQuery(tenantID uint64, query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
+	if query == nil {
+		return r.List(tenantID)
+	}
 	var models []ModelMapping
 	err := tenantScope(r.db.gorm, tenantID).Where(
 		`deleted_at = 0
@@ -122,11 +134,6 @@ func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
 }
 
 func (r *ModelMappingRepository) SeedDefaults(tenantID uint64) error {
-	// Clear all existing mappings first
-	if err := r.ClearAll(tenantID); err != nil {
-		return err
-	}
-
 	defaultRules := []ModelMapping{
 		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o-mini*", Target: "gemini-2.5-flash", Priority: 0},
 		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o*", Target: "gemini-3-flash", Priority: 1},
@@ -146,7 +153,19 @@ func (r *ModelMappingRepository) SeedDefaults(tenantID uint64) error {
 		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*haiku*", Target: "gemini-2.5-flash-lite", Priority: 15},
 	}
 
-	return r.db.gorm.Create(&defaultRules).Error
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		// Clear existing mappings within the transaction
+		if tenantID == domain.TenantIDAll {
+			if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&ModelMapping{}).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Where("tenant_id = ?", tenantID).Delete(&ModelMapping{}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(&defaultRules).Error
+	})
 }
 
 func (r *ModelMappingRepository) toModel(mapping *domain.ModelMapping) *ModelMapping {

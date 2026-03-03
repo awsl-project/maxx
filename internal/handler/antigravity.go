@@ -126,7 +126,8 @@ func (h *AntigravityHandler) ValidateToken(ctx context.Context, refreshToken str
 
 	// 保存配额到数据库（基于邮箱）
 	if result.Valid && result.UserInfo != nil && result.UserInfo.Email != "" {
-		h.saveQuotaToDB(result.UserInfo.Email, result.UserInfo.Name, result.UserInfo.Picture, result.ProjectID, result.Quota)
+		tenantID := maxxctx.GetTenantID(ctx)
+		h.saveQuotaToDB(tenantID, result.UserInfo.Email, result.UserInfo.Name, result.UserInfo.Picture, result.ProjectID, result.Quota)
 	}
 
 	return result, nil
@@ -146,9 +147,10 @@ func (h *AntigravityHandler) ValidateTokens(ctx context.Context, tokens []string
 	results := antigravity.BatchValidateRefreshTokens(ctx, tokens)
 
 	// 保存每个有效的验证结果到数据库
+	tenantID := maxxctx.GetTenantID(ctx)
 	for _, result := range results {
 		if result.Valid && result.UserInfo != nil && result.UserInfo.Email != "" {
-			h.saveQuotaToDB(result.UserInfo.Email, result.UserInfo.Name, result.UserInfo.Picture, result.ProjectID, result.Quota)
+			h.saveQuotaToDB(tenantID, result.UserInfo.Email, result.UserInfo.Name, result.UserInfo.Picture, result.ProjectID, result.Quota)
 		}
 	}
 
@@ -215,7 +217,7 @@ func (h *AntigravityHandler) handleValidateToken(w http.ResponseWriter, r *http.
 }
 
 // saveQuotaToDB 保存配额到数据库
-func (h *AntigravityHandler) saveQuotaToDB(email, name, picture, projectID string, quota *antigravity.QuotaData) {
+func (h *AntigravityHandler) saveQuotaToDB(tenantID uint64, email, name, picture, gcpProjectID string, quota *antigravity.QuotaData) {
 	if h.quotaRepo == nil || email == "" {
 		return
 	}
@@ -238,10 +240,11 @@ func (h *AntigravityHandler) saveQuotaToDB(email, name, picture, projectID strin
 	}
 
 	domainQuota := &domain.AntigravityQuota{
+		TenantID:         tenantID,
 		Email:            email,
 		Name:             name,
 		Picture:          picture,
-		GCPProjectID:     projectID,
+		GCPProjectID:     gcpProjectID,
 		SubscriptionTier: subscriptionTier,
 		IsForbidden:      isForbidden,
 		Models:           models,
@@ -334,7 +337,7 @@ func (h *AntigravityHandler) GetProviderQuota(ctx context.Context, providerID ui
 			name = cachedQuota.Name
 			picture = cachedQuota.Picture
 		}
-		h.saveQuotaToDB(email, name, picture, config.ProjectID, quota)
+		h.saveQuotaToDB(tenantID, email, name, picture, config.ProjectID, quota)
 	}
 
 	return quota, nil
@@ -436,7 +439,7 @@ func (h *AntigravityHandler) GetBatchQuotas(ctx context.Context) (*BatchQuotaRes
 				name = cachedQuota.Name
 				picture = cachedQuota.Picture
 			}
-			h.saveQuotaToDB(email, name, picture, config.ProjectID, quota)
+			h.saveQuotaToDB(tenantID, email, name, picture, config.ProjectID, quota)
 		}
 
 		result.Quotas[provider.ID] = quota
@@ -559,7 +562,8 @@ func (h *AntigravityHandler) handleOAuthCallback(w http.ResponseWriter, r *http.
 	}
 
 	// 保存配额到数据库
-	h.saveQuotaToDB(userInfo.Email, userInfo.Name, userInfo.Picture, projectID, quota)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	h.saveQuotaToDB(tenantID, userInfo.Email, userInfo.Name, userInfo.Picture, projectID, quota)
 
 	// 推送成功结果到前端
 	result := &antigravity.OAuthResult{

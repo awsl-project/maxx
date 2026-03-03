@@ -154,6 +154,22 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Require authenticated admin user
+	authHeader := r.Header.Get(AuthHeader)
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	claims, valid := h.authMiddleware.ValidateToken(strings.TrimPrefix(authHeader, "Bearer "))
+	if !valid {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+		return
+	}
+	if claims.Role != string(domain.UserRoleAdmin) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin access required"})
+		return
+	}
+
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`

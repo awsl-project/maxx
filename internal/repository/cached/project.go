@@ -7,10 +7,15 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 )
 
+type projectSlugKey struct {
+	TenantID uint64
+	Slug     string
+}
+
 type ProjectRepository struct {
 	repo      repository.ProjectRepository
 	cache     map[uint64]*domain.Project
-	slugCache map[string]*domain.Project
+	slugCache map[projectSlugKey]*domain.Project
 	mu        sync.RWMutex
 }
 
@@ -18,7 +23,7 @@ func NewProjectRepository(repo repository.ProjectRepository) *ProjectRepository 
 	return &ProjectRepository{
 		repo:      repo,
 		cache:     make(map[uint64]*domain.Project),
-		slugCache: make(map[string]*domain.Project),
+		slugCache: make(map[projectSlugKey]*domain.Project),
 	}
 }
 
@@ -32,7 +37,7 @@ func (r *ProjectRepository) Load() error {
 	for _, p := range list {
 		r.cache[p.ID] = p
 		if p.Slug != "" {
-			r.slugCache[p.Slug] = p
+			r.slugCache[projectSlugKey{TenantID: p.TenantID, Slug: p.Slug}] = p
 		}
 	}
 	return nil
@@ -45,7 +50,7 @@ func (r *ProjectRepository) Create(p *domain.Project) error {
 	r.mu.Lock()
 	r.cache[p.ID] = p
 	if p.Slug != "" {
-		r.slugCache[p.Slug] = p
+		r.slugCache[projectSlugKey{TenantID: p.TenantID, Slug: p.Slug}] = p
 	}
 	r.mu.Unlock()
 	return nil
@@ -55,10 +60,6 @@ func (r *ProjectRepository) Update(p *domain.Project) error {
 	// Get old project to remove old slug from cache
 	r.mu.RLock()
 	oldProject := r.cache[p.ID]
-	var oldSlug string
-	if oldProject != nil {
-		oldSlug = oldProject.Slug
-	}
 	r.mu.RUnlock()
 
 	if err := r.repo.Update(p); err != nil {
@@ -67,12 +68,12 @@ func (r *ProjectRepository) Update(p *domain.Project) error {
 
 	r.mu.Lock()
 	// Remove old slug from cache if changed
-	if oldSlug != "" && oldSlug != p.Slug {
-		delete(r.slugCache, oldSlug)
+	if oldProject != nil && oldProject.Slug != "" && (oldProject.Slug != p.Slug || oldProject.TenantID != p.TenantID) {
+		delete(r.slugCache, projectSlugKey{TenantID: oldProject.TenantID, Slug: oldProject.Slug})
 	}
 	r.cache[p.ID] = p
 	if p.Slug != "" {
-		r.slugCache[p.Slug] = p
+		r.slugCache[projectSlugKey{TenantID: p.TenantID, Slug: p.Slug}] = p
 	}
 	r.mu.Unlock()
 	return nil
@@ -91,7 +92,7 @@ func (r *ProjectRepository) Delete(tenantID uint64, id uint64) error {
 	r.mu.Lock()
 	delete(r.cache, id)
 	if p != nil && p.Slug != "" {
-		delete(r.slugCache, p.Slug)
+		delete(r.slugCache, projectSlugKey{TenantID: p.TenantID, Slug: p.Slug})
 	}
 	r.mu.Unlock()
 	return nil
@@ -109,7 +110,15 @@ func (r *ProjectRepository) GetByID(tenantID uint64, id uint64) (*domain.Project
 
 func (r *ProjectRepository) GetBySlug(tenantID uint64, slug string) (*domain.Project, error) {
 	r.mu.RLock()
-	if p, ok := r.slugCache[slug]; ok && (tenantID == domain.TenantIDAll || p.TenantID == tenantID) {
+	if tenantID == domain.TenantIDAll {
+		// Scan for any tenant with this slug
+		for key, p := range r.slugCache {
+			if key.Slug == slug {
+				r.mu.RUnlock()
+				return p, nil
+			}
+		}
+	} else if p, ok := r.slugCache[projectSlugKey{TenantID: tenantID, Slug: slug}]; ok {
 		r.mu.RUnlock()
 		return p, nil
 	}
@@ -124,7 +133,7 @@ func (r *ProjectRepository) GetBySlug(tenantID uint64, slug string) (*domain.Pro
 	// Update cache
 	r.mu.Lock()
 	r.cache[p.ID] = p
-	r.slugCache[p.Slug] = p
+	r.slugCache[projectSlugKey{TenantID: p.TenantID, Slug: p.Slug}] = p
 	r.mu.Unlock()
 
 	return p, nil

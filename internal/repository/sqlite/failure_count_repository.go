@@ -53,7 +53,7 @@ func (r *FailureCountRepository) Upsert(fc *domain.FailureCount) error {
 	}
 
 	err := r.db.gorm.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "provider_id"}, {Name: "client_type"}, {Name: "reason"}},
+		Columns: []clause.Column{{Name: "tenant_id"}, {Name: "provider_id"}, {Name: "client_type"}, {Name: "reason"}},
 		DoUpdates: clause.Assignments(map[string]any{
 			"count":           fc.Count,
 			"last_failure_at": toTimestamp(fc.LastFailureAt),

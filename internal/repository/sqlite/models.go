@@ -323,10 +323,10 @@ func (Cooldown) TableName() string { return "cooldowns" }
 // FailureCount model
 type FailureCount struct {
 	BaseModel
-	TenantID      uint64 `gorm:"index"`
-	ProviderID    uint64 `gorm:"uniqueIndex:idx_failure_counts_provider_client_reason"`
-	ClientType    string `gorm:"size:255;uniqueIndex:idx_failure_counts_provider_client_reason"`
-	Reason        string `gorm:"size:255;uniqueIndex:idx_failure_counts_provider_client_reason"`
+	TenantID      uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
+	ProviderID    uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
+	ClientType    string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
+	Reason        string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
 	Count         int
 	LastFailureAt int64 `gorm:"index"`
 }

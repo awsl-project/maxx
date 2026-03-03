@@ -7,16 +7,21 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 )
 
+type routingStrategyCacheKey struct {
+	TenantID  uint64
+	ProjectID uint64
+}
+
 type RoutingStrategyRepository struct {
 	repo  repository.RoutingStrategyRepository
-	cache map[uint64]*domain.RoutingStrategy // projectID -> strategy
+	cache map[routingStrategyCacheKey]*domain.RoutingStrategy
 	mu    sync.RWMutex
 }
 
 func NewRoutingStrategyRepository(repo repository.RoutingStrategyRepository) *RoutingStrategyRepository {
 	return &RoutingStrategyRepository{
 		repo:  repo,
-		cache: make(map[uint64]*domain.RoutingStrategy),
+		cache: make(map[routingStrategyCacheKey]*domain.RoutingStrategy),
 	}
 }
 
@@ -28,7 +33,7 @@ func (r *RoutingStrategyRepository) Load() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, s := range list {
-		r.cache[s.ProjectID] = s
+		r.cache[routingStrategyCacheKey{TenantID: s.TenantID, ProjectID: s.ProjectID}] = s
 	}
 	return nil
 }
@@ -38,19 +43,19 @@ func (r *RoutingStrategyRepository) Create(s *domain.RoutingStrategy) error {
 		return err
 	}
 	r.mu.Lock()
-	r.cache[s.ProjectID] = s
+	r.cache[routingStrategyCacheKey{TenantID: s.TenantID, ProjectID: s.ProjectID}] = s
 	r.mu.Unlock()
 	return nil
 }
 
 func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
-	// 先找到旧的 projectID（如果有的话）
+	// 先找到旧的缓存键（如果有的话）
 	r.mu.RLock()
-	var oldProjectID uint64
+	var oldKey routingStrategyCacheKey
 	var found bool
-	for pid, cached := range r.cache {
+	for key, cached := range r.cache {
 		if cached.ID == s.ID {
-			oldProjectID = pid
+			oldKey = key
 			found = true
 			break
 		}
@@ -61,23 +66,24 @@ func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
 		return err
 	}
 
+	newKey := routingStrategyCacheKey{TenantID: s.TenantID, ProjectID: s.ProjectID}
 	r.mu.Lock()
-	// 如果 projectID 改变了，删除旧的缓存条目
-	if found && oldProjectID != s.ProjectID {
-		delete(r.cache, oldProjectID)
+	// 如果缓存键改变了，删除旧的缓存条目
+	if found && oldKey != newKey {
+		delete(r.cache, oldKey)
 	}
-	r.cache[s.ProjectID] = s
+	r.cache[newKey] = s
 	r.mu.Unlock()
 	return nil
 }
 
 func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 	r.mu.RLock()
-	var projectID uint64
+	var cacheKey routingStrategyCacheKey
 	var found bool
-	for pid, s := range r.cache {
+	for key, s := range r.cache {
 		if s.ID == id {
-			projectID = pid
+			cacheKey = key
 			found = true
 			break
 		}
@@ -90,7 +96,7 @@ func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 
 	if found {
 		r.mu.Lock()
-		delete(r.cache, projectID)
+		delete(r.cache, cacheKey)
 		r.mu.Unlock()
 	}
 	return nil
@@ -98,7 +104,15 @@ func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *RoutingStrategyRepository) GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error) {
 	r.mu.RLock()
-	if s, ok := r.cache[projectID]; ok && (tenantID == domain.TenantIDAll || s.TenantID == tenantID) {
+	if tenantID == domain.TenantIDAll {
+		// TenantIDAll: scan all entries for matching projectID
+		for key, s := range r.cache {
+			if key.ProjectID == projectID {
+				r.mu.RUnlock()
+				return s, nil
+			}
+		}
+	} else if s, ok := r.cache[routingStrategyCacheKey{TenantID: tenantID, ProjectID: projectID}]; ok {
 		r.mu.RUnlock()
 		return s, nil
 	}
