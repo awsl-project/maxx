@@ -7,7 +7,6 @@ const AUTH_INIT_TIMEOUT_MS = 8000;
 
 export interface AuthUser {
   id: number;
-  email: string;
   username: string;
   tenantID: number;
   tenantName?: string;
@@ -75,7 +74,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             if (status.user) {
               setUser({
                 id: status.user.id,
-                email: status.user.email ?? '',
                 username: status.user.username ?? '',
                 tenantID: status.user.tenantID,
                 tenantName: status.user.tenantName,

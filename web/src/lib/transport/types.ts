@@ -638,14 +638,12 @@ export interface User {
   updatedAt: string;
   tenantID: number;
   username: string;
-  email: string;
   role: UserRole;
   isDefault: boolean;
   lastLoginAt?: string;
 }
 
 export interface CreateUserData {
-  email: string;
   username: string;
   password: string;
   tenantID?: number;
@@ -654,7 +652,6 @@ export interface CreateUserData {
 
 export interface UpdateUserData {
   username?: string;
-  email?: string;
   role?: UserRole;
 }
 
@@ -667,7 +664,6 @@ export interface AuthStatus {
     id: number;
     tenantID: number;
     role: UserRole;
-    email?: string;
     username?: string;
     tenantName?: string;
   };
@@ -684,7 +680,6 @@ export interface AuthLoginResult {
   token?: string;
   user?: {
     id: number;
-    email: string;
     username: string;
     tenantID: number;
     tenantName: string;
@@ -698,7 +693,6 @@ export interface AuthRegisterResult {
   token?: string;
   user?: {
     id: number;
-    email: string;
     username: string;
     tenantID: number;
     role: UserRole;

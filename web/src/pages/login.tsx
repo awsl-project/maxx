@@ -13,7 +13,7 @@ interface LoginPageProps {
 export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
   const { t } = useTranslation();
   const { transport } = useTransport();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -25,13 +25,12 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
 
     try {
       if (multiTenancyEnabled) {
-        // Multi-tenancy: email + password login
-        const result = await transport.login(email, password);
+        // Multi-tenancy: username + password login
+        const result = await transport.login(username, password);
         if (result.success && result.token) {
           const user: AuthUser | undefined = result.user
             ? {
                 id: result.user.id,
-                email: result.user.email,
                 username: result.user.username,
                 tenantID: result.user.tenantID,
                 tenantName: result.user.tenantName,
@@ -59,7 +58,7 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
   };
 
   const isSubmitDisabled = multiTenancyEnabled
-    ? isLoading || !email || !password
+    ? isLoading || !username || !password
     : isLoading || !password;
 
   return (
@@ -74,10 +73,10 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
           <div className="space-y-2">
             {multiTenancyEnabled && (
               <Input
-                type="email"
-                placeholder={t('login.emailPlaceholder')}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                placeholder={t('login.usernamePlaceholder')}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 autoFocus
                 disabled={isLoading}
               />

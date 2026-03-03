@@ -657,12 +657,12 @@
   "login": {
     "title": "Maxx Admin",
     "description": "Enter password to access the admin panel",
-    "emailPlaceholder": "Email",
+    "usernamePlaceholder": "Username",
     "passwordPlaceholder": "Password",
     "submit": "Login",
     "verifying": "Verifying...",
     "invalidPassword": "Invalid password",
-    "invalidCredentials": "Invalid email or password",
+    "invalidCredentials": "Invalid username or password",
     "verifyFailed": "Failed to verify password"
   },
   "users": {
@@ -671,7 +671,6 @@
     "addUser": "Add User",
     "editUser": "Edit User",
     "deleteConfirm": "Are you sure you want to delete this user?",
-    "email": "Email",
     "username": "Username",
     "password": "Password",
     "role": "Role",

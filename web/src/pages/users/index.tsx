@@ -45,20 +45,18 @@ export function UsersPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
-    email: '',
     username: '',
     password: '',
     role: 'member' as UserRole,
   });
 
   const resetForm = () => {
-    setFormData({ email: '', username: '', password: '', role: 'member' });
+    setFormData({ username: '', password: '', role: 'member' });
   };
 
   const handleCreate = async () => {
     try {
       await createUser.mutateAsync({
-        email: formData.email,
         username: formData.username,
         password: formData.password,
         role: formData.role,
@@ -76,7 +74,6 @@ export function UsersPage() {
       await updateUser.mutateAsync({
         id: editingUser.id,
         data: {
-          email: formData.email,
           username: formData.username,
           role: formData.role,
         },
@@ -100,7 +97,6 @@ export function UsersPage() {
   const openEditDialog = (user: User) => {
     setEditingUser(user);
     setFormData({
-      email: user.email,
       username: user.username,
       password: '',
       role: user.role,
@@ -140,7 +136,6 @@ export function UsersPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>{t('users.username')}</TableHead>
-                <TableHead>{t('users.email')}</TableHead>
                 <TableHead>{t('users.role')}</TableHead>
                 <TableHead>{t('users.lastLogin')}</TableHead>
                 <TableHead className="w-[100px]" />
@@ -157,7 +152,6 @@ export function UsersPage() {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell>{user.email}</TableCell>
                   <TableCell>
                     <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
                       {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
@@ -190,7 +184,7 @@ export function UsersPage() {
               ))}
               {(!users || users.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
                     No users found
                   </TableCell>
                 </TableRow>
@@ -214,15 +208,6 @@ export function UsersPage() {
                 value={formData.username}
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                 placeholder={t('users.username')}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.email')}</label>
-              <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder={t('users.email')}
               />
             </div>
             <div className="space-y-2">
@@ -252,7 +237,7 @@ export function UsersPage() {
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={!formData.email || !formData.username || !formData.password || createUser.isPending}
+              disabled={!formData.username || !formData.password || createUser.isPending}
             >
               {createUser.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('users.addUser')}
@@ -278,15 +263,6 @@ export function UsersPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.email')}</label>
-              <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder={t('users.email')}
-              />
-            </div>
-            <div className="space-y-2">
               <label className="text-sm font-medium">{t('users.role')}</label>
               <select
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -304,7 +280,7 @@ export function UsersPage() {
             </Button>
             <Button
               onClick={handleUpdate}
-              disabled={!formData.email || !formData.username || updateUser.isPending}
+              disabled={!formData.username || updateUser.isPending}
             >
               {updateUser.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('users.editUser')}

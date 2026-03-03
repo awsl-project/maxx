@@ -78,7 +78,6 @@ func (h *AdminHandler) handleGetUser(w http.ResponseWriter, tenantID uint64, id 
 
 func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request, tenantID uint64) {
 	var body struct {
-		Email    string          `json:"email"`
 		Username string          `json:"username"`
 		Password string          `json:"password"`
 		Role     domain.UserRole `json:"role"`
@@ -88,8 +87,8 @@ func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	if body.Email == "" || body.Username == "" || body.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email, username and password are required"})
+	if body.Username == "" || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
 		return
 	}
 
@@ -105,7 +104,6 @@ func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request, 
 
 	user := &domain.User{
 		TenantID:     tenantID,
-		Email:        body.Email,
 		Username:     body.Username,
 		PasswordHash: string(hash),
 		Role:         body.Role,
@@ -131,7 +129,6 @@ func (h *AdminHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, 
 	}
 
 	var body struct {
-		Email    string          `json:"email"`
 		Username string          `json:"username"`
 		Role     domain.UserRole `json:"role"`
 	}
@@ -140,9 +137,6 @@ func (h *AdminHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	if body.Email != "" {
-		user.Email = body.Email
-	}
 	if body.Username != "" {
 		user.Username = body.Username
 	}

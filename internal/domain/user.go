@@ -20,11 +20,8 @@ type User struct {
 	// 所属租户
 	TenantID uint64 `json:"tenantID"`
 
-	// 用户名
+	// 用户名（全局唯一登录标识）
 	Username string `json:"username"`
-
-	// 邮箱（全局唯一登录标识）
-	Email string `json:"email"`
 
 	// bcrypt 密码哈希，不序列化
 	PasswordHash string `json:"-"`

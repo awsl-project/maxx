@@ -73,8 +73,7 @@ func (Tenant) TableName() string { return "tenants" }
 type User struct {
 	SoftDeleteModel
 	TenantID     uint64 `gorm:"index"`
-	Username     string `gorm:"size:255"`
-	Email        string `gorm:"size:255;uniqueIndex"`
+	Username     string `gorm:"size:255;uniqueIndex"`
 	PasswordHash string `gorm:"size:255"`
 	Role         string `gorm:"size:64;default:'admin'"`
 	IsDefault    int

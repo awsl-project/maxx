@@ -608,13 +608,13 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async login(email: string, password: string): Promise<AuthLoginResult> {
-    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/login', { email, password });
+  async login(username: string, password: string): Promise<AuthLoginResult> {
+    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/login', { username, password });
     return data;
   }
 
-  async register(email: string, username: string, password: string, tenantID?: number): Promise<AuthRegisterResult> {
-    const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', { email, username, password, tenantID });
+  async register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult> {
+    const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', { username, password, tenantID });
     return data;
   }
 

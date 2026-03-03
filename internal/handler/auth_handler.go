@@ -80,7 +80,7 @@ func (h *AuthHandler) handleVerify(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleLogin handles email+password login
+// handleLogin handles username+password login
 // POST /admin/auth/login
 func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -89,7 +89,7 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Email    string `json:"email"`
+		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -97,13 +97,13 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.Email == "" || body.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email and password are required"})
+	if body.Username == "" || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
 		return
 	}
 
-	// Look up user by email
-	user, err := h.userRepo.GetByEmail(body.Email)
+	// Look up user by username
+	user, err := h.userRepo.GetByUsername(body.Username)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
@@ -138,7 +138,6 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"token":   token,
 		"user": map[string]any{
 			"id":         user.ID,
-			"email":      user.Email,
 			"username":   user.Username,
 			"tenantID":   user.TenantID,
 			"tenantName": tenantName,
@@ -156,7 +155,6 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Email    string `json:"email"`
 		Username string `json:"username"`
 		Password string `json:"password"`
 		TenantID uint64 `json:"tenantID"`
@@ -166,8 +164,8 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.Email == "" || body.Password == "" || body.Username == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email, username and password are required"})
+	if body.Username == "" || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
 		return
 	}
 
@@ -186,7 +184,6 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	user := &domain.User{
 		TenantID:     body.TenantID,
 		Username:     body.Username,
-		Email:        body.Email,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
 	}
@@ -208,7 +205,6 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		"token":   token,
 		"user": map[string]any{
 			"id":       user.ID,
-			"email":    user.Email,
 			"username": user.Username,
 			"tenantID": user.TenantID,
 			"role":     user.Role,
@@ -244,7 +240,6 @@ func (h *AuthHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 			// Try to get user details
 			if h.userRepo != nil {
 				if user, err := h.userRepo.GetByID(claims.TenantID, claims.UserID); err == nil {
-					userInfo["email"] = user.Email
 					userInfo["username"] = user.Username
 				}
 			}
