@@ -235,6 +235,7 @@ func main() {
 		antigravityQuotaRepo,
 		settingRepo,
 		proxyRequestRepo,
+		tenantRepo,
 		wsHub,
 	)
 

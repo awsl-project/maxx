@@ -25,6 +25,7 @@ type AntigravityTaskService struct {
 	quotaRepo         repository.AntigravityQuotaRepository
 	settingRepo       repository.SystemSettingRepository
 	requestRepo       repository.ProxyRequestRepository
+	tenantRepo        repository.TenantRepository
 	broadcaster       event.Broadcaster
 }
 
@@ -35,6 +36,7 @@ func NewAntigravityTaskService(
 	quotaRepo repository.AntigravityQuotaRepository,
 	settingRepo repository.SystemSettingRepository,
 	requestRepo repository.ProxyRequestRepository,
+	tenantRepo repository.TenantRepository,
 	broadcaster event.Broadcaster,
 ) *AntigravityTaskService {
 	return &AntigravityTaskService{
@@ -43,6 +45,7 @@ func NewAntigravityTaskService(
 		quotaRepo:      quotaRepo,
 		settingRepo:    settingRepo,
 		requestRepo:    requestRepo,
+		tenantRepo:     tenantRepo,
 		broadcaster:    broadcaster,
 	}
 }
@@ -114,35 +117,43 @@ func (s *AntigravityTaskService) SortRoutes(ctx context.Context) {
 	s.autoSortAntigravityRoutes(ctx)
 }
 
-// refreshAllQuotas refreshes quotas for all Antigravity providers
+// refreshAllQuotas refreshes quotas for all Antigravity providers across all tenants
 func (s *AntigravityTaskService) refreshAllQuotas(ctx context.Context) bool {
-	providers, err := s.providerRepo.List(0)
+	tenants, err := s.tenantRepo.List()
 	if err != nil {
-		log.Printf("[AntigravityTask] Failed to list providers: %v", err)
+		log.Printf("[AntigravityTask] Failed to list tenants: %v", err)
 		return false
 	}
 
 	refreshedCount := 0
-	for _, provider := range providers {
-		if provider.Type != "antigravity" || provider.Config == nil || provider.Config.Antigravity == nil {
-			continue
-		}
-
-		config := provider.Config.Antigravity
-		if config.RefreshToken == "" {
-			continue
-		}
-
-		// Fetch quota from API
-		quota, err := antigravity.FetchQuotaForProvider(ctx, config.RefreshToken, config.ProjectID)
+	for _, tenant := range tenants {
+		providers, err := s.providerRepo.List(tenant.ID)
 		if err != nil {
-			log.Printf("[AntigravityTask] Failed to fetch quota for provider %d: %v", provider.ID, err)
+			log.Printf("[AntigravityTask] Failed to list providers for tenant %d: %v", tenant.ID, err)
 			continue
 		}
 
-		// Save to database
-		s.saveQuotaToDB(config.Email, config.ProjectID, quota)
-		refreshedCount++
+		for _, provider := range providers {
+			if provider.Type != "antigravity" || provider.Config == nil || provider.Config.Antigravity == nil {
+				continue
+			}
+
+			config := provider.Config.Antigravity
+			if config.RefreshToken == "" {
+				continue
+			}
+
+			// Fetch quota from API
+			quota, err := antigravity.FetchQuotaForProvider(ctx, config.RefreshToken, config.ProjectID)
+			if err != nil {
+				log.Printf("[AntigravityTask] Failed to fetch quota for provider %d: %v", provider.ID, err)
+				continue
+			}
+
+			// Save to database
+			s.saveQuotaToDB(tenant.ID, config.Email, config.ProjectID, quota)
+			refreshedCount++
+		}
 	}
 
 	if refreshedCount > 0 {
@@ -154,7 +165,7 @@ func (s *AntigravityTaskService) refreshAllQuotas(ctx context.Context) bool {
 }
 
 // saveQuotaToDB saves quota to database
-func (s *AntigravityTaskService) saveQuotaToDB(email, projectID string, quota *antigravity.QuotaData) {
+func (s *AntigravityTaskService) saveQuotaToDB(tenantID uint64, email, projectID string, quota *antigravity.QuotaData) {
 	if s.quotaRepo == nil || email == "" {
 		return
 	}
@@ -178,12 +189,13 @@ func (s *AntigravityTaskService) saveQuotaToDB(email, projectID string, quota *a
 
 	// Try to preserve existing user info
 	var name, picture string
-	if existing, _ := s.quotaRepo.GetByEmail(0, email); existing != nil {
+	if existing, _ := s.quotaRepo.GetByEmail(tenantID, email); existing != nil {
 		name = existing.Name
 		picture = existing.Picture
 	}
 
 	domainQuota := &domain.AntigravityQuota{
+		TenantID:         tenantID,
 		Email:            email,
 		Name:             name,
 		Picture:          picture,
@@ -205,20 +217,40 @@ func (s *AntigravityTaskService) isAutoSortEnabled() bool {
 	return val == "true"
 }
 
-// autoSortAntigravityRoutes sorts Antigravity routes by resetTime for all scopes
+// autoSortAntigravityRoutes sorts Antigravity routes by resetTime for all tenants and scopes
 func (s *AntigravityTaskService) autoSortAntigravityRoutes(ctx context.Context) {
 	log.Printf("[AntigravityTask] Starting auto-sort")
 
-	routes, err := s.routeRepo.List(0)
+	tenants, err := s.tenantRepo.List()
 	if err != nil {
-		log.Printf("[AntigravityTask] Failed to list routes: %v", err)
+		log.Printf("[AntigravityTask] Failed to list tenants: %v", err)
 		return
 	}
 
-	providers, err := s.providerRepo.List(0)
+	totalUpdated := 0
+	for _, tenant := range tenants {
+		updated := s.autoSortAntigravityRoutesForTenant(ctx, tenant.ID)
+		totalUpdated += updated
+	}
+
+	if totalUpdated > 0 {
+		log.Printf("[AntigravityTask] Auto-sorted %d routes across all tenants", totalUpdated)
+		s.broadcaster.BroadcastMessage("routes_updated", nil)
+	}
+}
+
+// autoSortAntigravityRoutesForTenant sorts Antigravity routes for a specific tenant
+func (s *AntigravityTaskService) autoSortAntigravityRoutesForTenant(ctx context.Context, tenantID uint64) int {
+	routes, err := s.routeRepo.List(tenantID)
 	if err != nil {
-		log.Printf("[AntigravityTask] Failed to list providers: %v", err)
-		return
+		log.Printf("[AntigravityTask] Failed to list routes for tenant %d: %v", tenantID, err)
+		return 0
+	}
+
+	providers, err := s.providerRepo.List(tenantID)
+	if err != nil {
+		log.Printf("[AntigravityTask] Failed to list providers for tenant %d: %v", tenantID, err)
+		return 0
 	}
 
 	// Build provider map
@@ -230,15 +262,15 @@ func (s *AntigravityTaskService) autoSortAntigravityRoutes(ctx context.Context) 
 			antigravityCount++
 		}
 	}
-	log.Printf("[AntigravityTask] Found %d Antigravity providers, %d total routes", antigravityCount, len(routes))
+	log.Printf("[AntigravityTask] Tenant %d: found %d Antigravity providers, %d total routes", tenantID, antigravityCount, len(routes))
 
-	// Get all quotas
-	quotas, err := s.quotaRepo.List(0)
+	// Get quotas for this tenant
+	quotas, err := s.quotaRepo.List(tenantID)
 	if err != nil {
-		log.Printf("[AntigravityTask] Failed to list quotas: %v", err)
-		return
+		log.Printf("[AntigravityTask] Failed to list quotas for tenant %d: %v", tenantID, err)
+		return 0
 	}
-	log.Printf("[AntigravityTask] Found %d quotas in database", len(quotas))
+	log.Printf("[AntigravityTask] Tenant %d: found %d quotas in database", tenantID, len(quotas))
 
 	// Build email to quota map
 	quotaByEmail := make(map[string]*domain.AntigravityQuota)
@@ -264,15 +296,13 @@ func (s *AntigravityTaskService) autoSortAntigravityRoutes(ctx context.Context) 
 	}
 
 	if len(allUpdates) > 0 {
-		if err := s.routeRepo.BatchUpdatePositions(0, allUpdates); err != nil {
-			log.Printf("[AntigravityTask] Failed to update route positions: %v", err)
-			return
+		if err := s.routeRepo.BatchUpdatePositions(tenantID, allUpdates); err != nil {
+			log.Printf("[AntigravityTask] Failed to update route positions for tenant %d: %v", tenantID, err)
+			return 0
 		}
-		log.Printf("[AntigravityTask] Auto-sorted %d routes", len(allUpdates))
-
-		// Broadcast routes updated
-		s.broadcaster.BroadcastMessage("routes_updated", nil)
 	}
+
+	return len(allUpdates)
 }
 
 // sortAntigravityRoutesForScope sorts Antigravity routes within a scope

@@ -330,7 +330,7 @@ func (h *AntigravityHandler) GetProviderQuota(ctx context.Context, providerID ui
 	if email != "" && h.quotaRepo != nil {
 		// 尝试保留已有的用户信息
 		var name, picture string
-		if cachedQuota, _ := h.quotaRepo.GetByEmail(0, email); cachedQuota != nil {
+		if cachedQuota, _ := h.quotaRepo.GetByEmail(tenantID, email); cachedQuota != nil {
 			name = cachedQuota.Name
 			picture = cachedQuota.Picture
 		}
