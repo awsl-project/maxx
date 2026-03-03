@@ -343,6 +343,7 @@ func main() {
 	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, tokenAuthMiddleware)
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
+	adminHandler.SetUserRepo(userRepo)
 	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
 	antigravityHandler.SetTaskService(antigravityTaskSvc)
