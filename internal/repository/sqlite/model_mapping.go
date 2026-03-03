@@ -115,7 +115,7 @@ func (r *ModelMappingRepository) DeleteAll(tenantID uint64) error {
 }
 
 func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
-	if tenantID == 0 {
+	if tenantID == domain.TenantIDAll {
 		return r.db.gorm.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&ModelMapping{}).Error
 	}
 	return r.db.gorm.Where("tenant_id = ?", tenantID).Delete(&ModelMapping{}).Error

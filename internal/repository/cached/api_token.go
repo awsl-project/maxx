@@ -75,7 +75,7 @@ func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	r.mu.RLock()
-	if t, ok := r.cache[id]; ok && (tenantID == 0 || t.TenantID == tenantID) {
+	if t, ok := r.cache[id]; ok && (tenantID == domain.TenantIDAll || t.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return t, nil
 	}
@@ -95,7 +95,7 @@ func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APITok
 
 func (r *APITokenRepository) GetByToken(tenantID uint64, token string) (*domain.APIToken, error) {
 	r.mu.RLock()
-	if t, ok := r.tokenCache[token]; ok && (tenantID == 0 || t.TenantID == tenantID) {
+	if t, ok := r.tokenCache[token]; ok && (tenantID == domain.TenantIDAll || t.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return t, nil
 	}
@@ -143,7 +143,7 @@ func (r *APITokenRepository) InvalidateCache() {
 
 // Load preloads all tokens into cache
 func (r *APITokenRepository) Load() error {
-	tokens, err := r.repo.List(0)
+	tokens, err := r.repo.List(domain.TenantIDAll)
 	if err != nil {
 		return err
 	}

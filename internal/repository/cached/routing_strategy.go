@@ -21,7 +21,7 @@ func NewRoutingStrategyRepository(repo repository.RoutingStrategyRepository) *Ro
 }
 
 func (r *RoutingStrategyRepository) Load() error {
-	list, err := r.repo.List(0)
+	list, err := r.repo.List(domain.TenantIDAll)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *RoutingStrategyRepository) GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error) {
 	r.mu.RLock()
-	if s, ok := r.cache[projectID]; ok && (tenantID == 0 || s.TenantID == tenantID) {
+	if s, ok := r.cache[projectID]; ok && (tenantID == domain.TenantIDAll || s.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return s, nil
 	}
@@ -111,7 +111,7 @@ func (r *RoutingStrategyRepository) List(tenantID uint64) ([]*domain.RoutingStra
 	defer r.mu.RUnlock()
 	list := make([]*domain.RoutingStrategy, 0, len(r.cache))
 	for _, s := range r.cache {
-		if tenantID == 0 || s.TenantID == tenantID {
+		if tenantID == domain.TenantIDAll || s.TenantID == tenantID {
 			list = append(list, s)
 		}
 	}

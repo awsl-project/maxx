@@ -22,7 +22,7 @@ func NewRetryConfigRepository(repo repository.RetryConfigRepository) *RetryConfi
 }
 
 func (r *RetryConfigRepository) Load() error {
-    list, err := r.repo.List(0)
+    list, err := r.repo.List(domain.TenantIDAll)
     if err != nil {
         return err
     }
@@ -86,7 +86,7 @@ func (r *RetryConfigRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *RetryConfigRepository) GetByID(tenantID uint64, id uint64) (*domain.RetryConfig, error) {
     r.mu.RLock()
-    if c, ok := r.cache[id]; ok && (tenantID == 0 || c.TenantID == tenantID) {
+    if c, ok := r.cache[id]; ok && (tenantID == domain.TenantIDAll || c.TenantID == tenantID) {
         r.mu.RUnlock()
         return c, nil
     }
@@ -96,7 +96,7 @@ func (r *RetryConfigRepository) GetByID(tenantID uint64, id uint64) (*domain.Ret
 
 func (r *RetryConfigRepository) GetDefault(tenantID uint64) (*domain.RetryConfig, error) {
     r.mu.RLock()
-    if r.defaultCache != nil && (tenantID == 0 || r.defaultCache.TenantID == tenantID) {
+    if r.defaultCache != nil && (tenantID == domain.TenantIDAll || r.defaultCache.TenantID == tenantID) {
         r.mu.RUnlock()
         return r.defaultCache, nil
     }
@@ -109,7 +109,7 @@ func (r *RetryConfigRepository) List(tenantID uint64) ([]*domain.RetryConfig, er
     defer r.mu.RUnlock()
     list := make([]*domain.RetryConfig, 0, len(r.cache))
     for _, c := range r.cache {
-        if tenantID == 0 || c.TenantID == tenantID {
+        if tenantID == domain.TenantIDAll || c.TenantID == tenantID {
             list = append(list, c)
         }
     }

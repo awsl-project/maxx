@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
 
@@ -19,9 +20,9 @@ func NewStatsAggregator(usageStatsRepo repository.UsageStatsRepository) *StatsAg
 
 // RunPeriodicSync 定期同步统计数据（聚合 + rollup）
 // 通过 range channel 等待所有阶段完成
-// tenantID=0 means aggregate for all tenants
+// TenantIDAll means aggregate for all tenants
 func (sa *StatsAggregator) RunPeriodicSync() {
-	for range sa.usageStatsRepo.AggregateAndRollUp(0) {
+	for range sa.usageStatsRepo.AggregateAndRollUp(domain.TenantIDAll) {
 		// drain the channel to wait for completion
 	}
 }

@@ -246,6 +246,7 @@ func main() {
 		codexQuotaRepo,
 		settingRepo,
 		proxyRequestRepo,
+		tenantRepo,
 		wsHub,
 	)
 

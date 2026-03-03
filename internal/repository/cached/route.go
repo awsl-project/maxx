@@ -21,7 +21,7 @@ func NewRouteRepository(repo repository.RouteRepository) *RouteRepository {
 }
 
 func (r *RouteRepository) Load() error {
-	list, err := r.repo.List(0)
+	list, err := r.repo.List(domain.TenantIDAll)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain
 func (r *RouteRepository) GetByID(tenantID uint64, id uint64) (*domain.Route, error) {
 	r.mu.RLock()
 	for _, rt := range r.cache {
-		if rt.ID == id && (tenantID == 0 || rt.TenantID == tenantID) {
+		if rt.ID == id && (tenantID == domain.TenantIDAll || rt.TenantID == tenantID) {
 			r.mu.RUnlock()
 			return rt, nil
 		}
@@ -96,7 +96,7 @@ func (r *RouteRepository) GetByID(tenantID uint64, id uint64) (*domain.Route, er
 func (r *RouteRepository) FindByKey(tenantID uint64, projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
 	r.mu.RLock()
 	for _, rt := range r.cache {
-		if rt.ProjectID == projectID && rt.ProviderID == providerID && rt.ClientType == clientType && (tenantID == 0 || rt.TenantID == tenantID) {
+		if rt.ProjectID == projectID && rt.ProviderID == providerID && rt.ClientType == clientType && (tenantID == domain.TenantIDAll || rt.TenantID == tenantID) {
 			r.mu.RUnlock()
 			return rt, nil
 		}
@@ -110,7 +110,7 @@ func (r *RouteRepository) List(tenantID uint64) ([]*domain.Route, error) {
 	defer r.mu.RUnlock()
 	result := make([]*domain.Route, 0, len(r.cache))
 	for _, rt := range r.cache {
-		if tenantID == 0 || rt.TenantID == tenantID {
+		if tenantID == domain.TenantIDAll || rt.TenantID == tenantID {
 			result = append(result, rt)
 		}
 	}

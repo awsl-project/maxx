@@ -23,7 +23,7 @@ func NewModelMappingRepository(repo repository.ModelMappingRepository) *ModelMap
 
 // Load 从数据库加载所有数据到内存（只在启动时调用一次）
 func (r *ModelMappingRepository) Load() error {
-	list, err := r.repo.List(0)
+	list, err := r.repo.List(domain.TenantIDAll)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (r *ModelMappingRepository) GetByID(tenantID uint64, id uint64) (*domain.Mo
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, m := range r.cache {
-		if m.ID == id && (tenantID == 0 || m.TenantID == tenantID) {
+		if m.ID == id && (tenantID == domain.TenantIDAll || m.TenantID == tenantID) {
 			return m, nil
 		}
 	}
@@ -125,7 +125,7 @@ func (r *ModelMappingRepository) List(tenantID uint64) ([]*domain.ModelMapping, 
 	defer r.mu.RUnlock()
 	result := make([]*domain.ModelMapping, 0, len(r.cache))
 	for _, m := range r.cache {
-		if tenantID == 0 || m.TenantID == tenantID {
+		if tenantID == domain.TenantIDAll || m.TenantID == tenantID {
 			result = append(result, m)
 		}
 	}
@@ -141,7 +141,7 @@ func (r *ModelMappingRepository) ListByClientType(tenantID uint64, clientType do
 	defer r.mu.RUnlock()
 	result := make([]*domain.ModelMapping, 0)
 	for _, m := range r.cache {
-		if tenantID != 0 && m.TenantID != tenantID {
+		if tenantID != domain.TenantIDAll && m.TenantID != tenantID {
 			continue
 		}
 		if m.ClientType == "" || m.ClientType == clientType {
@@ -157,7 +157,7 @@ func (r *ModelMappingRepository) ListByQuery(tenantID uint64, query *domain.Mode
 	defer r.mu.RUnlock()
 	result := make([]*domain.ModelMapping, 0)
 	for _, m := range r.cache {
-		if tenantID != 0 && m.TenantID != tenantID {
+		if tenantID != domain.TenantIDAll && m.TenantID != tenantID {
 			continue
 		}
 		// Match conditions: field is 0/empty OR field matches query
@@ -187,7 +187,7 @@ func (r *ModelMappingRepository) ListByQuery(tenantID uint64, query *domain.Mode
 func (r *ModelMappingRepository) Count(tenantID uint64) (int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if tenantID == 0 {
+	if tenantID == domain.TenantIDAll {
 		return len(r.cache), nil
 	}
 	count := 0
@@ -205,7 +205,7 @@ func (r *ModelMappingRepository) DeleteAll(tenantID uint64) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if tenantID == 0 {
+	if tenantID == domain.TenantIDAll {
 		r.cache = make([]*domain.ModelMapping, 0)
 	} else {
 		filtered := make([]*domain.ModelMapping, 0, len(r.cache))
@@ -225,7 +225,7 @@ func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if tenantID == 0 {
+	if tenantID == domain.TenantIDAll {
 		r.cache = make([]*domain.ModelMapping, 0)
 	} else {
 		filtered := make([]*domain.ModelMapping, 0, len(r.cache))

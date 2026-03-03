@@ -24,6 +24,7 @@ type CodexTaskService struct {
 	quotaRepo    repository.CodexQuotaRepository
 	settingRepo  repository.SystemSettingRepository
 	requestRepo  repository.ProxyRequestRepository
+	tenantRepo   repository.TenantRepository
 	broadcaster  event.Broadcaster
 }
 
@@ -34,6 +35,7 @@ func NewCodexTaskService(
 	quotaRepo repository.CodexQuotaRepository,
 	settingRepo repository.SystemSettingRepository,
 	requestRepo repository.ProxyRequestRepository,
+	tenantRepo repository.TenantRepository,
 	broadcaster event.Broadcaster,
 ) *CodexTaskService {
 	return &CodexTaskService{
@@ -42,6 +44,7 @@ func NewCodexTaskService(
 		quotaRepo:    quotaRepo,
 		settingRepo:  settingRepo,
 		requestRepo:  requestRepo,
+		tenantRepo:   tenantRepo,
 		broadcaster:  broadcaster,
 	}
 }
@@ -112,62 +115,70 @@ func (s *CodexTaskService) isAutoSortEnabled() bool {
 	return val == "true"
 }
 
-// refreshAllQuotas refreshes quotas for all Codex providers
+// refreshAllQuotas refreshes quotas for all Codex providers across all tenants
 func (s *CodexTaskService) refreshAllQuotas(ctx context.Context) bool {
 	if s.quotaRepo == nil {
 		return false
 	}
 
-	providers, err := s.providerRepo.List(0)
+	tenants, err := s.tenantRepo.List()
 	if err != nil {
-		log.Printf("[CodexTask] Failed to list providers: %v", err)
+		log.Printf("[CodexTask] Failed to list tenants: %v", err)
 		return false
 	}
 
 	refreshedCount := 0
-	for _, provider := range providers {
-		if provider.Type != "codex" || provider.Config == nil || provider.Config.Codex == nil {
+	for _, tenant := range tenants {
+		providers, err := s.providerRepo.List(tenant.ID)
+		if err != nil {
+			log.Printf("[CodexTask] Failed to list providers for tenant %d: %v", tenant.ID, err)
 			continue
 		}
 
-		config := provider.Config.Codex
-		if config.RefreshToken == "" {
-			continue
-		}
-
-		// Get or refresh access token
-		accessToken := config.AccessToken
-		if accessToken == "" || s.isTokenExpired(config.ExpiresAt) {
-			tokenResp, err := codex.RefreshAccessToken(ctx, config.RefreshToken)
-			if err != nil {
-				log.Printf("[CodexTask] Failed to refresh token for provider %d: %v", provider.ID, err)
+		for _, provider := range providers {
+			if provider.Type != "codex" || provider.Config == nil || provider.Config.Codex == nil {
 				continue
 			}
-			accessToken = tokenResp.AccessToken
 
-			// Update provider config
-			config.AccessToken = tokenResp.AccessToken
-			config.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
-			if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
-				config.RefreshToken = tokenResp.RefreshToken
+			config := provider.Config.Codex
+			if config.RefreshToken == "" {
+				continue
 			}
-			_ = s.providerRepo.Update(provider)
-		}
 
-		// Fetch quota
-		usage, err := codex.FetchUsage(ctx, accessToken, config.AccountID)
-		if err != nil {
-			log.Printf("[CodexTask] Failed to fetch usage for provider %d: %v", provider.ID, err)
-			// Mark as forbidden if 403 error
-			if strings.Contains(err.Error(), "403") {
-				s.saveQuotaToDB(config.Email, config.AccountID, config.PlanType, nil, true)
+			// Get or refresh access token
+			accessToken := config.AccessToken
+			if accessToken == "" || s.isTokenExpired(config.ExpiresAt) {
+				tokenResp, err := codex.RefreshAccessToken(ctx, config.RefreshToken)
+				if err != nil {
+					log.Printf("[CodexTask] Failed to refresh token for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
+					continue
+				}
+				accessToken = tokenResp.AccessToken
+
+				// Update provider config
+				config.AccessToken = tokenResp.AccessToken
+				config.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
+				if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
+					config.RefreshToken = tokenResp.RefreshToken
+				}
+				_ = s.providerRepo.Update(provider)
 			}
-			continue
-		}
 
-		// Save to database
-		s.saveQuotaToDB(config.Email, config.AccountID, usage.PlanType, usage, false)
-		refreshedCount++
+			// Fetch quota
+			usage, err := codex.FetchUsage(ctx, accessToken, config.AccountID)
+			if err != nil {
+				log.Printf("[CodexTask] Failed to fetch usage for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
+				// Mark as forbidden if 403 error
+				if strings.Contains(err.Error(), "403") {
+					s.saveQuotaToDB(tenant.ID, config.Email, config.AccountID, config.PlanType, nil, true)
+				}
+				continue
+			}
+
+			// Save to database
+			s.saveQuotaToDB(tenant.ID, config.Email, config.AccountID, usage.PlanType, usage, false)
+			refreshedCount++
+		}
 	}
 
 	if refreshedCount > 0 {
@@ -190,12 +201,13 @@ func (s *CodexTaskService) isTokenExpired(expiresAt string) bool {
 }
 
 // saveQuotaToDB saves Codex quota to database
-func (s *CodexTaskService) saveQuotaToDB(email, accountID, planType string, usage *codex.CodexUsageResponse, isForbidden bool) {
+func (s *CodexTaskService) saveQuotaToDB(tenantID uint64, email, accountID, planType string, usage *codex.CodexUsageResponse, isForbidden bool) {
 	if s.quotaRepo == nil || email == "" {
 		return
 	}
 
 	quota := &domain.CodexQuota{
+		TenantID:    tenantID,
 		Email:       email,
 		AccountID:   accountID,
 		PlanType:    planType,
@@ -228,20 +240,40 @@ func convertCodexWindow(w *codex.CodexUsageWindow) *domain.CodexQuotaWindow {
 	}
 }
 
-// autoSortRoutes sorts Codex routes by quota for all scopes
+// autoSortRoutes sorts Codex routes by quota for all tenants and scopes
 func (s *CodexTaskService) autoSortRoutes(ctx context.Context) {
 	log.Printf("[CodexTask] Starting auto-sort")
 
-	routes, err := s.routeRepo.List(0)
+	tenants, err := s.tenantRepo.List()
 	if err != nil {
-		log.Printf("[CodexTask] Failed to list routes: %v", err)
+		log.Printf("[CodexTask] Failed to list tenants: %v", err)
 		return
 	}
 
-	providers, err := s.providerRepo.List(0)
+	totalUpdated := 0
+	for _, tenant := range tenants {
+		updated := s.autoSortRoutesForTenant(ctx, tenant.ID)
+		totalUpdated += updated
+	}
+
+	if totalUpdated > 0 {
+		log.Printf("[CodexTask] Auto-sorted %d routes across all tenants", totalUpdated)
+		s.broadcaster.BroadcastMessage("routes_updated", nil)
+	}
+}
+
+// autoSortRoutesForTenant sorts Codex routes for a specific tenant
+func (s *CodexTaskService) autoSortRoutesForTenant(ctx context.Context, tenantID uint64) int {
+	routes, err := s.routeRepo.List(tenantID)
 	if err != nil {
-		log.Printf("[CodexTask] Failed to list providers: %v", err)
-		return
+		log.Printf("[CodexTask] Failed to list routes for tenant %d: %v", tenantID, err)
+		return 0
+	}
+
+	providers, err := s.providerRepo.List(tenantID)
+	if err != nil {
+		log.Printf("[CodexTask] Failed to list providers for tenant %d: %v", tenantID, err)
+		return 0
 	}
 
 	providerMap := make(map[uint64]*domain.Provider)
@@ -252,19 +284,19 @@ func (s *CodexTaskService) autoSortRoutes(ctx context.Context) {
 			codexCount++
 		}
 	}
-	log.Printf("[CodexTask] Found %d Codex providers, %d total routes", codexCount, len(routes))
+	log.Printf("[CodexTask] Tenant %d: found %d Codex providers, %d total routes", tenantID, codexCount, len(routes))
 
 	if s.quotaRepo == nil {
 		log.Printf("[CodexTask] Codex quota repository not initialized")
-		return
+		return 0
 	}
 
-	quotas, err := s.quotaRepo.List(0)
+	quotas, err := s.quotaRepo.List(tenantID)
 	if err != nil {
-		log.Printf("[CodexTask] Failed to list quotas: %v", err)
-		return
+		log.Printf("[CodexTask] Failed to list quotas for tenant %d: %v", tenantID, err)
+		return 0
 	}
-	log.Printf("[CodexTask] Found %d quotas in database", len(quotas))
+	log.Printf("[CodexTask] Tenant %d: found %d quotas in database", tenantID, len(quotas))
 
 	quotaByEmail := make(map[string]*domain.CodexQuota)
 	for _, q := range quotas {
@@ -288,13 +320,13 @@ func (s *CodexTaskService) autoSortRoutes(ctx context.Context) {
 	}
 
 	if len(allUpdates) > 0 {
-		if err := s.routeRepo.BatchUpdatePositions(0, allUpdates); err != nil {
-			log.Printf("[CodexTask] Failed to update route positions: %v", err)
-			return
+		if err := s.routeRepo.BatchUpdatePositions(tenantID, allUpdates); err != nil {
+			log.Printf("[CodexTask] Failed to update route positions for tenant %d: %v", tenantID, err)
+			return 0
 		}
-		log.Printf("[CodexTask] Auto-sorted %d routes", len(allUpdates))
-		s.broadcaster.BroadcastMessage("routes_updated", nil)
 	}
+
+	return len(allUpdates)
 }
 
 // sortRoutesForScope sorts Codex routes within a scope

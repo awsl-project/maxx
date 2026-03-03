@@ -21,7 +21,7 @@ func NewProviderRepository(repo repository.ProviderRepository) *ProviderReposito
 }
 
 func (r *ProviderRepository) Load() error {
-	list, err := r.repo.List(0)
+	list, err := r.repo.List(domain.TenantIDAll)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (r *ProviderRepository) Delete(tenantID uint64, id uint64) error {
 
 func (r *ProviderRepository) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
 	r.mu.RLock()
-	if p, ok := r.cache[id]; ok && (tenantID == 0 || p.TenantID == tenantID) {
+	if p, ok := r.cache[id]; ok && (tenantID == domain.TenantIDAll || p.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return p, nil
 	}
@@ -80,7 +80,7 @@ func (r *ProviderRepository) List(tenantID uint64) ([]*domain.Provider, error) {
 	defer r.mu.RUnlock()
 	list := make([]*domain.Provider, 0, len(r.cache))
 	for _, p := range r.cache {
-		if tenantID == 0 || p.TenantID == tenantID {
+		if tenantID == domain.TenantIDAll || p.TenantID == tenantID {
 			list = append(list, p)
 		}
 	}

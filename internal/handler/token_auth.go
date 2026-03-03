@@ -124,8 +124,8 @@ func (m *TokenAuthMiddleware) ValidateRequest(req *http.Request, clientType doma
 		return nil, ErrInvalidToken
 	}
 
-	// Look up token directly (plaintext comparison)
-	apiToken, err := m.tokenRepo.GetByToken(0, token)
+	// Look up token across all tenants — tenant identity is determined by the token itself
+	apiToken, err := m.tokenRepo.GetByToken(domain.TenantIDAll, token)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, ErrInvalidToken

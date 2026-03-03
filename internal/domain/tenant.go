@@ -21,3 +21,6 @@ type Tenant struct {
 
 // DefaultTenantID 默认租户 ID
 const DefaultTenantID uint64 = 1
+
+// TenantIDAll 哨兵值，表示不过滤租户，返回所有数据
+const TenantIDAll uint64 = 0
