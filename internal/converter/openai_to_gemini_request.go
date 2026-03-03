@@ -104,10 +104,9 @@ func (c *openaiToGeminiRequest) Transform(body []byte, model string, stream bool
 		toolResponses[msg.ToolCallID] = stringifyContent(msg.Content)
 	}
 
-	totalMessages := len(req.Messages)
 	var systemParts []GeminiPart
 	for _, msg := range req.Messages {
-		if (msg.Role == "system" || msg.Role == "developer") && totalMessages > 1 {
+		if msg.Role == "system" || msg.Role == "developer" {
 			switch content := msg.Content.(type) {
 			case string:
 				if content != "" {
@@ -140,8 +139,6 @@ func (c *openaiToGeminiRequest) Transform(body []byte, model string, stream bool
 			geminiContent.Role = "user"
 		case "assistant":
 			geminiContent.Role = "model"
-		case "system", "developer":
-			geminiContent.Role = "user"
 		}
 
 		switch content := msg.Content.(type) {
@@ -225,6 +222,12 @@ func (c *openaiToGeminiRequest) Transform(body []byte, model string, stream bool
 				})
 			}
 		}
+	}
+	if len(geminiReq.Contents) == 0 && len(systemParts) > 0 {
+		geminiReq.Contents = append(geminiReq.Contents, GeminiContent{
+			Role:  "user",
+			Parts: []GeminiPart{{Text: " "}},
+		})
 	}
 	if len(systemParts) > 0 {
 		geminiReq.SystemInstruction = &GeminiContent{

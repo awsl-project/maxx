@@ -129,3 +129,91 @@ func TestGeminiToOpenAIResponse_InlineDataToImageURL(t *testing.T) {
 		t.Fatalf("expected image_url data, got %s", string(raw))
 	}
 }
+
+func TestOpenAIToGeminiRequest_SystemOnlyUsesSystemInstruction(t *testing.T) {
+	req := OpenAIRequest{
+		Model: "gpt-test",
+		Messages: []OpenAIMessage{{
+			Role:    "system",
+			Content: "SYS_ONLY",
+		}},
+	}
+	body, _ := json.Marshal(req)
+
+	conv := &openaiToGeminiRequest{}
+	out, err := conv.Transform(body, "gemini-test", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+
+	var got GeminiRequest
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.SystemInstruction == nil || len(got.SystemInstruction.Parts) == 0 {
+		t.Fatalf("expected systemInstruction parts")
+	}
+	found := false
+	for _, p := range got.SystemInstruction.Parts {
+		if p.Text == "SYS_ONLY" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected systemInstruction to contain SYS_ONLY, got %#v", got.SystemInstruction.Parts)
+	}
+	if len(got.Contents) != 1 || got.Contents[0].Role != "user" {
+		t.Fatalf("expected one user content, got %#v", got.Contents)
+	}
+	if len(got.Contents[0].Parts) != 1 || got.Contents[0].Parts[0].Text != " " {
+		t.Fatalf("expected space user content part, got %#v", got.Contents[0].Parts)
+	}
+}
+
+func TestOpenAIToGeminiRequest_SystemAndUser(t *testing.T) {
+	req := OpenAIRequest{
+		Model: "gpt-test",
+		Messages: []OpenAIMessage{
+			{
+				Role:    "system",
+				Content: "SYS_AND_USER",
+			},
+			{
+				Role:    "user",
+				Content: "hi",
+			},
+		},
+	}
+	body, _ := json.Marshal(req)
+
+	conv := &openaiToGeminiRequest{}
+	out, err := conv.Transform(body, "gemini-test", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+
+	var got GeminiRequest
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.SystemInstruction == nil || len(got.SystemInstruction.Parts) == 0 {
+		t.Fatalf("expected systemInstruction parts")
+	}
+	if len(got.Contents) != 1 {
+		t.Fatalf("expected 1 content, got %#v", got.Contents)
+	}
+	if got.Contents[0].Role != "user" {
+		t.Fatalf("expected user role, got %q", got.Contents[0].Role)
+	}
+	if len(got.Contents[0].Parts) != 1 || got.Contents[0].Parts[0].Text != "hi" {
+		t.Fatalf("expected user content 'hi', got %#v", got.Contents[0].Parts)
+	}
+	for _, content := range got.Contents {
+		for _, part := range content.Parts {
+			if part.Text == "SYS_AND_USER" {
+				t.Fatalf("system text leaked into contents: %#v", got.Contents)
+			}
+		}
+	}
+}

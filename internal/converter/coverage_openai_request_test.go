@@ -209,11 +209,14 @@ func TestOpenAIToGeminiRequestSystemOnlyAsUser(t *testing.T) {
 	if err := json.Unmarshal(out, &geminiReq); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if geminiReq.SystemInstruction != nil {
-		t.Fatalf("unexpected systemInstruction")
+	if geminiReq.SystemInstruction == nil || len(geminiReq.SystemInstruction.Parts) != 1 {
+		t.Fatalf("expected systemInstruction")
 	}
 	if len(geminiReq.Contents) != 1 || geminiReq.Contents[0].Role != "user" {
 		t.Fatalf("expected user content")
+	}
+	if len(geminiReq.Contents[0].Parts) != 1 || geminiReq.Contents[0].Parts[0].Text != " " {
+		t.Fatalf("expected space user part")
 	}
 }
 
