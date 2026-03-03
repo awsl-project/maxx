@@ -42,6 +42,11 @@ import type {
   ClaudeTokenValidationResult,
   AuthStatus,
   AuthVerifyResult,
+  AuthLoginResult,
+  AuthRegisterResult,
+  User,
+  CreateUserData,
+  UpdateUserData,
   APIToken,
   APITokenCreateResult,
   CreateAPITokenData,
@@ -603,12 +608,52 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async login(email: string, password: string): Promise<AuthLoginResult> {
+    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/login', { email, password });
+    return data;
+  }
+
+  async register(email: string, username: string, password: string, tenantID?: number): Promise<AuthRegisterResult> {
+    const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', { email, username, password, tenantID });
+    return data;
+  }
+
   setAuthToken(token: string): void {
     this.authToken = token;
   }
 
   clearAuthToken(): void {
     this.authToken = null;
+  }
+
+  // ===== User API =====
+
+  async getUsers(): Promise<User[]> {
+    const { data } = await this.client.get<User[]>('/users');
+    return data ?? [];
+  }
+
+  async getUser(id: number): Promise<User> {
+    const { data } = await this.client.get<User>(`/users/${id}`);
+    return data;
+  }
+
+  async createUser(payload: CreateUserData): Promise<User> {
+    const { data } = await this.client.post<User>('/users', payload);
+    return data;
+  }
+
+  async updateUser(id: number, payload: UpdateUserData): Promise<User> {
+    const { data } = await this.client.put<User>(`/users/${id}`, payload);
+    return data;
+  }
+
+  async deleteUser(id: number): Promise<void> {
+    await this.client.delete(`/users/${id}`);
+  }
+
+  async updatePassword(userId: number, password: string): Promise<void> {
+    await this.client.put(`/users/${userId}/password`, { password });
   }
 
   // ===== API Token API =====

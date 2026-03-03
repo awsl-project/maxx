@@ -41,6 +41,11 @@ import type {
   ClaudeOAuthResult,
   AuthStatus,
   AuthVerifyResult,
+  AuthLoginResult,
+  AuthRegisterResult,
+  User,
+  CreateUserData,
+  UpdateUserData,
   APIToken,
   APITokenCreateResult,
   CreateAPITokenData,
@@ -183,8 +188,18 @@ export interface Transport {
   // ===== Auth API =====
   getAuthStatus(): Promise<AuthStatus>;
   verifyPassword(password: string): Promise<AuthVerifyResult>;
+  login(email: string, password: string): Promise<AuthLoginResult>;
+  register(email: string, username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
   setAuthToken(token: string): void;
   clearAuthToken(): void;
+
+  // ===== User API =====
+  getUsers(): Promise<User[]>;
+  getUser(id: number): Promise<User>;
+  createUser(data: CreateUserData): Promise<User>;
+  updateUser(id: number, data: UpdateUserData): Promise<User>;
+  deleteUser(id: number): Promise<void>;
+  updatePassword(userId: number, password: string): Promise<void>;
 
   // ===== API Token API =====
   getAPITokens(): Promise<APIToken[]>;

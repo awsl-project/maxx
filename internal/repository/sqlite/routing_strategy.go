@@ -35,9 +35,9 @@ func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
 	return r.db.gorm.Save(model).Error
 }
 
-func (r *RoutingStrategyRepository) Delete(id uint64) error {
+func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&RoutingStrategy{}).
+	return tenantScope(r.db.gorm.Model(&RoutingStrategy{}), tenantID).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -45,9 +45,9 @@ func (r *RoutingStrategyRepository) Delete(id uint64) error {
 		}).Error
 }
 
-func (r *RoutingStrategyRepository) GetByProjectID(projectID uint64) (*domain.RoutingStrategy, error) {
+func (r *RoutingStrategyRepository) GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error) {
 	var model RoutingStrategy
-	if err := r.db.gorm.Where("project_id = ? AND deleted_at = 0", projectID).First(&model).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("project_id = ? AND deleted_at = 0", projectID).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -56,9 +56,9 @@ func (r *RoutingStrategyRepository) GetByProjectID(projectID uint64) (*domain.Ro
 	return r.toDomain(&model), nil
 }
 
-func (r *RoutingStrategyRepository) List() ([]*domain.RoutingStrategy, error) {
+func (r *RoutingStrategyRepository) List(tenantID uint64) ([]*domain.RoutingStrategy, error) {
 	var models []RoutingStrategy
-	if err := r.db.gorm.Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
@@ -74,6 +74,7 @@ func (r *RoutingStrategyRepository) toModel(s *domain.RoutingStrategy) *RoutingS
 			},
 			DeletedAt: toTimestampPtr(s.DeletedAt),
 		},
+		TenantID:  s.TenantID,
 		ProjectID: s.ProjectID,
 		Type:      string(s.Type),
 		Config:    LongText(toJSON(s.Config)),
@@ -86,6 +87,7 @@ func (r *RoutingStrategyRepository) toDomain(m *RoutingStrategy) *domain.Routing
 		CreatedAt: fromTimestamp(m.CreatedAt),
 		UpdatedAt: fromTimestamp(m.UpdatedAt),
 		DeletedAt: fromTimestampPtr(m.DeletedAt),
+		TenantID:  m.TenantID,
 		ProjectID: m.ProjectID,
 		Type:      domain.RoutingStrategyType(m.Type),
 		Config:    fromJSON[*domain.RoutingStrategyConfig](string(m.Config)),

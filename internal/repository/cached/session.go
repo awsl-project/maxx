@@ -42,7 +42,7 @@ func (r *SessionRepository) Update(s *domain.Session) error {
 	return nil
 }
 
-func (r *SessionRepository) GetBySessionID(sessionID string) (*domain.Session, error) {
+func (r *SessionRepository) GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error) {
 	r.mu.RLock()
 	if s, ok := r.cache[sessionID]; ok {
 		r.mu.RUnlock()
@@ -50,7 +50,7 @@ func (r *SessionRepository) GetBySessionID(sessionID string) (*domain.Session, e
 	}
 	r.mu.RUnlock()
 
-	s, err := r.repo.GetBySessionID(sessionID)
+	s, err := r.repo.GetBySessionID(tenantID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (r *SessionRepository) GetBySessionID(sessionID string) (*domain.Session, e
 	return s, nil
 }
 
-func (r *SessionRepository) GetOrCreate(sessionID string, clientType domain.ClientType) (*domain.Session, error) {
+func (r *SessionRepository) GetOrCreate(tenantID uint64, sessionID string, clientType domain.ClientType) (*domain.Session, error) {
 	r.mu.RLock()
 	if s, ok := r.cache[sessionID]; ok {
 		r.mu.RUnlock()
@@ -69,7 +69,7 @@ func (r *SessionRepository) GetOrCreate(sessionID string, clientType domain.Clie
 	}
 	r.mu.RUnlock()
 
-	s, err := r.repo.GetBySessionID(sessionID)
+	s, err := r.repo.GetBySessionID(tenantID, sessionID)
 	if err == nil {
 		r.mu.Lock()
 		r.cache[sessionID] = s
@@ -82,6 +82,7 @@ func (r *SessionRepository) GetOrCreate(sessionID string, clientType domain.Clie
 	}
 
 	s = &domain.Session{
+		TenantID:   tenantID,
 		SessionID:  sessionID,
 		ClientType: clientType,
 		ProjectID:  0,
@@ -96,6 +97,6 @@ func (r *SessionRepository) GetOrCreate(sessionID string, clientType domain.Clie
 	return s, nil
 }
 
-func (r *SessionRepository) List() ([]*domain.Session, error) {
-	return r.repo.List()
+func (r *SessionRepository) List(tenantID uint64) ([]*domain.Session, error) {
+	return r.repo.List(tenantID)
 }

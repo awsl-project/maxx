@@ -58,9 +58,10 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 	}
 
 	provider := &domain.Provider{
-		Name: "p-custom",
-		Type: "custom",
-		Logo: "https://example.com/logo.png",
+		TenantID: domain.DefaultTenantID,
+		Name:     "p-custom",
+		Type:     "custom",
+		Logo:     "https://example.com/logo.png",
 		Config: &domain.ProviderConfig{
 			Custom: &domain.ProviderConfigCustom{
 				BaseURL: "https://api.example.com/v1",
@@ -75,6 +76,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 	}
 
 	project := &domain.Project{
+		TenantID:            domain.DefaultTenantID,
 		Name:                "Project One",
 		Slug:                "project-one",
 		EnabledCustomRoutes: []domain.ClientType{domain.ClientTypeOpenAI},
@@ -84,6 +86,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 	}
 
 	retryConfig := &domain.RetryConfig{
+		TenantID:        domain.DefaultTenantID,
 		Name:            "retry-fast",
 		IsDefault:       true,
 		MaxRetries:      3,
@@ -96,6 +99,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 	}
 
 	route := &domain.Route{
+		TenantID:      domain.DefaultTenantID,
 		IsEnabled:     true,
 		IsNative:      false,
 		ProjectID:     project.ID,
@@ -109,6 +113,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 	}
 
 	routingStrategy := &domain.RoutingStrategy{
+		TenantID:  domain.DefaultTenantID,
 		ProjectID: project.ID,
 		Type:      domain.RoutingStrategyPriority,
 		Config:    &domain.RoutingStrategyConfig{},
@@ -118,6 +123,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 	}
 
 	apiToken := &domain.APIToken{
+		TenantID:    domain.DefaultTenantID,
 		Token:       "maxx_test_token_abc",
 		TokenPrefix: "maxx_test...",
 		Name:        "token-main",
@@ -130,6 +136,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 	}
 
 	modelMapping := &domain.ModelMapping{
+		TenantID:     domain.DefaultTenantID,
 		Scope:        domain.ModelMappingScopeRoute,
 		ClientType:   domain.ClientTypeOpenAI,
 		ProviderType: "custom",
@@ -169,7 +176,7 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	seedBackupRoundtripData(t, sourceDB)
 
 	sourceSvc := newBackupServiceForTest(t, sourceDB)
-	backup, err := sourceSvc.Export()
+	backup, err := sourceSvc.Export(domain.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("export backup: %v", err)
 	}
@@ -177,7 +184,7 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	targetDB := newBackupServiceTestDB(t, "target.db")
 	targetSvc := newBackupServiceForTest(t, targetDB)
 
-	result, err := targetSvc.Import(backup, domain.ImportOptions{ConflictStrategy: "skip"})
+	result, err := targetSvc.Import(domain.DefaultTenantID, backup, domain.ImportOptions{ConflictStrategy: "skip"})
 	if err != nil {
 		t.Fatalf("import backup: %v", err)
 	}
@@ -185,7 +192,7 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 		t.Fatalf("import result success=false, errors=%v", result.Errors)
 	}
 
-	roundtrip, err := targetSvc.Export()
+	roundtrip, err := targetSvc.Export(domain.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("re-export backup: %v", err)
 	}
@@ -231,12 +238,12 @@ func TestBackupService_Import_ModelMappingsSkipDuplicates(t *testing.T) {
 	seedBackupRoundtripData(t, db)
 
 	svc := newBackupServiceForTest(t, db)
-	backup, err := svc.Export()
+	backup, err := svc.Export(domain.DefaultTenantID)
 	if err != nil {
 		t.Fatalf("export backup: %v", err)
 	}
 
-	result, err := svc.Import(backup, domain.ImportOptions{ConflictStrategy: "skip"})
+	result, err := svc.Import(domain.DefaultTenantID, backup, domain.ImportOptions{ConflictStrategy: "skip"})
 	if err != nil {
 		t.Fatalf("import backup: %v", err)
 	}

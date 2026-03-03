@@ -16,6 +16,7 @@ type execState struct {
 	currentAttempt *domain.ProxyUpstreamAttempt
 	lastErr        error
 
+	tenantID            uint64
 	clientType          domain.ClientType
 	projectID           uint64
 	sessionID           string

@@ -31,7 +31,7 @@ func (r *adminTestProviderRepo) Update(provider *domain.Provider) error {
 	return domain.ErrNotFound
 }
 
-func (r *adminTestProviderRepo) Delete(id uint64) error {
+func (r *adminTestProviderRepo) Delete(tenantID uint64, id uint64) error {
 	for i, p := range r.providers {
 		if p.ID == id {
 			r.providers = append(r.providers[:i], r.providers[i+1:]...)
@@ -41,7 +41,7 @@ func (r *adminTestProviderRepo) Delete(id uint64) error {
 	return domain.ErrNotFound
 }
 
-func (r *adminTestProviderRepo) GetByID(id uint64) (*domain.Provider, error) {
+func (r *adminTestProviderRepo) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
 	for _, p := range r.providers {
 		if p.ID == id {
 			return p, nil
@@ -50,7 +50,7 @@ func (r *adminTestProviderRepo) GetByID(id uint64) (*domain.Provider, error) {
 	return nil, domain.ErrNotFound
 }
 
-func (r *adminTestProviderRepo) List() ([]*domain.Provider, error) {
+func (r *adminTestProviderRepo) List(tenantID uint64) ([]*domain.Provider, error) {
 	cloned := make([]*domain.Provider, len(r.providers))
 	copy(cloned, r.providers)
 	return cloned, nil

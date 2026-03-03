@@ -35,9 +35,9 @@ func (r *RouteRepository) Update(route *domain.Route) error {
 	return r.db.gorm.Save(model).Error
 }
 
-func (r *RouteRepository) Delete(id uint64) error {
+func (r *RouteRepository) Delete(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&Route{}).
+	return tenantScope(r.db.gorm.Model(&Route{}), tenantID).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -45,7 +45,7 @@ func (r *RouteRepository) Delete(id uint64) error {
 		}).Error
 }
 
-func (r *RouteRepository) BatchUpdatePositions(updates []domain.RoutePositionUpdate) error {
+func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain.RoutePositionUpdate) error {
 	if len(updates) == 0 {
 		return nil
 	}
@@ -53,7 +53,7 @@ func (r *RouteRepository) BatchUpdatePositions(updates []domain.RoutePositionUpd
 	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UnixMilli()
 		for _, update := range updates {
-			if err := tx.Model(&Route{}).
+			if err := tenantScope(tx.Model(&Route{}), tenantID).
 				Where("id = ?", update.ID).
 				Updates(map[string]any{
 					"position":   update.Position,
@@ -66,9 +66,9 @@ func (r *RouteRepository) BatchUpdatePositions(updates []domain.RoutePositionUpd
 	})
 }
 
-func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {
+func (r *RouteRepository) GetByID(tenantID uint64, id uint64) (*domain.Route, error) {
 	var model Route
-	if err := r.db.gorm.First(&model, id).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).First(&model, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -77,9 +77,9 @@ func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {
 	return r.toDomain(&model), nil
 }
 
-func (r *RouteRepository) FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
+func (r *RouteRepository) FindByKey(tenantID uint64, projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
 	var model Route
-	if err := r.db.gorm.Where("project_id = ? AND provider_id = ? AND client_type = ? AND deleted_at = 0", projectID, providerID, clientType).First(&model).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("project_id = ? AND provider_id = ? AND client_type = ? AND deleted_at = 0", projectID, providerID, clientType).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -88,9 +88,9 @@ func (r *RouteRepository) FindByKey(projectID, providerID uint64, clientType dom
 	return r.toDomain(&model), nil
 }
 
-func (r *RouteRepository) List() ([]*domain.Route, error) {
+func (r *RouteRepository) List(tenantID uint64) ([]*domain.Route, error) {
 	var models []Route
-	if err := r.db.gorm.Where("deleted_at = 0").Order("position").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("position").Find(&models).Error; err != nil {
 		return nil, err
 	}
 
@@ -119,6 +119,7 @@ func (r *RouteRepository) toModel(route *domain.Route) *Route {
 			},
 			DeletedAt: toTimestampPtr(route.DeletedAt),
 		},
+		TenantID:      route.TenantID,
 		IsEnabled:     isEnabled,
 		IsNative:      isNative,
 		ProjectID:     route.ProjectID,
@@ -135,6 +136,7 @@ func (r *RouteRepository) toDomain(m *Route) *domain.Route {
 		CreatedAt:     fromTimestamp(m.CreatedAt),
 		UpdatedAt:     fromTimestamp(m.UpdatedAt),
 		DeletedAt:     fromTimestampPtr(m.DeletedAt),
+		TenantID:      m.TenantID,
 		IsEnabled:     m.IsEnabled == 1,
 		IsNative:      m.IsNative == 1,
 		ProjectID:     m.ProjectID,

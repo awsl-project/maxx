@@ -118,7 +118,7 @@ func (s *CodexTaskService) refreshAllQuotas(ctx context.Context) bool {
 		return false
 	}
 
-	providers, err := s.providerRepo.List()
+	providers, err := s.providerRepo.List(0)
 	if err != nil {
 		log.Printf("[CodexTask] Failed to list providers: %v", err)
 		return false
@@ -232,13 +232,13 @@ func convertCodexWindow(w *codex.CodexUsageWindow) *domain.CodexQuotaWindow {
 func (s *CodexTaskService) autoSortRoutes(ctx context.Context) {
 	log.Printf("[CodexTask] Starting auto-sort")
 
-	routes, err := s.routeRepo.List()
+	routes, err := s.routeRepo.List(0)
 	if err != nil {
 		log.Printf("[CodexTask] Failed to list routes: %v", err)
 		return
 	}
 
-	providers, err := s.providerRepo.List()
+	providers, err := s.providerRepo.List(0)
 	if err != nil {
 		log.Printf("[CodexTask] Failed to list providers: %v", err)
 		return
@@ -259,7 +259,7 @@ func (s *CodexTaskService) autoSortRoutes(ctx context.Context) {
 		return
 	}
 
-	quotas, err := s.quotaRepo.List()
+	quotas, err := s.quotaRepo.List(0)
 	if err != nil {
 		log.Printf("[CodexTask] Failed to list quotas: %v", err)
 		return
@@ -288,7 +288,7 @@ func (s *CodexTaskService) autoSortRoutes(ctx context.Context) {
 	}
 
 	if len(allUpdates) > 0 {
-		if err := s.routeRepo.BatchUpdatePositions(allUpdates); err != nil {
+		if err := s.routeRepo.BatchUpdatePositions(0, allUpdates); err != nil {
 			log.Printf("[CodexTask] Failed to update route positions: %v", err)
 			return
 		}

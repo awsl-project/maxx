@@ -87,7 +87,8 @@
     "restartServerConfirm": "Restart the server? Active connections may be briefly interrupted.",
     "restartServerFailed": "Restart failed. Please check the server status.",
     "language": "Language",
-    "logout": "Log out"
+    "logout": "Log out",
+    "users": "Users"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -656,11 +657,32 @@
   "login": {
     "title": "Maxx Admin",
     "description": "Enter password to access the admin panel",
+    "emailPlaceholder": "Email",
     "passwordPlaceholder": "Password",
     "submit": "Login",
     "verifying": "Verifying...",
     "invalidPassword": "Invalid password",
+    "invalidCredentials": "Invalid email or password",
     "verifyFailed": "Failed to verify password"
+  },
+  "users": {
+    "title": "Users",
+    "description": "Manage user accounts",
+    "addUser": "Add User",
+    "editUser": "Edit User",
+    "deleteConfirm": "Are you sure you want to delete this user?",
+    "email": "Email",
+    "username": "Username",
+    "password": "Password",
+    "role": "Role",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "lastLogin": "Last Login",
+    "never": "Never",
+    "defaultUser": "Default",
+    "createSuccess": "User created successfully",
+    "updateSuccess": "User updated successfully",
+    "deleteSuccess": "User deleted successfully"
   },
   "routingStrategies": {
     "title": "Routing Strategies",

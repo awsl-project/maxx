@@ -21,6 +21,7 @@ type MatchedRoute struct {
 
 // MatchContext contains all context needed for route matching
 type MatchContext struct {
+	TenantID     uint64
 	ClientType   domain.ClientType
 	ProjectID    uint64
 	RequestModel string
@@ -109,6 +110,7 @@ func (r *Router) RemoveAdapter(providerID uint64) {
 
 // Match returns matched routes for a client type and project
 func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
+	tenantID := ctx.TenantID
 	clientType := ctx.ClientType
 	projectID := ctx.ProjectID
 	requestModel := ctx.RequestModel
@@ -118,7 +120,7 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 	// Check if ClientType has custom routes enabled for this project
 	useProjectRoutes := false
 	if projectID != 0 {
-		project, err := r.projectRepo.GetByID(projectID)
+		project, err := r.projectRepo.GetByID(tenantID, projectID)
 		if err == nil && project != nil {
 			// If EnabledCustomRoutes is empty, all ClientTypes use global routes
 			// If EnabledCustomRoutes is not empty, only listed ClientTypes can have custom routes
@@ -143,6 +145,9 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 			if !route.IsEnabled {
 				continue
 			}
+			if tenantID > 0 && route.TenantID != tenantID {
+				continue
+			}
 			if route.ClientType != clientType {
 				continue
 			}
@@ -159,6 +164,9 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 			if !route.IsEnabled {
 				continue
 			}
+			if tenantID > 0 && route.TenantID != tenantID {
+				continue
+			}
 			if route.ClientType != clientType {
 				continue
 			}
@@ -173,13 +181,13 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 	}
 
 	// Get routing strategy
-	strategy := r.getRoutingStrategy(projectID)
+	strategy := r.getRoutingStrategy(tenantID, projectID)
 
 	// Sort routes by strategy
 	r.sortRoutes(filtered, strategy)
 
 	// Get default retry config
-	defaultRetry, _ := r.retryConfigRepo.GetDefault()
+	defaultRetry, _ := r.retryConfigRepo.GetDefault(tenantID)
 
 	// Build matched routes
 	r.mu.RLock()
@@ -215,7 +223,7 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 
 		var retryConfig *domain.RetryConfig
 		if route.RetryConfigID != 0 {
-			retryConfig, _ = r.retryConfigRepo.GetByID(route.RetryConfigID)
+			retryConfig, _ = r.retryConfigRepo.GetByID(tenantID, route.RetryConfigID)
 		}
 		if retryConfig == nil {
 			retryConfig = defaultRetry
@@ -246,15 +254,15 @@ func (r *Router) isModelSupported(model string, supportModels []string) bool {
 	return false
 }
 
-func (r *Router) getRoutingStrategy(projectID uint64) *domain.RoutingStrategy {
+func (r *Router) getRoutingStrategy(tenantID uint64, projectID uint64) *domain.RoutingStrategy {
 	// Try project-specific strategy first
 	if projectID != 0 {
-		if s, err := r.routingStrategyRepo.GetByProjectID(projectID); err == nil {
+		if s, err := r.routingStrategyRepo.GetByProjectID(tenantID, projectID); err == nil {
 			return s
 		}
 	}
 	// Fall back to global strategy
-	if s, err := r.routingStrategyRepo.GetByProjectID(0); err == nil {
+	if s, err := r.routingStrategyRepo.GetByProjectID(tenantID, 0); err == nil {
 		return s
 	}
 	// Default to priority

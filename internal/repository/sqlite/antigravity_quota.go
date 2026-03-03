@@ -53,9 +53,9 @@ func (r *AntigravityQuotaRepository) Upsert(quota *domain.AntigravityQuota) erro
 	return nil
 }
 
-func (r *AntigravityQuotaRepository) GetByEmail(email string) (*domain.AntigravityQuota, error) {
+func (r *AntigravityQuotaRepository) GetByEmail(tenantID uint64, email string) (*domain.AntigravityQuota, error) {
 	var model AntigravityQuota
-	err := r.db.gorm.Where("email = ? AND deleted_at = 0", email).First(&model).Error
+	err := tenantScope(r.db.gorm, tenantID).Where("email = ? AND deleted_at = 0", email).First(&model).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -65,17 +65,17 @@ func (r *AntigravityQuotaRepository) GetByEmail(email string) (*domain.Antigravi
 	return r.toDomain(&model), nil
 }
 
-func (r *AntigravityQuotaRepository) List() ([]*domain.AntigravityQuota, error) {
+func (r *AntigravityQuotaRepository) List(tenantID uint64) ([]*domain.AntigravityQuota, error) {
 	var models []AntigravityQuota
-	if err := r.db.gorm.Where("deleted_at = 0").Order("updated_at DESC").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("updated_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
 }
 
-func (r *AntigravityQuotaRepository) Delete(email string) error {
+func (r *AntigravityQuotaRepository) Delete(tenantID uint64, email string) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&AntigravityQuota{}).
+	return tenantScope(r.db.gorm.Model(&AntigravityQuota{}), tenantID).
 		Where("email = ?", email).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -93,6 +93,7 @@ func (r *AntigravityQuotaRepository) toModel(q *domain.AntigravityQuota) *Antigr
 			},
 			DeletedAt: toTimestampPtr(q.DeletedAt),
 		},
+		TenantID:         q.TenantID,
 		Email:            q.Email,
 		Name:             q.Name,
 		Picture:          LongText(q.Picture),
@@ -109,6 +110,7 @@ func (r *AntigravityQuotaRepository) toDomain(m *AntigravityQuota) *domain.Antig
 		CreatedAt:        fromTimestamp(m.CreatedAt),
 		UpdatedAt:        fromTimestamp(m.UpdatedAt),
 		DeletedAt:        fromTimestampPtr(m.DeletedAt),
+		TenantID:         m.TenantID,
 		Email:            m.Email,
 		Name:             m.Name,
 		Picture:          string(m.Picture),

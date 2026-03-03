@@ -99,15 +99,17 @@ func NewAdminService(
 
 // ===== Provider API =====
 
-func (s *AdminService) GetProviders() ([]*domain.Provider, error) {
-	return s.providerRepo.List()
+func (s *AdminService) GetProviders(tenantID uint64) ([]*domain.Provider, error) {
+	return s.providerRepo.List(tenantID)
 }
 
-func (s *AdminService) GetProvider(id uint64) (*domain.Provider, error) {
-	return s.providerRepo.GetByID(id)
+func (s *AdminService) GetProvider(tenantID uint64, id uint64) (*domain.Provider, error) {
+	return s.providerRepo.GetByID(tenantID, id)
 }
 
-func (s *AdminService) CreateProvider(provider *domain.Provider) error {
+func (s *AdminService) CreateProvider(tenantID uint64, provider *domain.Provider) error {
+	provider.TenantID = tenantID
+
 	// Auto-set SupportedClientTypes based on provider type
 	s.autoSetSupportedClientTypes(provider)
 
@@ -121,7 +123,7 @@ func (s *AdminService) CreateProvider(provider *domain.Provider) error {
 	return nil
 }
 
-func (s *AdminService) UpdateProvider(provider *domain.Provider) error {
+func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider) error {
 	// Auto-set SupportedClientTypes based on provider type
 	s.autoSetSupportedClientTypes(provider)
 
@@ -135,25 +137,25 @@ func (s *AdminService) UpdateProvider(provider *domain.Provider) error {
 	return nil
 }
 
-func (s *AdminService) DeleteProvider(id uint64) error {
+func (s *AdminService) DeleteProvider(tenantID uint64, id uint64) error {
 	// Delete related routes first
-	routes, _ := s.routeRepo.List()
+	routes, _ := s.routeRepo.List(tenantID)
 	for _, route := range routes {
 		if route.ProviderID == id {
-			s.routeRepo.Delete(route.ID)
+			s.routeRepo.Delete(tenantID, route.ID)
 		}
 	}
 	// Remove adapter from cache
 	if s.adapterRefresher != nil {
 		s.adapterRefresher.RemoveAdapter(id)
 	}
-	return s.providerRepo.Delete(id)
+	return s.providerRepo.Delete(tenantID, id)
 }
 
 // ExportProviders exports all providers for backup/transfer
 // Returns providers without ID and timestamps for clean import
-func (s *AdminService) ExportProviders() ([]*domain.Provider, error) {
-	providers, err := s.providerRepo.List()
+func (s *AdminService) ExportProviders(tenantID uint64) ([]*domain.Provider, error) {
+	providers, err := s.providerRepo.List(tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +165,7 @@ func (s *AdminService) ExportProviders() ([]*domain.Provider, error) {
 
 // ImportProviders imports providers from exported data
 // Creates new providers, skipping duplicates by name
-func (s *AdminService) ImportProviders(providers []*domain.Provider) (*ImportResult, error) {
+func (s *AdminService) ImportProviders(tenantID uint64, providers []*domain.Provider) (*ImportResult, error) {
 	result := &ImportResult{
 		Imported: 0,
 		Skipped:  0,
@@ -171,7 +173,7 @@ func (s *AdminService) ImportProviders(providers []*domain.Provider) (*ImportRes
 	}
 
 	// Get existing providers for duplicate detection
-	existing, err := s.providerRepo.List()
+	existing, err := s.providerRepo.List(tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +195,7 @@ func (s *AdminService) ImportProviders(providers []*domain.Provider) (*ImportRes
 		provider.DeletedAt = nil
 
 		// Create the provider
-		if err := s.CreateProvider(provider); err != nil {
+		if err := s.CreateProvider(tenantID, provider); err != nil {
 			result.Errors = append(result.Errors, "failed to import "+provider.Name+": "+err.Error())
 			continue
 		}
@@ -214,60 +216,62 @@ type ImportResult struct {
 
 // ===== Route API =====
 
-func (s *AdminService) GetRoutes() ([]*domain.Route, error) {
-	return s.routeRepo.List()
+func (s *AdminService) GetRoutes(tenantID uint64) ([]*domain.Route, error) {
+	return s.routeRepo.List(tenantID)
 }
 
-func (s *AdminService) GetRoute(id uint64) (*domain.Route, error) {
-	return s.routeRepo.GetByID(id)
+func (s *AdminService) GetRoute(tenantID uint64, id uint64) (*domain.Route, error) {
+	return s.routeRepo.GetByID(tenantID, id)
 }
 
-func (s *AdminService) CreateRoute(route *domain.Route) error {
+func (s *AdminService) CreateRoute(tenantID uint64, route *domain.Route) error {
+	route.TenantID = tenantID
 	return s.routeRepo.Create(route)
 }
 
-func (s *AdminService) UpdateRoute(route *domain.Route) error {
+func (s *AdminService) UpdateRoute(tenantID uint64, route *domain.Route) error {
 	return s.routeRepo.Update(route)
 }
 
-func (s *AdminService) BatchUpdateRoutePositions(updates []domain.RoutePositionUpdate) error {
-	return s.routeRepo.BatchUpdatePositions(updates)
+func (s *AdminService) BatchUpdateRoutePositions(tenantID uint64, updates []domain.RoutePositionUpdate) error {
+	return s.routeRepo.BatchUpdatePositions(tenantID, updates)
 }
 
-func (s *AdminService) DeleteRoute(id uint64) error {
-	return s.routeRepo.Delete(id)
+func (s *AdminService) DeleteRoute(tenantID uint64, id uint64) error {
+	return s.routeRepo.Delete(tenantID, id)
 }
 
 // ===== Project API =====
 
-func (s *AdminService) GetProjects() ([]*domain.Project, error) {
-	return s.projectRepo.List()
+func (s *AdminService) GetProjects(tenantID uint64) ([]*domain.Project, error) {
+	return s.projectRepo.List(tenantID)
 }
 
-func (s *AdminService) GetProject(id uint64) (*domain.Project, error) {
-	return s.projectRepo.GetByID(id)
+func (s *AdminService) GetProject(tenantID uint64, id uint64) (*domain.Project, error) {
+	return s.projectRepo.GetByID(tenantID, id)
 }
 
-func (s *AdminService) GetProjectBySlug(slug string) (*domain.Project, error) {
-	return s.projectRepo.GetBySlug(slug)
+func (s *AdminService) GetProjectBySlug(tenantID uint64, slug string) (*domain.Project, error) {
+	return s.projectRepo.GetBySlug(tenantID, slug)
 }
 
-func (s *AdminService) CreateProject(project *domain.Project) error {
+func (s *AdminService) CreateProject(tenantID uint64, project *domain.Project) error {
+	project.TenantID = tenantID
 	return s.projectRepo.Create(project)
 }
 
-func (s *AdminService) UpdateProject(project *domain.Project) error {
+func (s *AdminService) UpdateProject(tenantID uint64, project *domain.Project) error {
 	return s.projectRepo.Update(project)
 }
 
-func (s *AdminService) DeleteProject(id uint64) error {
-	return s.projectRepo.Delete(id)
+func (s *AdminService) DeleteProject(tenantID uint64, id uint64) error {
+	return s.projectRepo.Delete(tenantID, id)
 }
 
 // ===== Session API =====
 
-func (s *AdminService) GetSessions() ([]*domain.Session, error) {
-	return s.sessionRepo.List()
+func (s *AdminService) GetSessions(tenantID uint64) ([]*domain.Session, error) {
+	return s.sessionRepo.List(tenantID)
 }
 
 // UpdateSessionProjectResult holds the result of updating session project
@@ -277,9 +281,9 @@ type UpdateSessionProjectResult struct {
 }
 
 // UpdateSessionProject updates the session's projectID and all related requests
-func (s *AdminService) UpdateSessionProject(sessionID string, projectID uint64) (*UpdateSessionProjectResult, error) {
+func (s *AdminService) UpdateSessionProject(tenantID uint64, sessionID string, projectID uint64) (*UpdateSessionProjectResult, error) {
 	// Get the session first
-	session, err := s.sessionRepo.GetBySessionID(sessionID)
+	session, err := s.sessionRepo.GetBySessionID(tenantID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +295,7 @@ func (s *AdminService) UpdateSessionProject(sessionID string, projectID uint64) 
 	}
 
 	// Batch update all requests with this sessionID
-	updatedCount, err := s.proxyRequestRepo.UpdateProjectIDBySessionID(sessionID, projectID)
+	updatedCount, err := s.proxyRequestRepo.UpdateProjectIDBySessionID(tenantID, sessionID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -303,9 +307,9 @@ func (s *AdminService) UpdateSessionProject(sessionID string, projectID uint64) 
 }
 
 // RejectSession marks a session as rejected with current timestamp
-func (s *AdminService) RejectSession(sessionID string) (*domain.Session, error) {
+func (s *AdminService) RejectSession(tenantID uint64, sessionID string) (*domain.Session, error) {
 	// Get the session first
-	session, err := s.sessionRepo.GetBySessionID(sessionID)
+	session, err := s.sessionRepo.GetBySessionID(tenantID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -322,52 +326,54 @@ func (s *AdminService) RejectSession(sessionID string) (*domain.Session, error) 
 
 // ===== RetryConfig API =====
 
-func (s *AdminService) GetRetryConfigs() ([]*domain.RetryConfig, error) {
-	return s.retryConfigRepo.List()
+func (s *AdminService) GetRetryConfigs(tenantID uint64) ([]*domain.RetryConfig, error) {
+	return s.retryConfigRepo.List(tenantID)
 }
 
-func (s *AdminService) GetRetryConfig(id uint64) (*domain.RetryConfig, error) {
-	return s.retryConfigRepo.GetByID(id)
+func (s *AdminService) GetRetryConfig(tenantID uint64, id uint64) (*domain.RetryConfig, error) {
+	return s.retryConfigRepo.GetByID(tenantID, id)
 }
 
-func (s *AdminService) CreateRetryConfig(config *domain.RetryConfig) error {
+func (s *AdminService) CreateRetryConfig(tenantID uint64, config *domain.RetryConfig) error {
+	config.TenantID = tenantID
 	return s.retryConfigRepo.Create(config)
 }
 
-func (s *AdminService) UpdateRetryConfig(config *domain.RetryConfig) error {
+func (s *AdminService) UpdateRetryConfig(tenantID uint64, config *domain.RetryConfig) error {
 	return s.retryConfigRepo.Update(config)
 }
 
-func (s *AdminService) DeleteRetryConfig(id uint64) error {
-	return s.retryConfigRepo.Delete(id)
+func (s *AdminService) DeleteRetryConfig(tenantID uint64, id uint64) error {
+	return s.retryConfigRepo.Delete(tenantID, id)
 }
 
 // ===== RoutingStrategy API =====
 
-func (s *AdminService) GetRoutingStrategies() ([]*domain.RoutingStrategy, error) {
-	return s.routingStrategyRepo.List()
+func (s *AdminService) GetRoutingStrategies(tenantID uint64) ([]*domain.RoutingStrategy, error) {
+	return s.routingStrategyRepo.List(tenantID)
 }
 
-func (s *AdminService) GetRoutingStrategy(id uint64) (*domain.RoutingStrategy, error) {
-	return s.routingStrategyRepo.GetByProjectID(id)
+func (s *AdminService) GetRoutingStrategy(tenantID uint64, id uint64) (*domain.RoutingStrategy, error) {
+	return s.routingStrategyRepo.GetByProjectID(tenantID, id)
 }
 
-func (s *AdminService) CreateRoutingStrategy(strategy *domain.RoutingStrategy) error {
+func (s *AdminService) CreateRoutingStrategy(tenantID uint64, strategy *domain.RoutingStrategy) error {
+	strategy.TenantID = tenantID
 	return s.routingStrategyRepo.Create(strategy)
 }
 
-func (s *AdminService) UpdateRoutingStrategy(strategy *domain.RoutingStrategy) error {
+func (s *AdminService) UpdateRoutingStrategy(tenantID uint64, strategy *domain.RoutingStrategy) error {
 	return s.routingStrategyRepo.Update(strategy)
 }
 
-func (s *AdminService) DeleteRoutingStrategy(id uint64) error {
-	return s.routingStrategyRepo.Delete(id)
+func (s *AdminService) DeleteRoutingStrategy(tenantID uint64, id uint64) error {
+	return s.routingStrategyRepo.Delete(tenantID, id)
 }
 
 // ===== ProxyRequest API =====
 
-func (s *AdminService) GetProxyRequests(limit, offset int) ([]*domain.ProxyRequest, error) {
-	return s.proxyRequestRepo.List(limit, offset)
+func (s *AdminService) GetProxyRequests(tenantID uint64, limit, offset int) ([]*domain.ProxyRequest, error) {
+	return s.proxyRequestRepo.List(tenantID, limit, offset)
 }
 
 // CursorPaginationResult 游标分页结果
@@ -378,8 +384,8 @@ type CursorPaginationResult struct {
 	LastID  uint64                 `json:"lastId,omitempty"`
 }
 
-func (s *AdminService) GetProxyRequestsCursor(limit int, before, after uint64, filter *repository.ProxyRequestFilter) (*CursorPaginationResult, error) {
-	items, err := s.proxyRequestRepo.ListCursor(limit+1, before, after, filter)
+func (s *AdminService) GetProxyRequestsCursor(tenantID uint64, limit int, before, after uint64, filter *repository.ProxyRequestFilter) (*CursorPaginationResult, error) {
+	items, err := s.proxyRequestRepo.ListCursor(tenantID, limit+1, before, after, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -402,28 +408,28 @@ func (s *AdminService) GetProxyRequestsCursor(limit int, before, after uint64, f
 	return result, nil
 }
 
-func (s *AdminService) GetProxyRequestsCount() (int64, error) {
-	return s.proxyRequestRepo.Count()
+func (s *AdminService) GetProxyRequestsCount(tenantID uint64) (int64, error) {
+	return s.proxyRequestRepo.Count(tenantID)
 }
 
-func (s *AdminService) GetProxyRequestsCountWithFilter(filter *repository.ProxyRequestFilter) (int64, error) {
-	return s.proxyRequestRepo.CountWithFilter(filter)
+func (s *AdminService) GetProxyRequestsCountWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
+	return s.proxyRequestRepo.CountWithFilter(tenantID, filter)
 }
 
-func (s *AdminService) GetProxyRequest(id uint64) (*domain.ProxyRequest, error) {
-	return s.proxyRequestRepo.GetByID(id)
+func (s *AdminService) GetProxyRequest(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {
+	return s.proxyRequestRepo.GetByID(tenantID, id)
 }
 
-func (s *AdminService) GetActiveProxyRequests() ([]*domain.ProxyRequest, error) {
-	return s.proxyRequestRepo.ListActive()
+func (s *AdminService) GetActiveProxyRequests(tenantID uint64) ([]*domain.ProxyRequest, error) {
+	return s.proxyRequestRepo.ListActive(tenantID)
 }
 
 func (s *AdminService) GetProxyUpstreamAttempts(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error) {
 	return s.attemptRepo.ListByProxyRequestID(proxyRequestID)
 }
 
-func (s *AdminService) GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
-	return s.usageStatsRepo.GetProviderStats(clientType, projectID)
+func (s *AdminService) GetProviderStats(tenantID uint64, clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
+	return s.usageStatsRepo.GetProviderStats(tenantID, clientType, projectID)
 }
 
 // ===== Settings API =====
@@ -585,16 +591,16 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 
 // ===== API Token API =====
 
-func (s *AdminService) GetAPITokens() ([]*domain.APIToken, error) {
-	return s.apiTokenRepo.List()
+func (s *AdminService) GetAPITokens(tenantID uint64) ([]*domain.APIToken, error) {
+	return s.apiTokenRepo.List(tenantID)
 }
 
-func (s *AdminService) GetAPIToken(id uint64) (*domain.APIToken, error) {
-	return s.apiTokenRepo.GetByID(id)
+func (s *AdminService) GetAPIToken(tenantID uint64, id uint64) (*domain.APIToken, error) {
+	return s.apiTokenRepo.GetByID(tenantID, id)
 }
 
 // CreateAPIToken creates a new API token and returns the plain token (only shown once)
-func (s *AdminService) CreateAPIToken(name, description string, projectID uint64, expiresAt *time.Time) (*domain.APITokenCreateResult, error) {
+func (s *AdminService) CreateAPIToken(tenantID uint64, name, description string, projectID uint64, expiresAt *time.Time) (*domain.APITokenCreateResult, error) {
 	// Generate token
 	plain, prefix, err := generateAPIToken()
 	if err != nil {
@@ -602,6 +608,7 @@ func (s *AdminService) CreateAPIToken(name, description string, projectID uint64
 	}
 
 	token := &domain.APIToken{
+		TenantID:    tenantID,
 		Token:       plain,
 		TokenPrefix: prefix,
 		Name:        name,
@@ -621,12 +628,12 @@ func (s *AdminService) CreateAPIToken(name, description string, projectID uint64
 	}, nil
 }
 
-func (s *AdminService) UpdateAPIToken(token *domain.APIToken) error {
+func (s *AdminService) UpdateAPIToken(tenantID uint64, token *domain.APIToken) error {
 	return s.apiTokenRepo.Update(token)
 }
 
-func (s *AdminService) DeleteAPIToken(id uint64) error {
-	return s.apiTokenRepo.Delete(id)
+func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {
+	return s.apiTokenRepo.Delete(tenantID, id)
 }
 
 // generateAPIToken creates a new random token
@@ -656,33 +663,34 @@ func generateAPIToken() (plain string, prefix string, err error) {
 // ===== Model Mapping API =====
 
 // GetModelMappings returns all model mappings
-func (s *AdminService) GetModelMappings() ([]*domain.ModelMapping, error) {
-	return s.modelMappingRepo.List()
+func (s *AdminService) GetModelMappings(tenantID uint64) ([]*domain.ModelMapping, error) {
+	return s.modelMappingRepo.List(tenantID)
 }
 
 // GetModelMapping returns a model mapping by ID
-func (s *AdminService) GetModelMapping(id uint64) (*domain.ModelMapping, error) {
-	return s.modelMappingRepo.GetByID(id)
+func (s *AdminService) GetModelMapping(tenantID uint64, id uint64) (*domain.ModelMapping, error) {
+	return s.modelMappingRepo.GetByID(tenantID, id)
 }
 
 // CreateModelMapping creates a new model mapping
-func (s *AdminService) CreateModelMapping(mapping *domain.ModelMapping) error {
+func (s *AdminService) CreateModelMapping(tenantID uint64, mapping *domain.ModelMapping) error {
+	mapping.TenantID = tenantID
 	return s.modelMappingRepo.Create(mapping)
 }
 
 // UpdateModelMapping updates an existing model mapping
-func (s *AdminService) UpdateModelMapping(mapping *domain.ModelMapping) error {
+func (s *AdminService) UpdateModelMapping(tenantID uint64, mapping *domain.ModelMapping) error {
 	return s.modelMappingRepo.Update(mapping)
 }
 
 // DeleteModelMapping deletes a model mapping by ID
-func (s *AdminService) DeleteModelMapping(id uint64) error {
-	return s.modelMappingRepo.Delete(id)
+func (s *AdminService) DeleteModelMapping(tenantID uint64, id uint64) error {
+	return s.modelMappingRepo.Delete(tenantID, id)
 }
 
 // ClearAllModelMappings deletes all model mappings (both builtin and non-builtin)
-func (s *AdminService) ClearAllModelMappings() error {
-	return s.modelMappingRepo.ClearAll()
+func (s *AdminService) ClearAllModelMappings(tenantID uint64) error {
+	return s.modelMappingRepo.ClearAll(tenantID)
 }
 
 // ===== Response Model API =====
@@ -693,8 +701,8 @@ func (s *AdminService) GetResponseModelNames() ([]string, error) {
 }
 
 // ResetModelMappingsToDefaults re-seeds default builtin mappings
-func (s *AdminService) ResetModelMappingsToDefaults() error {
-	return s.modelMappingRepo.SeedDefaults()
+func (s *AdminService) ResetModelMappingsToDefaults(tenantID uint64) error {
+	return s.modelMappingRepo.SeedDefaults(tenantID)
 }
 
 // GetAvailableClientTypes returns all available client types for model mapping
@@ -710,13 +718,13 @@ func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 // ===== Usage Stats API =====
 
 // GetUsageStats queries usage statistics with optional filters
-func (s *AdminService) GetUsageStats(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	return s.usageStatsRepo.Query(filter)
+func (s *AdminService) GetUsageStats(tenantID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+	return s.usageStatsRepo.Query(tenantID, filter)
 }
 
 // GetDashboardData returns all dashboard data in a single query
-func (s *AdminService) GetDashboardData() (*domain.DashboardData, error) {
-	return s.usageStatsRepo.QueryDashboardData()
+func (s *AdminService) GetDashboardData(tenantID uint64) (*domain.DashboardData, error) {
+	return s.usageStatsRepo.QueryDashboardData(tenantID)
 }
 
 // RecalculateUsageStatsProgress represents progress update for usage stats recalculation
@@ -750,7 +758,7 @@ func (s *AdminService) RecalculateUsageStats() error {
 	}()
 
 	// Call repository method with progress channel
-	err := s.usageStatsRepo.ClearAndRecalculateWithProgress(progressChan)
+	err := s.usageStatsRepo.ClearAndRecalculateWithProgress(0, progressChan)
 
 	// Close channel when done
 	close(progressChan)
@@ -923,7 +931,7 @@ func (s *AdminService) RecalculateRequestCost(requestID uint64) (*RecalculateReq
 	result := &RecalculateRequestCostResult{RequestID: requestID}
 
 	// 1. Get the request
-	request, err := s.proxyRequestRepo.GetByID(requestID)
+	request, err := s.proxyRequestRepo.GetByID(0, requestID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get request: %w", err)
 	}

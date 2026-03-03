@@ -7,6 +7,7 @@ type FailureCount struct {
 	ID              uint64    `json:"id"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
+	TenantID        uint64    `json:"tenantID"`
 	ProviderID      uint64    `json:"providerID"`
 	ClientType      string    `json:"clientType"` // Empty for global
 	Reason          string    `json:"reason"`     // server_error, network_error, etc.

@@ -54,13 +54,13 @@ func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	return nil
 }
 
-func (r *APITokenRepository) Delete(id uint64) error {
+func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 	// Get token first to remove from token cache
 	r.mu.RLock()
 	t, exists := r.cache[id]
 	r.mu.RUnlock()
 
-	if err := r.repo.Delete(id); err != nil {
+	if err := r.repo.Delete(tenantID, id); err != nil {
 		return err
 	}
 
@@ -73,7 +73,7 @@ func (r *APITokenRepository) Delete(id uint64) error {
 	return nil
 }
 
-func (r *APITokenRepository) GetByID(id uint64) (*domain.APIToken, error) {
+func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	r.mu.RLock()
 	if t, ok := r.cache[id]; ok {
 		r.mu.RUnlock()
@@ -81,7 +81,7 @@ func (r *APITokenRepository) GetByID(id uint64) (*domain.APIToken, error) {
 	}
 	r.mu.RUnlock()
 
-	t, err := r.repo.GetByID(id)
+	t, err := r.repo.GetByID(tenantID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (r *APITokenRepository) GetByID(id uint64) (*domain.APIToken, error) {
 	return t, nil
 }
 
-func (r *APITokenRepository) GetByToken(token string) (*domain.APIToken, error) {
+func (r *APITokenRepository) GetByToken(tenantID uint64, token string) (*domain.APIToken, error) {
 	r.mu.RLock()
 	if t, ok := r.tokenCache[token]; ok {
 		r.mu.RUnlock()
@@ -101,7 +101,7 @@ func (r *APITokenRepository) GetByToken(token string) (*domain.APIToken, error) 
 	}
 	r.mu.RUnlock()
 
-	t, err := r.repo.GetByToken(token)
+	t, err := r.repo.GetByToken(tenantID, token)
 	if err != nil {
 		return nil, err
 	}
@@ -113,12 +113,12 @@ func (r *APITokenRepository) GetByToken(token string) (*domain.APIToken, error) 
 	return t, nil
 }
 
-func (r *APITokenRepository) List() ([]*domain.APIToken, error) {
-	return r.repo.List()
+func (r *APITokenRepository) List(tenantID uint64) ([]*domain.APIToken, error) {
+	return r.repo.List(tenantID)
 }
 
-func (r *APITokenRepository) IncrementUseCount(id uint64) error {
-	if err := r.repo.IncrementUseCount(id); err != nil {
+func (r *APITokenRepository) IncrementUseCount(tenantID uint64, id uint64) error {
+	if err := r.repo.IncrementUseCount(tenantID, id); err != nil {
 		return err
 	}
 
@@ -143,7 +143,7 @@ func (r *APITokenRepository) InvalidateCache() {
 
 // Load preloads all tokens into cache
 func (r *APITokenRepository) Load() error {
-	tokens, err := r.repo.List()
+	tokens, err := r.repo.List(0)
 	if err != nil {
 		return err
 	}

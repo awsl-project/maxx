@@ -99,7 +99,7 @@ func (e *Executor) ExecuteWith(c *flow.Ctx) error {
 	return state.lastErr
 }
 
-func (e *Executor) mapModel(requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) string {
+func (e *Executor) mapModel(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) string {
 	// Database model mapping with full query conditions
 	query := &domain.ModelMappingQuery{
 		ClientType:   clientType,
@@ -109,7 +109,7 @@ func (e *Executor) mapModel(requestModel string, route *domain.Route, provider *
 		RouteID:      route.ID,
 		APITokenID:   apiTokenID,
 	}
-	mappings, _ := e.modelMappingRepo.ListByQuery(query)
+	mappings, _ := e.modelMappingRepo.ListByQuery(tenantID, query)
 	for _, m := range mappings {
 		if domain.MatchWildcard(m.Pattern, requestModel) {
 			return m.Target
@@ -120,13 +120,13 @@ func (e *Executor) mapModel(requestModel string, route *domain.Route, provider *
 	return requestModel
 }
 
-func (e *Executor) getRetryConfig(config *domain.RetryConfig) *domain.RetryConfig {
+func (e *Executor) getRetryConfig(tenantID uint64, config *domain.RetryConfig) *domain.RetryConfig {
 	if config != nil {
 		return config
 	}
 
 	// Get default config
-	defaultConfig, err := e.retryConfigRepo.GetDefault()
+	defaultConfig, err := e.retryConfigRepo.GetDefault(tenantID)
 	if err == nil && defaultConfig != nil {
 		return defaultConfig
 	}

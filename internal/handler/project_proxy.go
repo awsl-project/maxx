@@ -40,7 +40,7 @@ func (h *ProjectProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Look up project by slug
-	project, err := h.projectRepo.GetBySlug(slug)
+	project, err := h.projectRepo.GetBySlug(0, slug)
 	if err != nil {
 		log.Printf("[ProjectProxy] Project not found for slug: %s", slug)
 		writeError(w, http.StatusNotFound, "project not found")

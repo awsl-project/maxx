@@ -45,13 +45,13 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 	// 统计聚合任务（每 30 秒）- 聚合原始数据并自动 rollup 到各粒度
 	go func() {
 		time.Sleep(5 * time.Second) // 初始延迟
-		for range deps.UsageStats.AggregateAndRollUp() {
+		for range deps.UsageStats.AggregateAndRollUp(0) {
 			// drain the channel to wait for completion
 		}
 
 		ticker := time.NewTicker(30 * time.Second)
 		for range ticker.C {
-			for range deps.UsageStats.AggregateAndRollUp() {
+			for range deps.UsageStats.AggregateAndRollUp(0) {
 				// drain the channel to wait for completion
 			}
 		}

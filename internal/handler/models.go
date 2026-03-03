@@ -69,7 +69,7 @@ func (h *ModelsHandler) collectModelNamesForUserAgent(userAgent string) ([]strin
 	}
 
 	if h.providerRepo != nil {
-		providers, err := h.providerRepo.List()
+		providers, err := h.providerRepo.List(0)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +81,7 @@ func (h *ModelsHandler) collectModelNamesForUserAgent(userAgent string) ([]strin
 	}
 
 	if h.modelMappingRepo != nil {
-		mappings, err := h.modelMappingRepo.ListEnabled()
+		mappings, err := h.modelMappingRepo.ListEnabled(0)
 		if err != nil {
 			return nil, err
 		}

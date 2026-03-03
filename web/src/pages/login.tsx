@@ -3,14 +3,17 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTransport } from '@/lib/transport';
+import type { AuthUser } from '@/lib/auth-context';
 
 interface LoginPageProps {
-  onSuccess: (token: string) => void;
+  onSuccess: (token: string, user?: AuthUser) => void;
+  multiTenancyEnabled?: boolean;
 }
 
-export function LoginPage({ onSuccess }: LoginPageProps) {
+export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
   const { t } = useTranslation();
   const { transport } = useTransport();
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -21,11 +24,32 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     setIsLoading(true);
 
     try {
-      const result = await transport.verifyPassword(password);
-      if (result.success && result.token) {
-        onSuccess(result.token);
+      if (multiTenancyEnabled) {
+        // Multi-tenancy: email + password login
+        const result = await transport.login(email, password);
+        if (result.success && result.token) {
+          const user: AuthUser | undefined = result.user
+            ? {
+                id: result.user.id,
+                email: result.user.email,
+                username: result.user.username,
+                tenantID: result.user.tenantID,
+                tenantName: result.user.tenantName,
+                role: result.user.role,
+              }
+            : undefined;
+          onSuccess(result.token, user);
+        } else {
+          setError(result.error || t('login.invalidCredentials'));
+        }
       } else {
-        setError(result.error || t('login.invalidPassword'));
+        // Legacy: password-only login
+        const result = await transport.verifyPassword(password);
+        if (result.success && result.token) {
+          onSuccess(result.token);
+        } else {
+          setError(result.error || t('login.invalidPassword'));
+        }
       }
     } catch {
       setError(t('login.verifyFailed'));
@@ -33,6 +57,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       setIsLoading(false);
     }
   };
+
+  const isSubmitDisabled = multiTenancyEnabled
+    ? isLoading || !email || !password
+    : isLoading || !password;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
@@ -44,18 +72,28 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
+            {multiTenancyEnabled && (
+              <Input
+                type="email"
+                placeholder={t('login.emailPlaceholder')}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoFocus
+                disabled={isLoading}
+              />
+            )}
             <Input
               type="password"
               placeholder={t('login.passwordPlaceholder')}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoFocus
+              autoFocus={!multiTenancyEnabled}
               disabled={isLoading}
             />
             {error && <p className="text-destructive text-sm">{error}</p>}
           </div>
 
-          <Button type="submit" className="w-full" disabled={isLoading || !password}>
+          <Button type="submit" className="w-full" disabled={isSubmitDisabled}>
             {isLoading ? t('login.verifying') : t('login.submit')}
           </Button>
         </form>

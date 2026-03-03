@@ -44,9 +44,9 @@ func (r *APITokenRepository) Update(t *domain.APIToken) error {
 		}).Error
 }
 
-func (r *APITokenRepository) Delete(id uint64) error {
+func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&APIToken{}).
+	return tenantScope(r.db.gorm.Model(&APIToken{}), tenantID).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -54,9 +54,9 @@ func (r *APITokenRepository) Delete(id uint64) error {
 		}).Error
 }
 
-func (r *APITokenRepository) GetByID(id uint64) (*domain.APIToken, error) {
+func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	var model APIToken
-	if err := r.db.gorm.First(&model, id).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).First(&model, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -65,9 +65,9 @@ func (r *APITokenRepository) GetByID(id uint64) (*domain.APIToken, error) {
 	return r.toDomain(&model), nil
 }
 
-func (r *APITokenRepository) GetByToken(token string) (*domain.APIToken, error) {
+func (r *APITokenRepository) GetByToken(tenantID uint64, token string) (*domain.APIToken, error) {
 	var model APIToken
-	if err := r.db.gorm.Where("token = ? AND deleted_at = 0", token).First(&model).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("token = ? AND deleted_at = 0", token).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -76,9 +76,9 @@ func (r *APITokenRepository) GetByToken(token string) (*domain.APIToken, error) 
 	return r.toDomain(&model), nil
 }
 
-func (r *APITokenRepository) List() ([]*domain.APIToken, error) {
+func (r *APITokenRepository) List(tenantID uint64) ([]*domain.APIToken, error) {
 	var models []APIToken
-	if err := r.db.gorm.Where("deleted_at = 0").Order("created_at DESC").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
 
@@ -89,9 +89,9 @@ func (r *APITokenRepository) List() ([]*domain.APIToken, error) {
 	return tokens, nil
 }
 
-func (r *APITokenRepository) IncrementUseCount(id uint64) error {
+func (r *APITokenRepository) IncrementUseCount(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&APIToken{}).
+	return tenantScope(r.db.gorm.Model(&APIToken{}), tenantID).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"use_count":    gorm.Expr("use_count + 1"),
@@ -110,6 +110,7 @@ func (r *APITokenRepository) toModel(t *domain.APIToken) *APIToken {
 			},
 			DeletedAt: toTimestampPtr(t.DeletedAt),
 		},
+		TenantID:    t.TenantID,
 		Token:       t.Token,
 		TokenPrefix: t.TokenPrefix,
 		Name:        t.Name,
@@ -129,6 +130,7 @@ func (r *APITokenRepository) toDomain(m *APIToken) *domain.APIToken {
 		CreatedAt:   fromTimestamp(m.CreatedAt),
 		UpdatedAt:   fromTimestamp(m.UpdatedAt),
 		DeletedAt:   fromTimestampPtr(m.DeletedAt),
+		TenantID:    m.TenantID,
 		Token:       m.Token,
 		TokenPrefix: m.TokenPrefix,
 		Name:        m.Name,

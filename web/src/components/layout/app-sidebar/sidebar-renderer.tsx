@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { SidebarConfig, MenuItem } from '@/types/sidebar';
+import { useAuth } from '@/lib/auth-context';
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -63,21 +64,34 @@ function MenuItemRenderer({ item }: { item: MenuItem }) {
  */
 export function SidebarRenderer({ config }: SidebarRendererProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isAdmin = !user || user.role === 'admin';
 
   return (
     <>
-      {config.sections.map((section) => (
-        <SidebarGroup key={section.key}>
-          {section.titleKey && <SidebarGroupLabel>{t(section.titleKey)}</SidebarGroupLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {section.items.map((item) => (
-                <MenuItemRenderer key={item.key} item={item} />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      ))}
+      {config.sections.map((section) => {
+        const filteredItems = section.items.filter((item) => {
+          if (item.type === 'standard' && item.adminOnly && !isAdmin) {
+            return false;
+          }
+          return true;
+        });
+
+        if (filteredItems.length === 0) return null;
+
+        return (
+          <SidebarGroup key={section.key}>
+            {section.titleKey && <SidebarGroupLabel>{t(section.titleKey)}</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {filteredItems.map((item) => (
+                  <MenuItemRenderer key={item.key} item={item} />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        );
+      })}
     </>
   );
 }

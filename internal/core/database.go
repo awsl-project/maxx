@@ -63,6 +63,8 @@ type DatabaseRepos struct {
 	UsageStatsRepo            repository.UsageStatsRepository
 	ResponseModelRepo         repository.ResponseModelRepository
 	ModelPriceRepo            repository.ModelPriceRepository
+	TenantRepo                repository.TenantRepository
+	UserRepo                  repository.UserRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
@@ -85,6 +87,9 @@ type ServerComponents struct {
 	ProjectProxyHandler *handler.ProjectProxyHandler
 	RequestTracker      *RequestTracker
 	PprofManager        *PprofManager
+	AuthMiddleware      *handler.AuthMiddleware
+	AuthHandler         *handler.AuthHandler
+	BackupService       *service.BackupService
 }
 
 // InitializeDatabase 初始化数据库和所有仓库
@@ -122,6 +127,8 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
 	responseModelRepo := sqlite.NewResponseModelRepository(db)
 	modelPriceRepo := sqlite.NewModelPriceRepository(db)
+	tenantRepo := sqlite.NewTenantRepository(db)
+	userRepo := sqlite.NewUserRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -162,6 +169,8 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		UsageStatsRepo:            usageStatsRepo,
 		ResponseModelRepo:         responseModelRepo,
 		ModelPriceRepo:            modelPriceRepo,
+		TenantRepo:                tenantRepo,
+		UserRepo:                  userRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -349,6 +358,10 @@ func InitializeServerComponents(
 		r,
 	)
 
+	log.Printf("[Core] Creating auth middleware and handler")
+	authMiddleware := handler.NewAuthMiddleware(repos.SettingRepo, repos.UserRepo)
+	authHandler := handler.NewAuthHandler(authMiddleware, repos.UserRepo, repos.TenantRepo)
+
 	log.Printf("[Core] Creating handlers")
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(repos.CachedAPITokenRepo, repos.SettingRepo)
 	proxyHandler := handler.NewProxyHandler(clientAdapter, exec, repos.CachedSessionRepo, tokenAuthMiddleware)
@@ -358,6 +371,7 @@ func InitializeServerComponents(
 		repos.CachedModelMappingRepo,
 	)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
+	adminHandler.SetUserRepo(repos.UserRepo)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
 	kiroHandler := handler.NewKiroHandler(adminService)
 	codexHandler := handler.NewCodexHandler(adminService, repos.CodexQuotaRepo, wailsBroadcaster)
@@ -391,6 +405,9 @@ func InitializeServerComponents(
 		ProjectProxyHandler: projectProxyHandler,
 		RequestTracker:      requestTracker,
 		PprofManager:        pprofMgr,
+		AuthMiddleware:      authMiddleware,
+		AuthHandler:         authHandler,
+		BackupService:       backupService,
 	}
 
 	log.Printf("[Core] Server components initialized successfully")

@@ -35,9 +35,9 @@ func (r *ProviderRepository) Update(p *domain.Provider) error {
 	return r.db.gorm.Save(model).Error
 }
 
-func (r *ProviderRepository) Delete(id uint64) error {
+func (r *ProviderRepository) Delete(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&Provider{}).
+	return tenantScope(r.db.gorm.Model(&Provider{}), tenantID).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -45,9 +45,9 @@ func (r *ProviderRepository) Delete(id uint64) error {
 		}).Error
 }
 
-func (r *ProviderRepository) GetByID(id uint64) (*domain.Provider, error) {
+func (r *ProviderRepository) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
 	var model Provider
-	if err := r.db.gorm.First(&model, id).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).First(&model, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -56,9 +56,9 @@ func (r *ProviderRepository) GetByID(id uint64) (*domain.Provider, error) {
 	return r.toDomain(&model), nil
 }
 
-func (r *ProviderRepository) List() ([]*domain.Provider, error) {
+func (r *ProviderRepository) List(tenantID uint64) ([]*domain.Provider, error) {
 	var models []Provider
-	if err := r.db.gorm.Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
 		return nil, err
 	}
 
@@ -80,6 +80,7 @@ func (r *ProviderRepository) toModel(p *domain.Provider) *Provider {
 			},
 			DeletedAt: toTimestampPtr(p.DeletedAt),
 		},
+		TenantID:             p.TenantID,
 		Type:                 p.Type,
 		Name:                 p.Name,
 		Logo:                 LongText(p.Logo),
@@ -96,6 +97,7 @@ func (r *ProviderRepository) toDomain(m *Provider) *domain.Provider {
 		CreatedAt:            fromTimestamp(m.CreatedAt),
 		UpdatedAt:            fromTimestamp(m.UpdatedAt),
 		DeletedAt:            fromTimestampPtr(m.DeletedAt),
+		TenantID:             m.TenantID,
 		Type:                 m.Type,
 		Name:                 m.Name,
 		Logo:                 string(m.Logo),

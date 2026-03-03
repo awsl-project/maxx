@@ -69,6 +69,13 @@ export type {
   ImportResult,
   // Cooldown
   Cooldown,
+  // User
+  User,
+  UserRole,
+  CreateUserData,
+  UpdateUserData,
+  AuthLoginResult,
+  AuthRegisterResult,
   // API Token
   APIToken,
   APITokenCreateResult,

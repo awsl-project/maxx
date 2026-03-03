@@ -151,6 +151,14 @@ func (d *DB) seedModelMappings() error {
 	return d.gorm.Create(&defaultRules).Error
 }
 
+// tenantScope adds tenant_id filter to query, skipping if tenantID is 0
+func tenantScope(db *gorm.DB, tenantID uint64) *gorm.DB {
+	if tenantID == 0 {
+		return db
+	}
+	return db.Where("tenant_id = ?", tenantID)
+}
+
 // ==================== 时间戳辅助函数 ====================
 
 // toTimestamp 将 time.Time 转换为 Unix 毫秒时间戳

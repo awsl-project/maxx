@@ -297,7 +297,7 @@ func (h *ClaudeHandler) stopOAuthServerAsync() {
 
 // RefreshProviderInfo refreshes the Claude provider info by re-validating the refresh token
 func (h *ClaudeHandler) RefreshProviderInfo(ctx context.Context, providerID int) (*claude.ClaudeTokenValidationResult, error) {
-	provider, err := h.svc.GetProvider(uint64(providerID))
+	provider, err := h.svc.GetProvider(0, uint64(providerID))
 	if err != nil {
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}
@@ -330,7 +330,7 @@ func (h *ClaudeHandler) RefreshProviderInfo(ctx context.Context, providerID int)
 		provider.Config.Claude.RefreshToken = result.RefreshToken
 	}
 
-	if err := h.svc.UpdateProvider(provider); err != nil {
+	if err := h.svc.UpdateProvider(0, provider); err != nil {
 		return nil, fmt.Errorf("failed to update provider: %w", err)
 	}
 

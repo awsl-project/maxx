@@ -53,9 +53,9 @@ func (r *CodexQuotaRepository) Upsert(quota *domain.CodexQuota) error {
 	return nil
 }
 
-func (r *CodexQuotaRepository) GetByEmail(email string) (*domain.CodexQuota, error) {
+func (r *CodexQuotaRepository) GetByEmail(tenantID uint64, email string) (*domain.CodexQuota, error) {
 	var model CodexQuota
-	err := r.db.gorm.Where("email = ? AND deleted_at = 0", email).First(&model).Error
+	err := tenantScope(r.db.gorm, tenantID).Where("email = ? AND deleted_at = 0", email).First(&model).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -65,17 +65,17 @@ func (r *CodexQuotaRepository) GetByEmail(email string) (*domain.CodexQuota, err
 	return r.toDomain(&model), nil
 }
 
-func (r *CodexQuotaRepository) List() ([]*domain.CodexQuota, error) {
+func (r *CodexQuotaRepository) List(tenantID uint64) ([]*domain.CodexQuota, error) {
 	var models []CodexQuota
-	if err := r.db.gorm.Where("deleted_at = 0").Order("updated_at DESC").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("updated_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
 }
 
-func (r *CodexQuotaRepository) Delete(email string) error {
+func (r *CodexQuotaRepository) Delete(tenantID uint64, email string) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&CodexQuota{}).
+	return tenantScope(r.db.gorm.Model(&CodexQuota{}), tenantID).
 		Where("email = ?", email).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -93,6 +93,7 @@ func (r *CodexQuotaRepository) toModel(q *domain.CodexQuota) *CodexQuota {
 			},
 			DeletedAt: toTimestampPtr(q.DeletedAt),
 		},
+		TenantID:         q.TenantID,
 		Email:            q.Email,
 		AccountID:        q.AccountID,
 		PlanType:         q.PlanType,
@@ -109,6 +110,7 @@ func (r *CodexQuotaRepository) toDomain(m *CodexQuota) *domain.CodexQuota {
 		CreatedAt:        fromTimestamp(m.CreatedAt),
 		UpdatedAt:        fromTimestamp(m.UpdatedAt),
 		DeletedAt:        fromTimestampPtr(m.DeletedAt),
+		TenantID:         m.TenantID,
 		Email:            m.Email,
 		AccountID:        m.AccountID,
 		PlanType:         m.PlanType,

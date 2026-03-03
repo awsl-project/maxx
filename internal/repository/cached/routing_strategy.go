@@ -21,7 +21,7 @@ func NewRoutingStrategyRepository(repo repository.RoutingStrategyRepository) *Ro
 }
 
 func (r *RoutingStrategyRepository) Load() error {
-	list, err := r.repo.List()
+	list, err := r.repo.List(0)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
 	return nil
 }
 
-func (r *RoutingStrategyRepository) Delete(id uint64) error {
+func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 	r.mu.RLock()
 	var projectID uint64
 	for pid, s := range r.cache {
@@ -82,7 +82,7 @@ func (r *RoutingStrategyRepository) Delete(id uint64) error {
 	}
 	r.mu.RUnlock()
 
-	if err := r.repo.Delete(id); err != nil {
+	if err := r.repo.Delete(tenantID, id); err != nil {
 		return err
 	}
 
@@ -92,22 +92,24 @@ func (r *RoutingStrategyRepository) Delete(id uint64) error {
 	return nil
 }
 
-func (r *RoutingStrategyRepository) GetByProjectID(projectID uint64) (*domain.RoutingStrategy, error) {
+func (r *RoutingStrategyRepository) GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error) {
 	r.mu.RLock()
 	if s, ok := r.cache[projectID]; ok {
 		r.mu.RUnlock()
 		return s, nil
 	}
 	r.mu.RUnlock()
-	return r.repo.GetByProjectID(projectID)
+	return r.repo.GetByProjectID(tenantID, projectID)
 }
 
-func (r *RoutingStrategyRepository) List() ([]*domain.RoutingStrategy, error) {
+func (r *RoutingStrategyRepository) List(tenantID uint64) ([]*domain.RoutingStrategy, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	list := make([]*domain.RoutingStrategy, 0, len(r.cache))
 	for _, s := range r.cache {
-		list = append(list, s)
+		if tenantID == 0 || s.TenantID == tenantID {
+			list = append(list, s)
+		}
 	}
 	return list, nil
 }

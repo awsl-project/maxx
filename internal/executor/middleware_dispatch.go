@@ -42,7 +42,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 		}
 
 		clientType := state.clientType
-		mappedModel := e.mapModel(state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
+		mappedModel := e.mapModel(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
 
 		originalClientType := clientType
 		currentClientType := clientType
@@ -84,7 +84,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			}
 		}
 
-		retryConfig := e.getRetryConfig(matchedRoute.RetryConfig)
+		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
 
 		for attempt := 0; attempt <= retryConfig.MaxRetries; attempt++ {
 			if ctx.Err() != nil {

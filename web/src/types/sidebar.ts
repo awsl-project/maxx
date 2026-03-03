@@ -10,6 +10,7 @@ export interface StandardMenuItem {
   icon: LucideIcon;
   labelKey: string;
   activeMatch?: 'exact' | 'startsWith'; // Default: 'startsWith'
+  adminOnly?: boolean; // Only show for admin role
 }
 
 /**

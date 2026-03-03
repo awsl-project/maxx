@@ -23,7 +23,7 @@ func NewModelMappingRepository(repo repository.ModelMappingRepository) *ModelMap
 
 // Load 从数据库加载所有数据到内存（只在启动时调用一次）
 func (r *ModelMappingRepository) Load() error {
-	list, err := r.repo.List()
+	list, err := r.repo.List(0)
 	if err != nil {
 		return err
 	}
@@ -93,8 +93,8 @@ func (r *ModelMappingRepository) Update(mapping *domain.ModelMapping) error {
 	return nil
 }
 
-func (r *ModelMappingRepository) Delete(id uint64) error {
-	if err := r.repo.Delete(id); err != nil {
+func (r *ModelMappingRepository) Delete(tenantID uint64, id uint64) error {
+	if err := r.repo.Delete(tenantID, id); err != nil {
 		return err
 	}
 	// 直接从缓存中删除
@@ -109,7 +109,7 @@ func (r *ModelMappingRepository) Delete(id uint64) error {
 	return nil
 }
 
-func (r *ModelMappingRepository) GetByID(id uint64) (*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) GetByID(tenantID uint64, id uint64) (*domain.ModelMapping, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, m := range r.cache {
@@ -120,23 +120,30 @@ func (r *ModelMappingRepository) GetByID(id uint64) (*domain.ModelMapping, error
 	return nil, domain.ErrNotFound
 }
 
-func (r *ModelMappingRepository) List() ([]*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) List(tenantID uint64) ([]*domain.ModelMapping, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	result := make([]*domain.ModelMapping, len(r.cache))
-	copy(result, r.cache)
+	result := make([]*domain.ModelMapping, 0, len(r.cache))
+	for _, m := range r.cache {
+		if tenantID == 0 || m.TenantID == tenantID {
+			result = append(result, m)
+		}
+	}
 	return result, nil
 }
 
-func (r *ModelMappingRepository) ListEnabled() ([]*domain.ModelMapping, error) {
-	return r.List()
+func (r *ModelMappingRepository) ListEnabled(tenantID uint64) ([]*domain.ModelMapping, error) {
+	return r.List(tenantID)
 }
 
-func (r *ModelMappingRepository) ListByClientType(clientType domain.ClientType) ([]*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) ListByClientType(tenantID uint64, clientType domain.ClientType) ([]*domain.ModelMapping, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make([]*domain.ModelMapping, 0)
 	for _, m := range r.cache {
+		if tenantID != 0 && m.TenantID != tenantID {
+			continue
+		}
 		if m.ClientType == "" || m.ClientType == clientType {
 			result = append(result, m)
 		}
@@ -145,11 +152,14 @@ func (r *ModelMappingRepository) ListByClientType(clientType domain.ClientType) 
 }
 
 // ListByQuery returns all mappings matching the query conditions
-func (r *ModelMappingRepository) ListByQuery(query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) ListByQuery(tenantID uint64, query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make([]*domain.ModelMapping, 0)
 	for _, m := range r.cache {
+		if tenantID != 0 && m.TenantID != tenantID {
+			continue
+		}
 		// Match conditions: field is 0/empty OR field matches query
 		if m.ClientType != "" && m.ClientType != query.ClientType {
 			continue
@@ -174,36 +184,63 @@ func (r *ModelMappingRepository) ListByQuery(query *domain.ModelMappingQuery) ([
 	return result, nil
 }
 
-func (r *ModelMappingRepository) Count() (int, error) {
+func (r *ModelMappingRepository) Count(tenantID uint64) (int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return len(r.cache), nil
+	if tenantID == 0 {
+		return len(r.cache), nil
+	}
+	count := 0
+	for _, m := range r.cache {
+		if m.TenantID == tenantID {
+			count++
+		}
+	}
+	return count, nil
 }
 
-func (r *ModelMappingRepository) DeleteAll() error {
-	if err := r.repo.DeleteAll(); err != nil {
+func (r *ModelMappingRepository) DeleteAll(tenantID uint64) error {
+	if err := r.repo.DeleteAll(tenantID); err != nil {
 		return err
 	}
-	// 直接清空缓存
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cache = make([]*domain.ModelMapping, 0)
+	if tenantID == 0 {
+		r.cache = make([]*domain.ModelMapping, 0)
+	} else {
+		filtered := make([]*domain.ModelMapping, 0, len(r.cache))
+		for _, m := range r.cache {
+			if m.TenantID != tenantID {
+				filtered = append(filtered, m)
+			}
+		}
+		r.cache = filtered
+	}
 	return nil
 }
 
-func (r *ModelMappingRepository) ClearAll() error {
-	if err := r.repo.ClearAll(); err != nil {
+func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
+	if err := r.repo.ClearAll(tenantID); err != nil {
 		return err
 	}
-	// 直接清空缓存
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cache = make([]*domain.ModelMapping, 0)
+	if tenantID == 0 {
+		r.cache = make([]*domain.ModelMapping, 0)
+	} else {
+		filtered := make([]*domain.ModelMapping, 0, len(r.cache))
+		for _, m := range r.cache {
+			if m.TenantID != tenantID {
+				filtered = append(filtered, m)
+			}
+		}
+		r.cache = filtered
+	}
 	return nil
 }
 
-func (r *ModelMappingRepository) SeedDefaults() error {
-	if err := r.repo.SeedDefaults(); err != nil {
+func (r *ModelMappingRepository) SeedDefaults(tenantID uint64) error {
+	if err := r.repo.SeedDefaults(tenantID); err != nil {
 		return err
 	}
 	// 重新加载（因为 seed 会创建多条记录）

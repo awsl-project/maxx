@@ -35,9 +35,9 @@ func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
 	return r.db.gorm.Save(model).Error
 }
 
-func (r *RetryConfigRepository) Delete(id uint64) error {
+func (r *RetryConfigRepository) Delete(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&RetryConfig{}).
+	return tenantScope(r.db.gorm.Model(&RetryConfig{}), tenantID).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -45,9 +45,9 @@ func (r *RetryConfigRepository) Delete(id uint64) error {
 		}).Error
 }
 
-func (r *RetryConfigRepository) GetByID(id uint64) (*domain.RetryConfig, error) {
+func (r *RetryConfigRepository) GetByID(tenantID uint64, id uint64) (*domain.RetryConfig, error) {
 	var model RetryConfig
-	if err := r.db.gorm.First(&model, id).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).First(&model, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -56,9 +56,9 @@ func (r *RetryConfigRepository) GetByID(id uint64) (*domain.RetryConfig, error) 
 	return r.toDomain(&model), nil
 }
 
-func (r *RetryConfigRepository) GetDefault() (*domain.RetryConfig, error) {
+func (r *RetryConfigRepository) GetDefault(tenantID uint64) (*domain.RetryConfig, error) {
 	var model RetryConfig
-	if err := r.db.gorm.Where("is_default = 1 AND deleted_at = 0").First(&model).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("is_default = 1 AND deleted_at = 0").First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -67,9 +67,9 @@ func (r *RetryConfigRepository) GetDefault() (*domain.RetryConfig, error) {
 	return r.toDomain(&model), nil
 }
 
-func (r *RetryConfigRepository) List() ([]*domain.RetryConfig, error) {
+func (r *RetryConfigRepository) List(tenantID uint64) ([]*domain.RetryConfig, error) {
 	var models []RetryConfig
-	if err := r.db.gorm.Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
@@ -89,6 +89,7 @@ func (r *RetryConfigRepository) toModel(c *domain.RetryConfig) *RetryConfig {
 			},
 			DeletedAt: toTimestampPtr(c.DeletedAt),
 		},
+		TenantID:          c.TenantID,
 		Name:              c.Name,
 		IsDefault:         isDefault,
 		MaxRetries:        c.MaxRetries,
@@ -104,6 +105,7 @@ func (r *RetryConfigRepository) toDomain(m *RetryConfig) *domain.RetryConfig {
 		CreatedAt:       fromTimestamp(m.CreatedAt),
 		UpdatedAt:       fromTimestamp(m.UpdatedAt),
 		DeletedAt:       fromTimestampPtr(m.DeletedAt),
+		TenantID:        m.TenantID,
 		Name:            m.Name,
 		IsDefault:       m.IsDefault == 1,
 		MaxRetries:      m.MaxRetries,

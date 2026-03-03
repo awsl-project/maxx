@@ -204,6 +204,9 @@ type Provider struct {
 	// 软删除时间，nil 表示未删除
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
+
 	// 1. Custom ，主要用来各种中转站
 	// 2. Antigravity
 	Type string `json:"type"`
@@ -234,6 +237,9 @@ type Project struct {
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
+
 	Name string `json:"name"`
 	Slug string `json:"slug"`
 
@@ -248,6 +254,9 @@ type Session struct {
 
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
 
 	SessionID  string     `json:"sessionID"`
 	ClientType ClientType `json:"clientType"`
@@ -267,6 +276,9 @@ type Route struct {
 
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
 
 	IsEnabled bool `json:"isEnabled"`
 
@@ -309,6 +321,9 @@ type ProxyRequest struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
 
 	// 服务实例 ID，用于识别请求属于哪个实例
 	InstanceID string `json:"instanceID"`
@@ -383,6 +398,9 @@ type ProxyUpstreamAttempt struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
 
 	// 实际开始和结束时间
 	StartTime time.Time     `json:"startTime"`
@@ -460,6 +478,9 @@ type RetryConfig struct {
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
+
 	// 配置名称，便于复用
 	Name string `json:"name"`
 
@@ -503,6 +524,9 @@ type RoutingStrategy struct {
 
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
 
 	// 0 表示全局策略
 	ProjectID uint64 `json:"projectID"`
@@ -575,6 +599,9 @@ type AntigravityQuota struct {
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
+
 	// 邮箱作为唯一标识
 	Email string `json:"email"`
 
@@ -621,6 +648,9 @@ type CodexQuota struct {
 
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
 
 	// 邮箱作为唯一标识
 	Email string `json:"email"`
@@ -682,6 +712,9 @@ type UsageStats struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
+
 	// 时间维度
 	TimeBucket  time.Time   `json:"timeBucket"`  // 时间桶（根据粒度截断）
 	Granularity Granularity `json:"granularity"` // 时间粒度
@@ -729,6 +762,9 @@ type APIToken struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
 
 	// Token 明文（直接存储）
 	Token string `json:"token"`
@@ -789,6 +825,9 @@ type ModelMapping struct {
 
 	// 软删除时间
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// 所属租户
+	TenantID uint64 `json:"tenantID"`
 
 	// 作用域类型
 	Scope ModelMappingScope `json:"scope"` // global, provider, route

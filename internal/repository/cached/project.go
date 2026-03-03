@@ -23,7 +23,7 @@ func NewProjectRepository(repo repository.ProjectRepository) *ProjectRepository 
 }
 
 func (r *ProjectRepository) Load() error {
-	list, err := r.repo.List()
+	list, err := r.repo.List(0)
 	if err != nil {
 		return err
 	}
@@ -78,13 +78,13 @@ func (r *ProjectRepository) Update(p *domain.Project) error {
 	return nil
 }
 
-func (r *ProjectRepository) Delete(id uint64) error {
+func (r *ProjectRepository) Delete(tenantID uint64, id uint64) error {
 	// Get project to remove slug from cache
 	r.mu.RLock()
 	p := r.cache[id]
 	r.mu.RUnlock()
 
-	if err := r.repo.Delete(id); err != nil {
+	if err := r.repo.Delete(tenantID, id); err != nil {
 		return err
 	}
 
@@ -97,17 +97,17 @@ func (r *ProjectRepository) Delete(id uint64) error {
 	return nil
 }
 
-func (r *ProjectRepository) GetByID(id uint64) (*domain.Project, error) {
+func (r *ProjectRepository) GetByID(tenantID uint64, id uint64) (*domain.Project, error) {
 	r.mu.RLock()
 	if p, ok := r.cache[id]; ok {
 		r.mu.RUnlock()
 		return p, nil
 	}
 	r.mu.RUnlock()
-	return r.repo.GetByID(id)
+	return r.repo.GetByID(tenantID, id)
 }
 
-func (r *ProjectRepository) GetBySlug(slug string) (*domain.Project, error) {
+func (r *ProjectRepository) GetBySlug(tenantID uint64, slug string) (*domain.Project, error) {
 	r.mu.RLock()
 	if p, ok := r.slugCache[slug]; ok {
 		r.mu.RUnlock()
@@ -116,7 +116,7 @@ func (r *ProjectRepository) GetBySlug(slug string) (*domain.Project, error) {
 	r.mu.RUnlock()
 
 	// Fallback to database
-	p, err := r.repo.GetBySlug(slug)
+	p, err := r.repo.GetBySlug(tenantID, slug)
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +130,14 @@ func (r *ProjectRepository) GetBySlug(slug string) (*domain.Project, error) {
 	return p, nil
 }
 
-func (r *ProjectRepository) List() ([]*domain.Project, error) {
+func (r *ProjectRepository) List(tenantID uint64) ([]*domain.Project, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	list := make([]*domain.Project, 0, len(r.cache))
 	for _, p := range r.cache {
-		list = append(list, p)
+		if tenantID == 0 || p.TenantID == tenantID {
+			list = append(list, p)
+		}
 	}
 	return list, nil
 }

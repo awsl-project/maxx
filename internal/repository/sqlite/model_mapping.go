@@ -35,9 +35,9 @@ func (r *ModelMappingRepository) Update(mapping *domain.ModelMapping) error {
 	return r.db.gorm.Save(model).Error
 }
 
-func (r *ModelMappingRepository) Delete(id uint64) error {
+func (r *ModelMappingRepository) Delete(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&ModelMapping{}).
+	return tenantScope(r.db.gorm.Model(&ModelMapping{}), tenantID).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -45,9 +45,9 @@ func (r *ModelMappingRepository) Delete(id uint64) error {
 		}).Error
 }
 
-func (r *ModelMappingRepository) GetByID(id uint64) (*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) GetByID(tenantID uint64, id uint64) (*domain.ModelMapping, error) {
 	var model ModelMapping
-	if err := r.db.gorm.Where("id = ? AND deleted_at = 0", id).First(&model).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("id = ? AND deleted_at = 0", id).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -56,25 +56,25 @@ func (r *ModelMappingRepository) GetByID(id uint64) (*domain.ModelMapping, error
 	return r.toDomain(&model), nil
 }
 
-func (r *ModelMappingRepository) List() ([]*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) List(tenantID uint64) ([]*domain.ModelMapping, error) {
 	var models []ModelMapping
-	if err := r.db.gorm.Where("deleted_at = 0").Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
 }
 
-func (r *ModelMappingRepository) ListEnabled() ([]*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) ListEnabled(tenantID uint64) ([]*domain.ModelMapping, error) {
 	var models []ModelMapping
-	if err := r.db.gorm.Where("deleted_at = 0").Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
 }
 
-func (r *ModelMappingRepository) ListByQuery(query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) ListByQuery(tenantID uint64, query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
 	var models []ModelMapping
-	err := r.db.gorm.Where(
+	err := tenantScope(r.db.gorm, tenantID).Where(
 		`deleted_at = 0
 		AND (client_type = '' OR client_type = ?)
 		AND (provider_type = '' OR provider_type = ?)
@@ -90,23 +90,23 @@ func (r *ModelMappingRepository) ListByQuery(query *domain.ModelMappingQuery) ([
 	return r.toDomainList(models), nil
 }
 
-func (r *ModelMappingRepository) ListByClientType(clientType domain.ClientType) ([]*domain.ModelMapping, error) {
+func (r *ModelMappingRepository) ListByClientType(tenantID uint64, clientType domain.ClientType) ([]*domain.ModelMapping, error) {
 	var models []ModelMapping
-	if err := r.db.gorm.Where("deleted_at = 0 AND (client_type = '' OR client_type = ?)", clientType).Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0 AND (client_type = '' OR client_type = ?)", clientType).Order("CASE scope WHEN 'route' THEN 1 WHEN 'provider' THEN 2 ELSE 3 END, priority, id").Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
 }
 
-func (r *ModelMappingRepository) Count() (int, error) {
+func (r *ModelMappingRepository) Count(tenantID uint64) (int, error) {
 	var count int64
-	err := r.db.gorm.Model(&ModelMapping{}).Where("deleted_at = 0").Count(&count).Error
+	err := tenantScope(r.db.gorm.Model(&ModelMapping{}), tenantID).Where("deleted_at = 0").Count(&count).Error
 	return int(count), err
 }
 
-func (r *ModelMappingRepository) DeleteAll() error {
+func (r *ModelMappingRepository) DeleteAll(tenantID uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&ModelMapping{}).
+	return tenantScope(r.db.gorm.Model(&ModelMapping{}), tenantID).
 		Where("deleted_at = 0").
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -114,33 +114,36 @@ func (r *ModelMappingRepository) DeleteAll() error {
 		}).Error
 }
 
-func (r *ModelMappingRepository) ClearAll() error {
-	return r.db.gorm.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&ModelMapping{}).Error
+func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
+	if tenantID == 0 {
+		return r.db.gorm.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&ModelMapping{}).Error
+	}
+	return r.db.gorm.Where("tenant_id = ?", tenantID).Delete(&ModelMapping{}).Error
 }
 
-func (r *ModelMappingRepository) SeedDefaults() error {
+func (r *ModelMappingRepository) SeedDefaults(tenantID uint64) error {
 	// Clear all existing mappings first
-	if err := r.ClearAll(); err != nil {
+	if err := r.ClearAll(tenantID); err != nil {
 		return err
 	}
 
 	defaultRules := []ModelMapping{
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o-mini*", Target: "gemini-2.5-flash", Priority: 0},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o*", Target: "gemini-3-flash", Priority: 1},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4*", Target: "gemini-3-pro-high", Priority: 2},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-3.5*", Target: "gemini-2.5-flash", Priority: 3},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "o1-*", Target: "gemini-3-pro-high", Priority: 4},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "o3-*", Target: "gemini-3-pro-high", Priority: 5},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-5-sonnet-*", Target: "claude-sonnet-4-5", Priority: 6},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-opus-*", Target: "claude-opus-4-6-thinking", Priority: 7},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-6*", Target: "claude-opus-4-6-thinking", Priority: 8},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-5*", Target: "claude-opus-4-5-thinking", Priority: 9},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-*", Target: "claude-opus-4-6-thinking", Priority: 10},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-haiku-*", Target: "gemini-2.5-flash-lite", Priority: 11},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-haiku-*", Target: "gemini-2.5-flash-lite", Priority: 12},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*opus*", Target: "claude-opus-4-6-thinking", Priority: 13},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*sonnet*", Target: "claude-sonnet-4-5", Priority: 14},
-		{Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*haiku*", Target: "gemini-2.5-flash-lite", Priority: 15},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o-mini*", Target: "gemini-2.5-flash", Priority: 0},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4o*", Target: "gemini-3-flash", Priority: 1},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-4*", Target: "gemini-3-pro-high", Priority: 2},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "gpt-3.5*", Target: "gemini-2.5-flash", Priority: 3},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "o1-*", Target: "gemini-3-pro-high", Priority: 4},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "o3-*", Target: "gemini-3-pro-high", Priority: 5},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-5-sonnet-*", Target: "claude-sonnet-4-5", Priority: 6},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-opus-*", Target: "claude-opus-4-6-thinking", Priority: 7},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-6*", Target: "claude-opus-4-6-thinking", Priority: 8},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-5*", Target: "claude-opus-4-5-thinking", Priority: 9},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-opus-4-*", Target: "claude-opus-4-6-thinking", Priority: 10},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-haiku-*", Target: "gemini-2.5-flash-lite", Priority: 11},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "claude-3-haiku-*", Target: "gemini-2.5-flash-lite", Priority: 12},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*opus*", Target: "claude-opus-4-6-thinking", Priority: 13},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*sonnet*", Target: "claude-sonnet-4-5", Priority: 14},
+		{TenantID: tenantID, Scope: "global", ClientType: "claude", ProviderType: "antigravity", Pattern: "*haiku*", Target: "gemini-2.5-flash-lite", Priority: 15},
 	}
 
 	return r.db.gorm.Create(&defaultRules).Error
@@ -160,6 +163,7 @@ func (r *ModelMappingRepository) toModel(mapping *domain.ModelMapping) *ModelMap
 			},
 			DeletedAt: toTimestampPtr(mapping.DeletedAt),
 		},
+		TenantID:     mapping.TenantID,
 		Scope:        scope,
 		ClientType:   string(mapping.ClientType),
 		ProviderType: mapping.ProviderType,
@@ -183,6 +187,7 @@ func (r *ModelMappingRepository) toDomain(m *ModelMapping) *domain.ModelMapping 
 		CreatedAt:    fromTimestamp(m.CreatedAt),
 		UpdatedAt:    fromTimestamp(m.UpdatedAt),
 		DeletedAt:    fromTimestampPtr(m.DeletedAt),
+		TenantID:     m.TenantID,
 		Scope:        scope,
 		ClientType:   domain.ClientType(m.ClientType),
 		ProviderType: m.ProviderType,

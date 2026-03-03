@@ -1,6 +1,8 @@
 package sqlite
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log"
 	"sort"
@@ -17,6 +19,14 @@ type Migration struct {
 	Description string
 	Up          func(db *gorm.DB) error
 	Down        func(db *gorm.DB) error
+}
+
+// tenantScopedTables lists all tables that need tenant_id populated during migration v3
+var tenantScopedTables = []string{
+	"providers", "projects", "routes", "sessions",
+	"retry_configs", "routing_strategies", "api_tokens", "model_mappings",
+	"proxy_requests", "proxy_upstream_attempts", "usage_stats",
+	"antigravity_quotas", "codex_quotas", "cooldowns", "failure_counts",
 }
 
 // 所有迁移按版本号注册
@@ -83,6 +93,67 @@ var migrations = []Migration{
 			default:
 				return db.Exec("DROP INDEX IF EXISTS idx_proxy_requests_provider_id").Error
 			}
+		},
+	},
+	{
+		Version:     3,
+		Description: "Multi-tenancy support: create default tenant and populate tenant_id for all existing data",
+		Up: func(db *gorm.DB) error {
+			// 1. Insert default tenant if not exists
+			var tenantCount int64
+			if err := db.Raw("SELECT COUNT(*) FROM tenants WHERE is_default = 1").Scan(&tenantCount).Error; err != nil {
+				// Table might not exist yet (AutoMigrate runs before migrations)
+				// If tenants table doesn't exist, GORM AutoMigrate should have created it
+				return err
+			}
+			if tenantCount == 0 {
+				now := time.Now().UnixMilli()
+				if err := db.Exec(
+					"INSERT INTO tenants (id, created_at, updated_at, deleted_at, name, slug, is_default) VALUES (?, ?, ?, 0, ?, ?, 1)",
+					1, now, now, "Default", "default",
+				).Error; err != nil {
+					return err
+				}
+				log.Printf("[Migration] Created default tenant (id=1)")
+			}
+
+			// 2. Update all existing rows to belong to default tenant
+			for _, table := range tenantScopedTables {
+				result := db.Exec("UPDATE "+table+" SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
+				if result.Error != nil {
+					log.Printf("[Migration] Warning: Failed to update tenant_id for %s: %v", table, result.Error)
+					// Continue with other tables
+				} else if result.RowsAffected > 0 {
+					log.Printf("[Migration] Updated %d rows in %s with default tenant_id", result.RowsAffected, table)
+				}
+			}
+
+			// 3. Generate JWT secret and store in system_settings if not exists
+			var jwtSecretCount int64
+			db.Raw("SELECT COUNT(*) FROM system_settings WHERE setting_key = 'jwt_secret'").Scan(&jwtSecretCount)
+			if jwtSecretCount == 0 {
+				// Generate 32-byte random hex secret
+				secret := make([]byte, 32)
+				if _, err := rand.Read(secret); err != nil {
+					return err
+				}
+				now := time.Now().UnixMilli()
+				if err := db.Exec(
+					"INSERT INTO system_settings (setting_key, value, created_at, updated_at) VALUES (?, ?, ?, ?)",
+					"jwt_secret", hex.EncodeToString(secret), now, now,
+				).Error; err != nil {
+					return err
+				}
+				log.Printf("[Migration] Generated JWT secret")
+			}
+
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			// Rollback: remove jwt_secret setting, but keep tenant_id data
+			// (removing tenant_id columns would require dropping and recreating tables)
+			db.Exec("DELETE FROM system_settings WHERE setting_key = 'jwt_secret'")
+			return nil
 		},
 	},
 }

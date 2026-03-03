@@ -1,0 +1,147 @@
+package sqlite
+
+import (
+	"errors"
+	"time"
+
+	"github.com/awsl-project/maxx/internal/domain"
+	"gorm.io/gorm"
+)
+
+type UserRepository struct {
+	db *DB
+}
+
+func NewUserRepository(db *DB) *UserRepository {
+	return &UserRepository{db: db}
+}
+
+func (r *UserRepository) Create(u *domain.User) error {
+	now := time.Now()
+	u.CreatedAt = now
+	u.UpdatedAt = now
+
+	model := r.toModel(u)
+	if err := r.db.gorm.Create(model).Error; err != nil {
+		return err
+	}
+	u.ID = model.ID
+	return nil
+}
+
+func (r *UserRepository) Update(u *domain.User) error {
+	u.UpdatedAt = time.Now()
+	model := r.toModel(u)
+	return r.db.gorm.Save(model).Error
+}
+
+func (r *UserRepository) Delete(tenantID uint64, id uint64) error {
+	now := time.Now().UnixMilli()
+	return r.db.gorm.Model(&User{}).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error
+}
+
+func (r *UserRepository) GetByID(tenantID uint64, id uint64) (*domain.User, error) {
+	var model User
+	query := r.db.gorm.Where("deleted_at = 0")
+	if tenantID > 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+	if err := query.First(&model, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
+}
+
+func (r *UserRepository) GetByEmail(email string) (*domain.User, error) {
+	var model User
+	if err := r.db.gorm.Where("email = ? AND deleted_at = 0", email).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
+}
+
+func (r *UserRepository) GetDefault() (*domain.User, error) {
+	var model User
+	if err := r.db.gorm.Where("is_default = 1 AND deleted_at = 0").First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
+}
+
+func (r *UserRepository) List() ([]*domain.User, error) {
+	var models []User
+	if err := r.db.gorm.Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	users := make([]*domain.User, len(models))
+	for i, m := range models {
+		users[i] = r.toDomain(&m)
+	}
+	return users, nil
+}
+
+func (r *UserRepository) ListByTenant(tenantID uint64) ([]*domain.User, error) {
+	var models []User
+	if err := r.db.gorm.Where("tenant_id = ? AND deleted_at = 0", tenantID).Order("id").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	users := make([]*domain.User, len(models))
+	for i, m := range models {
+		users[i] = r.toDomain(&m)
+	}
+	return users, nil
+}
+
+func (r *UserRepository) toModel(u *domain.User) *User {
+	isDefault := 0
+	if u.IsDefault {
+		isDefault = 1
+	}
+	return &User{
+		SoftDeleteModel: SoftDeleteModel{
+			BaseModel: BaseModel{
+				ID:        u.ID,
+				CreatedAt: toTimestamp(u.CreatedAt),
+				UpdatedAt: toTimestamp(u.UpdatedAt),
+			},
+			DeletedAt: toTimestampPtr(u.DeletedAt),
+		},
+		TenantID:     u.TenantID,
+		Username:     u.Username,
+		Email:        u.Email,
+		PasswordHash: u.PasswordHash,
+		Role:         string(u.Role),
+		IsDefault:    isDefault,
+		LastLoginAt:  toTimestampPtr(u.LastLoginAt),
+	}
+}
+
+func (r *UserRepository) toDomain(m *User) *domain.User {
+	return &domain.User{
+		ID:           m.ID,
+		CreatedAt:    fromTimestamp(m.CreatedAt),
+		UpdatedAt:    fromTimestamp(m.UpdatedAt),
+		DeletedAt:    fromTimestampPtr(m.DeletedAt),
+		TenantID:     m.TenantID,
+		Username:     m.Username,
+		Email:        m.Email,
+		PasswordHash: m.PasswordHash,
+		Role:         domain.UserRole(m.Role),
+		IsDefault:    m.IsDefault == 1,
+		LastLoginAt:  fromTimestampPtr(m.LastLoginAt),
+	}
+}

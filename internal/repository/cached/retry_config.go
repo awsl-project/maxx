@@ -22,7 +22,7 @@ func NewRetryConfigRepository(repo repository.RetryConfigRepository) *RetryConfi
 }
 
 func (r *RetryConfigRepository) Load() error {
-    list, err := r.repo.List()
+    list, err := r.repo.List(0)
     if err != nil {
         return err
     }
@@ -44,7 +44,6 @@ func (r *RetryConfigRepository) Create(c *domain.RetryConfig) error {
     r.mu.Lock()
     r.cache[c.ID] = c
     if c.IsDefault {
-        // 清除之前的默认标记（如果有）
         if r.defaultCache != nil && r.defaultCache.ID != c.ID {
             r.defaultCache.IsDefault = false
         }
@@ -61,21 +60,19 @@ func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
     r.mu.Lock()
     r.cache[c.ID] = c
     if c.IsDefault {
-        // 清除之前的默认标记（如果有）
         if r.defaultCache != nil && r.defaultCache.ID != c.ID {
             r.defaultCache.IsDefault = false
         }
         r.defaultCache = c
     } else if r.defaultCache != nil && r.defaultCache.ID == c.ID {
-        // 如果这个配置之前是默认的，现在不是了，清除 defaultCache
         r.defaultCache = nil
     }
     r.mu.Unlock()
     return nil
 }
 
-func (r *RetryConfigRepository) Delete(id uint64) error {
-    if err := r.repo.Delete(id); err != nil {
+func (r *RetryConfigRepository) Delete(tenantID uint64, id uint64) error {
+    if err := r.repo.Delete(tenantID, id); err != nil {
         return err
     }
     r.mu.Lock()
@@ -87,32 +84,34 @@ func (r *RetryConfigRepository) Delete(id uint64) error {
     return nil
 }
 
-func (r *RetryConfigRepository) GetByID(id uint64) (*domain.RetryConfig, error) {
+func (r *RetryConfigRepository) GetByID(tenantID uint64, id uint64) (*domain.RetryConfig, error) {
     r.mu.RLock()
     if c, ok := r.cache[id]; ok {
         r.mu.RUnlock()
         return c, nil
     }
     r.mu.RUnlock()
-    return r.repo.GetByID(id)
+    return r.repo.GetByID(tenantID, id)
 }
 
-func (r *RetryConfigRepository) GetDefault() (*domain.RetryConfig, error) {
+func (r *RetryConfigRepository) GetDefault(tenantID uint64) (*domain.RetryConfig, error) {
     r.mu.RLock()
     if r.defaultCache != nil {
         r.mu.RUnlock()
         return r.defaultCache, nil
     }
     r.mu.RUnlock()
-    return r.repo.GetDefault()
+    return r.repo.GetDefault(tenantID)
 }
 
-func (r *RetryConfigRepository) List() ([]*domain.RetryConfig, error) {
+func (r *RetryConfigRepository) List(tenantID uint64) ([]*domain.RetryConfig, error) {
     r.mu.RLock()
     defer r.mu.RUnlock()
     list := make([]*domain.RetryConfig, 0, len(r.cache))
     for _, c := range r.cache {
-        list = append(list, c)
+        if tenantID == 0 || c.TenantID == tenantID {
+            list = append(list, c)
+        }
     }
     return list, nil
 }

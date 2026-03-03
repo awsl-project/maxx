@@ -77,7 +77,7 @@ func newImportContext() *importContext {
 }
 
 // Export exports all configuration data to a backup file
-func (s *BackupService) Export() (*domain.BackupFile, error) {
+func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 	backup := &domain.BackupFile{
 		Version:    domain.BackupVersion,
 		ExportedAt: time.Now(),
@@ -103,7 +103,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 	}
 
 	// 2. Export Providers
-	providers, err := s.providerRepo.List()
+	providers, err := s.providerRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export providers: %w", err)
 	}
@@ -120,7 +120,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 	}
 
 	// 3. Export Projects
-	projects, err := s.projectRepo.List()
+	projects, err := s.projectRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export projects: %w", err)
 	}
@@ -134,7 +134,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 	}
 
 	// 4. Export RetryConfigs
-	retryConfigs, err := s.retryConfigRepo.List()
+	retryConfigs, err := s.retryConfigRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export retry configs: %w", err)
 	}
@@ -151,7 +151,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 	}
 
 	// 5. Export RoutingStrategies
-	strategies, err := s.routingStrategyRepo.List()
+	strategies, err := s.routingStrategyRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export routing strategies: %w", err)
 	}
@@ -164,7 +164,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 	}
 
 	// 6. Export Routes
-	routes, err := s.routeRepo.List()
+	routes, err := s.routeRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export routes: %w", err)
 	}
@@ -181,7 +181,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 	}
 
 	// 7. Export APITokens (including token value for seamless restore)
-	tokens, err := s.apiTokenRepo.List()
+	tokens, err := s.apiTokenRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export api tokens: %w", err)
 	}
@@ -200,7 +200,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 	}
 
 	// 8. Export ModelMappings
-	mappings, err := s.modelMappingRepo.List()
+	mappings, err := s.modelMappingRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export model mappings: %w", err)
 	}
@@ -265,7 +265,7 @@ func (s *BackupService) Export() (*domain.BackupFile, error) {
 }
 
 // Import imports configuration data from a backup file
-func (s *BackupService) Import(backup *domain.BackupFile, opts domain.ImportOptions) (*domain.ImportResult, error) {
+func (s *BackupService) Import(tenantID uint64, backup *domain.BackupFile, opts domain.ImportOptions) (*domain.ImportResult, error) {
 	// Version check
 	if backup.Version != domain.BackupVersion {
 		return nil, fmt.Errorf("unsupported backup version: %s (expected %s)", backup.Version, domain.BackupVersion)
@@ -275,7 +275,7 @@ func (s *BackupService) Import(backup *domain.BackupFile, opts domain.ImportOpti
 	ctx := newImportContext()
 
 	// Load existing data for conflict detection and ID mapping
-	if err := s.loadExistingMappings(ctx); err != nil {
+	if err := s.loadExistingMappings(tenantID, ctx); err != nil {
 		return nil, fmt.Errorf("failed to load existing data: %w", err)
 	}
 
@@ -284,25 +284,25 @@ func (s *BackupService) Import(backup *domain.BackupFile, opts domain.ImportOpti
 	s.importSystemSettings(backup.Data.SystemSettings, opts, result)
 
 	// 2. RetryConfigs (no dependencies)
-	s.importRetryConfigs(backup.Data.RetryConfigs, opts, result, ctx)
+	s.importRetryConfigs(tenantID, backup.Data.RetryConfigs, opts, result, ctx)
 
 	// 3. Providers (no dependencies)
-	s.importProviders(backup.Data.Providers, opts, result, ctx)
+	s.importProviders(tenantID, backup.Data.Providers, opts, result, ctx)
 
 	// 4. Projects (no dependencies)
-	s.importProjects(backup.Data.Projects, opts, result, ctx)
+	s.importProjects(tenantID, backup.Data.Projects, opts, result, ctx)
 
 	// 5. RoutingStrategies (depends on Projects)
-	s.importRoutingStrategies(backup.Data.RoutingStrategies, opts, result, ctx)
+	s.importRoutingStrategies(tenantID, backup.Data.RoutingStrategies, opts, result, ctx)
 
 	// 6. Routes (depends on Providers, Projects, RetryConfigs)
-	s.importRoutes(backup.Data.Routes, opts, result, ctx)
+	s.importRoutes(tenantID, backup.Data.Routes, opts, result, ctx)
 
 	// 7. APITokens (depends on Projects)
-	s.importAPITokens(backup.Data.APITokens, opts, result, ctx)
+	s.importAPITokens(tenantID, backup.Data.APITokens, opts, result, ctx)
 
 	// 8. ModelMappings (depends on Providers, Projects, Routes, APITokens)
-	s.importModelMappings(backup.Data.ModelMappings, opts, result, ctx)
+	s.importModelMappings(tenantID, backup.Data.ModelMappings, opts, result, ctx)
 
 	// 9. ModelPrices (independent)
 	s.importModelPrices(backup.Data.ModelPrices, opts, result)
@@ -311,9 +311,9 @@ func (s *BackupService) Import(backup *domain.BackupFile, opts domain.ImportOpti
 }
 
 // loadExistingMappings loads existing data and populates the import context
-func (s *BackupService) loadExistingMappings(ctx *importContext) error {
+func (s *BackupService) loadExistingMappings(tenantID uint64, ctx *importContext) error {
 	// Load providers
-	providers, err := s.providerRepo.List()
+	providers, err := s.providerRepo.List(tenantID)
 	if err != nil {
 		return err
 	}
@@ -326,7 +326,7 @@ func (s *BackupService) loadExistingMappings(ctx *importContext) error {
 	}
 
 	// Load projects
-	projects, err := s.projectRepo.List()
+	projects, err := s.projectRepo.List(tenantID)
 	if err != nil {
 		return err
 	}
@@ -339,7 +339,7 @@ func (s *BackupService) loadExistingMappings(ctx *importContext) error {
 	}
 
 	// Load retry configs
-	retryConfigs, err := s.retryConfigRepo.List()
+	retryConfigs, err := s.retryConfigRepo.List(tenantID)
 	if err != nil {
 		return err
 	}
@@ -348,7 +348,7 @@ func (s *BackupService) loadExistingMappings(ctx *importContext) error {
 	}
 
 	// Load API tokens
-	tokens, err := s.apiTokenRepo.List()
+	tokens, err := s.apiTokenRepo.List(tenantID)
 	if err != nil {
 		return err
 	}
@@ -361,7 +361,7 @@ func (s *BackupService) loadExistingMappings(ctx *importContext) error {
 	}
 
 	// Load routes
-	routes, err := s.routeRepo.List()
+	routes, err := s.routeRepo.List(tenantID)
 	if err != nil {
 		return err
 	}
@@ -375,7 +375,7 @@ func (s *BackupService) loadExistingMappings(ctx *importContext) error {
 	}
 
 	// Load existing model mappings for conflict detection
-	mappings, err := s.modelMappingRepo.List()
+	mappings, err := s.modelMappingRepo.List(tenantID)
 	if err != nil {
 		return err
 	}
@@ -429,7 +429,7 @@ func (s *BackupService) importSystemSettings(settings []domain.BackupSystemSetti
 	result.Summary["systemSettings"] = summary
 }
 
-func (s *BackupService) importRetryConfigs(configs []domain.BackupRetryConfig, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
+func (s *BackupService) importRetryConfigs(tenantID uint64, configs []domain.BackupRetryConfig, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
 	summary := domain.ImportSummary{}
 
 	for _, bc := range configs {
@@ -451,6 +451,7 @@ func (s *BackupService) importRetryConfigs(configs []domain.BackupRetryConfig, o
 		}
 
 		rc := &domain.RetryConfig{
+			TenantID:        tenantID,
 			Name:            bc.Name,
 			IsDefault:       bc.IsDefault,
 			MaxRetries:      bc.MaxRetries,
@@ -472,7 +473,7 @@ func (s *BackupService) importRetryConfigs(configs []domain.BackupRetryConfig, o
 	result.Summary["retryConfigs"] = summary
 }
 
-func (s *BackupService) importProviders(providers []domain.BackupProvider, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
+func (s *BackupService) importProviders(tenantID uint64, providers []domain.BackupProvider, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
 	summary := domain.ImportSummary{}
 
 	for _, bp := range providers {
@@ -494,6 +495,7 @@ func (s *BackupService) importProviders(providers []domain.BackupProvider, opts 
 		}
 
 		p := &domain.Provider{
+			TenantID:             tenantID,
 			Name:                 bp.Name,
 			Type:                 bp.Type,
 			Logo:                 bp.Logo,
@@ -519,7 +521,7 @@ func (s *BackupService) importProviders(providers []domain.BackupProvider, opts 
 	result.Summary["providers"] = summary
 }
 
-func (s *BackupService) importProjects(projects []domain.BackupProject, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
+func (s *BackupService) importProjects(tenantID uint64, projects []domain.BackupProject, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
 	summary := domain.ImportSummary{}
 
 	for _, bp := range projects {
@@ -540,6 +542,7 @@ func (s *BackupService) importProjects(projects []domain.BackupProject, opts dom
 		}
 
 		p := &domain.Project{
+			TenantID:            tenantID,
 			Name:                bp.Name,
 			Slug:                bp.Slug,
 			EnabledCustomRoutes: bp.EnabledCustomRoutes,
@@ -558,7 +561,7 @@ func (s *BackupService) importProjects(projects []domain.BackupProject, opts dom
 	result.Summary["projects"] = summary
 }
 
-func (s *BackupService) importRoutingStrategies(strategies []domain.BackupRoutingStrategy, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
+func (s *BackupService) importRoutingStrategies(tenantID uint64, strategies []domain.BackupRoutingStrategy, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
 	summary := domain.ImportSummary{}
 
 	for _, bs := range strategies {
@@ -574,7 +577,7 @@ func (s *BackupService) importRoutingStrategies(strategies []domain.BackupRoutin
 		}
 
 		// Check if strategy exists for this project
-		existing, _ := s.routingStrategyRepo.GetByProjectID(projectID)
+		existing, _ := s.routingStrategyRepo.GetByProjectID(tenantID, projectID)
 		if existing != nil {
 			switch opts.ConflictStrategy {
 			case "skip", "":
@@ -596,6 +599,7 @@ func (s *BackupService) importRoutingStrategies(strategies []domain.BackupRoutin
 		}
 
 		rs := &domain.RoutingStrategy{
+			TenantID:  tenantID,
 			ProjectID: projectID,
 			Type:      bs.Type,
 			Config:    bs.Config,
@@ -613,7 +617,7 @@ func (s *BackupService) importRoutingStrategies(strategies []domain.BackupRoutin
 	result.Summary["routingStrategies"] = summary
 }
 
-func (s *BackupService) importRoutes(routes []domain.BackupRoute, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
+func (s *BackupService) importRoutes(tenantID uint64, routes []domain.BackupRoute, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
 	summary := domain.ImportSummary{}
 
 	for _, br := range routes {
@@ -661,6 +665,7 @@ func (s *BackupService) importRoutes(routes []domain.BackupRoute, opts domain.Im
 		}
 
 		r := &domain.Route{
+			TenantID:      tenantID,
 			IsEnabled:     br.IsEnabled,
 			IsNative:      br.IsNative,
 			ProjectID:     projectID,
@@ -683,7 +688,7 @@ func (s *BackupService) importRoutes(routes []domain.BackupRoute, opts domain.Im
 	result.Summary["routes"] = summary
 }
 
-func (s *BackupService) importAPITokens(tokens []domain.BackupAPIToken, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
+func (s *BackupService) importAPITokens(tenantID uint64, tokens []domain.BackupAPIToken, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
 	summary := domain.ImportSummary{}
 
 	for _, bt := range tokens {
@@ -734,6 +739,7 @@ func (s *BackupService) importAPITokens(tokens []domain.BackupAPIToken, opts dom
 		}
 
 		t := &domain.APIToken{
+			TenantID:    tenantID,
 			Token:       plain,
 			TokenPrefix: prefix,
 			Name:        bt.Name,
@@ -762,7 +768,7 @@ func (s *BackupService) importAPITokens(tokens []domain.BackupAPIToken, opts dom
 	result.Summary["apiTokens"] = summary
 }
 
-func (s *BackupService) importModelMappings(mappings []domain.BackupModelMapping, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
+func (s *BackupService) importModelMappings(tenantID uint64, mappings []domain.BackupModelMapping, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {
 	summary := domain.ImportSummary{}
 
 	for _, bm := range mappings {
@@ -827,6 +833,7 @@ func (s *BackupService) importModelMappings(mappings []domain.BackupModelMapping
 		}
 
 		m := &domain.ModelMapping{
+			TenantID:     tenantID,
 			Scope:        bm.Scope,
 			ClientType:   bm.ClientType,
 			ProviderType: bm.ProviderType,

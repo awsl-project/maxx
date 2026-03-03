@@ -628,15 +628,81 @@ export interface Cooldown {
   reason: CooldownReason;
 }
 
+// ===== User 相关 =====
+
+export type UserRole = 'admin' | 'member';
+
+export interface User {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  tenantID: number;
+  username: string;
+  email: string;
+  role: UserRole;
+  isDefault: boolean;
+  lastLoginAt?: string;
+}
+
+export interface CreateUserData {
+  email: string;
+  username: string;
+  password: string;
+  tenantID?: number;
+  role?: UserRole;
+}
+
+export interface UpdateUserData {
+  username?: string;
+  email?: string;
+  role?: UserRole;
+}
+
 // ===== Auth 相关 =====
 
 export interface AuthStatus {
   authEnabled: boolean;
+  multiTenancyEnabled: boolean;
+  user?: {
+    id: number;
+    tenantID: number;
+    role: UserRole;
+    email?: string;
+    username?: string;
+    tenantName?: string;
+  };
 }
 
 export interface AuthVerifyResult {
   success: boolean;
   token?: string;
+  error?: string;
+}
+
+export interface AuthLoginResult {
+  success: boolean;
+  token?: string;
+  user?: {
+    id: number;
+    email: string;
+    username: string;
+    tenantID: number;
+    tenantName: string;
+    role: UserRole;
+  };
+  error?: string;
+}
+
+export interface AuthRegisterResult {
+  success: boolean;
+  token?: string;
+  user?: {
+    id: number;
+    email: string;
+    username: string;
+    tenantID: number;
+    role: UserRole;
+  };
   error?: string;
 }
 

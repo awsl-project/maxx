@@ -394,7 +394,7 @@ func (h *CodexHandler) stopOAuthServerAsync() {
 // RefreshProviderInfo refreshes the Codex provider info by re-validating the refresh token
 func (h *CodexHandler) RefreshProviderInfo(ctx context.Context, providerID int) (*codex.CodexTokenValidationResult, error) {
 	// Get the provider
-	provider, err := h.svc.GetProvider(uint64(providerID))
+	provider, err := h.svc.GetProvider(0, uint64(providerID))
 	if err != nil {
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}
@@ -436,7 +436,7 @@ func (h *CodexHandler) RefreshProviderInfo(ctx context.Context, providerID int) 
 	}
 
 	// Save the updated provider
-	if err := h.svc.UpdateProvider(provider); err != nil {
+	if err := h.svc.UpdateProvider(0, provider); err != nil {
 		return nil, fmt.Errorf("failed to update provider: %w", err)
 	}
 
@@ -463,7 +463,7 @@ func (h *CodexHandler) handleRefreshProviderInfo(w http.ResponseWriter, r *http.
 // GetProviderUsage fetches the usage/quota information for a Codex provider
 func (h *CodexHandler) GetProviderUsage(ctx context.Context, providerID int) (*codex.CodexUsageResponse, error) {
 	// Get the provider
-	provider, err := h.svc.GetProvider(uint64(providerID))
+	provider, err := h.svc.GetProvider(0, uint64(providerID))
 	if err != nil {
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}
@@ -497,7 +497,7 @@ func (h *CodexHandler) GetProviderUsage(ctx context.Context, providerID int) (*c
 		if result.RefreshToken != "" && result.RefreshToken != codexConfig.RefreshToken {
 			codexConfig.RefreshToken = result.RefreshToken
 		}
-		_ = h.svc.UpdateProvider(provider) // Best effort update
+		_ = h.svc.UpdateProvider(0, provider) // Best effort update
 	} else {
 		// Check if access token is expired
 		if codexConfig.ExpiresAt != "" {
@@ -513,7 +513,7 @@ func (h *CodexHandler) GetProviderUsage(ctx context.Context, providerID int) (*c
 						if result.RefreshToken != "" && result.RefreshToken != codexConfig.RefreshToken {
 							codexConfig.RefreshToken = result.RefreshToken
 						}
-						_ = h.svc.UpdateProvider(provider)
+						_ = h.svc.UpdateProvider(0, provider)
 					}
 				}
 			}
@@ -582,7 +582,7 @@ type CodexBatchQuotaResult struct {
 // 配额刷新由后台任务负责
 func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResult, error) {
 	// 获取所有 providers
-	providers, err := h.svc.GetProviders()
+	providers, err := h.svc.GetProviders(0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list providers: %w", err)
 	}
@@ -602,7 +602,7 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 
 		// 优先从数据库获取缓存的配额（无论是否过期）
 		if email != "" && h.quotaRepo != nil {
-			cachedQuota, err := h.quotaRepo.GetByEmail(email)
+			cachedQuota, err := h.quotaRepo.GetByEmail(0, email)
 			if err == nil && cachedQuota != nil {
 				result.Quotas[provider.ID] = h.domainQuotaToResponse(cachedQuota)
 				continue
@@ -630,7 +630,7 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 			if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
 				config.RefreshToken = tokenResp.RefreshToken
 			}
-			_ = h.svc.UpdateProvider(provider)
+			_ = h.svc.UpdateProvider(0, provider)
 		}
 
 		// 获取配额

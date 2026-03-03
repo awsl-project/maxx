@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/pricing"
@@ -20,6 +21,7 @@ import (
 type AdminHandler struct {
 	svc       *service.AdminService
 	backupSvc *service.BackupService
+	userRepo  repository.UserRepository
 	logPath   string
 	restartFn func() error
 }
@@ -31,6 +33,11 @@ func NewAdminHandler(svc *service.AdminService, backupSvc *service.BackupService
 		backupSvc: backupSvc,
 		logPath:   logPath,
 	}
+}
+
+// SetUserRepo sets the user repository for user management endpoints.
+func (h *AdminHandler) SetUserRepo(repo repository.UserRepository) {
+	h.userRepo = repo
 }
 
 // SetRestartFunc sets the restart callback for admin restart endpoint.
@@ -50,6 +57,13 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resource := parts[1]
+
+	// RBAC check
+	if !CheckRBAC(r, resource) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+
 	var id uint64
 	if len(parts) > 2 && parts[2] != "" {
 		id, _ = strconv.ParseUint(parts[2], 10, 64)
@@ -102,6 +116,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handlePricing(w, r)
 	case "model-prices":
 		h.handleModelPrices(w, r, id)
+	case "users":
+		h.handleUsers(w, r, id, parts)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
@@ -141,17 +157,19 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			provider, err := h.svc.GetProvider(id)
+			provider, err := h.svc.GetProvider(tenantID, id)
 			if err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 				return
 			}
 			writeJSON(w, http.StatusOK, provider)
 		} else {
-			providers, err := h.svc.GetProviders()
+			providers, err := h.svc.GetProviders(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -164,7 +182,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		if err := h.svc.CreateProvider(&provider); err != nil {
+		if err := h.svc.CreateProvider(tenantID, &provider); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -175,7 +193,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		// Get existing provider first for merge update
-		existing, err := h.svc.GetProvider(id)
+		existing, err := h.svc.GetProvider(tenantID, id)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 			return
@@ -190,7 +208,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		// Preserve ID and timestamps
 		provider.ID = existing.ID
 		provider.CreatedAt = existing.CreatedAt
-		if err := h.svc.UpdateProvider(&provider); err != nil {
+		if err := h.svc.UpdateProvider(tenantID, &provider); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -200,7 +218,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		if err := h.svc.DeleteProvider(id); err != nil {
+		if err := h.svc.DeleteProvider(tenantID, id); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -217,7 +235,8 @@ func (h *AdminHandler) handleProvidersExport(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	providers, err := h.svc.ExportProviders()
+	tenantID := maxxctx.GetTenantID(r.Context())
+	providers, err := h.svc.ExportProviders(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -242,7 +261,8 @@ func (h *AdminHandler) handleProvidersImport(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	result, err := h.svc.ImportProviders(providers)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.ImportProviders(tenantID, providers)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -253,17 +273,19 @@ func (h *AdminHandler) handleProvidersImport(w http.ResponseWriter, r *http.Requ
 
 // Route handlers
 func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id uint64) {
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			route, err := h.svc.GetRoute(id)
+			route, err := h.svc.GetRoute(tenantID, id)
 			if err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "route not found"})
 				return
 			}
 			writeJSON(w, http.StatusOK, route)
 		} else {
-			routes, err := h.svc.GetRoutes()
+			routes, err := h.svc.GetRoutes(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -276,7 +298,7 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		if err := h.svc.CreateRoute(&route); err != nil {
+		if err := h.svc.CreateRoute(tenantID, &route); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -287,7 +309,7 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 			return
 		}
 		// Get existing route first for merge update
-		existing, err := h.svc.GetRoute(id)
+		existing, err := h.svc.GetRoute(tenantID, id)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "route not found"})
 			return
@@ -334,7 +356,7 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 				existing.RetryConfigID = uint64(f)
 			}
 		}
-		if err := h.svc.UpdateRoute(existing); err != nil {
+		if err := h.svc.UpdateRoute(tenantID, existing); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -344,7 +366,7 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		if err := h.svc.DeleteRoute(id); err != nil {
+		if err := h.svc.DeleteRoute(tenantID, id); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -367,7 +389,8 @@ func (h *AdminHandler) handleBatchUpdateRoutePositions(w http.ResponseWriter, r 
 		return
 	}
 
-	if err := h.svc.BatchUpdateRoutePositions(updates); err != nil {
+	tenantID := maxxctx.GetTenantID(r.Context())
+	if err := h.svc.BatchUpdateRoutePositions(tenantID, updates); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -383,17 +406,19 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			project, err := h.svc.GetProject(id)
+			project, err := h.svc.GetProject(tenantID, id)
 			if err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 				return
 			}
 			writeJSON(w, http.StatusOK, project)
 		} else {
-			projects, err := h.svc.GetProjects()
+			projects, err := h.svc.GetProjects(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -406,7 +431,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		if err := h.svc.CreateProject(&project); err != nil {
+		if err := h.svc.CreateProject(tenantID, &project); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -417,7 +442,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			return
 		}
 		// Get existing project first to preserve timestamps
-		existing, err := h.svc.GetProject(id)
+		existing, err := h.svc.GetProject(tenantID, id)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 			return
@@ -438,7 +463,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 		}
 		project.ID = existing.ID
 		project.CreatedAt = existing.CreatedAt
-		if err := h.svc.UpdateProject(&project); err != nil {
+		if err := h.svc.UpdateProject(tenantID, &project); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -448,7 +473,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		if err := h.svc.DeleteProject(id); err != nil {
+		if err := h.svc.DeleteProject(tenantID, id); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -471,7 +496,8 @@ func (h *AdminHandler) handleProjectBySlug(w http.ResponseWriter, r *http.Reques
 	}
 
 	slug := parts[3]
-	project, err := h.svc.GetProjectBySlug(slug)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	project, err := h.svc.GetProjectBySlug(tenantID, slug)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 		return
@@ -494,9 +520,11 @@ func (h *AdminHandler) handleSessions(w http.ResponseWriter, r *http.Request, pa
 		return
 	}
 
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
-		sessions, err := h.svc.GetSessions()
+		sessions, err := h.svc.GetSessions(tenantID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -527,7 +555,8 @@ func (h *AdminHandler) handleSessionProject(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := h.svc.UpdateSessionProject(sessionID, body.ProjectID)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.UpdateSessionProject(tenantID, sessionID, body.ProjectID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -548,7 +577,8 @@ func (h *AdminHandler) handleSessionReject(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	session, err := h.svc.RejectSession(sessionID)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	session, err := h.svc.RejectSession(tenantID, sessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -559,17 +589,19 @@ func (h *AdminHandler) handleSessionReject(w http.ResponseWriter, r *http.Reques
 
 // RetryConfig handlers
 func (h *AdminHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request, id uint64) {
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			config, err := h.svc.GetRetryConfig(id)
+			config, err := h.svc.GetRetryConfig(tenantID, id)
 			if err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "retry config not found"})
 				return
 			}
 			writeJSON(w, http.StatusOK, config)
 		} else {
-			configs, err := h.svc.GetRetryConfigs()
+			configs, err := h.svc.GetRetryConfigs(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -582,7 +614,7 @@ func (h *AdminHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		if err := h.svc.CreateRetryConfig(&config); err != nil {
+		if err := h.svc.CreateRetryConfig(tenantID, &config); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -593,7 +625,7 @@ func (h *AdminHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request
 			return
 		}
 		// Get existing config first to preserve timestamps
-		existing, err := h.svc.GetRetryConfig(id)
+		existing, err := h.svc.GetRetryConfig(tenantID, id)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "retry config not found"})
 			return
@@ -605,7 +637,7 @@ func (h *AdminHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request
 		}
 		config.ID = existing.ID
 		config.CreatedAt = existing.CreatedAt
-		if err := h.svc.UpdateRetryConfig(&config); err != nil {
+		if err := h.svc.UpdateRetryConfig(tenantID, &config); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -615,7 +647,7 @@ func (h *AdminHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		if err := h.svc.DeleteRetryConfig(id); err != nil {
+		if err := h.svc.DeleteRetryConfig(tenantID, id); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -627,17 +659,19 @@ func (h *AdminHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request
 
 // RoutingStrategy handlers
 func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Request, id uint64) {
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			strategy, err := h.svc.GetRoutingStrategy(id)
+			strategy, err := h.svc.GetRoutingStrategy(tenantID, id)
 			if err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "routing strategy not found"})
 				return
 			}
 			writeJSON(w, http.StatusOK, strategy)
 		} else {
-			strategies, err := h.svc.GetRoutingStrategies()
+			strategies, err := h.svc.GetRoutingStrategies(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -650,7 +684,7 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		if err := h.svc.CreateRoutingStrategy(&strategy); err != nil {
+		if err := h.svc.CreateRoutingStrategy(tenantID, &strategy); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -661,7 +695,7 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 			return
 		}
 		// Get existing strategy first to preserve timestamps
-		existing, err := h.svc.GetRoutingStrategy(id)
+		existing, err := h.svc.GetRoutingStrategy(tenantID, id)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "routing strategy not found"})
 			return
@@ -673,7 +707,7 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 		}
 		strategy.ID = existing.ID
 		strategy.CreatedAt = existing.CreatedAt
-		if err := h.svc.UpdateRoutingStrategy(&strategy); err != nil {
+		if err := h.svc.UpdateRoutingStrategy(tenantID, &strategy); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -683,7 +717,7 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		if err := h.svc.DeleteRoutingStrategy(id); err != nil {
+		if err := h.svc.DeleteRoutingStrategy(tenantID, id); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -720,10 +754,12 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			req, err := h.svc.GetProxyRequest(id)
+			req, err := h.svc.GetProxyRequest(tenantID, id)
 			if err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "proxy request not found"})
 				return
@@ -765,7 +801,7 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 				}
 			}
 
-			result, err := h.svc.GetProxyRequestsCursor(limit, before, after, filter)
+			result, err := h.svc.GetProxyRequestsCursor(tenantID, limit, before, after, filter)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -783,6 +819,8 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
 
 	// 解析过滤参数
 	var filter *repository.ProxyRequestFilter
@@ -813,7 +851,7 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	count, err := h.svc.GetProxyRequestsCountWithFilter(filter)
+	count, err := h.svc.GetProxyRequestsCountWithFilter(tenantID, filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -828,7 +866,8 @@ func (h *AdminHandler) handleActiveProxyRequests(w http.ResponseWriter, r *http.
 		return
 	}
 
-	requests, err := h.svc.GetActiveProxyRequests()
+	tenantID := maxxctx.GetTenantID(r.Context())
+	requests, err := h.svc.GetActiveProxyRequests(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -937,12 +976,13 @@ func (h *AdminHandler) handleProviderStats(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	tenantID := maxxctx.GetTenantID(r.Context())
 	clientType := r.URL.Query().Get("client_type")
 	var projectID uint64
 	if pidStr := r.URL.Query().Get("project_id"); pidStr != "" {
 		projectID, _ = strconv.ParseUint(pidStr, 10, 64)
 	}
-	stats, err := h.svc.GetProviderStats(clientType, projectID)
+	stats, err := h.svc.GetProviderStats(tenantID, clientType, projectID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -985,12 +1025,13 @@ func (h *AdminHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 // DELETE /admin/cooldowns/{id} - clear cooldown for a provider
 func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, providerID uint64) {
 	cm := cooldown.Default()
+	tenantID := maxxctx.GetTenantID(r.Context())
 
 	switch r.Method {
 	case http.MethodGet:
 		// Get all active cooldowns
 		cooldowns := cm.GetAllCooldowns()
-		providers, _ := h.svc.GetProviders()
+		providers, _ := h.svc.GetProviders(tenantID)
 
 		// Build provider name map
 		providerNames := make(map[uint64]string)
@@ -1051,17 +1092,19 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 
 // API Token handlers
 func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, id uint64) {
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			token, err := h.svc.GetAPIToken(id)
+			token, err := h.svc.GetAPIToken(tenantID, id)
 			if err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "token not found"})
 				return
 			}
 			writeJSON(w, http.StatusOK, token)
 		} else {
-			tokens, err := h.svc.GetAPITokens()
+			tokens, err := h.svc.GetAPITokens(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -1092,7 +1135,7 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			}
 			expiresAt = &t
 		}
-		result, err := h.svc.CreateAPIToken(body.Name, body.Description, body.ProjectID, expiresAt)
+		result, err := h.svc.CreateAPIToken(tenantID, body.Name, body.Description, body.ProjectID, expiresAt)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -1103,7 +1146,7 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		existing, err := h.svc.GetAPIToken(id)
+		existing, err := h.svc.GetAPIToken(tenantID, id)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "token not found"})
 			return
@@ -1151,7 +1194,7 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 				existing.ExpiresAt = &t
 			}
 		}
-		if err := h.svc.UpdateAPIToken(existing); err != nil {
+		if err := h.svc.UpdateAPIToken(tenantID, existing); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -1161,7 +1204,7 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		if err := h.svc.DeleteAPIToken(id); err != nil {
+		if err := h.svc.DeleteAPIToken(tenantID, id); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -1185,17 +1228,19 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	tenantID := maxxctx.GetTenantID(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			mapping, err := h.svc.GetModelMapping(id)
+			mapping, err := h.svc.GetModelMapping(tenantID, id)
 			if err != nil {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "mapping not found"})
 				return
 			}
 			writeJSON(w, http.StatusOK, mapping)
 		} else {
-			mappings, err := h.svc.GetModelMappings()
+			mappings, err := h.svc.GetModelMappings(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -1216,7 +1261,7 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target is required"})
 			return
 		}
-		if err := h.svc.CreateModelMapping(&mapping); err != nil {
+		if err := h.svc.CreateModelMapping(tenantID, &mapping); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -1226,7 +1271,7 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		existing, err := h.svc.GetModelMapping(id)
+		existing, err := h.svc.GetModelMapping(tenantID, id)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "mapping not found"})
 			return
@@ -1261,7 +1306,7 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 		if body.Priority != nil {
 			existing.Priority = *body.Priority
 		}
-		if err := h.svc.UpdateModelMapping(existing); err != nil {
+		if err := h.svc.UpdateModelMapping(tenantID, existing); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -1271,7 +1316,7 @@ func (h *AdminHandler) handleModelMappings(w http.ResponseWriter, r *http.Reques
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
-		if err := h.svc.DeleteModelMapping(id); err != nil {
+		if err := h.svc.DeleteModelMapping(tenantID, id); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -1288,7 +1333,8 @@ func (h *AdminHandler) handleClearAllModelMappings(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if err := h.svc.ClearAllModelMappings(); err != nil {
+	tenantID := maxxctx.GetTenantID(r.Context())
+	if err := h.svc.ClearAllModelMappings(tenantID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -1302,7 +1348,8 @@ func (h *AdminHandler) handleResetModelMappingsToDefaults(w http.ResponseWriter,
 		return
 	}
 
-	if err := h.svc.ResetModelMappingsToDefaults(); err != nil {
+	tenantID := maxxctx.GetTenantID(r.Context())
+	if err := h.svc.ResetModelMappingsToDefaults(tenantID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -1389,7 +1436,8 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 		filter.Model = &model
 	}
 
-	stats, err := h.svc.GetUsageStats(filter)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	stats, err := h.svc.GetUsageStats(tenantID, filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -1450,7 +1498,8 @@ func (h *AdminHandler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := h.svc.GetDashboardData()
+	tenantID := maxxctx.GetTenantID(r.Context())
+	data, err := h.svc.GetDashboardData(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -1483,7 +1532,8 @@ func (h *AdminHandler) handleBackupExport(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	backup, err := h.backupSvc.Export()
+	tenantID := maxxctx.GetTenantID(r.Context())
+	backup, err := h.backupSvc.Export(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -1518,7 +1568,8 @@ func (h *AdminHandler) handleBackupImport(w http.ResponseWriter, r *http.Request
 		opts.ConflictStrategy = "skip"
 	}
 
-	result, err := h.backupSvc.Import(&backup, opts)
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.backupSvc.Import(tenantID, &backup, opts)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

@@ -59,9 +59,34 @@ func (m *BaseModel) BeforeUpdate(tx *gorm.DB) error {
 
 // ==================== Entity Models ====================
 
+// Tenant model
+type Tenant struct {
+	SoftDeleteModel
+	Name      string `gorm:"size:255"`
+	Slug      string `gorm:"size:128;uniqueIndex"`
+	IsDefault int
+}
+
+func (Tenant) TableName() string { return "tenants" }
+
+// User model
+type User struct {
+	SoftDeleteModel
+	TenantID     uint64 `gorm:"index"`
+	Username     string `gorm:"size:255"`
+	Email        string `gorm:"size:255;uniqueIndex"`
+	PasswordHash string `gorm:"size:255"`
+	Role         string `gorm:"size:64;default:'admin'"`
+	IsDefault    int
+	LastLoginAt  int64
+}
+
+func (User) TableName() string { return "users" }
+
 // Provider model
 type Provider struct {
 	SoftDeleteModel
+	TenantID             uint64 `gorm:"index"`
 	Type                 string `gorm:"size:64"`
 	Name                 string `gorm:"size:255"`
 	Logo                 LongText
@@ -75,6 +100,7 @@ func (Provider) TableName() string { return "providers" }
 // Project model
 type Project struct {
 	SoftDeleteModel
+	TenantID            uint64 `gorm:"index"`
 	Name                string `gorm:"size:255"`
 	Slug                string `gorm:"size:128"`
 	EnabledCustomRoutes LongText
@@ -85,6 +111,7 @@ func (Project) TableName() string { return "projects" }
 // Session model
 type Session struct {
 	SoftDeleteModel
+	TenantID   uint64 `gorm:"index"`
 	SessionID  string `gorm:"size:255;uniqueIndex"`
 	ClientType string `gorm:"size:64"`
 	ProjectID  uint64
@@ -96,8 +123,9 @@ func (Session) TableName() string { return "sessions" }
 // Route model
 type Route struct {
 	SoftDeleteModel
-	IsEnabled     int `gorm:"default:1"`
-	IsNative      int `gorm:"default:1"`
+	TenantID      uint64 `gorm:"index"`
+	IsEnabled     int    `gorm:"default:1"`
+	IsNative      int    `gorm:"default:1"`
 	ProjectID     uint64
 	ClientType    string `gorm:"size:64"`
 	ProviderID    uint64
@@ -110,6 +138,7 @@ func (Route) TableName() string { return "routes" }
 // RetryConfig model
 type RetryConfig struct {
 	SoftDeleteModel
+	TenantID          uint64 `gorm:"index"`
 	Name              string `gorm:"size:255"`
 	IsDefault         int
 	MaxRetries        int     `gorm:"default:3"`
@@ -123,6 +152,7 @@ func (RetryConfig) TableName() string { return "retry_configs" }
 // RoutingStrategy model
 type RoutingStrategy struct {
 	SoftDeleteModel
+	TenantID  uint64 `gorm:"index"`
 	ProjectID uint64
 	Type      string `gorm:"size:64"`
 	Config    LongText
@@ -133,6 +163,7 @@ func (RoutingStrategy) TableName() string { return "routing_strategies" }
 // APIToken model
 type APIToken struct {
 	SoftDeleteModel
+	TenantID    uint64 `gorm:"index"`
 	Token       string `gorm:"size:255;uniqueIndex"`
 	TokenPrefix string `gorm:"size:32"`
 	Name        string `gorm:"size:255"`
@@ -150,6 +181,7 @@ func (APIToken) TableName() string { return "api_tokens" }
 // ModelMapping model
 type ModelMapping struct {
 	SoftDeleteModel
+	TenantID     uint64 `gorm:"index"`
 	Scope        string `gorm:"size:64;default:'global'"`
 	ClientType   string `gorm:"size:64"`
 	ProviderType string `gorm:"size:64"`
@@ -167,6 +199,7 @@ func (ModelMapping) TableName() string { return "model_mappings" }
 // AntigravityQuota model
 type AntigravityQuota struct {
 	SoftDeleteModel
+	TenantID         uint64 `gorm:"index"`
 	Email            string `gorm:"size:255;uniqueIndex"`
 	SubscriptionTier string `gorm:"size:64;default:'FREE'"`
 	IsForbidden      int
@@ -181,12 +214,13 @@ func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 // CodexQuota model
 type CodexQuota struct {
 	SoftDeleteModel
+	TenantID         uint64 `gorm:"index"`
 	Email            string `gorm:"size:255;uniqueIndex"`
 	AccountID        string `gorm:"size:128;column:account_id"`
 	PlanType         string `gorm:"size:64"`
 	IsForbidden      int
-	PrimaryWindow    LongText `gorm:"column:primary_window"`   // JSON
-	SecondaryWindow  LongText `gorm:"column:secondary_window"` // JSON
+	PrimaryWindow    LongText `gorm:"column:primary_window"`     // JSON
+	SecondaryWindow  LongText `gorm:"column:secondary_window"`   // JSON
 	CodeReviewWindow LongText `gorm:"column:code_review_window"` // JSON
 }
 
@@ -197,6 +231,7 @@ func (CodexQuota) TableName() string { return "codex_quotas" }
 // ProxyRequest model
 type ProxyRequest struct {
 	BaseModel
+	TenantID                    uint64 `gorm:"index"`
 	InstanceID                  string `gorm:"size:64"`
 	RequestID                   string `gorm:"size:64"`
 	SessionID                   string `gorm:"size:255;index"`
@@ -236,6 +271,7 @@ func (ProxyRequest) TableName() string { return "proxy_requests" }
 // ProxyUpstreamAttempt model
 type ProxyUpstreamAttempt struct {
 	BaseModel
+	TenantID          uint64 `gorm:"index"`
 	Status            string `gorm:"size:64;index:idx_attempts_status_endtime;index"`
 	ProxyRequestID    uint64 `gorm:"index"`
 	RequestInfo       LongText
@@ -276,6 +312,7 @@ func (SystemSetting) TableName() string { return "system_settings" }
 // Cooldown model
 type Cooldown struct {
 	BaseModel
+	TenantID   uint64 `gorm:"index"`
 	ProviderID uint64 `gorm:"uniqueIndex:idx_cooldowns_provider_client"`
 	ClientType string `gorm:"size:255;uniqueIndex:idx_cooldowns_provider_client"`
 	UntilTime  int64  `gorm:"index"`
@@ -287,6 +324,7 @@ func (Cooldown) TableName() string { return "cooldowns" }
 // FailureCount model
 type FailureCount struct {
 	BaseModel
+	TenantID      uint64 `gorm:"index"`
 	ProviderID    uint64 `gorm:"uniqueIndex:idx_failure_counts_provider_client_reason"`
 	ClientType    string `gorm:"size:255;uniqueIndex:idx_failure_counts_provider_client_reason"`
 	Reason        string `gorm:"size:255;uniqueIndex:idx_failure_counts_provider_client_reason"`
@@ -300,6 +338,7 @@ func (FailureCount) TableName() string { return "failure_counts" }
 type UsageStats struct {
 	ID                 uint64 `gorm:"primaryKey;autoIncrement"`
 	CreatedAt          int64
+	TenantID           uint64 `gorm:"index;uniqueIndex:idx_usage_stats_unique"`
 	TimeBucket         int64  `gorm:"uniqueIndex:idx_usage_stats_unique"`
 	Granularity        string `gorm:"size:32;uniqueIndex:idx_usage_stats_unique;index:idx_usage_stats_granularity_time"`
 	RouteID            uint64 `gorm:"uniqueIndex:idx_usage_stats_unique;index:idx_usage_stats_route_id"`
@@ -368,6 +407,8 @@ func (ModelPrice) TableName() string { return "model_prices" }
 // AllModels returns all GORM models for auto-migration
 func AllModels() []any {
 	return []any{
+		&Tenant{},
+		&User{},
 		&Provider{},
 		&Project{},
 		&Session{},

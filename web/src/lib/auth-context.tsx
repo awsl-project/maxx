@@ -1,14 +1,26 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useTransport } from '@/lib/transport';
+import type { UserRole } from '@/lib/transport/types';
 
 const AUTH_TOKEN_KEY = 'maxx-admin-token';
 const AUTH_INIT_TIMEOUT_MS = 8000;
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  username: string;
+  tenantID: number;
+  tenantName?: string;
+  role: UserRole;
+}
 
 interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   authEnabled: boolean;
-  login: (token: string) => void;
+  multiTenancyEnabled: boolean;
+  user: AuthUser | null;
+  login: (token: string, user?: AuthUser) => void;
   logout: () => void;
 }
 
@@ -23,6 +35,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [authEnabled, setAuthEnabled] = useState(false);
+  const [multiTenancyEnabled, setMultiTenancyEnabled] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,26 +47,41 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const checkAuth = async () => {
       try {
+        const savedToken = localStorage.getItem(AUTH_TOKEN_KEY);
+        if (savedToken) {
+          transport.setAuthToken(savedToken);
+        }
+
         const status = await transport.getAuthStatus();
         if (shouldSkip()) {
           return;
         }
         setAuthEnabled(status.authEnabled);
+        setMultiTenancyEnabled(status.multiTenancyEnabled ?? false);
 
         if (!status.authEnabled) {
           setIsAuthenticated(true);
           return;
         }
 
-        const savedToken = localStorage.getItem(AUTH_TOKEN_KEY);
         if (savedToken) {
-          transport.setAuthToken(savedToken);
           try {
             await transport.getProxyStatus();
             if (shouldSkip()) {
               return;
             }
             setIsAuthenticated(true);
+            // Restore user info from auth status
+            if (status.user) {
+              setUser({
+                id: status.user.id,
+                email: status.user.email ?? '',
+                username: status.user.username ?? '',
+                tenantID: status.user.tenantID,
+                tenantName: status.user.tenantName,
+                role: status.user.role,
+              });
+            }
           } catch (error) {
             if (shouldSkip()) {
               return;
@@ -117,20 +146,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, [transport]);
 
-  const login = (token: string) => {
+  const login = useCallback((token: string, userInfo?: AuthUser) => {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     transport.setAuthToken(token);
+    if (userInfo) {
+      setUser(userInfo);
+    }
     setIsAuthenticated(true);
-  };
+  }, [transport]);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     transport.clearAuthToken();
+    setUser(null);
     setIsAuthenticated(false);
-  };
+  }, [transport]);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, authEnabled, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, authEnabled, multiTenancyEnabled, user, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

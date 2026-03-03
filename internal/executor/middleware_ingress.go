@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 )
@@ -21,6 +22,10 @@ func (e *Executor) ingress(c *flow.Ctx) {
 	}
 
 	ctx := state.ctx
+	state.tenantID = maxxctx.GetTenantID(ctx)
+	if state.tenantID == 0 {
+		state.tenantID = domain.DefaultTenantID
+	}
 	if v, ok := c.Get(flow.KeyClientType); ok {
 		if ct, ok := v.(domain.ClientType); ok {
 			state.clientType = ct
@@ -81,6 +86,7 @@ func (e *Executor) ingress(c *flow.Ctx) {
 	}
 
 	proxyReq := &domain.ProxyRequest{
+		TenantID:     state.tenantID,
 		InstanceID:   e.instanceID,
 		RequestID:    generateRequestID(),
 		SessionID:    state.sessionID,
@@ -128,9 +134,10 @@ func (e *Executor) ingress(c *flow.Ctx) {
 	state.ctx = ctx
 
 	if state.projectID == 0 && e.projectWaiter != nil {
-		session, _ := e.sessionRepo.GetBySessionID(state.sessionID)
+		session, _ := e.sessionRepo.GetBySessionID(state.tenantID, state.sessionID)
 		if session == nil {
 			session = &domain.Session{
+				TenantID:   state.tenantID,
 				SessionID:  state.sessionID,
 				ClientType: state.clientType,
 				ProjectID:  0,

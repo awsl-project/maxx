@@ -55,9 +55,9 @@ func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	return r.db.gorm.Save(model).Error
 }
 
-func (r *ProxyRequestRepository) GetByID(id uint64) (*domain.ProxyRequest, error) {
+func (r *ProxyRequestRepository) GetByID(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {
 	var model ProxyRequest
-	if err := r.db.gorm.First(&model, id).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).First(&model, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -66,9 +66,9 @@ func (r *ProxyRequestRepository) GetByID(id uint64) (*domain.ProxyRequest, error
 	return r.toDomain(&model), nil
 }
 
-func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest, error) {
+func (r *ProxyRequestRepository) List(tenantID uint64, limit, offset int) ([]*domain.ProxyRequest, error) {
 	var models []ProxyRequest
-	if err := r.db.gorm.Order("id DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Order("id DESC").Limit(limit).Offset(offset).Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
@@ -79,9 +79,9 @@ func (r *ProxyRequestRepository) List(limit, offset int) ([]*domain.ProxyRequest
 // after: 获取 id > after 的记录 (向前翻页/获取新数据)
 // filter: 可选的过滤条件
 // 注意：列表查询不返回 request_info 和 response_info 大字段
-func (r *ProxyRequestRepository) ListCursor(limit int, before, after uint64, filter *repository.ProxyRequestFilter) ([]*domain.ProxyRequest, error) {
+func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, after uint64, filter *repository.ProxyRequestFilter) ([]*domain.ProxyRequest, error) {
 	// 使用 Select 排除大字段
-	query := r.db.gorm.Model(&ProxyRequest{}).
+	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
 		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, ttft_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id")
 
 	if after > 0 {
@@ -121,9 +121,9 @@ func (r *ProxyRequestRepository) ListCursor(limit int, before, after uint64, fil
 }
 
 // ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
-func (r *ProxyRequestRepository) ListActive() ([]*domain.ProxyRequest, error) {
+func (r *ProxyRequestRepository) ListActive(tenantID uint64) ([]*domain.ProxyRequest, error) {
 	var models []ProxyRequest
-	if err := r.db.gorm.Model(&ProxyRequest{}).
+	if err := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
 		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id").
 		Where("status IN ?", []string{"PENDING", "IN_PROGRESS"}).
 		Order("id DESC").
@@ -133,28 +133,37 @@ func (r *ProxyRequestRepository) ListActive() ([]*domain.ProxyRequest, error) {
 	return r.toDomainList(models), nil
 }
 
-func (r *ProxyRequestRepository) Count() (int64, error) {
-	return atomic.LoadInt64(&r.count), nil
+func (r *ProxyRequestRepository) Count(tenantID uint64) (int64, error) {
+	if tenantID == 0 {
+		return atomic.LoadInt64(&r.count), nil
+	}
+	var count int64
+	if err := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 // CountWithFilter 带过滤条件的计数
-func (r *ProxyRequestRepository) CountWithFilter(filter *repository.ProxyRequestFilter) (int64, error) {
-	// 如果没有过滤条件，使用缓存的总数
-	if filter == nil || (filter.ProviderID == nil && filter.Status == nil && filter.APITokenID == nil) {
+func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
+	// 如果没有过滤条件且没有 tenantID 过滤，使用缓存的总数
+	if tenantID == 0 && (filter == nil || (filter.ProviderID == nil && filter.Status == nil && filter.APITokenID == nil)) {
 		return atomic.LoadInt64(&r.count), nil
 	}
 
 	// 有过滤条件时需要查询数据库
 	var count int64
-	query := r.db.gorm.Model(&ProxyRequest{})
-	if filter.ProviderID != nil {
-		query = query.Where("provider_id = ?", *filter.ProviderID)
-	}
-	if filter.Status != nil {
-		query = query.Where("status = ?", *filter.Status)
-	}
-	if filter.APITokenID != nil {
-		query = query.Where("api_token_id = ?", *filter.APITokenID)
+	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID)
+	if filter != nil {
+		if filter.ProviderID != nil {
+			query = query.Where("provider_id = ?", *filter.ProviderID)
+		}
+		if filter.Status != nil {
+			query = query.Where("status = ?", *filter.Status)
+		}
+		if filter.APITokenID != nil {
+			query = query.Where("api_token_id = ?", *filter.APITokenID)
+		}
 	}
 	if err := query.Count(&count).Error; err != nil {
 		return 0, err
@@ -221,9 +230,9 @@ func (r *ProxyRequestRepository) FixFailedRequestsWithoutEndTime() (int64, error
 }
 
 // UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
-func (r *ProxyRequestRepository) UpdateProjectIDBySessionID(sessionID string, projectID uint64) (int64, error) {
+func (r *ProxyRequestRepository) UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error) {
 	now := time.Now().UnixMilli()
-	result := r.db.gorm.Model(&ProxyRequest{}).
+	result := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
 		Where("session_id = ?", sessionID).
 		Updates(map[string]any{
 			"project_id": projectID,
@@ -449,6 +458,7 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 			CreatedAt: toTimestamp(p.CreatedAt),
 			UpdatedAt: toTimestamp(p.UpdatedAt),
 		},
+		TenantID:                   p.TenantID,
 		InstanceID:                 p.InstanceID,
 		RequestID:                  p.RequestID,
 		SessionID:                  p.SessionID,
@@ -489,6 +499,7 @@ func (r *ProxyRequestRepository) toDomain(m *ProxyRequest) *domain.ProxyRequest 
 		ID:                          m.ID,
 		CreatedAt:                   fromTimestamp(m.CreatedAt),
 		UpdatedAt:                   fromTimestamp(m.UpdatedAt),
+		TenantID:                    m.TenantID,
 		InstanceID:                  m.InstanceID,
 		RequestID:                   m.RequestID,
 		SessionID:                   m.SessionID,

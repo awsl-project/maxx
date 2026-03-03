@@ -20,12 +20,13 @@ const (
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Addr        string
-	DataDir     string
-	InstanceID  string
-	Components  *ServerComponents
-	SettingRepo repository.SystemSettingRepository
-	ServeStatic bool
+	Addr           string
+	DataDir        string
+	InstanceID     string
+	Components     *ServerComponents
+	SettingRepo    repository.SystemSettingRepository
+	ServeStatic    bool
+	AuthMiddleware *handler.AuthMiddleware
 }
 
 // ManagedServer 可管理的服务器（支持启动/停止）
@@ -71,8 +72,15 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 
 	components := s.config.Components
 
+	// Auth routes (must be registered before admin handler)
+	mux.Handle("/api/admin/auth/", http.StripPrefix("/api", components.AuthHandler))
+
 	// API routes under /api prefix (Go 1.22+ enhanced routing)
-	mux.Handle("/api/admin/", http.StripPrefix("/api", components.AdminHandler))
+	if s.config.AuthMiddleware != nil {
+		mux.Handle("/api/admin/", http.StripPrefix("/api", s.config.AuthMiddleware.Wrap(components.AdminHandler)))
+	} else {
+		mux.Handle("/api/admin/", http.StripPrefix("/api", components.AdminHandler))
+	}
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", components.AntigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))
 	mux.Handle("/api/codex/", http.StripPrefix("/api", components.CodexHandler))

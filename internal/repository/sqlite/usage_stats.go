@@ -86,12 +86,17 @@ func (r *UsageStatsRepository) BatchUpsert(stats []*domain.UsageStats) error {
 }
 
 // queryHistorical 查询预聚合的历史统计数据（内部方法）
-func (r *UsageStatsRepository) queryHistorical(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+func (r *UsageStatsRepository) queryHistorical(tenantID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
 	var conditions []string
 	var args []interface{}
 
 	conditions = append(conditions, "granularity = ?")
 	args = append(args, filter.Granularity)
+
+	if tenantID > 0 {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, tenantID)
+	}
 
 	if filter.StartTime != nil {
 		conditions = append(conditions, "time_bucket >= ?")
@@ -147,7 +152,7 @@ func (r *UsageStatsRepository) queryHistorical(filter repository.UsageStatsFilte
 //   - 1月17日 00:00-09:00: usage_stats (granularity='hour')
 //   - 1月17日 10:00-10:28: usage_stats (granularity='minute')
 //   - 1月17日 10:29-10:30: proxy_upstream_attempts (实时)
-func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
 	loc := r.getConfiguredTimezone()
 	now := time.Now().In(loc)
 	currentBucket := stats.TruncateToGranularity(now, filter.Granularity, loc)
@@ -168,7 +173,7 @@ func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*dom
 		endTime := currentBucket.Add(-time.Millisecond) // 排除当前时间桶
 		historyFilter.EndTime = &endTime
 	}
-	results, err := r.queryHistorical(historyFilter)
+	results, err := r.queryHistorical(tenantID, historyFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +202,7 @@ func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*dom
 		}
 		if currentDay.After(dayStart) {
 			g.Go(func() error {
-				dayStats, err := r.queryStatsInRange(domain.GranularityDay, dayStart, currentDay, filter)
+				dayStats, err := r.queryStatsInRange(tenantID, domain.GranularityDay, dayStart, currentDay, filter)
 				if err != nil {
 					return err
 				}
@@ -216,7 +221,7 @@ func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*dom
 	}
 	if currentHour.After(hourStart) {
 		g.Go(func() error {
-			hourStats, err := r.queryStatsInRange(domain.GranularityHour, hourStart, currentHour, filter)
+			hourStats, err := r.queryStatsInRange(tenantID, domain.GranularityHour, hourStart, currentHour, filter)
 			if err != nil {
 				return err
 			}
@@ -234,7 +239,7 @@ func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*dom
 	}
 	if twoMinutesAgo.After(minuteStart) {
 		g.Go(func() error {
-			minuteStats, err := r.queryStatsInRange(domain.GranularityMinute, minuteStart, twoMinutesAgo, filter)
+			minuteStats, err := r.queryStatsInRange(tenantID, domain.GranularityMinute, minuteStart, twoMinutesAgo, filter)
 			if err != nil {
 				return err
 			}
@@ -247,7 +252,7 @@ func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*dom
 
 	// 2d. 查询最近 2 分钟的实时数据
 	g.Go(func() error {
-		realtimeStats, err := r.queryRecentMinutesStats(twoMinutesAgo, filter)
+		realtimeStats, err := r.queryRecentMinutesStats(tenantID, twoMinutesAgo, filter)
 		if err != nil {
 			return err
 		}
@@ -277,12 +282,17 @@ func (r *UsageStatsRepository) Query(filter repository.UsageStatsFilter) ([]*dom
 }
 
 // queryStatsInRange 查询指定粒度和时间范围内的统计数据
-func (r *UsageStatsRepository) queryStatsInRange(granularity domain.Granularity, start, end time.Time, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+func (r *UsageStatsRepository) queryStatsInRange(tenantID uint64, granularity domain.Granularity, start, end time.Time, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
 	var conditions []string
 	var args []interface{}
 
 	conditions = append(conditions, "granularity = ?")
 	args = append(args, granularity)
+
+	if tenantID > 0 {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, tenantID)
+	}
 
 	conditions = append(conditions, "time_bucket >= ?")
 	args = append(args, toTimestamp(start))
@@ -447,7 +457,7 @@ func (r *UsageStatsRepository) mergeRealtimeMinuteStats(
 // queryRecentMinutesStats 查询最近 2 分钟的实时统计数据
 // 只查询已完成的请求，使用 end_time 作为时间条件
 // 返回按分钟桶分组的数据，每个分钟桶的数据独立返回
-func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+func (r *UsageStatsRepository) queryRecentMinutesStats(tenantID uint64, startMinute time.Time, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
 	var conditions []string
 	var args []interface{}
 
@@ -455,6 +465,11 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 	conditions = append(conditions, "a.end_time >= ?")
 	args = append(args, toTimestamp(startMinute))
 	conditions = append(conditions, "a.status IN ('COMPLETED', 'FAILED', 'CANCELLED')")
+
+	if tenantID > 0 {
+		conditions = append(conditions, "a.tenant_id = ?")
+		args = append(args, tenantID)
+	}
 
 	if filter.RouteID != nil {
 		conditions = append(conditions, "r.route_id = ?")
@@ -554,9 +569,9 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(startMinute time.Time, fi
 
 // GetSummary 获取汇总统计数据（总计）
 // 复用 queryAllWithRealtime 获取实时数据
-func (r *UsageStatsRepository) GetSummary(filter repository.UsageStatsFilter) (*domain.UsageStatsSummary, error) {
+func (r *UsageStatsRepository) GetSummary(tenantID uint64, filter repository.UsageStatsFilter) (*domain.UsageStatsSummary, error) {
 	// 使用通用的分层查询获取所有数据
-	allStats, err := r.queryAllWithRealtime(filter)
+	allStats, err := r.queryAllWithRealtime(tenantID, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -581,30 +596,30 @@ func (r *UsageStatsRepository) GetSummary(filter repository.UsageStatsFilter) (*
 }
 
 // GetSummaryByProvider 按 Provider 维度获取汇总统计
-func (r *UsageStatsRepository) GetSummaryByProvider(filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return r.getSummaryByDimension(filter, "provider_id")
+func (r *UsageStatsRepository) GetSummaryByProvider(tenantID uint64, filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
+	return r.getSummaryByDimension(tenantID, filter, "provider_id")
 }
 
 // GetSummaryByRoute 按 Route 维度获取汇总统计
-func (r *UsageStatsRepository) GetSummaryByRoute(filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return r.getSummaryByDimension(filter, "route_id")
+func (r *UsageStatsRepository) GetSummaryByRoute(tenantID uint64, filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
+	return r.getSummaryByDimension(tenantID, filter, "route_id")
 }
 
 // GetSummaryByProject 按 Project 维度获取汇总统计
-func (r *UsageStatsRepository) GetSummaryByProject(filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return r.getSummaryByDimension(filter, "project_id")
+func (r *UsageStatsRepository) GetSummaryByProject(tenantID uint64, filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
+	return r.getSummaryByDimension(tenantID, filter, "project_id")
 }
 
 // GetSummaryByAPIToken 按 APIToken 维度获取汇总统计
-func (r *UsageStatsRepository) GetSummaryByAPIToken(filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return r.getSummaryByDimension(filter, "api_token_id")
+func (r *UsageStatsRepository) GetSummaryByAPIToken(tenantID uint64, filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
+	return r.getSummaryByDimension(tenantID, filter, "api_token_id")
 }
 
 // getSummaryByDimension 通用的按维度聚合方法
 // 复用 queryAllWithRealtime 获取实时数据
-func (r *UsageStatsRepository) getSummaryByDimension(filter repository.UsageStatsFilter, dimension string) (map[uint64]*domain.UsageStatsSummary, error) {
+func (r *UsageStatsRepository) getSummaryByDimension(tenantID uint64, filter repository.UsageStatsFilter, dimension string) (map[uint64]*domain.UsageStatsSummary, error) {
 	// 使用通用的分层查询获取所有数据
-	allStats, err := r.queryAllWithRealtime(filter)
+	allStats, err := r.queryAllWithRealtime(tenantID, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -659,9 +674,9 @@ func (r *UsageStatsRepository) getSummaryByDimension(filter repository.UsageStat
 
 // GetSummaryByClientType 按 ClientType 维度获取汇总统计
 // 复用 queryAllWithRealtime 获取实时数据
-func (r *UsageStatsRepository) GetSummaryByClientType(filter repository.UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error) {
+func (r *UsageStatsRepository) GetSummaryByClientType(tenantID uint64, filter repository.UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error) {
 	// 使用通用的分层查询获取所有数据
-	allStats, err := r.queryAllWithRealtime(filter)
+	allStats, err := r.queryAllWithRealtime(tenantID, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -730,7 +745,7 @@ func (r *UsageStatsRepository) GetLatestTimeBucket(granularity domain.Granularit
 
 // GetProviderStats 获取 Provider 统计数据
 // 使用分层查询策略，复用 queryAllWithRealtime 获取实时数据
-func (r *UsageStatsRepository) GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
+func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
 	// 构建过滤条件
 	filter := repository.UsageStatsFilter{
 		Granularity: domain.GranularityMinute, // 使用 minute 粒度以获取最新数据
@@ -743,7 +758,7 @@ func (r *UsageStatsRepository) GetProviderStats(clientType string, projectID uin
 	}
 
 	// 使用通用的分层查询获取所有数据（包括实时数据）
-	allStats, err := r.queryAllWithRealtime(filter)
+	allStats, err := r.queryAllWithRealtime(tenantID, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -792,7 +807,7 @@ func (r *UsageStatsRepository) GetProviderStats(clientType string, projectID uin
 // 使用分层策略：历史月数据 + 当前月 day 数据 + 今天 hour 数据 + 当前小时 minute 数据 + 最近 2 分钟实时数据
 // 返回扁平的 UsageStats 列表，调用者可自行聚合
 // 如果 filter.EndTime 在 2 分钟之前，说明是纯历史查询，直接使用预聚合数据
-func (r *UsageStatsRepository) queryAllWithRealtime(filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+func (r *UsageStatsRepository) queryAllWithRealtime(tenantID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
 	loc := r.getConfiguredTimezone()
 	now := time.Now().In(loc)
 	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
@@ -806,7 +821,7 @@ func (r *UsageStatsRepository) queryAllWithRealtime(filter repository.UsageStats
 
 	// 如果不需要实时数据，直接使用历史查询
 	if !needRealtimeData {
-		return r.queryHistorical(filter)
+		return r.queryHistorical(tenantID, filter)
 	}
 
 	// 确定查询的起始时间
@@ -828,7 +843,7 @@ func (r *UsageStatsRepository) queryAllWithRealtime(filter repository.UsageStats
 			monthFilter.Granularity = domain.GranularityMonth
 			endTime := currentMonth.Add(-time.Millisecond)
 			monthFilter.EndTime = &endTime
-			monthStats, err := r.queryHistorical(monthFilter)
+			monthStats, err := r.queryHistorical(tenantID, monthFilter)
 			if err != nil {
 				return err
 			}
@@ -846,7 +861,7 @@ func (r *UsageStatsRepository) queryAllWithRealtime(filter repository.UsageStats
 	}
 	if currentDay.After(dayStart) {
 		g.Go(func() error {
-			dayStats, err := r.queryStatsInRange(domain.GranularityDay, dayStart, currentDay, filter)
+			dayStats, err := r.queryStatsInRange(tenantID, domain.GranularityDay, dayStart, currentDay, filter)
 			if err != nil {
 				return err
 			}
@@ -864,7 +879,7 @@ func (r *UsageStatsRepository) queryAllWithRealtime(filter repository.UsageStats
 	}
 	if currentHour.After(hourStart) {
 		g.Go(func() error {
-			hourStats, err := r.queryStatsInRange(domain.GranularityHour, hourStart, currentHour, filter)
+			hourStats, err := r.queryStatsInRange(tenantID, domain.GranularityHour, hourStart, currentHour, filter)
 			if err != nil {
 				return err
 			}
@@ -882,7 +897,7 @@ func (r *UsageStatsRepository) queryAllWithRealtime(filter repository.UsageStats
 	}
 	if twoMinutesAgo.After(minuteStart) {
 		g.Go(func() error {
-			minuteStats, err := r.queryStatsInRange(domain.GranularityMinute, minuteStart, twoMinutesAgo, filter)
+			minuteStats, err := r.queryStatsInRange(tenantID, domain.GranularityMinute, minuteStart, twoMinutesAgo, filter)
 			if err != nil {
 				return err
 			}
@@ -899,7 +914,7 @@ func (r *UsageStatsRepository) queryAllWithRealtime(filter repository.UsageStats
 		realtimeStart = startTime
 	}
 	g.Go(func() error {
-		realtimeStats, err := r.queryRecentMinutesStats(realtimeStart, filter)
+		realtimeStats, err := r.queryRecentMinutesStats(tenantID, realtimeStart, filter)
 		if err != nil {
 			return err
 		}
@@ -1034,7 +1049,7 @@ func (r *UsageStatsRepository) aggregateMinute() (count int, startTime, endTime 
 // AggregateAndRollUp 聚合原始数据到分钟级别，并自动 rollup 到各个粗粒度
 // 返回一个 channel，发送每个阶段的进度事件，channel 会在完成后关闭
 // 调用者可以 range 遍历 channel 获取进度，或直接忽略（异步执行）
-func (r *UsageStatsRepository) AggregateAndRollUp() <-chan domain.AggregateEvent {
+func (r *UsageStatsRepository) AggregateAndRollUp(tenantID uint64) <-chan domain.AggregateEvent {
 	ch := make(chan domain.AggregateEvent, 5) // buffered to avoid blocking
 
 	go func() {
@@ -1196,12 +1211,12 @@ func (r *UsageStatsRepository) RollUpAllWithProgress(from, to domain.Granularity
 }
 
 // ClearAndRecalculate 清空统计数据并重新从原始数据计算
-func (r *UsageStatsRepository) ClearAndRecalculate() error {
-	return r.ClearAndRecalculateWithProgress(nil)
+func (r *UsageStatsRepository) ClearAndRecalculate(tenantID uint64) error {
+	return r.ClearAndRecalculateWithProgress(tenantID, nil)
 }
 
 // ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
-func (r *UsageStatsRepository) ClearAndRecalculateWithProgress(progress chan<- domain.Progress) error {
+func (r *UsageStatsRepository) ClearAndRecalculateWithProgress(tenantID uint64, progress chan<- domain.Progress) error {
 	sendProgress := func(phase string, current, total int, message string) {
 		if progress == nil {
 			return
@@ -1391,6 +1406,7 @@ func (r *UsageStatsRepository) toModel(s *domain.UsageStats) *UsageStats {
 	return &UsageStats{
 		ID:                 s.ID,
 		CreatedAt:          toTimestamp(s.CreatedAt),
+		TenantID:           s.TenantID,
 		TimeBucket:         toTimestamp(s.TimeBucket),
 		Granularity:        string(s.Granularity),
 		RouteID:            s.RouteID,
@@ -1416,6 +1432,7 @@ func (r *UsageStatsRepository) toDomain(m *UsageStats) *domain.UsageStats {
 	return &domain.UsageStats{
 		ID:                 m.ID,
 		CreatedAt:          fromTimestamp(m.CreatedAt),
+		TenantID:           m.TenantID,
 		TimeBucket:         fromTimestamp(m.TimeBucket),
 		Granularity:        domain.Granularity(m.Granularity),
 		RouteID:            m.RouteID,
@@ -1450,7 +1467,7 @@ func (r *UsageStatsRepository) toDomainList(models []UsageStats) []*domain.Usage
 //  1. 历史 day 粒度数据 (371天) → 热力图、昨日、Provider统计(30天)
 //  2. 今日实时 hour 粒度 (Query) → 今日统计、24h趋势、今日热力图
 //  3. 全量 month 粒度 (Query) → 全量统计、Top模型(全量)
-func (r *UsageStatsRepository) QueryDashboardData() (*domain.DashboardData, error) {
+func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.DashboardData, error) {
 	// 获取配置的时区
 	loc := r.getConfiguredTimezone()
 	now := time.Now().In(loc)
@@ -1475,16 +1492,23 @@ func (r *UsageStatsRepository) QueryDashboardData() (*domain.DashboardData, erro
 	// 查询1: 历史 day 粒度数据 (371天，不含今天)
 	// 用于：热力图历史、昨日统计、Provider统计(30天)
 	g.Go(func() error {
+		var dashboardArgs []interface{}
+		tenantFilter := ""
+		if tenantID > 0 {
+			tenantFilter = "AND tenant_id = ? "
+			dashboardArgs = append(dashboardArgs, tenantID)
+		}
 		query := `
 			SELECT time_bucket, provider_id, model,
 				SUM(total_requests), SUM(successful_requests),
 				SUM(input_tokens + output_tokens + cache_read + cache_write), SUM(cost)
 			FROM usage_stats
 			WHERE granularity = 'day'
-			AND time_bucket >= ? AND time_bucket < ?
+			` + tenantFilter + `AND time_bucket >= ? AND time_bucket < ?
 			GROUP BY time_bucket, provider_id, model
 		`
-		rows, err := r.db.gorm.Raw(query, toTimestamp(days371Ago), toTimestamp(todayStart)).Rows()
+		dashboardArgs = append(dashboardArgs, toTimestamp(days371Ago), toTimestamp(todayStart))
+		rows, err := r.db.gorm.Raw(query, dashboardArgs...).Rows()
 		if err != nil {
 			return err
 		}
@@ -1579,7 +1603,7 @@ func (r *UsageStatsRepository) QueryDashboardData() (*domain.DashboardData, erro
 			Granularity: domain.GranularityHour,
 			StartTime:   &hours24Ago,
 		}
-		stats, err := r.Query(filter)
+		stats, err := r.Query(tenantID, filter)
 		if err != nil {
 			return err
 		}
@@ -1709,7 +1733,7 @@ func (r *UsageStatsRepository) QueryDashboardData() (*domain.DashboardData, erro
 		filter := repository.UsageStatsFilter{
 			Granularity: domain.GranularityMonth,
 		}
-		stats, err := r.Query(filter)
+		stats, err := r.Query(tenantID, filter)
 		if err != nil {
 			return err
 		}

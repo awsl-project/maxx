@@ -21,6 +21,7 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 
 	proxyReq := state.proxyReq
 	routes, err := e.router.Match(&router.MatchContext{
+		TenantID:     state.tenantID,
 		ClientType:   state.clientType,
 		ProjectID:    state.projectID,
 		RequestModel: state.requestModel,

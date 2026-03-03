@@ -22,11 +22,12 @@ import { APITokensPage } from '@/pages/api-tokens';
 import { StatsPage } from '@/pages/stats';
 import { ModelMappingsPage } from '@/pages/model-mappings';
 import { ModelPricesPage } from '@/pages/model-prices';
+import { UsersPage } from '@/pages/users';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 
 function AppRoutes() {
   const { t } = useTranslation();
-  const { isAuthenticated, isLoading, login } = useAuth();
+  const { isAuthenticated, isLoading, multiTenancyEnabled, login, user } = useAuth();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -49,8 +50,10 @@ function AppRoutes() {
   }
 
   if (!isAuthenticated) {
-    return <LoginPage onSuccess={login} />;
+    return <LoginPage onSuccess={login} multiTenancyEnabled={multiTenancyEnabled} />;
   }
+
+  const isAdmin = !user || user.role === 'admin';
 
   return (
     <BrowserRouter>
@@ -75,6 +78,7 @@ function AppRoutes() {
           <Route path="routing-strategies" element={<RoutingStrategiesPage />} />
           <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          {isAdmin && <Route path="users" element={<UsersPage />} />}
         </Route>
       </Routes>
     </BrowserRouter>

@@ -45,9 +45,9 @@ func (r *SessionRepository) Delete(id uint64) error {
 		}).Error
 }
 
-func (r *SessionRepository) GetBySessionID(sessionID string) (*domain.Session, error) {
+func (r *SessionRepository) GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error) {
 	var model Session
-	if err := r.db.gorm.Where("session_id = ? AND deleted_at = 0", sessionID).First(&model).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("session_id = ? AND deleted_at = 0", sessionID).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -56,9 +56,9 @@ func (r *SessionRepository) GetBySessionID(sessionID string) (*domain.Session, e
 	return r.toDomain(&model), nil
 }
 
-func (r *SessionRepository) List() ([]*domain.Session, error) {
+func (r *SessionRepository) List(tenantID uint64) ([]*domain.Session, error) {
 	var models []Session
-	if err := r.db.gorm.Where("deleted_at = 0").Order("created_at DESC").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("created_at DESC").Find(&models).Error; err != nil {
 		return nil, err
 	}
 
@@ -79,6 +79,7 @@ func (r *SessionRepository) toModel(s *domain.Session) *Session {
 			},
 			DeletedAt: toTimestampPtr(s.DeletedAt),
 		},
+		TenantID:   s.TenantID,
 		SessionID:  s.SessionID,
 		ClientType: string(s.ClientType),
 		ProjectID:  s.ProjectID,
@@ -92,6 +93,7 @@ func (r *SessionRepository) toDomain(m *Session) *domain.Session {
 		CreatedAt:  fromTimestamp(m.CreatedAt),
 		UpdatedAt:  fromTimestamp(m.UpdatedAt),
 		DeletedAt:  fromTimestampPtr(m.DeletedAt),
+		TenantID:   m.TenantID,
 		SessionID:  m.SessionID,
 		ClientType: domain.ClientType(m.ClientType),
 		ProjectID:  m.ProjectID,

@@ -116,7 +116,7 @@ func (s *AntigravityTaskService) SortRoutes(ctx context.Context) {
 
 // refreshAllQuotas refreshes quotas for all Antigravity providers
 func (s *AntigravityTaskService) refreshAllQuotas(ctx context.Context) bool {
-	providers, err := s.providerRepo.List()
+	providers, err := s.providerRepo.List(0)
 	if err != nil {
 		log.Printf("[AntigravityTask] Failed to list providers: %v", err)
 		return false
@@ -178,7 +178,7 @@ func (s *AntigravityTaskService) saveQuotaToDB(email, projectID string, quota *a
 
 	// Try to preserve existing user info
 	var name, picture string
-	if existing, _ := s.quotaRepo.GetByEmail(email); existing != nil {
+	if existing, _ := s.quotaRepo.GetByEmail(0, email); existing != nil {
 		name = existing.Name
 		picture = existing.Picture
 	}
@@ -209,13 +209,13 @@ func (s *AntigravityTaskService) isAutoSortEnabled() bool {
 func (s *AntigravityTaskService) autoSortAntigravityRoutes(ctx context.Context) {
 	log.Printf("[AntigravityTask] Starting auto-sort")
 
-	routes, err := s.routeRepo.List()
+	routes, err := s.routeRepo.List(0)
 	if err != nil {
 		log.Printf("[AntigravityTask] Failed to list routes: %v", err)
 		return
 	}
 
-	providers, err := s.providerRepo.List()
+	providers, err := s.providerRepo.List(0)
 	if err != nil {
 		log.Printf("[AntigravityTask] Failed to list providers: %v", err)
 		return
@@ -233,7 +233,7 @@ func (s *AntigravityTaskService) autoSortAntigravityRoutes(ctx context.Context) 
 	log.Printf("[AntigravityTask] Found %d Antigravity providers, %d total routes", antigravityCount, len(routes))
 
 	// Get all quotas
-	quotas, err := s.quotaRepo.List()
+	quotas, err := s.quotaRepo.List(0)
 	if err != nil {
 		log.Printf("[AntigravityTask] Failed to list quotas: %v", err)
 		return
@@ -264,7 +264,7 @@ func (s *AntigravityTaskService) autoSortAntigravityRoutes(ctx context.Context) 
 	}
 
 	if len(allUpdates) > 0 {
-		if err := s.routeRepo.BatchUpdatePositions(allUpdates); err != nil {
+		if err := s.routeRepo.BatchUpdatePositions(0, allUpdates); err != nil {
 			log.Printf("[AntigravityTask] Failed to update route positions: %v", err)
 			return
 		}

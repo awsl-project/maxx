@@ -1,9 +1,10 @@
 ﻿'use client';
 
-import { Moon, Sun, Laptop, Sparkles, Gem, Github, ChevronsUp, RefreshCw } from 'lucide-react';
+import { Moon, Sun, Laptop, Sparkles, Gem, Github, ChevronsUp, RefreshCw, LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
 import { useTransport } from '@/lib/transport/context';
+import { useAuth } from '@/lib/auth-context';
 import type { Theme } from '@/lib/theme';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,7 @@ export function NavUser() {
   const { t, i18n } = useTranslation();
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
+  const { user, authEnabled, logout } = useAuth();
   const isCollapsed = !isMobile && state === 'collapsed';
   const currentLanguage = (i18n.resolvedLanguage || i18n.language || 'en').toLowerCase().startsWith('zh')
     ? 'zh'
@@ -70,8 +72,8 @@ export function NavUser() {
     }
   };
 
-  const user = {
-    name: 'Maxx',
+  const displayUser = {
+    name: user?.username || user?.email || 'Maxx',
     avatar: '/logo.png',
   };
 
@@ -162,13 +164,13 @@ export function NavUser() {
                 <DropdownMenuLabel>
                   <div className="flex items-center gap-2 w-full">
                     <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarImage src={user.avatar} alt={user.name} />
+                      <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
                       <AvatarFallback className="rounded-lg">
-                        {user.name.substring(0, 2).toUpperCase()}
+                        {displayUser.name.substring(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-medium">{user.name}</span>
+                      <span className="truncate font-medium">{displayUser.name}</span>
                     </div>
                   </div>
                 </DropdownMenuLabel>
@@ -230,6 +232,15 @@ export function NavUser() {
                   <span>{t('nav.restartServer')}</span>
                 </DropdownMenuItem>
               </>
+              {authEnabled && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={logout}>
+                    <LogOut />
+                    <span>{t('nav.logout')}</span>
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

@@ -21,7 +21,7 @@ func NewRouteRepository(repo repository.RouteRepository) *RouteRepository {
 }
 
 func (r *RouteRepository) Load() error {
-	list, err := r.repo.List()
+	list, err := r.repo.List(0)
 	if err != nil {
 		return err
 	}
@@ -58,8 +58,8 @@ func (r *RouteRepository) Update(route *domain.Route) error {
 	return nil
 }
 
-func (r *RouteRepository) Delete(id uint64) error {
-	if err := r.repo.Delete(id); err != nil {
+func (r *RouteRepository) Delete(tenantID uint64, id uint64) error {
+	if err := r.repo.Delete(tenantID, id); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -73,15 +73,15 @@ func (r *RouteRepository) Delete(id uint64) error {
 	return nil
 }
 
-func (r *RouteRepository) BatchUpdatePositions(updates []domain.RoutePositionUpdate) error {
-	if err := r.repo.BatchUpdatePositions(updates); err != nil {
+func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain.RoutePositionUpdate) error {
+	if err := r.repo.BatchUpdatePositions(tenantID, updates); err != nil {
 		return err
 	}
 	// Reload cache to reflect position changes
 	return r.Load()
 }
 
-func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {
+func (r *RouteRepository) GetByID(tenantID uint64, id uint64) (*domain.Route, error) {
 	r.mu.RLock()
 	for _, rt := range r.cache {
 		if rt.ID == id {
@@ -90,10 +90,10 @@ func (r *RouteRepository) GetByID(id uint64) (*domain.Route, error) {
 		}
 	}
 	r.mu.RUnlock()
-	return r.repo.GetByID(id)
+	return r.repo.GetByID(tenantID, id)
 }
 
-func (r *RouteRepository) FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
+func (r *RouteRepository) FindByKey(tenantID uint64, projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error) {
 	r.mu.RLock()
 	for _, rt := range r.cache {
 		if rt.ProjectID == projectID && rt.ProviderID == providerID && rt.ClientType == clientType {
@@ -102,14 +102,18 @@ func (r *RouteRepository) FindByKey(projectID, providerID uint64, clientType dom
 		}
 	}
 	r.mu.RUnlock()
-	return r.repo.FindByKey(projectID, providerID, clientType)
+	return r.repo.FindByKey(tenantID, projectID, providerID, clientType)
 }
 
-func (r *RouteRepository) List() ([]*domain.Route, error) {
+func (r *RouteRepository) List(tenantID uint64) ([]*domain.Route, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	result := make([]*domain.Route, len(r.cache))
-	copy(result, r.cache)
+	result := make([]*domain.Route, 0, len(r.cache))
+	for _, rt := range r.cache {
+		if tenantID == 0 || rt.TenantID == tenantID {
+			result = append(result, rt)
+		}
+	}
 	return result, nil
 }
 

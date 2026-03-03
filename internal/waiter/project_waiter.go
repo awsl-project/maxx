@@ -94,7 +94,7 @@ func (w *ProjectWaiter) WaitForProject(ctx context.Context, session *domain.Sess
 	}
 
 	// Check if session is already rejected or has project (from previous requests)
-	latestSession, err := w.sessionRepo.GetBySessionID(session.SessionID)
+	latestSession, err := w.sessionRepo.GetBySessionID(session.TenantID, session.SessionID)
 	if err == nil && latestSession != nil {
 		// Check rejection status
 		if latestSession.RejectedAt != nil {
@@ -153,7 +153,7 @@ func (w *ProjectWaiter) WaitForProject(ctx context.Context, session *domain.Sess
 			return timeoutCtx.Err()
 		case <-ticker.C:
 			// Check if session now has a project or was rejected
-			updatedSession, err := w.sessionRepo.GetBySessionID(session.SessionID)
+			updatedSession, err := w.sessionRepo.GetBySessionID(session.TenantID, session.SessionID)
 			if err != nil {
 				continue // Retry on transient errors
 			}

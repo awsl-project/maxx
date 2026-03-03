@@ -6,61 +6,83 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
+type TenantRepository interface {
+	Create(tenant *domain.Tenant) error
+	Update(tenant *domain.Tenant) error
+	Delete(id uint64) error
+	GetByID(id uint64) (*domain.Tenant, error)
+	GetBySlug(slug string) (*domain.Tenant, error)
+	GetDefault() (*domain.Tenant, error)
+	List() ([]*domain.Tenant, error)
+}
+
+type UserRepository interface {
+	Create(user *domain.User) error
+	Update(user *domain.User) error
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.User, error)
+	GetByEmail(email string) (*domain.User, error)
+	GetDefault() (*domain.User, error)
+	List() ([]*domain.User, error)
+	ListByTenant(tenantID uint64) ([]*domain.User, error)
+}
+
 type ProviderRepository interface {
 	Create(provider *domain.Provider) error
 	Update(provider *domain.Provider) error
-	Delete(id uint64) error
-	GetByID(id uint64) (*domain.Provider, error)
-	List() ([]*domain.Provider, error)
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.Provider, error)
+	List(tenantID uint64) ([]*domain.Provider, error)
 }
 
 type RouteRepository interface {
 	Create(route *domain.Route) error
 	Update(route *domain.Route) error
-	Delete(id uint64) error
-	GetByID(id uint64) (*domain.Route, error)
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.Route, error)
 	// FindByKey finds a route by the unique key (projectID, providerID, clientType)
-	FindByKey(projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error)
-	List() ([]*domain.Route, error)
+	FindByKey(tenantID uint64, projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error)
+	List(tenantID uint64) ([]*domain.Route, error)
 	// BatchUpdatePositions updates positions for multiple routes in a transaction
-	BatchUpdatePositions(updates []domain.RoutePositionUpdate) error
+	BatchUpdatePositions(tenantID uint64, updates []domain.RoutePositionUpdate) error
 }
 
 type RoutingStrategyRepository interface {
 	Create(strategy *domain.RoutingStrategy) error
 	Update(strategy *domain.RoutingStrategy) error
-	Delete(id uint64) error
-	GetByProjectID(projectID uint64) (*domain.RoutingStrategy, error)
-	List() ([]*domain.RoutingStrategy, error)
+	Delete(tenantID uint64, id uint64) error
+	GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error)
+	List(tenantID uint64) ([]*domain.RoutingStrategy, error)
 }
 
 type RetryConfigRepository interface {
 	Create(config *domain.RetryConfig) error
 	Update(config *domain.RetryConfig) error
-	Delete(id uint64) error
-	GetByID(id uint64) (*domain.RetryConfig, error)
-	GetDefault() (*domain.RetryConfig, error)
-	List() ([]*domain.RetryConfig, error)
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.RetryConfig, error)
+	GetDefault(tenantID uint64) (*domain.RetryConfig, error)
+	List(tenantID uint64) ([]*domain.RetryConfig, error)
 }
 
 type ProjectRepository interface {
 	Create(project *domain.Project) error
 	Update(project *domain.Project) error
-	Delete(id uint64) error
-	GetByID(id uint64) (*domain.Project, error)
-	GetBySlug(slug string) (*domain.Project, error)
-	List() ([]*domain.Project, error)
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.Project, error)
+	GetBySlug(tenantID uint64, slug string) (*domain.Project, error)
+	List(tenantID uint64) ([]*domain.Project, error)
 }
 
 type SessionRepository interface {
 	Create(session *domain.Session) error
 	Update(session *domain.Session) error
-	GetBySessionID(sessionID string) (*domain.Session, error)
-	List() ([]*domain.Session, error)
+	GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error)
+	List(tenantID uint64) ([]*domain.Session, error)
 }
 
 // ProxyRequestFilter 请求列表过滤条件
 type ProxyRequestFilter struct {
+	TenantID   *uint64 // Tenant ID，nil 表示不过滤
 	ProviderID *uint64 // Provider ID，nil 表示不过滤
 	Status     *string // 状态，nil 表示不过滤
 	APITokenID *uint64 // API Token ID，nil 表示不过滤
@@ -69,20 +91,20 @@ type ProxyRequestFilter struct {
 type ProxyRequestRepository interface {
 	Create(req *domain.ProxyRequest) error
 	Update(req *domain.ProxyRequest) error
-	GetByID(id uint64) (*domain.ProxyRequest, error)
-	List(limit, offset int) ([]*domain.ProxyRequest, error)
+	GetByID(tenantID uint64, id uint64) (*domain.ProxyRequest, error)
+	List(tenantID uint64, limit, offset int) ([]*domain.ProxyRequest, error)
 	// ListCursor 基于游标的分页查询
 	// before: 获取 id < before 的记录 (向后翻页)
 	// after: 获取 id > after 的记录 (向前翻页/获取新数据)
 	// filter: 可选的过滤条件
-	ListCursor(limit int, before, after uint64, filter *ProxyRequestFilter) ([]*domain.ProxyRequest, error)
+	ListCursor(tenantID uint64, limit int, before, after uint64, filter *ProxyRequestFilter) ([]*domain.ProxyRequest, error)
 	// ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
-	ListActive() ([]*domain.ProxyRequest, error)
-	Count() (int64, error)
+	ListActive(tenantID uint64) ([]*domain.ProxyRequest, error)
+	Count(tenantID uint64) (int64, error)
 	// CountWithFilter 带过滤条件的计数
-	CountWithFilter(filter *ProxyRequestFilter) (int64, error)
+	CountWithFilter(tenantID uint64, filter *ProxyRequestFilter) (int64, error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
-	UpdateProjectIDBySessionID(sessionID string, projectID uint64) (int64, error)
+	UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error)
 	// MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
 	// Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
 	MarkStaleAsFailed(currentInstanceID string) (int64, error)
@@ -140,22 +162,22 @@ type AntigravityQuotaRepository interface {
 	// Upsert 更新或插入配额（基于邮箱）
 	Upsert(quota *domain.AntigravityQuota) error
 	// GetByEmail 根据邮箱获取配额
-	GetByEmail(email string) (*domain.AntigravityQuota, error)
+	GetByEmail(tenantID uint64, email string) (*domain.AntigravityQuota, error)
 	// List 获取所有配额
-	List() ([]*domain.AntigravityQuota, error)
+	List(tenantID uint64) ([]*domain.AntigravityQuota, error)
 	// Delete 删除配额
-	Delete(email string) error
+	Delete(tenantID uint64, email string) error
 }
 
 type CodexQuotaRepository interface {
 	// Upsert 更新或插入配额（基于邮箱）
 	Upsert(quota *domain.CodexQuota) error
 	// GetByEmail 根据邮箱获取配额
-	GetByEmail(email string) (*domain.CodexQuota, error)
+	GetByEmail(tenantID uint64, email string) (*domain.CodexQuota, error)
 	// List 获取所有配额
-	List() ([]*domain.CodexQuota, error)
+	List(tenantID uint64) ([]*domain.CodexQuota, error)
 	// Delete 删除配额
-	Delete(email string) error
+	Delete(tenantID uint64, email string) error
 }
 
 type UsageStatsRepository interface {
@@ -164,39 +186,40 @@ type UsageStatsRepository interface {
 	// BatchUpsert 批量更新或插入统计记录
 	BatchUpsert(stats []*domain.UsageStats) error
 	// Query 查询统计数据（包含当前时间桶的实时数据补全）
-	Query(filter UsageStatsFilter) ([]*domain.UsageStats, error)
+	Query(tenantID uint64, filter UsageStatsFilter) ([]*domain.UsageStats, error)
 	// QueryDashboardData 查询 Dashboard 所需的所有数据（单次请求，并发执行）
-	QueryDashboardData() (*domain.DashboardData, error)
+	QueryDashboardData(tenantID uint64) (*domain.DashboardData, error)
 	// GetSummary 获取汇总统计数据（总计）
-	GetSummary(filter UsageStatsFilter) (*domain.UsageStatsSummary, error)
+	GetSummary(tenantID uint64, filter UsageStatsFilter) (*domain.UsageStatsSummary, error)
 	// GetSummaryByProvider 按 Provider 维度获取汇总统计
-	GetSummaryByProvider(filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
+	GetSummaryByProvider(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
 	// GetSummaryByRoute 按 Route 维度获取汇总统计
-	GetSummaryByRoute(filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
+	GetSummaryByRoute(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
 	// GetSummaryByProject 按 Project 维度获取汇总统计
-	GetSummaryByProject(filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
+	GetSummaryByProject(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
 	// GetSummaryByAPIToken 按 APIToken 维度获取汇总统计
-	GetSummaryByAPIToken(filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
+	GetSummaryByAPIToken(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
 	// GetSummaryByClientType 按 ClientType 维度获取汇总统计
-	GetSummaryByClientType(filter UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error)
+	GetSummaryByClientType(tenantID uint64, filter UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error)
 	// DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
 	DeleteOlderThan(granularity domain.Granularity, before time.Time) (int64, error)
 	// GetLatestTimeBucket 获取指定粒度的最新时间桶
 	GetLatestTimeBucket(granularity domain.Granularity) (*time.Time, error)
 	// GetProviderStats 获取 Provider 统计数据
-	GetProviderStats(clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error)
+	GetProviderStats(tenantID uint64, clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error)
 	// AggregateAndRollUp 聚合原始数据到分钟级别，并自动 rollup 到各个粗粒度
 	// 返回一个 channel，发送每个阶段的进度事件，channel 会在完成后关闭
 	// 调用者可以 range 遍历 channel 获取进度，或直接忽略（异步执行）
-	AggregateAndRollUp() <-chan domain.AggregateEvent
+	AggregateAndRollUp(tenantID uint64) <-chan domain.AggregateEvent
 	// ClearAndRecalculate 清空统计数据并重新从原始数据计算
-	ClearAndRecalculate() error
+	ClearAndRecalculate(tenantID uint64) error
 	// ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
-	ClearAndRecalculateWithProgress(progress chan<- domain.Progress) error
+	ClearAndRecalculateWithProgress(tenantID uint64, progress chan<- domain.Progress) error
 }
 
 // UsageStatsFilter 统计查询过滤条件
 type UsageStatsFilter struct {
+	TenantID    *uint64            // Tenant ID
 	Granularity domain.Granularity // 时间粒度（必填）
 	StartTime   *time.Time         // 开始时间
 	EndTime     *time.Time         // 结束时间
@@ -211,26 +234,26 @@ type UsageStatsFilter struct {
 type APITokenRepository interface {
 	Create(token *domain.APIToken) error
 	Update(token *domain.APIToken) error
-	Delete(id uint64) error
-	GetByID(id uint64) (*domain.APIToken, error)
-	GetByToken(token string) (*domain.APIToken, error)
-	List() ([]*domain.APIToken, error)
-	IncrementUseCount(id uint64) error
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.APIToken, error)
+	GetByToken(tenantID uint64, token string) (*domain.APIToken, error)
+	List(tenantID uint64) ([]*domain.APIToken, error)
+	IncrementUseCount(tenantID uint64, id uint64) error
 }
 
 type ModelMappingRepository interface {
 	Create(mapping *domain.ModelMapping) error
 	Update(mapping *domain.ModelMapping) error
-	Delete(id uint64) error
-	GetByID(id uint64) (*domain.ModelMapping, error)
-	List() ([]*domain.ModelMapping, error)
-	ListEnabled() ([]*domain.ModelMapping, error)
-	ListByClientType(clientType domain.ClientType) ([]*domain.ModelMapping, error)
-	ListByQuery(query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error)
-	Count() (int, error)
-	DeleteAll() error
-	ClearAll() error     // Delete all mappings
-	SeedDefaults() error // Re-seed default mappings
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.ModelMapping, error)
+	List(tenantID uint64) ([]*domain.ModelMapping, error)
+	ListEnabled(tenantID uint64) ([]*domain.ModelMapping, error)
+	ListByClientType(tenantID uint64, clientType domain.ClientType) ([]*domain.ModelMapping, error)
+	ListByQuery(tenantID uint64, query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error)
+	Count(tenantID uint64) (int, error)
+	DeleteAll(tenantID uint64) error
+	ClearAll(tenantID uint64) error     // Delete all mappings
+	SeedDefaults(tenantID uint64) error // Re-seed default mappings
 }
 
 type ResponseModelRepository interface {
@@ -267,4 +290,59 @@ type ModelPriceRepository interface {
 	SoftDeleteAll() error
 	// ResetToDefaults 重置为默认价格（软删除现有记录，插入默认价格）
 	ResetToDefaults() ([]*domain.ModelPrice, error)
+}
+
+// CooldownRepository 接口
+type CooldownRepository interface {
+	// GetAll returns all active cooldowns
+	GetAll() ([]*domain.Cooldown, error)
+
+	// GetByProvider returns cooldowns for a specific provider
+	GetByProvider(providerID uint64) ([]*domain.Cooldown, error)
+
+	// Upsert creates or updates a cooldown
+	Upsert(cooldown *domain.Cooldown) error
+
+	// Delete removes a cooldown
+	Delete(providerID uint64, clientType string) error
+
+	// DeleteAll removes all cooldowns for a provider
+	DeleteAll(providerID uint64) error
+
+	// DeleteExpired removes all expired cooldowns
+	DeleteExpired() error
+
+	// Get retrieves a specific cooldown
+	Get(providerID uint64, clientType string) (*domain.Cooldown, error)
+}
+
+// CooldownInfo is a helper structure for returning cooldown information
+type CooldownInfo struct {
+	ProviderID   uint64    `json:"providerID"`
+	ProviderName string    `json:"providerName"`
+	ClientType   string    `json:"clientType"`
+	Until        time.Time `json:"until"`
+	Remaining    string    `json:"remaining"`
+}
+
+// FailureCountRepository manages failure count persistence
+type FailureCountRepository interface {
+	// Get retrieves a failure count by provider, client type, and reason
+	Get(providerID uint64, clientType string, reason string) (*domain.FailureCount, error)
+
+	// GetAll retrieves all failure counts
+	GetAll() ([]*domain.FailureCount, error)
+
+	// Upsert inserts or updates a failure count
+	Upsert(fc *domain.FailureCount) error
+
+	// Delete deletes a failure count
+	Delete(providerID uint64, clientType string, reason string) error
+
+	// DeleteAll deletes all failure counts for a provider+clientType
+	DeleteAll(providerID uint64, clientType string) error
+
+	// DeleteExpired deletes failure counts where last failure was too long ago
+	// (e.g., if no failures in last 24 hours, reset the count)
+	DeleteExpired(olderThan int64) error
 }

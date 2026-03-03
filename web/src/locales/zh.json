@@ -87,7 +87,8 @@
     "restartServerConfirm": "确定重启服务器？当前连接可能会短暂中断。",
     "restartServerFailed": "重启失败，请检查服务状态。",
     "language": "语言",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "users": "用户管理"
   },
   "dashboard": {
     "title": "仪表板",
@@ -656,11 +657,32 @@
   "login": {
     "title": "Maxx 管理后台",
     "description": "输入密码访问管理面板",
+    "emailPlaceholder": "邮箱",
     "passwordPlaceholder": "密码",
     "submit": "登录",
     "verifying": "验证中...",
     "invalidPassword": "密码错误",
+    "invalidCredentials": "邮箱或密码错误",
     "verifyFailed": "验证密码失败"
+  },
+  "users": {
+    "title": "用户管理",
+    "description": "管理用户账号",
+    "addUser": "添加用户",
+    "editUser": "编辑用户",
+    "deleteConfirm": "确定要删除此用户吗？",
+    "email": "邮箱",
+    "username": "用户名",
+    "password": "密码",
+    "role": "角色",
+    "roleAdmin": "管理员",
+    "roleMember": "成员",
+    "lastLogin": "最后登录",
+    "never": "从未",
+    "defaultUser": "默认",
+    "createSuccess": "用户创建成功",
+    "updateSuccess": "用户更新成功",
+    "deleteSuccess": "用户删除成功"
   },
   "routingStrategies": {
     "title": "路由策略",

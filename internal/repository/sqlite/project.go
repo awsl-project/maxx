@@ -67,9 +67,9 @@ func (r *ProjectRepository) Update(p *domain.Project) error {
 	return r.db.gorm.Save(model).Error
 }
 
-func (r *ProjectRepository) Delete(id uint64) error {
+func (r *ProjectRepository) Delete(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&Project{}).
+	return tenantScope(r.db.gorm.Model(&Project{}), tenantID).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"deleted_at": now,
@@ -77,9 +77,9 @@ func (r *ProjectRepository) Delete(id uint64) error {
 		}).Error
 }
 
-func (r *ProjectRepository) GetByID(id uint64) (*domain.Project, error) {
+func (r *ProjectRepository) GetByID(tenantID uint64, id uint64) (*domain.Project, error) {
 	var model Project
-	if err := r.db.gorm.First(&model, id).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).First(&model, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -88,9 +88,9 @@ func (r *ProjectRepository) GetByID(id uint64) (*domain.Project, error) {
 	return r.toDomain(&model), nil
 }
 
-func (r *ProjectRepository) GetBySlug(slug string) (*domain.Project, error) {
+func (r *ProjectRepository) GetBySlug(tenantID uint64, slug string) (*domain.Project, error) {
 	var model Project
-	if err := r.db.gorm.Where("slug = ? AND deleted_at = 0", slug).First(&model).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("slug = ? AND deleted_at = 0", slug).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -99,9 +99,9 @@ func (r *ProjectRepository) GetBySlug(slug string) (*domain.Project, error) {
 	return r.toDomain(&model), nil
 }
 
-func (r *ProjectRepository) List() ([]*domain.Project, error) {
+func (r *ProjectRepository) List(tenantID uint64) ([]*domain.Project, error) {
 	var models []Project
-	if err := r.db.gorm.Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {
 		return nil, err
 	}
 
@@ -122,6 +122,7 @@ func (r *ProjectRepository) toModel(p *domain.Project) *Project {
 			},
 			DeletedAt: toTimestampPtr(p.DeletedAt),
 		},
+		TenantID:            p.TenantID,
 		Name:                p.Name,
 		Slug:                p.Slug,
 		EnabledCustomRoutes: LongText(toJSON(p.EnabledCustomRoutes)),
@@ -134,6 +135,7 @@ func (r *ProjectRepository) toDomain(m *Project) *domain.Project {
 		CreatedAt:           fromTimestamp(m.CreatedAt),
 		UpdatedAt:           fromTimestamp(m.UpdatedAt),
 		DeletedAt:           fromTimestampPtr(m.DeletedAt),
+		TenantID:            m.TenantID,
 		Name:                m.Name,
 		Slug:                m.Slug,
 		EnabledCustomRoutes: fromJSON[[]domain.ClientType](string(m.EnabledCustomRoutes)),

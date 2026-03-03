@@ -159,3 +159,13 @@ export {
   useDeleteModelPrice,
   useResetModelPricesToDefaults,
 } from './use-model-prices';
+
+// User hooks
+export {
+  userKeys,
+  useUsers,
+  useUser,
+  useCreateUser,
+  useUpdateUser,
+  useDeleteUser,
+} from './use-users';

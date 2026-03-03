@@ -29,11 +29,11 @@ type fakeProviderRepo struct {
 
 func (f *fakeProviderRepo) Create(provider *domain.Provider) error { return nil }
 func (f *fakeProviderRepo) Update(provider *domain.Provider) error { return nil }
-func (f *fakeProviderRepo) Delete(id uint64) error                 { return nil }
-func (f *fakeProviderRepo) GetByID(id uint64) (*domain.Provider, error) {
+func (f *fakeProviderRepo) Delete(tenantID uint64, id uint64) error { return nil }
+func (f *fakeProviderRepo) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
 	return nil, domain.ErrNotFound
 }
-func (f *fakeProviderRepo) List() ([]*domain.Provider, error) {
+func (f *fakeProviderRepo) List(tenantID uint64) ([]*domain.Provider, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -47,29 +47,29 @@ type fakeModelMappingRepo struct {
 
 func (f *fakeModelMappingRepo) Create(mapping *domain.ModelMapping) error { return nil }
 func (f *fakeModelMappingRepo) Update(mapping *domain.ModelMapping) error { return nil }
-func (f *fakeModelMappingRepo) Delete(id uint64) error                    { return nil }
-func (f *fakeModelMappingRepo) GetByID(id uint64) (*domain.ModelMapping, error) {
+func (f *fakeModelMappingRepo) Delete(tenantID uint64, id uint64) error   { return nil }
+func (f *fakeModelMappingRepo) GetByID(tenantID uint64, id uint64) (*domain.ModelMapping, error) {
 	return nil, domain.ErrNotFound
 }
-func (f *fakeModelMappingRepo) List() ([]*domain.ModelMapping, error) {
+func (f *fakeModelMappingRepo) List(tenantID uint64) ([]*domain.ModelMapping, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return append([]*domain.ModelMapping(nil), f.mappings...), nil
 }
-func (f *fakeModelMappingRepo) ListEnabled() ([]*domain.ModelMapping, error) {
-	return f.List()
+func (f *fakeModelMappingRepo) ListEnabled(tenantID uint64) ([]*domain.ModelMapping, error) {
+	return f.List(tenantID)
 }
-func (f *fakeModelMappingRepo) ListByClientType(clientType domain.ClientType) ([]*domain.ModelMapping, error) {
-	return f.List()
+func (f *fakeModelMappingRepo) ListByClientType(tenantID uint64, clientType domain.ClientType) ([]*domain.ModelMapping, error) {
+	return f.List(tenantID)
 }
-func (f *fakeModelMappingRepo) ListByQuery(query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
-	return f.List()
+func (f *fakeModelMappingRepo) ListByQuery(tenantID uint64, query *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
+	return f.List(tenantID)
 }
-func (f *fakeModelMappingRepo) Count() (int, error) { return len(f.mappings), f.err }
-func (f *fakeModelMappingRepo) DeleteAll() error    { return nil }
-func (f *fakeModelMappingRepo) ClearAll() error     { return nil }
-func (f *fakeModelMappingRepo) SeedDefaults() error { return nil }
+func (f *fakeModelMappingRepo) Count(tenantID uint64) (int, error) { return len(f.mappings), f.err }
+func (f *fakeModelMappingRepo) DeleteAll(tenantID uint64) error    { return nil }
+func (f *fakeModelMappingRepo) ClearAll(tenantID uint64) error     { return nil }
+func (f *fakeModelMappingRepo) SeedDefaults(tenantID uint64) error { return nil }
 
 func containsModel(ids []string, want string) bool {
 	for _, id := range ids {
