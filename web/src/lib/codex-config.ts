@@ -21,10 +21,29 @@ function normalizeBaseUrl(address: string): string {
   return `${protocol}://${trimmedAddress}`;
 }
 
+function ensureBaseUrlPort(address: string, fallbackPort: number): string {
+  const normalized = normalizeBaseUrl(address);
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.port || !parsed.hostname) {
+      return normalized;
+    }
+    parsed.port = String(fallbackPort);
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return normalized;
+  }
+}
+
 export function buildProxyBaseUrl(proxyStatus?: ProxyStatusLike | null): string {
   const address = (proxyStatus?.address || '').trim();
-  const fallbackAddress = `localhost:${proxyStatus?.port || 9880}`;
-  return normalizeBaseUrl(address || fallbackAddress);
+  const fallbackPort = proxyStatus?.port || 9880;
+
+  if (!address) {
+    return normalizeBaseUrl(`localhost:${fallbackPort}`);
+  }
+
+  return ensureBaseUrlPort(address, fallbackPort);
 }
 
 export function buildCodexConfigBundle(params: {
