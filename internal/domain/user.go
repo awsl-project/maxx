@@ -10,6 +10,14 @@ const (
 	UserRoleMember UserRole = "member"
 )
 
+// UserStatus 用户状态
+type UserStatus string
+
+const (
+	UserStatusPending UserStatus = "pending"
+	UserStatusActive  UserStatus = "active"
+)
+
 // User 用户
 type User struct {
 	ID        uint64     `json:"id"`
@@ -28,6 +36,9 @@ type User struct {
 
 	// 角色
 	Role UserRole `json:"role"`
+
+	// 状态
+	Status UserStatus `json:"status"`
 
 	// 默认用户（迁移兼容）
 	IsDefault bool `json:"isDefault"`

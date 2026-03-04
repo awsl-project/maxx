@@ -40,6 +40,10 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleLogin(w, r)
 	case "/register":
 		h.handleRegister(w, r)
+	case "/apply":
+		h.handleApply(w, r)
+	case "/password":
+		h.handleChangePassword(w, r)
 	case "/status":
 		h.handleStatus(w, r)
 	default:
@@ -113,6 +117,12 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)); err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		return
+	}
+
+	// Check user status
+	if user.Status == domain.UserStatusPending {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account pending approval"})
 		return
 	}
 
@@ -205,6 +215,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Username:     body.Username,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
+		Status:       domain.UserStatusActive,
 	}
 
 	if err := h.userRepo.Create(user); err != nil {
@@ -229,6 +240,113 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 			"role":     user.Role,
 		},
 	})
+}
+
+// handleApply handles public user registration (no auth required)
+// POST /admin/auth/apply
+func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if body.Username == "" || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+		return
+	}
+
+	user := &domain.User{
+		TenantID:     domain.DefaultTenantID,
+		Username:     body.Username,
+		PasswordHash: string(hash),
+		Role:         domain.UserRoleMember,
+		Status:       domain.UserStatusPending,
+	}
+
+	if err := h.userRepo.Create(user); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"success": true,
+		"message": "registration submitted, waiting for admin approval",
+	})
+}
+
+// handleChangePassword handles self-service password change
+// PUT /admin/auth/password
+func (h *AuthHandler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Require authenticated user (manual token validation since this is under /admin/auth/)
+	authHeader := r.Header.Get(AuthHeader)
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	claims, valid := h.authMiddleware.ValidateToken(strings.TrimPrefix(authHeader, "Bearer "))
+	if !valid {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+		return
+	}
+
+	var body struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if body.OldPassword == "" || body.NewPassword == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "oldPassword and newPassword are required"})
+		return
+	}
+
+	user, err := h.userRepo.GetByID(claims.TenantID, claims.UserID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.OldPassword)); err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "incorrect old password"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+		return
+	}
+
+	user.PasswordHash = string(hash)
+	if err := h.userRepo.Update(user); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"success": "password updated"})
 }
 
 // handleStatus returns the authentication status

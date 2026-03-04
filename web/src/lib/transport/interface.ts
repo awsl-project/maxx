@@ -43,6 +43,8 @@ import type {
   AuthVerifyResult,
   AuthLoginResult,
   AuthRegisterResult,
+  ApplyResult,
+  ChangePasswordResult,
   User,
   CreateUserData,
   UpdateUserData,
@@ -190,6 +192,8 @@ export interface Transport {
   verifyPassword(password: string): Promise<AuthVerifyResult>;
   login(username: string, password: string): Promise<AuthLoginResult>;
   register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
+  apply(username: string, password: string): Promise<ApplyResult>;
+  changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
   setAuthToken(token: string): void;
   clearAuthToken(): void;
 
@@ -200,6 +204,7 @@ export interface Transport {
   updateUser(id: number, data: UpdateUserData): Promise<User>;
   deleteUser(id: number): Promise<void>;
   updatePassword(userId: number, password: string): Promise<void>;
+  approveUser(id: number): Promise<User>;
 
   // ===== API Token API =====
   getAPITokens(): Promise<APIToken[]>;

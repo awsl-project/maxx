@@ -44,6 +44,8 @@ import type {
   AuthVerifyResult,
   AuthLoginResult,
   AuthRegisterResult,
+  ApplyResult,
+  ChangePasswordResult,
   User,
   CreateUserData,
   UpdateUserData,
@@ -618,6 +620,20 @@ export class HttpTransport implements Transport {
     return data;
   }
 
+  async apply(username: string, password: string): Promise<ApplyResult> {
+    const { data } = await axios.post<ApplyResult>('/api/admin/auth/apply', { username, password });
+    return data;
+  }
+
+  async changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult> {
+    const headers: Record<string, string> = {};
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
+    const { data } = await axios.put<ChangePasswordResult>('/api/admin/auth/password', { oldPassword, newPassword }, { headers });
+    return data;
+  }
+
   setAuthToken(token: string): void {
     this.authToken = token;
   }
@@ -654,6 +670,11 @@ export class HttpTransport implements Transport {
 
   async updatePassword(userId: number, password: string): Promise<void> {
     await this.client.put(`/users/${userId}/password`, { password });
+  }
+
+  async approveUser(id: number): Promise<User> {
+    const { data } = await this.client.put<User>(`/users/${id}/approve`);
+    return data;
   }
 
   // ===== API Token API =====

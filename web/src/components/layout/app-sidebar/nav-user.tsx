@@ -1,12 +1,18 @@
 ﻿'use client';
 
-import { Moon, Sun, Laptop, Sparkles, Gem, Github, ChevronsUp, RefreshCw, LogOut } from 'lucide-react';
+import { useState } from 'react';
+import { Moon, Sun, Laptop, Sparkles, Gem, Github, ChevronsUp, RefreshCw, LogOut, KeyRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
 import { useTransport } from '@/lib/transport/context';
 import { useAuth } from '@/lib/auth-context';
+import { useChangeMyPassword } from '@/hooks/queries';
 import type { Theme } from '@/lib/theme';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -35,7 +41,13 @@ export function NavUser() {
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
   const { user, authEnabled, multiTenancyEnabled, logout } = useAuth();
+  const changePassword = useChangeMyPassword();
   const isCollapsed = !isMobile && state === 'collapsed';
+
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
   const currentLanguage = (i18n.resolvedLanguage || i18n.language || 'en').toLowerCase().startsWith('zh')
     ? 'zh'
     : 'en';
@@ -69,6 +81,29 @@ export function NavUser() {
       if (typeof window !== 'undefined') {
         window.alert(t('nav.restartServerFailed'));
       }
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError(t('users.passwordMismatch'));
+      return;
+    }
+
+    try {
+      await changePassword.mutateAsync({
+        oldPassword: passwordForm.oldPassword,
+        newPassword: passwordForm.newPassword,
+      });
+      setPasswordSuccess(t('users.changePasswordSuccess'));
+      setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      setTimeout(() => setShowPasswordDialog(false), 1500);
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: { error?: string } } };
+      setPasswordError(axiosError?.response?.data?.error || t('users.changePasswordFailed'));
     }
   };
 
@@ -238,6 +273,20 @@ export function NavUser() {
                   <span>{t('nav.restartServer')}</span>
                 </DropdownMenuItem>
               </>
+              {multiTenancyEnabled && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => {
+                    setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+                    setPasswordError('');
+                    setPasswordSuccess('');
+                    setShowPasswordDialog(true);
+                  }}>
+                    <KeyRound />
+                    <span>{t('nav.changePassword')}</span>
+                  </DropdownMenuItem>
+                </>
+              )}
               {authEnabled && (
                 <>
                   <DropdownMenuSeparator />
@@ -251,6 +300,59 @@ export function NavUser() {
           </DropdownMenu>
         </div>
       </SidebarMenuItem>
+
+      {/* Change Password Dialog */}
+      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('users.changePassword')}</DialogTitle>
+            <DialogDescription>{t('users.changePassword')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('users.oldPassword')}</label>
+              <Input
+                type="password"
+                value={passwordForm.oldPassword}
+                onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
+                placeholder={t('users.oldPassword')}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('users.newPassword')}</label>
+              <Input
+                type="password"
+                value={passwordForm.newPassword}
+                onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                placeholder={t('users.newPassword')}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('users.confirmNewPassword')}</label>
+              <Input
+                type="password"
+                value={passwordForm.confirmPassword}
+                onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                placeholder={t('users.confirmNewPassword')}
+              />
+            </div>
+            {passwordError && <p className="text-destructive text-sm">{passwordError}</p>}
+            {passwordSuccess && <p className="text-green-600 text-sm">{passwordSuccess}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleChangePassword}
+              disabled={!passwordForm.oldPassword || !passwordForm.newPassword || !passwordForm.confirmPassword || changePassword.isPending}
+            >
+              {changePassword.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t('common.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SidebarMenu>
   );
 }

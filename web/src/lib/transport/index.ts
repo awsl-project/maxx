@@ -72,8 +72,11 @@ export type {
   // User
   User,
   UserRole,
+  UserStatus,
   CreateUserData,
   UpdateUserData,
+  ApplyResult,
+  ChangePasswordResult,
   AuthLoginResult,
   AuthRegisterResult,
   // API Token

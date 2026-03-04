@@ -54,17 +54,16 @@ func (m *AuthMiddleware) IsEnabled() bool {
 }
 
 // IsMultiTenancyEnabled checks if multi-tenancy is active
-// Multi-tenancy is active when there are users beyond the default user
+// Multi-tenancy is active when there are active users
 func (m *AuthMiddleware) IsMultiTenancyEnabled() bool {
 	if m.userRepo == nil {
 		return false
 	}
-	users, err := m.userRepo.List()
+	count, err := m.userRepo.CountActive()
 	if err != nil {
 		return false
 	}
-	// If any user exists, multi-tenancy (username+password login) is enabled
-	return len(users) >= 1
+	return count >= 1
 }
 
 // getJWTSecret returns the JWT signing secret

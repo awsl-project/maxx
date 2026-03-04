@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
+	"golang.org/x/crypto/bcrypt"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
@@ -245,6 +246,11 @@ func InitializeServerComponents(
 		log.Printf("[Core] Warning: Failed to initialize model prices: %v", err)
 	}
 
+	// Seed default admin user if MAXX_ADMIN_PASSWORD is set and no users exist
+	if err := seedDefaultAdmin(repos.UserRepo); err != nil {
+		log.Printf("[Core] Warning: Failed to seed default admin: %v", err)
+	}
+
 	log.Printf("[Core] Creating router")
 	r := router.NewRouter(
 		repos.CachedRouteRepo,
@@ -447,6 +453,44 @@ func initializeModelPrices(repo repository.ModelPriceRepository) error {
 	}
 
 	pricing.GlobalCalculator().LoadFromDatabase(prices)
+	return nil
+}
+
+// seedDefaultAdmin 自动创建默认 admin 用户
+func seedDefaultAdmin(userRepo repository.UserRepository) error {
+	password := os.Getenv(handler.AdminPasswordEnvKey)
+	if password == "" {
+		return nil
+	}
+
+	// 如果已有任何用户，跳过（幂等）
+	users, err := userRepo.List()
+	if err != nil {
+		return err
+	}
+	if len(users) > 0 {
+		return nil
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	admin := &domain.User{
+		TenantID:     domain.DefaultTenantID,
+		Username:     "admin",
+		PasswordHash: string(hash),
+		Role:         domain.UserRoleAdmin,
+		Status:       domain.UserStatusActive,
+		IsDefault:    true,
+	}
+
+	if err := userRepo.Create(admin); err != nil {
+		return err
+	}
+
+	log.Printf("[Core] Seeded default admin user (username=admin)")
 	return nil
 }
 
