@@ -57,11 +57,14 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
         }
       }
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string } } };
-      if (axiosError?.response?.data?.error === 'account pending approval') {
+      const axiosError = err as { response?: { data?: { error?: string }, status?: number } };
+      const errorMsg = axiosError?.response?.data?.error;
+      if (errorMsg === 'account pending approval') {
         setError(t('login.pendingApproval'));
+      } else if (axiosError?.response?.status === 401) {
+        setError(multiTenancyEnabled ? t('login.invalidCredentials') : t('login.invalidPassword'));
       } else {
-        setError(t('login.verifyFailed'));
+        setError(errorMsg || t('login.verifyFailed'));
       }
     } finally {
       setIsLoading(false);
@@ -189,7 +192,7 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
               disabled={isLoading}
             />
             {error && <p className="text-destructive text-sm">{error}</p>}
-            {successMessage && <p className="text-green-600 text-sm">{successMessage}</p>}
+            {successMessage && <p className="text-green-600 dark:text-green-400 text-sm">{successMessage}</p>}
           </div>
 
           <Button type="submit" className="w-full" disabled={isSubmitDisabled}>

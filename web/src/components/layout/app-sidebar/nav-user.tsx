@@ -1,7 +1,7 @@
 ﻿'use client';
 
-import { useState } from 'react';
-import { Moon, Sun, Laptop, Sparkles, Gem, Github, ChevronsUp, RefreshCw, LogOut, KeyRound } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Moon, Sun, Laptop, Sparkles, Gem, Github, ChevronsUp, RefreshCw, LogOut, KeyRound, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
 import { useTransport } from '@/lib/transport/context';
@@ -12,7 +12,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -48,6 +47,15 @@ export function NavUser() {
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const passwordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (passwordTimeoutRef.current) {
+        clearTimeout(passwordTimeoutRef.current);
+      }
+    };
+  }, []);
   const currentLanguage = (i18n.resolvedLanguage || i18n.language || 'en').toLowerCase().startsWith('zh')
     ? 'zh'
     : 'en';
@@ -100,7 +108,7 @@ export function NavUser() {
       });
       setPasswordSuccess(t('users.changePasswordSuccess'));
       setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
-      setTimeout(() => setShowPasswordDialog(false), 1500);
+      passwordTimeoutRef.current = setTimeout(() => setShowPasswordDialog(false), 1500);
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { error?: string } } };
       setPasswordError(axiosError?.response?.data?.error || t('users.changePasswordFailed'));
@@ -306,7 +314,7 @@ export function NavUser() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('users.changePassword')}</DialogTitle>
-            <DialogDescription>{t('users.changePassword')}</DialogDescription>
+            <DialogDescription>{t('users.changePasswordDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -340,7 +348,7 @@ export function NavUser() {
               />
             </div>
             {passwordError && <p className="text-destructive text-sm">{passwordError}</p>}
-            {passwordSuccess && <p className="text-green-600 text-sm">{passwordSuccess}</p>}
+            {passwordSuccess && <p className="text-green-600 dark:text-green-400 text-sm">{passwordSuccess}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>

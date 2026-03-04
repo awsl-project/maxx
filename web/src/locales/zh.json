@@ -700,6 +700,7 @@
     "updateSuccess": "用户更新成功",
     "deleteSuccess": "用户删除成功",
     "changePassword": "修改密码",
+    "changePasswordDescription": "请输入当前密码并设置新密码",
     "oldPassword": "当前密码",
     "newPassword": "新密码",
     "confirmNewPassword": "确认新密码",

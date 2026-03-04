@@ -700,6 +700,7 @@
     "updateSuccess": "User updated successfully",
     "deleteSuccess": "User deleted successfully",
     "changePassword": "Change Password",
+    "changePasswordDescription": "Enter your current password and choose a new one",
     "oldPassword": "Current Password",
     "newPassword": "New Password",
     "confirmNewPassword": "Confirm New Password",

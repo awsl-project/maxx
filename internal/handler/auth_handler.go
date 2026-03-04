@@ -325,7 +325,11 @@ func (h *AuthHandler) handleChangePassword(w http.ResponseWriter, r *http.Reques
 
 	user, err := h.userRepo.GetByID(claims.TenantID, claims.UserID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		if err == domain.ErrNotFound {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 
