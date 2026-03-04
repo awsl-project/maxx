@@ -79,7 +79,7 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	if s.config.AuthMiddleware != nil {
 		mux.Handle("/api/admin/", http.StripPrefix("/api", s.config.AuthMiddleware.Wrap(components.AdminHandler)))
 	} else {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", components.AdminHandler))
+		mux.Handle("/api/admin/", http.StripPrefix("/api", handler.NoAuthMiddleware(components.AdminHandler)))
 	}
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", components.AntigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))

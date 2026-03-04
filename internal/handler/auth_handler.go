@@ -17,14 +17,16 @@ type AuthHandler struct {
 	authMiddleware *AuthMiddleware
 	userRepo       repository.UserRepository
 	tenantRepo     repository.TenantRepository
+	authEnabled    bool
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(authMiddleware *AuthMiddleware, userRepo repository.UserRepository, tenantRepo repository.TenantRepository) *AuthHandler {
+func NewAuthHandler(authMiddleware *AuthMiddleware, userRepo repository.UserRepository, tenantRepo repository.TenantRepository, authEnabled bool) *AuthHandler {
 	return &AuthHandler{
 		authMiddleware: authMiddleware,
 		userRepo:       userRepo,
 		tenantRepo:     tenantRepo,
+		authEnabled:    authEnabled,
 	}
 }
 
@@ -330,7 +332,7 @@ func (h *AuthHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := map[string]any{
-		"authEnabled": true,
+		"authEnabled": h.authEnabled,
 	}
 
 	// If authenticated, return user info

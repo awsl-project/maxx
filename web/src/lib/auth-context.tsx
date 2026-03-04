@@ -55,6 +55,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
         setAuthEnabled(status.authEnabled);
 
+        // If auth is disabled, auto-authenticate as admin
+        if (!status.authEnabled) {
+          setIsAuthenticated(true);
+          setUser({
+            id: 1,
+            username: 'admin',
+            tenantID: 1,
+            role: 'admin',
+          });
+          return;
+        }
+
         if (savedToken) {
           try {
             await transport.getProxyStatus();

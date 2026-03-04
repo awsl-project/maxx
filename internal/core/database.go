@@ -361,8 +361,18 @@ func InitializeServerComponents(
 	)
 
 	log.Printf("[Core] Creating auth middleware and handler")
-	authMiddleware := handler.NewAuthMiddleware(repos.SettingRepo)
-	authHandler := handler.NewAuthHandler(authMiddleware, repos.UserRepo, repos.TenantRepo)
+	authEnabled := os.Getenv(handler.AdminPasswordEnvKey) != ""
+	var authMiddleware *handler.AuthMiddleware
+	if authEnabled {
+		if err := SeedDefaultAdmin(repos.UserRepo); err != nil {
+			return nil, fmt.Errorf("failed to seed default admin: %w", err)
+		}
+		authMiddleware = handler.NewAuthMiddleware(repos.SettingRepo)
+		log.Println("Admin API authentication is enabled (multi-user mode)")
+	} else {
+		log.Println("Admin API authentication is disabled (no MAXX_ADMIN_PASSWORD set)")
+	}
+	authHandler := handler.NewAuthHandler(authMiddleware, repos.UserRepo, repos.TenantRepo, authEnabled)
 
 	log.Printf("[Core] Creating handlers")
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(repos.CachedAPITokenRepo, repos.SettingRepo)

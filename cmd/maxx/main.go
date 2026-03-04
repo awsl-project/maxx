@@ -324,14 +324,20 @@ func main() {
 		r, // Router implements ProviderAdapterRefresher interface
 	)
 
-	// Ensure an active admin user exists (panic on failure since all operations require auth)
-	if err := core.SeedDefaultAdmin(userRepo); err != nil {
-		log.Fatalf("Failed to seed default admin: %v", err)
-	}
+	// Determine if authentication is enabled based on MAXX_ADMIN_PASSWORD
+	authEnabled := os.Getenv(handler.AdminPasswordEnvKey) != ""
+	var authMiddleware *handler.AuthMiddleware
 
-	// Create auth middleware
-	authMiddleware := handler.NewAuthMiddleware(settingRepo)
-	log.Println("Admin API authentication is enabled (multi-user mode)")
+	if authEnabled {
+		// Ensure an active admin user exists (panic on failure since all operations require auth)
+		if err := core.SeedDefaultAdmin(userRepo); err != nil {
+			log.Fatalf("Failed to seed default admin: %v", err)
+		}
+		authMiddleware = handler.NewAuthMiddleware(settingRepo)
+		log.Println("Admin API authentication is enabled (multi-user mode)")
+	} else {
+		log.Println("Admin API authentication is disabled (no MAXX_ADMIN_PASSWORD set)")
+	}
 
 	// Create token auth middleware
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(cachedAPITokenRepo, settingRepo)
@@ -347,7 +353,7 @@ func main() {
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	adminHandler.SetUserRepo(userRepo)
-	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo)
+	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo, authEnabled)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
 	antigravityHandler.SetTaskService(antigravityTaskSvc)
 	kiroHandler := handler.NewKiroHandler(adminService)
@@ -366,7 +372,11 @@ func main() {
 	mux.Handle("/api/admin/auth/", http.StripPrefix("/api", authHandler))
 
 	// Admin API routes with authentication middleware
-	mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
+	if authMiddleware != nil {
+		mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
+	} else {
+		mux.Handle("/api/admin/", http.StripPrefix("/api", handler.NoAuthMiddleware(adminHandler)))
+	}
 
 	// Other API routes (no authentication required)
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", antigravityHandler))

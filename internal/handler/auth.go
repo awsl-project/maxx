@@ -134,6 +134,17 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 	})
 }
 
+// NoAuthMiddleware injects default tenant/user context when authentication is disabled.
+// Used in single-user / intranet mode where MAXX_ADMIN_PASSWORD is not set.
+func NoAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := maxxctx.WithTenantID(r.Context(), domain.DefaultTenantID)
+		ctx = maxxctx.WithUserID(ctx, domain.DefaultUserID)
+		ctx = maxxctx.WithUserRole(ctx, string(domain.UserRoleAdmin))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func writeUnauthorized(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
