@@ -610,6 +610,129 @@ func TestRollUp_PreservesAggregationKey(t *testing.T) {
 	}
 }
 
+func TestAggregateAttempts_DifferentTenants(t *testing.T) {
+	baseTime := time.Date(2024, 1, 17, 10, 30, 0, 0, time.UTC)
+
+	records := []AttemptRecord{
+		{
+			EndTime:      baseTime,
+			TenantID:     1,
+			ProviderID:   1,
+			Model:        "claude-3",
+			IsSuccessful: true,
+			InputTokens:  100,
+		},
+		{
+			EndTime:      baseTime,
+			TenantID:     2,
+			ProviderID:   1,
+			Model:        "claude-3",
+			IsSuccessful: true,
+			InputTokens:  200,
+		},
+	}
+
+	result := AggregateAttempts(records, time.UTC)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 aggregated results for different tenants, got %d", len(result))
+	}
+
+	tenantTotals := map[uint64]uint64{}
+	for _, s := range result {
+		tenantTotals[s.TenantID] += s.InputTokens
+	}
+	if tenantTotals[1] != 100 {
+		t.Errorf("tenant 1 input tokens = %d, want 100", tenantTotals[1])
+	}
+	if tenantTotals[2] != 200 {
+		t.Errorf("tenant 2 input tokens = %d, want 200", tenantTotals[2])
+	}
+}
+
+func TestRollUp_DifferentTenants(t *testing.T) {
+	baseTime := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+
+	minuteStats := []*domain.UsageStats{
+		{
+			TenantID:      1,
+			Granularity:   domain.GranularityMinute,
+			TimeBucket:    baseTime,
+			ProviderID:    1,
+			Model:         "claude-3",
+			TotalRequests: 1,
+			InputTokens:   100,
+		},
+		{
+			TenantID:      2,
+			Granularity:   domain.GranularityMinute,
+			TimeBucket:    baseTime.Add(5 * time.Minute),
+			ProviderID:    1,
+			Model:         "claude-3",
+			TotalRequests: 1,
+			InputTokens:   200,
+		},
+	}
+
+	result := RollUp(minuteStats, domain.GranularityHour, time.UTC)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 hourly stats for different tenants, got %d", len(result))
+	}
+
+	tenantTotals := map[uint64]uint64{}
+	for _, s := range result {
+		tenantTotals[s.TenantID] += s.InputTokens
+	}
+	if tenantTotals[1] != 100 {
+		t.Errorf("tenant 1 input tokens = %d, want 100", tenantTotals[1])
+	}
+	if tenantTotals[2] != 200 {
+		t.Errorf("tenant 2 input tokens = %d, want 200", tenantTotals[2])
+	}
+}
+
+func TestMergeStats_DifferentTenants(t *testing.T) {
+	baseTime := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+
+	list1 := []*domain.UsageStats{
+		{
+			TenantID:      1,
+			Granularity:   domain.GranularityHour,
+			TimeBucket:    baseTime,
+			ProviderID:    1,
+			Model:         "claude-3",
+			TotalRequests: 1,
+			InputTokens:   100,
+		},
+	}
+	list2 := []*domain.UsageStats{
+		{
+			TenantID:      2,
+			Granularity:   domain.GranularityHour,
+			TimeBucket:    baseTime,
+			ProviderID:    1,
+			Model:         "claude-3",
+			TotalRequests: 1,
+			InputTokens:   200,
+		},
+	}
+
+	result := MergeStats(list1, list2)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 merged results for different tenants, got %d", len(result))
+	}
+
+	tenantTotals := map[uint64]uint64{}
+	for _, s := range result {
+		tenantTotals[s.TenantID] += s.InputTokens
+	}
+	if tenantTotals[1] != 100 {
+		t.Errorf("tenant 1 input tokens = %d, want 100", tenantTotals[1])
+	}
+	if tenantTotals[2] != 200 {
+		t.Errorf("tenant 2 input tokens = %d, want 200", tenantTotals[2])
+	}
+}
+
 func TestRollUp_WithTimezone(t *testing.T) {
 	shanghai, _ := time.LoadLocation("Asia/Shanghai")
 

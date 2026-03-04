@@ -13,6 +13,7 @@ import (
 // This is a simplified representation of the data needed for minute-level aggregation.
 type AttemptRecord struct {
 	EndTime      time.Time
+	TenantID     uint64
 	RouteID      uint64
 	ProviderID   uint64
 	ProjectID    uint64
@@ -59,6 +60,7 @@ func AggregateAttempts(records []AttemptRecord, loc *time.Location) []*domain.Us
 
 	type aggKey struct {
 		minuteBucket int64
+		tenantID     uint64
 		routeID      uint64
 		providerID   uint64
 		projectID    uint64
@@ -73,6 +75,7 @@ func AggregateAttempts(records []AttemptRecord, loc *time.Location) []*domain.Us
 
 		key := aggKey{
 			minuteBucket: minuteBucket,
+			tenantID:     r.TenantID,
 			routeID:      r.RouteID,
 			providerID:   r.ProviderID,
 			projectID:    r.ProjectID,
@@ -104,6 +107,7 @@ func AggregateAttempts(records []AttemptRecord, loc *time.Location) []*domain.Us
 			statsMap[key] = &domain.UsageStats{
 				Granularity:        domain.GranularityMinute,
 				TimeBucket:         time.UnixMilli(minuteBucket),
+				TenantID:           r.TenantID,
 				RouteID:            r.RouteID,
 				ProviderID:         r.ProviderID,
 				ProjectID:          r.ProjectID,
@@ -141,6 +145,7 @@ func RollUp(stats []*domain.UsageStats, to domain.Granularity, loc *time.Locatio
 
 	type rollupKey struct {
 		targetBucket int64
+		tenantID     uint64
 		routeID      uint64
 		providerID   uint64
 		projectID    uint64
@@ -155,6 +160,7 @@ func RollUp(stats []*domain.UsageStats, to domain.Granularity, loc *time.Locatio
 
 		key := rollupKey{
 			targetBucket: targetBucket.UnixMilli(),
+			tenantID:     s.TenantID,
 			routeID:      s.RouteID,
 			providerID:   s.ProviderID,
 			projectID:    s.ProjectID,
@@ -178,6 +184,7 @@ func RollUp(stats []*domain.UsageStats, to domain.Granularity, loc *time.Locatio
 			statsMap[key] = &domain.UsageStats{
 				Granularity:        to,
 				TimeBucket:         targetBucket,
+				TenantID:           s.TenantID,
 				RouteID:            s.RouteID,
 				ProviderID:         s.ProviderID,
 				ProjectID:          s.ProjectID,
@@ -211,6 +218,7 @@ func MergeStats(statsList ...[]*domain.UsageStats) []*domain.UsageStats {
 	type mergeKey struct {
 		granularity domain.Granularity
 		timeBucket  int64
+		tenantID    uint64
 		routeID     uint64
 		providerID  uint64
 		projectID   uint64
@@ -225,6 +233,7 @@ func MergeStats(statsList ...[]*domain.UsageStats) []*domain.UsageStats {
 			key := mergeKey{
 				granularity: s.Granularity,
 				timeBucket:  s.TimeBucket.UnixMilli(),
+				tenantID:    s.TenantID,
 				routeID:     s.RouteID,
 				providerID:  s.ProviderID,
 				projectID:   s.ProjectID,

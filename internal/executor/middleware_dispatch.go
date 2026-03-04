@@ -115,6 +115,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 
 			attemptStartTime := time.Now()
 			attemptRecord := &domain.ProxyUpstreamAttempt{
+				TenantID:       proxyReq.TenantID,
 				ProxyRequestID: proxyReq.ID,
 				RouteID:        matchedRoute.Route.ID,
 				ProviderID:     matchedRoute.Provider.ID,
@@ -124,6 +125,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				RequestModel:   state.requestModel,
 				MappedModel:    mappedModel,
 				RequestInfo:    proxyReq.RequestInfo,
+			}
+			if attemptRecord.TenantID == 0 {
+				attemptRecord.TenantID = state.tenantID
 			}
 			if err := e.attemptRepo.Create(attemptRecord); err != nil {
 				log.Printf("[Executor] Failed to create attempt record: %v", err)

@@ -206,7 +206,7 @@ type UsageStatsRepository interface {
 	// DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
 	DeleteOlderThan(granularity domain.Granularity, before time.Time) (int64, error)
 	// GetLatestTimeBucket 获取指定粒度的最新时间桶
-	GetLatestTimeBucket(granularity domain.Granularity) (*time.Time, error)
+	GetLatestTimeBucket(tenantID uint64, granularity domain.Granularity) (*time.Time, error)
 	// GetProviderStats 获取 Provider 统计数据
 	GetProviderStats(tenantID uint64, clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error)
 	// AggregateAndRollUp 聚合原始数据到分钟级别，并自动 rollup 到各个粗粒度

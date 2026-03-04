@@ -49,6 +49,7 @@ func (r *UsageStatsRepository) Upsert(stats *domain.UsageStats) error {
 	model := r.toModel(stats)
 	return r.db.gorm.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
+			{Name: "tenant_id"},
 			{Name: "granularity"},
 			{Name: "time_bucket"},
 			{Name: "route_id"},
@@ -341,6 +342,7 @@ func (r *UsageStatsRepository) aggregateToTargetBucket(
 	granularity domain.Granularity,
 ) []*domain.UsageStats {
 	type dimKey struct {
+		tenantID   uint64
 		routeID    uint64
 		providerID uint64
 		projectID  uint64
@@ -352,7 +354,7 @@ func (r *UsageStatsRepository) aggregateToTargetBucket(
 	aggregated := make(map[dimKey]*domain.UsageStats)
 
 	for _, s := range stats {
-		key := dimKey{s.RouteID, s.ProviderID, s.ProjectID, s.APITokenID, s.ClientType, s.Model}
+		key := dimKey{s.TenantID, s.RouteID, s.ProviderID, s.ProjectID, s.APITokenID, s.ClientType, s.Model}
 		if existing, ok := aggregated[key]; ok {
 			existing.TotalRequests += s.TotalRequests
 			existing.SuccessfulRequests += s.SuccessfulRequests
@@ -368,6 +370,7 @@ func (r *UsageStatsRepository) aggregateToTargetBucket(
 			aggregated[key] = &domain.UsageStats{
 				TimeBucket:         targetBucket,
 				Granularity:        granularity,
+				TenantID:           s.TenantID,
 				RouteID:            s.RouteID,
 				ProviderID:         s.ProviderID,
 				ProjectID:          s.ProjectID,
@@ -467,7 +470,7 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(tenantID uint64, startMin
 	conditions = append(conditions, "a.status IN ('COMPLETED', 'FAILED', 'CANCELLED')")
 
 	if tenantID > 0 {
-		conditions = append(conditions, "a.tenant_id = ?")
+		conditions = append(conditions, "COALESCE(a.tenant_id, COALESCE(r.tenant_id, 0)) = ?")
 		args = append(args, tenantID)
 	}
 
@@ -500,6 +503,7 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(tenantID uint64, startMin
 	query := `
 		SELECT
 			a.end_time,
+			COALESCE(a.tenant_id, COALESCE(r.tenant_id, 0)),
 			COALESCE(r.route_id, 0), COALESCE(a.provider_id, 0),
 			COALESCE(r.project_id, 0), COALESCE(r.api_token_id, 0), COALESCE(r.client_type, ''),
 			COALESCE(a.response_model, ''),
@@ -525,12 +529,12 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(tenantID uint64, startMin
 	var records []stats.AttemptRecord
 	for rows.Next() {
 		var endTime int64
-		var routeID, providerID, projectID, apiTokenID uint64
+		var tenantIDValue, routeID, providerID, projectID, apiTokenID uint64
 		var clientType, model, status string
 		var durationMs, ttftMs, inputTokens, outputTokens, cacheRead, cacheWrite, cost uint64
 
 		err := rows.Scan(
-			&endTime, &routeID, &providerID, &projectID, &apiTokenID, &clientType,
+			&endTime, &tenantIDValue, &routeID, &providerID, &projectID, &apiTokenID, &clientType,
 			&model, &status, &durationMs, &ttftMs,
 			&inputTokens, &outputTokens, &cacheRead, &cacheWrite, &cost,
 		)
@@ -540,6 +544,7 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(tenantID uint64, startMin
 
 		records = append(records, stats.AttemptRecord{
 			EndTime:      fromTimestamp(endTime),
+			TenantID:     tenantIDValue,
 			RouteID:      routeID,
 			ProviderID:   providerID,
 			ProjectID:    projectID,
@@ -729,12 +734,16 @@ func (r *UsageStatsRepository) DeleteOlderThan(granularity domain.Granularity, b
 }
 
 // GetLatestTimeBucket 获取指定粒度的最新时间桶
-func (r *UsageStatsRepository) GetLatestTimeBucket(granularity domain.Granularity) (*time.Time, error) {
-	var bucket *int64
-	err := r.db.gorm.Model(&UsageStats{}).
+func (r *UsageStatsRepository) GetLatestTimeBucket(tenantID uint64, granularity domain.Granularity) (*time.Time, error) {
+	query := r.db.gorm.Model(&UsageStats{}).
 		Select("MAX(time_bucket)").
-		Where("granularity = ?", granularity).
-		Scan(&bucket).Error
+		Where("granularity = ?", granularity)
+	if tenantID > 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+
+	var bucket *int64
+	err := query.Scan(&bucket).Error
 	if err != nil || bucket == nil || *bucket == 0 {
 		return nil, err
 	}
@@ -934,12 +943,12 @@ func (r *UsageStatsRepository) queryAllWithRealtime(tenantID uint64, filter repo
 
 // aggregateMinute 从原始数据聚合到分钟级别（内部方法）
 // 返回：聚合数量、开始时间、结束时间、错误
-func (r *UsageStatsRepository) aggregateMinute() (count int, startTime, endTime time.Time, err error) {
+func (r *UsageStatsRepository) aggregateMinute(tenantID uint64) (count int, startTime, endTime time.Time, err error) {
 	now := time.Now().UTC()
 	endTime = now.Truncate(time.Minute)
 
 	// 获取最新的聚合分钟
-	latestMinute, e := r.GetLatestTimeBucket(domain.GranularityMinute)
+	latestMinute, e := r.GetLatestTimeBucket(tenantID, domain.GranularityMinute)
 	if e != nil || latestMinute == nil {
 		// 如果没有历史数据，从 2 小时前开始
 		startTime = now.Add(-2 * time.Hour).Truncate(time.Minute)
@@ -953,6 +962,7 @@ func (r *UsageStatsRepository) aggregateMinute() (count int, startTime, endTime 
 	query := `
 		SELECT
 			a.end_time,
+			COALESCE(a.tenant_id, COALESCE(r.tenant_id, 0)),
 			COALESCE(r.route_id, 0), COALESCE(a.provider_id, 0),
 			COALESCE(r.project_id, 0), COALESCE(r.api_token_id, 0), COALESCE(r.client_type, ''),
 			COALESCE(a.response_model, ''),
@@ -970,7 +980,13 @@ func (r *UsageStatsRepository) aggregateMinute() (count int, startTime, endTime 
 		AND a.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
 	`
 
-	rows, err := r.db.gorm.Raw(query, toTimestamp(startTime), toTimestamp(endTime)).Rows()
+	args := []interface{}{toTimestamp(startTime), toTimestamp(endTime)}
+	if tenantID > 0 {
+		query += "\n\t\tAND COALESCE(a.tenant_id, COALESCE(r.tenant_id, 0)) = ?"
+		args = append(args, tenantID)
+	}
+
+	rows, err := r.db.gorm.Raw(query, args...).Rows()
 	if err != nil {
 		return 0, startTime, endTime, err
 	}
@@ -982,12 +998,12 @@ func (r *UsageStatsRepository) aggregateMinute() (count int, startTime, endTime 
 
 	for rows.Next() {
 		var endTime int64
-		var routeID, providerID, projectID, apiTokenID uint64
+		var tenantIDValue, routeID, providerID, projectID, apiTokenID uint64
 		var clientType, model, status string
 		var durationMs, ttftMs, inputTokens, outputTokens, cacheRead, cacheWrite, cost uint64
 
 		err := rows.Scan(
-			&endTime, &routeID, &providerID, &projectID, &apiTokenID, &clientType,
+			&endTime, &tenantIDValue, &routeID, &providerID, &projectID, &apiTokenID, &clientType,
 			&model, &status, &durationMs, &ttftMs,
 			&inputTokens, &outputTokens, &cacheRead, &cacheWrite, &cost,
 		)
@@ -1002,6 +1018,7 @@ func (r *UsageStatsRepository) aggregateMinute() (count int, startTime, endTime 
 
 		records = append(records, stats.AttemptRecord{
 			EndTime:      fromTimestamp(endTime),
+			TenantID:     tenantIDValue,
 			RouteID:      routeID,
 			ProviderID:   providerID,
 			ProjectID:    projectID,
@@ -1056,7 +1073,7 @@ func (r *UsageStatsRepository) AggregateAndRollUp(tenantID uint64) <-chan domain
 		defer close(ch)
 
 		// 1. 聚合原始数据到分钟级别
-		count, startTime, endTime, err := r.aggregateMinute()
+		count, startTime, endTime, err := r.aggregateMinute(tenantID)
 		ch <- domain.AggregateEvent{
 			Phase:     "aggregate_minute",
 			To:        domain.GranularityMinute,
@@ -1081,7 +1098,7 @@ func (r *UsageStatsRepository) AggregateAndRollUp(tenantID uint64) <-chan domain
 		}
 
 		for _, ru := range rollups {
-			count, startTime, endTime, err := r.rollUp(ru.from, ru.to)
+			count, startTime, endTime, err := r.rollUp(tenantID, ru.from, ru.to)
 			ch <- domain.AggregateEvent{
 				Phase:     ru.phase,
 				From:      ru.from,
@@ -1102,7 +1119,7 @@ func (r *UsageStatsRepository) AggregateAndRollUp(tenantID uint64) <-chan domain
 
 // rollUp 从细粒度上卷到粗粒度（内部方法）
 // 返回：聚合数量、开始时间、结束时间、错误
-func (r *UsageStatsRepository) rollUp(from, to domain.Granularity) (count int, startTime, endTime time.Time, err error) {
+func (r *UsageStatsRepository) rollUp(tenantID uint64, from, to domain.Granularity) (count int, startTime, endTime time.Time, err error) {
 	now := time.Now().UTC()
 
 	// 对于 day 及以上粒度，使用配置的时区，否则使用 UTC
@@ -1115,7 +1132,7 @@ func (r *UsageStatsRepository) rollUp(from, to domain.Granularity) (count int, s
 	endTime = stats.TruncateToGranularity(now, to, loc)
 
 	// 获取目标粒度的最新时间桶
-	latestBucket, _ := r.GetLatestTimeBucket(to)
+	latestBucket, _ := r.GetLatestTimeBucket(tenantID, to)
 	if latestBucket == nil {
 		// 如果没有历史数据，根据源粒度的保留时间决定
 		switch from {
@@ -1133,10 +1150,14 @@ func (r *UsageStatsRepository) rollUp(from, to domain.Granularity) (count int, s
 	}
 
 	// 查询源粒度数据
+	query := r.db.gorm.Where("granularity = ? AND time_bucket >= ? AND time_bucket < ?",
+		from, toTimestamp(startTime), toTimestamp(endTime))
+	if tenantID > 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+
 	var models []UsageStats
-	err = r.db.gorm.Where("granularity = ? AND time_bucket >= ? AND time_bucket < ?",
-		from, toTimestamp(startTime), toTimestamp(endTime)).
-		Find(&models).Error
+	err = query.Find(&models).Error
 	if err != nil {
 		return 0, startTime, endTime, err
 	}
@@ -1160,11 +1181,11 @@ func (r *UsageStatsRepository) rollUp(from, to domain.Granularity) (count int, s
 // RollUpAll 从细粒度上卷到粗粒度（处理所有历史数据，用于重新计算）
 // 对于 day/month 粒度，使用配置的时区来划分边界
 func (r *UsageStatsRepository) RollUpAll(from, to domain.Granularity) (int, error) {
-	return r.RollUpAllWithProgress(from, to, nil)
+	return r.RollUpAllWithProgress(domain.TenantIDAll, from, to, nil)
 }
 
 // RollUpAllWithProgress 从细粒度上卷到粗粒度，带进度报告
-func (r *UsageStatsRepository) RollUpAllWithProgress(from, to domain.Granularity, progressFn func(current, total int)) (int, error) {
+func (r *UsageStatsRepository) RollUpAllWithProgress(tenantID uint64, from, to domain.Granularity, progressFn func(current, total int)) (int, error) {
 	now := time.Now().UTC()
 
 	// 对于 day 及以上粒度，使用配置的时区，否则使用 UTC
@@ -1177,9 +1198,13 @@ func (r *UsageStatsRepository) RollUpAllWithProgress(from, to domain.Granularity
 	currentBucket := stats.TruncateToGranularity(now, to, loc)
 
 	// 查询所有源粒度数据
+	query := r.db.gorm.Where("granularity = ? AND time_bucket < ?", from, toTimestamp(currentBucket))
+	if tenantID > 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+
 	var models []UsageStats
-	err := r.db.gorm.Where("granularity = ? AND time_bucket < ?", from, toTimestamp(currentBucket)).
-		Find(&models).Error
+	err := query.Find(&models).Error
 	if err != nil {
 		return 0, err
 	}
@@ -1234,14 +1259,20 @@ func (r *UsageStatsRepository) ClearAndRecalculateWithProgress(tenantID uint64, 
 		}
 	}
 
-	// 1. 清空所有统计数据
+	// 1. 清空统计数据
 	sendProgress("clearing", 0, 100, "Clearing existing stats...")
-	if err := r.db.gorm.Exec(`DELETE FROM usage_stats`).Error; err != nil {
-		return fmt.Errorf("failed to clear usage_stats: %w", err)
+	if tenantID > 0 {
+		if err := r.db.gorm.Exec(`DELETE FROM usage_stats WHERE tenant_id = ?`, tenantID).Error; err != nil {
+			return fmt.Errorf("failed to clear usage_stats for tenant %d: %w", tenantID, err)
+		}
+	} else {
+		if err := r.db.gorm.Exec(`DELETE FROM usage_stats`).Error; err != nil {
+			return fmt.Errorf("failed to clear usage_stats: %w", err)
+		}
 	}
 
 	// 2. 重新聚合分钟级数据（从所有历史数据）- 带进度
-	_, err := r.aggregateAllMinutesWithProgress(func(current, total int) {
+	_, err := r.aggregateAllMinutesWithProgress(tenantID, func(current, total int) {
 		sendProgress("aggregating", current, total, fmt.Sprintf("Aggregating attempts: %d/%d", current, total))
 	})
 	if err != nil {
@@ -1249,15 +1280,15 @@ func (r *UsageStatsRepository) ClearAndRecalculateWithProgress(tenantID uint64, 
 	}
 
 	// 3. Roll-up 到各个粒度（使用完整时间范围）- 带进度
-	_, _ = r.RollUpAllWithProgress(domain.GranularityMinute, domain.GranularityHour, func(current, total int) {
+	_, _ = r.RollUpAllWithProgress(tenantID, domain.GranularityMinute, domain.GranularityHour, func(current, total int) {
 		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to hourly: %d/%d", current, total))
 	})
 
-	_, _ = r.RollUpAllWithProgress(domain.GranularityHour, domain.GranularityDay, func(current, total int) {
+	_, _ = r.RollUpAllWithProgress(tenantID, domain.GranularityHour, domain.GranularityDay, func(current, total int) {
 		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to daily: %d/%d", current, total))
 	})
 
-	_, _ = r.RollUpAllWithProgress(domain.GranularityDay, domain.GranularityMonth, func(current, total int) {
+	_, _ = r.RollUpAllWithProgress(tenantID, domain.GranularityDay, domain.GranularityMonth, func(current, total int) {
 		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to monthly: %d/%d", current, total))
 	})
 
@@ -1267,14 +1298,24 @@ func (r *UsageStatsRepository) ClearAndRecalculateWithProgress(tenantID uint64, 
 
 // aggregateAllMinutesWithProgress 从所有历史数据聚合分钟级统计，带进度回调
 // progressFn 会在每处理一定数量的记录后调用，参数为 (current, total)
-func (r *UsageStatsRepository) aggregateAllMinutesWithProgress(progressFn func(current, total int)) (int, error) {
+func (r *UsageStatsRepository) aggregateAllMinutesWithProgress(tenantID uint64, progressFn func(current, total int)) (int, error) {
 	now := time.Now().UTC()
 	currentMinute := now.Truncate(time.Minute)
 
 	// 1. 首先获取总数以便报告进度
 	var totalCount int64
-	countQuery := `SELECT COUNT(*) FROM proxy_upstream_attempts WHERE end_time < ? AND status IN ('COMPLETED', 'FAILED', 'CANCELLED')`
-	if err := r.db.gorm.Raw(countQuery, toTimestamp(currentMinute)).Scan(&totalCount).Error; err != nil {
+	countQuery := `
+		SELECT COUNT(*)
+		FROM proxy_upstream_attempts a
+		LEFT JOIN proxy_requests r ON a.proxy_request_id = r.id
+		WHERE a.end_time < ? AND a.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
+	`
+	countArgs := []interface{}{toTimestamp(currentMinute)}
+	if tenantID > 0 {
+		countQuery += "\n\t\tAND COALESCE(a.tenant_id, COALESCE(r.tenant_id, 0)) = ?"
+		countArgs = append(countArgs, tenantID)
+	}
+	if err := r.db.gorm.Raw(countQuery, countArgs...).Scan(&totalCount).Error; err != nil {
 		return 0, err
 	}
 
@@ -1293,6 +1334,7 @@ func (r *UsageStatsRepository) aggregateAllMinutesWithProgress(progressFn func(c
 	query := `
 		SELECT
 			a.end_time,
+			COALESCE(a.tenant_id, COALESCE(r.tenant_id, 0)),
 			COALESCE(r.route_id, 0), COALESCE(a.provider_id, 0),
 			COALESCE(r.project_id, 0), COALESCE(r.api_token_id, 0), COALESCE(r.client_type, ''),
 			COALESCE(a.response_model, ''),
@@ -1309,7 +1351,13 @@ func (r *UsageStatsRepository) aggregateAllMinutesWithProgress(progressFn func(c
 		WHERE a.end_time < ? AND a.status IN ('COMPLETED', 'FAILED', 'CANCELLED')
 	`
 
-	rows, err := r.db.gorm.Raw(query, toTimestamp(currentMinute)).Rows()
+	queryArgs := []interface{}{toTimestamp(currentMinute)}
+	if tenantID > 0 {
+		query += "\n\t\tAND COALESCE(a.tenant_id, COALESCE(r.tenant_id, 0)) = ?"
+		queryArgs = append(queryArgs, tenantID)
+	}
+
+	rows, err := r.db.gorm.Raw(query, queryArgs...).Rows()
 	if err != nil {
 		return 0, err
 	}
@@ -1325,12 +1373,12 @@ func (r *UsageStatsRepository) aggregateAllMinutesWithProgress(progressFn func(c
 
 	for rows.Next() {
 		var endTime int64
-		var routeID, providerID, projectID, apiTokenID uint64
+		var tenantIDValue, routeID, providerID, projectID, apiTokenID uint64
 		var clientType, model, status string
 		var durationMs, ttftMs, inputTokens, outputTokens, cacheRead, cacheWrite, cost uint64
 
 		err := rows.Scan(
-			&endTime, &routeID, &providerID, &projectID, &apiTokenID, &clientType,
+			&endTime, &tenantIDValue, &routeID, &providerID, &projectID, &apiTokenID, &clientType,
 			&model, &status, &durationMs, &ttftMs,
 			&inputTokens, &outputTokens, &cacheRead, &cacheWrite, &cost,
 		)
@@ -1352,6 +1400,7 @@ func (r *UsageStatsRepository) aggregateAllMinutesWithProgress(progressFn func(c
 
 		records = append(records, stats.AttemptRecord{
 			EndTime:      fromTimestamp(endTime),
+			TenantID:     tenantIDValue,
 			RouteID:      routeID,
 			ProviderID:   providerID,
 			ProjectID:    projectID,
@@ -1763,9 +1812,15 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 			}
 		}
 
-		// 从 proxy_requests 表获取真正的首次使用时间
+		// 从 proxy_requests 表获取真正的首次使用时间（按租户过滤）
 		var firstRequestTime *int64
-		err = r.db.gorm.Raw("SELECT MIN(created_at) FROM proxy_requests").Scan(&firstRequestTime).Error
+		firstUseQuery := "SELECT MIN(created_at) FROM proxy_requests"
+		firstUseArgs := []interface{}{}
+		if tenantID > 0 {
+			firstUseQuery += " WHERE tenant_id = ?"
+			firstUseArgs = append(firstUseArgs, tenantID)
+		}
+		err = r.db.gorm.Raw(firstUseQuery, firstUseArgs...).Scan(&firstRequestTime).Error
 		if err == nil && firstRequestTime != nil && *firstRequestTime > 0 {
 			firstUse := fromTimestamp(*firstRequestTime)
 			allTimeSummary.FirstUseDate = &firstUse
