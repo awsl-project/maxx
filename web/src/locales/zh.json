@@ -902,6 +902,7 @@
     "expired": "已过期",
     "global": "全局",
     "notSpecified": "未指定",
+    "generateCodexConfig": "生成 Codex 配置",
     "unknownProject": "项目 #{{id}}",
     "createDialog": {
       "title": "创建新 API 令牌",
@@ -932,6 +933,24 @@
       "description": "选择一个项目以限制此令牌的访问权限。",
       "noProjects": "暂无可用项目",
       "clearSelection": "清除选择"
+    },
+    "codexConfigDialog": {
+      "title": "Codex 配置自动生成",
+      "description": "基于令牌「{{name}}」生成全局代理配置。",
+      "modeGlobal": "全局代理",
+      "configToml": "config.toml",
+      "authJson": "auth.json",
+      "copyToClipboard": "复制到剪贴板",
+      "checks": {
+        "proxy": "代理地址可用",
+        "tokenEnabled": "令牌已启用",
+        "tokenExpiry": "令牌未过期"
+      },
+      "checksHint": {
+        "proxy": "未读取到代理地址，已使用默认 localhost:9880。",
+        "tokenEnabled": "该令牌当前已禁用，复制后请先启用再使用。",
+        "tokenExpiry": "该令牌已过期，复制后请更换有效令牌。"
+      }
     }
   },
   "app": {

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Button,
@@ -26,6 +26,7 @@ import {
   useUpdateAPIToken,
   useDeleteAPIToken,
   useProjects,
+  useProxyStatus,
   useSettings,
   useUpdateSetting,
 } from '@/hooks/queries';
@@ -42,14 +43,26 @@ import {
   Hash,
   FolderKanban,
   Shield,
+  Terminal,
+  CircleCheck,
+  CircleAlert,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 import type { APIToken } from '@/lib/transport';
+import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
+
+type CodexConfigDialogState = {
+  tokenName: string;
+  tokenValue: string;
+  isEnabled: boolean;
+  expiresAt?: string;
+};
 
 export function APITokensPage() {
   const { t, i18n } = useTranslation();
   const { data: tokens, isLoading } = useAPITokens();
   const { data: projects } = useProjects();
+  const { data: proxyStatus } = useProxyStatus();
   const { data: settings } = useSettings();
   const updateSetting = useUpdateSetting();
   const createToken = useCreateAPIToken();
@@ -73,6 +86,10 @@ export function APITokensPage() {
     name: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [codexConfigDialog, setCodexConfigDialog] = useState<CodexConfigDialogState | null>(null);
+  const [copiedCodexSection, setCopiedCodexSection] = useState<'configToml' | 'authJson' | null>(
+    null,
+  );
   const devModeSwitchId = useId();
 
   // Form state
@@ -166,6 +183,68 @@ export function APITokensPage() {
     await navigator.clipboard.writeText(newTokenDialog.token);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const codexBaseUrl = useMemo(() => buildProxyBaseUrl(proxyStatus), [proxyStatus]);
+  const codexBundle = useMemo(() => {
+    if (!codexConfigDialog) return null;
+    return buildCodexConfigBundle({
+      token: codexConfigDialog.tokenValue,
+      baseUrl: codexBaseUrl,
+    });
+  }, [codexConfigDialog, codexBaseUrl]);
+
+  const isCodexTokenExpired =
+    !!codexConfigDialog?.expiresAt && new Date(codexConfigDialog.expiresAt) < new Date();
+
+  const codexPreflightChecks = useMemo(
+    () => [
+      {
+        key: 'proxy',
+        ok: !!proxyStatus?.address,
+        message: t('apiTokens.codexConfigDialog.checks.proxy'),
+      },
+      {
+        key: 'tokenEnabled',
+        ok: codexConfigDialog?.isEnabled ?? false,
+        message: t('apiTokens.codexConfigDialog.checks.tokenEnabled'),
+      },
+      {
+        key: 'tokenExpiry',
+        ok: !isCodexTokenExpired,
+        message: t('apiTokens.codexConfigDialog.checks.tokenExpiry'),
+      },
+    ],
+    [proxyStatus?.address, codexConfigDialog?.isEnabled, isCodexTokenExpired, t],
+  );
+
+  const openCodexConfigDialog = (token: {
+    name: string;
+    token: string;
+    isEnabled: boolean;
+    expiresAt?: string;
+  }) => {
+    setCopiedCodexSection(null);
+    setCodexConfigDialog({
+      tokenName: token.name,
+      tokenValue: token.token,
+      isEnabled: token.isEnabled,
+      expiresAt: token.expiresAt,
+    });
+  };
+
+  const handleCopyCodexSection = async (section: 'configToml' | 'authJson', content: string) => {
+    await navigator.clipboard.writeText(content);
+    setCopiedCodexSection(section);
+    setTimeout(() => {
+      setCopiedCodexSection((current) => (current === section ? null : current));
+    }, 2000);
+  };
+
+  const getCodexCheckHint = (checkKey: string) => {
+    if (checkKey === 'proxy') return t('apiTokens.codexConfigDialog.checksHint.proxy');
+    if (checkKey === 'tokenEnabled') return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
+    return t('apiTokens.codexConfigDialog.checksHint.tokenExpiry');
   };
 
   const getProjectName = (projectId: number) => {
@@ -356,6 +435,21 @@ export function APITokensPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                openCodexConfigDialog({
+                                  name: token.name,
+                                  token: token.token,
+                                  isEnabled: token.isEnabled,
+                                  expiresAt: token.expiresAt,
+                                })
+                              }
+                              title={t('apiTokens.generateCodexConfig')}
+                            >
+                              <Terminal className="h-4 w-4" />
+                            </Button>
                             <Button variant="ghost" size="sm" onClick={() => handleEdit(token)}>
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -652,8 +746,136 @@ export function APITokensPage() {
             </div>
           </div>
           <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!newTokenDialog) return;
+                openCodexConfigDialog({
+                  name: newTokenDialog.name,
+                  token: newTokenDialog.token,
+                  isEnabled: true,
+                });
+                setNewTokenDialog(null);
+              }}
+            >
+              <Terminal className="mr-2 h-4 w-4" />
+              {t('apiTokens.generateCodexConfig')}
+            </Button>
             <Button onClick={() => setNewTokenDialog(null)}>
               {t('apiTokens.newTokenDialog.done')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Codex Config Generator Dialog */}
+      <Dialog
+        open={!!codexConfigDialog}
+        onOpenChange={(open: boolean) => !open && setCodexConfigDialog(null)}
+      >
+        <DialogContent className="w-[min(48rem,calc(100vw-1.5rem))] max-w-[min(48rem,calc(100vw-1.5rem))] min-w-0">
+          <DialogHeader>
+            <DialogTitle>{t('apiTokens.codexConfigDialog.title')}</DialogTitle>
+            <DialogDescription>
+              {t('apiTokens.codexConfigDialog.description', {
+                name: codexConfigDialog?.tokenName || '-',
+              })}
+            </DialogDescription>
+          </DialogHeader>
+
+          {codexConfigDialog && codexBundle && (
+            <div className="space-y-4 min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Badge variant="outline">{t('apiTokens.codexConfigDialog.modeGlobal')}</Badge>
+                <Badge variant="secondary" className="min-w-0 max-w-full font-mono">
+                  <span className="min-w-0 break-all">{codexBundle.baseUrl}</span>
+                </Badge>
+              </div>
+
+              <div className="space-y-2 min-w-0">
+                {codexPreflightChecks.map((check) => (
+                  <div
+                    key={check.key}
+                    className="flex items-start justify-between gap-3 rounded-md border border-border bg-muted/30 p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        {check.ok ? (
+                          <CircleCheck className="h-4 w-4 shrink-0 text-green-500" />
+                        ) : (
+                          <CircleAlert className="h-4 w-4 shrink-0 text-amber-500" />
+                        )}
+                        <span>{check.message}</span>
+                      </div>
+                      {!check.ok && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {getCodexCheckHint(check.key)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2 min-w-0">
+                <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                  {t('apiTokens.codexConfigDialog.configToml')}
+                </label>
+                <div className="relative">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="absolute top-2 right-2 z-10 h-7 px-2 text-xs"
+                    onClick={() => handleCopyCodexSection('configToml', codexBundle.configToml)}
+                  >
+                    {copiedCodexSection === 'configToml' ? (
+                      <Check className="mr-1 h-3 w-3 text-green-500" />
+                    ) : (
+                      <Copy className="mr-1 h-3 w-3" />
+                    )}
+                    {copiedCodexSection === 'configToml'
+                      ? t('common.copied')
+                      : t('apiTokens.codexConfigDialog.copyToClipboard')}
+                  </Button>
+                  <pre className="max-h-64 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-muted/40 p-3 pr-24 text-xs font-mono">
+                    <code className="block min-w-full whitespace-pre">{codexBundle.configToml}</code>
+                  </pre>
+                </div>
+              </div>
+
+              <div className="space-y-2 min-w-0">
+                <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                  {t('apiTokens.codexConfigDialog.authJson')}
+                </label>
+                <div className="relative">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="absolute top-2 right-2 z-10 h-7 px-2 text-xs"
+                    onClick={() => handleCopyCodexSection('authJson', codexBundle.authJson)}
+                  >
+                    {copiedCodexSection === 'authJson' ? (
+                      <Check className="mr-1 h-3 w-3 text-green-500" />
+                    ) : (
+                      <Copy className="mr-1 h-3 w-3" />
+                    )}
+                    {copiedCodexSection === 'authJson'
+                      ? t('common.copied')
+                      : t('apiTokens.codexConfigDialog.copyToClipboard')}
+                  </Button>
+                  <pre className="max-h-56 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-muted/40 p-3 pr-24 text-xs font-mono">
+                    <code className="block min-w-full whitespace-pre">{codexBundle.authJson}</code>
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCodexConfigDialog(null)}>
+              {t('common.cancel')}
             </Button>
           </DialogFooter>
         </DialogContent>

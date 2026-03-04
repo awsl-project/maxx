@@ -1,26 +1,17 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BookOpen, Code, Copy, Check, AlertTriangle, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProxyStatus } from '@/hooks/queries';
+import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
 
 interface CodeBlockProps {
   code: string;
   id: string;
   copiedCode: string | null;
   onCopy: (text: string, id: string) => void;
-}
-
-function buildBaseUrl(address: string): string {
-  const trimmedAddress = address.trim().replace(/\/+$/, '');
-  if (/^https?:\/\//i.test(trimmedAddress)) {
-    return trimmedAddress;
-  }
-  const protocol =
-    typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https' : 'http';
-  return `${protocol}://${trimmedAddress}`;
 }
 
 function CodeBlock({ code, id, copiedCode, onCopy }: CodeBlockProps) {
@@ -68,8 +59,11 @@ function DocumentationSection() {
   const { t } = useTranslation();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const { data: proxyStatus } = useProxyStatus();
-  const proxyAddress = proxyStatus?.address ?? 'localhost:9880';
-  const baseUrl = buildBaseUrl(proxyAddress);
+  const baseUrl = buildProxyBaseUrl(proxyStatus);
+  const codexTemplate = useMemo(
+    () => buildCodexConfigBundle({ token: 'maxx_your_token_here', baseUrl }),
+    [baseUrl],
+  );
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -288,16 +282,7 @@ function DocumentationSection() {
               <h3 className="text-sm font-semibold">{t('documentation.configToml')}</h3>
               <p className="text-xs text-muted-foreground">{t('documentation.configTomlDesc')}</p>
               <CodeBlock
-                code={`# 可选：设置为默认 provider
-model_provider = "maxx"
-
-[model_providers.maxx]
-name = "maxx"
-base_url = "${baseUrl}"
-wire_api = "responses"
-request_max_retries = 4
-stream_max_retries = 10
-stream_idle_timeout_ms = 300000`}
+                code={codexTemplate.configToml}
                 id="codex-config"
                 copiedCode={copiedCode}
                 onCopy={copyToClipboard}
@@ -308,9 +293,7 @@ stream_idle_timeout_ms = 300000`}
               <h3 className="text-sm font-semibold">{t('documentation.authJson')}</h3>
               <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
               <CodeBlock
-                code={`{
-  "OPENAI_API_KEY": "maxx_your_token_here"
-}`}
+                code={codexTemplate.authJson}
                 id="codex-auth"
                 copiedCode={copiedCode}
                 onCopy={copyToClipboard}

@@ -902,6 +902,7 @@
     "expired": "Expired",
     "global": "Global",
     "notSpecified": "Not Specified",
+    "generateCodexConfig": "Generate Codex Config",
     "unknownProject": "Project #{{id}}",
     "createDialog": {
       "title": "Create New API Token",
@@ -932,6 +933,24 @@
       "description": "Choose a project to limit this token's access.",
       "noProjects": "No projects available",
       "clearSelection": "Clear Selection"
+    },
+    "codexConfigDialog": {
+      "title": "Codex Config Generator",
+      "description": "Generate global proxy config from token \"{{name}}\".",
+      "modeGlobal": "Global Proxy",
+      "configToml": "config.toml",
+      "authJson": "auth.json",
+      "copyToClipboard": "Copy to Clipboard",
+      "checks": {
+        "proxy": "Proxy address is available",
+        "tokenEnabled": "Token is enabled",
+        "tokenExpiry": "Token is not expired"
+      },
+      "checksHint": {
+        "proxy": "Proxy address is unavailable, using localhost:9880 as fallback.",
+        "tokenEnabled": "This token is disabled. Enable it before using the copied config.",
+        "tokenExpiry": "This token has expired. Replace it with a valid token."
+      }
     }
   },
   "app": {
