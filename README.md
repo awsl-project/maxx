@@ -241,7 +241,7 @@ codex
 
 | Variable | Description |
 |----------|-------------|
-| `MAXX_ADMIN_PASSWORD` | Enable admin authentication with JWT |
+| `MAXX_ADMIN_PASSWORD` | Enable admin authentication with JWT. Default username: `admin`, password: the value of this variable |
 | `MAXX_DSN` | Database connection string |
 | `MAXX_DATA_DIR` | Custom data directory path |
 

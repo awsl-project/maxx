@@ -11,6 +11,7 @@ export interface StandardMenuItem {
   labelKey: string;
   activeMatch?: 'exact' | 'startsWith'; // Default: 'startsWith'
   adminOnly?: boolean; // Only show for admin role
+  authOnly?: boolean; // Only show when auth is enabled
 }
 
 /**

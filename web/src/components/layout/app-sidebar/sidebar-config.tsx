@@ -112,6 +112,7 @@ export const sidebarConfig: SidebarConfig = {
           icon: UserCog,
           labelKey: 'nav.users',
           adminOnly: true,
+          authOnly: true,
         },
       ],
     },

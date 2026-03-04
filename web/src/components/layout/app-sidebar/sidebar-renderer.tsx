@@ -64,7 +64,7 @@ function MenuItemRenderer({ item }: { item: MenuItem }) {
  */
 export function SidebarRenderer({ config }: SidebarRendererProps) {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, authEnabled } = useAuth();
   const isAdmin = !user || user.role === 'admin';
 
   return (
@@ -72,6 +72,9 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
       {config.sections.map((section) => {
         const filteredItems = section.items.filter((item) => {
           if (item.type === 'standard' && item.adminOnly && !isAdmin) {
+            return false;
+          }
+          if (item.type === 'standard' && item.authOnly && !authEnabled) {
             return false;
           }
           return true;

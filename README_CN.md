@@ -241,7 +241,7 @@ codex
 
 | 变量 | 说明 |
 |------|------|
-| `MAXX_ADMIN_PASSWORD` | 启用管理员 JWT 认证 |
+| `MAXX_ADMIN_PASSWORD` | 启用管理员 JWT 认证。默认用户名：`admin`，密码为该变量的值 |
 | `MAXX_DSN` | 数据库连接字符串 |
 | `MAXX_DATA_DIR` | 自定义数据目录路径 |
 
