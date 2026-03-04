@@ -1280,17 +1280,23 @@ func (r *UsageStatsRepository) ClearAndRecalculateWithProgress(tenantID uint64, 
 	}
 
 	// 3. Roll-up 到各个粒度（使用完整时间范围）- 带进度
-	_, _ = r.RollUpAllWithProgress(tenantID, domain.GranularityMinute, domain.GranularityHour, func(current, total int) {
+	if _, err = r.RollUpAllWithProgress(tenantID, domain.GranularityMinute, domain.GranularityHour, func(current, total int) {
 		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to hourly: %d/%d", current, total))
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to roll up %s->%s for tenantID=%d: %w", domain.GranularityMinute, domain.GranularityHour, tenantID, err)
+	}
 
-	_, _ = r.RollUpAllWithProgress(tenantID, domain.GranularityHour, domain.GranularityDay, func(current, total int) {
+	if _, err = r.RollUpAllWithProgress(tenantID, domain.GranularityHour, domain.GranularityDay, func(current, total int) {
 		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to daily: %d/%d", current, total))
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to roll up %s->%s for tenantID=%d: %w", domain.GranularityHour, domain.GranularityDay, tenantID, err)
+	}
 
-	_, _ = r.RollUpAllWithProgress(tenantID, domain.GranularityDay, domain.GranularityMonth, func(current, total int) {
+	if _, err = r.RollUpAllWithProgress(tenantID, domain.GranularityDay, domain.GranularityMonth, func(current, total int) {
 		sendProgress("rollup", current, total, fmt.Sprintf("Rolling up to monthly: %d/%d", current, total))
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to roll up %s->%s for tenantID=%d: %w", domain.GranularityDay, domain.GranularityMonth, tenantID, err)
+	}
 
 	sendProgress("completed", 100, 100, "Stats recalculation completed")
 	return nil
