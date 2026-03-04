@@ -324,6 +324,11 @@ func main() {
 		r, // Router implements ProviderAdapterRefresher interface
 	)
 
+	// Ensure an active admin user exists (panic on failure since all operations require auth)
+	if err := core.SeedDefaultAdmin(userRepo); err != nil {
+		log.Fatalf("Failed to seed default admin: %v", err)
+	}
+
 	// Create auth middleware
 	authMiddleware := handler.NewAuthMiddleware(settingRepo)
 	log.Println("Admin API authentication is enabled (multi-user mode)")

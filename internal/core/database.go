@@ -247,12 +247,6 @@ func InitializeServerComponents(
 		log.Printf("[Core] Warning: Failed to initialize model prices: %v", err)
 	}
 
-	// Seed default admin user if MAXX_ADMIN_PASSWORD is set and no users exist.
-	// Panic on failure since all operations require authentication.
-	if err := seedDefaultAdmin(repos.UserRepo); err != nil {
-		panic(fmt.Sprintf("[Core] Failed to seed default admin: %v", err))
-	}
-
 	log.Printf("[Core] Creating router")
 	r := router.NewRouter(
 		repos.CachedRouteRepo,
@@ -458,14 +452,15 @@ func initializeModelPrices(repo repository.ModelPriceRepository) error {
 	return nil
 }
 
-// seedDefaultAdmin 自动创建默认 admin 用户
-func seedDefaultAdmin(userRepo repository.UserRepository) error {
+// SeedDefaultAdmin ensures an active admin user exists.
+// If no active admin is found, it creates one using MAXX_ADMIN_PASSWORD.
+// Returns an error if no active admin exists and the env var is not set.
+func SeedDefaultAdmin(userRepo repository.UserRepository) error {
 	users, err := userRepo.List()
 	if err != nil {
 		return err
 	}
 
-	// 检查是否已有活跃的 admin 用户
 	for _, u := range users {
 		if u.Role == domain.UserRoleAdmin && u.Status == domain.UserStatusActive {
 			return nil
