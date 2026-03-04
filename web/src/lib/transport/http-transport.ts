@@ -41,9 +41,10 @@ import type {
   CodexQuotaData,
   ClaudeTokenValidationResult,
   AuthStatus,
-  AuthVerifyResult,
   AuthLoginResult,
   AuthRegisterResult,
+  ApplyResult,
+  ChangePasswordResult,
   User,
   CreateUserData,
   UpdateUserData,
@@ -603,11 +604,6 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async verifyPassword(password: string): Promise<AuthVerifyResult> {
-    const { data } = await axios.post<AuthVerifyResult>('/api/admin/auth/verify', { password });
-    return data;
-  }
-
   async login(username: string, password: string): Promise<AuthLoginResult> {
     const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/login', { username, password });
     return data;
@@ -615,6 +611,16 @@ export class HttpTransport implements Transport {
 
   async register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult> {
     const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', { username, password, tenantID });
+    return data;
+  }
+
+  async apply(username: string, password: string): Promise<ApplyResult> {
+    const { data } = await this.client.post<ApplyResult>('/auth/apply', { username, password });
+    return data;
+  }
+
+  async changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult> {
+    const { data } = await this.client.put<ChangePasswordResult>('/auth/password', { oldPassword, newPassword });
     return data;
   }
 
@@ -654,6 +660,11 @@ export class HttpTransport implements Transport {
 
   async updatePassword(userId: number, password: string): Promise<void> {
     await this.client.put(`/users/${userId}/password`, { password });
+  }
+
+  async approveUser(id: number): Promise<User> {
+    const { data } = await this.client.put<User>(`/users/${id}/approve`);
+    return data;
   }
 
   // ===== API Token API =====

@@ -1,12 +1,14 @@
 package core
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
+	"golang.org/x/crypto/bcrypt"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
@@ -359,7 +361,7 @@ func InitializeServerComponents(
 	)
 
 	log.Printf("[Core] Creating auth middleware and handler")
-	authMiddleware := handler.NewAuthMiddleware(repos.SettingRepo, repos.UserRepo)
+	authMiddleware := handler.NewAuthMiddleware(repos.SettingRepo)
 	authHandler := handler.NewAuthHandler(authMiddleware, repos.UserRepo, repos.TenantRepo)
 
 	log.Printf("[Core] Creating handlers")
@@ -447,6 +449,58 @@ func initializeModelPrices(repo repository.ModelPriceRepository) error {
 	}
 
 	pricing.GlobalCalculator().LoadFromDatabase(prices)
+	return nil
+}
+
+// SeedDefaultAdmin ensures an active admin user exists.
+// If no active admin is found, it creates one using MAXX_ADMIN_PASSWORD.
+// Returns an error if no active admin exists and the env var is not set.
+func SeedDefaultAdmin(userRepo repository.UserRepository) error {
+	users, err := userRepo.List()
+	if err != nil {
+		return err
+	}
+
+	for _, u := range users {
+		if u.Role == domain.UserRoleAdmin && u.Status == domain.UserStatusActive {
+			return nil
+		}
+	}
+
+	password := os.Getenv(handler.AdminPasswordEnvKey)
+	if password == "" {
+		return fmt.Errorf("%s is required: no active admin user exists", handler.AdminPasswordEnvKey)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	admin := &domain.User{
+		TenantID:     domain.DefaultTenantID,
+		Username:     "admin",
+		PasswordHash: string(hash),
+		Role:         domain.UserRoleAdmin,
+		Status:       domain.UserStatusActive,
+		IsDefault:    true,
+	}
+
+	if err := userRepo.Create(admin); err != nil {
+		// Handle concurrent startup: another instance may have already created the admin.
+		// Re-check for an active admin before returning the error.
+		users, listErr := userRepo.List()
+		if listErr == nil {
+			for _, u := range users {
+				if u.Role == domain.UserRoleAdmin && u.Status == domain.UserStatusActive {
+					return nil
+				}
+			}
+		}
+		return err
+	}
+
+	log.Printf("[Core] Seeded default admin user (username=admin)")
 	return nil
 }
 

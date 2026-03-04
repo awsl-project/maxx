@@ -76,6 +76,7 @@ type User struct {
 	Username     string `gorm:"size:255;uniqueIndex"`
 	PasswordHash string `gorm:"size:255"`
 	Role         string `gorm:"size:64;default:'admin'"`
+	Status       string `gorm:"size:64;default:'pending'"`
 	IsDefault    int
 	LastLoginAt  int64
 }

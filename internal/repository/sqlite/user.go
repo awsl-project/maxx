@@ -111,6 +111,10 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 	if u.IsDefault {
 		isDefault = 1
 	}
+	status := string(u.Status)
+	if status == "" {
+		status = string(domain.UserStatusPending)
+	}
 	return &User{
 		SoftDeleteModel: SoftDeleteModel{
 			BaseModel: BaseModel{
@@ -124,12 +128,17 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 		Username:     u.Username,
 		PasswordHash: u.PasswordHash,
 		Role:         string(u.Role),
+		Status:       status,
 		IsDefault:    isDefault,
 		LastLoginAt:  toTimestampPtr(u.LastLoginAt),
 	}
 }
 
 func (r *UserRepository) toDomain(m *User) *domain.User {
+	status := domain.UserStatus(m.Status)
+	if status != domain.UserStatusPending && status != domain.UserStatusActive {
+		status = domain.UserStatusPending
+	}
 	return &domain.User{
 		ID:           m.ID,
 		CreatedAt:    fromTimestamp(m.CreatedAt),
@@ -139,7 +148,28 @@ func (r *UserRepository) toDomain(m *User) *domain.User {
 		Username:     m.Username,
 		PasswordHash: m.PasswordHash,
 		Role:         domain.UserRole(m.Role),
+		Status:       status,
 		IsDefault:    m.IsDefault == 1,
 		LastLoginAt:  fromTimestampPtr(m.LastLoginAt),
 	}
+}
+
+func (r *UserRepository) ListByTenantAndStatus(tenantID uint64, status domain.UserStatus) ([]*domain.User, error) {
+	var models []User
+	if err := r.db.gorm.Where("tenant_id = ? AND status = ? AND deleted_at = 0", tenantID, string(status)).Order("id").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	users := make([]*domain.User, len(models))
+	for i, m := range models {
+		users[i] = r.toDomain(&m)
+	}
+	return users, nil
+}
+
+func (r *UserRepository) CountActive() (int64, error) {
+	var count int64
+	if err := r.db.gorm.Model(&User{}).Where("status = ? AND deleted_at = 0", string(domain.UserStatusActive)).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }

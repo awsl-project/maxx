@@ -206,6 +206,12 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	return a.handleCollectedStreamResponse(c, resp, requestModel, inputTokens)
 }
 
+// WarmToken pre-warms the access token cache to avoid blocking during Execute
+func (a *KiroAdapter) WarmToken(ctx context.Context) error {
+	_, err := a.getAccessToken(ctx)
+	return err
+}
+
 // getAccessToken gets a valid access token, refreshing if necessary
 func (a *KiroAdapter) getAccessToken(ctx context.Context) (string, error) {
 	// Check cache

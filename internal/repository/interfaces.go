@@ -25,6 +25,8 @@ type UserRepository interface {
 	GetDefault() (*domain.User, error)
 	List() ([]*domain.User, error)
 	ListByTenant(tenantID uint64) ([]*domain.User, error)
+	ListByTenantAndStatus(tenantID uint64, status domain.UserStatus) ([]*domain.User, error)
+	CountActive() (int64, error)
 }
 
 type ProviderRepository interface {

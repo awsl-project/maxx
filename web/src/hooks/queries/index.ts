@@ -168,4 +168,6 @@ export {
   useCreateUser,
   useUpdateUser,
   useDeleteUser,
+  useApproveUser,
+  useChangeMyPassword,
 } from './use-users';

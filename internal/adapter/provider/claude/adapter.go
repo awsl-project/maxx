@@ -209,6 +209,12 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	return a.handleNonStreamResponse(c, resp)
 }
 
+// WarmToken pre-warms the access token cache to avoid blocking during Execute
+func (a *ClaudeAdapter) WarmToken(ctx context.Context) error {
+	_, err := a.getAccessToken(ctx, false)
+	return err
+}
+
 func (a *ClaudeAdapter) getAccessToken(ctx context.Context, forceRefresh bool) (string, error) {
 	config := a.provider.Config.Claude
 

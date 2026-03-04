@@ -63,3 +63,21 @@ export function useDeleteUser() {
     },
   });
 }
+
+export function useApproveUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => getTransport().approveUser(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: userKeys.lists() });
+    },
+  });
+}
+
+export function useChangeMyPassword() {
+  return useMutation({
+    mutationFn: ({ oldPassword, newPassword }: { oldPassword: string; newPassword: string }) =>
+      getTransport().changeMyPassword(oldPassword, newPassword),
+  });
+}

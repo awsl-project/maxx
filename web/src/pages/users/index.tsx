@@ -24,6 +24,7 @@ import {
   useCreateUser,
   useUpdateUser,
   useDeleteUser,
+  useApproveUser,
 } from '@/hooks/queries';
 import {
   Plus,
@@ -31,9 +32,10 @@ import {
   Pencil,
   Trash2,
   UserCog,
+  Check,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
-import type { User, UserRole } from '@/lib/transport';
+import type { User, UserRole, UserStatus } from '@/lib/transport';
 
 export function UsersPage() {
   const { t } = useTranslation();
@@ -41,6 +43,7 @@ export function UsersPage() {
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
+  const approveUser = useApproveUser();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -48,10 +51,11 @@ export function UsersPage() {
     username: '',
     password: '',
     role: 'member' as UserRole,
+    status: 'active' as UserStatus,
   });
 
   const resetForm = () => {
-    setFormData({ username: '', password: '', role: 'member' });
+    setFormData({ username: '', password: '', role: 'member', status: 'active' });
   };
 
   const handleCreate = async () => {
@@ -76,6 +80,7 @@ export function UsersPage() {
         data: {
           username: formData.username,
           role: formData.role,
+          status: formData.status,
         },
       });
       setEditingUser(null);
@@ -94,12 +99,21 @@ export function UsersPage() {
     }
   };
 
+  const handleApprove = async (id: number) => {
+    try {
+      await approveUser.mutateAsync(id);
+    } catch {
+      // Error handled by mutation
+    }
+  };
+
   const openEditDialog = (user: User) => {
     setEditingUser(user);
     setFormData({
       username: user.username,
       password: '',
       role: user.role,
+      status: user.status || 'active',
     });
   };
 
@@ -137,8 +151,9 @@ export function UsersPage() {
               <TableRow>
                 <TableHead>{t('users.username')}</TableHead>
                 <TableHead>{t('users.role')}</TableHead>
+                <TableHead>{t('users.status')}</TableHead>
                 <TableHead>{t('users.lastLogin')}</TableHead>
-                <TableHead className="w-[100px]" />
+                <TableHead className="w-[140px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -157,11 +172,35 @@ export function UsersPage() {
                       {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={user.status === 'active' ? 'default' : 'outline'}
+                      className={
+                        user.status === 'active'
+                          ? 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20'
+                          : 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20'
+                      }
+                    >
+                      {user.status === 'active' ? t('users.statusActive') : t('users.statusPending')}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {formatDate(user.lastLoginAt)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
+                      {user.status === 'pending' && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleApprove(user.id)}
+                          title={t('users.approve')}
+                          aria-label={t('users.approve')}
+                          disabled={approveUser.isPending}
+                        >
+                          <Check className="h-4 w-4 text-green-600" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -184,8 +223,8 @@ export function UsersPage() {
               ))}
               {(!users || users.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                    No users found
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    {t('common.noData')}
                   </TableCell>
                 </TableRow>
               )}
@@ -271,6 +310,17 @@ export function UsersPage() {
               >
                 <option value="admin">{t('users.roleAdmin')}</option>
                 <option value="member">{t('users.roleMember')}</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('users.status')}</label>
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as UserStatus })}
+              >
+                <option value="active">{t('users.statusActive')}</option>
+                <option value="pending">{t('users.statusPending')}</option>
               </select>
             </div>
           </div>

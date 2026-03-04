@@ -28,6 +28,16 @@ func (h *AdminHandler) handleUsers(w http.ResponseWriter, r *http.Request, id ui
 		return
 	}
 
+	// Handle /admin/users/{id}/approve
+	if id > 0 && len(parts) > 3 && parts[3] == "approve" {
+		if r.Method == http.MethodPut {
+			h.handleApproveUser(w, tenantID, id)
+		} else {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
@@ -57,7 +67,7 @@ func (h *AdminHandler) handleUsers(w http.ResponseWriter, r *http.Request, id ui
 func (h *AdminHandler) handleListUsers(w http.ResponseWriter, tenantID uint64) {
 	users, err := h.userRepo.ListByTenant(tenantID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to list users"})
 		return
 	}
 	writeJSON(w, http.StatusOK, users)
@@ -70,7 +80,7 @@ func (h *AdminHandler) handleGetUser(w http.ResponseWriter, tenantID uint64, id 
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
@@ -107,6 +117,7 @@ func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request, 
 		Username:     body.Username,
 		PasswordHash: string(hash),
 		Role:         body.Role,
+		Status:       domain.UserStatusActive,
 	}
 
 	if err := h.userRepo.Create(user); err != nil {
@@ -124,13 +135,14 @@ func (h *AdminHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, 
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 
 	var body struct {
-		Username string          `json:"username"`
-		Role     domain.UserRole `json:"role"`
+		Username string            `json:"username"`
+		Role     domain.UserRole   `json:"role"`
+		Status   domain.UserStatus `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -143,9 +155,43 @@ func (h *AdminHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, 
 	if body.Role != "" {
 		user.Role = body.Role
 	}
+	if body.Status != "" {
+		switch body.Status {
+		case domain.UserStatusPending, domain.UserStatusActive:
+			user.Status = body.Status
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid status"})
+			return
+		}
+	}
 
 	if err := h.userRepo.Update(user); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update user"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (h *AdminHandler) handleApproveUser(w http.ResponseWriter, tenantID uint64, id uint64) {
+	user, err := h.userRepo.GetByID(tenantID, id)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	if user.Status != domain.UserStatusPending {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user is not pending approval"})
+		return
+	}
+
+	user.Status = domain.UserStatusActive
+	if err := h.userRepo.Update(user); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to approve user"})
 		return
 	}
 
@@ -159,7 +205,7 @@ func (h *AdminHandler) handleUpdateUserPassword(w http.ResponseWriter, r *http.R
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 
@@ -184,7 +230,7 @@ func (h *AdminHandler) handleUpdateUserPassword(w http.ResponseWriter, r *http.R
 
 	user.PasswordHash = string(hash)
 	if err := h.userRepo.Update(user); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update password"})
 		return
 	}
 
@@ -197,7 +243,7 @@ func (h *AdminHandler) handleDeleteUser(w http.ResponseWriter, tenantID uint64, 
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to delete user"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"success": "user deleted"})

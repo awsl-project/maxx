@@ -631,6 +631,7 @@ export interface Cooldown {
 // ===== User 相关 =====
 
 export type UserRole = 'admin' | 'member';
+export type UserStatus = 'pending' | 'active';
 
 export interface User {
   id: number;
@@ -639,6 +640,7 @@ export interface User {
   tenantID: number;
   username: string;
   role: UserRole;
+  status: UserStatus;
   isDefault: boolean;
   lastLoginAt?: string;
 }
@@ -653,13 +655,25 @@ export interface CreateUserData {
 export interface UpdateUserData {
   username?: string;
   role?: UserRole;
+  status?: UserStatus;
+}
+
+export interface ApplyResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+export interface ChangePasswordResult {
+  success?: boolean;
+  message?: string;
+  error?: string;
 }
 
 // ===== Auth 相关 =====
 
 export interface AuthStatus {
   authEnabled: boolean;
-  multiTenancyEnabled: boolean;
   user?: {
     id: number;
     tenantID: number;
@@ -667,12 +681,6 @@ export interface AuthStatus {
     username?: string;
     tenantName?: string;
   };
-}
-
-export interface AuthVerifyResult {
-  success: boolean;
-  token?: string;
-  error?: string;
 }
 
 export interface AuthLoginResult {
