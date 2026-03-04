@@ -665,7 +665,8 @@ export interface ApplyResult {
 }
 
 export interface ChangePasswordResult {
-  success?: string;
+  success?: boolean;
+  message?: string;
   error?: string;
 }
 

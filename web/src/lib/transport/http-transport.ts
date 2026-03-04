@@ -621,16 +621,12 @@ export class HttpTransport implements Transport {
   }
 
   async apply(username: string, password: string): Promise<ApplyResult> {
-    const { data } = await axios.post<ApplyResult>('/api/admin/auth/apply', { username, password });
+    const { data } = await this.client.post<ApplyResult>('/auth/apply', { username, password });
     return data;
   }
 
   async changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult> {
-    const headers: Record<string, string> = {};
-    if (this.authToken) {
-      headers['Authorization'] = `Bearer ${this.authToken}`;
-    }
-    const { data } = await axios.put<ChangePasswordResult>('/api/admin/auth/password', { oldPassword, newPassword }, { headers });
+    const { data } = await this.client.put<ChangePasswordResult>('/auth/password', { oldPassword, newPassword });
     return data;
   }
 

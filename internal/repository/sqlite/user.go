@@ -136,8 +136,8 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 
 func (r *UserRepository) toDomain(m *User) *domain.User {
 	status := domain.UserStatus(m.Status)
-	if status == "" {
-		status = domain.UserStatusActive
+	if status != domain.UserStatusPending && status != domain.UserStatusActive {
+		status = domain.UserStatusPending
 	}
 	return &domain.User{
 		ID:           m.ID,

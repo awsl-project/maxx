@@ -195,6 +195,7 @@ export function UsersPage() {
                           size="icon"
                           onClick={() => handleApprove(user.id)}
                           title={t('users.approve')}
+                          aria-label={t('users.approve')}
                           disabled={approveUser.isPending}
                         >
                           <Check className="h-4 w-4 text-green-600" />
@@ -223,7 +224,7 @@ export function UsersPage() {
               {(!users || users.length === 0) && (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                    No users found
+                    {t('common.noData')}
                   </TableCell>
                 </TableRow>
               )}

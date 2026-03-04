@@ -310,8 +310,9 @@ export function NavUser() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.oldPassword')}</label>
+              <label htmlFor="old-password" className="text-sm font-medium">{t('users.oldPassword')}</label>
               <Input
+                id="old-password"
                 type="password"
                 value={passwordForm.oldPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
@@ -319,8 +320,9 @@ export function NavUser() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.newPassword')}</label>
+              <label htmlFor="new-password" className="text-sm font-medium">{t('users.newPassword')}</label>
               <Input
+                id="new-password"
                 type="password"
                 value={passwordForm.newPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
@@ -328,8 +330,9 @@ export function NavUser() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.confirmNewPassword')}</label>
+              <label htmlFor="confirm-new-password" className="text-sm font-medium">{t('users.confirmNewPassword')}</label>
               <Input
+                id="confirm-new-password"
                 type="password"
                 value={passwordForm.confirmPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}

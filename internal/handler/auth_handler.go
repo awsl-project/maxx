@@ -342,11 +342,11 @@ func (h *AuthHandler) handleChangePassword(w http.ResponseWriter, r *http.Reques
 
 	user.PasswordHash = string(hash)
 	if err := h.userRepo.Update(user); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update password"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"success": "password updated"})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "password updated"})
 }
 
 // handleStatus returns the authentication status

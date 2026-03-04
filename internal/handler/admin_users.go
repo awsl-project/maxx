@@ -156,7 +156,13 @@ func (h *AdminHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, 
 		user.Role = body.Role
 	}
 	if body.Status != "" {
-		user.Status = body.Status
+		switch body.Status {
+		case domain.UserStatusPending, domain.UserStatusActive:
+			user.Status = body.Status
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid status"})
+			return
+		}
 	}
 
 	if err := h.userRepo.Update(user); err != nil {

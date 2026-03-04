@@ -24,6 +24,7 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
     setIsLoading(true);
 
     try {

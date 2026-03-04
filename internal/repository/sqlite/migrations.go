@@ -160,7 +160,7 @@ var migrations = []Migration{
 		Version:     4,
 		Description: "Set status='active' for all existing users",
 		Up: func(db *gorm.DB) error {
-			return db.Exec("UPDATE users SET status = 'active' WHERE status = '' OR status IS NULL").Error
+			return db.Exec("UPDATE users SET status = 'active' WHERE status = '' OR status IS NULL OR status = 'pending'").Error
 		},
 		Down: func(db *gorm.DB) error {
 			return nil
