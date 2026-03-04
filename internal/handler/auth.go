@@ -63,8 +63,8 @@ func (m *AuthMiddleware) IsMultiTenancyEnabled() bool {
 	if err != nil {
 		return false
 	}
-	// If more than 1 user exists, multi-tenancy is enabled
-	return len(users) > 1
+	// If any user exists, multi-tenancy (username+password login) is enabled
+	return len(users) >= 1
 }
 
 // getJWTSecret returns the JWT signing secret

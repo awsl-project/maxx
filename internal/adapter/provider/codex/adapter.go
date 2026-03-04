@@ -235,6 +235,12 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	return a.handleNonStreamResponse(c, resp)
 }
 
+// WarmToken pre-warms the access token cache to avoid blocking during Execute
+func (a *CodexAdapter) WarmToken(ctx context.Context) error {
+	_, err := a.getAccessToken(ctx)
+	return err
+}
+
 func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
 	// Check cache
 	a.tokenMu.RLock()

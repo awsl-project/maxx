@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/service"
 )
@@ -94,6 +95,8 @@ func TestAdminHandler_ProvidersImport_WithTrailingSlash(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/providers/import/", bytes.NewReader(body))
+	ctx := maxxctx.WithUserRole(req.Context(), string(domain.UserRoleAdmin))
+	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)
@@ -126,6 +129,8 @@ func TestAdminHandler_ProvidersExport_WithTrailingSlash(t *testing.T) {
 	h := newAdminHandlerForProviderImportExportTests(providerRepo)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/providers/export/", nil)
+	ctx := maxxctx.WithUserRole(req.Context(), string(domain.UserRoleAdmin))
+	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, req)

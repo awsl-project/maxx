@@ -95,6 +95,12 @@ func (a *CLIProxyAPICodexAdapter) SupportedClientTypes() []domain.ClientType {
 	return []domain.ClientType{domain.ClientTypeCodex}
 }
 
+// WarmToken pre-warms the access token cache to avoid blocking during Execute
+func (a *CLIProxyAPICodexAdapter) WarmToken(ctx context.Context) error {
+	_, err := a.getAccessToken(ctx)
+	return err
+}
+
 // getAccessToken 获取有效的 access_token，三级策略：
 // 1. 内存缓存
 // 2. 配置中的持久化 token

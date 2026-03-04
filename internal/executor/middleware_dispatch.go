@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/converter"
@@ -26,6 +27,25 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	proxyReq := state.proxyReq
 	ctx := state.ctx
 	clearDetail := e.shouldClearRequestDetailFor(state)
+
+	// Pre-warm tokens for all matched routes in parallel.
+	// This avoids serial token refresh delays when failing over between providers.
+	if len(state.routes) > 1 {
+		type tokenWarmer interface {
+			WarmToken(ctx context.Context) error
+		}
+		var wg sync.WaitGroup
+		for _, mr := range state.routes {
+			if warmer, ok := mr.ProviderAdapter.(tokenWarmer); ok {
+				wg.Add(1)
+				go func(w tokenWarmer) {
+					defer wg.Done()
+					_ = w.WarmToken(ctx)
+				}(warmer)
+			}
+		}
+		wg.Wait()
+	}
 
 	for _, matchedRoute := range state.routes {
 		if ctx.Err() != nil {

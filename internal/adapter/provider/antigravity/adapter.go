@@ -413,6 +413,12 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 	return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "all upstream endpoints failed")
 }
 
+// WarmToken pre-warms the access token cache to avoid blocking during Execute
+func (a *AntigravityAdapter) WarmToken(ctx context.Context) error {
+	_, err := a.getAccessToken(ctx)
+	return err
+}
+
 func (a *AntigravityAdapter) getAccessToken(ctx context.Context) (string, error) {
 	// Check cache
 	a.tokenMu.RLock()
