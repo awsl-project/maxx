@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile
     container_name: maxx
     restart: unless-stopped
+    environment:
+      - MAXX_ADMIN_PASSWORD=${MAXX_ADMIN_PASSWORD:-}
     ports:
       - "9880:9880"
     volumes:

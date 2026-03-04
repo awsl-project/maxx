@@ -487,6 +487,16 @@ func SeedDefaultAdmin(userRepo repository.UserRepository) error {
 	}
 
 	if err := userRepo.Create(admin); err != nil {
+		// Handle concurrent startup: another instance may have already created the admin.
+		// Re-check for an active admin before returning the error.
+		users, listErr := userRepo.List()
+		if listErr == nil {
+			for _, u := range users {
+				if u.Role == domain.UserRoleAdmin && u.Status == domain.UserStatusActive {
+					return nil
+				}
+			}
+		}
 		return err
 	}
 

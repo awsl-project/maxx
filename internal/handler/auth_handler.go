@@ -84,9 +84,13 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check user status
-	if user.Status == domain.UserStatusPending {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "account pending approval"})
+	// Only active users can login
+	if user.Status != domain.UserStatusActive {
+		if user.Status == domain.UserStatusPending {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "account pending approval"})
+		} else {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "account is not active"})
+		}
 		return
 	}
 
