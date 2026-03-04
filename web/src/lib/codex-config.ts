@@ -28,6 +28,9 @@ function ensureBaseUrlPort(address: string, fallbackPort: number): string {
     if (parsed.port || !parsed.hostname) {
       return normalized;
     }
+    if (parsed.protocol !== 'http:') {
+      return parsed.toString().replace(/\/+$/, '');
+    }
     parsed.port = String(fallbackPort);
     return parsed.toString().replace(/\/+$/, '');
   } catch {

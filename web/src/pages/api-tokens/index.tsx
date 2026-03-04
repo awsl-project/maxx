@@ -84,6 +84,8 @@ export function APITokensPage() {
   const [newTokenDialog, setNewTokenDialog] = useState<{
     token: string;
     name: string;
+    isEnabled: boolean;
+    expiresAt?: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [codexConfigDialog, setCodexConfigDialog] = useState<CodexConfigDialogState | null>(null);
@@ -128,7 +130,12 @@ export function APITokensPage() {
           setShowForm(false);
           resetForm();
           // Show the new token dialog
-          setNewTokenDialog({ token: result.token, name: result.apiToken.name });
+          setNewTokenDialog({
+            token: result.token,
+            name: result.apiToken.name,
+            isEnabled: result.apiToken.isEnabled,
+            expiresAt: result.apiToken.expiresAt,
+          });
         },
       },
     );
@@ -438,6 +445,7 @@ export function APITokensPage() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              aria-label={t('apiTokens.generateCodexConfig')}
                               onClick={() =>
                                 openCodexConfigDialog({
                                   name: token.name,
@@ -753,7 +761,8 @@ export function APITokensPage() {
                 openCodexConfigDialog({
                   name: newTokenDialog.name,
                   token: newTokenDialog.token,
-                  isEnabled: true,
+                  isEnabled: newTokenDialog.isEnabled,
+                  expiresAt: newTokenDialog.expiresAt,
                 });
                 setNewTokenDialog(null);
               }}
