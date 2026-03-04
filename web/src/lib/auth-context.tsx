@@ -17,7 +17,6 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   authEnabled: boolean;
-  multiTenancyEnabled: boolean;
   user: AuthUser | null;
   login: (token: string, user?: AuthUser) => void;
   logout: () => void;
@@ -34,7 +33,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [authEnabled, setAuthEnabled] = useState(false);
-  const [multiTenancyEnabled, setMultiTenancyEnabled] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
@@ -56,12 +54,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return;
         }
         setAuthEnabled(status.authEnabled);
-        setMultiTenancyEnabled(status.multiTenancyEnabled ?? false);
-
-        if (!status.authEnabled) {
-          setIsAuthenticated(true);
-          return;
-        }
 
         if (savedToken) {
           try {
@@ -161,7 +153,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [transport]);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, authEnabled, multiTenancyEnabled, user, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, authEnabled, user, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

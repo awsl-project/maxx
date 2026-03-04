@@ -36,34 +36,14 @@ type MAXXClaims struct {
 type AuthMiddleware struct {
 	password    string
 	settingRepo repository.SystemSettingRepository
-	userRepo    repository.UserRepository
 }
 
 // NewAuthMiddleware creates a new auth middleware
-func NewAuthMiddleware(settingRepo repository.SystemSettingRepository, userRepo repository.UserRepository) *AuthMiddleware {
+func NewAuthMiddleware(settingRepo repository.SystemSettingRepository) *AuthMiddleware {
 	return &AuthMiddleware{
 		password:    os.Getenv(AdminPasswordEnvKey),
 		settingRepo: settingRepo,
-		userRepo:    userRepo,
 	}
-}
-
-// IsEnabled returns true if authentication is enabled
-func (m *AuthMiddleware) IsEnabled() bool {
-	return m.password != ""
-}
-
-// IsMultiTenancyEnabled checks if multi-tenancy is active
-// Multi-tenancy is active when there are active users
-func (m *AuthMiddleware) IsMultiTenancyEnabled() bool {
-	if m.userRepo == nil {
-		return false
-	}
-	count, err := m.userRepo.CountActive()
-	if err != nil {
-		return false
-	}
-	return count >= 1
 }
 
 // getJWTSecret returns the JWT signing secret
@@ -98,16 +78,6 @@ func (m *AuthMiddleware) GenerateToken(user *domain.User) (string, error) {
 	return token.SignedString(m.getJWTSecret())
 }
 
-// GenerateLegacyToken generates a JWT token for single-user mode (backward compatible)
-func (m *AuthMiddleware) GenerateLegacyToken() (string, error) {
-	user := &domain.User{
-		ID:       domain.DefaultUserID,
-		TenantID: domain.DefaultTenantID,
-		Role:     domain.UserRoleAdmin,
-	}
-	return m.GenerateToken(user)
-}
-
 // ValidateToken validates a JWT token and returns the claims
 func (m *AuthMiddleware) ValidateToken(tokenString string) (*MAXXClaims, bool) {
 	token, err := jwt.ParseWithClaims(tokenString, &MAXXClaims{}, func(token *jwt.Token) (any, error) {
@@ -139,18 +109,10 @@ func (m *AuthMiddleware) ValidateToken(tokenString string) (*MAXXClaims, bool) {
 	return claims, true
 }
 
-// Wrap wraps a handler with JWT authentication and injects tenant context
+// Wrap wraps a handler with JWT authentication and injects tenant context.
+// All requests must provide a valid JWT token.
 func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !m.IsEnabled() {
-			// Auth disabled: inject default tenant context
-			ctx := maxxctx.WithTenantID(r.Context(), domain.DefaultTenantID)
-			ctx = maxxctx.WithUserID(ctx, domain.DefaultUserID)
-			ctx = maxxctx.WithUserRole(ctx, string(domain.UserRoleAdmin))
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-
 		authHeader := r.Header.Get(AuthHeader)
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
 			writeUnauthorized(w)
@@ -170,22 +132,6 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		ctx = maxxctx.WithUserRole(ctx, claims.Role)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-// VerifyPassword checks if the provided password is correct (legacy single-user mode)
-func (m *AuthMiddleware) VerifyPassword(password string) bool {
-	if !m.IsEnabled() {
-		return true
-	}
-	// Constant-time comparison
-	if len(m.password) != len(password) {
-		return false
-	}
-	result := 0
-	for i := 0; i < len(m.password); i++ {
-		result |= int(m.password[i]) ^ int(password[i])
-	}
-	return result == 0
 }
 
 func writeUnauthorized(w http.ResponseWriter) {

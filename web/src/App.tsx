@@ -27,7 +27,7 @@ import { AuthProvider, useAuth } from '@/lib/auth-context';
 
 function AppRoutes() {
   const { t } = useTranslation();
-  const { isAuthenticated, isLoading, multiTenancyEnabled, login, user } = useAuth();
+  const { isAuthenticated, isLoading, login, user } = useAuth();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -50,7 +50,7 @@ function AppRoutes() {
   }
 
   if (!isAuthenticated) {
-    return <LoginPage onSuccess={login} multiTenancyEnabled={multiTenancyEnabled} />;
+    return <LoginPage onSuccess={login} />;
   }
 
   const isAdmin = !user || user.role === 'admin';

@@ -39,7 +39,7 @@ export function NavUser() {
   const { t, i18n } = useTranslation();
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
-  const { user, authEnabled, multiTenancyEnabled, logout } = useAuth();
+  const { user, authEnabled, logout } = useAuth();
   const changePassword = useChangeMyPassword();
   const isCollapsed = !isMobile && state === 'collapsed';
 
@@ -108,6 +108,9 @@ export function NavUser() {
       });
       setPasswordSuccess(t('users.changePasswordSuccess'));
       setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      if (passwordTimeoutRef.current) {
+        clearTimeout(passwordTimeoutRef.current);
+      }
       passwordTimeoutRef.current = setTimeout(() => setShowPasswordDialog(false), 1500);
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { error?: string } } };
@@ -214,7 +217,7 @@ export function NavUser() {
                     </Avatar>
                     <div className="grid flex-1 text-left text-sm leading-tight">
                       <span className="truncate font-medium">{displayUser.name}</span>
-                      {multiTenancyEnabled && user && (
+                      {user && (
                         <span className="truncate text-xs text-muted-foreground">
                           {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
                           {user.tenantName && ` · ${user.tenantName}`}
@@ -281,7 +284,7 @@ export function NavUser() {
                   <span>{t('nav.restartServer')}</span>
                 </DropdownMenuItem>
               </>
-              {multiTenancyEnabled && (
+              {authEnabled && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => {

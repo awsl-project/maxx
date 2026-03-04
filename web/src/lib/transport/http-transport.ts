@@ -41,7 +41,6 @@ import type {
   CodexQuotaData,
   ClaudeTokenValidationResult,
   AuthStatus,
-  AuthVerifyResult,
   AuthLoginResult,
   AuthRegisterResult,
   ApplyResult,
@@ -602,11 +601,6 @@ export class HttpTransport implements Transport {
 
   async getAuthStatus(): Promise<AuthStatus> {
     const { data } = await axios.get<AuthStatus>('/api/admin/auth/status');
-    return data;
-  }
-
-  async verifyPassword(password: string): Promise<AuthVerifyResult> {
-    const { data } = await axios.post<AuthVerifyResult>('/api/admin/auth/verify', { password });
     return data;
   }
 

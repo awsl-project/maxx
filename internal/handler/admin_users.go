@@ -184,6 +184,11 @@ func (h *AdminHandler) handleApproveUser(w http.ResponseWriter, tenantID uint64,
 		return
 	}
 
+	if user.Status != domain.UserStatusPending {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user is not pending approval"})
+		return
+	}
+
 	user.Status = domain.UserStatusActive
 	if err := h.userRepo.Update(user); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to approve user"})

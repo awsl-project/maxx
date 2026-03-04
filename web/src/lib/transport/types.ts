@@ -674,7 +674,6 @@ export interface ChangePasswordResult {
 
 export interface AuthStatus {
   authEnabled: boolean;
-  multiTenancyEnabled: boolean;
   user?: {
     id: number;
     tenantID: number;
@@ -682,12 +681,6 @@ export interface AuthStatus {
     username?: string;
     tenantName?: string;
   };
-}
-
-export interface AuthVerifyResult {
-  success: boolean;
-  token?: string;
-  error?: string;
 }
 
 export interface AuthLoginResult {

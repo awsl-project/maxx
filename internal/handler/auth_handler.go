@@ -34,8 +34,6 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path = strings.TrimSuffix(path, "/")
 
 	switch path {
-	case "/verify":
-		h.handleVerify(w, r)
 	case "/login":
 		h.handleLogin(w, r)
 	case "/register":
@@ -48,40 +46,6 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleStatus(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-	}
-}
-
-// handleVerify verifies the provided password (legacy single-user mode)
-// POST /admin/auth/verify
-func (h *AuthHandler) handleVerify(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	var body struct {
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if h.authMiddleware.VerifyPassword(body.Password) {
-		token, err := h.authMiddleware.GenerateLegacyToken()
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to generate token"})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"success": true,
-			"token":   token,
-		})
-	} else {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{
-			"success": false,
-			"error":   "invalid password",
-		})
 	}
 }
 
@@ -361,11 +325,8 @@ func (h *AuthHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	multiTenancy := h.authMiddleware.IsMultiTenancyEnabled()
-
 	result := map[string]any{
-		"authEnabled":         h.authMiddleware.IsEnabled() || multiTenancy,
-		"multiTenancyEnabled": multiTenancy,
+		"authEnabled": true,
 	}
 
 	// If authenticated, return user info

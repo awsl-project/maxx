@@ -325,12 +325,8 @@ func main() {
 	)
 
 	// Create auth middleware
-	authMiddleware := handler.NewAuthMiddleware(settingRepo, userRepo)
-	if authMiddleware.IsEnabled() {
-		log.Println("Admin API authentication is enabled")
-	} else {
-		log.Println("Admin API authentication is disabled (set MAXX_ADMIN_PASSWORD to enable)")
-	}
+	authMiddleware := handler.NewAuthMiddleware(settingRepo)
+	log.Println("Admin API authentication is enabled (multi-user mode)")
 
 	// Create token auth middleware
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(cachedAPITokenRepo, settingRepo)

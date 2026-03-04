@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -246,9 +247,10 @@ func InitializeServerComponents(
 		log.Printf("[Core] Warning: Failed to initialize model prices: %v", err)
 	}
 
-	// Seed default admin user if MAXX_ADMIN_PASSWORD is set and no users exist
+	// Seed default admin user if MAXX_ADMIN_PASSWORD is set and no users exist.
+	// Panic on failure since all operations require authentication.
 	if err := seedDefaultAdmin(repos.UserRepo); err != nil {
-		log.Printf("[Core] Warning: Failed to seed default admin: %v", err)
+		panic(fmt.Sprintf("[Core] Failed to seed default admin: %v", err))
 	}
 
 	log.Printf("[Core] Creating router")
@@ -365,7 +367,7 @@ func InitializeServerComponents(
 	)
 
 	log.Printf("[Core] Creating auth middleware and handler")
-	authMiddleware := handler.NewAuthMiddleware(repos.SettingRepo, repos.UserRepo)
+	authMiddleware := handler.NewAuthMiddleware(repos.SettingRepo)
 	authHandler := handler.NewAuthHandler(authMiddleware, repos.UserRepo, repos.TenantRepo)
 
 	log.Printf("[Core] Creating handlers")
@@ -458,18 +460,21 @@ func initializeModelPrices(repo repository.ModelPriceRepository) error {
 
 // seedDefaultAdmin 自动创建默认 admin 用户
 func seedDefaultAdmin(userRepo repository.UserRepository) error {
-	password := os.Getenv(handler.AdminPasswordEnvKey)
-	if password == "" {
-		return nil
-	}
-
-	// 如果已有任何用户，跳过（幂等）
 	users, err := userRepo.List()
 	if err != nil {
 		return err
 	}
-	if len(users) > 0 {
-		return nil
+
+	// 检查是否已有活跃的 admin 用户
+	for _, u := range users {
+		if u.Role == domain.UserRoleAdmin && u.Status == domain.UserStatusActive {
+			return nil
+		}
+	}
+
+	password := os.Getenv(handler.AdminPasswordEnvKey)
+	if password == "" {
+		return fmt.Errorf("%s is required: no active admin user exists", handler.AdminPasswordEnvKey)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)

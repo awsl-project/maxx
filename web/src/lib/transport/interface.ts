@@ -40,7 +40,6 @@ import type {
   ClaudeTokenValidationResult,
   ClaudeOAuthResult,
   AuthStatus,
-  AuthVerifyResult,
   AuthLoginResult,
   AuthRegisterResult,
   ApplyResult,
@@ -189,7 +188,6 @@ export interface Transport {
 
   // ===== Auth API =====
   getAuthStatus(): Promise<AuthStatus>;
-  verifyPassword(password: string): Promise<AuthVerifyResult>;
   login(username: string, password: string): Promise<AuthLoginResult>;
   register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
   apply(username: string, password: string): Promise<ApplyResult>;

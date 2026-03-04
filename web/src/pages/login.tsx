@@ -7,10 +7,9 @@ import type { AuthUser } from '@/lib/auth-context';
 
 interface LoginPageProps {
   onSuccess: (token: string, user?: AuthUser) => void;
-  multiTenancyEnabled?: boolean;
 }
 
-export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
+export function LoginPage({ onSuccess }: LoginPageProps) {
   const { t } = useTranslation();
   const { transport } = useTransport();
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -28,32 +27,23 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
     setIsLoading(true);
 
     try {
-      if (multiTenancyEnabled) {
-        const result = await transport.login(username, password);
-        if (result.success && result.token) {
-          const user: AuthUser | undefined = result.user
-            ? {
-                id: result.user.id,
-                username: result.user.username,
-                tenantID: result.user.tenantID,
-                tenantName: result.user.tenantName,
-                role: result.user.role,
-              }
-            : undefined;
-          onSuccess(result.token, user);
-        } else {
-          if (result.error === 'account pending approval') {
-            setError(t('login.pendingApproval'));
-          } else {
-            setError(result.error || t('login.invalidCredentials'));
-          }
-        }
+      const result = await transport.login(username, password);
+      if (result.success && result.token) {
+        const user: AuthUser | undefined = result.user
+          ? {
+              id: result.user.id,
+              username: result.user.username,
+              tenantID: result.user.tenantID,
+              tenantName: result.user.tenantName,
+              role: result.user.role,
+            }
+          : undefined;
+        onSuccess(result.token, user);
       } else {
-        const result = await transport.verifyPassword(password);
-        if (result.success && result.token) {
-          onSuccess(result.token);
+        if (result.error === 'account pending approval') {
+          setError(t('login.pendingApproval'));
         } else {
-          setError(result.error || t('login.invalidPassword'));
+          setError(result.error || t('login.invalidCredentials'));
         }
       }
     } catch (err: unknown) {
@@ -62,9 +52,9 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
       if (errorMsg === 'account pending approval') {
         setError(t('login.pendingApproval'));
       } else if (axiosError?.response?.status === 401) {
-        setError(multiTenancyEnabled ? t('login.invalidCredentials') : t('login.invalidPassword'));
+        setError(t('login.invalidCredentials'));
       } else {
-        setError(errorMsg || t('login.verifyFailed'));
+        setError(errorMsg || t('login.invalidCredentials'));
       }
     } finally {
       setIsLoading(false);
@@ -101,7 +91,7 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
     }
   };
 
-  if (mode === 'register' && multiTenancyEnabled) {
+  if (mode === 'register') {
     const isRegisterDisabled = isLoading || !username || !password || !confirmPassword;
 
     return (
@@ -157,9 +147,7 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
     );
   }
 
-  const isSubmitDisabled = multiTenancyEnabled
-    ? isLoading || !username || !password
-    : isLoading || !password;
+  const isSubmitDisabled = isLoading || !username || !password;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
@@ -167,28 +155,25 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-bold">{t('login.title')}</h1>
           <p className="text-muted-foreground text-sm">
-            {multiTenancyEnabled ? t('login.descriptionMultiUser') : t('login.description')}
+            {t('login.descriptionMultiUser')}
           </p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="space-y-2">
-            {multiTenancyEnabled && (
-              <Input
-                type="text"
-                placeholder={t('login.usernamePlaceholder')}
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoFocus
-                disabled={isLoading}
-              />
-            )}
+            <Input
+              type="text"
+              placeholder={t('login.usernamePlaceholder')}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoFocus
+              disabled={isLoading}
+            />
             <Input
               type="password"
               placeholder={t('login.passwordPlaceholder')}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoFocus={!multiTenancyEnabled}
               disabled={isLoading}
             />
             {error && <p className="text-destructive text-sm">{error}</p>}
@@ -199,16 +184,14 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
             {isLoading ? t('login.verifying') : t('login.submit')}
           </Button>
 
-          {multiTenancyEnabled && (
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full"
-              onClick={() => { setMode('register'); setError(''); setSuccessMessage(''); }}
-            >
-              {t('login.register')}
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={() => { setMode('register'); setError(''); setSuccessMessage(''); }}
+          >
+            {t('login.register')}
+          </Button>
         </form>
       </div>
     </div>
