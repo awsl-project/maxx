@@ -657,6 +657,7 @@
   "login": {
     "title": "Maxx Admin",
     "description": "Enter password to access the admin panel",
+    "descriptionMultiUser": "Enter username and password to login",
     "usernamePlaceholder": "Username",
     "passwordPlaceholder": "Password",
     "submit": "Login",

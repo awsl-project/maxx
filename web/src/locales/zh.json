@@ -657,6 +657,7 @@
   "login": {
     "title": "Maxx 管理后台",
     "description": "输入密码访问管理面板",
+    "descriptionMultiUser": "输入用户名和密码登录",
     "usernamePlaceholder": "用户名",
     "passwordPlaceholder": "密码",
     "submit": "登录",

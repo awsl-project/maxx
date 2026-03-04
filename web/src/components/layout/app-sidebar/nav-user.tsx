@@ -34,7 +34,7 @@ export function NavUser() {
   const { t, i18n } = useTranslation();
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
-  const { user, authEnabled, logout } = useAuth();
+  const { user, authEnabled, multiTenancyEnabled, logout } = useAuth();
   const isCollapsed = !isMobile && state === 'collapsed';
   const currentLanguage = (i18n.resolvedLanguage || i18n.language || 'en').toLowerCase().startsWith('zh')
     ? 'zh'
@@ -171,6 +171,12 @@ export function NavUser() {
                     </Avatar>
                     <div className="grid flex-1 text-left text-sm leading-tight">
                       <span className="truncate font-medium">{displayUser.name}</span>
+                      {multiTenancyEnabled && user && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
+                          {user.tenantName && ` · ${user.tenantName}`}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </DropdownMenuLabel>

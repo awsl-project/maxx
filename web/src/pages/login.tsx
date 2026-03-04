@@ -66,7 +66,9 @@ export function LoginPage({ onSuccess, multiTenancyEnabled }: LoginPageProps) {
       <div className="w-full max-w-sm space-y-6 p-6">
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-bold">{t('login.title')}</h1>
-          <p className="text-muted-foreground text-sm">{t('login.description')}</p>
+          <p className="text-muted-foreground text-sm">
+            {multiTenancyEnabled ? t('login.descriptionMultiUser') : t('login.description')}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
