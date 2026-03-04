@@ -69,9 +69,7 @@ request_max_retries = 4
 stream_max_retries = 10
 stream_idle_timeout_ms = 300000`;
 
-  const authJson = `{
-  "OPENAI_API_KEY": "${token}"
-}`;
+  const authJson = JSON.stringify({ OPENAI_API_KEY: token }, null, 2);
 
   const combined = `# ~/.codex/config.toml
 ${configToml}

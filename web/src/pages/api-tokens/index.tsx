@@ -241,11 +241,20 @@ export function APITokensPage() {
   };
 
   const handleCopyCodexSection = async (section: 'configToml' | 'authJson', content: string) => {
-    await navigator.clipboard.writeText(content);
-    setCopiedCodexSection(section);
-    setTimeout(() => {
-      setCopiedCodexSection((current) => (current === section ? null : current));
-    }, 2000);
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      console.error('Clipboard API is not available.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedCodexSection(section);
+      setTimeout(() => {
+        setCopiedCodexSection((current) => (current === section ? null : current));
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to copy Codex config section.', error);
+    }
   };
 
   const getCodexCheckHint = (checkKey: string) => {
