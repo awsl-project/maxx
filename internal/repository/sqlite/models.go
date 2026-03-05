@@ -1,4 +1,4 @@
-﻿package sqlite
+package sqlite
 
 import (
 	"time"
@@ -72,13 +72,14 @@ func (Tenant) TableName() string { return "tenants" }
 // User model
 type User struct {
 	SoftDeleteModel
-	TenantID     uint64 `gorm:"index"`
-	Username     string `gorm:"size:255;uniqueIndex"`
-	PasswordHash string `gorm:"size:255"`
-	Role         string `gorm:"size:64;default:'admin'"`
-	Status       string `gorm:"size:64;default:'pending'"`
-	IsDefault    int
-	LastLoginAt  int64
+	TenantID           uint64 `gorm:"index"`
+	Username           string `gorm:"size:255;uniqueIndex"`
+	PasswordHash       string `gorm:"size:255"`
+	PasskeyCredentials LongText
+	Role               string `gorm:"size:64;default:'admin'"`
+	Status             string `gorm:"size:64;default:'pending'"`
+	IsDefault          int
+	LastLoginAt        int64
 }
 
 func (User) TableName() string { return "users" }
@@ -289,7 +290,7 @@ type ProxyUpstreamAttempt struct {
 	Cost              uint64
 	IsStream          int
 	StartTime         int64
-	EndTime           int64  `gorm:"index:idx_attempts_status_endtime"`
+	EndTime           int64 `gorm:"index:idx_attempts_status_endtime"`
 	DurationMs        int64
 	TTFTMs            int64
 	RequestModel      string `gorm:"size:128"`

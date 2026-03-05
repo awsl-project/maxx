@@ -42,6 +42,8 @@ import type {
   ClaudeTokenValidationResult,
   AuthStatus,
   AuthLoginResult,
+  PasskeyOptionsResult,
+  PasskeyRegisterResult,
   AuthRegisterResult,
   ApplyResult,
   ChangePasswordResult,
@@ -606,6 +608,49 @@ export class HttpTransport implements Transport {
 
   async login(username: string, password: string): Promise<AuthLoginResult> {
     const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/login', { username, password });
+    return data;
+  }
+
+  async startPasskeyLogin(username: string): Promise<PasskeyOptionsResult> {
+    const { data } = await axios.post<PasskeyOptionsResult>('/api/admin/auth/passkey/login/options', {
+      username,
+    });
+    return data;
+  }
+
+  async finishPasskeyLogin(
+    sessionID: string,
+    credential: Record<string, unknown>,
+  ): Promise<AuthLoginResult> {
+    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/passkey/login/verify', {
+      sessionID,
+      credential,
+    });
+    return data;
+  }
+
+  async startPasskeyRegistration(
+    username: string,
+    password: string,
+  ): Promise<PasskeyOptionsResult> {
+    const { data } = await axios.post<PasskeyOptionsResult>(
+      '/api/admin/auth/passkey/register/options',
+      { username, password },
+    );
+    return data;
+  }
+
+  async finishPasskeyRegistration(
+    sessionID: string,
+    credential: Record<string, unknown>,
+  ): Promise<PasskeyRegisterResult> {
+    const { data } = await axios.post<PasskeyRegisterResult>(
+      '/api/admin/auth/passkey/register/verify',
+      {
+        sessionID,
+        credential,
+      },
+    );
     return data;
   }
 

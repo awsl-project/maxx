@@ -34,6 +34,9 @@ type User struct {
 	// bcrypt 密码哈希，不序列化
 	PasswordHash string `json:"-"`
 
+	// Passkey/WebAuthn 凭据列表（JSON 序列化），不序列化
+	PasskeyCredentials string `json:"-"`
+
 	// 角色
 	Role UserRole `json:"role"`
 

@@ -696,6 +696,19 @@ export interface AuthLoginResult {
   error?: string;
 }
 
+export interface PasskeyOptionsResult {
+  success: boolean;
+  sessionID?: string;
+  options?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface PasskeyRegisterResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
 export interface AuthRegisterResult {
   success: boolean;
   token?: string;
