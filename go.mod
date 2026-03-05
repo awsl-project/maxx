@@ -104,4 +104,4 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-replace github.com/router-for-me/CLIProxyAPI/v6 => github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260303040842-ad6c5d3a758b
+replace github.com/router-for-me/CLIProxyAPI/v6 => github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260305040637-ded0f3375462
