@@ -115,3 +115,17 @@ func TestValidateRegistrationEmail(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadDisposableEmailDomains(t *testing.T) {
+	domains := loadDisposableEmailDomains(" Example.Custom , MAILINATOR.COM ,, ")
+
+	if _, ok := domains["example.custom"]; !ok {
+		t.Fatalf("expected configured domain to be loaded")
+	}
+	if _, ok := domains["mailinator.com"]; !ok {
+		t.Fatalf("expected configured domain to be normalized and loaded")
+	}
+	if _, ok := domains["yopmail.com"]; !ok {
+		t.Fatalf("expected default domain list to be preserved")
+	}
+}

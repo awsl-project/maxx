@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -14,6 +15,11 @@ import (
 )
 
 const registrationConflictError = "registration conflict"
+
+type registrationError struct {
+	statusCode int
+	message    string
+}
 
 // AuthHandler handles authentication-related endpoints
 type AuthHandler struct {
@@ -166,54 +172,15 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	normalizedUsername := strings.TrimSpace(body.Username)
-	if normalizedUsername == "" || body.Password == "" || strings.TrimSpace(body.Email) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
-		return
-	}
-
-	email, err := validateRegistrationEmail(r.Context(), body.Email)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": registrationConflictError})
-		return
-	} else if err != nil && err != domain.ErrNotFound {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to validate email"})
-		return
-	}
-
 	// Use tenant from the authenticated admin's token
 	tenantID := claims.TenantID
 	if tenantID == 0 {
 		tenantID = domain.DefaultTenantID
 	}
 
-	// Hash password
-	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
-		return
-	}
-
-	user := &domain.User{
-		TenantID:     tenantID,
-		Username:     normalizedUsername,
-		Email:        email,
-		PasswordHash: string(hash),
-		Role:         domain.UserRoleMember,
-		Status:       domain.UserStatusActive,
-	}
-
-	if err := h.userRepo.Create(user); err != nil {
-		if errors.Is(err, domain.ErrAlreadyExists) {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": registrationConflictError})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
+	user, regErr := h.createRegisteredUser(r.Context(), body.Username, body.Password, body.Email, tenantID, domain.UserStatusActive)
+	if regErr != nil {
+		writeJSON(w, regErr.statusCode, map[string]string{"error": regErr.message})
 		return
 	}
 
@@ -254,47 +221,16 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	normalizedUsername := strings.TrimSpace(body.Username)
-	if normalizedUsername == "" || body.Password == "" || strings.TrimSpace(body.Email) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
-		return
-	}
-
-	email, err := validateRegistrationEmail(r.Context(), body.Email)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": registrationConflictError})
-		return
-	} else if err != nil && err != domain.ErrNotFound {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to validate email"})
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
-		return
-	}
-
-	user := &domain.User{
-		TenantID:     domain.DefaultTenantID,
-		Username:     normalizedUsername,
-		Email:        email,
-		PasswordHash: string(hash),
-		Role:         domain.UserRoleMember,
-		Status:       domain.UserStatusPending,
-	}
-
-	if err := h.userRepo.Create(user); err != nil {
-		if errors.Is(err, domain.ErrAlreadyExists) {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": registrationConflictError})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
+	_, regErr := h.createRegisteredUser(
+		r.Context(),
+		body.Username,
+		body.Password,
+		body.Email,
+		domain.DefaultTenantID,
+		domain.UserStatusPending,
+	)
+	if regErr != nil {
+		writeJSON(w, regErr.statusCode, map[string]string{"error": regErr.message})
 		return
 	}
 
@@ -302,6 +238,75 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": "registration submitted, waiting for admin approval",
 	})
+}
+
+func (h *AuthHandler) createRegisteredUser(
+	ctx context.Context,
+	rawUsername string,
+	password string,
+	rawEmail string,
+	tenantID uint64,
+	status domain.UserStatus,
+) (*domain.User, *registrationError) {
+	normalizedUsername := strings.TrimSpace(rawUsername)
+	if normalizedUsername == "" || password == "" || strings.TrimSpace(rawEmail) == "" {
+		return nil, &registrationError{
+			statusCode: http.StatusBadRequest,
+			message:    "username, password and email are required",
+		}
+	}
+
+	email, err := validateRegistrationEmail(ctx, rawEmail)
+	if err != nil {
+		return nil, &registrationError{
+			statusCode: http.StatusBadRequest,
+			message:    err.Error(),
+		}
+	}
+
+	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
+		return nil, &registrationError{
+			statusCode: http.StatusConflict,
+			message:    registrationConflictError,
+		}
+	} else if err != nil && err != domain.ErrNotFound {
+		return nil, &registrationError{
+			statusCode: http.StatusInternalServerError,
+			message:    "failed to validate email",
+		}
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, &registrationError{
+			statusCode: http.StatusInternalServerError,
+			message:    "failed to hash password",
+		}
+	}
+
+	user := &domain.User{
+		TenantID:     tenantID,
+		Username:     normalizedUsername,
+		Email:        email,
+		PasswordHash: string(hash),
+		Role:         domain.UserRoleMember,
+		Status:       status,
+	}
+
+	if err := h.userRepo.Create(user); err != nil {
+		if errors.Is(err, domain.ErrAlreadyExists) {
+			return nil, &registrationError{
+				statusCode: http.StatusConflict,
+				message:    registrationConflictError,
+			}
+		}
+		return nil, &registrationError{
+			statusCode: http.StatusInternalServerError,
+			message:    "failed to create user",
+		}
+	}
+
+	return user, nil
 }
 
 // handleChangePassword handles self-service password change

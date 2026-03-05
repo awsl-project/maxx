@@ -5,9 +5,12 @@ import (
 	"errors"
 	"net"
 	"net/mail"
+	"os"
 	"strings"
 	"time"
 )
+
+const DisposableEmailDomainsEnvKey = "MAXX_DISPOSABLE_EMAIL_DOMAINS"
 
 var (
 	emailLookupMX = func(ctx context.Context, domain string) ([]*net.MX, error) {
@@ -18,27 +21,46 @@ var (
 	}
 )
 
-var disposableEmailDomains = map[string]struct{}{
-	"10minutemail.com":  {},
-	"33mail.com":        {},
-	"anonbox.net":       {},
-	"dispostable.com":   {},
-	"emailondeck.com":   {},
-	"fakeinbox.com":     {},
-	"getairmail.com":    {},
-	"guerrillamail.com": {},
-	"inboxbear.com":     {},
-	"maildrop.cc":       {},
-	"mailinator.com":    {},
-	"moakt.com":         {},
-	"mytemp.email":      {},
-	"sharklasers.com":   {},
-	"temp-mail.org":     {},
-	"tempail.com":       {},
-	"tempmail.dev":      {},
-	"tempmailo.com":     {},
-	"throwawaymail.com": {},
-	"yopmail.com":       {},
+var defaultDisposableEmailDomains = []string{
+	"10minutemail.com",
+	"33mail.com",
+	"anonbox.net",
+	"dispostable.com",
+	"emailondeck.com",
+	"fakeinbox.com",
+	"getairmail.com",
+	"guerrillamail.com",
+	"inboxbear.com",
+	"maildrop.cc",
+	"mailinator.com",
+	"moakt.com",
+	"mytemp.email",
+	"sharklasers.com",
+	"temp-mail.org",
+	"tempail.com",
+	"tempmail.dev",
+	"tempmailo.com",
+	"throwawaymail.com",
+	"yopmail.com",
+}
+
+var disposableEmailDomains = loadDisposableEmailDomains(os.Getenv(DisposableEmailDomainsEnvKey))
+
+func loadDisposableEmailDomains(raw string) map[string]struct{} {
+	domains := make(map[string]struct{}, len(defaultDisposableEmailDomains))
+	for _, domain := range defaultDisposableEmailDomains {
+		domains[domain] = struct{}{}
+	}
+
+	for _, item := range strings.Split(raw, ",") {
+		domain := strings.ToLower(strings.TrimSpace(item))
+		if domain == "" {
+			continue
+		}
+		domains[domain] = struct{}{}
+	}
+
+	return domains
 }
 
 func validateRegistrationEmail(parentCtx context.Context, rawEmail string) (string, error) {
