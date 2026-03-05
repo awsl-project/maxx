@@ -556,6 +556,7 @@
       "provider": "提供商",
       "project": "项目",
       "position": "位置 (数值越小优先级越高)",
+      "weight": "权重 (weighted random 生效)",
       "modelMapping": "模型映射 (覆盖)",
       "enabled": "启用",
       "selectProvider": "选择提供商...",

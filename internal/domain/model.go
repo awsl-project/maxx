@@ -294,6 +294,9 @@ type Route struct {
 	// 位置，数字越小越优先
 	Position int `json:"position"`
 
+	// 权重（用于 weighted_random），<=0 时按默认权重处理
+	Weight int `json:"weight"`
+
 	// 重试配置，0 表示使用系统默认
 	RetryConfigID uint64 `json:"retryConfigID"`
 }
@@ -303,6 +306,8 @@ type RoutePositionUpdate struct {
 	ID       uint64 `json:"id"`
 	Position int    `json:"position"`
 }
+
+const DefaultRouteWeight = 100
 
 type RequestInfo struct {
 	Method  string            `json:"method"`
