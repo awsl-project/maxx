@@ -132,6 +132,14 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		return
 	}
 
+	if clientType == domain.ClientTypeCodex {
+		if compacted, changed := maybeCompactCodexContext(body); changed {
+			log.Printf("[Proxy] Applied smart Codex context compaction: %d -> %d bytes", len(body), len(compacted))
+			body = compacted
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+	}
+
 	var apiToken *domain.APIToken
 	var apiTokenID uint64
 	if h.tokenAuth != nil {
