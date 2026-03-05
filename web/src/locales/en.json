@@ -660,6 +660,7 @@
     "description": "Enter password to access the admin panel",
     "descriptionMultiUser": "Enter username and password to log in",
     "usernamePlaceholder": "Username",
+    "emailPlaceholder": "Email Address",
     "passwordPlaceholder": "Password",
     "confirmPasswordPlaceholder": "Confirm Password",
     "submit": "Login",
@@ -1222,4 +1223,3 @@
     "emptyHint": "No model mappings configured. Add mappings to transform request models before sending to upstream."
   }
 }
-

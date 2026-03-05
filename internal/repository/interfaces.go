@@ -22,6 +22,7 @@ type UserRepository interface {
 	Delete(tenantID uint64, id uint64) error
 	GetByID(tenantID uint64, id uint64) (*domain.User, error)
 	GetByUsername(username string) (*domain.User, error)
+	GetByEmail(email string) (*domain.User, error)
 	GetDefault() (*domain.User, error)
 	List() ([]*domain.User, error)
 	ListByTenant(tenantID uint64) ([]*domain.User, error)

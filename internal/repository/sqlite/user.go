@@ -71,6 +71,17 @@ func (r *UserRepository) GetByUsername(username string) (*domain.User, error) {
 	return r.toDomain(&model), nil
 }
 
+func (r *UserRepository) GetByEmail(email string) (*domain.User, error) {
+	var model User
+	if err := r.db.gorm.Where("email = ? AND deleted_at = 0", email).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
+}
+
 func (r *UserRepository) GetDefault() (*domain.User, error) {
 	var model User
 	if err := r.db.gorm.Where("is_default = 1 AND deleted_at = 0").First(&model).Error; err != nil {
@@ -126,6 +137,7 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 		},
 		TenantID:     u.TenantID,
 		Username:     u.Username,
+		Email:        u.Email,
 		PasswordHash: u.PasswordHash,
 		Role:         string(u.Role),
 		Status:       status,
@@ -146,6 +158,7 @@ func (r *UserRepository) toDomain(m *User) *domain.User {
 		DeletedAt:    fromTimestampPtr(m.DeletedAt),
 		TenantID:     m.TenantID,
 		Username:     m.Username,
+		Email:        m.Email,
 		PasswordHash: m.PasswordHash,
 		Role:         domain.UserRole(m.Role),
 		Status:       status,

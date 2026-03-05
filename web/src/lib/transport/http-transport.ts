@@ -614,8 +614,8 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async apply(username: string, password: string): Promise<ApplyResult> {
-    const { data } = await this.client.post<ApplyResult>('/auth/apply', { username, password });
+  async apply(username: string, password: string, email: string): Promise<ApplyResult> {
+    const { data } = await this.client.post<ApplyResult>('/auth/apply', { username, password, email });
     return data;
   }
 

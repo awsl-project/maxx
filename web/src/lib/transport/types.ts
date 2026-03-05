@@ -639,6 +639,7 @@ export interface User {
   updatedAt: string;
   tenantID: number;
   username: string;
+  email?: string;
   role: UserRole;
   status: UserStatus;
   isDefault: boolean;

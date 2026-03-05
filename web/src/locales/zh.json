@@ -660,6 +660,7 @@
     "description": "输入密码访问管理面板",
     "descriptionMultiUser": "输入用户名和密码登录",
     "usernamePlaceholder": "用户名",
+    "emailPlaceholder": "邮箱地址",
     "passwordPlaceholder": "密码",
     "confirmPasswordPlaceholder": "确认密码",
     "submit": "登录",
@@ -1221,4 +1222,3 @@
     "emptyHint": "暂无模型映射。添加映射以在发送到上游前转换请求模型。"
   }
 }
-
