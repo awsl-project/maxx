@@ -180,7 +180,7 @@ var migrations = []Migration{
 			return nil
 		},
 		Down: func(db *gorm.DB) error {
-			return nil
+			return errors.New("migration v5 is irreversible: hard-deleted users cannot be restored")
 		},
 	},
 }
