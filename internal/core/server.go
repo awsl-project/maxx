@@ -97,9 +97,7 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	mux.Handle("/v1beta/models/", components.ProxyHandler)
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		WriteHealthResponse(w)
 	})
 
 	mux.HandleFunc("/ws", components.WebSocketHub.HandleWebSocket)

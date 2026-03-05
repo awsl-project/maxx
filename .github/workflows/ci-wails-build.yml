@@ -50,7 +50,9 @@ jobs:
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
           VERSION=${TAG#v}
-          wails build -platform darwin/${{ matrix.arch }} -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION" -clean
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          wails build -platform darwin/${{ matrix.arch }} -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION -X github.com/awsl-project/maxx/internal/version.Commit=$COMMIT -X github.com/awsl-project/maxx/internal/version.BuildTime=$BUILD_TIME" -clean
 
       - name: Install create-dmg
         run: brew install create-dmg
@@ -134,7 +136,9 @@ jobs:
         run: |
           $TAG = "${{ inputs.tag || github.ref_name }}"
           $VERSION = $TAG.TrimStart('v')
-          wails build -platform windows/amd64 -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION" -clean
+          $COMMIT = (git rev-parse --short HEAD).Trim()
+          $BUILD_TIME = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          wails build -platform windows/amd64 -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION -X github.com/awsl-project/maxx/internal/version.Commit=$COMMIT -X github.com/awsl-project/maxx/internal/version.BuildTime=$BUILD_TIME" -clean
 
       - name: Verify and prepare Binary
         run: |
@@ -210,7 +214,9 @@ jobs:
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
           VERSION=${TAG#v}
-          wails build -platform linux/amd64 -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION" -clean
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          wails build -platform linux/amd64 -ldflags "-X github.com/awsl-project/maxx/internal/version.Version=$VERSION -X github.com/awsl-project/maxx/internal/version.Commit=$COMMIT -X github.com/awsl-project/maxx/internal/version.BuildTime=$BUILD_TIME" -clean
 
       - name: Prepare binary
         run: |
