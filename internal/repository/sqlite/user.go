@@ -35,14 +35,16 @@ func (r *UserRepository) Update(u *domain.User) error {
 	return r.db.gorm.Save(model).Error
 }
 
+// Delete 硬删除用户。用户表无业务数据关联，软删除会导致 username 唯一约束冲突，无法重新注册同名用户。
 func (r *UserRepository) Delete(tenantID uint64, id uint64) error {
-	now := time.Now().UnixMilli()
-	return r.db.gorm.Model(&User{}).
-		Where("id = ? AND tenant_id = ?", id, tenantID).
-		Updates(map[string]any{
-			"deleted_at": now,
-			"updated_at": now,
-		}).Error
+	result := r.db.gorm.Unscoped().Where("id = ? AND tenant_id = ?", id, tenantID).Delete(&User{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *UserRepository) GetByID(tenantID uint64, id uint64) (*domain.User, error) {

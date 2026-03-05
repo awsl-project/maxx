@@ -166,6 +166,23 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     5,
+		Description: "Hard-delete soft-deleted users to free username unique constraint",
+		Up: func(db *gorm.DB) error {
+			result := db.Exec("DELETE FROM users WHERE deleted_at != 0")
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected > 0 {
+				log.Printf("[Migration] Purged %d soft-deleted users", result.RowsAffected)
+			}
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			return errors.New("migration v5 is irreversible: hard-deleted users cannot be restored")
+		},
+	},
 }
 
 func isMySQLDuplicateIndexError(err error) bool {
