@@ -11,7 +11,7 @@ import type { ProviderConfigItem } from '../types';
 import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-context';
 import { useCooldownsContext } from '@/contexts/cooldowns-context';
 import { ProviderDetailsDialog } from '@/components/provider-details-dialog';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 // 格式化 Token 数量
@@ -50,7 +50,21 @@ type SortableProviderRowProps = {
   onDelete?: () => void;
 };
 
-export function SortableProviderRow({
+function areSortableProviderRowEqual(
+  prev: SortableProviderRowProps,
+  next: SortableProviderRowProps,
+) {
+  return (
+    prev.item === next.item &&
+    prev.index === next.index &&
+    prev.clientType === next.clientType &&
+    prev.streamingCount === next.streamingCount &&
+    prev.stats === next.stats &&
+    prev.isToggling === next.isToggling
+  );
+}
+
+function SortableProviderRowBase({
   item,
   index,
   clientType,
@@ -109,23 +123,28 @@ export function SortableProviderRow({
       </div>
 
       {/* Provider Details Dialog */}
-      <ProviderDetailsDialog
-        item={item}
-        clientType={clientType}
-        open={showDetailsDialog}
-        onOpenChange={setShowDetailsDialog}
-        stats={stats}
-        cooldown={cooldown || null}
-        streamingCount={streamingCount}
-        onToggle={onToggle}
-        isToggling={isToggling}
-        onDelete={onDelete}
-        onClearCooldown={handleClearCooldown}
-        isClearingCooldown={isClearingCooldown}
-      />
+      {showDetailsDialog && (
+        <ProviderDetailsDialog
+          item={item}
+          clientType={clientType}
+          open={showDetailsDialog}
+          onOpenChange={setShowDetailsDialog}
+          stats={stats}
+          cooldown={cooldown || null}
+          streamingCount={streamingCount}
+          onToggle={onToggle}
+          isToggling={isToggling}
+          onDelete={onDelete}
+          onClearCooldown={handleClearCooldown}
+          isClearingCooldown={isClearingCooldown}
+        />
+      )}
     </>
   );
 }
+
+export const SortableProviderRow = memo(SortableProviderRowBase, areSortableProviderRowEqual);
+SortableProviderRow.displayName = 'SortableProviderRow';
 
 // Provider Row Content (used both in sortable and overlay)
 type ProviderRowContentProps = {
@@ -211,7 +230,24 @@ function formatLastUpdated(timestamp: number, t: (key: string) => string): strin
   return `${days}d`;
 }
 
-export function ProviderRowContent({
+function areProviderRowContentEqual(
+  prev: ProviderRowContentProps,
+  next: ProviderRowContentProps,
+) {
+  return (
+    prev.item === next.item &&
+    prev.index === next.index &&
+    prev.clientType === next.clientType &&
+    prev.streamingCount === next.streamingCount &&
+    prev.stats === next.stats &&
+    prev.isToggling === next.isToggling &&
+    prev.isOverlay === next.isOverlay &&
+    prev.isInCooldown === next.isInCooldown &&
+    prev.isClearingCooldown === next.isClearingCooldown
+  );
+}
+
+function ProviderRowContentBase({
   item,
   index,
   clientType,
@@ -597,3 +633,6 @@ export function ProviderRowContent({
     </Button>
   );
 }
+
+export const ProviderRowContent = memo(ProviderRowContentBase, areProviderRowContentEqual);
+ProviderRowContent.displayName = 'ProviderRowContent';

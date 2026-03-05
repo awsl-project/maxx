@@ -3,7 +3,7 @@
  * Used by both global routes and project routes
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, RefreshCw, Zap } from 'lucide-react';
 import {
@@ -38,7 +38,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import { getClientName, getClientColor } from '@/components/icons/client-icons';
 import { getProviderColor, type ProviderType } from '@/lib/theme';
-import type { ClientType, Provider } from '@/lib/transport';
+import type { ClientType, Provider, ProviderStats } from '@/lib/transport';
 import {
   SortableProviderRow,
   ProviderRowContent,
@@ -57,6 +57,44 @@ const PROVIDER_TYPE_LABELS: Record<Exclude<ProviderTypeKey, 'custom'>, string> =
   kiro: 'Kiro',
   codex: 'Codex',
 };
+
+function isSameProviderStats(a: ProviderStats, b: ProviderStats): boolean {
+  return (
+    a.providerID === b.providerID &&
+    a.totalRequests === b.totalRequests &&
+    a.successfulRequests === b.successfulRequests &&
+    a.failedRequests === b.failedRequests &&
+    a.successRate === b.successRate &&
+    a.activeRequests === b.activeRequests &&
+    a.totalInputTokens === b.totalInputTokens &&
+    a.totalOutputTokens === b.totalOutputTokens &&
+    a.totalCacheRead === b.totalCacheRead &&
+    a.totalCacheWrite === b.totalCacheWrite &&
+    a.totalCost === b.totalCost
+  );
+}
+
+function useStableProviderStats(stats: Record<number, ProviderStats>) {
+  const prevRef = useRef<Record<number, ProviderStats>>({});
+
+  return useMemo(() => {
+    const prev = prevRef.current;
+    const next: Record<number, ProviderStats> = {};
+
+    for (const [key, value] of Object.entries(stats)) {
+      const id = Number(key);
+      const prevValue = prev[id];
+      if (prevValue && isSameProviderStats(prevValue, value)) {
+        next[id] = prevValue;
+      } else {
+        next[id] = value;
+      }
+    }
+
+    prevRef.current = next;
+    return next;
+  }, [stats]);
+}
 
 interface ClientTypeRoutesContentProps {
   clientType: ClientType;
@@ -84,6 +122,7 @@ function ClientTypeRoutesContentInner({
   const { t } = useTranslation();
   const [activeId, setActiveId] = useState<string | null>(null);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
+  const stableProviderStats = useStableProviderStats(providerStats);
   const queryClient = useQueryClient();
 
   // 订阅请求更新事件，确保 providerStats 实时刷新
@@ -102,7 +141,6 @@ function ClientTypeRoutesContentInner({
 
   const { data: allRoutes, isLoading: routesLoading } = useRoutes();
   const { data: providers = [], isLoading: providersLoading } = useProviders();
-  const { countsByProviderAndClient } = useStreamingRequests();
 
   const createRoute = useCreateRoute();
   const toggleRoute = useToggleRoute();
@@ -116,42 +154,62 @@ function ClientTypeRoutesContentInner({
     return allRoutes?.filter((r) => r.clientType === clientType && r.projectID === projectID) || [];
   }, [allRoutes, clientType, projectID]);
 
+  const normalizedQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
+
+  const providerById = useMemo(() => {
+    const map = new Map<number, Provider>();
+    for (const provider of providers) {
+      map.set(Number(provider.id), provider);
+    }
+    return map;
+  }, [providers]);
+
+  const routeByProviderId = useMemo(() => {
+    const map = new Map<number, (typeof clientRoutes)[number]>();
+    for (const route of clientRoutes) {
+      map.set(Number(route.providerID), route);
+    }
+    return map;
+  }, [clientRoutes]);
+
   // Build provider config items
   const items = useMemo((): ProviderConfigItem[] => {
-    const allItems = providers.map((provider) => {
-      const route = clientRoutes.find((r) => Number(r.providerID) === Number(provider.id)) || null;
+    const allItems: ProviderConfigItem[] = [];
+
+    for (const route of clientRoutes) {
+      const provider = providerById.get(Number(route.providerID));
+      if (!provider) continue;
       const isNative = (provider.supportedClientTypes || []).includes(clientType);
-      return {
+      allItems.push({
         id: `${clientType}-provider-${provider.id}`,
         provider,
         route,
-        enabled: route?.isEnabled ?? false,
+        enabled: route.isEnabled ?? false,
         isNative,
-      };
-    });
+      });
+    }
 
-    // Only show providers that have routes
-    let filteredItems = allItems.filter((item) => item.route);
+    let filteredItems = allItems;
 
     // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+    if (normalizedQuery) {
       filteredItems = filteredItems.filter(
         (item) =>
-          item.provider.name.toLowerCase().includes(query) ||
-          item.provider.type.toLowerCase().includes(query),
+          item.provider.name.toLowerCase().includes(normalizedQuery) ||
+          item.provider.type.toLowerCase().includes(normalizedQuery),
       );
     }
 
     return filteredItems.sort((a, b) => {
-      if (a.route && b.route) return a.route.position - b.route.position;
-      if (a.route && !b.route) return -1;
-      if (!a.route && b.route) return 1;
-      if (a.isNative && !b.isNative) return -1;
-      if (!a.isNative && b.isNative) return 1;
+      const posDiff = (a.route?.position ?? 0) - (b.route?.position ?? 0);
+      if (posDiff !== 0) return posDiff;
+      if (a.isNative !== b.isNative) return a.isNative ? -1 : 1;
       return a.provider.name.localeCompare(b.provider.name);
     });
-  }, [providers, clientRoutes, clientType, searchQuery]);
+  }, [clientRoutes, clientType, normalizedQuery, providerById]);
+
+  const streamingThrottleMs = items.length > 200 ? 1000 : 0;
+  const { countsByProviderAndClient } = useStreamingRequests({ throttleMs: streamingThrottleMs });
 
   // Get available providers (without routes yet), grouped by type and sorted alphabetically
   const groupedAvailableProviders = useMemo((): Record<ProviderTypeKey, Provider[]> => {
@@ -162,16 +220,14 @@ function ClientTypeRoutesContentInner({
       custom: [],
     };
 
-    let available = providers.filter((p) => {
-      const hasRoute = clientRoutes.some((r) => Number(r.providerID) === Number(p.id));
-      return !hasRoute;
-    });
+    let available = providers.filter((p) => !routeByProviderId.has(Number(p.id)));
 
     // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+    if (normalizedQuery) {
       available = available.filter(
-        (p) => p.name.toLowerCase().includes(query) || p.type.toLowerCase().includes(query),
+        (p) =>
+          p.name.toLowerCase().includes(normalizedQuery) ||
+          p.type.toLowerCase().includes(normalizedQuery),
       );
     }
 
@@ -191,14 +247,32 @@ function ClientTypeRoutesContentInner({
     }
 
     return groups;
-  }, [providers, clientRoutes, searchQuery]);
+  }, [providers, normalizedQuery, routeByProviderId]);
 
   // Check if there are any available providers
   const hasAvailableProviders = useMemo(() => {
     return PROVIDER_TYPE_ORDER.some((type) => groupedAvailableProviders[type].length > 0);
   }, [groupedAvailableProviders]);
 
-  const activeItem = activeId ? items.find((item) => item.id === activeId) : null;
+  const itemsById = useMemo(() => {
+    const map = new Map<string, ProviderConfigItem>();
+    for (const item of items) {
+      map.set(item.id, item);
+    }
+    return map;
+  }, [items]);
+
+  const itemIds = useMemo(() => items.map((item) => item.id), [items]);
+
+  const itemIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    items.forEach((item, index) => {
+      map.set(item.id, index);
+    });
+    return map;
+  }, [items]);
+
+  const activeItem = activeId ? itemsById.get(activeId) ?? null : null;
 
   const handleToggle = (item: ProviderConfigItem) => {
     if (item.route) {
@@ -244,10 +318,11 @@ function ClientTypeRoutesContentInner({
 
     if (!over || active.id === over.id) return;
 
-    const oldIndex = items.findIndex((item) => item.id === active.id);
-    const newIndex = items.findIndex((item) => item.id === over.id);
+    const oldIndex = itemIndexById.get(active.id as string);
+    const newIndex = itemIndexById.get(over.id as string);
 
-    if (oldIndex === -1 || newIndex === -1) return;
+    if (oldIndex === undefined || newIndex === undefined) return;
+    if (oldIndex === newIndex) return;
 
     const newItems = arrayMove(items, oldIndex, newIndex);
 
@@ -305,7 +380,7 @@ function ClientTypeRoutesContentInner({
               onDragEnd={handleDragEnd}
             >
               <SortableContext
-                items={items.map((item) => item.id)}
+                items={itemIds}
                 strategy={verticalListSortingStrategy}
               >
                 <div className="space-y-2">
@@ -318,7 +393,7 @@ function ClientTypeRoutesContentInner({
                       streamingCount={
                         countsByProviderAndClient.get(`${item.provider.id}:${clientType}`) || 0
                       }
-                      stats={providerStats[item.provider.id]}
+                      stats={stableProviderStats[item.provider.id]}
                       isToggling={toggleRoute.isPending || createRoute.isPending}
                       onToggle={() => handleToggle(item)}
                       onDelete={item.route ? () => handleDeleteRoute(item.route!.id) : undefined}
@@ -331,12 +406,12 @@ function ClientTypeRoutesContentInner({
                 {activeItem && (
                   <ProviderRowContent
                     item={activeItem}
-                    index={items.findIndex((i) => i.id === activeItem.id)}
+                    index={itemIndexById.get(activeItem.id) ?? 0}
                     clientType={clientType}
                     streamingCount={
                       countsByProviderAndClient.get(`${activeItem.provider.id}:${clientType}`) || 0
                     }
-                    stats={providerStats[activeItem.provider.id]}
+                    stats={stableProviderStats[activeItem.provider.id]}
                     isToggling={false}
                     isOverlay
                     onToggle={() => {}}
