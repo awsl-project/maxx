@@ -106,6 +106,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const { transport } = useTransport();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -167,10 +168,11 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     setIsLoading(true);
 
     try {
-      const result = await transport.apply(username, password);
+      const result = await transport.apply(username, password, email);
       if (result.success) {
         setSuccessMessage(t('login.registerSuccess'));
         setMode('login');
+        setEmail('');
         setPassword('');
         setConfirmPassword('');
       } else {
@@ -291,7 +293,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   };
 
   if (mode === 'register') {
-    const isRegisterDisabled = isLoading || !username || !password || !confirmPassword;
+    const isRegisterDisabled = isLoading || !username || !email || !password || !confirmPassword;
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -309,6 +311,13 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoFocus
+                disabled={isLoading}
+              />
+              <Input
+                type="email"
+                placeholder={t('login.emailPlaceholder')}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 disabled={isLoading}
               />
               <Input

@@ -166,14 +166,29 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if body.Username == "" || body.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
+	if body.Username == "" || body.Password == "" || strings.TrimSpace(body.Email) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
+		return
+	}
+
+	email, err := validateRegistrationEmail(body.Email)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "email already registered"})
+		return
+	} else if err != nil && err != domain.ErrNotFound {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to validate email"})
 		return
 	}
 
@@ -193,6 +208,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	user := &domain.User{
 		TenantID:     tenantID,
 		Username:     body.Username,
+		Email:        email,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
 		Status:       domain.UserStatusActive,
@@ -233,14 +249,29 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if body.Username == "" || body.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
+	if body.Username == "" || body.Password == "" || strings.TrimSpace(body.Email) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
+		return
+	}
+
+	email, err := validateRegistrationEmail(body.Email)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "email already registered"})
+		return
+	} else if err != nil && err != domain.ErrNotFound {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to validate email"})
 		return
 	}
 
@@ -253,6 +284,7 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	user := &domain.User{
 		TenantID:     domain.DefaultTenantID,
 		Username:     body.Username,
+		Email:        email,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
 		Status:       domain.UserStatusPending,
