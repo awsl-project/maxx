@@ -141,14 +141,12 @@ export function useStreamingRequests(options: StreamingOptions = {}): StreamingS
   }, [handleRequestUpdate, loadActiveRequests]);
 
   useEffect(() => {
-    if (throttleMs <= 0) {
-      if (flushTimerRef.current) {
-        clearTimeout(flushTimerRef.current);
-        flushTimerRef.current = null;
-      }
-      // 关闭节流时立即刷出缓冲状态，避免清理定时器后丢失一次更新。
-      setActiveRequests(new Map(activeRequestsRef.current));
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
     }
+    // throttleMs 变更时立即刷出缓冲状态，避免节流切换时丢失更新。
+    setActiveRequests(new Map(activeRequestsRef.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [throttleMs]);
 
