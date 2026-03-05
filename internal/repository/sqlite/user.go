@@ -94,7 +94,7 @@ func (r *UserRepository) GetByUsername(username string) (*domain.User, error) {
 
 func (r *UserRepository) GetByEmail(email string) (*domain.User, error) {
 	var model User
-	if err := r.db.gorm.Where("email = ?", email).First(&model).Error; err != nil {
+	if err := r.db.gorm.Where("email = ? AND deleted_at = 0", email).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
