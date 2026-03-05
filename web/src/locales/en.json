@@ -87,6 +87,7 @@
     "restartServerConfirm": "Restart the server? Active connections may be briefly interrupted.",
     "restartServerFailed": "Restart failed. Please check the server status.",
     "language": "Language",
+    "currentAccount": "Current Account",
     "logout": "Log out",
     "users": "Users",
     "changePassword": "Change Password"

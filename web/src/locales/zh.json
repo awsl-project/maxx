@@ -87,6 +87,7 @@
     "restartServerConfirm": "确定重启服务器？当前连接可能会短暂中断。",
     "restartServerFailed": "重启失败，请检查服务状态。",
     "language": "语言",
+    "currentAccount": "当前账号",
     "logout": "退出登录",
     "users": "用户管理",
     "changePassword": "修改密码"

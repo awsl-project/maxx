@@ -28,6 +28,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   SidebarMenu,
   SidebarMenuItem,
@@ -122,6 +123,8 @@ export function NavUser() {
     name: user?.username || 'Maxx',
     avatar: '/logo.png',
   };
+  const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
+  const accountTitle = `${t('nav.currentAccount')}: ${displayUser.name}`;
 
   return (
     <SidebarMenu>
@@ -183,6 +186,50 @@ export function NavUser() {
             )}
           </button>
 
+          {isCollapsed ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={(props) => (
+                  <button
+                    {...props}
+                    type="button"
+                    className={cn(
+                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                      props.className,
+                    )}
+                    title={accountTitle}
+                  >
+                    <Avatar className="h-6 w-6 rounded-lg">
+                      <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                      <AvatarFallback className="rounded-lg text-[10px]">
+                        {displayUserFallback}
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                )}
+              />
+              <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] text-muted-foreground">{t('nav.currentAccount')}</span>
+                  <span className="text-xs font-medium">{displayUser.name}</span>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div
+              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
+              title={accountTitle}
+            >
+              <Avatar className="h-6 w-6 rounded-lg">
+                <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                <AvatarFallback className="rounded-lg text-[10px]">{displayUserFallback}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <span className="block truncate text-xs font-medium">{displayUser.name}</span>
+              </div>
+            </div>
+          )}
+
           <DropdownMenu>
             <DropdownMenuTrigger
               render={(props) => (
@@ -212,7 +259,7 @@ export function NavUser() {
                     <Avatar className="h-8 w-8 rounded-lg">
                       <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
                       <AvatarFallback className="rounded-lg">
-                        {displayUser.name.substring(0, 2).toUpperCase()}
+                        {displayUserFallback}
                       </AvatarFallback>
                     </Avatar>
                     <div className="grid flex-1 text-left text-sm leading-tight">
@@ -370,5 +417,4 @@ export function NavUser() {
     </SidebarMenu>
   );
 }
-
 
