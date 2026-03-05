@@ -141,12 +141,17 @@ export function useStreamingRequests(options: StreamingOptions = {}): StreamingS
   }, [handleRequestUpdate, loadActiveRequests]);
 
   useEffect(() => {
-    if (throttleMs <= 0 && flushTimerRef.current) {
-      clearTimeout(flushTimerRef.current);
-      flushTimerRef.current = null;
+    if (throttleMs <= 0) {
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      // 关闭节流时立即刷出缓冲状态，避免清理定时器后丢失一次更新。
       setActiveRequests(new Map(activeRequestsRef.current));
     }
-  }, [throttleMs]);
+    // 让 effect 与最新的 handleRequestUpdate 逻辑保持一致（依赖变更触发重新刷出）。
+    void handleRequestUpdate;
+  }, [throttleMs, handleRequestUpdate]);
 
   return useMemo((): StreamingState => {
     // 计算按 clientType 和 providerID 的统计
