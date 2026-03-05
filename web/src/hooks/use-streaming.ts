@@ -149,9 +149,8 @@ export function useStreamingRequests(options: StreamingOptions = {}): StreamingS
       // 关闭节流时立即刷出缓冲状态，避免清理定时器后丢失一次更新。
       setActiveRequests(new Map(activeRequestsRef.current));
     }
-    // 让 effect 与最新的 handleRequestUpdate 逻辑保持一致（依赖变更触发重新刷出）。
-    void handleRequestUpdate;
-  }, [throttleMs, handleRequestUpdate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [throttleMs]);
 
   return useMemo((): StreamingState => {
     // 计算按 clientType 和 providerID 的统计
@@ -198,16 +197,22 @@ export function useStreamingRequests(options: StreamingOptions = {}): StreamingS
 /**
  * 获取特定客户端的 streaming 请求数
  */
-export function useClientStreamingCount(clientType: ClientType): number {
-  const { countsByClient } = useStreamingRequests();
+export function useClientStreamingCount(
+  clientType: ClientType,
+  options?: StreamingOptions,
+): number {
+  const { countsByClient } = useStreamingRequests(options);
   return countsByClient.get(clientType) || 0;
 }
 
 /**
  * 获取特定 Provider 的 streaming 请求数
  */
-export function useProviderStreamingCount(providerId: number): number {
-  const { countsByProvider } = useStreamingRequests();
+export function useProviderStreamingCount(
+  providerId: number,
+  options?: StreamingOptions,
+): number {
+  const { countsByProvider } = useStreamingRequests(options);
   return countsByProvider.get(providerId) || 0;
 }
 
@@ -217,7 +222,8 @@ export function useProviderStreamingCount(providerId: number): number {
 export function useProviderClientStreamingCount(
   providerId: number,
   clientType: ClientType,
+  options?: StreamingOptions,
 ): number {
-  const { countsByProviderAndClient } = useStreamingRequests();
+  const { countsByProviderAndClient } = useStreamingRequests(options);
   return countsByProviderAndClient.get(`${providerId}:${clientType}`) || 0;
 }
