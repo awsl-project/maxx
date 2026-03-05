@@ -74,7 +74,7 @@ type User struct {
 	SoftDeleteModel
 	TenantID     uint64 `gorm:"index"`
 	Username     string `gorm:"size:255;uniqueIndex"`
-	Email        string `gorm:"size:255;index"`
+	Email        string `gorm:"size:255;uniqueIndex:idx_users_email_unique"`
 	PasswordHash string `gorm:"size:255"`
 	Role         string `gorm:"size:64;default:'admin'"`
 	Status       string `gorm:"size:64;default:'pending'"`

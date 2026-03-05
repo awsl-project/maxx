@@ -2,9 +2,11 @@ package sqlite
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -23,10 +25,29 @@ func (r *UserRepository) Create(u *domain.User) error {
 
 	model := r.toModel(u)
 	if err := r.db.gorm.Create(model).Error; err != nil {
+		if isUniqueConstraintError(err) {
+			return domain.ErrAlreadyExists
+		}
 		return err
 	}
 	u.ID = model.ID
 	return nil
+}
+
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1062 // ER_DUP_ENTRY
+	}
+
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "unique constraint failed") ||
+		strings.Contains(lower, "duplicate key value violates unique constraint") ||
+		strings.Contains(lower, "duplicate entry")
 }
 
 func (r *UserRepository) Update(u *domain.User) error {

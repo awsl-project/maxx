@@ -72,10 +72,13 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       return;
     }
 
+    const normalizedUsername = username.trim();
+    const normalizedEmail = email.trim();
+
     setIsLoading(true);
 
     try {
-      const result = await transport.apply(username, password, email);
+      const result = await transport.apply(normalizedUsername, password, normalizedEmail);
       if (result.success) {
         setSuccessMessage(t('login.registerSuccess'));
         setMode('login');
@@ -94,7 +97,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   };
 
   if (mode === 'register') {
-    const isRegisterDisabled = isLoading || !username || !email || !password || !confirmPassword;
+    const isRegisterDisabled = isLoading || !username.trim() || !email.trim() || !password || !confirmPassword;
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">

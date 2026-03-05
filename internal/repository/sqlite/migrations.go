@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -119,7 +120,7 @@ var migrations = []Migration{
 
 			// 2. Update all existing rows to belong to default tenant
 			for _, table := range tenantScopedTables {
-				result := db.Exec("UPDATE "+table+" SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
+				result := db.Exec("UPDATE " + table + " SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
 				if result.Error != nil {
 					log.Printf("[Migration] Warning: Failed to update tenant_id for %s: %v", table, result.Error)
 					// Continue with other tables
@@ -164,6 +165,54 @@ var migrations = []Migration{
 		},
 		Down: func(db *gorm.DB) error {
 			return nil
+		},
+	},
+	{
+		Version:     5,
+		Description: "Add unique index on users.email",
+		Up: func(db *gorm.DB) error {
+			type duplicateEmailRow struct {
+				Email string
+				Count int64
+			}
+
+			var duplicates []duplicateEmailRow
+			if err := db.Raw(`
+SELECT LOWER(email) AS email, COUNT(*) AS count
+FROM users
+WHERE deleted_at = 0 AND TRIM(email) <> ''
+GROUP BY LOWER(email)
+HAVING COUNT(*) > 1
+LIMIT 1
+`).Scan(&duplicates).Error; err != nil {
+				return err
+			}
+			if len(duplicates) > 0 {
+				return fmt.Errorf("cannot create unique index on users.email: duplicate email %q exists %d times", duplicates[0].Email, duplicates[0].Count)
+			}
+
+			switch db.Dialector.Name() {
+			case "mysql":
+				err := db.Exec("CREATE UNIQUE INDEX idx_users_email_unique ON users(email)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				return db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email)").Error
+			}
+		},
+		Down: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				sql := "DROP INDEX idx_users_email_unique ON users"
+				if err := db.Exec(sql).Error; err != nil {
+					log.Printf("[Migration] Warning: rollback v5 failed (dialector=mysql) sql=%q err=%v", sql, err)
+				}
+				return nil
+			default:
+				return db.Exec("DROP INDEX IF EXISTS idx_users_email_unique").Error
+			}
 		},
 	},
 }

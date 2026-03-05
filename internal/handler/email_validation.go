@@ -41,7 +41,7 @@ var disposableEmailDomains = map[string]struct{}{
 	"yopmail.com":       {},
 }
 
-func validateRegistrationEmail(rawEmail string) (string, error) {
+func validateRegistrationEmail(parentCtx context.Context, rawEmail string) (string, error) {
 	email := strings.ToLower(strings.TrimSpace(rawEmail))
 	if email == "" {
 		return "", errors.New("email is required")
@@ -65,7 +65,11 @@ func validateRegistrationEmail(rawEmail string) (string, error) {
 		return "", errors.New("anonymous or disposable email domains are not allowed")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+
+	ctx, cancel := context.WithTimeout(parentCtx, 2*time.Second)
 	defer cancel()
 
 	if mxRecords, mxErr := emailLookupMX(ctx, domain); mxErr == nil && len(mxRecords) > 0 {

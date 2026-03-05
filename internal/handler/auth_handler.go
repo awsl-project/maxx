@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
+
+const registrationConflictError = "registration conflict"
 
 // AuthHandler handles authentication-related endpoints
 type AuthHandler struct {
@@ -168,7 +171,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email, err := validateRegistrationEmail(body.Email)
+	email, err := validateRegistrationEmail(r.Context(), body.Email)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -205,7 +208,11 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.userRepo.Create(user); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "user already exists or invalid data"})
+		if errors.Is(err, domain.ErrAlreadyExists) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "user already exists or invalid data"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
 		return
 	}
 
@@ -251,14 +258,14 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email, err := validateRegistrationEmail(body.Email)
+	email, err := validateRegistrationEmail(r.Context(), body.Email)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "email already registered"})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": registrationConflictError})
 		return
 	} else if err != nil && err != domain.ErrNotFound {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to validate email"})
@@ -281,7 +288,11 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.userRepo.Create(user); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+		if errors.Is(err, domain.ErrAlreadyExists) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": registrationConflictError})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
 		return
 	}
 

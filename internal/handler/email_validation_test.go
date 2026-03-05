@@ -27,7 +27,7 @@ func TestValidateRegistrationEmail(t *testing.T) {
 			return nil, errors.New("unexpected host lookup")
 		}
 
-		email, err := validateRegistrationEmail("User@Example.com")
+		email, err := validateRegistrationEmail(context.Background(), "User@Example.com")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -44,7 +44,7 @@ func TestValidateRegistrationEmail(t *testing.T) {
 			return nil, errors.New("should not reach dns lookup")
 		}
 
-		_, err := validateRegistrationEmail("user@mailinator.com")
+		_, err := validateRegistrationEmail(context.Background(), "user@mailinator.com")
 		if err == nil || !strings.Contains(err.Error(), "disposable") {
 			t.Fatalf("expected disposable email error, got %v", err)
 		}
@@ -61,7 +61,7 @@ func TestValidateRegistrationEmail(t *testing.T) {
 			return nil, errors.New("not found")
 		}
 
-		email, err := validateRegistrationEmail("user@example.org")
+		email, err := validateRegistrationEmail(context.Background(), "user@example.org")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
@@ -71,7 +71,7 @@ func TestValidateRegistrationEmail(t *testing.T) {
 	})
 
 	t.Run("invalid format", func(t *testing.T) {
-		_, err := validateRegistrationEmail("not-an-email")
+		_, err := validateRegistrationEmail(context.Background(), "not-an-email")
 		if err == nil || !strings.Contains(err.Error(), "invalid email format") {
 			t.Fatalf("expected invalid format error, got %v", err)
 		}
@@ -85,9 +85,33 @@ func TestValidateRegistrationEmail(t *testing.T) {
 			return nil, errors.New("no host")
 		}
 
-		_, err := validateRegistrationEmail("user@unresolvable.test")
+		_, err := validateRegistrationEmail(context.Background(), "user@unresolvable.test")
 		if err == nil || !strings.Contains(err.Error(), "not reachable") {
 			t.Fatalf("expected unreachable domain error, got %v", err)
+		}
+	})
+
+	t.Run("honors canceled parent context", func(t *testing.T) {
+		mxSawCanceled := false
+		hostSawCanceled := false
+		emailLookupMX = func(ctx context.Context, _ string) ([]*net.MX, error) {
+			mxSawCanceled = errors.Is(ctx.Err(), context.Canceled)
+			return nil, ctx.Err()
+		}
+		emailLookupHost = func(ctx context.Context, _ string) ([]string, error) {
+			hostSawCanceled = errors.Is(ctx.Err(), context.Canceled)
+			return nil, ctx.Err()
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := validateRegistrationEmail(ctx, "user@example.com")
+		if err == nil || !strings.Contains(err.Error(), "not reachable") {
+			t.Fatalf("expected unreachable domain error, got %v", err)
+		}
+		if !mxSawCanceled || !hostSawCanceled {
+			t.Fatalf("expected dns lookup context to be canceled, mx=%v host=%v", mxSawCanceled, hostSawCanceled)
 		}
 	})
 }

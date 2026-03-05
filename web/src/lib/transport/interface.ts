@@ -189,7 +189,7 @@ export interface Transport {
   // ===== Auth API =====
   getAuthStatus(): Promise<AuthStatus>;
   login(username: string, password: string): Promise<AuthLoginResult>;
-  register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
+  register(username: string, password: string, email: string, tenantID?: number): Promise<AuthRegisterResult>;
   apply(username: string, password: string, email: string): Promise<ApplyResult>;
   changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
   setAuthToken(token: string): void;
