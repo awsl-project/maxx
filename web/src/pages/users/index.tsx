@@ -144,7 +144,7 @@ export function UsersPage() {
         }
       />
 
-      <Card>
+      <Card className="m-6">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
