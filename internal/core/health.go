@@ -11,6 +11,7 @@ import (
 type HealthResponse struct {
 	Status    string `json:"status"`
 	Version   string `json:"version"`
+	Commit    string `json:"commit"`
 	BuildTime string `json:"build_time"`
 }
 
@@ -21,6 +22,7 @@ func WriteHealthResponse(w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(HealthResponse{
 		Status:    "ok",
 		Version:   version.Version,
+		Commit:    version.Commit,
 		BuildTime: version.BuildTime,
 	})
 }
