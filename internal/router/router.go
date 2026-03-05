@@ -270,17 +270,60 @@ func (r *Router) getRoutingStrategy(tenantID uint64, projectID uint64) *domain.R
 }
 
 func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStrategy) {
+	if strategy == nil {
+		strategy = &domain.RoutingStrategy{Type: domain.RoutingStrategyPriority}
+	}
+
 	switch strategy.Type {
 	case domain.RoutingStrategyWeightedRandom:
-		// Shuffle with weights (simplified - just shuffle for now)
-		rand.Shuffle(len(routes), func(i, j int) {
-			routes[i], routes[j] = routes[j], routes[i]
-		})
+		weightedShuffleRoutes(routes, rand.Intn)
 	default: // priority
 		sort.Slice(routes, func(i, j int) bool {
 			return routes[i].Position < routes[j].Position
 		})
 	}
+}
+
+func weightedShuffleRoutes(routes []*domain.Route, randIntn func(int) int) {
+	if len(routes) <= 1 {
+		return
+	}
+	if randIntn == nil {
+		randIntn = rand.Intn
+	}
+
+	remaining := make([]*domain.Route, len(routes))
+	copy(remaining, routes)
+	result := make([]*domain.Route, 0, len(routes))
+
+	for len(remaining) > 0 {
+		totalWeight := 0
+		for _, route := range remaining {
+			totalWeight += normalizedRouteWeight(route)
+		}
+
+		pick := randIntn(totalWeight)
+		selectedIndex := 0
+		for i, route := range remaining {
+			pick -= normalizedRouteWeight(route)
+			if pick < 0 {
+				selectedIndex = i
+				break
+			}
+		}
+
+		result = append(result, remaining[selectedIndex])
+		remaining = append(remaining[:selectedIndex], remaining[selectedIndex+1:]...)
+	}
+
+	copy(routes, result)
+}
+
+func normalizedRouteWeight(route *domain.Route) int {
+	if route == nil || route.Weight <= 0 {
+		return domain.DefaultRouteWeight
+	}
+	return route.Weight
 }
 
 // GetCooldowns returns all active cooldowns
@@ -308,4 +351,3 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter) {
 		})
 	}
 }
-

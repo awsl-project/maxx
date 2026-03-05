@@ -211,6 +211,7 @@ function ClientTypeRoutesContentInner({
         clientType,
         providerID: item.provider.id,
         position: items.length + 1,
+        weight: 100,
         retryConfigID: 0,
       });
     }
@@ -224,6 +225,7 @@ function ClientTypeRoutesContentInner({
       clientType,
       providerID: provider.id,
       position: items.length + 1,
+      weight: 100,
       retryConfigID: 0,
     });
   };

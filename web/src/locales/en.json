@@ -553,6 +553,7 @@
       "provider": "Provider",
       "project": "Project",
       "position": "Position (lower = higher priority)",
+      "weight": "Weight (used by weighted random)",
       "modelMapping": "Model Mapping (Override)",
       "enabled": "Enabled",
       "selectProvider": "Select provider...",
@@ -1222,4 +1223,3 @@
     "emptyHint": "No model mappings configured. Add mappings to transform request models before sending to upstream."
   }
 }
-

@@ -134,6 +134,7 @@ export interface Route {
   clientType: ClientType;
   providerID: number;
   position: number;
+  weight: number;
   retryConfigID: number;
   modelMapping?: Record<string, string>;
 }
@@ -893,6 +894,7 @@ export interface BackupRoute {
   clientType: ClientType;
   providerName: string;
   position: number;
+  weight?: number;
   retryConfigName: string;
 }
 

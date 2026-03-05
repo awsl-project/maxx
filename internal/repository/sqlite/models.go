@@ -1,4 +1,4 @@
-﻿package sqlite
+package sqlite
 
 import (
 	"time"
@@ -130,6 +130,7 @@ type Route struct {
 	ClientType    string `gorm:"size:64"`
 	ProviderID    uint64
 	Position      int
+	Weight        int `gorm:"default:100"`
 	RetryConfigID uint64
 }
 
@@ -289,7 +290,7 @@ type ProxyUpstreamAttempt struct {
 	Cost              uint64
 	IsStream          int
 	StartTime         int64
-	EndTime           int64  `gorm:"index:idx_attempts_status_endtime"`
+	EndTime           int64 `gorm:"index:idx_attempts_status_endtime"`
 	DurationMs        int64
 	TTFTMs            int64
 	RequestModel      string `gorm:"size:128"`
