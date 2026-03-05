@@ -33,7 +33,12 @@ export function useProxyRequests(params?: CursorPaginationParams) {
 }
 
 // 获取 ProxyRequests (无限滚动)
-export function useInfiniteProxyRequests(providerId?: number, status?: string, apiTokenId?: number) {
+export function useInfiniteProxyRequests(
+  providerId?: number,
+  status?: string,
+  apiTokenId?: number,
+  enabled = true,
+) {
   return useInfiniteQuery({
     queryKey: requestKeys.infinite(providerId, status, apiTokenId),
     queryFn: ({ pageParam }) =>
@@ -46,14 +51,21 @@ export function useInfiniteProxyRequests(providerId?: number, status?: string, a
       }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastId : undefined),
     initialPageParam: undefined as number | undefined,
+    enabled,
   });
 }
 
 // 获取 ProxyRequests 总数
-export function useProxyRequestsCount(providerId?: number, status?: string, apiTokenId?: number) {
+export function useProxyRequestsCount(
+  providerId?: number,
+  status?: string,
+  apiTokenId?: number,
+  enabled = true,
+) {
   return useQuery({
     queryKey: ['requestsCount', providerId, status, apiTokenId] as const,
     queryFn: () => getTransport().getProxyRequestsCount(providerId, status, apiTokenId),
+    enabled,
   });
 }
 

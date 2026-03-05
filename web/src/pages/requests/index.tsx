@@ -108,19 +108,34 @@ export function RequestsPage() {
   const activeProviderId = filterMode === 'provider' ? selectedProviderId : undefined;
   const activeTokenId = filterMode === 'token' ? selectedTokenId : undefined;
 
+  const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
+  const { data: projects = [] } = useProjects();
+  const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useAPITokens();
+  const { data: settings } = useSettings();
+
+  const waitingProviderFilterValidation =
+    filterMode === 'provider' && selectedProviderId !== undefined && !providersIsSuccess;
+  const waitingTokenFilterValidation =
+    filterMode === 'token' && selectedTokenId !== undefined && !apiTokensIsSuccess;
+  const requestsQueryEnabled = !waitingProviderFilterValidation && !waitingTokenFilterValidation;
+
   // 使用 Infinite Query
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, refetch } =
-    useInfiniteProxyRequests(activeProviderId, selectedStatus, activeTokenId);
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useInfiniteProxyRequests(activeProviderId, selectedStatus, activeTokenId, requestsQueryEnabled);
 
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(
     activeProviderId,
     selectedStatus,
     activeTokenId,
+    requestsQueryEnabled,
   );
-  const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
-  const { data: projects = [] } = useProjects();
-  const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useAPITokens();
-  const { data: settings } = useSettings();
 
   // Check if API Token auth is enabled
   const apiTokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
@@ -148,6 +163,7 @@ export function RequestsPage() {
   const allRequests = useMemo(() => {
     return data?.pages.flatMap((page) => page.items) ?? [];
   }, [data]);
+  const showLoadingState = (isLoading || isFetching || !requestsQueryEnabled) && allRequests.length === 0;
 
   const activeCount = useMemo(() => {
     return allRequests.reduce((count, req) => {
@@ -237,6 +253,9 @@ export function RequestsPage() {
 
   // 刷新
   const handleRefresh = () => {
+    if (!requestsQueryEnabled) {
+      return;
+    }
     scrollContainerRef.current?.scrollTo({ top: 0 });
     refetch();
     refetchCount();
@@ -300,22 +319,22 @@ export function RequestsPage() {
         <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
         <button
           onClick={handleRefresh}
-          disabled={isLoading}
+          disabled={isFetching || !requestsQueryEnabled}
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
             'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
             'text-muted-foreground hover:text-foreground',
-            isLoading && 'opacity-50 cursor-not-allowed',
+            (isFetching || !requestsQueryEnabled) && 'opacity-50 cursor-not-allowed',
           )}
         >
-          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+          <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
           <span>{t('requests.refresh')}</span>
         </button>
       </PageHeader>
 
       {/* Content */}
       <div className="flex-1 min-h-0 flex flex-col">
-        {isLoading && allRequests.length === 0 ? (
+        {showLoadingState ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="w-8 h-8 animate-spin text-accent" />
           </div>
