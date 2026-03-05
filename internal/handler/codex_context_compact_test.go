@@ -141,3 +141,81 @@ func TestMaybeCompactCodexContext_CompactsLongStringInput(t *testing.T) {
 		t.Fatalf("expected string tail to be preserved")
 	}
 }
+
+func TestMaybeCompactCodexContext_CompactsByTrimmingWithoutOmittingItems(t *testing.T) {
+	req := map[string]interface{}{
+		"model": "gpt-5.3-codex",
+		"input": []interface{}{
+			map[string]interface{}{
+				"type":    "message",
+				"role":    "system",
+				"content": strings.Repeat("S", 260000),
+			},
+		},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	if len(body) <= codexCompactMinBodyBytes {
+		t.Fatalf("test payload too small: %d", len(body))
+	}
+
+	out, changed := maybeCompactCodexContext(body)
+	if !changed {
+		t.Fatalf("expected payload to be compacted by trimming")
+	}
+	if len(out) >= len(body) {
+		t.Fatalf("expected compacted payload to be smaller: %d >= %d", len(out), len(body))
+	}
+
+	var compacted map[string]interface{}
+	if err := json.Unmarshal(out, &compacted); err != nil {
+		t.Fatalf("unmarshal compacted request: %v", err)
+	}
+
+	items, ok := compacted["input"].([]interface{})
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected one compacted item, got %#v", compacted["input"])
+	}
+	item, _ := items[0].(map[string]interface{})
+	content, _ := item["content"].(string)
+	if !strings.Contains(content, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected trimmed marker in content")
+	}
+}
+
+func TestTrimCodexItemText_CompactsArgumentsField(t *testing.T) {
+	item := map[string]interface{}{
+		"type": "function_call",
+		"arguments": map[string]interface{}{
+			"query": strings.Repeat("Q", 20000),
+			"nested": []interface{}{
+				map[string]interface{}{
+					"text": strings.Repeat("N", 18000),
+				},
+			},
+		},
+	}
+
+	trimmed := trimCodexItemText(item, codexCompactMaxTextChars)
+	trimmedMap, ok := trimmed.(map[string]interface{})
+	if !ok {
+		t.Fatalf("trimmed item type = %T, want map", trimmed)
+	}
+
+	args, ok := trimmedMap["arguments"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("arguments type = %T, want map", trimmedMap["arguments"])
+	}
+	query, _ := args["query"].(string)
+	if !strings.Contains(query, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected query argument to be compacted")
+	}
+	nested, _ := args["nested"].([]interface{})
+	nestedMap, _ := nested[0].(map[string]interface{})
+	nestedText, _ := nestedMap["text"].(string)
+	if !strings.Contains(nestedText, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected nested argument text to be compacted")
+	}
+}

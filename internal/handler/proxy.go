@@ -132,11 +132,13 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		return
 	}
 
-	if clientType == domain.ClientTypeCodex {
+	if clientType == domain.ClientTypeCodex && isCodexCompactionEligiblePath(r.URL.Path) {
 		if compacted, changed := maybeCompactCodexContext(body); changed {
 			log.Printf("[Proxy] Applied smart Codex context compaction: %d -> %d bytes", len(body), len(compacted))
 			body = compacted
 			r.Body = io.NopCloser(bytes.NewReader(body))
+			r.ContentLength = int64(len(body))
+			r.Header.Set("Content-Length", strconv.Itoa(len(body)))
 		}
 	}
 
@@ -284,6 +286,10 @@ func normalizeOpenAIChatCompletionsPayload(body []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return converted, true
+}
+
+func isCodexCompactionEligiblePath(path string) bool {
+	return path == "/responses" || path == "/v1/responses"
 }
 
 // Helper functions
