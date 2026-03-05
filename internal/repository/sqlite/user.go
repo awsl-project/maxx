@@ -124,13 +124,14 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 			},
 			DeletedAt: toTimestampPtr(u.DeletedAt),
 		},
-		TenantID:     u.TenantID,
-		Username:     u.Username,
-		PasswordHash: u.PasswordHash,
-		Role:         string(u.Role),
-		Status:       status,
-		IsDefault:    isDefault,
-		LastLoginAt:  toTimestampPtr(u.LastLoginAt),
+		TenantID:           u.TenantID,
+		Username:           u.Username,
+		PasswordHash:       u.PasswordHash,
+		PasskeyCredentials: LongText(u.PasskeyCredentials),
+		Role:               string(u.Role),
+		Status:             status,
+		IsDefault:          isDefault,
+		LastLoginAt:        toTimestampPtr(u.LastLoginAt),
 	}
 }
 
@@ -140,17 +141,18 @@ func (r *UserRepository) toDomain(m *User) *domain.User {
 		status = domain.UserStatusPending
 	}
 	return &domain.User{
-		ID:           m.ID,
-		CreatedAt:    fromTimestamp(m.CreatedAt),
-		UpdatedAt:    fromTimestamp(m.UpdatedAt),
-		DeletedAt:    fromTimestampPtr(m.DeletedAt),
-		TenantID:     m.TenantID,
-		Username:     m.Username,
-		PasswordHash: m.PasswordHash,
-		Role:         domain.UserRole(m.Role),
-		Status:       status,
-		IsDefault:    m.IsDefault == 1,
-		LastLoginAt:  fromTimestampPtr(m.LastLoginAt),
+		ID:                 m.ID,
+		CreatedAt:          fromTimestamp(m.CreatedAt),
+		UpdatedAt:          fromTimestamp(m.UpdatedAt),
+		DeletedAt:          fromTimestampPtr(m.DeletedAt),
+		TenantID:           m.TenantID,
+		Username:           m.Username,
+		PasswordHash:       m.PasswordHash,
+		PasskeyCredentials: string(m.PasskeyCredentials),
+		Role:               domain.UserRole(m.Role),
+		Status:             status,
+		IsDefault:          m.IsDefault == 1,
+		LastLoginAt:        fromTimestampPtr(m.LastLoginAt),
 	}
 }
 

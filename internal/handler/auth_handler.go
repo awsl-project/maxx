@@ -18,6 +18,7 @@ type AuthHandler struct {
 	userRepo       repository.UserRepository
 	tenantRepo     repository.TenantRepository
 	authEnabled    bool
+	passkeyStore   *passkeySessionStore
 }
 
 // NewAuthHandler creates a new auth handler
@@ -27,6 +28,7 @@ func NewAuthHandler(authMiddleware *AuthMiddleware, userRepo repository.UserRepo
 		userRepo:       userRepo,
 		tenantRepo:     tenantRepo,
 		authEnabled:    authEnabled,
+		passkeyStore:   newPasskeySessionStore(),
 	}
 }
 
@@ -46,6 +48,14 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleChangePassword(w, r)
 	case "/status":
 		h.handleStatus(w, r)
+	case "/passkey/register/options":
+		h.handlePasskeyRegisterOptions(w, r)
+	case "/passkey/register/verify":
+		h.handlePasskeyRegisterVerify(w, r)
+	case "/passkey/login/options":
+		h.handlePasskeyLoginOptions(w, r)
+	case "/passkey/login/verify":
+		h.handlePasskeyLoginVerify(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}

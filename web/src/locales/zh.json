@@ -676,7 +676,15 @@
     "registerFailed": "注册失败",
     "passwordMismatch": "两次输入的密码不一致",
     "backToLogin": "返回登录",
-    "pendingApproval": "账号待审批"
+    "pendingApproval": "账号待审批",
+    "passkeyLogin": "使用 Passkey 登录",
+    "passkeyRegister": "注册 Passkey",
+    "passkeyRegisterSuccess": "Passkey 注册成功",
+    "passkeyRegisterFailed": "Passkey 注册失败",
+    "passkeyLoginFailed": "Passkey 登录失败",
+    "passkeyNotSupported": "当前浏览器或设备不支持 Passkey",
+    "passkeyUsernameRequired": "请先输入用户名",
+    "passkeyRegistrationNeedsPassword": "注册 Passkey 需要输入用户名和密码"
   },
   "users": {
     "title": "用户管理",

@@ -676,7 +676,15 @@
     "registerFailed": "Registration failed",
     "passwordMismatch": "Passwords do not match",
     "backToLogin": "Back to Login",
-    "pendingApproval": "Account pending approval"
+    "pendingApproval": "Account pending approval",
+    "passkeyLogin": "Login with Passkey",
+    "passkeyRegister": "Register Passkey",
+    "passkeyRegisterSuccess": "Passkey registered successfully",
+    "passkeyRegisterFailed": "Passkey registration failed",
+    "passkeyLoginFailed": "Passkey login failed",
+    "passkeyNotSupported": "Your browser or device does not support Passkey",
+    "passkeyUsernameRequired": "Please enter username first",
+    "passkeyRegistrationNeedsPassword": "Please enter username and password to register Passkey"
   },
   "users": {
     "title": "Users",

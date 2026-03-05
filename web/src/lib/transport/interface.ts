@@ -41,6 +41,8 @@ import type {
   ClaudeOAuthResult,
   AuthStatus,
   AuthLoginResult,
+  PasskeyOptionsResult,
+  PasskeyRegisterResult,
   AuthRegisterResult,
   ApplyResult,
   ChangePasswordResult,
@@ -189,6 +191,13 @@ export interface Transport {
   // ===== Auth API =====
   getAuthStatus(): Promise<AuthStatus>;
   login(username: string, password: string): Promise<AuthLoginResult>;
+  startPasskeyLogin(username: string): Promise<PasskeyOptionsResult>;
+  finishPasskeyLogin(sessionID: string, credential: Record<string, unknown>): Promise<AuthLoginResult>;
+  startPasskeyRegistration(username: string, password: string): Promise<PasskeyOptionsResult>;
+  finishPasskeyRegistration(
+    sessionID: string,
+    credential: Record<string, unknown>,
+  ): Promise<PasskeyRegisterResult>;
   register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
   apply(username: string, password: string): Promise<ApplyResult>;
   changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
