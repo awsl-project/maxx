@@ -166,7 +166,8 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.Username == "" || body.Password == "" || strings.TrimSpace(body.Email) == "" {
+	normalizedUsername := strings.TrimSpace(body.Username)
+	if normalizedUsername == "" || body.Password == "" || strings.TrimSpace(body.Email) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
 		return
 	}
@@ -200,7 +201,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	user := &domain.User{
 		TenantID:     tenantID,
-		Username:     body.Username,
+		Username:     normalizedUsername,
 		Email:        email,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
@@ -253,7 +254,8 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.Username == "" || body.Password == "" || strings.TrimSpace(body.Email) == "" {
+	normalizedUsername := strings.TrimSpace(body.Username)
+	if normalizedUsername == "" || body.Password == "" || strings.TrimSpace(body.Email) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
 		return
 	}
@@ -280,7 +282,7 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 
 	user := &domain.User{
 		TenantID:     domain.DefaultTenantID,
-		Username:     body.Username,
+		Username:     normalizedUsername,
 		Email:        email,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,

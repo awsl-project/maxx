@@ -180,6 +180,7 @@ var migrations = []Migration{
 			if err := db.Raw(`
 SELECT email, COUNT(*) AS count
 FROM users
+WHERE email IS NOT NULL
 GROUP BY email
 HAVING COUNT(*) > 1
 LIMIT 1

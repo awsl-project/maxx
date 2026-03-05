@@ -610,7 +610,7 @@ export class HttpTransport implements Transport {
   }
 
   async register(username: string, password: string, email: string, tenantID?: number): Promise<AuthRegisterResult> {
-    const { data } = await this.client.post<AuthRegisterResult>('/api/admin/auth/register', { username, password, email, tenantID });
+    const { data } = await this.client.post<AuthRegisterResult>('/auth/register', { username, password, email, tenantID });
     return data;
   }
 
