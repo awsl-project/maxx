@@ -178,7 +178,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "email already registered"})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": registrationConflictError})
 		return
 	} else if err != nil && err != domain.ErrNotFound {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to validate email"})
@@ -209,7 +209,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.userRepo.Create(user); err != nil {
 		if errors.Is(err, domain.ErrAlreadyExists) {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "user already exists or invalid data"})
+			writeJSON(w, http.StatusConflict, map[string]string{"error": registrationConflictError})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
