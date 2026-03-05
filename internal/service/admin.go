@@ -226,10 +226,16 @@ func (s *AdminService) GetRoute(tenantID uint64, id uint64) (*domain.Route, erro
 
 func (s *AdminService) CreateRoute(tenantID uint64, route *domain.Route) error {
 	route.TenantID = tenantID
+	if route.Weight <= 0 {
+		route.Weight = domain.DefaultRouteWeight
+	}
 	return s.routeRepo.Create(route)
 }
 
 func (s *AdminService) UpdateRoute(tenantID uint64, route *domain.Route) error {
+	if route.Weight <= 0 {
+		route.Weight = domain.DefaultRouteWeight
+	}
 	return s.routeRepo.Update(route)
 }
 
@@ -708,7 +714,7 @@ func (s *AdminService) ResetModelMappingsToDefaults(tenantID uint64) error {
 // GetAvailableClientTypes returns all available client types for model mapping
 func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 	return []domain.ClientType{
-		"",                       // Empty means applies to all
+		"", // Empty means applies to all
 		domain.ClientTypeClaude,
 		domain.ClientTypeOpenAI,
 		domain.ClientTypeGemini,
@@ -776,11 +782,11 @@ type RecalculateCostsResult struct {
 
 // RecalculateCostsProgress represents progress update for cost recalculation
 type RecalculateCostsProgress struct {
-	Phase       string `json:"phase"`       // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
-	Current     int    `json:"current"`     // Current item being processed
-	Total       int    `json:"total"`       // Total items to process
-	Percentage  int    `json:"percentage"`  // 0-100
-	Message     string `json:"message"`     // Human-readable message
+	Phase      string `json:"phase"`      // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
+	Current    int    `json:"current"`    // Current item being processed
+	Total      int    `json:"total"`      // Total items to process
+	Percentage int    `json:"percentage"` // 0-100
+	Message    string `json:"message"`    // Human-readable message
 }
 
 // RecalculateCosts recalculates cost for all attempts using the current price table
