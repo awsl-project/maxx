@@ -178,10 +178,9 @@ var migrations = []Migration{
 
 			var duplicates []duplicateEmailRow
 			if err := db.Raw(`
-SELECT LOWER(email) AS email, COUNT(*) AS count
+SELECT email, COUNT(*) AS count
 FROM users
-WHERE deleted_at = 0 AND TRIM(email) <> ''
-GROUP BY LOWER(email)
+GROUP BY email
 HAVING COUNT(*) > 1
 LIMIT 1
 `).Scan(&duplicates).Error; err != nil {
