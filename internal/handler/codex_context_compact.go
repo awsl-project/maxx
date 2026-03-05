@@ -116,22 +116,27 @@ func compactCodexInputItems(items []interface{}) ([]interface{}, bool) {
 			omitted++
 		}
 	}
-	if omitted == 0 {
-		return items, false
-	}
 
+	trimmedAny := false
 	pinnedItems := make([]interface{}, 0)
 	recentItems := make([]interface{}, 0)
 	for i, item := range items {
 		if !keep[i] {
 			continue
 		}
+		before := itemSizes[i]
 		trimmed := trimCodexItemText(item, codexCompactMaxTextChars)
+		if estimateJSONSize(trimmed) < before {
+			trimmedAny = true
+		}
 		if pinned[i] {
 			pinnedItems = append(pinnedItems, trimmed)
 			continue
 		}
 		recentItems = append(recentItems, trimmed)
+	}
+	if omitted == 0 && !trimmedAny {
+		return items, false
 	}
 
 	summary := map[string]interface{}{
@@ -142,7 +147,9 @@ func compactCodexInputItems(items []interface{}) ([]interface{}, bool) {
 
 	compacted := make([]interface{}, 0, len(pinnedItems)+len(recentItems)+1)
 	compacted = append(compacted, pinnedItems...)
-	compacted = append(compacted, summary)
+	if omitted > 0 {
+		compacted = append(compacted, summary)
+	}
 	compacted = append(compacted, recentItems...)
 
 	return compacted, true
@@ -184,7 +191,45 @@ func trimCodexItemText(item interface{}, maxChars int) interface{} {
 		}
 	}
 
+	if arguments, ok := m["arguments"]; ok {
+		if compacted, changed := compactNestedStrings(arguments, maxChars); changed {
+			m["arguments"] = compacted
+		}
+	}
+
 	return m
+}
+
+func compactNestedStrings(value interface{}, maxChars int) (interface{}, bool) {
+	switch v := value.(type) {
+	case string:
+		if compacted, changed := compactLongString(v, maxChars); changed {
+			return compacted, true
+		}
+		return v, false
+	case map[string]interface{}:
+		changed := false
+		for key, raw := range v {
+			compacted, partChanged := compactNestedStrings(raw, maxChars)
+			if partChanged {
+				changed = true
+				v[key] = compacted
+			}
+		}
+		return v, changed
+	case []interface{}:
+		changed := false
+		for i := range v {
+			compacted, partChanged := compactNestedStrings(v[i], maxChars)
+			if partChanged {
+				changed = true
+				v[i] = compacted
+			}
+		}
+		return v, changed
+	default:
+		return value, false
+	}
 }
 
 func compactLongString(s string, target int) (string, bool) {
