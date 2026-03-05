@@ -26,6 +26,8 @@ export function PageHeader({
   const { t } = useTranslation();
   const accountName = user?.username?.trim() || '';
   const shouldShowAccount = accountName.length > 0;
+  const hasActions = actions !== null && actions !== undefined;
+  const hasChildren = children !== null && children !== undefined;
 
   return (
     <header className="min-h-[73px] flex items-center justify-between px-4 md:px-6 gap-2 py-2 md:py-0 flex-wrap border-b border-border bg-card shrink-0">
@@ -41,7 +43,7 @@ export function PageHeader({
           {description && <p className="text-xs text-muted-foreground">{description}</p>}
         </div>
       </div>
-      {(shouldShowAccount || actions || children) && (
+      {(shouldShowAccount || hasActions || hasChildren) && (
         <div className="flex items-center gap-2 flex-wrap">
           {shouldShowAccount && (
             <div className="inline-flex h-8 max-w-full items-center gap-1 rounded-full border border-border bg-secondary/40 px-3 text-xs font-medium text-foreground">

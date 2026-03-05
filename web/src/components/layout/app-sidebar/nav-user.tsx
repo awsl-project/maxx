@@ -119,12 +119,16 @@ export function NavUser() {
     }
   };
 
+  const username = user?.username?.trim() || '';
+  const hasUsername = username.length > 0;
   const displayUser = {
-    name: user?.username || 'Maxx',
+    name: username,
     avatar: '/logo.png',
   };
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
-  const accountTitle = `${t('nav.currentAccount')}: ${displayUser.name}`;
+  const menuDisplayName = displayUser.name || 'Maxx';
+  const menuDisplayFallback = (menuDisplayName || 'U').slice(0, 2).toUpperCase();
+  const accountTitle = hasUsername ? `${t('nav.currentAccount')}: ${displayUser.name}` : undefined;
 
   return (
     <SidebarMenu>
@@ -186,49 +190,50 @@ export function NavUser() {
             )}
           </button>
 
-          {isCollapsed ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={(props) => (
-                  <button
-                    {...props}
-                    type="button"
-                    className={cn(
-                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-                      props.className,
-                    )}
-                    title={accountTitle}
-                  >
-                    <Avatar className="h-6 w-6 rounded-lg">
-                      <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                      <AvatarFallback className="rounded-lg text-[10px]">
-                        {displayUserFallback}
-                      </AvatarFallback>
-                    </Avatar>
-                  </button>
-                )}
-              />
-              <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[10px] text-muted-foreground">{t('nav.currentAccount')}</span>
-                  <span className="text-xs font-medium">{displayUser.name}</span>
+          {hasUsername &&
+            (isCollapsed ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={(props) => (
+                    <button
+                      {...props}
+                      type="button"
+                      className={cn(
+                        'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                        props.className,
+                      )}
+                      title={accountTitle}
+                    >
+                      <Avatar className="h-6 w-6 rounded-lg">
+                        <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                        <AvatarFallback className="rounded-lg text-[10px]">
+                          {displayUserFallback}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                  )}
+                />
+                <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] text-muted-foreground">{t('nav.currentAccount')}</span>
+                    <span className="text-xs font-medium">{displayUser.name}</span>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <div
+                className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
+                title={accountTitle}
+              >
+                <Avatar className="h-6 w-6 rounded-lg">
+                  <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                  <AvatarFallback className="rounded-lg text-[10px]">{displayUserFallback}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <span className="block truncate text-xs font-medium">{displayUser.name}</span>
                 </div>
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <div
-              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
-              title={accountTitle}
-            >
-              <Avatar className="h-6 w-6 rounded-lg">
-                <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                <AvatarFallback className="rounded-lg text-[10px]">{displayUserFallback}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <span className="block truncate text-xs font-medium">{displayUser.name}</span>
               </div>
-            </div>
-          )}
+            ))}
 
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -257,13 +262,13 @@ export function NavUser() {
                 <DropdownMenuLabel>
                   <div className="flex items-center gap-2 w-full">
                     <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                      <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
                       <AvatarFallback className="rounded-lg">
-                        {displayUserFallback}
+                        {menuDisplayFallback}
                       </AvatarFallback>
                     </Avatar>
                     <div className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-medium">{displayUser.name}</span>
+                      <span className="truncate font-medium">{menuDisplayName}</span>
                       {user && (
                         <span className="truncate text-xs text-muted-foreground">
                           {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
@@ -417,4 +422,3 @@ export function NavUser() {
     </SidebarMenu>
   );
 }
-
