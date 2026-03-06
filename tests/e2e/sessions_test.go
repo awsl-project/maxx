@@ -27,12 +27,9 @@ func TestSessionProject_NotFound(t *testing.T) {
 		"projectID": 1,
 	}
 	resp := env.AdminPut("/api/admin/sessions/nonexistent-session-id/project", body)
-	// The handler calls svc.UpdateSessionProject which will likely return an error
-	// for a non-existent session; we just check it doesn't panic and returns an error status
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("Expected status 200 or 500 for non-existent session project update, got %d", resp.StatusCode)
-	}
-	resp.Body.Close()
+	// Handler returns 500 for non-existent session (svc.UpdateSessionProject error).
+	// This documents the current behavior; ideally it should be 404.
+	AssertStatus(t, resp, http.StatusInternalServerError)
 }
 
 func TestSessionReject_NotFound(t *testing.T) {
@@ -40,10 +37,7 @@ func TestSessionReject_NotFound(t *testing.T) {
 
 	// Try to reject a non-existent session
 	resp := env.AdminPost("/api/admin/sessions/nonexistent-session-id/reject", nil)
-	// The handler calls svc.RejectSession which will likely return an error
-	// for a non-existent session; we just check it doesn't panic and returns an error status
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("Expected status 200 or 500 for non-existent session reject, got %d", resp.StatusCode)
-	}
-	resp.Body.Close()
+	// Handler returns 500 for non-existent session (svc.RejectSession error).
+	// This documents the current behavior; ideally it should be 404.
+	AssertStatus(t, resp, http.StatusInternalServerError)
 }

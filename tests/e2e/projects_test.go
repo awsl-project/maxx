@@ -265,9 +265,9 @@ func TestCreateProject_DuplicateSlug(t *testing.T) {
 	var created map[string]any
 	DecodeJSON(t, resp, &created)
 
-	// The slug should be different from the original
-	if created["slug"] == "dup-slug" {
-		t.Fatal("Expected deduplicated slug, but got the same 'dup-slug'")
+	// The slug should be deduplicated to "dup-slug-2" per internal/repository/sqlite/project.go
+	if created["slug"] != "dup-slug-2" {
+		t.Fatalf("Expected deduplicated slug 'dup-slug-2', got %q", created["slug"])
 	}
 }
 

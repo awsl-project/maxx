@@ -130,7 +130,7 @@ func TestOverlongInput_Username(t *testing.T) {
 func TestUnauthorized_AllEndpoints(t *testing.T) {
 	env := NewTestEnv(t)
 
-	// All admin endpoints that require authentication
+	// All admin endpoints that require authentication (must match admin.go ServeHTTP dispatch)
 	adminEndpoints := []string{
 		"/api/admin/dashboard",
 		"/api/admin/providers",
@@ -144,8 +144,15 @@ func TestUnauthorized_AllEndpoints(t *testing.T) {
 		"/api/admin/usage-stats",
 		"/api/admin/api-tokens",
 		"/api/admin/model-mappings",
+		"/api/admin/model-prices",
 		"/api/admin/users",
 		"/api/admin/backup",
+		"/api/admin/retry-configs",
+		"/api/admin/routing-strategies",
+		"/api/admin/response-models",
+		"/api/admin/pricing",
+		"/api/admin/provider-stats",
+		"/api/admin/logs",
 	}
 
 	for _, endpoint := range adminEndpoints {

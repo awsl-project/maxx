@@ -31,8 +31,9 @@ type TestEnv struct {
 func NewTestEnv(t *testing.T) *TestEnv {
 	t.Helper()
 
-	// Use in-memory SQLite with random suffix for isolation
-	dsn := fmt.Sprintf("file::memory:?cache=shared&_pragma=journal_mode(WAL)&_pragma=busy_timeout(30000)&_instance=%d", time.Now().UnixNano())
+	// Use a unique file-based DSN per test for full isolation.
+	// Each test gets its own database name so no shared state leaks between tests.
+	dsn := fmt.Sprintf("file:testdb_%d?mode=memory&cache=shared&_pragma=journal_mode(WAL)&_pragma=busy_timeout(30000)", time.Now().UnixNano())
 	db, err := sqlite.NewDBWithDSN(dsn)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)

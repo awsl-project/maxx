@@ -92,12 +92,17 @@ func TestSetSetting_InvalidJSON(t *testing.T) {
 func TestGetSetting_NonExistent(t *testing.T) {
 	env := NewTestEnv(t)
 
-	// Getting a non-existent key - the handler calls svc.GetSetting which may return
-	// an empty string or an error depending on the implementation
+	// Getting a non-existent key returns 200 with empty value (SQLite repo returns "" without error)
 	resp := env.AdminGet("/api/admin/settings/nonexistent_key_12345")
-	// Should either return 200 with empty value or 500 with error
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("Expected status 200 or 500 for non-existent setting, got %d", resp.StatusCode)
+	AssertStatus(t, resp, http.StatusOK)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+
+	if result["key"] != "nonexistent_key_12345" {
+		t.Fatalf("Expected key 'nonexistent_key_12345', got %v", result["key"])
 	}
-	resp.Body.Close()
+	if result["value"] != "" {
+		t.Fatalf("Expected empty value for non-existent setting, got %q", result["value"])
+	}
 }

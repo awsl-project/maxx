@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 )
@@ -90,7 +91,7 @@ func TestBackupExportImport_RoundTrip(t *testing.T) {
 	var backup map[string]any
 	DecodeJSON(t, resp, &backup)
 
-	// Delete the provider
+	// Get the provider ID, then delete it
 	resp = env.AdminGet("/api/admin/providers")
 	AssertStatus(t, resp, http.StatusOK)
 
@@ -98,10 +99,23 @@ func TestBackupExportImport_RoundTrip(t *testing.T) {
 	DecodeJSON(t, resp, &providers)
 
 	if len(providers) != 1 {
-		t.Fatalf("Expected 1 provider before import, got %d", len(providers))
+		t.Fatalf("Expected 1 provider before delete, got %d", len(providers))
 	}
 
-	// Import with overwrite strategy (provider already exists)
+	providerID := fmt.Sprintf("%.0f", providers[0]["id"].(float64))
+	resp = env.AdminDelete("/api/admin/providers/" + providerID)
+	resp.Body.Close()
+
+	// Verify provider is deleted
+	resp = env.AdminGet("/api/admin/providers")
+	AssertStatus(t, resp, http.StatusOK)
+	var emptyProviders []map[string]any
+	DecodeJSON(t, resp, &emptyProviders)
+	if len(emptyProviders) != 0 {
+		t.Fatalf("Expected 0 providers after delete, got %d", len(emptyProviders))
+	}
+
+	// Import the backup to restore the deleted provider
 	resp = env.AdminPost("/api/admin/backup/import?conflictStrategy=overwrite", backup)
 	AssertStatus(t, resp, http.StatusOK)
 
@@ -112,7 +126,7 @@ func TestBackupExportImport_RoundTrip(t *testing.T) {
 		t.Fatalf("Expected import to succeed, got %v", result["success"])
 	}
 
-	// Verify provider still exists
+	// Verify provider was restored
 	resp = env.AdminGet("/api/admin/providers")
 	AssertStatus(t, resp, http.StatusOK)
 
