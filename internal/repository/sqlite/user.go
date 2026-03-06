@@ -75,6 +75,7 @@ func (r *UserRepository) GetByUsername(username string) (*domain.User, error) {
 }
 
 func (r *UserRepository) GetByEmail(email string) (*domain.User, error) {
+	email = normalizeEmail(email)
 	var model User
 	if err := r.db.gorm.Where("email = ? AND deleted_at = 0", email).First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -131,7 +132,7 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 	}
 
 	var email *string
-	trimmedEmail := strings.TrimSpace(u.Email)
+	trimmedEmail := normalizeEmail(u.Email)
 	if trimmedEmail != "" {
 		email = &trimmedEmail
 	}
@@ -237,4 +238,8 @@ func isUniqueConstraintError(err error) bool {
 		strings.Contains(lowerErr, "duplicate key") ||
 		strings.Contains(lowerErr, "duplicated key not allowed") ||
 		strings.Contains(lowerErr, "violates unique constraint")
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }

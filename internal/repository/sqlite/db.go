@@ -117,7 +117,8 @@ func (d *DB) autoMigrate() error {
 }
 
 func (d *DB) normalizeLegacyUserEmails() error {
-	if !d.gorm.Migrator().HasTable(&User{}) {
+	migrator := d.gorm.Migrator()
+	if !migrator.HasTable(&User{}) || !migrator.HasColumn(&User{}, "Email") {
 		return nil
 	}
 	return d.gorm.Exec("UPDATE users SET email = NULL WHERE email IS NOT NULL AND TRIM(email) = ''").Error
