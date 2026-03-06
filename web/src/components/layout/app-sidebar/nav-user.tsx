@@ -202,7 +202,6 @@ export function NavUser() {
                         'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
                         props.className,
                       )}
-                      title={accountTitle}
                     >
                       <Avatar className="h-6 w-6 rounded-lg">
                         <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
