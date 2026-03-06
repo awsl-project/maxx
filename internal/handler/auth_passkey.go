@@ -490,6 +490,7 @@ func (h *AuthHandler) handlePasskeyLoginVerify(w http.ResponseWriter, r *http.Re
 	if session.UserID == 0 {
 		// Discoverable login: resolve user from userHandle in the credential response
 		var discoveredUser *domain.User
+		var discoveredCreds []webauthn.Credential
 		validatedCredential, err = wAuthn.FinishDiscoverableLogin(
 			func(rawID, userHandle []byte) (webauthn.User, error) {
 				userID, parseErr := strconv.ParseUint(string(userHandle), 10, 64)
@@ -505,6 +506,7 @@ func (h *AuthHandler) handlePasskeyLoginVerify(w http.ResponseWriter, r *http.Re
 					return nil, fmt.Errorf("invalid stored passkey credentials")
 				}
 				discoveredUser = u
+				discoveredCreds = creds
 				return newWebAuthnUser(u, creds), nil
 			},
 			session.Session,
@@ -514,12 +516,12 @@ func (h *AuthHandler) handlePasskeyLoginVerify(w http.ResponseWriter, r *http.Re
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid passkey credential"})
 			return
 		}
-		user = discoveredUser
-		credentials, err = parsePasskeyCredentials(user.PasskeyCredentials)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid stored passkey credentials"})
+		if discoveredUser == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid passkey credential"})
 			return
 		}
+		user = discoveredUser
+		credentials = discoveredCreds
 	} else {
 		// Username-based login: existing flow
 		user, err = h.userRepo.GetByID(session.TenantID, session.UserID)
