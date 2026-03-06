@@ -2,15 +2,22 @@ package handler
 
 import (
 	"errors"
+	"fmt"
+	"log"
 	"net/mail"
+	"os"
 	"strings"
+	"sync"
 )
 
+const disposableEmailDomainsFileEnvKey = "MAXX_DISPOSABLE_EMAIL_DOMAINS_FILE"
+
 var (
-	errEmailRequired      = errors.New("email is required")
-	errInvalidEmail       = errors.New("invalid email address")
-	errDisposableEmail    = errors.New("disposable email addresses are not allowed")
-	disposableEmailDomain = map[string]struct{}{
+	errEmailRequired   = errors.New("email is required")
+	errInvalidEmail    = errors.New("invalid email address")
+	errDisposableEmail = errors.New("disposable email addresses are not allowed")
+
+	defaultDisposableEmailDomains = map[string]struct{}{
 		"10minutemail.com":  {},
 		"dispostable.com":   {},
 		"fakeinbox.com":     {},
@@ -31,8 +38,25 @@ var (
 		"trashmail.com":     {},
 		"yopmail.com":       {},
 	}
+
+	disposableEmailDomainsMu sync.RWMutex
+	disposableEmailDomains   = cloneDomainSet(defaultDisposableEmailDomains)
 )
 
+func init() {
+	if err := loadDisposableDomains(); err != nil {
+		log.Printf("[Auth] failed to load disposable email domains from %s: %v; using bundled defaults", disposableEmailDomainsFileEnvKey, err)
+	}
+}
+
+// ReloadDisposableDomains reloads disposable email domains from configured source.
+// When loading fails, the bundled defaults remain active.
+func ReloadDisposableDomains() error {
+	return loadDisposableDomains()
+}
+
+// NOTE: This validation only checks syntax and disposable-domain policy.
+// TODO: Add ownership verification (OTP/activation email) to prove mailbox control.
 func normalizeAndValidateRegistrationEmail(raw string) (string, error) {
 	email := strings.TrimSpace(strings.ToLower(raw))
 	if email == "" {
@@ -60,12 +84,99 @@ func normalizeAndValidateRegistrationEmail(raw string) (string, error) {
 }
 
 func isDisposableEmailDomain(domain string) bool {
-	for blocked := range disposableEmailDomain {
-		if domain == blocked || strings.HasSuffix(domain, "."+blocked) {
+	normalized, ok := normalizeDomain(domain)
+	if !ok {
+		return false
+	}
+
+	disposableEmailDomainsMu.RLock()
+	defer disposableEmailDomainsMu.RUnlock()
+
+	for current := normalized; current != ""; {
+		if _, exists := disposableEmailDomains[current]; exists {
 			return true
 		}
+
+		nextDot := strings.IndexByte(current, '.')
+		if nextDot < 0 {
+			break
+		}
+		current = current[nextDot+1:]
 	}
 	return false
+}
+
+func loadDisposableDomains() error {
+	domains := cloneDomainSet(defaultDisposableEmailDomains)
+
+	path := strings.TrimSpace(os.Getenv(disposableEmailDomainsFileEnvKey))
+	if path == "" {
+		setDisposableEmailDomains(domains)
+		return nil
+	}
+
+	loadedDomains, err := loadDisposableDomainsFromFile(path)
+	if err != nil {
+		setDisposableEmailDomains(domains)
+		return err
+	}
+
+	for domain := range loadedDomains {
+		domains[domain] = struct{}{}
+	}
+	setDisposableEmailDomains(domains)
+	return nil
+}
+
+func loadDisposableDomainsFromFile(path string) (map[string]struct{}, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	domains := make(map[string]struct{})
+	lines := strings.Split(string(content), "\n")
+	for idx, line := range lines {
+		item := strings.TrimSpace(line)
+		if item == "" || strings.HasPrefix(item, "#") {
+			continue
+		}
+
+		domain, ok := normalizeDomain(item)
+		if !ok {
+			return nil, fmt.Errorf("invalid domain %q at line %d", item, idx+1)
+		}
+		domains[domain] = struct{}{}
+	}
+
+	if len(domains) == 0 {
+		return nil, errors.New("domain list is empty")
+	}
+
+	return domains, nil
+}
+
+func setDisposableEmailDomains(domains map[string]struct{}) {
+	disposableEmailDomainsMu.Lock()
+	disposableEmailDomains = domains
+	disposableEmailDomainsMu.Unlock()
+}
+
+func cloneDomainSet(src map[string]struct{}) map[string]struct{} {
+	dst := make(map[string]struct{}, len(src))
+	for domain := range src {
+		dst[domain] = struct{}{}
+	}
+	return dst
+}
+
+func normalizeDomain(domain string) (string, bool) {
+	normalized := strings.TrimSpace(strings.ToLower(domain))
+	normalized = strings.TrimPrefix(normalized, ".")
+	if !isLikelyValidDomain(normalized) {
+		return "", false
+	}
+	return normalized, true
 }
 
 func isLikelyValidDomain(domain string) bool {

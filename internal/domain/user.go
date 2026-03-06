@@ -31,6 +31,9 @@ type User struct {
 	// 用户名（全局唯一登录标识）
 	Username string `json:"username"`
 
+	// 注册邮箱（用于注册真实性校验与联系）
+	Email string `json:"email,omitempty"`
+
 	// bcrypt 密码哈希，不序列化
 	PasswordHash string `json:"-"`
 

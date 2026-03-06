@@ -177,7 +177,8 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
 		return
 	}
-	if _, err := normalizeAndValidateRegistrationEmail(body.Email); err != nil {
+	normalizedEmail, err := normalizeAndValidateRegistrationEmail(body.Email)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -198,6 +199,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	user := &domain.User{
 		TenantID:     tenantID,
 		Username:     body.Username,
+		Email:        normalizedEmail,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
 		Status:       domain.UserStatusActive,
@@ -249,7 +251,8 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
 		return
 	}
-	if _, err := normalizeAndValidateRegistrationEmail(body.Email); err != nil {
+	normalizedEmail, err := normalizeAndValidateRegistrationEmail(body.Email)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -263,6 +266,7 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	user := &domain.User{
 		TenantID:     domain.DefaultTenantID,
 		Username:     body.Username,
+		Email:        normalizedEmail,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
 		Status:       domain.UserStatusPending,

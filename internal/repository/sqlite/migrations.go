@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -119,7 +120,7 @@ var migrations = []Migration{
 
 			// 2. Update all existing rows to belong to default tenant
 			for _, table := range tenantScopedTables {
-				result := db.Exec("UPDATE "+table+" SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
+				result := db.Exec("UPDATE " + table + " SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
 				if result.Error != nil {
 					log.Printf("[Migration] Warning: Failed to update tenant_id for %s: %v", table, result.Error)
 					// Continue with other tables
@@ -181,6 +182,58 @@ var migrations = []Migration{
 		},
 		Down: func(db *gorm.DB) error {
 			return errors.New("migration v5 is irreversible: hard-deleted users cannot be restored")
+		},
+	},
+	{
+		Version:     6,
+		Description: "Normalize users.email and enforce unique constraint",
+		Up: func(db *gorm.DB) error {
+			if !db.Migrator().HasColumn(&User{}, "email") {
+				return nil
+			}
+
+			if err := db.Exec("UPDATE users SET email = LOWER(TRIM(email)) WHERE email IS NOT NULL AND TRIM(email) <> ''").Error; err != nil {
+				return err
+			}
+
+			type duplicateEmail struct {
+				Email string
+				Count int64
+			}
+			var duplicates []duplicateEmail
+			if err := db.Raw(`
+				SELECT email, COUNT(*) AS count
+				FROM users
+				WHERE deleted_at = 0
+				  AND email IS NOT NULL
+				  AND TRIM(email) <> ''
+				GROUP BY email
+				HAVING COUNT(*) > 1
+			`).Scan(&duplicates).Error; err != nil {
+				return err
+			}
+
+			if len(duplicates) > 0 {
+				sample := make([]string, 0, 3)
+				for i, item := range duplicates {
+					if i >= 3 {
+						break
+					}
+					sample = append(sample, fmt.Sprintf("%s(x%d)", item.Email, item.Count))
+				}
+				return fmt.Errorf("cannot enforce unique users.email; duplicate values found: %s", strings.Join(sample, ", "))
+			}
+
+			if db.Migrator().HasIndex(&User{}, "idx_users_email") {
+				return nil
+			}
+			return db.Migrator().CreateIndex(&User{}, "Email")
+		},
+		Down: func(db *gorm.DB) error {
+			if db.Migrator().HasIndex(&User{}, "idx_users_email") {
+				return db.Migrator().DropIndex(&User{}, "idx_users_email")
+			}
+			return nil
 		},
 	},
 }

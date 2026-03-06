@@ -90,6 +90,7 @@ func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request, 
 	var body struct {
 		Username string          `json:"username"`
 		Password string          `json:"password"`
+		Email    string          `json:"email"`
 		Role     domain.UserRole `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -106,6 +107,16 @@ func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request, 
 		body.Role = domain.UserRoleMember
 	}
 
+	normalizedEmail := ""
+	if body.Email != "" {
+		email, err := normalizeAndValidateRegistrationEmail(body.Email)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		normalizedEmail = email
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
@@ -115,6 +126,7 @@ func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request, 
 	user := &domain.User{
 		TenantID:     tenantID,
 		Username:     body.Username,
+		Email:        normalizedEmail,
 		PasswordHash: string(hash),
 		Role:         body.Role,
 		Status:       domain.UserStatusActive,

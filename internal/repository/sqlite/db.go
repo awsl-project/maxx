@@ -108,7 +108,14 @@ func NewDBWithDSN(dsn string) (*DB, error) {
 // autoMigrate uses GORM auto-migration
 func (d *DB) autoMigrate() error {
 	log.Println("[DB] Running GORM auto-migration...")
-	return d.gorm.AutoMigrate(AllModels()...)
+	if err := d.gorm.AutoMigrate(AllModels()...); err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "users") && strings.Contains(lower, "email") && strings.Contains(lower, "unique") {
+			return fmt.Errorf("failed to enforce unique users.email; duplicate non-empty emails exist and must be resolved first: %w", err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (d *DB) Close() error {

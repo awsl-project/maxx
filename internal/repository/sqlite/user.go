@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -128,6 +129,7 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 		},
 		TenantID:           u.TenantID,
 		Username:           u.Username,
+		Email:              toNullableEmail(u.Email),
 		PasswordHash:       u.PasswordHash,
 		PasskeyCredentials: LongText(u.PasskeyCredentials),
 		Role:               string(u.Role),
@@ -149,6 +151,7 @@ func (r *UserRepository) toDomain(m *User) *domain.User {
 		DeletedAt:          fromTimestampPtr(m.DeletedAt),
 		TenantID:           m.TenantID,
 		Username:           m.Username,
+		Email:              fromNullableEmail(m.Email),
 		PasswordHash:       m.PasswordHash,
 		PasskeyCredentials: string(m.PasskeyCredentials),
 		Role:               domain.UserRole(m.Role),
@@ -156,6 +159,21 @@ func (r *UserRepository) toDomain(m *User) *domain.User {
 		IsDefault:          m.IsDefault == 1,
 		LastLoginAt:        fromTimestampPtr(m.LastLoginAt),
 	}
+}
+
+func toNullableEmail(email string) *string {
+	normalized := strings.TrimSpace(strings.ToLower(email))
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
+}
+
+func fromNullableEmail(email *string) string {
+	if email == nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.ToLower(*email))
 }
 
 func (r *UserRepository) ListByTenantAndStatus(tenantID uint64, status domain.UserStatus) ([]*domain.User, error) {
