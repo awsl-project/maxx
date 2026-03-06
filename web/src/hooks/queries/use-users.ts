@@ -111,7 +111,7 @@ export function useRegisterPasskey() {
         '@simplewebauthn/browser'
       );
       if (!browserSupportsWebAuthn()) {
-        throw new Error('WebAuthn is not supported in this browser');
+        throw new Error('PASSKEY_NOT_SUPPORTED');
       }
 
       const transport = getTransport();
@@ -120,13 +120,11 @@ export function useRegisterPasskey() {
         throw new Error(beginResult.error || 'Failed to start passkey registration');
       }
 
-      const attResp = await startRegistration({
-        optionsJSON: beginResult.options as unknown as Parameters<typeof startRegistration>[0]['optionsJSON'],
-      });
+      const attResp = await startRegistration({ optionsJSON: beginResult.options! });
 
       const finishResult = await transport.finishPasskeyRegistration(
         beginResult.sessionID,
-        attResp as unknown as Record<string, unknown>,
+        attResp,
       );
       if (!finishResult.success) {
         throw new Error(finishResult.error || 'Failed to finish passkey registration');

@@ -41,9 +41,12 @@ import type {
   ClaudeOAuthResult,
   AuthStatus,
   AuthLoginResult,
-  PasskeyOptionsResult,
+  PasskeyRegistrationOptionsResult,
+  PasskeyLoginOptionsResult,
   PasskeyRegisterResult,
   PasskeyCredential,
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
   AuthRegisterResult,
   ApplyResult,
   ChangePasswordResult,
@@ -192,15 +195,15 @@ export interface Transport {
   // ===== Auth API =====
   getAuthStatus(): Promise<AuthStatus>;
   login(username: string, password: string): Promise<AuthLoginResult>;
-  startPasskeyLogin(username: string): Promise<PasskeyOptionsResult>;
+  startPasskeyLogin(username: string): Promise<PasskeyLoginOptionsResult>;
   finishPasskeyLogin(
     sessionID: string,
-    credential: Record<string, unknown>,
+    credential: AuthenticationResponseJSON,
   ): Promise<AuthLoginResult>;
-  startPasskeyRegistration(): Promise<PasskeyOptionsResult>;
+  startPasskeyRegistration(): Promise<PasskeyRegistrationOptionsResult>;
   finishPasskeyRegistration(
     sessionID: string,
-    credential: Record<string, unknown>,
+    credential: RegistrationResponseJSON,
   ): Promise<PasskeyRegisterResult>;
   listPasskeyCredentials(): Promise<PasskeyCredential[]>;
   deletePasskeyCredential(id: string): Promise<void>;

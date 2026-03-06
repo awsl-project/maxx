@@ -183,9 +183,12 @@ export function NavUser() {
       setPasskeySuccess(t('users.passkeyRegisterSuccess'));
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
-      setPasskeyError(
-        axiosError?.response?.data?.error || axiosError?.message || t('users.passkeyRegisterFailed'),
-      );
+      const msg = axiosError?.response?.data?.error || axiosError?.message;
+      if (msg === 'PASSKEY_NOT_SUPPORTED') {
+        setPasskeyError(t('login.passkeyNotSupported'));
+      } else {
+        setPasskeyError(msg || t('users.passkeyRegisterFailed'));
+      }
     }
   };
 

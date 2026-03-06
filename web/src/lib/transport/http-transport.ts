@@ -42,9 +42,12 @@ import type {
   ClaudeTokenValidationResult,
   AuthStatus,
   AuthLoginResult,
-  PasskeyOptionsResult,
+  PasskeyRegistrationOptionsResult,
+  PasskeyLoginOptionsResult,
   PasskeyRegisterResult,
   PasskeyCredential,
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
   AuthRegisterResult,
   ApplyResult,
   ChangePasswordResult,
@@ -621,19 +624,17 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async startPasskeyLogin(username: string): Promise<PasskeyOptionsResult> {
-    const { data } = await axios.post<PasskeyOptionsResult>(
+  async startPasskeyLogin(username: string): Promise<PasskeyLoginOptionsResult> {
+    const { data } = await axios.post<PasskeyLoginOptionsResult>(
       '/api/admin/auth/passkey/login/options',
-      {
-        username,
-      },
+      { username },
     );
     return data;
   }
 
   async finishPasskeyLogin(
     sessionID: string,
-    credential: Record<string, unknown>,
+    credential: AuthenticationResponseJSON,
   ): Promise<AuthLoginResult> {
     const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/passkey/login/verify', {
       sessionID,
@@ -642,8 +643,8 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async startPasskeyRegistration(): Promise<PasskeyOptionsResult> {
-    const { data } = await this.client.post<PasskeyOptionsResult>(
+  async startPasskeyRegistration(): Promise<PasskeyRegistrationOptionsResult> {
+    const { data } = await this.client.post<PasskeyRegistrationOptionsResult>(
       '/auth/passkey/register/options',
     );
     return data;
@@ -651,14 +652,11 @@ export class HttpTransport implements Transport {
 
   async finishPasskeyRegistration(
     sessionID: string,
-    credential: Record<string, unknown>,
+    credential: RegistrationResponseJSON,
   ): Promise<PasskeyRegisterResult> {
     const { data } = await axios.post<PasskeyRegisterResult>(
       '/api/admin/auth/passkey/register/verify',
-      {
-        sessionID,
-        credential,
-      },
+      { sessionID, credential },
     );
     return data;
   }

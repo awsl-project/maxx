@@ -114,13 +114,11 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         return;
       }
 
-      const asseResp = await startAuthentication({
-        optionsJSON: beginResult.options as unknown as Parameters<typeof startAuthentication>[0]['optionsJSON'],
-      });
+      const asseResp = await startAuthentication({ optionsJSON: beginResult.options! });
 
       const finishResult = await transport.finishPasskeyLogin(
         beginResult.sessionID,
-        asseResp as unknown as Record<string, unknown>,
+        asseResp,
       );
       if (finishResult.success && finishResult.token) {
         const user: AuthUser | undefined = finishResult.user
