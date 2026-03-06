@@ -36,12 +36,16 @@ func TestIsCodexCompactionEligiblePath(t *testing.T) {
 		{path: "/v1/responses", want: false},
 		{path: "/v1/chat/completions", want: false},
 		{path: "/messages", want: false},
+		{path: "/responses/", want: false},
+		{path: "/v1/responses/", want: false},
 	}
 
 	for _, tt := range tests {
-		got := isCodexCompactionEligiblePath(tt.path)
-		if got != tt.want {
-			t.Fatalf("path %q eligible = %v, want %v", tt.path, got, tt.want)
-		}
+		t.Run(tt.path, func(t *testing.T) {
+			got := isCodexCompactionEligiblePath(tt.path)
+			if got != tt.want {
+				t.Errorf("path %q eligible = %v, want %v", tt.path, got, tt.want)
+			}
+		})
 	}
 }

@@ -111,6 +111,9 @@ func TestMaybeCompactCodexContext_CompactsLongInputItems(t *testing.T) {
 
 func TestMaybeCompactCodexContext_CompactsLongStringInput(t *testing.T) {
 	longInput := "HEAD-KEEP" + strings.Repeat("x", 260000) + "TAIL-KEEP"
+	if len([]byte(longInput)) <= codexCompactStringInputTarget {
+		t.Fatalf("long input should exceed compact target bytes")
+	}
 	req := map[string]interface{}{
 		"model": "gpt-5.3-codex",
 		"input": longInput,
@@ -139,6 +142,52 @@ func TestMaybeCompactCodexContext_CompactsLongStringInput(t *testing.T) {
 	}
 	if !strings.Contains(gotInput, "TAIL-KEEP") {
 		t.Fatalf("expected string tail to be preserved")
+	}
+	if len([]byte(gotInput)) > codexCompactStringInputTarget {
+		t.Fatalf("expected compacted input bytes <= %d, got %d", codexCompactStringInputTarget, len([]byte(gotInput)))
+	}
+}
+
+func TestMaybeCompactCodexContext_CompactsLongMultibyteStringInputWithinByteBudget(t *testing.T) {
+	longInput := "头部保留" + strings.Repeat("你好🙂", 50000) + "尾部保留"
+	if len([]byte(longInput)) <= codexCompactStringInputTarget {
+		t.Fatalf("multibyte input should exceed compact target bytes")
+	}
+
+	req := map[string]interface{}{
+		"model": "gpt-5.3-codex",
+		"input": longInput,
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	if len(body) <= codexCompactMinBodyBytes {
+		t.Fatalf("test payload too small: %d", len(body))
+	}
+
+	out, changed := maybeCompactCodexContext(body)
+	if !changed {
+		t.Fatalf("expected multibyte string input to be compacted")
+	}
+
+	var compacted map[string]interface{}
+	if err := json.Unmarshal(out, &compacted); err != nil {
+		t.Fatalf("unmarshal compacted request: %v", err)
+	}
+
+	gotInput, _ := compacted["input"].(string)
+	if !strings.Contains(gotInput, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected omission marker in compacted string")
+	}
+	if !strings.Contains(gotInput, "头部保留") {
+		t.Fatalf("expected multibyte string head to be preserved")
+	}
+	if !strings.Contains(gotInput, "尾部保留") {
+		t.Fatalf("expected multibyte string tail to be preserved")
+	}
+	if len([]byte(gotInput)) > codexCompactStringInputTarget {
+		t.Fatalf("expected compacted multibyte input bytes <= %d, got %d", codexCompactStringInputTarget, len([]byte(gotInput)))
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -12,6 +13,9 @@ const (
 	codexCompactKeepTailMaxItems  = 48
 	codexCompactMaxTextChars      = 12000
 	codexCompactStringInputTarget = 120000
+	codexCompactMinTargetChars    = 64
+	codexCompactMinSegmentChars   = 48
+	codexCompactOmissionMarker    = "\n\n[maxx] ... earlier context omitted ...\n\n"
 )
 
 func maybeCompactCodexContext(body []byte) ([]byte, bool) {
@@ -276,37 +280,93 @@ func deepCopyJSONValue(value interface{}) interface{} {
 }
 
 func compactLongString(s string, target int) (string, bool) {
-	runes := []rune(s)
-	if len(runes) <= target || target <= 64 {
+	if len(s) <= target || target <= codexCompactMinTargetChars {
 		return s, false
 	}
 
-	marker := "\n\n[maxx] ... earlier context omitted ...\n\n"
-	markerRunes := []rune(marker)
-	if len(markerRunes) >= target {
-		return string(runes[len(runes)-target:]), true
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return s, false
 	}
 
-	headLen := target / 6
-	if headLen < 48 {
-		headLen = 48
+	markerRunes := []rune(codexCompactOmissionMarker)
+	if len(codexCompactOmissionMarker) >= target {
+		tail := tailWithinByteBudget(s, target)
+		return tail, tail != s
 	}
-	tailLen := target - headLen - len(markerRunes)
-	if tailLen < 48 {
-		tailLen = 48
-		headLen = target - tailLen - len(markerRunes)
-		if headLen < 0 {
-			headLen = 0
+
+	availableRunes := len(runes) - len(markerRunes)
+	if availableRunes <= 0 {
+		tail := tailWithinByteBudget(s, target)
+		return tail, tail != s
+	}
+
+	headLen := availableRunes / 6
+	tailLen := availableRunes - headLen
+	if availableRunes >= codexCompactMinSegmentChars*2 {
+		if headLen < codexCompactMinSegmentChars {
+			headLen = codexCompactMinSegmentChars
+			tailLen = availableRunes - headLen
+		}
+		if tailLen < codexCompactMinSegmentChars {
+			tailLen = codexCompactMinSegmentChars
+			headLen = availableRunes - tailLen
 		}
 	}
 
-	if headLen+tailLen+len(markerRunes) > len(runes) {
-		return s, false
+	prefixBytes := make([]int, len(runes)+1)
+	for i, r := range runes {
+		prefixBytes[i+1] = prefixBytes[i] + utf8.RuneLen(r)
+	}
+
+	combinedBytes := func(h, t int) int {
+		headBytes := prefixBytes[h]
+		tailStart := len(runes) - t
+		tailBytes := prefixBytes[len(runes)] - prefixBytes[tailStart]
+		return headBytes + len(codexCompactOmissionMarker) + tailBytes
+	}
+
+	for combinedBytes(headLen, tailLen) > target && (headLen > 0 || tailLen > 0) {
+		switch {
+		case headLen > codexCompactMinSegmentChars:
+			headLen--
+		case tailLen > codexCompactMinSegmentChars:
+			tailLen--
+		case tailLen > 0:
+			tailLen--
+		case headLen > 0:
+			headLen--
+		}
 	}
 
 	head := string(runes[:headLen])
 	tail := string(runes[len(runes)-tailLen:])
-	return head + marker + tail, true
+	compacted := head + codexCompactOmissionMarker + tail
+	if len(compacted) > target {
+		compacted = tailWithinByteBudget(compacted, target)
+	}
+	return compacted, compacted != s
+}
+
+func tailWithinByteBudget(s string, target int) string {
+	if target <= 0 {
+		return ""
+	}
+	if len(s) <= target {
+		return s
+	}
+
+	idx := len(s)
+	used := 0
+	for idx > 0 {
+		_, size := utf8.DecodeLastRuneInString(s[:idx])
+		if size <= 0 || used+size > target {
+			break
+		}
+		used += size
+		idx -= size
+	}
+	return s[idx:]
 }
 
 func codexItemRole(item interface{}) string {
