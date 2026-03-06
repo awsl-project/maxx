@@ -45,6 +45,13 @@ func (s *passkeySessionStore) put(session passkeySession) string {
 	defer s.mu.Unlock()
 
 	s.cleanupLocked()
+
+	// Set a default expiry if the webauthn library didn't set one
+	// (Expires is only set when Config.Timeouts.*.Enforce is true)
+	if session.Session.Expires.IsZero() {
+		session.Session.Expires = time.Now().Add(5 * time.Minute)
+	}
+
 	sessionID := uuid.NewString()
 	s.sessions[sessionID] = session
 	return sessionID
@@ -69,7 +76,7 @@ func (s *passkeySessionStore) consume(sessionID string, expectedType string) (pa
 func (s *passkeySessionStore) cleanupLocked() {
 	now := time.Now()
 	for id, session := range s.sessions {
-		if now.After(session.Session.Expires) {
+		if !session.Session.Expires.IsZero() && now.After(session.Session.Expires) {
 			delete(s.sessions, id)
 		}
 	}
