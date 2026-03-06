@@ -89,7 +89,8 @@
     "language": "Language",
     "logout": "Log out",
     "users": "Users",
-    "changePassword": "Change Password"
+    "changePassword": "Change Password",
+    "managePasskeys": "Manage Passkeys"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -714,7 +715,20 @@
     "confirmNewPassword": "Confirm New Password",
     "changePasswordSuccess": "Password changed successfully",
     "changePasswordFailed": "Failed to change password",
-    "passwordMismatch": "Passwords do not match"
+    "passwordMismatch": "Passwords do not match",
+    "passkeyManagement": "Passkey Management",
+    "passkeyManagementDescription": "View and remove registered Passkey devices.",
+    "passkeyFallbackHint": "If a device is lost, you can still log in with password and remove old Passkeys here.",
+    "passkeyListEmpty": "No Passkey devices registered",
+    "passkeyAttachment": "Attachment",
+    "passkeyTransport": "Transport",
+    "passkeySignCount": "Sign Count",
+    "passkeyBackedUp": "Backed up",
+    "passkeyNotBackedUp": "Not backed up",
+    "passkeyCloneWarning": "Security warning: this Passkey may be cloned.",
+    "passkeyDelete": "Remove",
+    "passkeyDeleteConfirm": "Remove this Passkey device?",
+    "passkeyDeleteFailed": "Failed to remove Passkey device"
   },
   "routingStrategies": {
     "title": "Routing Strategies",

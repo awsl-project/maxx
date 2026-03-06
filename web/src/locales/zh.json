@@ -89,7 +89,8 @@
     "language": "语言",
     "logout": "退出登录",
     "users": "用户管理",
-    "changePassword": "修改密码"
+    "changePassword": "修改密码",
+    "managePasskeys": "管理 Passkey"
   },
   "dashboard": {
     "title": "仪表板",
@@ -714,7 +715,20 @@
     "confirmNewPassword": "确认新密码",
     "changePasswordSuccess": "密码修改成功",
     "changePasswordFailed": "密码修改失败",
-    "passwordMismatch": "两次输入的密码不一致"
+    "passwordMismatch": "两次输入的密码不一致",
+    "passkeyManagement": "Passkey 管理",
+    "passkeyManagementDescription": "查看并移除已注册的 Passkey 设备。",
+    "passkeyFallbackHint": "若设备丢失，仍可先用密码登录，再在此移除旧 Passkey。",
+    "passkeyListEmpty": "暂无已注册的 Passkey 设备",
+    "passkeyAttachment": "附着类型",
+    "passkeyTransport": "传输方式",
+    "passkeySignCount": "签名计数",
+    "passkeyBackedUp": "已备份",
+    "passkeyNotBackedUp": "未备份",
+    "passkeyCloneWarning": "安全告警：该 Passkey 可能存在克隆风险。",
+    "passkeyDelete": "移除",
+    "passkeyDeleteConfirm": "确定移除此 Passkey 设备？",
+    "passkeyDeleteFailed": "移除 Passkey 设备失败"
   },
   "routingStrategies": {
     "title": "路由策略",

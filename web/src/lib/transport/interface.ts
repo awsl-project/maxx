@@ -43,6 +43,7 @@ import type {
   AuthLoginResult,
   PasskeyOptionsResult,
   PasskeyRegisterResult,
+  PasskeyCredential,
   AuthRegisterResult,
   ApplyResult,
   ChangePasswordResult,
@@ -192,12 +193,17 @@ export interface Transport {
   getAuthStatus(): Promise<AuthStatus>;
   login(username: string, password: string): Promise<AuthLoginResult>;
   startPasskeyLogin(username: string): Promise<PasskeyOptionsResult>;
-  finishPasskeyLogin(sessionID: string, credential: Record<string, unknown>): Promise<AuthLoginResult>;
+  finishPasskeyLogin(
+    sessionID: string,
+    credential: Record<string, unknown>,
+  ): Promise<AuthLoginResult>;
   startPasskeyRegistration(username: string, password: string): Promise<PasskeyOptionsResult>;
   finishPasskeyRegistration(
     sessionID: string,
     credential: Record<string, unknown>,
   ): Promise<PasskeyRegisterResult>;
+  listPasskeyCredentials(): Promise<PasskeyCredential[]>;
+  deletePasskeyCredential(id: string): Promise<void>;
   register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
   apply(username: string, password: string): Promise<ApplyResult>;
   changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
