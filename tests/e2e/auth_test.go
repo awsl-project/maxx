@@ -79,6 +79,7 @@ func TestRegister_Success(t *testing.T) {
 	resp := env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "newuser",
 		"password": "newuser-password",
+		"email":    "newuser@example.com",
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 
@@ -201,6 +202,7 @@ func TestRegister_MemberForbidden(t *testing.T) {
 	resp := env.RequestWithToken(http.MethodPost, "/api/admin/auth/register", map[string]string{
 		"username": "another-user",
 		"password": "another-password",
+		"email":    "another-user@example.com",
 	}, memberToken)
 	AssertStatus(t, resp, http.StatusForbidden)
 }
@@ -211,6 +213,7 @@ func TestRegister_NoAuth(t *testing.T) {
 	resp := env.UnauthPost("/api/admin/auth/register", map[string]string{
 		"username": "noauth-user",
 		"password": "noauth-password",
+		"email":    "noauth-user@example.com",
 	})
 	AssertStatus(t, resp, http.StatusUnauthorized)
 }
@@ -222,6 +225,7 @@ func TestRegister_DuplicateUsername(t *testing.T) {
 	resp := env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "duplicate-user",
 		"password": "password1",
+		"email":    "duplicate-user@example.com",
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 	resp.Body.Close()
@@ -230,6 +234,7 @@ func TestRegister_DuplicateUsername(t *testing.T) {
 	resp = env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "duplicate-user",
 		"password": "password2",
+		"email":    "duplicate-user2@example.com",
 	})
 	AssertStatus(t, resp, http.StatusConflict)
 }
@@ -241,6 +246,7 @@ func TestRegister_EmptyFields(t *testing.T) {
 	resp := env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "",
 		"password": "some-password",
+		"email":    "empty-username@example.com",
 	})
 	AssertStatus(t, resp, http.StatusBadRequest)
 	resp.Body.Close()
@@ -249,6 +255,7 @@ func TestRegister_EmptyFields(t *testing.T) {
 	resp = env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "some-user",
 		"password": "",
+		"email":    "some-user@example.com",
 	})
 	AssertStatus(t, resp, http.StatusBadRequest)
 }
@@ -259,6 +266,7 @@ func TestApply_Success(t *testing.T) {
 	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
 		"username": "apply-user",
 		"password": "apply-password",
+		"email":    "apply-user@example.com",
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 
@@ -281,6 +289,7 @@ func TestApply_DuplicateUsername(t *testing.T) {
 	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
 		"username": "dup-apply-user",
 		"password": "password1",
+		"email":    "dup-apply-user@example.com",
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 	resp.Body.Close()
@@ -289,8 +298,43 @@ func TestApply_DuplicateUsername(t *testing.T) {
 	resp = env.UnauthPost("/api/admin/auth/apply", map[string]string{
 		"username": "dup-apply-user",
 		"password": "password2",
+		"email":    "dup-apply-user2@example.com",
 	})
 	AssertStatus(t, resp, http.StatusConflict)
+}
+
+func TestApply_InvalidEmail(t *testing.T) {
+	env := NewTestEnv(t)
+
+	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
+		"username": "invalid-email-user",
+		"password": "apply-password",
+		"email":    "not-an-email",
+	})
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+	if result["error"] != "invalid email address" {
+		t.Fatalf("Expected invalid email error, got %v", result["error"])
+	}
+}
+
+func TestApply_DisposableEmailBlocked(t *testing.T) {
+	env := NewTestEnv(t)
+
+	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
+		"username": "disposable-email-user",
+		"password": "apply-password",
+		"email":    "foo@mailinator.com",
+	})
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+	if result["error"] != "disposable email addresses are not allowed" {
+		t.Fatalf("Expected disposable email blocked error, got %v", result["error"])
+	}
 }
 
 func TestChangePassword_WrongOldPassword(t *testing.T) {

@@ -199,7 +199,7 @@ export interface Transport {
     credential: Record<string, unknown>,
   ): Promise<PasskeyRegisterResult>;
   register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
-  apply(username: string, password: string): Promise<ApplyResult>;
+  apply(username: string, password: string, email: string): Promise<ApplyResult>;
   changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
   setAuthToken(token: string): void;
   clearAuthToken(): void;

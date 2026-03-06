@@ -166,14 +166,19 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if body.Username == "" || body.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
+	if body.Username == "" || body.Password == "" || body.Email == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
+		return
+	}
+	if _, err := normalizeAndValidateRegistrationEmail(body.Email); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -233,14 +238,19 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if body.Username == "" || body.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
+	if body.Username == "" || body.Password == "" || body.Email == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username, password and email are required"})
+		return
+	}
+	if _, err := normalizeAndValidateRegistrationEmail(body.Email); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 

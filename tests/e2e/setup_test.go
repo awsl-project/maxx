@@ -330,6 +330,7 @@ func (e *TestEnv) CreatePendingUser(username, password string) {
 	resp := e.UnauthPost("/api/admin/auth/apply", map[string]string{
 		"username": username,
 		"password": password,
+		"email":    username + "@example.com",
 	})
 	AssertStatus(e.t, resp, http.StatusCreated)
 	resp.Body.Close()
