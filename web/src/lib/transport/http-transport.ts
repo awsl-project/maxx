@@ -624,10 +624,10 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async startPasskeyLogin(username: string): Promise<PasskeyLoginOptionsResult> {
+  async startPasskeyLogin(username?: string): Promise<PasskeyLoginOptionsResult> {
     const { data } = await axios.post<PasskeyLoginOptionsResult>(
       '/api/admin/auth/passkey/login/options',
-      { username },
+      { username: username || '' },
     );
     return data;
   }

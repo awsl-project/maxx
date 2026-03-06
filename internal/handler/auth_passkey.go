@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -234,7 +235,7 @@ func (h *AuthHandler) handlePasskeyRegisterOptions(w http.ResponseWriter, r *htt
 
 	options := []webauthn.RegistrationOption{
 		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
-			ResidentKey:      protocol.ResidentKeyRequirementPreferred,
+			ResidentKey:      protocol.ResidentKeyRequirementRequired,
 			UserVerification: protocol.VerificationRequired,
 		}),
 		webauthn.WithConveyancePreference(protocol.PreferNoAttestation),
@@ -366,11 +367,39 @@ func (h *AuthHandler) handlePasskeyLoginOptions(w http.ResponseWriter, r *http.R
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if body.Username == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username is required"})
+
+	wAuthn, err := newWebAuthnFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
+	if body.Username == "" {
+		// Discoverable login: no username provided, let the authenticator choose
+		assertion, session, err := wAuthn.BeginDiscoverableLogin(
+			webauthn.WithUserVerification(protocol.VerificationRequired),
+		)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to generate passkey login options"})
+			return
+		}
+
+		sessionID := h.passkeyStore.put(passkeySession{
+			Type:     passkeySessionTypeLogin,
+			UserID:   0,
+			TenantID: 0,
+			Session:  *session,
+		})
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success":   true,
+			"sessionID": sessionID,
+			"options":   assertion.Response,
+		})
+		return
+	}
+
+	// Username-based login: existing flow
 	user, err := h.userRepo.GetByUsername(body.Username)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
@@ -387,12 +416,6 @@ func (h *AuthHandler) handlePasskeyLoginOptions(w http.ResponseWriter, r *http.R
 	}
 	if len(credentials) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "passkey is not registered for this user"})
-		return
-	}
-
-	wAuthn, err := newWebAuthnFromRequest(r)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -448,25 +471,6 @@ func (h *AuthHandler) handlePasskeyLoginVerify(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	user, err := h.userRepo.GetByID(session.TenantID, session.UserID)
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
-	}
-	if !ensureUserIsActive(w, user) {
-		return
-	}
-
-	credentials, err := parsePasskeyCredentials(user.PasskeyCredentials)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid stored passkey credentials"})
-		return
-	}
-	if len(credentials) == 0 {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
-	}
-
 	wAuthn, err := newWebAuthnFromRequest(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -479,13 +483,73 @@ func (h *AuthHandler) handlePasskeyLoginVerify(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	validatedCredential, err := wAuthn.FinishLogin(
-		newWebAuthnUser(user, credentials),
-		session.Session,
-		credentialReq,
-	)
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid passkey credential"})
+	var user *domain.User
+	var credentials []webauthn.Credential
+	var validatedCredential *webauthn.Credential
+
+	if session.UserID == 0 {
+		// Discoverable login: resolve user from userHandle in the credential response
+		var discoveredUser *domain.User
+		validatedCredential, err = wAuthn.FinishDiscoverableLogin(
+			func(rawID, userHandle []byte) (webauthn.User, error) {
+				userID, parseErr := strconv.ParseUint(string(userHandle), 10, 64)
+				if parseErr != nil {
+					return nil, fmt.Errorf("invalid user handle")
+				}
+				u, dbErr := h.userRepo.GetByID(0, userID)
+				if dbErr != nil {
+					return nil, fmt.Errorf("user not found")
+				}
+				creds, credErr := parsePasskeyCredentials(u.PasskeyCredentials)
+				if credErr != nil {
+					return nil, fmt.Errorf("invalid stored passkey credentials")
+				}
+				discoveredUser = u
+				return newWebAuthnUser(u, creds), nil
+			},
+			session.Session,
+			credentialReq,
+		)
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid passkey credential"})
+			return
+		}
+		user = discoveredUser
+		credentials, err = parsePasskeyCredentials(user.PasskeyCredentials)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid stored passkey credentials"})
+			return
+		}
+	} else {
+		// Username-based login: existing flow
+		user, err = h.userRepo.GetByID(session.TenantID, session.UserID)
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+			return
+		}
+
+		credentials, err = parsePasskeyCredentials(user.PasskeyCredentials)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid stored passkey credentials"})
+			return
+		}
+		if len(credentials) == 0 {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+			return
+		}
+
+		validatedCredential, err = wAuthn.FinishLogin(
+			newWebAuthnUser(user, credentials),
+			session.Session,
+			credentialReq,
+		)
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid passkey credential"})
+			return
+		}
+	}
+
+	if !ensureUserIsActive(w, user) {
 		return
 	}
 

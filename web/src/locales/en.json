@@ -683,7 +683,6 @@
     "passkeyRegisterFailed": "Passkey registration failed",
     "passkeyLoginFailed": "Passkey login failed",
     "passkeyNotSupported": "Your browser or device does not support Passkey",
-    "passkeyUsernameRequired": "Please enter username first",
     "passkeyRegistrationNeedsPassword": "Please enter username and password to register Passkey"
   },
   "users": {

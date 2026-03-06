@@ -1,0 +1,12 @@
+{
+  "name": "maxx-e2e-playwright",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test-passkey-discoverable.mjs",
+    "test:headed": "HEADED=1 node test-passkey-discoverable.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  }
+}

@@ -101,10 +101,6 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       setError(t('login.passkeyNotSupported'));
       return;
     }
-    if (!username) {
-      setError(t('login.passkeyUsernameRequired'));
-      return;
-    }
 
     setIsLoading(true);
     try {
@@ -206,7 +202,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   }
 
   const isSubmitDisabled = isLoading || !username || !password;
-  const isPasskeyLoginDisabled = isLoading || !username;
+  const isPasskeyLoginDisabled = isLoading;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">

@@ -195,7 +195,7 @@ export interface Transport {
   // ===== Auth API =====
   getAuthStatus(): Promise<AuthStatus>;
   login(username: string, password: string): Promise<AuthLoginResult>;
-  startPasskeyLogin(username: string): Promise<PasskeyLoginOptionsResult>;
+  startPasskeyLogin(username?: string): Promise<PasskeyLoginOptionsResult>;
   finishPasskeyLogin(
     sessionID: string,
     credential: AuthenticationResponseJSON,
