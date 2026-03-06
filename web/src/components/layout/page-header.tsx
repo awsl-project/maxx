@@ -26,8 +26,8 @@ export function PageHeader({
   const { t } = useTranslation();
   const accountName = user?.username?.trim() || '';
   const shouldShowAccount = accountName.length > 0;
-  const hasActions = actions !== null && actions !== undefined;
-  const hasChildren = children !== null && children !== undefined;
+  const hasActions = actions !== null && actions !== undefined && actions !== false;
+  const hasChildren = children !== null && children !== undefined && children !== false;
 
   return (
     <header className="min-h-[73px] flex items-center justify-between px-4 md:px-6 gap-2 py-2 md:py-0 flex-wrap border-b border-border bg-card shrink-0">
