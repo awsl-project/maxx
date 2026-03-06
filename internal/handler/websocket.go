@@ -82,16 +82,11 @@ func (h *WebSocketHub) tryEnqueueBroadcast(msg WSMessage, meta string) {
 	select {
 	case h.broadcast <- msg:
 	default:
-		dropped := h.broadcastDroppedTotal.Add(1)
-		// 避免日志刷屏：首次 + 每100次打印一次，确保可观测性但不拖慢热路径。
-		if dropped == 1 || dropped%100 == 0 {
-			meta = strings.TrimSpace(meta)
-			if meta != "" {
-				log.Printf("[WebSocket] drop broadcast message type=%s %s dropped_total=%d", msg.Type, meta, dropped)
-			} else {
-				log.Printf("[WebSocket] drop broadcast message type=%s dropped_total=%d", msg.Type, dropped)
-			}
-		}
+		// Only increment counter; do NOT call log.Printf here.
+		// This function is called from within WebSocketLogWriter.Write(),
+		// which is invoked by log.Printf while holding the log mutex.
+		// Calling log.Printf again would deadlock (sync.Mutex is not reentrant).
+		h.broadcastDroppedTotal.Add(1)
 	}
 }
 

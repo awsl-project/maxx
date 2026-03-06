@@ -1,11 +1,11 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/json"
+	"io"
 	"log"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
@@ -84,42 +84,66 @@ func TestWebSocketHub_BroadcastProxyUpstreamAttempt_SendsSnapshot(t *testing.T) 
 	}
 }
 
-func TestWebSocketHub_BroadcastProxyRequest_LogsWhenDropped(t *testing.T) {
+func TestWebSocketHub_BroadcastDrop_IncrementsCounter(t *testing.T) {
 	hub := &WebSocketHub{
 		broadcast: make(chan WSMessage, 1),
 	}
 	hub.broadcast <- WSMessage{Type: "dummy", Data: nil}
 
-	var buf bytes.Buffer
-	oldOutput := log.Writer()
-	oldFlags := log.Flags()
-	oldPrefix := log.Prefix()
-	log.SetOutput(&buf)
-	log.SetFlags(0)
-	log.SetPrefix("")
-	defer func() {
-		log.SetOutput(oldOutput)
-		log.SetFlags(oldFlags)
-		log.SetPrefix(oldPrefix)
-	}()
+	before := hub.broadcastDroppedTotal.Load()
 
 	req := &domain.ProxyRequest{
 		ID:        1,
 		RequestID: "req_1",
 		Status:    "IN_PROGRESS",
 	}
-
 	hub.BroadcastProxyRequest(req)
 
-	out := buf.String()
-	if !strings.Contains(out, "drop") && !strings.Contains(out, "丢弃") {
-		t.Fatalf("expected drop log, got: %q", out)
+	after := hub.broadcastDroppedTotal.Load()
+	if after != before+1 {
+		t.Fatalf("expected drop counter to increment from %d to %d, got %d", before, before+1, after)
 	}
-	if !strings.Contains(out, "proxy_request_update") {
-		t.Fatalf("expected message type in log, got: %q", out)
+}
+
+func TestWebSocketLogWriter_NoDeadlockOnFullChannel(t *testing.T) {
+	// Create hub WITHOUT starting run() goroutine, so channel stays full
+	hub := &WebSocketHub{
+		broadcast: make(chan WSMessage, 100),
 	}
-	if !strings.Contains(out, "req_1") {
-		t.Fatalf("expected requestID in log, got: %q", out)
+
+	// Fill broadcast channel completely
+	for i := 0; i < 100; i++ {
+		hub.broadcast <- WSMessage{Type: "fill", Data: i}
+	}
+
+	// Create WebSocketLogWriter pointing to this hub
+	writer := NewWebSocketLogWriter(hub, io.Discard, "")
+
+	// Redirect log output through WebSocketLogWriter
+	oldOutput := log.Writer()
+	oldFlags := log.Flags()
+	log.SetOutput(writer)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(oldOutput)
+		log.SetFlags(oldFlags)
+	}()
+
+	// log.Printf path: holds log mutex → WebSocketLogWriter.Write
+	//   → BroadcastLog → tryEnqueueBroadcast → channel full → default branch
+	// Before fix: default branch called log.Printf → re-acquire log mutex → DEADLOCK
+	// After fix:  default branch only increments counter → no deadlock
+	done := make(chan struct{})
+	go func() {
+		log.Printf("this must not deadlock")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// No deadlock
+	case <-time.After(2 * time.Second):
+		t.Fatal("Deadlock: log.Printf hung because tryEnqueueBroadcast called log.Printf while log mutex was held")
 	}
 }
 

@@ -33,6 +33,7 @@ type Executor struct {
 	converter        *converter.Registry
 	engine           *flow.Engine
 	middlewares      []flow.HandlerFunc
+	cooldownSem      chan struct{} // semaphore to limit concurrent cooldown update goroutines
 }
 
 // NewExecutor creates a new executor
@@ -63,6 +64,7 @@ func NewExecutor(
 		statsAggregator:  statsAggregator,
 		converter:        converter.GetGlobalRegistry(),
 		engine:           flow.NewEngine(),
+		cooldownSem:      make(chan struct{}, 10),
 	}
 }
 
@@ -224,9 +226,14 @@ func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.
 	// Otherwise, cooldown duration is calculated based on policy and failure count
 	cooldown.Default().RecordFailure(provider.ID, selectedClientType, reason, explicitUntil)
 
-	// If there's an async update channel, listen for updates
+	// If there's an async update channel, listen for updates (bounded by semaphore)
 	if proxyErr.CooldownUpdateChan != nil {
-		go e.handleAsyncCooldownUpdate(proxyErr.CooldownUpdateChan, provider, selectedClientType)
+		select {
+		case e.cooldownSem <- struct{}{}:
+			go e.handleAsyncCooldownUpdate(proxyErr.CooldownUpdateChan, provider, selectedClientType)
+		default:
+			// Semaphore full, skip async cooldown update to prevent goroutine leak
+		}
 	}
 }
 
@@ -250,6 +257,7 @@ func mapRateLimitTypeToReason(rateLimitType string) cooldown.CooldownReason {
 
 // handleAsyncCooldownUpdate listens for async cooldown updates from providers
 func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider *domain.Provider, clientType string) {
+	defer func() { <-e.cooldownSem }()
 	select {
 	case newCooldownTime := <-updateChan:
 		if !newCooldownTime.IsZero() {
