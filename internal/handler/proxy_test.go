@@ -33,7 +33,7 @@ func TestIsCodexCompactionEligiblePath(t *testing.T) {
 		want bool
 	}{
 		{path: "/responses", want: true},
-		{path: "/v1/responses", want: true},
+		{path: "/v1/responses", want: false},
 		{path: "/v1/chat/completions", want: false},
 		{path: "/messages", want: false},
 	}

@@ -160,6 +160,7 @@ func trimCodexItemText(item interface{}, maxChars int) interface{} {
 	if !ok {
 		return item
 	}
+	m = deepCopyJSONObject(m)
 
 	if content, ok := m["content"].(string); ok {
 		if compacted, changed := compactLongString(content, maxChars); changed {
@@ -208,27 +209,69 @@ func compactNestedStrings(value interface{}, maxChars int) (interface{}, bool) {
 		}
 		return v, false
 	case map[string]interface{}:
-		changed := false
+		var copied map[string]interface{}
 		for key, raw := range v {
 			compacted, partChanged := compactNestedStrings(raw, maxChars)
-			if partChanged {
-				changed = true
-				v[key] = compacted
+			if !partChanged {
+				continue
 			}
+			if copied == nil {
+				copied = make(map[string]interface{}, len(v))
+				for k, vv := range v {
+					copied[k] = vv
+				}
+			}
+			copied[key] = compacted
 		}
-		return v, changed
+		if copied == nil {
+			return v, false
+		}
+		return copied, true
 	case []interface{}:
-		changed := false
+		var copied []interface{}
 		for i := range v {
 			compacted, partChanged := compactNestedStrings(v[i], maxChars)
-			if partChanged {
-				changed = true
-				v[i] = compacted
+			if !partChanged {
+				continue
 			}
+			if copied == nil {
+				copied = append([]interface{}(nil), v...)
+			}
+			copied[i] = compacted
 		}
-		return v, changed
+		if copied == nil {
+			return v, false
+		}
+		return copied, true
 	default:
 		return value, false
+	}
+}
+
+func deepCopyJSONObject(src map[string]interface{}) map[string]interface{} {
+	dst := make(map[string]interface{}, len(src))
+	for key, value := range src {
+		dst[key] = deepCopyJSONValue(value)
+	}
+	return dst
+}
+
+func deepCopyJSONArray(src []interface{}) []interface{} {
+	dst := make([]interface{}, len(src))
+	for i, value := range src {
+		dst[i] = deepCopyJSONValue(value)
+	}
+	return dst
+}
+
+func deepCopyJSONValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		return deepCopyJSONObject(v)
+	case []interface{}:
+		return deepCopyJSONArray(v)
+	default:
+		return v
 	}
 }
 

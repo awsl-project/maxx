@@ -218,4 +218,52 @@ func TestTrimCodexItemText_CompactsArgumentsField(t *testing.T) {
 	if !strings.Contains(nestedText, "[maxx] ... earlier context omitted ...") {
 		t.Fatalf("expected nested argument text to be compacted")
 	}
+
+	originalArgs, _ := item["arguments"].(map[string]interface{})
+	originalQuery, _ := originalArgs["query"].(string)
+	if strings.Contains(originalQuery, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected original query argument to remain unchanged")
+	}
+	originalNested, _ := originalArgs["nested"].([]interface{})
+	originalNestedMap, _ := originalNested[0].(map[string]interface{})
+	originalNestedText, _ := originalNestedMap["text"].(string)
+	if strings.Contains(originalNestedText, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected original nested argument text to remain unchanged")
+	}
+}
+
+func TestCompactNestedStrings_DoesNotMutateInput(t *testing.T) {
+	value := map[string]interface{}{
+		"query": strings.Repeat("Q", 20000),
+		"nested": []interface{}{
+			map[string]interface{}{
+				"text": strings.Repeat("N", 18000),
+			},
+		},
+	}
+
+	compacted, changed := compactNestedStrings(value, codexCompactMaxTextChars)
+	if !changed {
+		t.Fatalf("expected nested strings to be compacted")
+	}
+
+	compactedMap, ok := compacted.(map[string]interface{})
+	if !ok {
+		t.Fatalf("compacted value type = %T, want map", compacted)
+	}
+	compactedQuery, _ := compactedMap["query"].(string)
+	if !strings.Contains(compactedQuery, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected compacted query to contain marker")
+	}
+
+	originalQuery, _ := value["query"].(string)
+	if strings.Contains(originalQuery, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected original query to remain unchanged")
+	}
+	originalNested, _ := value["nested"].([]interface{})
+	originalNestedMap, _ := originalNested[0].(map[string]interface{})
+	originalNestedText, _ := originalNestedMap["text"].(string)
+	if strings.Contains(originalNestedText, "[maxx] ... earlier context omitted ...") {
+		t.Fatalf("expected original nested text to remain unchanged")
+	}
 }

@@ -289,7 +289,7 @@ func normalizeOpenAIChatCompletionsPayload(body []byte) ([]byte, bool) {
 }
 
 func isCodexCompactionEligiblePath(path string) bool {
-	return path == "/responses" || path == "/v1/responses"
+	return path == "/responses"
 }
 
 // Helper functions
