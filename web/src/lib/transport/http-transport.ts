@@ -654,8 +654,18 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult> {
-    const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', { username, password, tenantID });
+  async register(
+    username: string,
+    password: string,
+    email: string,
+    tenantID?: number,
+  ): Promise<AuthRegisterResult> {
+    const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', {
+      username,
+      password,
+      email,
+      tenantID,
+    });
     return data;
   }
 
