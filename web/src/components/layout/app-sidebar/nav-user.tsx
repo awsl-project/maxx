@@ -127,7 +127,7 @@ export function NavUser() {
   };
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
   const menuDisplayName = displayUser.name || 'Maxx';
-  const menuDisplayFallback = (menuDisplayName || 'U').slice(0, 2).toUpperCase();
+  const menuDisplayFallback = menuDisplayName.slice(0, 2).toUpperCase();
   const accountTitle = hasUsername ? displayUser.name : undefined;
 
   return (
