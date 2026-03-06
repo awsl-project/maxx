@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"syscall"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
@@ -191,7 +191,15 @@ func main() {
 	log.Printf("[Startup] Caches loaded (%v)", time.Since(startupStep))
 
 	// Create router
-	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo)
+	r := router.NewRouter(
+		cachedRouteRepo,
+		cachedProviderRepo,
+		cachedRoutingStrategyRepo,
+		cachedRetryConfigRepo,
+		cachedProjectRepo,
+		usageStatsRepo,
+		settingRepo,
+	)
 
 	// Initialize provider adapters
 	startupStep = time.Now()

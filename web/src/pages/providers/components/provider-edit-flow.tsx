@@ -274,6 +274,12 @@ type EditFormData = {
   apiKey: string;
   clients: ClientConfig[];
   supportModels: string[];
+  quotaEnabled: boolean;
+  quotaPeriod: 'day' | 'week' | 'month';
+  quotaRequestLimit: string;
+  quotaTokenLimit: string;
+  quotaCostLimit: string;
+  quotaWarningThreshold: string;
   cloakMode?: 'auto' | 'always' | 'never';
   cloakStrictMode?: boolean;
   cloakSensitiveWords?: string;
@@ -310,6 +316,16 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     apiKey: provider.config?.custom?.apiKey || '',
     clients: initClients(),
     supportModels: provider.supportModels || [],
+    quotaEnabled: provider.config?.quota?.enabled ?? false,
+    quotaPeriod: provider.config?.quota?.period || 'day',
+    quotaRequestLimit: provider.config?.quota?.requestLimit
+      ? String(provider.config.quota.requestLimit)
+      : '',
+    quotaTokenLimit: provider.config?.quota?.tokenLimit ? String(provider.config.quota.tokenLimit) : '',
+    quotaCostLimit: provider.config?.quota?.costLimit ? String(provider.config.quota.costLimit) : '',
+    quotaWarningThreshold: provider.config?.quota?.warningThresholdPercent
+      ? String(provider.config.quota.warningThresholdPercent)
+      : '80',
     cloakMode: provider.config?.custom?.cloak?.mode || 'auto',
     cloakStrictMode: provider.config?.custom?.cloak?.strictMode || false,
     cloakSensitiveWords: (provider.config?.custom?.cloak?.sensitiveWords || []).join('\n'),
@@ -338,6 +354,35 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       .filter(Boolean);
   };
 
+  const parsePositiveInt = (value: string): number | undefined => {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed);
+    if (!Number.isFinite(num) || num <= 0) return undefined;
+    return Math.floor(num);
+  };
+
+  const buildQuotaConfig = () => {
+    const requestLimit = parsePositiveInt(formData.quotaRequestLimit);
+    const tokenLimit = parsePositiveInt(formData.quotaTokenLimit);
+    const costLimit = parsePositiveInt(formData.quotaCostLimit);
+    const warningThreshold = parsePositiveInt(formData.quotaWarningThreshold) ?? 80;
+    const hasAnyLimit = !!requestLimit || !!tokenLimit || !!costLimit;
+
+    if (!formData.quotaEnabled && !hasAnyLimit) {
+      return undefined;
+    }
+
+    return {
+      enabled: formData.quotaEnabled,
+      period: formData.quotaPeriod,
+      requestLimit,
+      tokenLimit,
+      costLimit,
+      warningThresholdPercent: Math.min(Math.max(warningThreshold, 1), 100),
+    };
+  };
+
   const handleSave = async () => {
     if (!isValid()) return;
 
@@ -362,6 +407,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         type: provider.type || 'custom', // Preserve the provider type
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
+          quota: buildQuotaConfig(),
           custom: {
             baseURL: formData.baseURL,
             apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
@@ -423,6 +469,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         logo: provider.logo,
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
+          quota: buildQuotaConfig(),
           custom: {
             baseURL: formData.baseURL,
             apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
@@ -693,6 +740,113 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 }))
               }
             />
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+              {t('provider.quotaTitle')}
+            </h3>
+            <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.enableQuota')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('provider.enableQuotaDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={formData.quotaEnabled}
+                  onCheckedChange={(checked) =>
+                    setFormData((prev) => ({ ...prev, quotaEnabled: checked }))
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-foreground block mb-2">
+                    {t('provider.quotaPeriod')}
+                  </label>
+                  <select
+                    value={formData.quotaPeriod}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        quotaPeriod: e.target.value as 'day' | 'week' | 'month',
+                      }))
+                    }
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                  >
+                    <option value="day">{t('provider.quotaPeriodDay')}</option>
+                    <option value="week">{t('provider.quotaPeriodWeek')}</option>
+                    <option value="month">{t('provider.quotaPeriodMonth')}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground block mb-2">
+                    {t('provider.quotaWarningThreshold')}
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={formData.quotaWarningThreshold}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, quotaWarningThreshold: e.target.value }))
+                    }
+                    placeholder="80"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-foreground block mb-2">
+                    {t('provider.quotaRequestLimit')}
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={formData.quotaRequestLimit}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, quotaRequestLimit: e.target.value }))
+                    }
+                    placeholder={t('provider.quotaUnlimitedPlaceholder')}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground block mb-2">
+                    {t('provider.quotaTokenLimit')}
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={formData.quotaTokenLimit}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, quotaTokenLimit: e.target.value }))
+                    }
+                    placeholder={t('provider.quotaUnlimitedPlaceholder')}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-foreground block mb-2">
+                    {t('provider.quotaCostLimit')}
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={formData.quotaCostLimit}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, quotaCostLimit: e.target.value }))
+                    }
+                    placeholder={t('provider.quotaUnlimitedPlaceholder')}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('provider.quotaCostLimitHint')}</p>
+            </div>
           </div>
 
           <div className="space-y-6">

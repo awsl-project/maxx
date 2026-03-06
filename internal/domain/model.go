@@ -185,6 +185,7 @@ type ProviderConfigCLIProxyAPICodex struct {
 type ProviderConfig struct {
 	// 禁用错误自动冷冻（只影响错误触发的冷冻）
 	DisableErrorCooldown bool                       `json:"disableErrorCooldown,omitempty"`
+	Quota                *ProviderQuotaConfig       `json:"quota,omitempty"`
 	Custom               *ProviderConfigCustom      `json:"custom,omitempty"`
 	Antigravity          *ProviderConfigAntigravity `json:"antigravity,omitempty"`
 	Kiro                 *ProviderConfigKiro        `json:"kiro,omitempty"`
@@ -193,6 +194,47 @@ type ProviderConfig struct {
 	// 内部运行时字段，仅用于 NewAdapter 委托，不序列化
 	CLIProxyAPIAntigravity *ProviderConfigCLIProxyAPIAntigravity `json:"-"`
 	CLIProxyAPICodex       *ProviderConfigCLIProxyAPICodex       `json:"-"`
+}
+
+type ProviderQuotaPeriod string
+
+const (
+	ProviderQuotaPeriodDay   ProviderQuotaPeriod = "day"
+	ProviderQuotaPeriodWeek  ProviderQuotaPeriod = "week"
+	ProviderQuotaPeriodMonth ProviderQuotaPeriod = "month"
+)
+
+type ProviderQuotaConfig struct {
+	Enabled                 bool                `json:"enabled"`
+	Period                  ProviderQuotaPeriod `json:"period,omitempty"`
+	RequestLimit            uint64              `json:"requestLimit,omitempty"`
+	TokenLimit              uint64              `json:"tokenLimit,omitempty"`
+	CostLimit               uint64              `json:"costLimit,omitempty"` // 纳美元
+	WarningThresholdPercent int                 `json:"warningThresholdPercent,omitempty"`
+}
+
+type ProviderQuotaMetricStatus struct {
+	Limit        uint64  `json:"limit"`
+	Used         uint64  `json:"used"`
+	Remaining    uint64  `json:"remaining"`
+	UsagePercent float64 `json:"usagePercent"`
+	Warning      bool    `json:"warning"`
+	Exceeded     bool    `json:"exceeded"`
+}
+
+type ProviderQuotaStatus struct {
+	Enabled                 bool                       `json:"enabled"`
+	Period                  ProviderQuotaPeriod        `json:"period"`
+	Timezone                string                     `json:"timezone,omitempty"`
+	WarningThresholdPercent int                        `json:"warningThresholdPercent"`
+	PeriodStart             time.Time                  `json:"periodStart"`
+	PeriodEnd               time.Time                  `json:"periodEnd"`
+	HasAnyLimit             bool                       `json:"hasAnyLimit"`
+	Requests                *ProviderQuotaMetricStatus `json:"requests,omitempty"`
+	Tokens                  *ProviderQuotaMetricStatus `json:"tokens,omitempty"`
+	Cost                    *ProviderQuotaMetricStatus `json:"cost,omitempty"`
+	Warning                 bool                       `json:"warning"`
+	Exceeded                bool                       `json:"exceeded"`
 }
 
 // Provider 供应商
@@ -227,6 +269,9 @@ type Provider struct {
 	// 如果配置了，在 Route 匹配时会检查前置映射后的模型是否在支持列表中
 	// 空数组表示支持所有模型
 	SupportModels []string `json:"supportModels,omitempty"`
+
+	// 实时配额状态（根据配置与当前周期用量计算）
+	QuotaStatus *ProviderQuotaStatus `json:"quotaStatus,omitempty"`
 }
 
 type Project struct {

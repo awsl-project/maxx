@@ -6,6 +6,40 @@
 // ===== 基础类型 =====
 
 export type ClientType = 'claude' | 'codex' | 'gemini' | 'openai';
+export type ProviderQuotaPeriod = 'day' | 'week' | 'month';
+
+export interface ProviderQuotaConfig {
+  enabled: boolean;
+  period?: ProviderQuotaPeriod;
+  requestLimit?: number;
+  tokenLimit?: number;
+  costLimit?: number; // nano USD
+  warningThresholdPercent?: number;
+}
+
+export interface ProviderQuotaMetricStatus {
+  limit: number;
+  used: number;
+  remaining: number;
+  usagePercent: number;
+  warning: boolean;
+  exceeded: boolean;
+}
+
+export interface ProviderQuotaStatus {
+  enabled: boolean;
+  period: ProviderQuotaPeriod;
+  timezone?: string;
+  warningThresholdPercent: number;
+  periodStart: string;
+  periodEnd: string;
+  hasAnyLimit: boolean;
+  requests?: ProviderQuotaMetricStatus;
+  tokens?: ProviderQuotaMetricStatus;
+  cost?: ProviderQuotaMetricStatus;
+  warning: boolean;
+  exceeded: boolean;
+}
 
 // ===== Provider 相关 =====
 
@@ -68,6 +102,7 @@ export interface ProviderConfigClaude {
 
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
+  quota?: ProviderQuotaConfig;
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;
   kiro?: ProviderConfigKiro;
@@ -85,6 +120,7 @@ export interface Provider {
   config: ProviderConfig | null;
   supportedClientTypes: ClientType[];
   supportModels?: string[]; // 支持的模型列表（通配符模式），空数组表示支持所有模型
+  quotaStatus?: ProviderQuotaStatus;
 }
 
 // supportedClientTypes 可选，后端会根据 provider type 自动设置

@@ -14,6 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/quota"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/awsl-project/maxx/internal/version"
@@ -100,11 +101,23 @@ func NewAdminService(
 // ===== Provider API =====
 
 func (s *AdminService) GetProviders(tenantID uint64) ([]*domain.Provider, error) {
-	return s.providerRepo.List(tenantID)
+	providers, err := s.providerRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range providers {
+		s.attachProviderQuotaStatus(tenantID, p)
+	}
+	return providers, nil
 }
 
 func (s *AdminService) GetProvider(tenantID uint64, id uint64) (*domain.Provider, error) {
-	return s.providerRepo.GetByID(tenantID, id)
+	provider, err := s.providerRepo.GetByID(tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	s.attachProviderQuotaStatus(tenantID, provider)
+	return provider, nil
 }
 
 func (s *AdminService) CreateProvider(tenantID uint64, provider *domain.Provider) error {
@@ -121,6 +134,18 @@ func (s *AdminService) CreateProvider(tenantID uint64, provider *domain.Provider
 		s.adapterRefresher.RefreshAdapter(provider)
 	}
 	return nil
+}
+
+func (s *AdminService) attachProviderQuotaStatus(tenantID uint64, provider *domain.Provider) {
+	if provider == nil || provider.Config == nil || provider.Config.Quota == nil || s.usageStatsRepo == nil {
+		return
+	}
+	status, err := quota.EvaluateProviderQuota(provider, tenantID, s.usageStatsRepo, s.settingRepo, time.Now())
+	if err != nil {
+		log.Printf("[AdminService] failed to evaluate provider quota status providerID=%d: %v", provider.ID, err)
+		return
+	}
+	provider.QuotaStatus = status
 }
 
 func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider) error {
@@ -708,7 +733,7 @@ func (s *AdminService) ResetModelMappingsToDefaults(tenantID uint64) error {
 // GetAvailableClientTypes returns all available client types for model mapping
 func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 	return []domain.ClientType{
-		"",                       // Empty means applies to all
+		"", // Empty means applies to all
 		domain.ClientTypeClaude,
 		domain.ClientTypeOpenAI,
 		domain.ClientTypeGemini,
@@ -776,11 +801,11 @@ type RecalculateCostsResult struct {
 
 // RecalculateCostsProgress represents progress update for cost recalculation
 type RecalculateCostsProgress struct {
-	Phase       string `json:"phase"`       // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
-	Current     int    `json:"current"`     // Current item being processed
-	Total       int    `json:"total"`       // Total items to process
-	Percentage  int    `json:"percentage"`  // 0-100
-	Message     string `json:"message"`     // Human-readable message
+	Phase      string `json:"phase"`      // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
+	Current    int    `json:"current"`    // Current item being processed
+	Total      int    `json:"total"`      // Total items to process
+	Percentage int    `json:"percentage"` // 0-100
+	Message    string `json:"message"`    // Human-readable message
 }
 
 // RecalculateCosts recalculates cost for all attempts using the current price table
