@@ -168,7 +168,7 @@ func trimCodexItemText(item interface{}, maxChars int) interface{} {
 	}
 
 	if parts, ok := m["content"].([]interface{}); ok {
-		for i, part := range parts {
+		for _, part := range parts {
 			pm, ok := part.(map[string]interface{})
 			if !ok {
 				continue
@@ -179,10 +179,8 @@ func trimCodexItemText(item interface{}, maxChars int) interface{} {
 			}
 			if compacted, changed := compactLongString(text, maxChars); changed {
 				pm["text"] = compacted
-				parts[i] = pm
 			}
 		}
-		m["content"] = parts
 	}
 
 	if output, ok := m["output"].(string); ok {
