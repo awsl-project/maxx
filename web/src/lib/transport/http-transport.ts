@@ -654,8 +654,8 @@ export class HttpTransport implements Transport {
     sessionID: string,
     credential: RegistrationResponseJSON,
   ): Promise<PasskeyRegisterResult> {
-    const { data } = await axios.post<PasskeyRegisterResult>(
-      '/api/admin/auth/passkey/register/verify',
+    const { data } = await this.client.post<PasskeyRegisterResult>(
+      '/auth/passkey/register/verify',
       { sessionID, credential },
     );
     return data;

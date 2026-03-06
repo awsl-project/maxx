@@ -261,8 +261,10 @@ func (h *AuthHandler) handlePasskeyRegisterVerify(w http.ResponseWriter, r *http
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if !h.authEnabled || h.authMiddleware == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "authentication is disabled"})
+
+	// JWT 认证：确保调用者已登录
+	currentUser, ok := h.getAuthenticatedPasskeyUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -285,14 +287,13 @@ func (h *AuthHandler) handlePasskeyRegisterVerify(w http.ResponseWriter, r *http
 		return
 	}
 
-	user, err := h.userRepo.GetByID(session.TenantID, session.UserID)
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "user not found"})
+	// 验证 JWT 身份与 session 中记录的用户一致，防止会话劫持
+	if currentUser.ID != session.UserID || currentUser.TenantID != session.TenantID {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
 		return
 	}
-	if !ensureUserIsActive(w, user) {
-		return
-	}
+
+	user := currentUser
 
 	credentials, err := parsePasskeyCredentials(user.PasskeyCredentials)
 	if err != nil {
