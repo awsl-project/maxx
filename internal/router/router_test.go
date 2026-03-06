@@ -24,7 +24,7 @@ func TestWeightedShuffleRoutesRespectsWeights(t *testing.T) {
 	const rounds = 5000
 	for i := 0; i < rounds; i++ {
 		routes := []*domain.Route{base[0], base[1], base[2]}
-		weightedShuffleRoutes(routes, rng.Intn)
+		weightedShuffleRoutes(routes, nil, rng.Intn)
 		firstCounts[routes[0].ID]++
 	}
 
@@ -39,18 +39,28 @@ func TestWeightedShuffleRoutesRespectsWeights(t *testing.T) {
 	}
 }
 
-func TestWeightedShuffleRoutesUsesDefaultWeightForNonPositiveValues(t *testing.T) {
-	if got := normalizedRouteWeight(nil); got != domain.DefaultRouteWeight {
+func TestNormalizedRouteWeightUsesDefaultAndConfigOverride(t *testing.T) {
+	if got := normalizedRouteWeight(nil, nil); got != domain.DefaultRouteWeight {
 		t.Fatalf("nil route weight = %d, want %d", got, domain.DefaultRouteWeight)
 	}
-	if got := normalizedRouteWeight(&domain.Route{Weight: 0}); got != domain.DefaultRouteWeight {
+	if got := normalizedRouteWeight(&domain.Route{Weight: 0}, nil); got != domain.DefaultRouteWeight {
 		t.Fatalf("zero route weight = %d, want %d", got, domain.DefaultRouteWeight)
 	}
-	if got := normalizedRouteWeight(&domain.Route{Weight: -1}); got != domain.DefaultRouteWeight {
+	if got := normalizedRouteWeight(&domain.Route{Weight: -1}, nil); got != domain.DefaultRouteWeight {
 		t.Fatalf("negative route weight = %d, want %d", got, domain.DefaultRouteWeight)
 	}
-	if got := normalizedRouteWeight(&domain.Route{Weight: 25}); got != 25 {
+	if got := normalizedRouteWeight(&domain.Route{Weight: 25}, nil); got != 25 {
 		t.Fatalf("positive route weight = %d, want 25", got)
+	}
+
+	cfg := &domain.RoutingStrategyConfig{RouteWeights: map[uint64]int{7: 0}}
+	if got := normalizedRouteWeight(&domain.Route{ID: 7, Weight: 50}, cfg); got != 0 {
+		t.Fatalf("config override should win, got %d", got)
+	}
+
+	cfg = &domain.RoutingStrategyConfig{ProviderWeights: map[uint64]int{9: 33}}
+	if got := normalizedRouteWeight(&domain.Route{ProviderID: 9, Weight: 50}, cfg); got != 33 {
+		t.Fatalf("provider config override should win, got %d", got)
 	}
 }
 
@@ -66,5 +76,34 @@ func TestSortRoutesPriorityByPosition(t *testing.T) {
 
 	if routes[0].ID != 2 || routes[1].ID != 3 || routes[2].ID != 1 {
 		t.Fatalf("priority sort failed, got order: %d,%d,%d", routes[0].ID, routes[1].ID, routes[2].ID)
+	}
+}
+
+func TestSortRoutesWeightedRandomUsesConfigWeights(t *testing.T) {
+	rand.Seed(1)
+	r := &Router{}
+	strategy := &domain.RoutingStrategy{
+		Type: domain.RoutingStrategyWeightedRandom,
+		Config: &domain.RoutingStrategyConfig{
+			RouteWeights: map[uint64]int{
+				1: 90,
+				2: 10,
+			},
+		},
+	}
+
+	firstCounts := map[uint64]int{}
+	const iterations = 5000
+	for i := 0; i < iterations; i++ {
+		routes := []*domain.Route{
+			{ID: 1, ProviderID: 101, Weight: 1},
+			{ID: 2, ProviderID: 102, Weight: 100},
+		}
+		r.sortRoutes(routes, strategy)
+		firstCounts[routes[0].ID]++
+	}
+
+	if firstCounts[1] <= firstCounts[2] {
+		t.Fatalf("expected config-weighted route to appear first more often, got route1=%d route2=%d", firstCounts[1], firstCounts[2])
 	}
 }

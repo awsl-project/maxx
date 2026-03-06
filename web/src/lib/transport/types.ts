@@ -167,7 +167,8 @@ export type CreateRetryConfigData = Omit<RetryConfig, 'id' | 'createdAt' | 'upda
 export type RoutingStrategyType = 'priority' | 'weighted_random';
 
 export interface RoutingStrategyConfig {
-  // 扩展字段
+  routeWeights?: Record<number, number>;
+  providerWeights?: Record<number, number>;
 }
 
 export interface RoutingStrategy {

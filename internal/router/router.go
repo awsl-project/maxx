@@ -270,13 +270,16 @@ func (r *Router) getRoutingStrategy(tenantID uint64, projectID uint64) *domain.R
 }
 
 func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStrategy) {
+	if len(routes) <= 1 {
+		return
+	}
 	if strategy == nil {
 		strategy = &domain.RoutingStrategy{Type: domain.RoutingStrategyPriority}
 	}
 
 	switch strategy.Type {
 	case domain.RoutingStrategyWeightedRandom:
-		weightedShuffleRoutes(routes, rand.Intn)
+		weightedShuffleRoutes(routes, strategy.Config, rand.Intn)
 	default: // priority
 		sort.Slice(routes, func(i, j int) bool {
 			return routes[i].Position < routes[j].Position
@@ -284,7 +287,7 @@ func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStra
 	}
 }
 
-func weightedShuffleRoutes(routes []*domain.Route, randIntn func(int) int) {
+func weightedShuffleRoutes(routes []*domain.Route, config *domain.RoutingStrategyConfig, randIntn func(int) int) {
 	if len(routes) <= 1 {
 		return
 	}
@@ -299,16 +302,20 @@ func weightedShuffleRoutes(routes []*domain.Route, randIntn func(int) int) {
 	for len(remaining) > 0 {
 		totalWeight := 0
 		for _, route := range remaining {
-			totalWeight += normalizedRouteWeight(route)
+			totalWeight += normalizedRouteWeight(route, config)
 		}
 
-		pick := randIntn(totalWeight)
 		selectedIndex := 0
-		for i, route := range remaining {
-			pick -= normalizedRouteWeight(route)
-			if pick < 0 {
-				selectedIndex = i
-				break
+		if totalWeight <= 0 {
+			selectedIndex = randIntn(len(remaining))
+		} else {
+			pick := randIntn(totalWeight)
+			for i, route := range remaining {
+				pick -= normalizedRouteWeight(route, config)
+				if pick < 0 {
+					selectedIndex = i
+					break
+				}
 			}
 		}
 
@@ -319,8 +326,31 @@ func weightedShuffleRoutes(routes []*domain.Route, randIntn func(int) int) {
 	copy(routes, result)
 }
 
-func normalizedRouteWeight(route *domain.Route) int {
-	if route == nil || route.Weight <= 0 {
+func normalizedRouteWeight(route *domain.Route, config *domain.RoutingStrategyConfig) int {
+	if route == nil {
+		return domain.DefaultRouteWeight
+	}
+
+	if config != nil {
+		if len(config.RouteWeights) > 0 {
+			if weight, ok := config.RouteWeights[route.ID]; ok {
+				if weight < 0 {
+					return 0
+				}
+				return weight
+			}
+		}
+		if len(config.ProviderWeights) > 0 {
+			if weight, ok := config.ProviderWeights[route.ProviderID]; ok {
+				if weight < 0 {
+					return 0
+				}
+				return weight
+			}
+		}
+	}
+
+	if route.Weight <= 0 {
 		return domain.DefaultRouteWeight
 	}
 	return route.Weight

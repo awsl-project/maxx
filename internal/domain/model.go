@@ -517,8 +517,13 @@ var (
 
 // 路由策略配置（策略特定参数）
 type RoutingStrategyConfig struct {
-	// 加权随机策略的权重配置等
-	// 根据具体策略扩展
+	// RouteWeights: RouteID -> Weight
+	// 优先级最高，适用于同 Provider 下不同 Route 的精细化控制
+	RouteWeights map[uint64]int `json:"routeWeights,omitempty"`
+
+	// ProviderWeights: ProviderID -> Weight
+	// 当 RouteWeights 未配置某条路由时，回退到 Provider 级权重
+	ProviderWeights map[uint64]int `json:"providerWeights,omitempty"`
 }
 
 // 路由策略
