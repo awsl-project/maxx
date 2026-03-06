@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTransport } from '@/lib/transport';
@@ -7,98 +8,6 @@ import type { AuthUser } from '@/lib/auth-context';
 
 interface LoginPageProps {
   onSuccess: (token: string, user?: AuthUser) => void;
-}
-
-function decodeBase64URL(value: string): ArrayBuffer {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-function encodeBase64URL(buffer: ArrayBuffer | null): string | undefined {
-  if (!buffer) {
-    return undefined;
-  }
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function normalizePasskeyRegisterOptions(rawOptions: Record<string, unknown>): PublicKeyCredentialCreationOptions {
-  const options = JSON.parse(JSON.stringify(rawOptions)) as Record<string, any>;
-  options.challenge = decodeBase64URL(options.challenge);
-  options.user.id = decodeBase64URL(options.user.id);
-  if (Array.isArray(options.excludeCredentials)) {
-    options.excludeCredentials = options.excludeCredentials.map((item: Record<string, any>) => ({
-      ...item,
-      id: decodeBase64URL(item.id),
-    }));
-  }
-  return options as unknown as PublicKeyCredentialCreationOptions;
-}
-
-function normalizePasskeyLoginOptions(rawOptions: Record<string, unknown>): PublicKeyCredentialRequestOptions {
-  const options = JSON.parse(JSON.stringify(rawOptions)) as Record<string, any>;
-  options.challenge = decodeBase64URL(options.challenge);
-  if (Array.isArray(options.allowCredentials)) {
-    options.allowCredentials = options.allowCredentials.map((item: Record<string, any>) => ({
-      ...item,
-      id: decodeBase64URL(item.id),
-    }));
-  }
-  return options as unknown as PublicKeyCredentialRequestOptions;
-}
-
-function publicKeyCredentialToJSON(credential: PublicKeyCredential): Record<string, unknown> {
-  const response = credential.response as AuthenticatorAttestationResponse | AuthenticatorAssertionResponse;
-  const payload: Record<string, unknown> = {
-    id: credential.id,
-    type: credential.type,
-    rawId: encodeBase64URL(credential.rawId),
-    clientExtensionResults: credential.getClientExtensionResults(),
-    response: {
-      clientDataJSON: encodeBase64URL(response.clientDataJSON),
-    },
-  };
-
-  const responsePayload = payload.response as Record<string, unknown>;
-
-  if ('attestationObject' in response) {
-    responsePayload.attestationObject = encodeBase64URL(response.attestationObject);
-    if (typeof response.getTransports === 'function') {
-      responsePayload.transports = response.getTransports();
-    }
-  }
-
-  if ('authenticatorData' in response) {
-    responsePayload.authenticatorData = encodeBase64URL(response.authenticatorData);
-  }
-  if ('signature' in response) {
-    responsePayload.signature = encodeBase64URL(response.signature);
-  }
-  if ('userHandle' in response && response.userHandle) {
-    responsePayload.userHandle = encodeBase64URL(response.userHandle);
-  }
-
-  return payload;
-}
-
-function isPasskeySupported(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.PublicKeyCredential !== 'undefined' &&
-    typeof navigator !== 'undefined' &&
-    typeof navigator.credentials?.create === 'function' &&
-    typeof navigator.credentials?.get === 'function'
-  );
 }
 
 export function LoginPage({ onSuccess }: LoginPageProps) {
@@ -111,7 +20,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const passkeySupported = isPasskeySupported();
+  const passkeySupported = browserSupportsWebAuthn();
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
@@ -205,16 +114,13 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         return;
       }
 
-      const publicKey = normalizePasskeyLoginOptions(beginResult.options);
-      const credential = await navigator.credentials.get({ publicKey });
-      if (!credential) {
-        setError(t('login.passkeyLoginFailed'));
-        return;
-      }
+      const asseResp = await startAuthentication({
+        optionsJSON: beginResult.options as unknown as Parameters<typeof startAuthentication>[0]['optionsJSON'],
+      });
 
       const finishResult = await transport.finishPasskeyLogin(
         beginResult.sessionID,
-        publicKeyCredentialToJSON(credential as PublicKeyCredential),
+        asseResp as unknown as Record<string, unknown>,
       );
       if (finishResult.success && finishResult.token) {
         const user: AuthUser | undefined = finishResult.user
@@ -240,51 +146,6 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       } else {
         setError(errorMsg || t('login.passkeyLoginFailed'));
       }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePasskeyRegister = async () => {
-    setError('');
-    setSuccessMessage('');
-
-    if (!passkeySupported) {
-      setError(t('login.passkeyNotSupported'));
-      return;
-    }
-    if (!username || !password) {
-      setError(t('login.passkeyRegistrationNeedsPassword'));
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const beginResult = await transport.startPasskeyRegistration(username, password);
-      if (!beginResult.success || !beginResult.sessionID || !beginResult.options) {
-        setError(beginResult.error || t('login.passkeyRegisterFailed'));
-        return;
-      }
-
-      const publicKey = normalizePasskeyRegisterOptions(beginResult.options);
-      const credential = await navigator.credentials.create({ publicKey });
-      if (!credential) {
-        setError(t('login.passkeyRegisterFailed'));
-        return;
-      }
-
-      const finishResult = await transport.finishPasskeyRegistration(
-        beginResult.sessionID,
-        publicKeyCredentialToJSON(credential as PublicKeyCredential),
-      );
-      if (finishResult.success) {
-        setSuccessMessage(t('login.passkeyRegisterSuccess'));
-      } else {
-        setError(finishResult.error || t('login.passkeyRegisterFailed'));
-      }
-    } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string } } };
-      setError(axiosError?.response?.data?.error || t('login.passkeyRegisterFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -348,7 +209,6 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
   const isSubmitDisabled = isLoading || !username || !password;
   const isPasskeyLoginDisabled = isLoading || !username;
-  const isPasskeyRegisterDisabled = isLoading || !username || !password;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
@@ -394,18 +254,6 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               disabled={isPasskeyLoginDisabled}
             >
               {isLoading ? t('login.verifying') : t('login.passkeyLogin')}
-            </Button>
-          )}
-
-          {passkeySupported && (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={handlePasskeyRegister}
-              disabled={isPasskeyRegisterDisabled}
-            >
-              {isLoading ? t('login.verifying') : t('login.passkeyRegister')}
             </Button>
           )}
 

@@ -13,6 +13,7 @@ import {
   LogOut,
   KeyRound,
   Loader2,
+  Plus,
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
@@ -24,6 +25,7 @@ import {
   useChangeMyPassword,
   useDeletePasskeyCredential,
   usePasskeyCredentials,
+  useRegisterPasskey,
 } from '@/hooks/queries';
 import type { Theme } from '@/lib/theme';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -77,8 +79,10 @@ export function NavUser() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const passwordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [passkeySuccess, setPasskeySuccess] = useState('');
   const passkeyCredentials = usePasskeyCredentials(showPasskeyDialog && authEnabled);
   const deletePasskeyCredential = useDeletePasskeyCredential();
+  const registerPasskey = useRegisterPasskey();
 
   useEffect(() => {
     return () => {
@@ -168,6 +172,20 @@ export function NavUser() {
       setPasskeyError(axiosError?.response?.data?.error || t('users.passkeyDeleteFailed'));
     } finally {
       setDeletingPasskeyID(null);
+    }
+  };
+
+  const handleRegisterPasskey = async () => {
+    setPasskeyError('');
+    setPasskeySuccess('');
+    try {
+      await registerPasskey.mutateAsync();
+      setPasskeySuccess(t('users.passkeyRegisterSuccess'));
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
+      setPasskeyError(
+        axiosError?.response?.data?.error || axiosError?.message || t('users.passkeyRegisterFailed'),
+      );
     }
   };
 
@@ -393,6 +411,7 @@ export function NavUser() {
                   <DropdownMenuItem
                     onClick={() => {
                       setPasskeyError('');
+                      setPasskeySuccess('');
                       setShowPasskeyDialog(true);
                     }}
                   >
@@ -560,10 +579,21 @@ export function NavUser() {
               </div>
             )}
             {passkeyError && <p className="text-destructive text-sm">{passkeyError}</p>}
+            {passkeySuccess && (
+              <p className="text-green-600 dark:text-green-400 text-sm">{passkeySuccess}</p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPasskeyDialog(false)}>
               {t('common.close')}
+            </Button>
+            <Button onClick={handleRegisterPasskey} disabled={registerPasskey.isPending}>
+              {registerPasskey.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="mr-2 h-4 w-4" />
+              )}
+              {t('users.passkeyRegister')}
             </Button>
           </DialogFooter>
         </DialogContent>

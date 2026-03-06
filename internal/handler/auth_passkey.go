@@ -15,7 +15,6 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -208,30 +207,9 @@ func (h *AuthHandler) handlePasskeyRegisterOptions(w http.ResponseWriter, r *htt
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if !h.authEnabled || h.authMiddleware == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "authentication is disabled"})
-		return
-	}
 
-	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if body.Username == "" || body.Password == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
-		return
-	}
-
-	user, err := h.userRepo.GetByUsername(body.Username)
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)) != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
-		return
-	}
-	if !ensureUserIsActive(w, user) {
+	user, ok := h.getAuthenticatedPasskeyUser(w, r)
+	if !ok {
 		return
 	}
 

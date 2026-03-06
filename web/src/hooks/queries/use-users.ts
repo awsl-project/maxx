@@ -101,3 +101,40 @@ export function useDeletePasskeyCredential() {
     },
   });
 }
+
+export function useRegisterPasskey() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { startRegistration, browserSupportsWebAuthn } = await import(
+        '@simplewebauthn/browser'
+      );
+      if (!browserSupportsWebAuthn()) {
+        throw new Error('WebAuthn is not supported in this browser');
+      }
+
+      const transport = getTransport();
+      const beginResult = await transport.startPasskeyRegistration();
+      if (!beginResult.success || !beginResult.sessionID || !beginResult.options) {
+        throw new Error(beginResult.error || 'Failed to start passkey registration');
+      }
+
+      const attResp = await startRegistration({
+        optionsJSON: beginResult.options as unknown as Parameters<typeof startRegistration>[0]['optionsJSON'],
+      });
+
+      const finishResult = await transport.finishPasskeyRegistration(
+        beginResult.sessionID,
+        attResp as unknown as Record<string, unknown>,
+      );
+      if (!finishResult.success) {
+        throw new Error(finishResult.error || 'Failed to finish passkey registration');
+      }
+      return finishResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: userKeys.passkeys() });
+    },
+  });
+}

@@ -197,7 +197,7 @@ export interface Transport {
     sessionID: string,
     credential: Record<string, unknown>,
   ): Promise<AuthLoginResult>;
-  startPasskeyRegistration(username: string, password: string): Promise<PasskeyOptionsResult>;
+  startPasskeyRegistration(): Promise<PasskeyOptionsResult>;
   finishPasskeyRegistration(
     sessionID: string,
     credential: Record<string, unknown>,

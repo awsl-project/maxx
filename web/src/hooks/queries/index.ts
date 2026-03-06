@@ -172,4 +172,5 @@ export {
   useChangeMyPassword,
   usePasskeyCredentials,
   useDeletePasskeyCredential,
+  useRegisterPasskey,
 } from './use-users';
