@@ -87,6 +87,11 @@ func NewDBWithDSN(dsn string) (*DB, error) {
 
 	d := &DB{gorm: gormDB, dialector: dialectorName}
 
+	// Normalize legacy empty email values before adding unique index via AutoMigrate.
+	if err := d.normalizeLegacyUserEmails(); err != nil {
+		return nil, err
+	}
+
 	// Auto-migrate schema using GORM
 	if err := d.autoMigrate(); err != nil {
 		return nil, err
@@ -109,6 +114,13 @@ func NewDBWithDSN(dsn string) (*DB, error) {
 func (d *DB) autoMigrate() error {
 	log.Println("[DB] Running GORM auto-migration...")
 	return d.gorm.AutoMigrate(AllModels()...)
+}
+
+func (d *DB) normalizeLegacyUserEmails() error {
+	if !d.gorm.Migrator().HasTable(&User{}) {
+		return nil
+	}
+	return d.gorm.Exec("UPDATE users SET email = NULL WHERE email IS NOT NULL AND TRIM(email) = ''").Error
 }
 
 func (d *DB) Close() error {

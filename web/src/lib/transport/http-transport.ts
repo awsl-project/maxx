@@ -660,7 +660,7 @@ export class HttpTransport implements Transport {
     email: string,
     tenantID?: number,
   ): Promise<AuthRegisterResult> {
-    const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', {
+    const { data } = await this.client.post<AuthRegisterResult>('/auth/register', {
       username,
       password,
       email,

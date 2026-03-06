@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -184,14 +185,6 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "email already registered"})
-		return
-	} else if err != nil && err != domain.ErrNotFound {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to validate email"})
-		return
-	}
-
 	// Use tenant from the authenticated admin's token
 	tenantID := claims.TenantID
 	if tenantID == 0 {
@@ -215,7 +208,16 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.userRepo.Create(user); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "user already exists or invalid data"})
+		switch {
+		case errors.Is(err, domain.ErrEmailConflict):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "email already registered"})
+		case errors.Is(err, domain.ErrUsernameConflict):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+		case errors.Is(err, domain.ErrAlreadyExists):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "user already exists"})
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
+		}
 		return
 	}
 
@@ -267,14 +269,6 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing, err := h.userRepo.GetByEmail(email); err == nil && existing != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "email already registered"})
-		return
-	} else if err != nil && err != domain.ErrNotFound {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to validate email"})
-		return
-	}
-
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
@@ -291,7 +285,16 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.userRepo.Create(user); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+		switch {
+		case errors.Is(err, domain.ErrEmailConflict):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "email already registered"})
+		case errors.Is(err, domain.ErrUsernameConflict):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+		case errors.Is(err, domain.ErrAlreadyExists):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "user already exists"})
+		default:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
+		}
 		return
 	}
 

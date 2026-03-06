@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -23,7 +24,7 @@ func (r *UserRepository) Create(u *domain.User) error {
 
 	model := r.toModel(u)
 	if err := r.db.gorm.Create(model).Error; err != nil {
-		return err
+		return mapUserCreateError(err)
 	}
 	u.ID = model.ID
 	return nil
@@ -128,6 +129,13 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 	if status == "" {
 		status = string(domain.UserStatusPending)
 	}
+
+	var email *string
+	trimmedEmail := strings.TrimSpace(u.Email)
+	if trimmedEmail != "" {
+		email = &trimmedEmail
+	}
+
 	return &User{
 		SoftDeleteModel: SoftDeleteModel{
 			BaseModel: BaseModel{
@@ -139,7 +147,7 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 		},
 		TenantID:           u.TenantID,
 		Username:           u.Username,
-		Email:              u.Email,
+		Email:              email,
 		PasswordHash:       u.PasswordHash,
 		PasskeyCredentials: LongText(u.PasskeyCredentials),
 		Role:               string(u.Role),
@@ -154,6 +162,11 @@ func (r *UserRepository) toDomain(m *User) *domain.User {
 	if status != domain.UserStatusPending && status != domain.UserStatusActive {
 		status = domain.UserStatusPending
 	}
+	email := ""
+	if m.Email != nil {
+		email = *m.Email
+	}
+
 	return &domain.User{
 		ID:                 m.ID,
 		CreatedAt:          fromTimestamp(m.CreatedAt),
@@ -161,7 +174,7 @@ func (r *UserRepository) toDomain(m *User) *domain.User {
 		DeletedAt:          fromTimestampPtr(m.DeletedAt),
 		TenantID:           m.TenantID,
 		Username:           m.Username,
-		Email:              m.Email,
+		Email:              email,
 		PasswordHash:       m.PasswordHash,
 		PasskeyCredentials: string(m.PasskeyCredentials),
 		Role:               domain.UserRole(m.Role),
@@ -189,4 +202,39 @@ func (r *UserRepository) CountActive() (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+func mapUserCreateError(err error) error {
+	if !isUniqueConstraintError(err) {
+		return err
+	}
+
+	lowerErr := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lowerErr, "users.email"),
+		strings.Contains(lowerErr, "idx_users_email"),
+		strings.Contains(lowerErr, " email"):
+		return domain.ErrEmailConflict
+	case strings.Contains(lowerErr, "users.username"),
+		strings.Contains(lowerErr, "idx_users_username"),
+		strings.Contains(lowerErr, "username"):
+		return domain.ErrUsernameConflict
+	default:
+		return domain.ErrAlreadyExists
+	}
+}
+
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	lowerErr := strings.ToLower(err.Error())
+	return strings.Contains(lowerErr, "unique constraint failed") ||
+		strings.Contains(lowerErr, "duplicate entry") ||
+		strings.Contains(lowerErr, "duplicate key") ||
+		strings.Contains(lowerErr, "duplicated key not allowed") ||
+		strings.Contains(lowerErr, "violates unique constraint")
 }
