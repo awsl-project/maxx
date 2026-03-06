@@ -104,8 +104,8 @@ function assert(condition, msg) {
   assert(credentials[0].isResidentCredential, 'Credential should be a resident credential (discoverable)');
   console.log('✅ Credential is resident (discoverable)');
 
-  // 关闭对话框
-  const closeBtn = page.locator('[role="dialog"] button').filter({ hasText: /Close|关闭/ });
+  // 关闭对话框（可能有多个 Close 按钮，用 first()）
+  const closeBtn = page.locator('[role="dialog"] button').filter({ hasText: /Close|关闭/ }).first();
   if (await closeBtn.isVisible()) {
     await closeBtn.click();
     await page.waitForTimeout(500);
