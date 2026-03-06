@@ -12,6 +12,7 @@ export const userKeys = {
   list: () => [...userKeys.lists()] as const,
   details: () => [...userKeys.all, 'detail'] as const,
   detail: (id: number) => [...userKeys.details(), id] as const,
+  passkeys: () => [...userKeys.all, 'passkeys'] as const,
 };
 
 export function useUsers() {
@@ -79,5 +80,24 @@ export function useChangeMyPassword() {
   return useMutation({
     mutationFn: ({ oldPassword, newPassword }: { oldPassword: string; newPassword: string }) =>
       getTransport().changeMyPassword(oldPassword, newPassword),
+  });
+}
+
+export function usePasskeyCredentials(enabled = true) {
+  return useQuery({
+    queryKey: userKeys.passkeys(),
+    queryFn: () => getTransport().listPasskeyCredentials(),
+    enabled,
+  });
+}
+
+export function useDeletePasskeyCredential() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => getTransport().deletePasskeyCredential(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: userKeys.passkeys() });
+    },
   });
 }

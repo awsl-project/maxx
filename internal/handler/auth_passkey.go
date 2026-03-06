@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -134,6 +135,72 @@ func upsertCredential(credentials []webauthn.Credential, updated *webauthn.Crede
 		}
 	}
 	return append(credentials, *updated)
+}
+
+type passkeyCredentialInfo struct {
+	ID             string   `json:"id"`
+	Label          string   `json:"label"`
+	Attachment     string   `json:"attachment,omitempty"`
+	Transports     []string `json:"transports,omitempty"`
+	SignCount      uint32   `json:"signCount"`
+	BackupEligible bool     `json:"backupEligible"`
+	BackupState    bool     `json:"backupState"`
+	CloneWarning   bool     `json:"cloneWarning"`
+}
+
+func encodeCredentialID(id []byte) string {
+	return base64.RawURLEncoding.EncodeToString(id)
+}
+
+func decodeCredentialID(raw string) ([]byte, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty credential id")
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(trimmed); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.URLEncoding.DecodeString(trimmed); err == nil {
+		return decoded, nil
+	}
+	return nil, fmt.Errorf("invalid credential id")
+}
+
+func removeCredentialByID(credentials []webauthn.Credential, credentialID []byte) ([]webauthn.Credential, bool) {
+	updated := make([]webauthn.Credential, 0, len(credentials))
+	removed := false
+	for _, credential := range credentials {
+		if bytes.Equal(credential.ID, credentialID) {
+			removed = true
+			continue
+		}
+		updated = append(updated, credential)
+	}
+	return updated, removed
+}
+
+func toPasskeyCredentialInfos(credentials []webauthn.Credential) []passkeyCredentialInfo {
+	infos := make([]passkeyCredentialInfo, 0, len(credentials))
+	for i, credential := range credentials {
+		transports := make([]string, 0, len(credential.Transport))
+		for _, transport := range credential.Transport {
+			if transport == "" {
+				continue
+			}
+			transports = append(transports, string(transport))
+		}
+		infos = append(infos, passkeyCredentialInfo{
+			ID:             encodeCredentialID(credential.ID),
+			Label:          fmt.Sprintf("Passkey %d", i+1),
+			Attachment:     string(credential.Authenticator.Attachment),
+			Transports:     transports,
+			SignCount:      credential.Authenticator.SignCount,
+			BackupEligible: credential.Flags.BackupEligible,
+			BackupState:    credential.Flags.BackupState,
+			CloneWarning:   credential.Authenticator.CloneWarning,
+		})
+	}
+	return infos
 }
 
 func (h *AuthHandler) handlePasskeyRegisterOptions(w http.ResponseWriter, r *http.Request) {
@@ -472,6 +539,108 @@ func (h *AuthHandler) handlePasskeyLoginVerify(w http.ResponseWriter, r *http.Re
 			"role":       user.Role,
 		},
 	})
+}
+
+func (h *AuthHandler) getAuthenticatedPasskeyUser(w http.ResponseWriter, r *http.Request) (*domain.User, bool) {
+	if !h.authEnabled || h.authMiddleware == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "authentication is disabled"})
+		return nil, false
+	}
+
+	authHeader := r.Header.Get(AuthHeader)
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return nil, false
+	}
+
+	claims, valid := h.authMiddleware.ValidateToken(strings.TrimPrefix(authHeader, "Bearer "))
+	if !valid {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+		return nil, false
+	}
+
+	user, err := h.userRepo.GetByID(claims.TenantID, claims.UserID)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+			return nil, false
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return nil, false
+	}
+
+	if !ensureUserIsActive(w, user) {
+		return nil, false
+	}
+
+	return user, true
+}
+
+func (h *AuthHandler) handlePasskeyCredentialList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	user, ok := h.getAuthenticatedPasskeyUser(w, r)
+	if !ok {
+		return
+	}
+
+	credentials, err := parsePasskeyCredentials(user.PasskeyCredentials)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid stored passkey credentials"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":     true,
+		"credentials": toPasskeyCredentialInfos(credentials),
+	})
+}
+
+func (h *AuthHandler) handlePasskeyCredentialDelete(w http.ResponseWriter, r *http.Request, rawCredentialID string) {
+	if r.Method != http.MethodDelete {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	credentialID, err := decodeCredentialID(rawCredentialID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid credential id"})
+		return
+	}
+
+	user, ok := h.getAuthenticatedPasskeyUser(w, r)
+	if !ok {
+		return
+	}
+
+	credentials, err := parsePasskeyCredentials(user.PasskeyCredentials)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid stored passkey credentials"})
+		return
+	}
+
+	updatedCredentials, removed := removeCredentialByID(credentials, credentialID)
+	if !removed {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "passkey credential not found"})
+		return
+	}
+
+	encodedCredentials, err := encodePasskeyCredentials(updatedCredentials)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to store passkey credentials"})
+		return
+	}
+
+	user.PasskeyCredentials = encodedCredentials
+	if err := h.userRepo.Update(user); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update passkey credentials"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
 func ensureUserIsActive(w http.ResponseWriter, user *domain.User) bool {

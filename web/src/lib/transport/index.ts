@@ -79,6 +79,7 @@ export type {
   ChangePasswordResult,
   AuthLoginResult,
   AuthRegisterResult,
+  PasskeyCredential,
   // API Token
   APIToken,
   APITokenCreateResult,

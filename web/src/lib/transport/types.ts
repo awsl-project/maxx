@@ -709,6 +709,17 @@ export interface PasskeyRegisterResult {
   error?: string;
 }
 
+export interface PasskeyCredential {
+  id: string;
+  label: string;
+  attachment?: string;
+  transports?: string[];
+  signCount: number;
+  backupEligible: boolean;
+  backupState: boolean;
+  cloneWarning: boolean;
+}
+
 export interface AuthRegisterResult {
   success: boolean;
   token?: string;

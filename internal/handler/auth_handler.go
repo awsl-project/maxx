@@ -37,6 +37,12 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/admin/auth")
 	path = strings.TrimSuffix(path, "/")
 
+	if strings.HasPrefix(path, "/passkey/credentials/") {
+		credentialID := strings.TrimPrefix(path, "/passkey/credentials/")
+		h.handlePasskeyCredentialDelete(w, r, credentialID)
+		return
+	}
+
 	switch path {
 	case "/login":
 		h.handleLogin(w, r)
@@ -56,6 +62,8 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handlePasskeyLoginOptions(w, r)
 	case "/passkey/login/verify":
 		h.handlePasskeyLoginVerify(w, r)
+	case "/passkey/credentials":
+		h.handlePasskeyCredentialList(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
