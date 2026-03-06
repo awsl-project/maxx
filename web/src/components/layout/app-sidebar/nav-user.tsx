@@ -180,14 +180,14 @@ export function NavUser() {
     setPasskeySuccess('');
     try {
       await registerPasskey.mutateAsync();
-      setPasskeySuccess(t('users.passkeyRegisterSuccess'));
+      setPasskeySuccess(t('login.passkeyRegisterSuccess'));
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
       const msg = axiosError?.response?.data?.error || axiosError?.message;
       if (msg === 'PASSKEY_NOT_SUPPORTED') {
         setPasskeyError(t('login.passkeyNotSupported'));
       } else {
-        setPasskeyError(msg || t('users.passkeyRegisterFailed'));
+        setPasskeyError(msg || t('login.passkeyRegisterFailed'));
       }
     }
   };
@@ -596,7 +596,7 @@ export function NavUser() {
               ) : (
                 <Plus className="mr-2 h-4 w-4" />
               )}
-              {t('users.passkeyRegister')}
+              {t('login.passkeyRegister')}
             </Button>
           </DialogFooter>
         </DialogContent>
