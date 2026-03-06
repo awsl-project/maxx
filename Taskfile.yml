@@ -66,6 +66,21 @@ tasks:
     cmds:
       - go build -ldflags '{{.LDFLAGS}}' -o maxx cmd/maxx/main.go
 
+  test:e2e:
+    desc: Run E2E tests
+    cmds:
+      - go test -v -count=1 -timeout 300s ./tests/e2e/...
+
+  test:e2e:race:
+    desc: Run E2E tests with race detection
+    cmds:
+      - go test -v -count=1 -timeout 300s -race ./tests/e2e/...
+
+  test:all:
+    desc: Run all tests (unit + E2E)
+    cmds:
+      - go test -v -count=1 -timeout 600s ./...
+
   clean:
     desc: Clean build artifacts
     cmds:
