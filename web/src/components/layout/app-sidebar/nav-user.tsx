@@ -128,7 +128,7 @@ export function NavUser() {
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
   const menuDisplayName = displayUser.name || 'Maxx';
   const menuDisplayFallback = (menuDisplayName || 'U').slice(0, 2).toUpperCase();
-  const accountTitle = hasUsername ? `${t('nav.currentAccount')}: ${displayUser.name}` : undefined;
+  const accountTitle = hasUsername ? displayUser.name : undefined;
 
   return (
     <SidebarMenu>
@@ -214,10 +214,7 @@ export function NavUser() {
                   )}
                 />
                 <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-muted-foreground">{t('nav.currentAccount')}</span>
-                    <span className="text-xs font-medium">{displayUser.name}</span>
-                  </div>
+                  <span className="text-xs font-medium">{displayUser.name}</span>
                 </TooltipContent>
               </Tooltip>
             ) : (
