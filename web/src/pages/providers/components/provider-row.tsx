@@ -197,6 +197,30 @@ function getCodexWeekQuotaInfo(
   };
 }
 
+function getGenericQuotaInfo(
+  status: Provider['quotaStatus'] | undefined,
+): { percentage: number; label: 'requests' | 'tokens' | 'cost'; resetTime: string; exceeded: boolean } | null {
+  if (!status || !status.enabled || !status.hasAnyLimit) return null;
+
+  const candidates = [
+    { label: 'requests' as const, metric: status.requests },
+    { label: 'tokens' as const, metric: status.tokens },
+    { label: 'cost' as const, metric: status.cost },
+  ].filter((item) => item.metric);
+
+  if (candidates.length === 0) return null;
+  const mostUsed = candidates.reduce((max, cur) =>
+    (cur.metric?.usagePercent || 0) > (max.metric?.usagePercent || 0) ? cur : max,
+  );
+
+  return {
+    percentage: Math.min(Math.round(mostUsed.metric?.usagePercent || 0), 100),
+    label: mostUsed.label,
+    resetTime: status.periodEnd,
+    exceeded: !!mostUsed.metric?.exceeded,
+  };
+}
+
 export function ProviderRow({ provider, stats, streamingCount, onClick }: ProviderRowProps) {
   const { t } = useTranslation();
   // 使用通用配置系统
@@ -221,6 +245,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
   const codexQuota = useCodexQuotaFromContext(provider.id);
   const codex5HInfo = isCodex ? getCodex5HQuotaInfo(codexQuota) : null;
   const codexWeekInfo = isCodex ? getCodexWeekQuotaInfo(codexQuota) : null;
+  const genericQuotaInfo = getGenericQuotaInfo(provider.quotaStatus);
 
   return (
     <div
@@ -412,6 +437,32 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
                   @{formatLastUpdated(codex5HInfo.lastUpdated, t)}
                 </span>
               )}
+            </div>
+          ) : genericQuotaInfo ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[9px] font-black text-muted-foreground/60 uppercase">
+                {genericQuotaInfo.label === 'requests'
+                  ? t('provider.quotaRequestShort')
+                  : genericQuotaInfo.label === 'tokens'
+                    ? t('provider.quotaTokenShort')
+                    : t('provider.quotaCostShort')}
+              </span>
+              <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all duration-1000',
+                    genericQuotaInfo.exceeded
+                      ? 'bg-red-500'
+                      : genericQuotaInfo.percentage >= 80
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500',
+                  )}
+                  style={{ width: `${genericQuotaInfo.percentage}%` }}
+                />
+              </div>
+              <span className="text-[9px] font-mono text-muted-foreground/60">
+                {formatResetTime(genericQuotaInfo.resetTime, t)}
+              </span>
             </div>
           ) : (
             <div

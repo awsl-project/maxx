@@ -1,13 +1,17 @@
 package router
 
 import (
+	"log"
 	"math/rand"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/quota"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 )
 
@@ -35,6 +39,8 @@ type Router struct {
 	routingStrategyRepo *cached.RoutingStrategyRepository
 	retryConfigRepo     *cached.RetryConfigRepository
 	projectRepo         *cached.ProjectRepository
+	usageStatsRepo      quota.UsageSummaryProvider
+	settingRepo         quota.TimezoneSettingProvider
 
 	// Adapter cache
 	adapters map[uint64]provider.ProviderAdapter
@@ -51,6 +57,8 @@ func NewRouter(
 	routingStrategyRepo *cached.RoutingStrategyRepository,
 	retryConfigRepo *cached.RetryConfigRepository,
 	projectRepo *cached.ProjectRepository,
+	usageStatsRepo repository.UsageStatsRepository,
+	settingRepo repository.SystemSettingRepository,
 ) *Router {
 	return &Router{
 		routeRepo:           routeRepo,
@@ -58,6 +66,8 @@ func NewRouter(
 		routingStrategyRepo: routingStrategyRepo,
 		retryConfigRepo:     retryConfigRepo,
 		projectRepo:         projectRepo,
+		usageStatsRepo:      usageStatsRepo,
+		settingRepo:         settingRepo,
 		adapters:            make(map[uint64]provider.ProviderAdapter),
 		cooldownManager:     cooldown.Default(),
 	}
@@ -195,6 +205,8 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 
 	var matched []*MatchedRoute
 	providers := r.providerRepo.GetAll()
+	quotaExceededCache := make(map[uint64]bool)
+	now := time.Now()
 
 	for _, route := range filtered {
 		prov, ok := providers[route.ProviderID]
@@ -210,6 +222,28 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 		adp, ok := r.adapters[route.ProviderID]
 		if !ok {
 			continue
+		}
+
+		if exceeded, ok := quotaExceededCache[route.ProviderID]; ok {
+			if exceeded {
+				continue
+			}
+		} else {
+			quotaStatus, err := quota.EvaluateProviderQuota(
+				prov,
+				tenantID,
+				r.usageStatsRepo,
+				r.settingRepo,
+				now,
+			)
+			exceeded := quotaStatus != nil && quotaStatus.Exceeded
+			quotaExceededCache[route.ProviderID] = exceeded
+			if err != nil {
+				log.Printf("[Router] provider quota check failed providerID=%d: %v", route.ProviderID, err)
+			}
+			if exceeded {
+				continue
+			}
 		}
 
 		// Check if provider supports the request model
@@ -308,4 +342,3 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter) {
 		})
 	}
 }
-
