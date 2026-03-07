@@ -351,6 +351,13 @@ async function sendClaudeRequest(apiToken, model = 'claude-sonnet-4-20250514') {
     }
   }
 
+  // Verify chart recovers after resize cycle
+  console.log('\n--- Step 4b: Verify Chart Recovery ---');
+  const recoveredChart = page.locator('.recharts-wrapper').first();
+  await recoveredChart.waitFor({ state: 'visible', timeout: 10000 });
+  assert((await recoveredChart.count()) > 0, 'Chart should be visible after resize cycle');
+  console.log('✅ Chart recovered after resize cycle');
+
   // Wait for deferred errors
   await page.waitForTimeout(3000);
 
