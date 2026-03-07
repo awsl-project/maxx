@@ -3,8 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test-passkey-discoverable.mjs",
-    "test:headed": "HEADED=1 node test-passkey-discoverable.mjs"
+    "test": "node test-passkey-discoverable.mjs && node test-requests-project-filter.mjs",
+    "test:passkey": "node test-passkey-discoverable.mjs",
+    "test:project-filter": "node test-requests-project-filter.mjs",
+    "test:headed": "HEADED=1 node test-passkey-discoverable.mjs",
+    "test:project-filter:headed": "HEADED=1 node test-requests-project-filter.mjs"
   },
   "dependencies": {
     "playwright": "^1.52.0"
