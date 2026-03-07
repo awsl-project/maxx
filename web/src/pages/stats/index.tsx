@@ -33,6 +33,7 @@ import {
   useRecalculateCosts,
   useResponseModels,
 } from '@/hooks/queries';
+import { useContainerSize } from '@/hooks/use-container-size';
 import type {
   UsageStatsFilter,
   UsageStats,
@@ -49,7 +50,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   Legend,
 } from 'recharts';
 
@@ -404,6 +404,7 @@ type ChartView = 'requests' | 'tokens';
 
 export function StatsPage() {
   const { t } = useTranslation();
+  const { ref: chartContainerRef, width: chartWidth } = useContainerSize();
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [providerId, setProviderId] = useState<string>('all');
   const [projectId, setProjectId] = useState<string>('all');
@@ -898,9 +899,9 @@ export function StatsPage() {
                   </Tabs>
                 </CardHeader>
                 <CardContent className="pt-2">
-                  <div className="w-full h-[400px] min-h-[400px]">
-                    <ResponsiveContainer width="100%" height={400}>
-                      <ComposedChart data={chartData}>
+                  <div ref={chartContainerRef} className="w-full h-[400px] min-h-[400px]">
+                    {chartWidth > 0 && (
+                      <ComposedChart width={chartWidth} height={400} data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
                         <XAxis
                           dataKey="label"
@@ -1019,8 +1020,8 @@ export function StatsPage() {
                             />
                           </>
                         )}
-                      </ComposedChart>{' '}
-                    </ResponsiveContainer>
+                      </ComposedChart>
+                    )}
                   </div>
                 </CardContent>
               </Card>

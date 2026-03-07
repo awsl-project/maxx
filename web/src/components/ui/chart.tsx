@@ -8,6 +8,7 @@ import type {
 } from 'recharts/types/component/DefaultLegendContent';
 
 import { cn } from '@/lib/utils';
+import { useContainerSize } from '@/hooks/use-container-size';
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: '', dark: '.dark' } as const;
@@ -50,10 +51,12 @@ function ChartContainer({
 }) {
   const uniqueId = React.useId();
   const chartId = `chart-${id || uniqueId.replace(/:/g, '')}`;
+  const { ref: sizeRef, width, height } = useContainerSize();
 
   return (
     <ChartContext.Provider value={{ config }}>
       <div
+        ref={sizeRef}
         data-slot="chart"
         data-chart={chartId}
         className={cn(
@@ -63,9 +66,12 @@ function ChartContainer({
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
-        <RechartsPrimitive.ResponsiveContainer width="100%" height="100%" minHeight={1}>
-          {children}
-        </RechartsPrimitive.ResponsiveContainer>
+        {width > 0 && height > 0 &&
+          React.isValidElement(children) &&
+          React.cloneElement(children as React.ReactElement<{ width: number; height: number }>, {
+            width,
+            height,
+          })}
       </div>
     </ChartContext.Provider>
   );
