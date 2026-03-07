@@ -27,6 +27,7 @@ const HEADED = !!process.env.HEADED;
 
 let exitCode = 0;
 let mockServer = null;
+let browser = null;
 
 function assert(condition, msg) {
   if (!condition) {
@@ -276,7 +277,7 @@ async function sendClaudeRequest(apiToken, model = 'claude-sonnet-4-20250514') {
 
   // --- Browser Test ---
   console.log('\n--- Browser: Launch ---');
-  const browser = await chromium.launch({ headless: !HEADED });
+  browser = await chromium.launch({ headless: !HEADED });
   const context = await browser.newContext();
   const page = await context.newPage();
 
@@ -443,6 +444,9 @@ async function sendClaudeRequest(apiToken, model = 'claude-sonnet-4-20250514') {
   process.exit(exitCode);
 })().catch(async (err) => {
   console.error('❌ Test error:', err.message);
+  if (browser) {
+    try { await browser.close(); } catch {}
+  }
   if (mockServer) mockServer.close();
   process.exit(1);
 });
