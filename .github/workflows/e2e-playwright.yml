@@ -36,15 +36,28 @@ jobs:
       # ===== Start server =====
       - name: Start maxx server
         run: |
-          ./maxx -addr :9880 &
+          ./maxx -addr :9880 > /tmp/maxx.log 2>&1 &
+          server_pid=$!
           # Wait for server to be ready
+          ready=0
           for i in $(seq 1 30); do
             if curl -sf http://localhost:9880/api/admin/auth/status > /dev/null 2>&1; then
               echo "Server is ready"
+              ready=1
               break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "Server exited before becoming ready"
+              cat /tmp/maxx.log
+              exit 1
             fi
             sleep 1
           done
+          if [ "$ready" -ne 1 ]; then
+            echo "Server did not become ready within 30s"
+            cat /tmp/maxx.log
+            exit 1
+          fi
         env:
           MAXX_ADMIN_PASSWORD: test123
 
