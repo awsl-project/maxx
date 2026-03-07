@@ -1,0 +1,68 @@
+name: E2E Playwright Tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ===== Build backend =====
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build frontend
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install and build web
+        working-directory: web
+        run: pnpm install && pnpm build
+
+      - name: Build server
+        run: go build -o maxx ./cmd/maxx
+
+      # ===== Start server =====
+      - name: Start maxx server
+        run: |
+          ./maxx -addr :9880 &
+          # Wait for server to be ready
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9880/api/admin/auth/status > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            sleep 1
+          done
+        env:
+          MAXX_ADMIN_PASSWORD: test123
+
+      # ===== Run Playwright tests =====
+      - name: Install Playwright dependencies
+        working-directory: tests/e2e/playwright
+        run: |
+          npm install
+          npx playwright install chromium --with-deps
+
+      - name: Run Playwright tests
+        working-directory: tests/e2e/playwright
+        run: npm test
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: /tmp/passkey-*.png
+          retention-days: 7
