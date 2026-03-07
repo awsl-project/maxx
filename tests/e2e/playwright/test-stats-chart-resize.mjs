@@ -296,10 +296,10 @@ async function sendClaudeRequest(apiToken, model = 'claude-sonnet-4-20250514') {
 
   // Step 3: Verify chart is visible
   console.log('\n--- Step 3: Verify Chart Renders ---');
-  const chartContainer = page.locator('.recharts-wrapper');
-  await chartContainer.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-  const chartVisible = (await chartContainer.count()) > 0;
-  console.log(`  Chart visible: ${chartVisible}`);
+  const chartContainer = page.locator('.recharts-wrapper').first();
+  await chartContainer.waitFor({ state: 'visible', timeout: 15000 });
+  assert((await chartContainer.count()) > 0, 'Chart should be visible on stats page');
+  console.log('✅ Chart visible');
 
   // Step 4: Force chart container to 0 dimensions to trigger ResponsiveContainer bug.
   // This simulates the real-world scenario where the container briefly has 0 dimensions

@@ -1,13 +1,19 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 /**
  * Measures container dimensions via ResizeObserver, filtering out
  * 0/negative values to avoid Recharts "width(-1) and height(-1)" warnings.
+ * Uses callback ref so the observer re-attaches when the DOM node changes
+ * (e.g., after conditional rendering unmount/remount).
  * Fixes Issue #220.
  */
 export function useContainerSize() {
-  const ref = useRef<HTMLDivElement>(null);
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    setNode(el);
+  }, []);
 
   const handleResize = useCallback((entries: ResizeObserverEntry[]) => {
     for (const entry of entries) {
@@ -21,16 +27,15 @@ export function useContainerSize() {
   }, []);
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    if (!node) return;
     const observer = new ResizeObserver(handleResize);
-    observer.observe(el);
-    const rect = el.getBoundingClientRect();
+    observer.observe(node);
+    const rect = node.getBoundingClientRect();
     const w = Math.floor(rect.width);
     const h = Math.floor(rect.height);
     if (w > 0 && h > 0) setSize({ width: w, height: h });
     return () => observer.disconnect();
-  }, [handleResize]);
+  }, [handleResize, node]);
 
   return { ref, ...size };
 }
