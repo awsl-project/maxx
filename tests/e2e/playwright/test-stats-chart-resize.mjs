@@ -16,6 +16,8 @@
  *   node test-stats-chart-resize.mjs [base_url] [username] [password]
  */
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import { chromium } from 'playwright';
 
 const BASE = process.argv[2] || 'http://localhost:9880';
@@ -46,7 +48,9 @@ function startMockClaudeServer() {
           let parsed = {};
           try {
             parsed = JSON.parse(body);
-          } catch {}
+          } catch {
+            // Ignore malformed JSON; mock server will use defaults
+          }
 
           const model = parsed.model || 'claude-sonnet-4-20250514';
 
@@ -338,7 +342,11 @@ async function sendClaudeRequest(apiToken, model = 'claude-sonnet-4-20250514') {
     // Also switch projects during some iterations
     if (i % 5 === 0) {
       const chip = page.getByRole('button', { name: projectNames[i % 3], exact: true });
-      if ((await chip.count()) > 0) await chip.click();
+      if ((await chip.count()) > 0) {
+        await chip.click();
+      } else {
+        console.log(`  ⚠️ Project chip "${projectNames[i % 3]}" not found, skipping`);
+      }
       await page.waitForTimeout(50);
     }
   }
@@ -387,8 +395,9 @@ async function sendClaudeRequest(apiToken, model = 'claude-sonnet-4-20250514') {
   }
 
   // Take screenshot of final state
-  await page.screenshot({ path: '/tmp/stats-chart-resize-result.png' });
-  console.log('  Screenshot: /tmp/stats-chart-resize-result.png');
+  const screenshotPath = path.join(os.tmpdir(), 'stats-chart-resize-result.png');
+  await page.screenshot({ path: screenshotPath });
+  console.log(`  Screenshot: ${screenshotPath}`);
 
   console.log(`\n===== Test ${exitCode === 0 ? 'PASSED' : 'FAILED'} =====`);
   await browser.close();
