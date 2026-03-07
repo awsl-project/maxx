@@ -788,22 +788,31 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 			if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" {
 				filter = &repository.ProxyRequestFilter{}
 				if providerIDStr != "" {
-					if providerID, err := strconv.ParseUint(providerIDStr, 10, 64); err == nil {
-						filter.ProviderID = &providerID
+					providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid providerId"})
+						return
 					}
+					filter.ProviderID = &providerID
 				}
 				if statusStr != "" {
 					filter.Status = &statusStr
 				}
 				if apiTokenIDStr != "" {
-					if apiTokenID, err := strconv.ParseUint(apiTokenIDStr, 10, 64); err == nil {
-						filter.APITokenID = &apiTokenID
+					apiTokenID, err := strconv.ParseUint(apiTokenIDStr, 10, 64)
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid apiTokenId"})
+						return
 					}
+					filter.APITokenID = &apiTokenID
 				}
 				if projectIDStr != "" {
-					if projectID, err := strconv.ParseUint(projectIDStr, 10, 64); err == nil {
-						filter.ProjectID = &projectID
+					projectID, err := strconv.ParseUint(projectIDStr, 10, 64)
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid projectId"})
+						return
 					}
+					filter.ProjectID = &projectID
 				}
 			}
 

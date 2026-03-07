@@ -281,6 +281,13 @@ export function RequestsPage() {
     }
   }, [projects, projectsIsSuccess, selectedProjectId]);
 
+  // 当所有项目被删除时，自动重置过滤模式
+  useEffect(() => {
+    if (projectsIsSuccess && !hasProjects && filterMode === 'project') {
+      setFilterMode('token');
+    }
+  }, [projectsIsSuccess, hasProjects, filterMode]);
+
   // 刷新
   const handleRefresh = () => {
     if (!requestsQueryEnabled) {

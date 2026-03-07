@@ -262,7 +262,7 @@ type ProxyRequest struct {
 	ProviderID                  uint64 `gorm:"index"`
 	IsStream                    int
 	StatusCode                  int
-	ProjectID                   uint64
+	ProjectID                   uint64 `gorm:"index"`
 	APITokenID                  uint64
 	DevMode                     int `gorm:"default:0"`
 }
