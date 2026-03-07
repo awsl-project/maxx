@@ -88,6 +88,7 @@ type ProxyRequestFilter struct {
 	ProviderID *uint64 // Provider ID，nil 表示不过滤
 	Status     *string // 状态，nil 表示不过滤
 	APITokenID *uint64 // API Token ID，nil 表示不过滤
+	ProjectID  *uint64 // Project ID，nil 表示不过滤
 }
 
 type ProxyRequestRepository interface {

@@ -300,6 +300,7 @@ export class HttpTransport implements Transport {
     providerId?: number,
     status?: string,
     apiTokenId?: number,
+    projectId?: number,
   ): Promise<number> {
     const params: Record<string, string> = {};
     if (providerId !== undefined) {
@@ -310,6 +311,9 @@ export class HttpTransport implements Transport {
     }
     if (apiTokenId !== undefined) {
       params.apiTokenId = String(apiTokenId);
+    }
+    if (projectId !== undefined) {
+      params.projectId = String(projectId);
     }
     const { data } = await this.client.get<number>('/requests/count', { params });
     return data ?? 0;

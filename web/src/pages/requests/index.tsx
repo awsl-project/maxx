@@ -12,7 +12,7 @@ import {
   useSettings,
 } from '@/hooks/queries';
 import { Activity, RefreshCw, Loader2, CheckCircle, AlertTriangle, Ban } from 'lucide-react';
-import type { APIToken, ProxyRequest, ProxyRequestStatus, Provider } from '@/lib/transport';
+import type { APIToken, Project, ProxyRequest, ProxyRequestStatus, Provider } from '@/lib/transport';
 import { ClientIcon } from '@/components/icons/client-icons';
 import {
   Table,
@@ -45,11 +45,12 @@ const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
   custom: 'Custom',
 };
 
-type RequestFilterMode = 'token' | 'provider';
+type RequestFilterMode = 'token' | 'provider' | 'project';
 
 const REQUEST_FILTER_MODE_STORAGE_KEY = 'maxx-requests-filter-mode';
 const REQUEST_PROVIDER_FILTER_STORAGE_KEY = 'maxx-requests-provider-filter';
 const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
+const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 
 function readStoredNumber(key: string): number | undefined {
   if (typeof window === 'undefined') {
@@ -89,7 +90,8 @@ export function RequestsPage() {
       return 'token';
     }
     const stored = window.localStorage.getItem(REQUEST_FILTER_MODE_STORAGE_KEY);
-    return stored === 'provider' ? 'provider' : 'token';
+    if (stored === 'provider' || stored === 'project') return stored;
+    return 'token';
   });
   // Provider 过滤器
   const [selectedProviderId, setSelectedProviderId] = useState<number | undefined>(() =>
@@ -99,6 +101,10 @@ export function RequestsPage() {
   const [selectedTokenId, setSelectedTokenId] = useState<number | undefined>(() =>
     readStoredNumber(REQUEST_TOKEN_FILTER_STORAGE_KEY),
   );
+  // Project 过滤器
+  const [selectedProjectId, setSelectedProjectId] = useState<number | undefined>(() =>
+    readStoredNumber(REQUEST_PROJECT_FILTER_STORAGE_KEY),
+  );
   // Status 过滤器
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
 
@@ -107,9 +113,10 @@ export function RequestsPage() {
 
   const activeProviderId = filterMode === 'provider' ? selectedProviderId : undefined;
   const activeTokenId = filterMode === 'token' ? selectedTokenId : undefined;
+  const activeProjectId = filterMode === 'project' ? selectedProjectId : undefined;
 
   const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
-  const { data: projects = [] } = useProjects();
+  const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
   const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useAPITokens();
   const { data: settings } = useSettings();
 
@@ -117,7 +124,9 @@ export function RequestsPage() {
     filterMode === 'provider' && selectedProviderId !== undefined && !providersIsSuccess;
   const waitingTokenFilterValidation =
     filterMode === 'token' && selectedTokenId !== undefined && !apiTokensIsSuccess;
-  const requestsQueryEnabled = !waitingProviderFilterValidation && !waitingTokenFilterValidation;
+  const waitingProjectFilterValidation =
+    filterMode === 'project' && selectedProjectId !== undefined && !projectsIsSuccess;
+  const requestsQueryEnabled = !waitingProviderFilterValidation && !waitingTokenFilterValidation && !waitingProjectFilterValidation;
 
   // 使用 Infinite Query
   const {
@@ -128,12 +137,13 @@ export function RequestsPage() {
     isLoading,
     isFetching,
     refetch,
-  } = useInfiniteProxyRequests(activeProviderId, selectedStatus, activeTokenId, requestsQueryEnabled);
+  } = useInfiniteProxyRequests(activeProviderId, selectedStatus, activeTokenId, activeProjectId, requestsQueryEnabled);
 
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(
     activeProviderId,
     selectedStatus,
     activeTokenId,
+    activeProjectId,
     requestsQueryEnabled,
   );
 
@@ -234,6 +244,17 @@ export function RequestsPage() {
   }, [selectedTokenId]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (selectedProjectId === undefined) {
+      window.localStorage.removeItem(REQUEST_PROJECT_FILTER_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(REQUEST_PROJECT_FILTER_STORAGE_KEY, String(selectedProjectId));
+  }, [selectedProjectId]);
+
+  useEffect(() => {
     if (!providersIsSuccess || selectedProviderId === undefined) {
       return;
     }
@@ -250,6 +271,15 @@ export function RequestsPage() {
       setSelectedTokenId(undefined);
     }
   }, [apiTokens, apiTokensIsSuccess, selectedTokenId]);
+
+  useEffect(() => {
+    if (!projectsIsSuccess || selectedProjectId === undefined) {
+      return;
+    }
+    if (!projects.some((project) => project.id === selectedProjectId)) {
+      setSelectedProjectId(undefined);
+    }
+  }, [projects, projectsIsSuccess, selectedProjectId]);
 
   // 刷新
   const handleRefresh = () => {
@@ -279,6 +309,12 @@ export function RequestsPage() {
     scrollContainerRef.current?.scrollTo({ top: 0 });
   };
 
+  // Project 过滤器变化时重置
+  const handleProjectFilterChange = (projectId: number | undefined) => {
+    setSelectedProjectId(projectId);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  };
+
   // Status 过滤器变化时重置
   const handleStatusFilterChange = (status: string | undefined) => {
     setSelectedStatus(status);
@@ -301,12 +337,18 @@ export function RequestsPage() {
         description={t('requests.description', { count: total })}
       >
         {/* Filter Mode + Dynamic Target Filter */}
-        <FilterModeSelect mode={filterMode} onSelect={handleFilterModeChange} />
+        <FilterModeSelect mode={filterMode} hasProjects={hasProjects} onSelect={handleFilterModeChange} />
         {filterMode === 'provider' ? (
           <ProviderFilter
             providers={providers}
             selectedProviderId={selectedProviderId}
             onSelect={handleProviderFilterChange}
+          />
+        ) : filterMode === 'project' ? (
+          <ProjectFilter
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            onSelect={handleProjectFilterChange}
           />
         ) : (
           <TokenFilter
@@ -983,21 +1025,27 @@ const MemoMobileRequestCard = memo(
 
 function FilterModeSelect({
   mode,
+  hasProjects,
   onSelect,
 }: {
   mode: RequestFilterMode;
+  hasProjects: boolean;
   onSelect: (mode: RequestFilterMode) => void;
 }) {
   const { t } = useTranslation();
 
   const displayText =
-    mode === 'token' ? t('requests.filterByToken') : t('requests.filterByProvider');
+    mode === 'project'
+      ? t('requests.filterByProject')
+      : mode === 'provider'
+        ? t('requests.filterByProvider')
+        : t('requests.filterByToken');
 
   return (
     <Select
       value={mode}
       onValueChange={(value) => {
-        if (value === 'token' || value === 'provider') {
+        if (value === 'token' || value === 'provider' || value === 'project') {
           onSelect(value);
         }
       }}
@@ -1008,6 +1056,9 @@ function FilterModeSelect({
       <SelectContent>
         <SelectItem value="token">{t('requests.filterByToken')}</SelectItem>
         <SelectItem value="provider">{t('requests.filterByProvider')}</SelectItem>
+        {hasProjects && (
+          <SelectItem value="project">{t('requests.filterByProject')}</SelectItem>
+        )}
       </SelectContent>
     </Select>
   );
@@ -1123,6 +1174,46 @@ function TokenFilter({
         {tokens.map((token) => (
           <SelectItem key={token.id} value={String(token.id)}>
             {token.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ProjectFilter({
+  projects,
+  selectedProjectId,
+  onSelect,
+}: {
+  projects: Project[];
+  selectedProjectId: number | undefined;
+  onSelect: (projectId: number | undefined) => void;
+}) {
+  const { t } = useTranslation();
+
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const displayText = selectedProject?.name ?? t('requests.allProjects');
+
+  return (
+    <Select
+      value={selectedProjectId !== undefined ? String(selectedProjectId) : 'all'}
+      onValueChange={(value) => {
+        if (value === 'all') {
+          onSelect(undefined);
+        } else {
+          onSelect(Number(value));
+        }
+      }}
+    >
+      <SelectTrigger className="w-32 md:w-48 h-8" size="sm">
+        <SelectValue>{displayText}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">{t('requests.allProjects')}</SelectItem>
+        {projects.map((project) => (
+          <SelectItem key={project.id} value={String(project.id)}>
+            {project.name}
           </SelectItem>
         ))}
       </SelectContent>

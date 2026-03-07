@@ -315,6 +315,8 @@ export interface CursorPaginationParams {
   status?: string;
   /** 按 API Token ID 过滤 */
   apiTokenId?: number;
+  /** 按 Project ID 过滤 */
+  projectId?: number;
 }
 
 /** 游标分页响应 */

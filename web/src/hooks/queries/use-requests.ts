@@ -17,8 +17,8 @@ export const requestKeys = {
   all: ['requests'] as const,
   lists: () => [...requestKeys.all, 'list'] as const,
   list: (params?: CursorPaginationParams) => [...requestKeys.lists(), params] as const,
-  infinite: (providerId?: number, status?: string, apiTokenId?: number) =>
-    [...requestKeys.all, 'infinite', providerId, status, apiTokenId] as const,
+  infinite: (providerId?: number, status?: string, apiTokenId?: number, projectId?: number) =>
+    [...requestKeys.all, 'infinite', providerId, status, apiTokenId, projectId] as const,
   details: () => [...requestKeys.all, 'detail'] as const,
   detail: (id: number) => [...requestKeys.details(), id] as const,
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
@@ -37,10 +37,11 @@ export function useInfiniteProxyRequests(
   providerId?: number,
   status?: string,
   apiTokenId?: number,
+  projectId?: number,
   enabled = true,
 ) {
   return useInfiniteQuery({
-    queryKey: requestKeys.infinite(providerId, status, apiTokenId),
+    queryKey: requestKeys.infinite(providerId, status, apiTokenId, projectId),
     queryFn: ({ pageParam }) =>
       getTransport().getProxyRequests({
         limit: 100,
@@ -48,6 +49,7 @@ export function useInfiniteProxyRequests(
         providerId,
         status,
         apiTokenId,
+        projectId,
       }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastId : undefined),
     initialPageParam: undefined as number | undefined,
@@ -60,11 +62,12 @@ export function useProxyRequestsCount(
   providerId?: number,
   status?: string,
   apiTokenId?: number,
+  projectId?: number,
   enabled = true,
 ) {
   return useQuery({
-    queryKey: ['requestsCount', providerId, status, apiTokenId] as const,
-    queryFn: () => getTransport().getProxyRequestsCount(providerId, status, apiTokenId),
+    queryKey: ['requestsCount', providerId, status, apiTokenId, projectId] as const,
+    queryFn: () => getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId),
     enabled,
   });
 }
@@ -268,6 +271,7 @@ export function useProxyRequestUpdates() {
           const filterProviderId = queryKey[2] as number | undefined;
           const filterStatus = queryKey[3] as string | undefined;
           const filterAPITokenId = queryKey[4] as number | undefined;
+          const filterProjectId = queryKey[5] as number | undefined;
 
           const matchesFilter = (request: ProxyRequest) => {
             if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
@@ -277,6 +281,9 @@ export function useProxyRequestUpdates() {
               return false;
             }
             if (filterAPITokenId !== undefined && request.apiTokenID !== filterAPITokenId) {
+              return false;
+            }
+            if (filterProjectId !== undefined && request.projectID !== filterProjectId) {
               return false;
             }
             return true;
@@ -343,6 +350,7 @@ export function useProxyRequestUpdates() {
               const filterProviderId = query.queryKey[1] as number | undefined;
               const filterStatus = query.queryKey[2] as string | undefined;
               const filterAPITokenId = query.queryKey[3] as number | undefined;
+              const filterProjectId = query.queryKey[4] as number | undefined;
               if (filterProviderId !== undefined && updatedRequest.providerID !== filterProviderId) {
                 continue;
               }
@@ -350,6 +358,9 @@ export function useProxyRequestUpdates() {
                 continue;
               }
               if (filterAPITokenId !== undefined && updatedRequest.apiTokenID !== filterAPITokenId) {
+                continue;
+              }
+              if (filterProjectId !== undefined && updatedRequest.projectID !== filterProjectId) {
                 continue;
               }
               queryClient.setQueryData<number>(query.queryKey, (old) => (old ?? 0) + 1);
