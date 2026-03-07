@@ -159,14 +159,59 @@ function assert(condition, msg) {
     exitCode = 1;
   }
 
-  // ===== Step 5: 验证登录后状态 =====
-  console.log('\n--- Step 5: Verify logged-in state ---');
+  // ===== Step 5: 验证登录后用户信息 =====
+  console.log('\n--- Step 5: Verify user info after discoverable login ---');
+  await page.waitForTimeout(1000);
   const finalBody = await page.textContent('body');
-  if (finalBody.includes('Dashboard') || finalBody.includes('dashboard')) {
-    console.log('✅ Dashboard visible - discoverable passkey login confirmed');
+
+  // 5a: Dashboard 可见
+  const dashboardVisible = finalBody.includes('Dashboard') || finalBody.includes('dashboard');
+  if (dashboardVisible) {
+    console.log('✅ Dashboard visible');
   } else {
     console.log('❌ Dashboard not visible after login');
     exitCode = 1;
+  }
+
+  // 5b: 右上角用户信息（page-header 中 "Account: xxx"）
+  const accountBadge = page.locator('header').locator('text=/Account|账户/').first();
+  const accountVisible = await accountBadge.isVisible().catch(() => false);
+  if (accountVisible) {
+    const accountText = await accountBadge.locator('..').textContent();
+    console.log(`✅ Top-right account info: "${accountText.trim()}"`);
+    assert(accountText.includes(USER), `Account badge should contain "${USER}", got: "${accountText.trim()}"`);
+  } else {
+    console.log('❌ Top-right account badge NOT visible');
+    exitCode = 1;
+  }
+
+  // 5c: 左下角 sidebar 用户信息（用户名在一个 div 里的 span.text-xs.font-medium 中）
+  const sidebarUserSpan = page.locator('nav span.truncate.text-xs.font-medium').first();
+  const sidebarUserVisible = await sidebarUserSpan.isVisible().catch(() => false);
+  if (sidebarUserVisible) {
+    const sidebarUserText = await sidebarUserSpan.textContent();
+    console.log(`  Sidebar user text: "${sidebarUserText.trim()}"`);
+    assert(
+      sidebarUserText.trim().toLowerCase().includes(USER.toLowerCase()),
+      `Sidebar should show "${USER}", got: "${sidebarUserText.trim()}"`,
+    );
+    console.log(`✅ Sidebar shows correct user: "${USER}"`);
+  } else {
+    // Sidebar might be in collapsed mode — check via dropdown menu
+    const menuBtn3 = page.locator('button[title="Menu"]').last();
+    await menuBtn3.click();
+    await page.waitForTimeout(500);
+    const menuLabel = page.locator('[role="menuitem"], [data-slot="dropdown-menu-label"]').first();
+    const menuText = await menuLabel.textContent().catch(() => '');
+    console.log(`  Menu label text: "${menuText.trim()}"`);
+    if (menuText.toLowerCase().includes(USER.toLowerCase())) {
+      console.log(`✅ Sidebar menu shows correct user: "${USER}"`);
+    } else {
+      console.log(`❌ Sidebar user info not found (expected "${USER}")`);
+      exitCode = 1;
+    }
+    // Close menu
+    await page.keyboard.press('Escape');
   }
 
   // 截图
