@@ -175,6 +175,12 @@ async function verifyUserInfo(page, expectedUsername) {
   await page.screenshot({ path: '/tmp/passkey-admin-result.png' });
   console.log('  Screenshot: /tmp/passkey-admin-result.png');
 
+  // A6: Admin 刷新页面验证
+  console.log('\n--- A6: Verify admin info persists after refresh ---');
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(2000);
+  await verifyUserInfo(page, ADMIN_USER);
+
   // 获取 admin token 用于后续审批新用户
   const adminToken = await page.evaluate(() => localStorage.getItem('maxx-admin-token'));
   assert(adminToken, 'Admin token should exist in localStorage');
@@ -239,9 +245,22 @@ async function verifyUserInfo(page, expectedUsername) {
   await logout(page);
 
   // B6: 新用户 discoverable passkey 登录（不输入用户名）
-  // 注意：虚拟认证器现在有 2 个 resident key（admin + newuser）
-  // discoverable login 会让认证器选择，CDP 虚拟认证器会自动选最后一个注册的
+  // CDP 虚拟认证器有多个 resident key，顺序不确定。
+  // 按 userHandle 匹配，只保留新用户的 credential。
   console.log('\n--- B6: New user discoverable passkey login ---');
+  const { credentials: allCreds } = await cdp.send('WebAuthn.getCredentials', { authenticatorId });
+  for (const cred of allCreds) {
+    const uh = Buffer.from(cred.userHandle, 'base64').toString('utf8');
+    if (uh !== String(newUserObj.id)) {
+      await cdp.send('WebAuthn.removeCredential', { authenticatorId, credentialId: cred.credentialId });
+      console.log(`  Removed credential (userHandle="${uh}")`);
+    }
+  }
+  const { credentials: remaining } = await cdp.send('WebAuthn.getCredentials', { authenticatorId });
+  assert(remaining.length === 1, `Should have exactly 1 credential, got ${remaining.length}`);
+  const remainUH = Buffer.from(remaining[0].userHandle, 'base64').toString('utf8');
+  console.log(`  Remaining credential: userHandle="${remainUH}" (new user ID=${newUserObj.id})`);
+
   await discoverablePasskeyLogin(page);
 
   // B7: 验证新用户信息
@@ -249,6 +268,18 @@ async function verifyUserInfo(page, expectedUsername) {
   await verifyUserInfo(page, NEW_USER);
   await page.screenshot({ path: '/tmp/passkey-newuser-result.png' });
   console.log('  Screenshot: /tmp/passkey-newuser-result.png');
+
+  // B8: 刷新页面后验证用户信息持久化
+  console.log('\n--- B8: Verify user info persists after page refresh ---');
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(2000);
+  const refreshedBody = await page.textContent('body');
+  assert(refreshedBody.includes('Dashboard') || refreshedBody.includes('dashboard'),
+    'Dashboard should still be visible after refresh');
+  console.log('✅ Dashboard still visible after refresh');
+  await verifyUserInfo(page, NEW_USER);
+  await page.screenshot({ path: '/tmp/passkey-newuser-refreshed.png' });
+  console.log('  Screenshot: /tmp/passkey-newuser-refreshed.png');
 
   console.log(`\n===== Test ${exitCode === 0 ? 'PASSED' : 'FAILED'} =====`);
   await browser.close();

@@ -612,7 +612,7 @@ export class HttpTransport implements Transport {
   // ===== Auth API =====
 
   async getAuthStatus(): Promise<AuthStatus> {
-    const { data } = await axios.get<AuthStatus>('/api/admin/auth/status');
+    const { data } = await this.client.get<AuthStatus>('/auth/status');
     return data;
   }
 
