@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/awsl-project/maxx/internal/handler"
 )
 
 func TestAuthStatus_NoAuth(t *testing.T) {
@@ -39,9 +41,18 @@ func TestLogin_Success(t *testing.T) {
 	if result["success"] != true {
 		t.Fatalf("Expected success=true, got %v", result["success"])
 	}
-	token, ok := result["token"].(string)
-	if !ok || token == "" {
-		t.Fatalf("Expected non-empty token, got %v", result["token"])
+	if _, ok := result["token"]; ok {
+		t.Fatalf("Expected token to be omitted from response body, got %v", result["token"])
+	}
+	setCookie := resp.Header.Get("Set-Cookie")
+	if !strings.Contains(setCookie, handler.AuthCookieName+"=") {
+		t.Fatalf("Expected auth cookie in Set-Cookie header, got %q", setCookie)
+	}
+	if !strings.Contains(setCookie, "HttpOnly") {
+		t.Fatalf("Expected HttpOnly auth cookie, got %q", setCookie)
+	}
+	if !strings.Contains(setCookie, "Path="+handler.AuthCookiePath) {
+		t.Fatalf("Expected auth cookie path %q, got %q", handler.AuthCookiePath, setCookie)
 	}
 	user, ok := result["user"].(map[string]any)
 	if !ok {
@@ -88,9 +99,8 @@ func TestRegister_Success(t *testing.T) {
 	if result["success"] != true {
 		t.Fatalf("Expected success=true, got %v", result["success"])
 	}
-	token, ok := result["token"].(string)
-	if !ok || token == "" {
-		t.Fatalf("Expected non-empty token for new user, got %v", result["token"])
+	if _, ok := result["token"]; ok {
+		t.Fatalf("Expected token to be omitted for registered user, got %v", result["token"])
 	}
 	user, ok := result["user"].(map[string]any)
 	if !ok {

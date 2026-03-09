@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// getMemberToken creates a member user and returns their JWT token.
+// getMemberToken creates a member user and returns a JWT for header-based RBAC tests.
 func getMemberToken(t *testing.T, env *TestEnv) string {
 	t.Helper()
 	// Admin registers a new member user
@@ -18,11 +18,11 @@ func getMemberToken(t *testing.T, env *TestEnv) string {
 	var result map[string]any
 	DecodeJSON(t, resp, &result)
 
-	token, ok := result["token"].(string)
-	if !ok || token == "" {
-		t.Fatalf("Expected non-empty token for member user, got %v", result["token"])
+	if _, ok := result["token"]; ok {
+		t.Fatalf("Expected token to be omitted for member user, got %v", result["token"])
 	}
-	return token
+
+	return env.GenerateTokenForUsername("member-user")
 }
 
 func TestRBAC_AdminFullAccess(t *testing.T) {
