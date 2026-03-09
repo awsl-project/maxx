@@ -36,6 +36,13 @@ func (c *codexToClaudeRequest) Transform(body []byte, model string, stream bool)
 		TopP:        req.TopP,
 	}
 
+	// Convert reasoning effort to Claude output_config
+	if req.Reasoning != nil && req.Reasoning.Effort != "" {
+		claudeReq.OutputConfig = &ClaudeOutputConfig{
+			Effort: req.Reasoning.Effort,
+		}
+	}
+
 	// Convert instructions to system prompt
 	if req.Instructions != "" {
 		claudeReq.System = req.Instructions

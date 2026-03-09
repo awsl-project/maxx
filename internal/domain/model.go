@@ -148,6 +148,17 @@ type ProviderConfigCodex struct {
 
 	// 使用 CLIProxyAPI 转发
 	UseCLIProxyAPI bool `json:"useCLIProxyAPI,omitempty"`
+
+	// 自定义 Codex API Base URL（默认使用官方地址）
+	BaseURL string `json:"baseURL,omitempty"`
+
+	// 强制 reasoning effort（覆盖请求中的值）
+	// 可选值: "low", "medium", "high"
+	Reasoning string `json:"reasoning,omitempty"`
+
+	// 强制 service_tier（覆盖请求中的值）
+	// 可选值: "auto", "default", "flex", "priority"
+	ServiceTier string `json:"serviceTier,omitempty"`
 }
 
 // ProviderConfigCLIProxyAPIAntigravity CLIProxyAPI Antigravity 内部配置

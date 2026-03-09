@@ -121,11 +121,28 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	cacheID, updatedBody := applyCodexRequestTuning(c, requestBody)
 	requestBody = updatedBody
 
+	// Apply provider-level overrides for reasoning and service_tier
+	config := provider.Config.Codex
+	if config.Reasoning != "" {
+		if updated, err := sjson.SetBytes(requestBody, "reasoning.effort", config.Reasoning); err == nil {
+			requestBody = updated
+		}
+	}
+	if config.ServiceTier != "" {
+		if updated, err := sjson.SetBytes(requestBody, "service_tier", config.ServiceTier); err == nil {
+			requestBody = updated
+		}
+	}
+
 	// Build upstream URL and stream mode
-	upstreamURL := CodexBaseURL + "/responses"
+	baseURL := CodexBaseURL
+	if config.BaseURL != "" {
+		baseURL = strings.TrimRight(config.BaseURL, "/")
+	}
+	upstreamURL := baseURL + "/responses"
 	upstreamStream := true
 	if !clientWantsStream {
-		upstreamURL = CodexBaseURL + "/responses/compact"
+		upstreamURL = baseURL + "/responses/compact"
 		upstreamStream = false
 	}
 	if len(requestBody) > 0 {
@@ -141,7 +158,6 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 
 	// Apply headers with passthrough support (client headers take priority)
-	config := provider.Config.Codex
 	a.applyCodexHeaders(upstreamReq, request, accessToken, config.AccountID, upstreamStream, cacheID)
 
 	// Send request info via EventChannel

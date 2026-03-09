@@ -274,7 +274,12 @@
       "codeReviewLimit": "Code Review Limit",
       "resetIn": "Resets in {{time}}",
       "resetNow": "Resetting now",
-      "noUsageData": "No usage data available"
+      "noUsageData": "No usage data available",
+      "reasoning": "Reasoning Effort",
+      "reasoningDesc": "Override the reasoning effort level for all requests to this provider",
+      "serviceTier": "Service Tier",
+      "serviceTierDesc": "Override the service tier for all requests to this provider",
+      "followRequest": "Follow Request"
     },
     "projectId": "Project ID",
     "endpoint": "Endpoint",

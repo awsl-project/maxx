@@ -17,6 +17,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
+	"github.com/tidwall/sjson"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/exec"
@@ -211,6 +212,19 @@ func (a *CLIProxyAPICodexAdapter) Execute(c *flow.Ctx, p *domain.Provider) error
 	requestBody := flow.GetRequestBody(c)
 	stream := flow.GetIsStream(c)
 	model := flow.GetMappedModel(c)
+
+	// Apply provider-level overrides for reasoning and service_tier
+	cfg := a.codexConfig()
+	if cfg.Reasoning != "" {
+		if updated, err := sjson.SetBytes(requestBody, "reasoning.effort", cfg.Reasoning); err == nil {
+			requestBody = updated
+		}
+	}
+	if cfg.ServiceTier != "" {
+		if updated, err := sjson.SetBytes(requestBody, "service_tier", cfg.ServiceTier); err == nil {
+			requestBody = updated
+		}
+	}
 
 	// Codex CLI 请求体本质是 OpenAI Responses schema；保持与 CLIProxyAPI 一致。
 	sourceFormat := translator.FormatOpenAIResponse

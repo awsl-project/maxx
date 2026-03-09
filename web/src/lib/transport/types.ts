@@ -67,6 +67,9 @@ export interface ProviderConfigCodex {
   subscriptionEnd?: string;
   modelMapping?: Record<string, string>;
   useCLIProxyAPI?: boolean;
+  baseURL?: string;
+  reasoning?: string; // "low", "medium", "high"
+  serviceTier?: string; // "auto", "default", "flex", "priority"
 }
 
 export interface ProviderConfigClaude {
