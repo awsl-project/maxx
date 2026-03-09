@@ -3,12 +3,12 @@ package core
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	"golang.org/x/crypto/bcrypt"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
@@ -26,6 +26,7 @@ import (
 	"github.com/awsl-project/maxx/internal/service"
 	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // DatabaseConfig 数据库配置
@@ -86,6 +87,7 @@ type ServerComponents struct {
 	CodexOAuthServer    *CodexOAuthServer
 	ClaudeHandler       *handler.ClaudeHandler
 	ClaudeOAuthServer   *ClaudeOAuthServer
+	HealthHandler       http.Handler
 	ProjectProxyHandler *handler.ProjectProxyHandler
 	RequestTracker      *RequestTracker
 	PprofManager        *PprofManager
@@ -414,6 +416,7 @@ func InitializeServerComponents(
 		CodexOAuthServer:    codexOAuthServer,
 		ClaudeHandler:       claudeHandler,
 		ClaudeOAuthServer:   claudeOAuthServer,
+		HealthHandler:       NewHealthHandler(NewDatabaseHealthDependency(repos.DB)),
 		ProjectProxyHandler: projectProxyHandler,
 		RequestTracker:      requestTracker,
 		PprofManager:        pprofMgr,

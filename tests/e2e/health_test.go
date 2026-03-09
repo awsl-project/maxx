@@ -11,10 +11,40 @@ func TestHealthCheck(t *testing.T) {
 	resp := env.UnauthGet("/health")
 	AssertStatus(t, resp, http.StatusOK)
 
-	var result map[string]string
+	var result struct {
+		Status       string            `json:"status"`
+		Dependencies map[string]string `json:"dependencies"`
+	}
 	DecodeJSON(t, resp, &result)
 
-	if result["status"] != "ok" {
-		t.Fatalf("Expected status 'ok', got %q", result["status"])
+	if result.Status != "ok" {
+		t.Fatalf("Expected status 'ok', got %q", result.Status)
+	}
+	if result.Dependencies["database"] != "ok" {
+		t.Fatalf("Expected database dependency to be ok, got %q", result.Dependencies["database"])
+	}
+}
+
+func TestHealthCheckReturnsServiceUnavailableWhenDatabaseIsDown(t *testing.T) {
+	env := NewTestEnv(t)
+
+	if err := env.DB.Close(); err != nil {
+		t.Fatalf("Close database: %v", err)
+	}
+
+	resp := env.UnauthGet("/health")
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var result struct {
+		Status       string            `json:"status"`
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	DecodeJSON(t, resp, &result)
+
+	if result.Status != "error" {
+		t.Fatalf("Expected status 'error', got %q", result.Status)
+	}
+	if result.Dependencies["database"] != "error" {
+		t.Fatalf("Expected database dependency to be error, got %q", result.Dependencies["database"])
 	}
 }

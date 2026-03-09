@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository/cached"
@@ -171,11 +172,7 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	mux.Handle("/v1/models", modelsHandler)
 
 	// Health check
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	mux.Handle("/health", core.NewHealthHandler(core.NewDatabaseHealthDependency(db)))
 
 	server := httptest.NewServer(mux)
 

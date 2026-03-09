@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -28,6 +29,15 @@ func (d *DB) GormDB() *gorm.DB {
 // Dialector returns the database dialector type ("sqlite", "mysql", or "postgres")
 func (d *DB) Dialector() string {
 	return d.dialector
+}
+
+// PingContext verifies the underlying database connection is still usable.
+func (d *DB) PingContext(ctx context.Context) error {
+	sqlDB, err := d.gorm.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.PingContext(ctx)
 }
 
 // NewDB creates a new database connection

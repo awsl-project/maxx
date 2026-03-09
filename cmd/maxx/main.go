@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"syscall"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
@@ -399,11 +399,7 @@ func main() {
 	mux.Handle("/v1beta/models/", proxyHandler)
 
 	// Health check
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	mux.Handle("/health", core.NewHealthHandler(core.NewDatabaseHealthDependency(db)))
 
 	// WebSocket endpoint
 	mux.HandleFunc("/ws", wsHub.HandleWebSocket)
