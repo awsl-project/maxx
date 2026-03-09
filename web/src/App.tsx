@@ -53,7 +53,7 @@ function AppRoutes() {
     return <LoginPage onSuccess={login} />;
   }
 
-  const isAdmin = !user || user.role === 'admin';
+  const isAdmin = user?.role === 'admin';
 
   return (
     <BrowserRouter>

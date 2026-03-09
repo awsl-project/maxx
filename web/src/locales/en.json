@@ -980,6 +980,7 @@
     "expired": "Expired",
     "global": "Global",
     "notSpecified": "Not Specified",
+    "secretUnavailable": "Token secret is only shown once when the token is created.",
     "generateCodexConfig": "Generate Codex Config",
     "unknownProject": "Project #{{id}}",
     "createDialog": {

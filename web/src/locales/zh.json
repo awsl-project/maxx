@@ -980,6 +980,7 @@
     "expired": "已过期",
     "global": "全局",
     "notSpecified": "未指定",
+    "secretUnavailable": "令牌明文只会在创建成功时显示一次。",
     "generateCodexConfig": "生成 Codex 配置",
     "unknownProject": "项目 #{{id}}",
     "createDialog": {

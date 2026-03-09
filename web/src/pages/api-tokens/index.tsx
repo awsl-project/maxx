@@ -259,7 +259,8 @@ export function APITokensPage() {
 
   const getCodexCheckHint = (checkKey: string) => {
     if (checkKey === 'proxy') return t('apiTokens.codexConfigDialog.checksHint.proxy');
-    if (checkKey === 'tokenEnabled') return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
+    if (checkKey === 'tokenEnabled')
+      return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
     return t('apiTokens.codexConfigDialog.checksHint.tokenExpiry');
   };
 
@@ -272,6 +273,11 @@ export function APITokensPage() {
   const isExpired = (token: APIToken) => {
     if (!token.expiresAt) return false;
     return new Date(token.expiresAt) < new Date();
+  };
+
+  const getTokenSecret = (token?: string) => {
+    const secret = token?.trim();
+    return secret ? secret : null;
   };
 
   return (
@@ -369,119 +375,143 @@ export function APITokensPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {tokens.map((token) => (
-                      <TableRow key={token.id}>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{token.name}</div>
-                            {token.description && (
-                              <div className="text-xs text-text-muted">{token.description}</div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <code className="text-xs bg-surface-secondary px-2 py-1 rounded font-mono">
-                              {token.tokenPrefix}
-                            </code>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={async () => {
-                                await navigator.clipboard.writeText(token.token);
-                              }}
-                            >
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="font-normal">
-                            {getProjectName(token.projectID)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={token.isEnabled}
-                              onCheckedChange={() => handleToggleEnabled(token)}
-                              disabled={updateToken.isPending}
-                            />
-                            {isExpired(token) ? (
-                              <Badge variant="destructive" className="text-xs">
-                                {t('apiTokens.expired')}
-                              </Badge>
-                            ) : token.isEnabled ? (
-                              <Badge
-                                variant="default"
-                                className="text-xs bg-green-500/10 text-green-500 border-green-500/20"
-                              >
-                                {t('apiTokens.active')}
-                              </Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-xs">
-                                {t('common.disabled')}
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1 text-sm text-text-secondary">
-                            <Hash className="h-3 w-3" />
-                            {token.useCount}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {token.lastUsedAt ? (
-                            <div className="flex items-center gap-1 text-xs text-text-muted">
-                              <Clock className="h-3 w-3" />
-                              {new Date(token.lastUsedAt).toLocaleDateString(
-                                i18n.resolvedLanguage ?? i18n.language,
-                                {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric',
-                                },
+                    {tokens.map((token) => {
+                      const tokenSecret = getTokenSecret(token.token);
+
+                      return (
+                        <TableRow key={token.id}>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{token.name}</div>
+                              {token.description && (
+                                <div className="text-xs text-text-muted">{token.description}</div>
                               )}
                             </div>
-                          ) : (
-                            <span className="text-xs text-text-muted">{t('apiTokens.never')}</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              aria-label={t('apiTokens.generateCodexConfig')}
-                              onClick={() =>
-                                openCodexConfigDialog({
-                                  name: token.name,
-                                  token: token.token,
-                                  isEnabled: token.isEnabled,
-                                  expiresAt: token.expiresAt,
-                                })
-                              }
-                              title={t('apiTokens.generateCodexConfig')}
-                            >
-                              <Terminal className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => handleEdit(token)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setDeletingToken(token)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <code className="text-xs bg-surface-secondary px-2 py-1 rounded font-mono">
+                                {token.tokenPrefix}
+                              </code>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                disabled={!tokenSecret}
+                                aria-label={
+                                  tokenSecret ? t('common.copy') : t('apiTokens.secretUnavailable')
+                                }
+                                title={
+                                  tokenSecret ? t('common.copy') : t('apiTokens.secretUnavailable')
+                                }
+                                onClick={async () => {
+                                  if (!tokenSecret) return;
+                                  await navigator.clipboard.writeText(tokenSecret);
+                                }}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="font-normal">
+                              {getProjectName(token.projectID)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                checked={token.isEnabled}
+                                onCheckedChange={() => handleToggleEnabled(token)}
+                                disabled={updateToken.isPending}
+                              />
+                              {isExpired(token) ? (
+                                <Badge variant="destructive" className="text-xs">
+                                  {t('apiTokens.expired')}
+                                </Badge>
+                              ) : token.isEnabled ? (
+                                <Badge
+                                  variant="default"
+                                  className="text-xs bg-green-500/10 text-green-500 border-green-500/20"
+                                >
+                                  {t('apiTokens.active')}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-xs">
+                                  {t('common.disabled')}
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1 text-sm text-text-secondary">
+                              <Hash className="h-3 w-3" />
+                              {token.useCount}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {token.lastUsedAt ? (
+                              <div className="flex items-center gap-1 text-xs text-text-muted">
+                                <Clock className="h-3 w-3" />
+                                {new Date(token.lastUsedAt).toLocaleDateString(
+                                  i18n.resolvedLanguage ?? i18n.language,
+                                  {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric',
+                                  },
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-text-muted">
+                                {t('apiTokens.never')}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={!tokenSecret}
+                                aria-label={
+                                  tokenSecret
+                                    ? t('apiTokens.generateCodexConfig')
+                                    : t('apiTokens.secretUnavailable')
+                                }
+                                onClick={() => {
+                                  if (!tokenSecret) return;
+                                  openCodexConfigDialog({
+                                    name: token.name,
+                                    token: tokenSecret,
+                                    isEnabled: token.isEnabled,
+                                    expiresAt: token.expiresAt,
+                                  });
+                                }}
+                                title={
+                                  tokenSecret
+                                    ? t('apiTokens.generateCodexConfig')
+                                    : t('apiTokens.secretUnavailable')
+                                }
+                              >
+                                <Terminal className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => handleEdit(token)}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setDeletingToken(token)}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </Card>
@@ -680,11 +710,7 @@ export function APITokensPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={closeEditDialog}
-              >
+              <Button type="button" variant="outline" onClick={closeEditDialog}>
                 {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={updateToken.isPending || !name}>
@@ -857,7 +883,9 @@ export function APITokensPage() {
                       : t('apiTokens.codexConfigDialog.copyToClipboard')}
                   </Button>
                   <pre className="max-h-64 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-muted/40 p-3 pr-24 text-xs font-mono">
-                    <code className="block min-w-full whitespace-pre">{codexBundle.configToml}</code>
+                    <code className="block min-w-full whitespace-pre">
+                      {codexBundle.configToml}
+                    </code>
                   </pre>
                 </div>
               </div>
