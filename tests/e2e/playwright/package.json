@@ -3,13 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test-passkey-discoverable.mjs && node test-requests-project-filter.mjs && node test-stats-chart-resize.mjs",
+    "test": "node test-passkey-discoverable.mjs && node test-requests-project-filter.mjs && node test-stats-chart-resize.mjs && node test-admin-route-guard.mjs",
     "test:passkey": "node test-passkey-discoverable.mjs",
     "test:project-filter": "node test-requests-project-filter.mjs",
     "test:stats-chart": "node test-stats-chart-resize.mjs",
+    "test:admin-route": "node test-admin-route-guard.mjs",
     "test:headed": "HEADED=1 node test-passkey-discoverable.mjs",
     "test:project-filter:headed": "HEADED=1 node test-requests-project-filter.mjs",
-    "test:stats-chart:headed": "HEADED=1 node test-stats-chart-resize.mjs"
+    "test:stats-chart:headed": "HEADED=1 node test-stats-chart-resize.mjs",
+    "test:admin-route:headed": "HEADED=1 node test-admin-route-guard.mjs"
   },
   "dependencies": {
     "playwright": "^1.52.0"
