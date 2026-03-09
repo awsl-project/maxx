@@ -1,0 +1,129 @@
+name: Frontend Consistency Check
+description: Align frontend validation and build setup across PR and release workflows.
+
+inputs:
+  working-directory:
+    description: Frontend project directory
+    required: false
+    default: web
+  node-version:
+    description: Node.js version used for frontend checks
+    required: false
+    default: "22"
+  install-command:
+    description: Command used to install frontend dependencies
+    required: false
+    default: pnpm install --frozen-lockfile
+  run-build:
+    description: Run frontend build
+    required: false
+    default: "true"
+  run-typecheck:
+    description: Run frontend typecheck
+    required: false
+    default: "true"
+  run-lint:
+    description: Run frontend lint
+    required: false
+    default: "true"
+  setup-go:
+    description: Setup Go using go.mod for consistency with release builds
+    required: false
+    default: "true"
+  install-wails:
+    description: Install Wails CLI for optional validation/build steps
+    required: false
+    default: "false"
+  install-linux-wails-deps:
+    description: Install Linux system dependencies required by Wails builds
+    required: false
+    default: "false"
+  go-build-command:
+    description: Optional Go build validation command
+    required: false
+    default: ""
+  wails-build-command:
+    description: Optional Wails validation command
+    required: false
+    default: ""
+  docker-build-command:
+    description: Optional Docker validation command
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      if: ${{ inputs.setup-go == 'true' }}
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        package_json_file: ${{ inputs.working-directory }}/package.json
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+
+    - name: Install Linux Wails dependencies
+      if: ${{ inputs.install-linux-wails-deps == 'true' }}
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libgtk-3-dev \
+          libwebkit2gtk-4.0-dev
+
+    - name: Install Wails CLI
+      if: ${{ inputs.install-wails == 'true' }}
+      shell: bash
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+    - name: Install frontend dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ inputs.install-command }}
+
+    - name: Build frontend
+      if: ${{ inputs.run-build == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VITE_COMMIT: ${{ github.sha }}
+      run: pnpm build
+
+    - name: Run frontend typecheck
+      if: ${{ inputs.run-typecheck == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: pnpm run typecheck
+
+    - name: Run frontend lint
+      if: ${{ inputs.run-lint == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: pnpm run lint
+
+    - name: Run Go validation
+      if: ${{ inputs.go-build-command != '' }}
+      shell: bash
+      run: ${{ inputs.go-build-command }}
+
+    - name: Run Wails validation
+      if: ${{ inputs.wails-build-command != '' }}
+      shell: bash
+      run: ${{ inputs.wails-build-command }}
+
+    - name: Run Docker validation
+      if: ${{ inputs.docker-build-command != '' }}
+      shell: bash
+      run: ${{ inputs.docker-build-command }}

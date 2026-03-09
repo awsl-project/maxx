@@ -32,28 +32,12 @@ jobs:
           TAG="${{ inputs.tag || github.ref_name }}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Prepare frontend build environment
+        uses: ./.github/actions/frontend-consistency-check
         with:
-          node-version: "22"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Build frontend
-        working-directory: web
-        env:
-          VITE_COMMIT: ${{ github.sha }}
-        run: |
-          pnpm install
-          pnpm build
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+          run-build: "true"
+          run-typecheck: "false"
+          run-lint: "false"
 
       - name: Cross-compile Go binaries
         env:

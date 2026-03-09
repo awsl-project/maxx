@@ -1,44 +1,32 @@
-name: Lint
+name: Frontend Consistency
 
 on:
   pull_request:
     branches: [main]
     paths:
       - 'web/**'
+      - '.github/actions/frontend-consistency-check/**'
+      - '.github/workflows/lint.yml'
+      - '.github/workflows/ci-docker-build.yml'
+      - '.github/workflows/ci-wails-build.yml'
+      - '.github/workflows/release.yml'
+      - 'go.mod'
+      - 'Dockerfile'
+      - 'Dockerfile.ci'
+      - 'Taskfile.yml'
+      - 'wails.json'
 
 jobs:
-  lint:
+  frontend-consistency:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - name: Validate frontend parity with release
+        uses: ./.github/actions/frontend-consistency-check
         with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('web/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Run lint
-        run: pnpm run lint
-
-      - name: Run type check
-        run: pnpm run typecheck
+          run-build: "true"
+          run-typecheck: "true"
+          run-lint: "true"

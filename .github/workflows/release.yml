@@ -11,7 +11,23 @@ on:
         type: string
 
 jobs:
+  validate-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate frontend before tagging
+        uses: ./.github/actions/frontend-consistency-check
+        with:
+          run-build: "true"
+          run-typecheck: "true"
+          run-lint: "true"
+
   release:
+    needs: validate-frontend
     runs-on: ubuntu-latest
     permissions:
       contents: write
