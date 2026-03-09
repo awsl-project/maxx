@@ -393,11 +393,11 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
 	}
 
-	// Collect SSE for token extraction
-	var sseBuffer strings.Builder
 	reader := bufio.NewReader(resp.Body)
 	firstChunkSent := false
 	responseCompleted := false
+	var lastMetrics *usage.Metrics
+	var lastModel string
 
 	ctx := context.Background()
 	if c.Request != nil {
@@ -406,7 +406,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 	for {
 		select {
 		case <-ctx.Done():
-			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			a.sendFinalStreamEvents(eventChan, lastMetrics, lastModel)
 			if responseCompleted {
 				return nil
 			}
@@ -416,7 +416,12 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 
 		line, err := reader.ReadString('\n')
 		if line != "" {
-			sseBuffer.WriteString(line)
+			if metrics := usage.ExtractFromSSELine(line); metrics != nil {
+				lastMetrics = metrics
+			}
+			if model := extractModelFromSSELine(line); model != "" {
+				lastModel = model
+			}
 
 			if isCodexResponseCompletedLine(line) {
 				responseCompleted = true
@@ -425,7 +430,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 			// Write to client
 			_, writeErr := c.Writer.Write([]byte(line))
 			if writeErr != nil {
-				a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+				a.sendFinalStreamEvents(eventChan, lastMetrics, lastModel)
 				if responseCompleted {
 					return nil
 				}
@@ -443,7 +448,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 		}
 
 		if err != nil {
-			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			a.sendFinalStreamEvents(eventChan, lastMetrics, lastModel)
 			if err == io.EOF || responseCompleted {
 				return nil
 			}
@@ -469,30 +474,18 @@ func isCodexResponseCompletedLine(line string) bool {
 	return gjson.Get(data, "type").String() == "response.completed"
 }
 
-func (a *CodexAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, sseBuffer *strings.Builder, resp *http.Response) {
+func (a *CodexAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, metrics *usage.Metrics, model string) {
 	if eventChan == nil {
 		return
 	}
-	if sseBuffer.Len() > 0 {
-		// Update response body with collected SSE
-		eventChan.SendResponseInfo(&domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    sseBuffer.String(),
+	if metrics != nil {
+		eventChan.SendMetrics(&domain.AdapterMetrics{
+			InputTokens:  metrics.InputTokens,
+			OutputTokens: metrics.OutputTokens,
 		})
-
-		// Extract token usage from stream
-		if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
-			eventChan.SendMetrics(&domain.AdapterMetrics{
-				InputTokens:  metrics.InputTokens,
-				OutputTokens: metrics.OutputTokens,
-			})
-		}
-
-		// Extract model from stream
-		if model := extractModelFromSSE(sseBuffer.String()); model != "" {
-			eventChan.SendResponseModel(model)
-		}
+	}
+	if model != "" {
+		eventChan.SendResponseModel(model)
 	}
 }
 
@@ -655,22 +648,31 @@ func extractModelFromResponse(body []byte) string {
 func extractModelFromSSE(sseContent string) string {
 	var lastModel string
 	for _, line := range strings.Split(sseContent, "\n") {
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			continue
-		}
-
-		var chunk struct {
-			Model string `json:"model"`
-		}
-		if err := json.Unmarshal([]byte(data), &chunk); err == nil && chunk.Model != "" {
-			lastModel = chunk.Model
+		if model := extractModelFromSSELine(line); model != "" {
+			lastModel = model
 		}
 	}
 	return lastModel
+}
+
+func extractModelFromSSELine(line string) string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return ""
+	}
+
+	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if data == "" || data == "[DONE]" {
+		return ""
+	}
+
+	var chunk struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(data), &chunk); err == nil && chunk.Model != "" {
+		return chunk.Model
+	}
+	return ""
 }
 
 // applyCodexHeaders applies headers for Codex API requests

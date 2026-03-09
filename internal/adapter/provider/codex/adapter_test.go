@@ -101,6 +101,15 @@ func TestIsCodexResponseCompletedLine(t *testing.T) {
 	}
 }
 
+func TestExtractModelFromSSELine(t *testing.T) {
+	if got := extractModelFromSSELine("data: {\"model\":\"gpt-5-codex\"}\n"); got != "gpt-5-codex" {
+		t.Fatalf("expected model from SSE line, got %q", got)
+	}
+	if got := extractModelFromSSELine("event: message\n"); got != "" {
+		t.Fatalf("expected empty model for non-data line, got %q", got)
+	}
+}
+
 func TestApplyCodexHeadersUsesDefaultUAForNonCLI(t *testing.T) {
 	a := &CodexAdapter{}
 	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)

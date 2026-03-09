@@ -772,41 +772,27 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 		openaiState = converter.NewTransformState()
 	}
 
-	// Collect all SSE events for response body and token extraction
-	var sseBuffer strings.Builder
+	var lastMetrics *usage.Metrics
+	var lastModelVersion string
 
-	// Helper to extract tokens and send events
 	sendFinalEvents := func() {
-		if sseBuffer.Len() > 0 {
-			// Send updated response body
-			eventChan.SendResponseInfo(&domain.ResponseInfo{
-				Status:  resp.StatusCode,
-				Headers: flattenHeaders(resp.Header),
-				Body:    sseBuffer.String(),
+		if lastMetrics != nil {
+			eventChan.SendMetrics(&domain.AdapterMetrics{
+				InputTokens:          lastMetrics.InputTokens,
+				OutputTokens:         lastMetrics.OutputTokens,
+				CacheReadCount:       lastMetrics.CacheReadCount,
+				CacheCreationCount:   lastMetrics.CacheCreationCount,
+				Cache5mCreationCount: lastMetrics.Cache5mCreationCount,
+				Cache1hCreationCount: lastMetrics.Cache1hCreationCount,
 			})
+		}
 
-			// Extract and send token usage
-			if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
-				eventChan.SendMetrics(&domain.AdapterMetrics{
-					InputTokens:          metrics.InputTokens,
-					OutputTokens:         metrics.OutputTokens,
-					CacheReadCount:       metrics.CacheReadCount,
-					CacheCreationCount:   metrics.CacheCreationCount,
-					Cache5mCreationCount: metrics.Cache5mCreationCount,
-					Cache1hCreationCount: metrics.Cache1hCreationCount,
-				})
-			}
-
-			// Extract and send response model
-			var modelVersion string
-			if claudeState != nil {
-				modelVersion = claudeState.GetModelVersion()
-			} else {
-				modelVersion = extractModelVersionFromSSE(sseBuffer.String())
-			}
-			if modelVersion != "" {
-				eventChan.SendResponseModel(modelVersion)
-			}
+		modelVersion := lastModelVersion
+		if claudeState != nil {
+			modelVersion = claudeState.GetModelVersion()
+		}
+		if modelVersion != "" {
+			eventChan.SendResponseModel(modelVersion)
 		}
 	}
 
@@ -847,8 +833,14 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 					continue
 				}
 
-				// Collect original SSE for token extraction (extractor handles v1internal wrapper)
-				sseBuffer.WriteString(line)
+				if metrics := usage.ExtractFromSSELine(string(unwrappedLine)); metrics != nil {
+					lastMetrics = metrics
+				}
+				if !isClaudeClient {
+					if modelVersion := extractModelVersionFromSSELine(string(unwrappedLine)); modelVersion != "" {
+						lastModelVersion = modelVersion
+					}
+				}
 
 				var output []byte
 				if isClaudeClient {
@@ -950,10 +942,10 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 		claudeState = NewClaudeStreamingStateWithSession(sessionID, requestModel)
 	}
 
-	// Collect upstream SSE for attempt/debug and token extraction.
-	var upstreamSSE strings.Builder
 	var unwrappedSSE strings.Builder
 	var responseBody []byte
+	var lastMetrics *usage.Metrics
+	var lastModelVersion string
 
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
@@ -977,13 +969,19 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 					break
 				}
 
-				upstreamSSE.WriteString(line)
-
 				unwrappedLine := unwrapV1InternalSSEChunk([]byte(line))
 				if len(unwrappedLine) == 0 {
 					continue
 				}
 				unwrappedSSE.Write(unwrappedLine)
+				if metrics := usage.ExtractFromSSELine(string(unwrappedLine)); metrics != nil {
+					lastMetrics = metrics
+				}
+				if !isClaudeClient {
+					if modelVersion := extractModelVersionFromSSELine(string(unwrappedLine)); modelVersion != "" {
+						lastModelVersion = modelVersion
+					}
+				}
 
 				if isClaudeClient && claudeState != nil {
 					out := claudeState.ProcessGeminiSSELine(string(unwrappedLine))
@@ -1009,32 +1007,20 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 		}
 	}
 
-	// Send events via EventChannel
-	// Send response info with collected body
-	eventChan.SendResponseInfo(&domain.ResponseInfo{
-		Status:  resp.StatusCode,
-		Headers: flattenHeaders(resp.Header),
-		Body:    upstreamSSE.String(),
-	})
-
-	// Extract and send token usage
-	if metrics := usage.ExtractFromStreamContent(upstreamSSE.String()); metrics != nil {
+	if lastMetrics != nil {
 		eventChan.SendMetrics(&domain.AdapterMetrics{
-			InputTokens:          metrics.InputTokens,
-			OutputTokens:         metrics.OutputTokens,
-			CacheReadCount:       metrics.CacheReadCount,
-			CacheCreationCount:   metrics.CacheCreationCount,
-			Cache5mCreationCount: metrics.Cache5mCreationCount,
-			Cache1hCreationCount: metrics.Cache1hCreationCount,
+			InputTokens:          lastMetrics.InputTokens,
+			OutputTokens:         lastMetrics.OutputTokens,
+			CacheReadCount:       lastMetrics.CacheReadCount,
+			CacheCreationCount:   lastMetrics.CacheCreationCount,
+			Cache5mCreationCount: lastMetrics.Cache5mCreationCount,
+			Cache1hCreationCount: lastMetrics.Cache1hCreationCount,
 		})
 	}
 
-	// Extract and send response model
-	var modelVersion string
+	modelVersion := lastModelVersion
 	if claudeState != nil {
 		modelVersion = claudeState.GetModelVersion()
-	} else {
-		modelVersion = extractModelVersionFromSSE(upstreamSSE.String())
 	}
 	if modelVersion != "" {
 		eventChan.SendResponseModel(modelVersion)
@@ -1223,29 +1209,38 @@ func extractModelVersion(body []byte) string {
 func extractModelVersionFromSSE(sseContent string) string {
 	var lastModelVersion string
 	for _, line := range strings.Split(sseContent, "\n") {
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-
-		// Try direct format first: {"modelVersion": "..."}
-		var chunk struct {
-			ModelVersion string `json:"modelVersion"`
-		}
-		if err := json.Unmarshal([]byte(data), &chunk); err == nil && chunk.ModelVersion != "" {
-			lastModelVersion = chunk.ModelVersion
-			continue
-		}
-
-		// Try v1internal wrapper format: {"response": {"modelVersion": "..."}}
-		var wrapper struct {
-			Response struct {
-				ModelVersion string `json:"modelVersion"`
-			} `json:"response"`
-		}
-		if err := json.Unmarshal([]byte(data), &wrapper); err == nil && wrapper.Response.ModelVersion != "" {
-			lastModelVersion = wrapper.Response.ModelVersion
+		if modelVersion := extractModelVersionFromSSELine(line); modelVersion != "" {
+			lastModelVersion = modelVersion
 		}
 	}
 	return lastModelVersion
+}
+
+func extractModelVersionFromSSELine(line string) string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return ""
+	}
+
+	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if data == "" || data == "[DONE]" {
+		return ""
+	}
+
+	var chunk struct {
+		ModelVersion string `json:"modelVersion"`
+	}
+	if err := json.Unmarshal([]byte(data), &chunk); err == nil && chunk.ModelVersion != "" {
+		return chunk.ModelVersion
+	}
+
+	var wrapper struct {
+		Response struct {
+			ModelVersion string `json:"modelVersion"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal([]byte(data), &wrapper); err == nil && wrapper.Response.ModelVersion != "" {
+		return wrapper.Response.ModelVersion
+	}
+	return ""
 }

@@ -65,51 +65,52 @@ func extractFromSSE(body string) *Metrics {
 	var lastMetrics *Metrics
 
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		// Skip non-data lines
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-
-		// Extract JSON from data: prefix
-		jsonStr := strings.TrimPrefix(line, "data:")
-		jsonStr = strings.TrimSpace(jsonStr)
-
-		// Skip [DONE] marker
-		if jsonStr == "[DONE]" {
-			continue
-		}
-
-		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			continue
-		}
-
-		// Try to extract metrics from this event
-		metrics := extractUsageFromMap(data)
-		if metrics != nil && !metrics.IsEmpty() {
+		if metrics := ExtractFromSSELine(line); metrics != nil {
 			lastMetrics = metrics
 		}
+	}
 
-		// Claude SSE: Check for message_delta type which contains final usage
-		if eventType, ok := data["type"].(string); ok {
-			if eventType == "message_delta" {
-				if usage, ok := data["usage"].(map[string]interface{}); ok {
-					m := extractClaudeUsage(usage)
-					if m != nil && !m.IsEmpty() {
-						lastMetrics = m
-					}
+	return lastMetrics
+}
+
+// ExtractFromSSELine extracts usage metrics from a single SSE line.
+func ExtractFromSSELine(line string) *Metrics {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return nil
+	}
+
+	jsonStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if jsonStr == "" || jsonStr == "[DONE]" {
+		return nil
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		return nil
+	}
+
+	var lastMetrics *Metrics
+
+	if metrics := extractUsageFromMap(data); metrics != nil && !metrics.IsEmpty() {
+		lastMetrics = metrics
+	}
+
+	if eventType, ok := data["type"].(string); ok {
+		if eventType == "message_delta" {
+			if usage, ok := data["usage"].(map[string]interface{}); ok {
+				m := extractClaudeUsage(usage)
+				if m != nil && !m.IsEmpty() {
+					lastMetrics = m
 				}
 			}
-			// Codex SSE: Check for response.completed type which contains final usage
-			if eventType == "response.completed" {
-				if response, ok := data["response"].(map[string]interface{}); ok {
-					if usage, ok := response["usage"].(map[string]interface{}); ok {
-						m := extractOpenAIUsage(usage)
-						if m != nil && !m.IsEmpty() {
-							lastMetrics = m
-						}
+		}
+		if eventType == "response.completed" {
+			if response, ok := data["response"].(map[string]interface{}); ok {
+				if usage, ok := response["usage"].(map[string]interface{}); ok {
+					m := extractOpenAIUsage(usage)
+					if m != nil && !m.IsEmpty() {
+						lastMetrics = m
 					}
 				}
 			}
@@ -165,8 +166,9 @@ func extractUsageFromMap(data map[string]interface{}) *Metrics {
 
 // extractClaudeUsage extracts metrics from Claude/Anthropic usage format.
 // Example: { "input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 20,
-//            "cache_creation_input_tokens": 30, "cache_creation_5m_input_tokens": 10,
-//            "cache_creation_1h_input_tokens": 20 }
+//
+//	"cache_creation_input_tokens": 30, "cache_creation_5m_input_tokens": 10,
+//	"cache_creation_1h_input_tokens": 20 }
 func extractClaudeUsage(usage map[string]interface{}) *Metrics {
 	metrics := &Metrics{}
 

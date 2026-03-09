@@ -1,7 +1,6 @@
 package cliproxyapi_antigravity
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -192,9 +191,11 @@ func (a *CLIProxyAPIAntigravityAdapter) executeStream(c *flow.Ctx, w http.Respon
 	eventChan := flow.GetEventChan(c)
 
 	// Collect SSE content for token extraction
-	var sseBuffer bytes.Buffer
 	var streamErr error
 	firstChunkSent := false
+	receivedData := false
+	var lastMetrics *usage.Metrics
+	var lastModel string
 
 	for chunk := range stream.Chunks {
 		if chunk.Err != nil {
@@ -204,9 +205,15 @@ func (a *CLIProxyAPIAntigravityAdapter) executeStream(c *flow.Ctx, w http.Respon
 		}
 		if len(chunk.Payload) > 0 {
 			// Payload from executor already includes SSE delimiters (\n\n)
-			sseBuffer.Write(chunk.Payload)
 			_, _ = w.Write(chunk.Payload)
 			flusher.Flush()
+			receivedData = true
+			if metrics := usage.ExtractFromSSELine(string(chunk.Payload)); metrics != nil {
+				lastMetrics = metrics
+			}
+			if model := extractModelFromSSELine(string(chunk.Payload)); model != "" {
+				lastModel = model
+			}
 
 			// Report TTFT on first non-empty chunk
 			if !firstChunkSent && eventChan != nil {
@@ -217,33 +224,24 @@ func (a *CLIProxyAPIAntigravityAdapter) executeStream(c *flow.Ctx, w http.Respon
 	}
 
 	// Send final events
-	if eventChan != nil && sseBuffer.Len() > 0 {
-		// Send response info
-		eventChan.SendResponseInfo(&domain.ResponseInfo{
-			Status: http.StatusOK,
-			Body:   sseBuffer.String(),
-		})
-
-		// Extract and send token usage metrics
-		if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
+	if eventChan != nil {
+		if lastMetrics != nil {
 			eventChan.SendMetrics(&domain.AdapterMetrics{
-				InputTokens:          metrics.InputTokens,
-				OutputTokens:         metrics.OutputTokens,
-				CacheReadCount:       metrics.CacheReadCount,
-				CacheCreationCount:   metrics.CacheCreationCount,
-				Cache5mCreationCount: metrics.Cache5mCreationCount,
-				Cache1hCreationCount: metrics.Cache1hCreationCount,
+				InputTokens:          lastMetrics.InputTokens,
+				OutputTokens:         lastMetrics.OutputTokens,
+				CacheReadCount:       lastMetrics.CacheReadCount,
+				CacheCreationCount:   lastMetrics.CacheCreationCount,
+				Cache5mCreationCount: lastMetrics.Cache5mCreationCount,
+				Cache1hCreationCount: lastMetrics.Cache1hCreationCount,
 			})
 		}
-
-		// Extract and send response model
-		if model := extractModelFromSSE(sseBuffer.String()); model != "" {
-			eventChan.SendResponseModel(model)
+		if lastModel != "" {
+			eventChan.SendResponseModel(lastModel)
 		}
 	}
 
 	// If error occurred before any data was sent, return error to caller
-	if streamErr != nil && sseBuffer.Len() == 0 {
+	if streamErr != nil && !receivedData {
 		return domain.NewProxyErrorWithMessage(streamErr, true, fmt.Sprintf("stream chunk error: %v", streamErr))
 	}
 
@@ -265,19 +263,29 @@ func extractModelFromResponse(body []byte) string {
 func extractModelFromSSE(sseContent string) string {
 	var lastModel string
 	for line := range strings.SplitSeq(sseContent, "\n") {
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			continue
-		}
-		var chunk struct {
-			Model string `json:"model"`
-		}
-		if err := json.Unmarshal([]byte(data), &chunk); err == nil && chunk.Model != "" {
-			lastModel = chunk.Model
+		if model := extractModelFromSSELine(line); model != "" {
+			lastModel = model
 		}
 	}
 	return lastModel
+}
+
+func extractModelFromSSELine(line string) string {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return ""
+	}
+
+	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if data == "" || data == "[DONE]" {
+		return ""
+	}
+
+	var chunk struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(data), &chunk); err == nil && chunk.Model != "" {
+		return chunk.Model
+	}
+	return ""
 }
