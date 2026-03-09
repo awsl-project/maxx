@@ -10,8 +10,9 @@ interface AdminRouteProps {
 export function AdminRoute({ children }: AdminRouteProps) {
   const { t } = useTranslation();
   const { authEnabled, user, isLoading } = useAuth();
+  const isAdmin = !authEnabled || user?.role === 'admin';
 
-  if (isLoading || (authEnabled && !user)) {
+  if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <span className="text-muted-foreground">{t('common.loading')}</span>
@@ -19,7 +20,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
     );
   }
 
-  if (authEnabled && user.role !== 'admin') {
+  if (!isAdmin) {
     return <Navigate to="/" replace />;
   }
 
