@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,5 +181,84 @@ func TestWebSocketHub_BroadcastMessage_SendsSnapshot(t *testing.T) {
 	}
 	if got.A != 1 {
 		t.Fatalf("expected snapshot A=1, got %d", got.A)
+	}
+}
+
+func TestLoadLogRotationConfig_UsesDefaultsOnInvalidEnv(t *testing.T) {
+	t.Setenv(logMaxSizeEnv, "invalid")
+	t.Setenv(logMaxAgeEnv, "-5")
+	t.Setenv(logMaxBackupsEnv, "0")
+	t.Setenv(logCompressEnv, "definitely-not-bool")
+
+	cfg := loadLogRotationConfig()
+
+	if cfg.MaxSizeMB != defaultLogMaxSizeMB {
+		t.Fatalf("expected default max size %d, got %d", defaultLogMaxSizeMB, cfg.MaxSizeMB)
+	}
+	if cfg.MaxAgeDays != defaultLogMaxAgeDays {
+		t.Fatalf("expected default max age %d, got %d", defaultLogMaxAgeDays, cfg.MaxAgeDays)
+	}
+	if cfg.MaxBackups != defaultLogMaxBackups {
+		t.Fatalf("expected default max backups %d, got %d", defaultLogMaxBackups, cfg.MaxBackups)
+	}
+	if cfg.Compress != defaultLogCompress {
+		t.Fatalf("expected default compress %t, got %t", defaultLogCompress, cfg.Compress)
+	}
+}
+
+func TestWebSocketLogWriter_RotatesAndCompressesLogFile(t *testing.T) {
+	t.Setenv(logMaxSizeEnv, "1")
+	t.Setenv(logMaxBackupsEnv, "1")
+	t.Setenv(logMaxAgeEnv, "1")
+	t.Setenv(logCompressEnv, "true")
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "maxx.log")
+	hub := &WebSocketHub{
+		broadcast: make(chan WSMessage, 16),
+	}
+	writer := NewWebSocketLogWriter(hub, io.Discard, logPath)
+
+	chunk := []byte(strings.Repeat("x", 256*1024))
+	for i := 0; i < 10; i++ {
+		if _, err := writer.Write(chunk); err != nil {
+			t.Fatalf("write failed: %v", err)
+		}
+	}
+	if err := writer.logFile.Close(); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
+
+	matches, err := waitForGlob(filepath.Join(dir, "maxx-*.log.gz"), 3*time.Second)
+	if err != nil {
+		t.Fatalf("expected compressed rotated log: %v", err)
+	}
+	if len(matches) > 1 {
+		t.Fatalf("expected at most one rotated backup, got %d (%v)", len(matches), matches)
+	}
+
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("expected active log file to exist: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("expected active log file to contain recent log data")
+	}
+}
+
+func waitForGlob(pattern string, timeout time.Duration) ([]string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) > 0 {
+			return matches, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, os.ErrNotExist
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

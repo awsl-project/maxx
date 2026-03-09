@@ -16,6 +16,7 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/gorilla/websocket"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var upgrader = websocket.Upgrader{
@@ -39,6 +40,25 @@ type WebSocketHub struct {
 }
 
 const websocketWriteTimeout = 5 * time.Second
+
+const (
+	defaultLogMaxSizeMB  = 100
+	defaultLogMaxBackups = 7
+	defaultLogMaxAgeDays = 30
+	defaultLogCompress   = true
+
+	logMaxSizeEnv    = "MAXX_LOG_MAX_SIZE_MB"
+	logMaxAgeEnv     = "MAXX_LOG_MAX_AGE_DAYS"
+	logMaxBackupsEnv = "MAXX_LOG_MAX_BACKUPS"
+	logCompressEnv   = "MAXX_LOG_COMPRESS"
+)
+
+type logRotationConfig struct {
+	MaxSizeMB  int
+	MaxAgeDays int
+	MaxBackups int
+	Compress   bool
+}
 
 func NewWebSocketHub() *WebSocketHub {
 	hub := &WebSocketHub{
@@ -202,16 +222,15 @@ func (h *WebSocketHub) BroadcastLog(message string) {
 type WebSocketLogWriter struct {
 	hub      *WebSocketHub
 	stdout   io.Writer
-	logFile  *os.File
+	logFile  io.WriteCloser
 	filePath string
 }
 
 // NewWebSocketLogWriter creates a writer that broadcasts logs via WebSocket and writes to file
 func NewWebSocketLogWriter(hub *WebSocketHub, stdout io.Writer, logPath string) *WebSocketLogWriter {
-	// Open log file in append mode
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := newRotatingLogFile(logPath)
 	if err != nil {
-		log.Printf("Warning: Failed to open log file %s: %v", logPath, err)
+		log.Printf("Warning: Failed to initialize rotating log file %s: %v", logPath, err)
 	}
 
 	return &WebSocketLogWriter{
@@ -332,4 +351,73 @@ func countNewlines(chunks [][]byte) int {
 		}
 	}
 	return count
+}
+
+func newRotatingLogFile(logPath string) (io.WriteCloser, error) {
+	if strings.TrimSpace(logPath) == "" {
+		return nil, nil
+	}
+
+	cfg := loadLogRotationConfig()
+	logger := &lumberjack.Logger{
+		Filename:   logPath,
+		MaxSize:    cfg.MaxSizeMB,
+		MaxBackups: cfg.MaxBackups,
+		MaxAge:     cfg.MaxAgeDays,
+		Compress:   cfg.Compress,
+		LocalTime:  true,
+	}
+
+	return logger, nil
+}
+
+func loadLogRotationConfig() logRotationConfig {
+	cfg := logRotationConfig{
+		MaxSizeMB:  getEnvInt(logMaxSizeEnv, defaultLogMaxSizeMB),
+		MaxAgeDays: getEnvInt(logMaxAgeEnv, defaultLogMaxAgeDays),
+		MaxBackups: getEnvInt(logMaxBackupsEnv, defaultLogMaxBackups),
+		Compress:   getEnvBool(logCompressEnv, defaultLogCompress),
+	}
+
+	if cfg.MaxSizeMB <= 0 {
+		cfg.MaxSizeMB = defaultLogMaxSizeMB
+	}
+	if cfg.MaxAgeDays <= 0 {
+		cfg.MaxAgeDays = defaultLogMaxAgeDays
+	}
+	if cfg.MaxBackups <= 0 {
+		cfg.MaxBackups = defaultLogMaxBackups
+	}
+
+	return cfg
+}
+
+func getEnvInt(name string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		log.Printf("Warning: Invalid %s=%q, using default %d", name, value, fallback)
+		return fallback
+	}
+
+	return parsed
+}
+
+func getEnvBool(name string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		log.Printf("Warning: Invalid %s=%q, using default %t", name, value, fallback)
+		return fallback
+	}
+
+	return parsed
 }

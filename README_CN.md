@@ -244,6 +244,10 @@ codex
 | `MAXX_ADMIN_PASSWORD` | 启用管理员 JWT 认证。默认用户名：`admin`，密码为该变量的值 |
 | `MAXX_DSN` | 数据库连接字符串 |
 | `MAXX_DATA_DIR` | 自定义数据目录路径 |
+| `MAXX_LOG_MAX_SIZE_MB` | 单个 `maxx.log` 文件触发滚动前的最大大小（MB）。默认：`100` |
+| `MAXX_LOG_MAX_BACKUPS` | 保留的滚动日志备份数量上限。默认：`7` |
+| `MAXX_LOG_MAX_AGE_DAYS` | 滚动日志备份的最长保留天数。默认：`30` |
+| `MAXX_LOG_COMPRESS` | 是否对滚动后的日志备份进行 gzip 压缩。默认：`true` |
 
 ### 系统设置
 

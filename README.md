@@ -244,6 +244,10 @@ codex
 | `MAXX_ADMIN_PASSWORD` | Enable admin authentication with JWT. Default username: `admin`, password: the value of this variable |
 | `MAXX_DSN` | Database connection string |
 | `MAXX_DATA_DIR` | Custom data directory path |
+| `MAXX_LOG_MAX_SIZE_MB` | Maximum size of a single `maxx.log` file before rotation. Default: `100` |
+| `MAXX_LOG_MAX_BACKUPS` | Maximum number of rotated log backups to keep. Default: `7` |
+| `MAXX_LOG_MAX_AGE_DAYS` | Maximum age in days for rotated log backups. Default: `30` |
+| `MAXX_LOG_COMPRESS` | Compress rotated backups with gzip. Default: `true` |
 
 ### System Settings
 
