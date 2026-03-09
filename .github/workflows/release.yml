@@ -1,73 +1,117 @@
 name: Release
 
-run-name: Release ${{ inputs.version }}
+run-name: Release ${{ inputs.version || 'auto patch' }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号 (例如: v1.0.0)'
-        required: true
+        description: '版本号（例如 v1.0.0）；留空则按最新 tag 自动 Patch+1'
+        required: false
+        default: ''
         type: string
 
 jobs:
+  prepare:
+    name: Preview release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      latest_tag: ${{ steps.resolve.outputs.latest_tag }}
+      source: ${{ steps.resolve.outputs.source }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: resolve
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          ./.github/scripts/resolve-release-version.sh "$INPUT_VERSION"
+
+      - name: Show resolved version preview
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RESOLVED_VERSION: ${{ steps.resolve.outputs.version }}
+          LATEST_TAG: ${{ steps.resolve.outputs.latest_tag }}
+          SOURCE_MODE: ${{ steps.resolve.outputs.source }}
+        run: |
+          INPUT_DISPLAY="${INPUT_VERSION:-<empty>}"
+          LATEST_DISPLAY="${LATEST_TAG:-<none>}"
+
+          {
+            echo "## Release Version Preview"
+            echo
+            echo "- Input: \`$INPUT_DISPLAY\`"
+            echo "- Mode: \`$SOURCE_MODE\`"
+            echo "- Latest tag: \`$LATEST_DISPLAY\`"
+            echo "- Resolved version: \`$RESOLVED_VERSION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   release:
+    name: Create release ${{ needs.prepare.outputs.version }}
+    needs: prepare
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Validate version format
+      - name: Refresh tags
         run: |
-          if [[ ! "${{ inputs.version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: 版本号格式不正确，应为 vX.Y.Z"
-            exit 1
-          fi
-
-      - name: Check if tag exists
-        run: |
-          if git rev-parse "${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "Error: Tag ${{ inputs.version }} 已存在"
+          git fetch --tags origin
+          if git rev-parse "${{ needs.prepare.outputs.version }}" >/dev/null 2>&1; then
+            echo "Error: Tag ${{ needs.prepare.outputs.version }} 已存在"
             exit 1
           fi
 
       - name: Create tag
         run: |
-          git tag ${{ inputs.version }}
-          git push origin ${{ inputs.version }}
+          git tag ${{ needs.prepare.outputs.version }}
+          git push origin ${{ needs.prepare.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
-          name: ${{ inputs.version }}
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
           generate_release_notes: true
           draft: false
           prerelease: false
 
   build:
-    needs: release
+    needs:
+      - prepare
+      - release
     uses: ./.github/workflows/ci-docker-build.yml
     with:
-      tag: ${{ inputs.version }}
+      tag: ${{ needs.prepare.outputs.version }}
     permissions:
       contents: read
       packages: write
 
   wails-build:
-    needs: release
+    needs:
+      - prepare
+      - release
     uses: ./.github/workflows/ci-wails-build.yml
     with:
-      tag: ${{ inputs.version }}
+      tag: ${{ needs.prepare.outputs.version }}
     permissions:
       contents: write
 
   update-homebrew:
-    needs: wails-build
+    needs:
+      - prepare
+      - wails-build
     uses: ./.github/workflows/update-homebrew.yml
     with:
-      tag: ${{ inputs.version }}
+      tag: ${{ needs.prepare.outputs.version }}
     secrets:
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

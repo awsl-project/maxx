@@ -389,8 +389,9 @@ wails build
 1. Go to the repository's [Actions](../../actions) page
 2. Select the "Release" workflow
 3. Click "Run workflow"
-4. Enter the version number (e.g., `v1.0.0`)
-5. Click "Run workflow" to execute
+4. Enter the version number (e.g., `v1.0.0`), or leave it blank to auto-increment the latest tag by `Patch + 1`
+5. Review the resolved version preview in the workflow summary
+6. Click "Run workflow" to execute
 
 ### Local Script
 
