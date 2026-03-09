@@ -18,6 +18,7 @@ interface AuthContextValue {
   isLoading: boolean;
   authEnabled: boolean;
   user: AuthUser | null;
+  isAdmin: boolean;
   login: (token: string, user?: AuthUser) => void;
   logout: () => void;
 }
@@ -164,8 +165,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setIsAuthenticated(false);
   }, [transport]);
 
+  const isAdmin = !authEnabled || user?.role === 'admin';
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, authEnabled, user, login, logout }}>
+    <AuthContext.Provider
+      value={{ isAuthenticated, isLoading, authEnabled, user, isAdmin, login, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

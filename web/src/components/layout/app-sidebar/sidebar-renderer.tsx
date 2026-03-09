@@ -64,8 +64,7 @@ function MenuItemRenderer({ item }: { item: MenuItem }) {
  */
 export function SidebarRenderer({ config }: SidebarRendererProps) {
   const { t } = useTranslation();
-  const { user, authEnabled } = useAuth();
-  const isAdmin = !user || user.role === 'admin';
+  const { authEnabled, isAdmin } = useAuth();
 
   return (
     <>
