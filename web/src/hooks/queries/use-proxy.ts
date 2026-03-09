@@ -11,14 +11,19 @@ export const proxyKeys = {
   status: () => [...proxyKeys.all, 'status'] as const,
 };
 
+interface QueryRefreshOptions {
+  staleTime?: number;
+  refetchInterval?: number | false;
+}
+
 /**
  * 获取 Proxy 状态
- * 注意：maxx 的 proxy 总是运行的，不支持 start/stop
  */
-export function useProxyStatus() {
+export function useProxyStatus(options?: QueryRefreshOptions) {
   return useQuery({
     queryKey: proxyKeys.status(),
     queryFn: () => getTransport().getProxyStatus(),
-    staleTime: Infinity, // Proxy 状态不会变化
+    staleTime: options?.staleTime ?? 5000,
+    refetchInterval: options?.refetchInterval,
   });
 }

@@ -12,10 +12,17 @@ export const settingsKeys = {
   modelMappings: ['model-mappings'] as const,
 };
 
-export function useSettings() {
+interface QueryRefreshOptions {
+  staleTime?: number;
+  refetchInterval?: number | false;
+}
+
+export function useSettings(options?: QueryRefreshOptions) {
   return useQuery({
     queryKey: settingsKeys.all,
     queryFn: () => getTransport().getSettings(),
+    staleTime: options?.staleTime,
+    refetchInterval: options?.refetchInterval,
   });
 }
 

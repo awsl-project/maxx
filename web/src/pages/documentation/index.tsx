@@ -153,10 +153,23 @@ function DocumentationSection() {
   const [quickstartClient, setQuickstartClient] = useState<QuickstartClient>('claude');
   const [quickstartToken, setQuickstartToken] = useState('');
   const [quickstartProjectSlug, setQuickstartProjectSlug] = useState('');
-  const { data: proxyStatus } = useProxyStatus();
-  const { data: settings } = useSettings();
-  const { data: providers } = useProviders();
-  const { data: routes } = useRoutes();
+  const diagnosticsRefreshMs = 10000;
+  const { data: proxyStatus } = useProxyStatus({
+    staleTime: 5000,
+    refetchInterval: diagnosticsRefreshMs,
+  });
+  const { data: settings } = useSettings({
+    staleTime: 5000,
+    refetchInterval: diagnosticsRefreshMs,
+  });
+  const { data: providers } = useProviders({
+    staleTime: 5000,
+    refetchInterval: diagnosticsRefreshMs,
+  });
+  const { data: routes } = useRoutes({
+    staleTime: 5000,
+    refetchInterval: diagnosticsRefreshMs,
+  });
   const baseUrl = buildProxyBaseUrl(proxyStatus);
   const codexTemplate = useMemo(
     () => buildCodexConfigBundle({ token: 'maxx_your_token_here', baseUrl }),
@@ -218,12 +231,11 @@ function DocumentationSection() {
         label: t('documentation.diagnosticTokenFormat'),
         ok: tokenFormatOk,
         hint: t('documentation.diagnosticTokenFormatHint'),
-        detail:
-          tokenAuthEnabled
-            ? quickstartToken.trim() === ''
-              ? t('documentation.diagnosticTokenRequired')
-              : t('documentation.diagnosticTokenProvided')
-            : t('documentation.diagnosticTokenOptional'),
+        detail: tokenAuthEnabled
+          ? quickstartToken.trim() === ''
+            ? t('documentation.diagnosticTokenRequired')
+            : t('documentation.diagnosticTokenProvided')
+          : t('documentation.diagnosticTokenOptional'),
       },
     ],
     [
@@ -305,9 +317,7 @@ function DocumentationSection() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-semibold">
-                {t('documentation.projectSlugLabel')}
-              </label>
+              <label className="text-xs font-semibold">{t('documentation.projectSlugLabel')}</label>
               <Input
                 value={quickstartProjectSlug}
                 onChange={(event) => setQuickstartProjectSlug(event.target.value.trim())}
@@ -380,7 +390,9 @@ function DocumentationSection() {
               >
                 <div className="space-y-1">
                   <p className="text-sm font-medium">{item.label}</p>
-                  <p className="text-xs text-muted-foreground">{item.ok ? item.detail : item.hint}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.ok ? item.detail : item.hint}
+                  </p>
                 </div>
                 <Badge
                   variant="outline"
@@ -406,132 +418,138 @@ function DocumentationSection() {
       <Card className="border-border bg-card">
         <CardContent className="space-y-6 pt-6">
           <Tabs defaultValue="claude" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 h-12 p-1 bg-muted">
-            <TabsTrigger value="claude">
-              <div className="flex items-center justify-center gap-2">
-                <ClientIcon type="claude" size={16} className="shrink-0" />
-                <span className="leading-none">Claude Code</span>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger value="openai">
-              <div className="flex items-center justify-center gap-2">
-                <ClientIcon type="openai" size={16} className="shrink-0" />
-                <span className="leading-none">OpenAI</span>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger value="codex">
-              <div className="flex items-center justify-center gap-2">
-                <ClientIcon type="codex" size={16} className="shrink-0" />
-                <span className="leading-none">Codex CLI</span>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger value="gemini">
-              <div className="flex items-center justify-center gap-2">
-                <ClientIcon type="gemini" size={16} className="shrink-0" />
-                <span className="leading-none">Gemini</span>
-              </div>
-            </TabsTrigger>
-          </TabsList>
+            <TabsList className="grid w-full grid-cols-4 h-12 p-1 bg-muted">
+              <TabsTrigger value="claude">
+                <div className="flex items-center justify-center gap-2">
+                  <ClientIcon type="claude" size={16} className="shrink-0" />
+                  <span className="leading-none">Claude Code</span>
+                </div>
+              </TabsTrigger>
+              <TabsTrigger value="openai">
+                <div className="flex items-center justify-center gap-2">
+                  <ClientIcon type="openai" size={16} className="shrink-0" />
+                  <span className="leading-none">OpenAI</span>
+                </div>
+              </TabsTrigger>
+              <TabsTrigger value="codex">
+                <div className="flex items-center justify-center gap-2">
+                  <ClientIcon type="codex" size={16} className="shrink-0" />
+                  <span className="leading-none">Codex CLI</span>
+                </div>
+              </TabsTrigger>
+              <TabsTrigger value="gemini">
+                <div className="flex items-center justify-center gap-2">
+                  <ClientIcon type="gemini" size={16} className="shrink-0" />
+                  <span className="leading-none">Gemini</span>
+                </div>
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Claude Code CLI */}
-          <TabsContent value="claude" className="space-y-4 mt-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{t('documentation.claudeConfig')}</h3>
+            {/* Claude Code CLI */}
+            <TabsContent value="claude" className="space-y-4 mt-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">{t('documentation.claudeConfig')}</h3>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.claudeConfigDesc')}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">{t('documentation.claudeConfigDesc')}</p>
-            </div>
 
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.settingsJson')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.settingsJsonDesc')}</p>
-              <CodeBlock
-                code={`{
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.settingsJson')}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.settingsJsonDesc')}
+                </p>
+                <CodeBlock
+                  code={`{
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "your-api-key-here",
     "ANTHROPIC_BASE_URL": "${baseUrl}"
   }
 }`}
-                id="claude-settings"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
+                  id="claude-settings"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
 
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.shellFunction')}</h3>
-              <p className="text-xs text-muted-foreground">
-                {t('documentation.shellFunctionDesc')}
-              </p>
-              <CodeBlock
-                code={`claude_maxx() {
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.shellFunction')}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.shellFunctionDesc')}
+                </p>
+                <CodeBlock
+                  code={`claude_maxx() {
     export ANTHROPIC_BASE_URL="${baseUrl}"
     export ANTHROPIC_AUTH_TOKEN="your-api-key-here"
     claude "$@"
 }`}
-                id="claude-shell"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            {/* Token Authentication for Claude Code */}
-            <div className="pt-4 border-t border-border space-y-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
+                  id="claude-shell"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
               </div>
 
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenEnabledDesc')}
-                </p>
-                <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                  <p>{t('documentation.claudeTokenEnabledNote')}</p>
+              {/* Token Authentication for Claude Code */}
+              <div className="pt-4 border-t border-border space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <h3 className="text-sm font-semibold">
+                    {t('documentation.tokenAuthentication')}
+                  </h3>
+                </div>
+
+                <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                  <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenEnabledDesc')}
+                  </p>
+                  <div className="text-xs text-muted-foreground space-y-1 pl-2">
+                    <p>{t('documentation.claudeTokenEnabledNote')}</p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                  <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.claudeTokenDisabledNote')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenDisabledNote')}
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+                  <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                  <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                    <p className="font-medium">{t('documentation.tokenManagement')}</p>
+                    <p>{t('documentation.tokenManagementDesc')}</p>
+                  </div>
                 </div>
               </div>
+            </TabsContent>
 
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.claudeTokenDisabledNote')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledNote')}
-                </p>
-              </div>
-
-              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                  <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                  <p>{t('documentation.tokenManagementDesc')}</p>
+            {/* OpenAI API */}
+            <TabsContent value="openai" className="space-y-4 mt-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Code className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">{t('documentation.apiEndpoint')}</h3>
                 </div>
+                <CodeBlock
+                  code={`POST ${baseUrl}/v1/chat/completions`}
+                  id="openai-endpoint"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
               </div>
-            </div>
-          </TabsContent>
 
-          {/* OpenAI API */}
-          <TabsContent value="openai" className="space-y-4 mt-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Code className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{t('documentation.apiEndpoint')}</h3>
-              </div>
-              <CodeBlock
-                code={`POST ${baseUrl}/v1/chat/completions`}
-                id="openai-endpoint"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.requestExample')}</h3>
-              <CodeBlock
-                code={`curl -X POST ${baseUrl}/v1/chat/completions \\
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.requestExample')}</h3>
+                <CodeBlock
+                  code={`curl -X POST ${baseUrl}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer maxx_your_token_here" \\
   -d '{
@@ -540,164 +558,172 @@ function DocumentationSection() {
       {"role": "user", "content": "Hello, GPT!"}
     ]
   }'`}
-                id="openai-example"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.projectProxyDesc')}</p>
-              <CodeBlock
-                code={`POST ${baseUrl}/project/{project-slug}/v1/chat/completions`}
-                id="openai-project"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            {/* Token Authentication */}
-            <div className="pt-4 border-t border-border space-y-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
+                  id="openai-example"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
               </div>
 
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
                 <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenEnabledDesc')}
+                  {t('documentation.projectProxyDesc')}
                 </p>
-                <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                  <p>
-                    <strong>{t('documentation.requestHeader')}:</strong>{' '}
-                    <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                      Authorization: Bearer maxx_your_token_here
-                    </code>
+                <CodeBlock
+                  code={`POST ${baseUrl}/project/{project-slug}/v1/chat/completions`}
+                  id="openai-project"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+
+              {/* Token Authentication */}
+              <div className="pt-4 border-t border-border space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <h3 className="text-sm font-semibold">
+                    {t('documentation.tokenAuthentication')}
+                  </h3>
+                </div>
+
+                <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                  <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenEnabledDesc')}
+                  </p>
+                  <div className="text-xs text-muted-foreground space-y-1 pl-2">
+                    <p>
+                      <strong>{t('documentation.requestHeader')}:</strong>{' '}
+                      <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                        Authorization: Bearer maxx_your_token_here
+                      </code>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                  <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenDisabledDesc')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenDisabledNote')}
                   </p>
                 </div>
-              </div>
 
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledDesc')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledNote')}
-                </p>
-              </div>
-
-              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                  <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                  <p>{t('documentation.tokenManagementDesc')}</p>
+                <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+                  <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                  <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                    <p className="font-medium">{t('documentation.tokenManagement')}</p>
+                    <p>{t('documentation.tokenManagementDesc')}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          </TabsContent>
+            </TabsContent>
 
-          {/* Codex CLI */}
-          <TabsContent value="codex" className="space-y-4 mt-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{t('documentation.codexConfig')}</h3>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('documentation.codexConfigDesc')}</p>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.configToml')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.configTomlDesc')}</p>
-              <CodeBlock
-                code={codexTemplate.configToml}
-                id="codex-config"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.authJson')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
-              <CodeBlock
-                code={codexTemplate.authJson}
-                id="codex-auth"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.usage')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.codexUsageDesc')}</p>
-              <CodeBlock
-                code={`codex`}
-                id="codex-usage"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            {/* Token Authentication for Codex CLI */}
-            <div className="pt-4 border-t border-border space-y-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
-              </div>
-
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
+            {/* Codex CLI */}
+            <TabsContent value="codex" className="space-y-4 mt-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">{t('documentation.codexConfig')}</h3>
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenEnabledDesc')}
+                  {t('documentation.codexConfigDesc')}
                 </p>
-                <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                  <p>{t('documentation.codexTokenEnabledNote')}</p>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.configToml')}</h3>
+                <p className="text-xs text-muted-foreground">{t('documentation.configTomlDesc')}</p>
+                <CodeBlock
+                  code={codexTemplate.configToml}
+                  id="codex-config"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.authJson')}</h3>
+                <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
+                <CodeBlock
+                  code={codexTemplate.authJson}
+                  id="codex-auth"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.usage')}</h3>
+                <p className="text-xs text-muted-foreground">{t('documentation.codexUsageDesc')}</p>
+                <CodeBlock
+                  code={`codex`}
+                  id="codex-usage"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+
+              {/* Token Authentication for Codex CLI */}
+              <div className="pt-4 border-t border-border space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <h3 className="text-sm font-semibold">
+                    {t('documentation.tokenAuthentication')}
+                  </h3>
+                </div>
+
+                <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                  <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenEnabledDesc')}
+                  </p>
+                  <div className="text-xs text-muted-foreground space-y-1 pl-2">
+                    <p>{t('documentation.codexTokenEnabledNote')}</p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                  <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.codexTokenDisabledNote')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenDisabledNote')}
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+                  <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                  <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                    <p className="font-medium">{t('documentation.tokenManagement')}</p>
+                    <p>{t('documentation.tokenManagementDesc')}</p>
+                  </div>
                 </div>
               </div>
+            </TabsContent>
 
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.codexTokenDisabledNote')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledNote')}
-                </p>
-              </div>
-
-              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                  <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                  <p>{t('documentation.tokenManagementDesc')}</p>
+            {/* Gemini API */}
+            <TabsContent value="gemini" className="space-y-4 mt-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Code className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">{t('documentation.apiEndpoint')}</h3>
                 </div>
+                <CodeBlock
+                  code={`POST ${baseUrl}/v1beta/models/{model}:generateContent`}
+                  id="gemini-endpoint"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
               </div>
-            </div>
-          </TabsContent>
 
-          {/* Gemini API */}
-          <TabsContent value="gemini" className="space-y-4 mt-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Code className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{t('documentation.apiEndpoint')}</h3>
-              </div>
-              <CodeBlock
-                code={`POST ${baseUrl}/v1beta/models/{model}:generateContent`}
-                id="gemini-endpoint"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.requestExample')}</h3>
-              <CodeBlock
-                code={`curl -X POST ${baseUrl}/v1beta/models/gemini-pro:generateContent \\
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.requestExample')}</h3>
+                <CodeBlock
+                  code={`curl -X POST ${baseUrl}/v1beta/models/gemini-pro:generateContent \\
   -H "Content-Type: application/json" \\
   -H "x-goog-api-key: maxx_your_token_here" \\
   -d '{
@@ -705,67 +731,71 @@ function DocumentationSection() {
       "parts": [{"text": "Hello, Gemini!"}]
     }]
   }'`}
-                id="gemini-example"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.projectProxyDesc')}</p>
-              <CodeBlock
-                code={`POST ${baseUrl}/{project-slug}/v1beta/models/{model}:generateContent`}
-                id="gemini-project"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            {/* Token Authentication */}
-            <div className="pt-4 border-t border-border space-y-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
+                  id="gemini-example"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
               </div>
 
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
                 <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenEnabledDesc')}
+                  {t('documentation.projectProxyDesc')}
                 </p>
-                <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                  <p>
-                    <strong>{t('documentation.requestHeader')}:</strong>{' '}
-                    <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                      x-goog-api-key: maxx_your_token_here
-                    </code>
+                <CodeBlock
+                  code={`POST ${baseUrl}/{project-slug}/v1beta/models/{model}:generateContent`}
+                  id="gemini-project"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+
+              {/* Token Authentication */}
+              <div className="pt-4 border-t border-border space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <h3 className="text-sm font-semibold">
+                    {t('documentation.tokenAuthentication')}
+                  </h3>
+                </div>
+
+                <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                  <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenEnabledDesc')}
+                  </p>
+                  <div className="text-xs text-muted-foreground space-y-1 pl-2">
+                    <p>
+                      <strong>{t('documentation.requestHeader')}:</strong>{' '}
+                      <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                        x-goog-api-key: maxx_your_token_here
+                      </code>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                  <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenDisabledDesc')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenDisabledNote')}
                   </p>
                 </div>
-              </div>
 
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledDesc')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledNote')}
-                </p>
-              </div>
-
-              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                  <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                  <p>{t('documentation.tokenManagementDesc')}</p>
+                <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+                  <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                  <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                    <p className="font-medium">{t('documentation.tokenManagement')}</p>
+                    <p>{t('documentation.tokenManagementDesc')}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   );
 }

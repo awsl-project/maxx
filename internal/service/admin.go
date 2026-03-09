@@ -3,7 +3,9 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -519,24 +521,79 @@ func (s *AdminService) GetProxyStatus(r *http.Request) *ProxyStatus {
 		displayAddr = "localhost:" + strconv.Itoa(port)
 	}
 
-	// 从 displayAddr 中解析端口（用于 Port 字段）
-	port := 80 // 默认 HTTP 端口
-	if _, portStr, err := net.SplitHostPort(displayAddr); err == nil {
-		// 地址包含端口
-		if p, err := strconv.Atoi(portStr); err == nil {
-			port = p
-		}
-		// displayAddr 保持 host:port 格式不变
-	}
-	// else: 地址不包含端口，说明是标准端口 80，displayAddr 保持原样
+	port := portFromAddress(displayAddr, defaultPortForRequest(r))
+	healthPort := portFromAddress(s.serverAddr, port)
+	running := checkHealthEndpoint(healthCheckHost(s.serverAddr), healthPort)
 
 	return &ProxyStatus{
-		Running: true,
+		Running: running,
 		Address: displayAddr,
 		Port:    port,
 		Version: version.Version,
 		Commit:  version.Commit,
 	}
+}
+
+func defaultPortForRequest(r *http.Request) int {
+	if forwardedProto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwardedProto != "" {
+		if strings.EqualFold(forwardedProto, "https") {
+			return 443
+		}
+		return 80
+	}
+	if r.TLS != nil {
+		return 443
+	}
+	return 80
+}
+
+func portFromAddress(addr string, fallback int) int {
+	if addr == "" {
+		return fallback
+	}
+	if _, portStr, err := net.SplitHostPort(addr); err == nil {
+		if port, convErr := strconv.Atoi(portStr); convErr == nil {
+			return port
+		}
+	}
+	return fallback
+}
+
+func healthCheckHost(serverAddr string) string {
+	host, _, err := net.SplitHostPort(serverAddr)
+	if err != nil {
+		return "127.0.0.1"
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return "127.0.0.1"
+	}
+	return host
+}
+
+func checkHealthEndpoint(host string, port int) bool {
+	if port <= 0 {
+		return false
+	}
+
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := client.Get(fmt.Sprintf("http://%s:%d/health", host, port))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 256)).Decode(&payload); err != nil {
+		return false
+	}
+	return strings.EqualFold(payload.Status, "ok")
 }
 
 // ===== Logs API =====
@@ -708,7 +765,7 @@ func (s *AdminService) ResetModelMappingsToDefaults(tenantID uint64) error {
 // GetAvailableClientTypes returns all available client types for model mapping
 func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 	return []domain.ClientType{
-		"",                       // Empty means applies to all
+		"", // Empty means applies to all
 		domain.ClientTypeClaude,
 		domain.ClientTypeOpenAI,
 		domain.ClientTypeGemini,
@@ -776,11 +833,11 @@ type RecalculateCostsResult struct {
 
 // RecalculateCostsProgress represents progress update for cost recalculation
 type RecalculateCostsProgress struct {
-	Phase       string `json:"phase"`       // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
-	Current     int    `json:"current"`     // Current item being processed
-	Total       int    `json:"total"`       // Total items to process
-	Percentage  int    `json:"percentage"`  // 0-100
-	Message     string `json:"message"`     // Human-readable message
+	Phase      string `json:"phase"`      // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
+	Current    int    `json:"current"`    // Current item being processed
+	Total      int    `json:"total"`      // Total items to process
+	Percentage int    `json:"percentage"` // 0-100
+	Message    string `json:"message"`    // Human-readable message
 }
 
 // RecalculateCosts recalculates cost for all attempts using the current price table

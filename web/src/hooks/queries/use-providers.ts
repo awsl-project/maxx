@@ -16,11 +16,18 @@ export const providerKeys = {
   stats: () => [...providerKeys.all, 'stats'] as const,
 };
 
+interface QueryRefreshOptions {
+  staleTime?: number;
+  refetchInterval?: number | false;
+}
+
 // 获取所有 Providers
-export function useProviders() {
+export function useProviders(options?: QueryRefreshOptions) {
   return useQuery({
     queryKey: providerKeys.list(),
     queryFn: () => getTransport().getProviders(),
+    staleTime: options?.staleTime,
+    refetchInterval: options?.refetchInterval,
   });
 }
 

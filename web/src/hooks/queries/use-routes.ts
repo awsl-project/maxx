@@ -14,11 +14,18 @@ export const routeKeys = {
   detail: (id: number) => [...routeKeys.details(), id] as const,
 };
 
+interface QueryRefreshOptions {
+  staleTime?: number;
+  refetchInterval?: number | false;
+}
+
 // 获取所有 Routes
-export function useRoutes() {
+export function useRoutes(options?: QueryRefreshOptions) {
   return useQuery({
     queryKey: routeKeys.list(),
     queryFn: () => getTransport().getRoutes(),
+    staleTime: options?.staleTime,
+    refetchInterval: options?.refetchInterval,
   });
 }
 
