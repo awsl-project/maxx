@@ -90,7 +90,18 @@
     "logout": "退出登录",
     "users": "用户管理",
     "changePassword": "修改密码",
-    "managePasskeys": "管理 Passkey"
+    "managePasskeys": "管理 Passkey",
+    "accountOverview": "资料概览",
+    "securityCenter": "安全中心",
+    "switchAccount": "切换账号",
+    "exitApp": "退出应用",
+    "authDisabled": "免认证模式",
+    "currentIdentity": "当前身份",
+    "tenant": "租户",
+    "role": "角色",
+    "sensitiveMasked": "敏感信息已脱敏展示，用于快速识别当前身份。",
+    "openSettings": "打开设置",
+    "manageUsers": "管理用户"
   },
   "dashboard": {
     "title": "仪表板",

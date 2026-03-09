@@ -10,17 +10,26 @@ import {
   Github,
   ChevronsUp,
   RefreshCw,
-  LogOut,
   KeyRound,
   Loader2,
   Plus,
   ShieldAlert,
   Trash2,
+  CircleUserRound,
+  ArrowLeftRight,
+  Building2,
+  BadgeCheck,
+  IdCard,
+  Settings2,
+  ShieldCheck,
+  Power,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
 import { useTransport } from '@/lib/transport/context';
 import { useAuth } from '@/lib/auth-context';
+import { getAuthUserDisplay } from '@/lib/auth-user-display';
 import {
   useChangeMyPassword,
   useDeletePasskeyCredential,
@@ -30,6 +39,7 @@ import {
 import type { Theme } from '@/lib/theme';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
+  Badge,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -59,6 +69,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { SidebarMenu, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
 
 export function NavUser() {
+  const navigate = useNavigate();
   const { isMobile, state } = useSidebar();
   const { t, i18n } = useTranslation();
   const { transport } = useTransport();
@@ -68,6 +79,7 @@ export function NavUser() {
   const isCollapsed = !isMobile && state === 'collapsed';
 
   const [showPasskeyDialog, setShowPasskeyDialog] = useState(false);
+  const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [passkeyError, setPasskeyError] = useState('');
   const [deletingPasskeyID, setDeletingPasskeyID] = useState<string | null>(null);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
@@ -105,6 +117,13 @@ export function NavUser() {
         go?: { desktop?: { LauncherApp?: { RestartServer?: () => unknown } } };
       }
     ).go?.desktop?.LauncherApp?.RestartServer;
+  const desktopQuitAvailable =
+    typeof window !== 'undefined' &&
+    !!(
+      window as unknown as {
+        go?: { desktop?: { LauncherApp?: { Quit?: () => unknown } } };
+      }
+    ).go?.desktop?.LauncherApp?.Quit;
 
   const handleToggleLanguage = () => {
     i18n.changeLanguage(currentLanguage === 'zh' ? 'en' : 'zh');
@@ -131,6 +150,22 @@ export function NavUser() {
       if (typeof window !== 'undefined') {
         window.alert(t('nav.restartServerFailed'));
       }
+    }
+  };
+
+  const handleQuitApp = async () => {
+    if (!desktopQuitAvailable) {
+      return;
+    }
+    try {
+      const launcher = (
+        window as unknown as {
+          go?: { desktop?: { LauncherApp?: { Quit?: () => Promise<void> } } };
+        }
+      ).go?.desktop?.LauncherApp;
+      await launcher?.Quit?.();
+    } catch (error) {
+      console.error('Quit app failed:', error);
     }
   };
 
@@ -192,51 +227,59 @@ export function NavUser() {
     }
   };
 
-  const username = user?.username?.trim() || '';
-  const hasUsername = username.length > 0;
-  const displayUser = {
-    name: username,
-    avatar: '/logo.png',
+  const displayUser = getAuthUserDisplay(user);
+  const menuDisplayName = displayUser.maskedIdentity;
+  const roleLabel = user
+    ? user.role === 'admin'
+      ? t('users.roleAdmin')
+      : t('users.roleMember')
+    : t('common.unknown');
+  const accountStatusLabel = authEnabled ? t('users.statusActive') : t('nav.authDisabled');
+  const accountTitle = `${displayUser.maskedIdentity} · ${displayUser.tenantLabel}`;
+  const detailLine = `${displayUser.tenantLabel} · ${displayUser.userLabel}`;
+  const securityAvailable = authEnabled;
+
+  const openUsersPage = () => {
+    navigate('/users');
+    setShowAccountDialog(false);
   };
-  const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
-  const menuDisplayName = displayUser.name || 'Maxx';
-  const menuDisplayFallback = menuDisplayName.slice(0, 2).toUpperCase();
-  const accountTitle = hasUsername ? displayUser.name : undefined;
+
+  const openSettingsPage = () => {
+    navigate('/settings');
+    setShowAccountDialog(false);
+  };
 
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <div
-          className={cn(
-            'flex items-center gap-2 rounded-xl border border-sidebar-border/70 bg-sidebar/70 p-1.5 backdrop-blur-sm',
-            isCollapsed ? 'flex-col' : 'justify-between',
-          )}
+          className="rounded-xl border border-sidebar-border/70 bg-sidebar/70 p-1.5 backdrop-blur-sm space-y-1.5"
         >
-          <a
-            href="https://github.com/awsl-project/maxx"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            title="GitHub"
-          >
-            <Github className="h-4 w-4" />
-          </a>
+          <div className={cn('flex items-center gap-2', isCollapsed ? 'justify-center' : 'justify-between')}>
+            <a
+              href="https://github.com/awsl-project/maxx"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              title="GitHub"
+            >
+              <Github className="h-4 w-4" />
+            </a>
 
-          <button
-            type="button"
-            onClick={handleToggleLanguage}
-            title={`${t('nav.language')}: ${currentLanguageLabel}`}
-            className={cn(
-              'inline-flex items-center rounded-full border border-sidebar-border/70 bg-sidebar-accent/40 p-0.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-              isCollapsed ? 'h-8 w-8 justify-center' : 'h-8 px-1 gap-1',
-            )}
-          >
-            {isCollapsed ? (
-              <span className="text-[11px] font-semibold uppercase">
-                {currentLanguage === 'zh' ? '中' : 'EN'}
-              </span>
-            ) : (
-              <>
+            <button
+              type="button"
+              onClick={handleToggleLanguage}
+              title={`${t('nav.language')}: ${currentLanguageLabel}`}
+              className={cn(
+                'inline-flex items-center rounded-full border border-sidebar-border/70 bg-sidebar-accent/40 p-0.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                isCollapsed ? 'h-8 w-8 justify-center' : 'h-8 gap-1 px-1',
+              )}
+            >
+              {isCollapsed ? (
+                <span className="text-[11px] font-semibold uppercase">
+                  {currentLanguage === 'zh' ? '中' : 'EN'}
+                </span>
+              ) : (
                 <span className="inline-flex items-center rounded-full bg-sidebar/70 p-0.5">
                   <span
                     className={cn(
@@ -259,52 +302,71 @@ export function NavUser() {
                     EN
                   </span>
                 </span>
-              </>
-            )}
-          </button>
+              )}
+            </button>
+          </div>
 
-          {hasUsername &&
-            (isCollapsed ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={(props) => (
-                    <button
-                      {...props}
-                      type="button"
-                      className={cn(
-                        'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-                        props.className,
-                      )}
-                    >
-                      <Avatar className="h-6 w-6 rounded-lg">
-                        <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                        <AvatarFallback className="rounded-lg text-[10px]">
-                          {displayUserFallback}
-                        </AvatarFallback>
-                      </Avatar>
-                    </button>
-                  )}
-                />
-                <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
-                  <span className="text-xs font-medium">{displayUser.name}</span>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <div
-                className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
-                title={accountTitle}
-              >
-                <Avatar className="h-6 w-6 rounded-lg">
-                  <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                  <AvatarFallback className="rounded-lg text-[10px]">
-                    {displayUserFallback}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <span className="block truncate text-xs font-medium">{displayUser.name}</span>
+          {isCollapsed ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={(props) => (
+                  <button
+                    {...props}
+                    type="button"
+                    title={accountTitle}
+                    className={cn(
+                      'flex w-full items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 py-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                      props.className,
+                    )}
+                  >
+                    <Avatar className="h-8 w-8 rounded-lg">
+                      <AvatarImage src="/logo.png" alt={menuDisplayName} />
+                      <AvatarFallback className="rounded-lg text-[10px]">
+                        {displayUser.avatarFallback}
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                )}
+              />
+              <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold">{displayUser.maskedIdentity}</p>
+                  <p className="text-[11px] text-muted-foreground">{detailLine}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {roleLabel} · {accountStatusLabel}
+                  </p>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div
+              className="flex min-w-0 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 py-2"
+              title={accountTitle}
+            >
+              <Avatar className="h-9 w-9 rounded-lg">
+                <AvatarImage src="/logo.png" alt={menuDisplayName} />
+                <AvatarFallback className="rounded-lg text-[10px]">
+                  {displayUser.avatarFallback}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-semibold">
+                  {displayUser.maskedIdentity}
+                </span>
+                <span className="block truncate text-[11px] text-sidebar-foreground/65">
+                  {detailLine}
+                </span>
+                <div className="mt-1 flex items-center gap-1">
+                  <Badge variant={authEnabled ? 'success' : 'secondary'} className="h-4 px-1.5 text-[10px]">
+                    {accountStatusLabel}
+                  </Badge>
+                  <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+                    {roleLabel}
+                  </Badge>
                 </div>
               </div>
-            ))}
+            </div>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -315,6 +377,7 @@ export function NavUser() {
                   title="Menu"
                   className={cn(
                     'inline-flex h-8 w-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                    !isCollapsed && 'w-full border border-sidebar-border/70 bg-sidebar-accent/15',
                     props.className,
                   )}
                 >
@@ -323,8 +386,7 @@ export function NavUser() {
               )}
             />
             <DropdownMenuContent
-              className="!w-32 rounded-lg max-w-xs !min-w-0"
-              style={{ width: '8rem' }}
+              className="!w-64 rounded-lg !min-w-0"
               side={isMobile ? 'bottom' : 'right'}
               align="end"
               sideOffset={4}
@@ -333,22 +395,70 @@ export function NavUser() {
                 <DropdownMenuLabel>
                   <div className="flex items-center gap-2 w-full">
                     <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
-                      <AvatarFallback className="rounded-lg">{menuDisplayFallback}</AvatarFallback>
+                      <AvatarImage src="/logo.png" alt={menuDisplayName} />
+                      <AvatarFallback className="rounded-lg">{displayUser.avatarFallback}</AvatarFallback>
                     </Avatar>
-                    <div className="grid flex-1 text-left text-sm leading-tight">
+                    <div className="grid flex-1 text-left leading-tight">
                       <span className="truncate font-medium">{menuDisplayName}</span>
-                      {user && (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
-                          {user.tenantName && ` · ${user.tenantName}`}
-                        </span>
-                      )}
+                      <span className="truncate text-xs text-muted-foreground">
+                        {roleLabel} · {accountStatusLabel}
+                      </span>
+                      <span className="truncate text-xs text-muted-foreground">{detailLine}</span>
                     </div>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
               </DropdownMenuGroup>
+              <DropdownMenuGroup>
+                <DropdownMenuItem onClick={() => setShowAccountDialog(true)}>
+                  <CircleUserRound />
+                  <span>{t('nav.accountOverview')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <ShieldCheck />
+                    <span>{t('nav.securityCenter')}</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent>
+                      {securityAvailable && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setPasskeyError('');
+                            setPasskeySuccess('');
+                            setShowPasskeyDialog(true);
+                          }}
+                        >
+                          <ShieldAlert />
+                          <span>{t('nav.managePasskeys')}</span>
+                        </DropdownMenuItem>
+                      )}
+                      {securityAvailable && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setPasswordForm({
+                              oldPassword: '',
+                              newPassword: '',
+                              confirmPassword: '',
+                            });
+                            setPasswordError('');
+                            setPasswordSuccess('');
+                            setShowPasswordDialog(true);
+                          }}
+                        >
+                          <KeyRound />
+                          <span>{t('nav.changePassword')}</span>
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem onClick={openSettingsPage}>
+                        <Settings2 />
+                        <span>{t('nav.settings')}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
@@ -401,57 +511,86 @@ export function NavUser() {
                   </DropdownMenuPortal>
                 </DropdownMenuSub>
               </DropdownMenuGroup>
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleRestartServer}>
-                  <RefreshCw />
-                  <span>{t('nav.restartServer')}</span>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleRestartServer}>
+                <RefreshCw />
+                <span>{t('nav.restartServer')}</span>
+              </DropdownMenuItem>
+              {authEnabled && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    logout();
+                  }}
+                >
+                  <ArrowLeftRight />
+                  <span>{t('nav.switchAccount')}</span>
                 </DropdownMenuItem>
-              </>
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setPasskeyError('');
-                      setPasskeySuccess('');
-                      setShowPasskeyDialog(true);
-                    }}
-                  >
-                    <ShieldAlert />
-                    <span>{t('nav.managePasskeys')}</span>
-                  </DropdownMenuItem>
-                </>
               )}
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
-                      setPasswordError('');
-                      setPasswordSuccess('');
-                      setShowPasswordDialog(true);
-                    }}
-                  >
-                    <KeyRound />
-                    <span>{t('nav.changePassword')}</span>
-                  </DropdownMenuItem>
-                </>
-              )}
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>
-                    <LogOut />
-                    <span>{t('nav.logout')}</span>
-                  </DropdownMenuItem>
-                </>
+              {desktopQuitAvailable && (
+                <DropdownMenuItem onClick={handleQuitApp} variant="destructive">
+                  <Power />
+                  <span>{t('nav.exitApp')}</span>
+                </DropdownMenuItem>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </SidebarMenuItem>
+
+      <Dialog open={showAccountDialog} onOpenChange={setShowAccountDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('nav.accountOverview')}</DialogTitle>
+            <DialogDescription>{t('nav.sensitiveMasked')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <CircleUserRound className="h-3.5 w-3.5" />
+                  <span>{t('nav.currentIdentity')}</span>
+                </div>
+                <p className="text-sm font-semibold">{displayUser.maskedIdentity}</p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <BadgeCheck className="h-3.5 w-3.5" />
+                  <span>{t('common.status')}</span>
+                </div>
+                <p className="text-sm font-semibold">{accountStatusLabel}</p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <Building2 className="h-3.5 w-3.5" />
+                  <span>{t('nav.tenant')}</span>
+                </div>
+                <p className="text-sm font-semibold">{displayUser.tenantLabel}</p>
+                <p className="text-xs text-muted-foreground">{displayUser.tenantIDLabel}</p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <IdCard className="h-3.5 w-3.5" />
+                  <span>{t('nav.role')}</span>
+                </div>
+                <p className="text-sm font-semibold">{roleLabel}</p>
+                <p className="text-xs text-muted-foreground">{displayUser.userLabel}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={openSettingsPage}>
+                <Settings2 className="mr-2 h-4 w-4" />
+                {t('nav.openSettings')}
+              </Button>
+              {user?.role === 'admin' && (
+                <Button variant="outline" onClick={openUsersPage}>
+                  <CircleUserRound className="mr-2 h-4 w-4" />
+                  {t('nav.manageUsers')}
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Change Password Dialog */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>

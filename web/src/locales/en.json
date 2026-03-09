@@ -90,7 +90,18 @@
     "logout": "Log out",
     "users": "Users",
     "changePassword": "Change Password",
-    "managePasskeys": "Manage Passkeys"
+    "managePasskeys": "Manage Passkeys",
+    "accountOverview": "Account Overview",
+    "securityCenter": "Security Center",
+    "switchAccount": "Switch Account",
+    "exitApp": "Exit App",
+    "authDisabled": "Auth Disabled",
+    "currentIdentity": "Current Identity",
+    "tenant": "Tenant",
+    "role": "Role",
+    "sensitiveMasked": "Sensitive details are masked for quick identity recognition.",
+    "openSettings": "Open Settings",
+    "manageUsers": "Manage Users"
   },
   "dashboard": {
     "title": "Dashboard",

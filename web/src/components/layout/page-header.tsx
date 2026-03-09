@@ -3,6 +3,7 @@ import type { ReactNode, ReactElement } from 'react';
 import { isValidElement } from 'react';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { useAuth } from '@/lib/auth-context';
+import { getAuthUserDisplay } from '@/lib/auth-user-display';
 import { useTranslation } from 'react-i18next';
 
 interface PageHeaderProps {
@@ -24,8 +25,8 @@ export function PageHeader({
 }: PageHeaderProps) {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const accountName = user?.username?.trim() || '';
-  const shouldShowAccount = accountName.length > 0;
+  const accountDisplay = getAuthUserDisplay(user);
+  const shouldShowAccount = Boolean(user);
   const hasActions = actions !== null && actions !== undefined && actions !== false;
   const hasChildren = children !== null && children !== undefined && children !== false;
 
@@ -46,9 +47,15 @@ export function PageHeader({
       {(shouldShowAccount || hasActions || hasChildren) && (
         <div className="flex items-center gap-2 flex-wrap">
           {shouldShowAccount && (
-            <div className="inline-flex h-8 max-w-full items-center gap-1 rounded-full border border-border bg-secondary/40 px-3 text-xs font-medium text-foreground">
+            <div
+              className="inline-flex h-8 max-w-full items-center gap-1 rounded-full border border-border bg-secondary/40 px-3 text-xs font-medium text-foreground"
+              title={`${accountDisplay.maskedIdentity} · ${accountDisplay.tenantLabel}`}
+            >
               <span className="text-muted-foreground">{t('nav.account')}:</span>
-              <span className="max-w-[12rem] truncate">{accountName}</span>
+              <span className="max-w-[10rem] truncate">{accountDisplay.maskedIdentity}</span>
+              <span className="hidden max-w-[10rem] truncate text-muted-foreground md:inline">
+                · {accountDisplay.tenantLabel}
+              </span>
             </div>
           )}
           {actions}
