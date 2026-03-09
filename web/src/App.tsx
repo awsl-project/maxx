@@ -28,7 +28,7 @@ import { AuthProvider, useAuth } from '@/lib/auth-context';
 
 function AppRoutes() {
   const { t } = useTranslation();
-  const { isAuthenticated, isLoading, login } = useAuth();
+  const { isAuthenticated, isLoading, authEnabled, login } = useAuth();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -77,14 +77,16 @@ function AppRoutes() {
           <Route path="routing-strategies" element={<RoutingStrategiesPage />} />
           <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
-          <Route
-            path="users"
-            element={
-              <AdminRoute>
-                <UsersPage />
-              </AdminRoute>
-            }
-          />
+          {authEnabled && (
+            <Route
+              path="users"
+              element={
+                <AdminRoute>
+                  <UsersPage />
+                </AdminRoute>
+              }
+            />
+          )}
         </Route>
       </Routes>
     </BrowserRouter>
