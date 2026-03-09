@@ -19,7 +19,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
     );
   }
 
-  if (authEnabled && user.role !== 'admin') {
+  if (authEnabled && user?.role !== 'admin') {
     return <Navigate to="/" replace />;
   }
 
