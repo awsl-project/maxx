@@ -26,3 +26,26 @@ func TestWriteError(t *testing.T) {
 		t.Fatalf("payload = %v, want error message", payload)
 	}
 }
+
+func TestIsCodexCompactionEligiblePath(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/responses", want: true},
+		{path: "/v1/responses", want: false},
+		{path: "/v1/chat/completions", want: false},
+		{path: "/messages", want: false},
+		{path: "/responses/", want: false},
+		{path: "/v1/responses/", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := isCodexCompactionEligiblePath(tt.path)
+			if got != tt.want {
+				t.Errorf("path %q eligible = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
