@@ -35,24 +35,27 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
           node-version: "22"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          package_json_file: web/package.json
 
       - name: Build frontend
         working-directory: web
         env:
           VITE_COMMIT: ${{ github.sha }}
         run: |
-          pnpm install
+          pnpm install --frozen-lockfile
           pnpm build
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
+          cache-dependency-path: go.sum
           go-version-file: go.mod
 
       - name: Cross-compile Go binaries
@@ -92,7 +95,14 @@ jobs:
           file: Dockerfile.ci
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.image.outputs.tag }}
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:latest

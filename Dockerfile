@@ -1,18 +1,22 @@
+# syntax=docker/dockerfile:1.7
+
 # Multi-stage build for maxx
 
 # Stage 1: Build frontend
 FROM node:22-alpine AS frontend-builder
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
 
 WORKDIR /app/web
 
 # Copy frontend package files
-COPY web/package.json ./
+COPY web/package.json web/pnpm-lock.yaml ./
 
 # Install frontend dependencies
-RUN pnpm install
+RUN --mount=type=cache,target=/pnpm/store \
+    sh -c 'pnpm config set store-dir /pnpm/store && pnpm install --frozen-lockfile'
 
 # Copy frontend source
 COPY web/ ./
@@ -35,7 +39,8 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # Download dependencies
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY cmd/ ./cmd/
@@ -47,7 +52,9 @@ ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 
 # Build backend binary with version info
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w \
     -X github.com/awsl-project/maxx/internal/version.Version=${VERSION} \
     -X github.com/awsl-project/maxx/internal/version.Commit=${COMMIT} \

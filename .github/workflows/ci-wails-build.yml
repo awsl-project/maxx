@@ -13,6 +13,9 @@ on:
 permissions:
   contents: write
 
+env:
+  WAILS_VERSION: v2.11.0
+
 jobs:
   build-macos:
     name: Build macOS
@@ -27,10 +30,13 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
+          cache-dependency-path: go.sum
           go-version-file: go.mod
 
       - uses: actions/setup-node@v4
         with:
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
           node-version: "22"
 
       - uses: pnpm/action-setup@v4
@@ -38,10 +44,10 @@ jobs:
           package_json_file: web/package.json
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Install frontend dependencies
-        run: cd web && pnpm install
+        run: cd web && pnpm install --frozen-lockfile
 
       - name: Build frontend
         run: cd web && pnpm build
@@ -111,10 +117,13 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
+          cache-dependency-path: go.sum
           go-version-file: go.mod
 
       - uses: actions/setup-node@v4
         with:
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
           node-version: "22"
 
       - uses: pnpm/action-setup@v4
@@ -122,10 +131,10 @@ jobs:
           package_json_file: web/package.json
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Install frontend dependencies
-        run: cd web && pnpm install
+        run: cd web && pnpm install --frozen-lockfile
 
       - name: Build frontend
         run: cd web && pnpm build
@@ -178,10 +187,13 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
+          cache-dependency-path: go.sum
           go-version-file: go.mod
 
       - uses: actions/setup-node@v4
         with:
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
           node-version: "22"
 
       - name: Install Linux Build Dependencies
@@ -198,10 +210,10 @@ jobs:
           package_json_file: web/package.json
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Install frontend dependencies
-        run: cd web && pnpm install
+        run: cd web && pnpm install --frozen-lockfile
 
       - name: Build frontend
         run: cd web && pnpm build
