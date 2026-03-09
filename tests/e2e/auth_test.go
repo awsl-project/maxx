@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -291,6 +292,37 @@ func TestApply_DuplicateUsername(t *testing.T) {
 		"password": "password2",
 	})
 	AssertStatus(t, resp, http.StatusConflict)
+}
+
+func TestApply_ReusesDeletedUsername(t *testing.T) {
+	env := NewTestEnv(t)
+
+	resp := env.AdminPost("/api/admin/users", map[string]any{
+		"username": "reusable-user",
+		"password": "password1",
+		"role":     "member",
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	id := created["id"].(float64)
+
+	resp = env.AdminDelete(fmt.Sprintf("/api/admin/users/%d", int(id)))
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = env.UnauthPost("/api/admin/auth/apply", map[string]string{
+		"username": "reusable-user",
+		"password": "password2",
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+	if result["success"] != true {
+		t.Fatalf("Expected success=true after reusing deleted username, got %v", result["success"])
+	}
 }
 
 func TestChangePassword_WrongOldPassword(t *testing.T) {
