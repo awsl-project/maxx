@@ -501,6 +501,18 @@ async function sendCodexRequest(apiToken, body) {
 
   await adminAPI('PUT', `/routes/${route5.id}`, { ...route5, isEnabled: false }, jwt);
 
+  // ===== Cleanup =====
+  console.log('\n--- Cleanup: Deleting test providers and routes ---');
+  const routeIds = [route1.id, route2.id, route3.id, route5.id];
+  const providerIds = [provider1.id, provider2.id, provider3.id, provider5.id];
+  for (const id of routeIds) {
+    try { await adminAPI('DELETE', `/routes/${id}`, null, jwt); } catch {}
+  }
+  for (const id of providerIds) {
+    try { await adminAPI('DELETE', `/providers/${id}`, null, jwt); } catch {}
+  }
+  console.log('✅ Cleanup completed');
+
   // ===== Summary =====
   console.log(`\n===== All Tests ${exitCode === 0 ? 'PASSED' : 'FAILED'} =====`);
   mockServer.close();

@@ -5,6 +5,7 @@
   "scripts": {
     "test": "node test-passkey-discoverable.mjs && node test-requests-project-filter.mjs && node test-stats-chart-resize.mjs && node test-codex-reasoning-servicetier.mjs",
     "test:codex-overrides": "node test-codex-reasoning-servicetier.mjs",
+    "test:codex-overrides:headed": "HEADED=1 node test-codex-reasoning-servicetier.mjs",
     "test:passkey": "node test-passkey-discoverable.mjs",
     "test:project-filter": "node test-requests-project-filter.mjs",
     "test:stats-chart": "node test-stats-chart-resize.mjs",

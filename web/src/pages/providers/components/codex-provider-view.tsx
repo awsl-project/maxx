@@ -663,9 +663,9 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
                   className="h-8 px-2 text-sm rounded-md border border-border bg-card text-foreground min-w-[120px]"
                 >
                   <option value="">{t('providers.codex.followRequest')}</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
+                  <option value="low">{t('providers.codex.reasoningLow')}</option>
+                  <option value="medium">{t('providers.codex.reasoningMedium')}</option>
+                  <option value="high">{t('providers.codex.reasoningHigh')}</option>
                 </select>
               </div>
 
@@ -685,10 +685,10 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
                   className="h-8 px-2 text-sm rounded-md border border-border bg-card text-foreground min-w-[120px]"
                 >
                   <option value="">{t('providers.codex.followRequest')}</option>
-                  <option value="auto">Auto</option>
-                  <option value="default">Default</option>
-                  <option value="flex">Flex</option>
-                  <option value="priority">Priority</option>
+                  <option value="auto">{t('providers.codex.serviceTierAuto')}</option>
+                  <option value="default">{t('providers.codex.serviceTierDefault')}</option>
+                  <option value="flex">{t('providers.codex.serviceTierFlex')}</option>
+                  <option value="priority">{t('providers.codex.serviceTierPriority')}</option>
                 </select>
               </div>
             </div>

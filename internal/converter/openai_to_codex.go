@@ -36,7 +36,7 @@ func (c *openaiToCodexRequest) Transform(body []byte, model string, stream bool)
 	} else {
 		out, _ = sjson.Set(out, "reasoning.effort", "medium")
 	}
-	if v := gjson.GetBytes(rawJSON, "service_tier"); v.Exists() {
+	if v := gjson.GetBytes(rawJSON, "service_tier"); v.Exists() && v.String() != "" {
 		out, _ = sjson.Set(out, "service_tier", v.Value())
 	}
 	out, _ = sjson.Set(out, "parallel_tool_calls", true)

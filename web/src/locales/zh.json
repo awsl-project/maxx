@@ -279,7 +279,14 @@
       "reasoningDesc": "强制覆盖所有请求的推理强度级别",
       "serviceTier": "服务等级",
       "serviceTierDesc": "强制覆盖所有请求的服务等级",
-      "followRequest": "跟随请求"
+      "followRequest": "跟随请求",
+      "reasoningLow": "低",
+      "reasoningMedium": "中",
+      "reasoningHigh": "高",
+      "serviceTierAuto": "自动",
+      "serviceTierDefault": "默认",
+      "serviceTierFlex": "弹性",
+      "serviceTierPriority": "优先"
     },
     "projectId": "项目 ID",
     "endpoint": "端点",
