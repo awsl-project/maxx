@@ -18,11 +18,22 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Prepare embedded frontend assets
+        run: |
+          mkdir -p web/dist
+          touch web/dist/.keep
+
+      - name: Install ineffassign
+        run: go install github.com/gordonklaus/ineffassign@v0.2.0
+
+      - name: Run ineffassign
+        run: $(go env GOPATH)/bin/ineffassign ./...
+
       - name: Run go vet
-        run: go vet ./internal/... ./cmd/...
+        run: go vet ./...
 
       - name: Run unit tests
-        run: go test -v -count=1 -timeout 600s ./internal/... ./cmd/...
+        run: go test -v -count=1 -timeout 600s ./...
 
       - name: Build backend binary
         run: |
