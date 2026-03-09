@@ -223,6 +223,21 @@ func TestAuthHandler_PasskeyCredentialList(t *testing.T) {
 	}
 }
 
+func TestAuthHandler_PasskeyCredentialListWithCookie(t *testing.T) {
+	user := newPasskeyTestUser(t)
+	handler, token, _ := newPasskeyHandlerAndToken(t, user)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/auth/passkey/credentials", nil)
+	req.AddCookie(&http.Cookie{Name: AuthCookieName, Value: token})
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
 func TestAuthHandler_PasskeyCredentialDelete(t *testing.T) {
 	user := newPasskeyTestUser(t)
 	handler, token, userRepo := newPasskeyHandlerAndToken(t, user)

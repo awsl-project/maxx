@@ -699,7 +699,6 @@ export interface AuthStatus {
 
 export interface AuthLoginResult {
   success: boolean;
-  token?: string;
   user?: {
     id: number;
     username: string;
@@ -743,7 +742,6 @@ export interface PasskeyCredential {
 
 export interface AuthRegisterResult {
   success: boolean;
-  token?: string;
   user?: {
     id: number;
     username: string;

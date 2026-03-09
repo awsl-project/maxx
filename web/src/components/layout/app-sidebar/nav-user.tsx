@@ -442,7 +442,11 @@ export function NavUser() {
               {authEnabled && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      void logout();
+                    }}
+                  >
                     <LogOut />
                     <span>{t('nav.logout')}</span>
                   </DropdownMenuItem>

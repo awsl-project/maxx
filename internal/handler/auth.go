@@ -18,6 +18,10 @@ const (
 	AdminPasswordEnvKey = "MAXX_ADMIN_PASSWORD"
 	// AuthHeader is the header name for JWT authentication
 	AuthHeader = "Authorization"
+	// AuthCookieName is the HttpOnly cookie used for admin authentication
+	AuthCookieName = "maxx_admin_auth"
+	// AuthCookiePath scopes the admin auth cookie to admin API endpoints
+	AuthCookiePath = "/api/admin"
 	// TokenExpiry is the JWT token expiry duration
 	TokenExpiry = 7 * 24 * time.Hour // 7 days
 	// SettingKeyJWTSecret is the system setting key for JWT signing secret
@@ -109,18 +113,87 @@ func (m *AuthMiddleware) ValidateToken(tokenString string) (*MAXXClaims, bool) {
 	return claims, true
 }
 
+func extractBearerToken(authHeader string) string {
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+}
+
+func isHTTPSRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+
+	proto := strings.TrimSpace(strings.ToLower(r.Header.Get("X-Forwarded-Proto")))
+	if proto == "" {
+		return false
+	}
+	if idx := strings.Index(proto, ","); idx >= 0 {
+		proto = strings.TrimSpace(proto[:idx])
+	}
+	return proto == "https"
+}
+
+func (m *AuthMiddleware) tokenFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if token := extractBearerToken(r.Header.Get(AuthHeader)); token != "" {
+		return token
+	}
+	cookie, err := r.Cookie(AuthCookieName)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cookie.Value)
+}
+
+func (m *AuthMiddleware) ClaimsFromRequest(r *http.Request) (*MAXXClaims, bool) {
+	if m == nil {
+		return nil, false
+	}
+	token := m.tokenFromRequest(r)
+	if token == "" {
+		return nil, false
+	}
+	return m.ValidateToken(token)
+}
+
+func (m *AuthMiddleware) SetAuthCookie(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     AuthCookieName,
+		Value:    token,
+		Path:     AuthCookiePath,
+		HttpOnly: true,
+		Secure:   isHTTPSRequest(r),
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(TokenExpiry.Seconds()),
+		Expires:  time.Now().Add(TokenExpiry),
+	})
+}
+
+func (m *AuthMiddleware) ClearAuthCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     AuthCookieName,
+		Value:    "",
+		Path:     AuthCookiePath,
+		HttpOnly: true,
+		Secure:   isHTTPSRequest(r),
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+	})
+}
+
 // Wrap wraps a handler with JWT authentication and injects tenant context.
 // All requests must provide a valid JWT token.
 func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get(AuthHeader)
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			writeUnauthorized(w)
-			return
-		}
-
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		claims, valid := m.ValidateToken(token)
+		claims, valid := m.ClaimsFromRequest(r)
 		if !valid {
 			writeUnauthorized(w)
 			return

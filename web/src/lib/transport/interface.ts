@@ -123,7 +123,12 @@ export interface Transport {
 
   // ===== ProxyRequest API (只读) =====
   getProxyRequests(params?: CursorPaginationParams): Promise<CursorPaginationResult<ProxyRequest>>;
-  getProxyRequestsCount(providerId?: number, status?: string, apiTokenId?: number, projectId?: number): Promise<number>;
+  getProxyRequestsCount(
+    providerId?: number,
+    status?: string,
+    apiTokenId?: number,
+    projectId?: number,
+  ): Promise<number>;
   getActiveProxyRequests(): Promise<ProxyRequest[]>;
   getProxyRequest(id: number): Promise<ProxyRequest>;
   getProxyUpstreamAttempts(proxyRequestId: number): Promise<ProxyUpstreamAttempt[]>;
@@ -210,8 +215,7 @@ export interface Transport {
   register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
   apply(username: string, password: string): Promise<ApplyResult>;
   changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
-  setAuthToken(token: string): void;
-  clearAuthToken(): void;
+  logout(): Promise<void>;
 
   // ===== User API =====
   getUsers(): Promise<User[]>;

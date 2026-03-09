@@ -46,6 +46,8 @@ func (h *AuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch path {
 	case "/login":
 		h.handleLogin(w, r)
+	case "/logout":
+		h.handleLogout(w, r)
 	case "/register":
 		h.handleRegister(w, r)
 	case "/apply":
@@ -120,6 +122,7 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to generate token"})
 		return
 	}
+	h.authMiddleware.SetAuthCookie(w, r, token)
 
 	// Update last login time
 	now := time.Now()
@@ -136,7 +139,6 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
-		"token":   token,
 		"user": map[string]any{
 			"id":         user.ID,
 			"username":   user.Username,
@@ -156,14 +158,9 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Require authenticated admin user
-	authHeader := r.Header.Get(AuthHeader)
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
-		return
-	}
-	claims, valid := h.authMiddleware.ValidateToken(strings.TrimPrefix(authHeader, "Bearer "))
+	claims, valid := h.authMiddleware.ClaimsFromRequest(r)
 	if !valid {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 		return
 	}
 	if claims.Role != string(domain.UserRoleAdmin) {
@@ -211,16 +208,8 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate token
-	token, err := h.authMiddleware.GenerateToken(user)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to generate token"})
-		return
-	}
-
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"success": true,
-		"token":   token,
 		"user": map[string]any{
 			"id":       user.ID,
 			"username": user.Username,
@@ -277,6 +266,21 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleLogout clears the auth cookie
+// POST /admin/auth/logout
+func (h *AuthHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if h.authMiddleware != nil {
+		h.authMiddleware.ClearAuthCookie(w, r)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
 // handleChangePassword handles self-service password change
 // PUT /admin/auth/password
 func (h *AuthHandler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
@@ -286,14 +290,9 @@ func (h *AuthHandler) handleChangePassword(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Require authenticated user (manual token validation since this is under /admin/auth/)
-	authHeader := r.Header.Get(AuthHeader)
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
-		return
-	}
-	claims, valid := h.authMiddleware.ValidateToken(strings.TrimPrefix(authHeader, "Bearer "))
+	claims, valid := h.authMiddleware.ClaimsFromRequest(r)
 	if !valid {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 		return
 	}
 
@@ -354,10 +353,8 @@ func (h *AuthHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If authenticated, return user info
-	authHeader := r.Header.Get(AuthHeader)
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if claims, valid := h.authMiddleware.ValidateToken(token); valid {
+	if h.authMiddleware != nil {
+		if claims, valid := h.authMiddleware.ClaimsFromRequest(r); valid {
 			userInfo := map[string]any{
 				"id":       claims.UserID,
 				"tenantID": claims.TenantID,

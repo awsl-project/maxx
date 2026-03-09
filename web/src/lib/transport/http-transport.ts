@@ -79,7 +79,6 @@ export class HttpTransport implements Transport {
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectPromise: Promise<void> | null = null;
-  private authToken: string | null = null;
   private manualDisconnect = false;
   private connectTimeoutMs = 5000;
 
@@ -94,17 +93,10 @@ export class HttpTransport implements Transport {
 
     this.client = axios.create({
       baseURL: this.config.baseURL,
+      withCredentials: true,
       headers: {
         'Content-Type': 'application/json',
       },
-    });
-
-    // Add request interceptor to include auth header
-    this.client.interceptors.request.use((config) => {
-      if (this.authToken) {
-        config.headers['Authorization'] = `Bearer ${this.authToken}`;
-      }
-      return config;
     });
   }
 
@@ -621,7 +613,7 @@ export class HttpTransport implements Transport {
   }
 
   async login(username: string, password: string): Promise<AuthLoginResult> {
-    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/login', {
+    const { data } = await this.client.post<AuthLoginResult>('/auth/login', {
       username,
       password,
     });
@@ -629,8 +621,8 @@ export class HttpTransport implements Transport {
   }
 
   async startPasskeyLogin(username?: string): Promise<PasskeyLoginOptionsResult> {
-    const { data } = await axios.post<PasskeyLoginOptionsResult>(
-      '/api/admin/auth/passkey/login/options',
+    const { data } = await this.client.post<PasskeyLoginOptionsResult>(
+      '/auth/passkey/login/options',
       { username: username || '' },
     );
     return data;
@@ -640,7 +632,7 @@ export class HttpTransport implements Transport {
     sessionID: string,
     credential: AuthenticationResponseJSON,
   ): Promise<AuthLoginResult> {
-    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/passkey/login/verify', {
+    const { data } = await this.client.post<AuthLoginResult>('/auth/passkey/login/verify', {
       sessionID,
       credential,
     });
@@ -681,7 +673,7 @@ export class HttpTransport implements Transport {
     password: string,
     tenantID?: number,
   ): Promise<AuthRegisterResult> {
-    const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', {
+    const { data } = await this.client.post<AuthRegisterResult>('/auth/register', {
       username,
       password,
       tenantID,
@@ -702,12 +694,8 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  setAuthToken(token: string): void {
-    this.authToken = token;
-  }
-
-  clearAuthToken(): void {
-    this.authToken = null;
+  async logout(): Promise<void> {
+    await this.client.post('/auth/logout');
   }
 
   // ===== User API =====

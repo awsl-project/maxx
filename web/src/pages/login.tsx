@@ -7,7 +7,7 @@ import { useTransport } from '@/lib/transport';
 import type { AuthUser } from '@/lib/auth-context';
 
 interface LoginPageProps {
-  onSuccess: (token: string, user?: AuthUser) => void;
+  onSuccess: (user?: AuthUser) => void;
 }
 
 export function LoginPage({ onSuccess }: LoginPageProps) {
@@ -30,7 +30,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
     try {
       const result = await transport.login(username, password);
-      if (result.success && result.token) {
+      if (result.success) {
         const user: AuthUser | undefined = result.user
           ? {
               id: result.user.id,
@@ -40,7 +40,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               role: result.user.role,
             }
           : undefined;
-        onSuccess(result.token, user);
+        onSuccess(user);
       } else {
         if (result.error === 'account pending approval') {
           setError(t('login.pendingApproval'));
@@ -49,7 +49,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         }
       }
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string }, status?: number } };
+      const axiosError = err as { response?: { data?: { error?: string }; status?: number } };
       const errorMsg = axiosError?.response?.data?.error;
       if (errorMsg === 'account pending approval') {
         setError(t('login.pendingApproval'));
@@ -112,11 +112,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
       const asseResp = await startAuthentication({ optionsJSON: beginResult.options! });
 
-      const finishResult = await transport.finishPasskeyLogin(
-        beginResult.sessionID,
-        asseResp,
-      );
-      if (finishResult.success && finishResult.token) {
+      const finishResult = await transport.finishPasskeyLogin(beginResult.sessionID, asseResp);
+      if (finishResult.success) {
         const user: AuthUser | undefined = finishResult.user
           ? {
               id: finishResult.user.id,
@@ -126,12 +123,12 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               role: finishResult.user.role,
             }
           : undefined;
-        onSuccess(finishResult.token, user);
+        onSuccess(user);
         return;
       }
       setError(finishResult.error || t('login.passkeyLoginFailed'));
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string }, status?: number } };
+      const axiosError = err as { response?: { data?: { error?: string }; status?: number } };
       const errorMsg = axiosError?.response?.data?.error;
       if (errorMsg === 'account pending approval') {
         setError(t('login.pendingApproval'));
@@ -191,7 +188,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               type="button"
               variant="ghost"
               className="w-full"
-              onClick={() => { setMode('login'); setError(''); }}
+              onClick={() => {
+                setMode('login');
+                setError('');
+              }}
             >
               {t('login.backToLogin')}
             </Button>
@@ -209,9 +209,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       <div className="w-full max-w-sm space-y-6 p-6">
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-bold">{t('login.title')}</h1>
-          <p className="text-muted-foreground text-sm">
-            {t('login.descriptionMultiUser')}
-          </p>
+          <p className="text-muted-foreground text-sm">{t('login.descriptionMultiUser')}</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -232,7 +230,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               disabled={isLoading}
             />
             {error && <p className="text-destructive text-sm">{error}</p>}
-            {successMessage && <p className="text-green-600 dark:text-green-400 text-sm">{successMessage}</p>}
+            {successMessage && (
+              <p className="text-green-600 dark:text-green-400 text-sm">{successMessage}</p>
+            )}
           </div>
 
           <Button type="submit" className="w-full" disabled={isSubmitDisabled}>
@@ -255,7 +255,11 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
             type="button"
             variant="ghost"
             className="w-full"
-            onClick={() => { setMode('register'); setError(''); setSuccessMessage(''); }}
+            onClick={() => {
+              setMode('register');
+              setError('');
+              setSuccessMessage('');
+            }}
           >
             {t('login.register')}
           </Button>

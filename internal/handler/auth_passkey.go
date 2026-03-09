@@ -574,6 +574,7 @@ func (h *AuthHandler) handlePasskeyLoginVerify(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to generate token"})
 		return
 	}
+	h.authMiddleware.SetAuthCookie(w, r, token)
 
 	var tenantName string
 	if tenant, err := h.tenantRepo.GetByID(user.TenantID); err == nil {
@@ -582,7 +583,6 @@ func (h *AuthHandler) handlePasskeyLoginVerify(w http.ResponseWriter, r *http.Re
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
-		"token":   token,
 		"user": map[string]any{
 			"id":         user.ID,
 			"username":   user.Username,
@@ -599,15 +599,9 @@ func (h *AuthHandler) getAuthenticatedPasskeyUser(w http.ResponseWriter, r *http
 		return nil, false
 	}
 
-	authHeader := r.Header.Get(AuthHeader)
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
-		return nil, false
-	}
-
-	claims, valid := h.authMiddleware.ValidateToken(strings.TrimPrefix(authHeader, "Bearer "))
+	claims, valid := h.authMiddleware.ClaimsFromRequest(r)
 	if !valid {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 		return nil, false
 	}
 
