@@ -342,12 +342,14 @@ export MAXX_DSN="postgres://maxx:secret@127.0.0.1:5432/maxx?sslmode=disable"
 <details>
 <summary>🛠️ Development Setup</summary>
 
+Use `Node.js 22.14.0` with `pnpm 10.7.0` (for example via `corepack enable`).
+
 ### Server Mode (Browser)
 
 **Build frontend first:**
 ```bash
 cd web
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build
 ```
 

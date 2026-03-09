@@ -342,6 +342,8 @@ export MAXX_DSN="postgres://maxx:secret@127.0.0.1:5432/maxx?sslmode=disable"
 <details>
 <summary>🛠️ 开发环境设置</summary>
 
+请固定使用 `Node.js 22.14.0` 与 `pnpm 10.7.0`（例如先执行 `corepack enable`）。
+
 ### 国内镜像设置（中国大陆用户推荐）
 
 ```bash
@@ -357,7 +359,7 @@ pnpm config set registry https://registry.npmmirror.com
 **先构建前端：**
 ```bash
 cd web
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build
 ```
 

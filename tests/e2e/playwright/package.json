@@ -2,6 +2,7 @@
   "name": "maxx-e2e-playwright",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.7.0",
   "scripts": {
     "test": "node test-passkey-discoverable.mjs && node test-requests-project-filter.mjs && node test-stats-chart-resize.mjs",
     "test:passkey": "node test-passkey-discoverable.mjs",

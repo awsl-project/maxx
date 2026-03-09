@@ -31,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: .node-version
 
       - uses: pnpm/action-setup@v4
         with:
@@ -41,7 +41,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Install frontend dependencies
-        run: cd web && pnpm install
+        run: cd web && pnpm install --frozen-lockfile
 
       - name: Build frontend
         run: cd web && pnpm build
@@ -115,7 +115,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: .node-version
 
       - uses: pnpm/action-setup@v4
         with:
@@ -125,7 +125,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Install frontend dependencies
-        run: cd web && pnpm install
+        run: cd web && pnpm install --frozen-lockfile
 
       - name: Build frontend
         run: cd web && pnpm build
@@ -182,7 +182,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: .node-version
 
       - name: Install Linux Build Dependencies
         run: |
@@ -201,7 +201,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
       - name: Install frontend dependencies
-        run: cd web && pnpm install
+        run: cd web && pnpm install --frozen-lockfile
 
       - name: Build frontend
         run: cd web && pnpm build

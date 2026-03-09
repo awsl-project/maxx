@@ -20,15 +20,15 @@ jobs:
       - name: Build frontend
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          package_json_file: web/package.json
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version-file: .node-version
 
       - name: Install and build web
         working-directory: web
-        run: pnpm install && pnpm build
+        run: pnpm install --frozen-lockfile && pnpm build
 
       - name: Build server
         run: go build -o maxx ./cmd/maxx
@@ -65,12 +65,12 @@ jobs:
       - name: Install Playwright dependencies
         working-directory: tests/e2e/playwright
         run: |
-          npm install
-          npx playwright install chromium --with-deps
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install chromium --with-deps
 
       - name: Run Playwright tests
         working-directory: tests/e2e/playwright
-        run: npm test
+        run: pnpm test
 
       - name: Upload screenshots on failure
         if: failure()
