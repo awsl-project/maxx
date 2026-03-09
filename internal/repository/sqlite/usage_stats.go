@@ -18,27 +18,77 @@ type UsageStatsRepository struct {
 	db *DB
 }
 
+type resolvedTimezone struct {
+	identifier string
+	location   *time.Location
+}
+
 func NewUsageStatsRepository(db *DB) *UsageStatsRepository {
 	return &UsageStatsRepository{db: db}
 }
 
-// getConfiguredTimezone 获取配置的时区，默认 Asia/Shanghai
-func (r *UsageStatsRepository) getConfiguredTimezone() *time.Location {
+// resolveTimezone 获取用于统计聚合的时区。
+// 优先使用系统配置；未配置或配置无效时，跟随部署环境时区；最后回退到 UTC。
+func (r *UsageStatsRepository) resolveTimezone() resolvedTimezone {
 	var value string
 	err := r.db.gorm.Table("system_settings").
-		Where("key = ?", domain.SettingKeyTimezone).
+		Where("setting_key = ?", domain.SettingKeyTimezone).
 		Pluck("value", &value).Error
-	if err != nil || value == "" {
-		value = "Asia/Shanghai" // 默认时区
+	value = strings.TrimSpace(value)
+
+	if err == nil && value != "" {
+		loc, loadErr := time.LoadLocation(value)
+		if loadErr == nil {
+			return resolvedTimezone{
+				identifier: value,
+				location:   loc,
+			}
+		}
+		log.Printf("[UsageStats] Invalid configured timezone %q, falling back to deployment timezone: %v", value, loadErr)
 	}
 
-	loc, err := time.LoadLocation(value)
-	if err != nil {
-		log.Printf("[UsageStats] Invalid timezone %q, falling back to UTC+8: %v", value, err)
-		// 手动创建 UTC+8 时区作为 fallback（避免 Docker 容器无 tzdata 导致 panic）
-		loc = time.FixedZone("UTC+8", 8*60*60)
+	if loc := time.Local; loc != nil {
+		now := time.Now().In(loc)
+		return resolvedTimezone{
+			identifier: formatTimezoneIdentifier(loc, now),
+			location:   loc,
+		}
 	}
-	return loc
+
+	return resolvedTimezone{
+		identifier: "UTC",
+		location:   time.UTC,
+	}
+}
+
+func formatTimezoneIdentifier(loc *time.Location, now time.Time) string {
+	if loc == nil {
+		return "UTC"
+	}
+
+	name := strings.TrimSpace(loc.String())
+	if name != "" && name != "Local" {
+		if _, err := time.LoadLocation(name); err == nil {
+			return name
+		}
+	}
+
+	_, offset := now.Zone()
+	if offset == 0 {
+		return "UTC"
+	}
+	return formatUTCOffset(offset)
+}
+
+func formatUTCOffset(offsetSeconds int) string {
+	sign := '+'
+	if offsetSeconds < 0 {
+		sign = '-'
+		offsetSeconds = -offsetSeconds
+	}
+	hours := offsetSeconds / 3600
+	minutes := (offsetSeconds % 3600) / 60
+	return fmt.Sprintf("UTC%c%02d:%02d", sign, hours, minutes)
 }
 
 // Upsert 更新或插入统计记录
@@ -154,7 +204,7 @@ func (r *UsageStatsRepository) queryHistorical(tenantID uint64, filter repositor
 //   - 1月17日 10:00-10:28: usage_stats (granularity='minute')
 //   - 1月17日 10:29-10:30: proxy_upstream_attempts (实时)
 func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	loc := r.getConfiguredTimezone()
+	loc := r.resolveTimezone().location
 	now := time.Now().In(loc)
 	currentBucket := stats.TruncateToGranularity(now, filter.Granularity, loc)
 	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
@@ -568,7 +618,7 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(tenantID uint64, startMin
 	}
 
 	// 使用配置的时区进行分钟聚合
-	loc := r.getConfiguredTimezone()
+	loc := r.resolveTimezone().location
 	return stats.AggregateAttempts(records, loc), nil
 }
 
@@ -817,7 +867,7 @@ func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType stri
 // 返回扁平的 UsageStats 列表，调用者可自行聚合
 // 如果 filter.EndTime 在 2 分钟之前，说明是纯历史查询，直接使用预聚合数据
 func (r *UsageStatsRepository) queryAllWithRealtime(tenantID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	loc := r.getConfiguredTimezone()
+	loc := r.resolveTimezone().location
 	now := time.Now().In(loc)
 	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
 	currentDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
@@ -1052,7 +1102,7 @@ func (r *UsageStatsRepository) aggregateMinute(tenantID uint64) (count int, star
 	}
 
 	// 使用配置的时区进行分钟聚合
-	loc := r.getConfiguredTimezone()
+	loc := r.resolveTimezone().location
 	statsList := stats.AggregateAttempts(records, loc)
 
 	if len(statsList) == 0 {
@@ -1125,7 +1175,7 @@ func (r *UsageStatsRepository) rollUp(tenantID uint64, from, to domain.Granulari
 	// 对于 day 及以上粒度，使用配置的时区，否则使用 UTC
 	loc := time.UTC
 	if to == domain.GranularityDay || to == domain.GranularityMonth {
-		loc = r.getConfiguredTimezone()
+		loc = r.resolveTimezone().location
 	}
 
 	// 计算当前时间桶
@@ -1191,7 +1241,7 @@ func (r *UsageStatsRepository) RollUpAllWithProgress(tenantID uint64, from, to d
 	// 对于 day 及以上粒度，使用配置的时区，否则使用 UTC
 	loc := time.UTC
 	if to == domain.GranularityDay || to == domain.GranularityMonth {
-		loc = r.getConfiguredTimezone()
+		loc = r.resolveTimezone().location
 	}
 
 	// 计算当前时间桶
@@ -1447,7 +1497,7 @@ func (r *UsageStatsRepository) aggregateAllMinutesWithProgress(tenantID uint64, 
 	}
 
 	// 使用配置的时区进行分钟聚合
-	loc := r.getConfiguredTimezone()
+	loc := r.resolveTimezone().location
 	statsList := stats.AggregateAttempts(records, loc)
 
 	if len(statsList) == 0 {
@@ -1523,8 +1573,8 @@ func (r *UsageStatsRepository) toDomainList(models []UsageStats) []*domain.Usage
 //  2. 今日实时 hour 粒度 (Query) → 今日统计、24h趋势、今日热力图
 //  3. 全量 month 粒度 (Query) → 全量统计、Top模型(全量)
 func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.DashboardData, error) {
-	// 获取配置的时区
-	loc := r.getConfiguredTimezone()
+	tz := r.resolveTimezone()
+	loc := tz.location
 	now := time.Now().In(loc)
 
 	// 使用配置的时区计算今日、昨日等
@@ -1539,7 +1589,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		mu     sync.Mutex
 		result = &domain.DashboardData{
 			ProviderStats: make(map[uint64]domain.DashboardProviderStats),
-			Timezone:      loc.String(),
+			Timezone:      tz.identifier,
 		}
 		g errgroup.Group
 	)

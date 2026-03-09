@@ -551,7 +551,7 @@ const (
 	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
 	SettingKeyRequestDetailRetentionSeconds = "request_detail_retention_seconds" // 请求详情保留秒数，-1=永久保存(默认)，0=不保存，>0=保留秒数
-	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
+	SettingKeyTimezone                      = "timezone"                         // 时区设置，未配置时跟随部署环境
 	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
 	SettingKeyAutoSortAntigravity           = "auto_sort_antigravity"            // 是否自动排序 Antigravity 路由，"true" 或 "false"
 	SettingKeyAutoSortCodex                 = "auto_sort_codex"                  // 是否自动排序 Codex 路由，"true" 或 "false"
@@ -1017,7 +1017,7 @@ type DashboardData struct {
 	TopModels     []DashboardModelStats             `json:"topModels"`
 	Trend24h      []DashboardTrendPoint             `json:"trend24h"`
 	ProviderStats map[uint64]DashboardProviderStats `json:"providerStats"`
-	Timezone      string                            `json:"timezone"` // 配置的时区，如 "Asia/Shanghai"
+	Timezone      string                            `json:"timezone"` // 生效时区，如 "Asia/Singapore" 或 "UTC+08:00"
 }
 
 // ===== Progress Reporting =====

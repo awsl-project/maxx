@@ -222,14 +222,22 @@ const COMMON_TIMEZONES = [
   'Pacific/Auckland',
 ];
 
+const AUTO_TIMEZONE = '__auto__';
+
 function TimezoneSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
+  const deleteSetting = useDeleteSetting();
   const { t } = useTranslation();
 
-  const currentTimezone = settings?.timezone || 'Asia/Shanghai';
+  const currentTimezone = settings?.timezone || AUTO_TIMEZONE;
 
   const handleTimezoneChange = async (value: string) => {
+    if (value === AUTO_TIMEZONE) {
+      await deleteSetting.mutateAsync('timezone');
+      return;
+    }
+
     await updateSetting.mutateAsync({
       key: 'timezone',
       value: value,
@@ -253,12 +261,15 @@ function TimezoneSection() {
         <Select
           value={currentTimezone}
           onValueChange={(v) => v && handleTimezoneChange(v)}
-          disabled={updateSetting.isPending}
+          disabled={updateSetting.isPending || deleteSetting.isPending}
         >
           <SelectTrigger className="w-full max-w-64">
-            <SelectValue>{currentTimezone}</SelectValue>
+            <SelectValue>
+              {currentTimezone === AUTO_TIMEZONE ? t('settings.timezoneAuto') : currentTimezone}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={AUTO_TIMEZONE}>{t('settings.timezoneAuto')}</SelectItem>
             {COMMON_TIMEZONES.map((tz) => (
               <SelectItem key={tz} value={tz}>
                 {tz}

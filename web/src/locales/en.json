@@ -852,6 +852,7 @@
     "requestDetailRetentionDesc": "-1 means permanent storage, 0 means don't save details, other numbers mean retention in seconds. Only affects request/response body storage, not statistics.",
     "timezone": "Timezone",
     "timezoneDesc": "Timezone for statistics aggregation and dashboard date calculations",
+    "timezoneAuto": "Auto (deployment environment)",
     "selectTimezone": "Select timezone...",
     "backup": "Backup & Restore",
     "backupDesc": "Export or import all configuration data",

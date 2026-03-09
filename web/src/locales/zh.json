@@ -852,6 +852,7 @@
     "requestDetailRetentionDesc": "-1 表示永久保存，0 表示不保存详情，其他数字表示保留的秒数。仅影响请求/响应 Body 的存储，不影响统计数据。",
     "timezone": "时区",
     "timezoneDesc": "用于统计数据聚合和仪表板日期计算的时区",
+    "timezoneAuto": "自动（跟随部署环境）",
     "selectTimezone": "选择时区...",
     "backup": "备份与恢复",
     "backupDesc": "导出或导入所有配置数据",

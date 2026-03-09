@@ -254,7 +254,7 @@ Configurable via Admin UI:
 | `proxy_port` | Proxy server port | `9880` |
 | `request_retention_hours` | Request log retention (hours) | `168` (7 days) |
 | `request_detail_retention_seconds` | Request detail retention (seconds) | `-1` (forever) |
-| `timezone` | Timezone setting | `Asia/Shanghai` |
+| `timezone` | Timezone setting | Deployment environment timezone |
 | `quota_refresh_interval` | Antigravity quota refresh (minutes) | `0` (disabled) |
 | `auto_sort_antigravity` | Auto-sort Antigravity routes | `false` |
 | `enable_pprof` | Enable pprof profiling | `false` |

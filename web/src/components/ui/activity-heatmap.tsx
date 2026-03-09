@@ -67,11 +67,42 @@ function formatDate(dateStr: string): string {
   });
 }
 
+function formatDateFromOffset(offsetMinutes: number): string {
+  const shifted = new Date(Date.now() + offsetMinutes * 60 * 1000);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseUTCOffset(timezone: string): number | null {
+  const match = timezone.match(/^UTC([+-])(\d{2}):(\d{2})$/);
+  if (!match) return null;
+
+  const sign = match[1] === '+' ? 1 : -1;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3]);
+  return sign * (hours * 60 + minutes);
+}
+
 // 获取指定时区的今天日期 (YYYY-MM-DD)
 function getTodayInTimezone(timezone?: string): string {
+  if (!timezone) {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  const offsetMinutes = parseUTCOffset(timezone);
+  if (offsetMinutes !== null) {
+    return formatDateFromOffset(offsetMinutes);
+  }
+
   try {
     const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone || 'Asia/Shanghai',
+      timeZone: timezone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
