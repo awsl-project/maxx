@@ -766,8 +766,8 @@ type APIToken struct {
 	// 所属租户
 	TenantID uint64 `json:"tenantID"`
 
-	// Token 明文（直接存储）
-	Token string `json:"token"`
+	// Token 仅用于内部校验，不通过 API 暴露
+	Token string `json:"-"`
 
 	// Token 前缀（用于显示，如 "maxx_abc1..."）
 	TokenPrefix string `json:"tokenPrefix"`

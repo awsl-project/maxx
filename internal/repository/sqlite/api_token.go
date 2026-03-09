@@ -20,6 +20,7 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 	now := time.Now()
 	t.CreatedAt = now
 	t.UpdatedAt = now
+	t.Token = domain.NormalizeStoredAPIToken(t.Token)
 
 	model := r.toModel(t)
 	if err := r.db.gorm.Create(model).Error; err != nil {
@@ -67,7 +68,9 @@ func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APITok
 
 func (r *APITokenRepository) GetByToken(tenantID uint64, token string) (*domain.APIToken, error) {
 	var model APIToken
-	if err := tenantScope(r.db.gorm, tenantID).Where("token = ? AND deleted_at = 0", token).First(&model).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).
+		Where("token = ? AND deleted_at = 0", domain.NormalizeStoredAPIToken(token)).
+		First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}

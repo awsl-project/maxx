@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/domain"
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
@@ -119,7 +120,7 @@ var migrations = []Migration{
 
 			// 2. Update all existing rows to belong to default tenant
 			for _, table := range tenantScopedTables {
-				result := db.Exec("UPDATE "+table+" SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
+				result := db.Exec("UPDATE " + table + " SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
 				if result.Error != nil {
 					log.Printf("[Migration] Warning: Failed to update tenant_id for %s: %v", table, result.Error)
 					// Continue with other tables
@@ -181,6 +182,46 @@ var migrations = []Migration{
 		},
 		Down: func(db *gorm.DB) error {
 			return errors.New("migration v5 is irreversible: hard-deleted users cannot be restored")
+		},
+	},
+	{
+		Version:     6,
+		Description: "Hash stored API tokens so plaintext secrets are not kept at rest",
+		Up: func(db *gorm.DB) error {
+			type tokenRow struct {
+				ID    uint64
+				Token string
+			}
+
+			var rows []tokenRow
+			if err := db.Table("api_tokens").
+				Select("id, token").
+				Where("token LIKE ?", domain.APITokenPrefix+"%").
+				Find(&rows).Error; err != nil {
+				return err
+			}
+
+			if len(rows) == 0 {
+				return nil
+			}
+
+			now := time.Now().UnixMilli()
+			for _, row := range rows {
+				if err := db.Table("api_tokens").
+					Where("id = ?", row.ID).
+					Updates(map[string]any{
+						"token":      domain.NormalizeStoredAPIToken(row.Token),
+						"updated_at": now,
+					}).Error; err != nil {
+					return err
+				}
+			}
+
+			log.Printf("[Migration] Hashed %d stored API tokens", len(rows))
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			return errors.New("migration v6 is irreversible: hashed API tokens cannot be restored to plaintext")
 		},
 	},
 }

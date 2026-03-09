@@ -65,6 +65,8 @@ type importContext struct {
 	modelMappingKeys map[string]struct{}
 }
 
+const backupRedactedValue = "__MAXX_REDACTED__"
+
 func newImportContext() *importContext {
 	return &importContext{
 		providerNameToID:    make(map[string]uint64),
@@ -96,6 +98,9 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export settings: %w", err)
 	}
 	for _, setting := range settings {
+		if isSensitiveSystemSetting(setting.Key) {
+			continue
+		}
 		backup.Data.SystemSettings = append(backup.Data.SystemSettings, domain.BackupSystemSetting{
 			Key:   setting.Key,
 			Value: setting.Value,
@@ -113,7 +118,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 			Name:                 p.Name,
 			Type:                 p.Type,
 			Logo:                 p.Logo,
-			Config:               p.Config,
+			Config:               sanitizeProviderConfigForBackup(p.Config),
 			SupportedClientTypes: p.SupportedClientTypes,
 			SupportModels:        p.SupportModels,
 		})
@@ -180,7 +185,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		})
 	}
 
-	// 7. Export APITokens (including token value for seamless restore)
+	// 7. Export APITokens (redacted so secrets are not leaked via backups)
 	tokens, err := s.apiTokenRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export api tokens: %w", err)
@@ -189,7 +194,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		apiTokenIDToName[t.ID] = t.Name
 		backup.Data.APITokens = append(backup.Data.APITokens, domain.BackupAPIToken{
 			Name:        t.Name,
-			Token:       t.Token,
+			Token:       backupRedactedValue,
 			TokenPrefix: t.TokenPrefix,
 			Description: t.Description,
 			ProjectSlug: projectIDToSlug[t.ProjectID],
@@ -494,12 +499,13 @@ func (s *BackupService) importProviders(tenantID uint64, providers []domain.Back
 			}
 		}
 
+		config, hadRedactions := restoreProviderConfigFromBackup(bp.Config)
 		p := &domain.Provider{
 			TenantID:             tenantID,
 			Name:                 bp.Name,
 			Type:                 bp.Type,
 			Logo:                 bp.Logo,
-			Config:               bp.Config,
+			Config:               config,
 			SupportedClientTypes: bp.SupportedClientTypes,
 			SupportModels:        bp.SupportModels,
 		}
@@ -514,6 +520,9 @@ func (s *BackupService) importProviders(tenantID uint64, providers []domain.Back
 			if s.adapterRefresher != nil {
 				s.adapterRefresher.RefreshAdapter(p)
 			}
+		}
+		if hadRedactions {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Provider '%s' imported without secret credentials; re-enter API keys or refresh tokens manually", bp.Name))
 		}
 		summary.Imported++
 	}
@@ -723,7 +732,7 @@ func (s *BackupService) importAPITokens(tenantID uint64, tokens []domain.BackupA
 		// Use exported token if available, otherwise generate new one
 		var plain, prefix string
 		var tokenRestored bool
-		if bt.Token != "" {
+		if bt.Token != "" && bt.Token != backupRedactedValue {
 			// Use the token from backup
 			plain = bt.Token
 			prefix = bt.TokenPrefix
@@ -977,4 +986,107 @@ func buildModelMappingKey(mapping domain.BackupModelMapping) string {
 
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:])
+}
+
+func isSensitiveSystemSetting(key string) bool {
+	switch key {
+	case "jwt_secret", domain.SettingKeyPprofPassword:
+		return true
+	default:
+		return false
+	}
+}
+
+func sanitizeProviderConfigForBackup(config *domain.ProviderConfig) *domain.ProviderConfig {
+	cloned, err := cloneProviderConfig(config)
+	if err != nil || cloned == nil {
+		return cloned
+	}
+
+	if cloned.Custom != nil && cloned.Custom.APIKey != "" {
+		cloned.Custom.APIKey = backupRedactedValue
+	}
+	if cloned.Antigravity != nil && cloned.Antigravity.RefreshToken != "" {
+		cloned.Antigravity.RefreshToken = backupRedactedValue
+	}
+	if cloned.Kiro != nil {
+		if cloned.Kiro.RefreshToken != "" {
+			cloned.Kiro.RefreshToken = backupRedactedValue
+		}
+		if cloned.Kiro.ClientSecret != "" {
+			cloned.Kiro.ClientSecret = backupRedactedValue
+		}
+	}
+	if cloned.Codex != nil {
+		if cloned.Codex.RefreshToken != "" {
+			cloned.Codex.RefreshToken = backupRedactedValue
+		}
+		if cloned.Codex.AccessToken != "" {
+			cloned.Codex.AccessToken = backupRedactedValue
+		}
+	}
+	if cloned.Claude != nil {
+		if cloned.Claude.RefreshToken != "" {
+			cloned.Claude.RefreshToken = backupRedactedValue
+		}
+		if cloned.Claude.AccessToken != "" {
+			cloned.Claude.AccessToken = backupRedactedValue
+		}
+	}
+
+	return cloned
+}
+
+func restoreProviderConfigFromBackup(config *domain.ProviderConfig) (*domain.ProviderConfig, bool) {
+	cloned, err := cloneProviderConfig(config)
+	if err != nil || cloned == nil {
+		return cloned, false
+	}
+
+	hadRedactions := false
+	clearIfRedacted := func(value *string) {
+		if value != nil && *value == backupRedactedValue {
+			*value = ""
+			hadRedactions = true
+		}
+	}
+
+	if cloned.Custom != nil {
+		clearIfRedacted(&cloned.Custom.APIKey)
+	}
+	if cloned.Antigravity != nil {
+		clearIfRedacted(&cloned.Antigravity.RefreshToken)
+	}
+	if cloned.Kiro != nil {
+		clearIfRedacted(&cloned.Kiro.RefreshToken)
+		clearIfRedacted(&cloned.Kiro.ClientSecret)
+	}
+	if cloned.Codex != nil {
+		clearIfRedacted(&cloned.Codex.RefreshToken)
+		clearIfRedacted(&cloned.Codex.AccessToken)
+	}
+	if cloned.Claude != nil {
+		clearIfRedacted(&cloned.Claude.RefreshToken)
+		clearIfRedacted(&cloned.Claude.AccessToken)
+	}
+
+	return cloned, hadRedactions
+}
+
+func cloneProviderConfig(config *domain.ProviderConfig) (*domain.ProviderConfig, error) {
+	if config == nil {
+		return nil, nil
+	}
+
+	raw, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+
+	var cloned domain.ProviderConfig
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return nil, err
+	}
+
+	return &cloned, nil
 }

@@ -9,7 +9,29 @@ import (
 func TestBackupExport(t *testing.T) {
 	env := NewTestEnv(t)
 
-	resp := env.AdminGet("/api/admin/backup/export")
+	provider := map[string]any{
+		"name": "backup-export-provider",
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "https://api.example.com",
+				"apiKey":  "sk-export-key",
+			},
+		},
+		"supportedClientTypes": []string{"claude"},
+	}
+	resp := env.AdminPost("/api/admin/providers", provider)
+	AssertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	tokenResp := env.AdminPost("/api/admin/api-tokens", map[string]any{
+		"name":        "backup-export-token",
+		"description": "token for backup export",
+	})
+	AssertStatus(t, tokenResp, http.StatusCreated)
+	tokenResp.Body.Close()
+
+	resp = env.AdminGet("/api/admin/backup/export")
 	AssertStatus(t, resp, http.StatusOK)
 
 	var backup map[string]any
@@ -24,6 +46,29 @@ func TestBackupExport(t *testing.T) {
 	_, ok := backup["data"].(map[string]any)
 	if !ok {
 		t.Fatal("Expected backup to contain 'data' object")
+	}
+
+	data := backup["data"].(map[string]any)
+	providers := data["providers"].([]any)
+	providerConfig := providers[0].(map[string]any)["config"].(map[string]any)
+	customConfig := providerConfig["custom"].(map[string]any)
+	if customConfig["apiKey"] != "__MAXX_REDACTED__" {
+		t.Fatalf("Expected provider apiKey to be redacted, got %v", customConfig["apiKey"])
+	}
+
+	apiTokens := data["apiTokens"].([]any)
+	exportedToken := apiTokens[0].(map[string]any)
+	if exportedToken["token"] != "__MAXX_REDACTED__" {
+		t.Fatalf("Expected backup token to be redacted, got %v", exportedToken["token"])
+	}
+
+	if settings, ok := data["systemSettings"].([]any); ok {
+		for _, raw := range settings {
+			setting := raw.(map[string]any)
+			if setting["key"] == "jwt_secret" {
+				t.Fatal("Expected jwt_secret to be omitted from backup export")
+			}
+		}
 	}
 }
 

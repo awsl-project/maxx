@@ -759,7 +759,7 @@ export interface APIToken {
   id: number;
   createdAt: string;
   updatedAt: string;
-  token: string;
+  token?: string;
   tokenPrefix: string;
   name: string;
   description: string;
@@ -949,7 +949,7 @@ export interface BackupRoutingStrategy {
 
 export interface BackupAPIToken {
   name: string;
-  token?: string; // plaintext token for backup/restore
+  token?: string; // redacted placeholder; import will rotate a new token
   tokenPrefix?: string; // display prefix
   description: string;
   projectSlug: string;

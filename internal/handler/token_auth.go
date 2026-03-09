@@ -17,9 +17,9 @@ import (
 
 const (
 	// TokenPrefix is the prefix for all API tokens
-	TokenPrefix = "maxx_"
+	TokenPrefix = domain.APITokenPrefix
 	// TokenPrefixDisplayLen is the length of token prefix to display (including "maxx_")
-	TokenPrefixDisplayLen = 12
+	TokenPrefixDisplayLen = domain.APITokenPrefixDisplayLen
 )
 
 var (

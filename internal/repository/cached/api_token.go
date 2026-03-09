@@ -30,7 +30,7 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 	}
 	r.mu.Lock()
 	r.cache[t.ID] = t
-	r.tokenCache[t.Token] = t
+	r.tokenCache[tokenCacheKey(t.Token)] = t
 	r.mu.Unlock()
 	return nil
 }
@@ -46,10 +46,10 @@ func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	}
 	r.mu.Lock()
 	if exists && old != nil && old.Token != t.Token {
-		delete(r.tokenCache, old.Token)
+		delete(r.tokenCache, tokenCacheKey(old.Token))
 	}
 	r.cache[t.ID] = t
-	r.tokenCache[t.Token] = t
+	r.tokenCache[tokenCacheKey(t.Token)] = t
 	r.mu.Unlock()
 	return nil
 }
@@ -67,7 +67,7 @@ func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 	r.mu.Lock()
 	delete(r.cache, id)
 	if exists && t != nil {
-		delete(r.tokenCache, t.Token)
+		delete(r.tokenCache, tokenCacheKey(t.Token))
 	}
 	r.mu.Unlock()
 	return nil
@@ -88,14 +88,16 @@ func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APITok
 
 	r.mu.Lock()
 	r.cache[t.ID] = t
-	r.tokenCache[t.Token] = t
+	r.tokenCache[tokenCacheKey(t.Token)] = t
 	r.mu.Unlock()
 	return t, nil
 }
 
 func (r *APITokenRepository) GetByToken(tenantID uint64, token string) (*domain.APIToken, error) {
+	cacheKey := tokenCacheKey(token)
+
 	r.mu.RLock()
-	if t, ok := r.tokenCache[token]; ok && (tenantID == domain.TenantIDAll || t.TenantID == tenantID) {
+	if t, ok := r.tokenCache[cacheKey]; ok && (tenantID == domain.TenantIDAll || t.TenantID == tenantID) {
 		r.mu.RUnlock()
 		return t, nil
 	}
@@ -108,7 +110,7 @@ func (r *APITokenRepository) GetByToken(tenantID uint64, token string) (*domain.
 
 	r.mu.Lock()
 	r.cache[t.ID] = t
-	r.tokenCache[t.Token] = t
+	r.tokenCache[tokenCacheKey(t.Token)] = t
 	r.mu.Unlock()
 	return t, nil
 }
@@ -153,7 +155,11 @@ func (r *APITokenRepository) Load() error {
 	r.tokenCache = make(map[string]*domain.APIToken, len(tokens))
 	for _, t := range tokens {
 		r.cache[t.ID] = t
-		r.tokenCache[t.Token] = t
+		r.tokenCache[tokenCacheKey(t.Token)] = t
 	}
 	return nil
+}
+
+func tokenCacheKey(token string) string {
+	return domain.NormalizeStoredAPIToken(token)
 }

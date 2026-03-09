@@ -93,6 +93,9 @@ func TestGetAPIToken_ByID(t *testing.T) {
 	if fetched["name"] != "get-test-token" {
 		t.Fatalf("Expected name 'get-test-token', got %v", fetched["name"])
 	}
+	if _, exists := fetched["token"]; exists {
+		t.Fatalf("Expected token field to be omitted from GET response, got %v", fetched["token"])
+	}
 }
 
 func TestUpdateAPIToken_Disable(t *testing.T) {

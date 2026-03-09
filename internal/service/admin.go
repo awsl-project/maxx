@@ -639,8 +639,8 @@ func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {
 // generateAPIToken creates a new random token
 // Returns: plain token, prefix for display, error if generation fails
 func generateAPIToken() (plain string, prefix string, err error) {
-	const tokenPrefix = "maxx_"
-	const tokenPrefixDisplayLen = 12
+	const tokenPrefix = domain.APITokenPrefix
+	const tokenPrefixDisplayLen = domain.APITokenPrefixDisplayLen
 
 	// Generate 32 random bytes (64 hex chars)
 	bytes := make([]byte, 32)
@@ -708,7 +708,7 @@ func (s *AdminService) ResetModelMappingsToDefaults(tenantID uint64) error {
 // GetAvailableClientTypes returns all available client types for model mapping
 func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 	return []domain.ClientType{
-		"",                       // Empty means applies to all
+		"", // Empty means applies to all
 		domain.ClientTypeClaude,
 		domain.ClientTypeOpenAI,
 		domain.ClientTypeGemini,
@@ -776,11 +776,11 @@ type RecalculateCostsResult struct {
 
 // RecalculateCostsProgress represents progress update for cost recalculation
 type RecalculateCostsProgress struct {
-	Phase       string `json:"phase"`       // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
-	Current     int    `json:"current"`     // Current item being processed
-	Total       int    `json:"total"`       // Total items to process
-	Percentage  int    `json:"percentage"`  // 0-100
-	Message     string `json:"message"`     // Human-readable message
+	Phase      string `json:"phase"`      // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
+	Current    int    `json:"current"`    // Current item being processed
+	Total      int    `json:"total"`      // Total items to process
+	Percentage int    `json:"percentage"` // 0-100
+	Message    string `json:"message"`    // Human-readable message
 }
 
 // RecalculateCosts recalculates cost for all attempts using the current price table

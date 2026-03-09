@@ -80,7 +80,7 @@ type BackupRoutingStrategy struct {
 // BackupAPIToken represents an API token for backup
 type BackupAPIToken struct {
 	Name        string     `json:"name"`
-	Token       string     `json:"token,omitempty"`       // plaintext token for import
+	Token       string     `json:"token,omitempty"`       // redacted placeholder; import rotates a new token
 	TokenPrefix string     `json:"tokenPrefix,omitempty"` // display prefix
 	Description string     `json:"description"`
 	ProjectSlug string     `json:"projectSlug"` // empty = global

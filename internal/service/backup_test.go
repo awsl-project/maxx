@@ -2,6 +2,7 @@ package service
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,6 +181,20 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("export backup: %v", err)
 	}
+	for _, setting := range backup.Data.SystemSettings {
+		if setting.Key == "jwt_secret" {
+			t.Fatalf("backup should not export jwt_secret")
+		}
+	}
+	if backup.Data.Providers[0].Config == nil || backup.Data.Providers[0].Config.Custom == nil {
+		t.Fatalf("provider config missing from backup")
+	}
+	if backup.Data.Providers[0].Config.Custom.APIKey != backupRedactedValue {
+		t.Fatalf("provider apiKey = %q, want redacted", backup.Data.Providers[0].Config.Custom.APIKey)
+	}
+	if backup.Data.APITokens[0].Token != backupRedactedValue {
+		t.Fatalf("api token export = %q, want redacted", backup.Data.APITokens[0].Token)
+	}
 
 	targetDB := newBackupServiceTestDB(t, "target.db")
 	targetSvc := newBackupServiceForTest(t, targetDB)
@@ -190,6 +205,12 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	}
 	if !result.Success {
 		t.Fatalf("import result success=false, errors=%v", result.Errors)
+	}
+	if !containsWarning(result.Warnings, "imported without secret credentials") {
+		t.Fatalf("expected provider redaction warning, warnings=%v", result.Warnings)
+	}
+	if !containsWarning(result.Warnings, "created with new token:") {
+		t.Fatalf("expected token rotation warning, warnings=%v", result.Warnings)
 	}
 
 	roundtrip, err := targetSvc.Export(domain.DefaultTenantID)
@@ -203,6 +224,12 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	if roundtrip.Data.Providers[0].Logo != "https://example.com/logo.png" {
 		t.Fatalf("provider logo = %q, want preserved", roundtrip.Data.Providers[0].Logo)
 	}
+	if roundtrip.Data.Providers[0].Config == nil || roundtrip.Data.Providers[0].Config.Custom == nil {
+		t.Fatalf("roundtrip provider config missing")
+	}
+	if roundtrip.Data.Providers[0].Config.Custom.APIKey != "" {
+		t.Fatalf("roundtrip provider apiKey = %q, want cleared", roundtrip.Data.Providers[0].Config.Custom.APIKey)
+	}
 
 	if len(roundtrip.Data.ModelPrices) != 1 {
 		t.Fatalf("modelPrices count = %d, want 1", len(roundtrip.Data.ModelPrices))
@@ -215,8 +242,8 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	if len(roundtrip.Data.APITokens) != 1 {
 		t.Fatalf("apiTokens count = %d, want 1", len(roundtrip.Data.APITokens))
 	}
-	if roundtrip.Data.APITokens[0].Token != "maxx_test_token_abc" {
-		t.Fatalf("api token not restored, got %q", roundtrip.Data.APITokens[0].Token)
+	if roundtrip.Data.APITokens[0].Token != backupRedactedValue {
+		t.Fatalf("api token export should stay redacted, got %q", roundtrip.Data.APITokens[0].Token)
 	}
 
 	foundCustomMapping := 0
@@ -282,4 +309,13 @@ func TestBuildModelMappingKey_NoSeparatorCollision(t *testing.T) {
 	if leftKey == rightKey {
 		t.Fatalf("mapping keys should differ, left=%q right=%q", leftKey, rightKey)
 	}
+}
+
+func containsWarning(warnings []string, want string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, want) {
+			return true
+		}
+	}
+	return false
 }
