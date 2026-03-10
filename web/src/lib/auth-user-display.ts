@@ -24,7 +24,7 @@ export function maskAccountIdentifier(value?: string | null): string {
     return '';
   }
 
-  if (/^(UID|T)-/i.test(normalized)) {
+  if (/^(?:UID-\d+|T-\d+)$/i.test(normalized)) {
     return normalized;
   }
 

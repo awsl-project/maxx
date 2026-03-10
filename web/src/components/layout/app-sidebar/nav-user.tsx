@@ -229,15 +229,22 @@ export function NavUser() {
 
   const displayUser = getAuthUserDisplay(user);
   const menuDisplayName = displayUser.maskedIdentity;
+  const hasAuthenticatedUser = authEnabled && Boolean(user);
   const roleLabel = user
     ? user.role === 'admin'
       ? t('users.roleAdmin')
       : t('users.roleMember')
     : t('common.unknown');
-  const accountStatusLabel = authEnabled ? t('users.statusActive') : t('nav.authDisabled');
+  const accountStatusLabel = hasAuthenticatedUser
+    ? t('users.statusActive')
+    : authEnabled
+      ? t('common.unknown')
+      : t('nav.authDisabled');
   const accountTitle = `${displayUser.maskedIdentity} · ${displayUser.tenantLabel}`;
-  const detailLine = `${displayUser.tenantLabel} · ${displayUser.userLabel}`;
-  const securityAvailable = authEnabled;
+  const detailLine = hasAuthenticatedUser
+    ? `${displayUser.tenantLabel} · ${displayUser.userLabel}`
+    : t('common.unknown');
+  const securityAvailable = hasAuthenticatedUser;
 
   const openUsersPage = () => {
     navigate('/users');
@@ -357,7 +364,10 @@ export function NavUser() {
                   {detailLine}
                 </span>
                 <div className="mt-1 flex items-center gap-1">
-                  <Badge variant={authEnabled ? 'success' : 'secondary'} className="h-4 px-1.5 text-[10px]">
+                  <Badge
+                    variant={hasAuthenticatedUser ? 'success' : 'secondary'}
+                    className="h-4 px-1.5 text-[10px]"
+                  >
                     {accountStatusLabel}
                   </Badge>
                   <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
