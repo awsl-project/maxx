@@ -183,6 +183,31 @@ var migrations = []Migration{
 			return errors.New("migration v5 is irreversible: hard-deleted users cannot be restored")
 		},
 	},
+	{
+		Version:     6,
+		Description: "Repair tenant_id zeroed by PUT handler bug (providers, projects, retry_configs, routing_strategies)",
+		Up: func(db *gorm.DB) error {
+			var defaultTenantID uint64
+			err := db.Raw("SELECT id FROM tenants WHERE is_default = 1 LIMIT 1").Scan(&defaultTenantID).Error
+			if err != nil || defaultTenantID == 0 {
+				defaultTenantID = 1
+			}
+
+			tables := []string{"providers", "projects", "retry_configs", "routing_strategies"}
+			for _, table := range tables {
+				result := db.Exec("UPDATE "+table+" SET tenant_id = ? WHERE tenant_id = 0", defaultTenantID)
+				if result.Error != nil {
+					log.Printf("[Migration] Warning: failed to repair tenant_id for %s: %v", table, result.Error)
+				} else if result.RowsAffected > 0 {
+					log.Printf("[Migration] Repaired %d rows in %s with tenant_id=%d", result.RowsAffected, table, defaultTenantID)
+				}
+			}
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			return nil
+		},
+	},
 }
 
 func isMySQLDuplicateIndexError(err error) bool {
