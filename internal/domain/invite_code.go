@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // InviteCodeStatus represents the status of an invite code.
@@ -73,10 +74,31 @@ type InviteCodeCreateResult struct {
 
 // NormalizeInviteCode trims and normalizes an invite code for hashing.
 func NormalizeInviteCode(code string) string {
-	normalized := strings.TrimSpace(code)
-	normalized = strings.ReplaceAll(normalized, "-", "")
-	normalized = strings.ReplaceAll(normalized, " ", "")
-	return strings.ToUpper(normalized)
+	var b strings.Builder
+	b.Grow(len(code))
+	for _, r := range code {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		if isDashRune(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.ToUpper(b.String())
+}
+
+func isDashRune(r rune) bool {
+	switch {
+	case r == '-':
+		return true
+	case r >= 0x2010 && r <= 0x2015:
+		return true
+	case r == 0x2212, r == 0xFE58, r == 0xFE63, r == 0xFF0D:
+		return true
+	default:
+		return false
+	}
 }
 
 // HashInviteCode returns a SHA-256 hex hash for the given invite code.

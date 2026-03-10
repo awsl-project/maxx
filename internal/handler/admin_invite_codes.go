@@ -167,6 +167,10 @@ func (h *AdminHandler) handleUpdateInviteCode(w http.ResponseWriter, r *http.Req
 		}
 	}
 	if body.MaxUses != nil {
+		if *body.MaxUses != 0 && *body.MaxUses < existing.UsedCount {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "maxUses cannot be less than usedCount"})
+			return
+		}
 		existing.MaxUses = *body.MaxUses
 	}
 	if body.ExpiresAt != nil {
@@ -188,6 +192,10 @@ func (h *AdminHandler) handleUpdateInviteCode(w http.ResponseWriter, r *http.Req
 	if err := h.svc.UpdateInviteCode(tenantID, existing); err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+			return
+		}
+		if errors.Is(err, domain.ErrInvalidState) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid invite code state"})
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

@@ -131,7 +131,7 @@ export function UsersPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title={t('users.title')}
         description={t('users.description')}
@@ -144,7 +144,7 @@ export function UsersPage() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <Card className="m-6">
           <CardContent className="p-0">
             <Table>

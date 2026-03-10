@@ -6,7 +6,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -23,6 +25,10 @@ type AuthHandler struct {
 	inviteUsageRepo repository.InviteCodeUsageRepository
 	authEnabled     bool
 	passkeyStore    *passkeySessionStore
+}
+
+type inviteCodeUserCreator interface {
+	ConsumeAndCreateUser(tenantID uint64, codeHash string, now time.Time, user *domain.User) (*domain.InviteCode, error)
 }
 
 // NewAuthHandler creates a new auth handler
@@ -292,83 +298,9 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
-	now := time.Now()
-	invite, err := h.inviteCodeRepo.Consume(tenantID, codeHash, now)
-	if err != nil {
-		if isInviteCodeError(err) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": inviteCodeErrorMessage(err)})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-		return
-	}
-
-	consumed := true
-	var rollbackUsageID uint64
-	defer func() {
-		if !consumed {
-			return
-		}
-
-		rollback := func() error {
-			if rollbackUsageID == 0 {
-				return h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, invite.ID)
-			}
-			return h.inviteCodeRepo.RollbackConsume(tenantID, rollbackUsageID)
-		}
-
-		backoffs := []time.Duration{0, 200 * time.Millisecond, 500 * time.Millisecond}
-		var rollbackErr error
-		for _, backoff := range backoffs {
-			if backoff > 0 {
-				time.Sleep(backoff)
-			}
-			rollbackErr = rollback()
-			if rollbackErr == nil {
-				return
-			}
-		}
-
-		log.Printf("[ALERT] Invite code rollback failed after retries (tenant=%d invite=%d usage=%d): %v", tenantID, invite.ID, rollbackUsageID, rollbackErr)
-
-		go func(tenantID, inviteID, usageID uint64) {
-			reconcileBackoffs := []time.Duration{time.Second, 2 * time.Second, 5 * time.Second}
-			var reconcileErr error
-			for _, backoff := range reconcileBackoffs {
-				time.Sleep(backoff)
-				if usageID == 0 {
-					reconcileErr = h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, inviteID)
-				} else {
-					reconcileErr = h.inviteCodeRepo.RollbackConsume(tenantID, usageID)
-				}
-				if reconcileErr == nil {
-					return
-				}
-			}
-			log.Printf("[ALERT] Invite code rollback reconciliation failed (tenant=%d invite=%d usage=%d): %v", tenantID, inviteID, usageID, reconcileErr)
-		}(tenantID, invite.ID, rollbackUsageID)
-	}()
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
-		if h.inviteUsageRepo != nil {
-			usage := &domain.InviteCodeUsage{
-				TenantID:     tenantID,
-				InviteCodeID: invite.ID,
-				UserID:       0,
-				Username:     body.Username,
-				UsedAt:       time.Now(),
-				IP:           getClientIP(r),
-				UserAgent:    r.UserAgent(),
-				Result:       "failed",
-				Reason:       "hash_failed",
-			}
-			if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
-				log.Printf("[Auth] Failed to record invite code usage (hash_failed): %v", usageErr)
-			} else {
-				rollbackUsageID = usage.ID
-			}
-		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
 		return
 	}
@@ -379,37 +311,125 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
 		Status:       domain.UserStatusPending,
-		InviteCodeID: &invite.ID,
 	}
 
-	if err := h.userRepo.Create(user); err != nil {
-		if _, lookupErr := h.userRepo.GetByUsername(body.Username); lookupErr == nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
-		} else {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-		}
-
-		if h.inviteUsageRepo != nil {
-			usage := &domain.InviteCodeUsage{
-				TenantID:     tenantID,
-				InviteCodeID: invite.ID,
-				UserID:       0,
-				Username:     body.Username,
-				UsedAt:       time.Now(),
-				IP:           getClientIP(r),
-				UserAgent:    r.UserAgent(),
-				Result:       "failed",
-				Reason:       "create_user_failed",
-			}
-			if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
-				log.Printf("[Auth] Failed to record invite code usage (failed): %v", usageErr)
+	now := time.Now()
+	var invite *domain.InviteCode
+	if creator, ok := h.inviteCodeRepo.(inviteCodeUserCreator); ok {
+		invite, err = creator.ConsumeAndCreateUser(tenantID, codeHash, now, user)
+		if err != nil {
+			if isInviteCodeError(err) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": inviteCodeErrorMessage(err)})
+			} else if _, lookupErr := h.userRepo.GetByUsername(body.Username); lookupErr == nil {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
 			} else {
-				rollbackUsageID = usage.ID
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 			}
+			if h.inviteUsageRepo != nil && invite != nil {
+				usage := &domain.InviteCodeUsage{
+					TenantID:     tenantID,
+					InviteCodeID: invite.ID,
+					UserID:       0,
+					Username:     body.Username,
+					UsedAt:       time.Now(),
+					IP:           getClientIP(r),
+					UserAgent:    r.UserAgent(),
+					Result:       "failed",
+					Reason:       "create_user_failed",
+				}
+				if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
+					log.Printf("[Auth] Failed to record invite code usage (failed): %v", usageErr)
+				}
+			}
+			return
 		}
-		return
+	} else {
+		invite, err = h.inviteCodeRepo.Consume(tenantID, codeHash, now)
+		if err != nil {
+			if isInviteCodeError(err) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": inviteCodeErrorMessage(err)})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+			return
+		}
+
+		consumed := true
+		var rollbackUsageID uint64
+		defer func() {
+			if !consumed {
+				return
+			}
+
+			rollback := func() error {
+				if rollbackUsageID == 0 {
+					return h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, invite.ID)
+				}
+				return h.inviteCodeRepo.RollbackConsume(tenantID, rollbackUsageID)
+			}
+
+			backoffs := []time.Duration{0, 200 * time.Millisecond, 500 * time.Millisecond}
+			var rollbackErr error
+			for _, backoff := range backoffs {
+				if backoff > 0 {
+					time.Sleep(backoff)
+				}
+				rollbackErr = rollback()
+				if rollbackErr == nil {
+					return
+				}
+			}
+
+			log.Printf("[ALERT] Invite code rollback failed after retries (tenant=%d invite=%d usage=%d): %v", tenantID, invite.ID, rollbackUsageID, rollbackErr)
+
+			go func(tenantID, inviteID, usageID uint64) {
+				reconcileBackoffs := []time.Duration{time.Second, 2 * time.Second, 5 * time.Second}
+				var reconcileErr error
+				for _, backoff := range reconcileBackoffs {
+					time.Sleep(backoff)
+					if usageID == 0 {
+						reconcileErr = h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, inviteID)
+					} else {
+						reconcileErr = h.inviteCodeRepo.RollbackConsume(tenantID, usageID)
+					}
+					if reconcileErr == nil {
+						return
+					}
+				}
+				log.Printf("[ALERT] Invite code rollback reconciliation failed (tenant=%d invite=%d usage=%d): %v", tenantID, inviteID, usageID, reconcileErr)
+			}(tenantID, invite.ID, rollbackUsageID)
+		}()
+
+		user.InviteCodeID = &invite.ID
+		if err := h.userRepo.Create(user); err != nil {
+			if _, lookupErr := h.userRepo.GetByUsername(body.Username); lookupErr == nil {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+			} else {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+			}
+
+			if h.inviteUsageRepo != nil {
+				usage := &domain.InviteCodeUsage{
+					TenantID:     tenantID,
+					InviteCodeID: invite.ID,
+					UserID:       0,
+					Username:     body.Username,
+					UsedAt:       time.Now(),
+					IP:           getClientIP(r),
+					UserAgent:    r.UserAgent(),
+					Result:       "failed",
+					Reason:       "create_user_failed",
+				}
+				if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
+					log.Printf("[Auth] Failed to record invite code usage (failed): %v", usageErr)
+				} else {
+					rollbackUsageID = usage.ID
+				}
+			}
+			return
+		}
+		consumed = false
 	}
-	consumed = false
 
 	if h.inviteUsageRepo != nil {
 		usage := &domain.InviteCodeUsage{
@@ -587,18 +607,112 @@ func getClientIP(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+	remoteIP := parseRemoteIP(r.RemoteAddr)
+	if remoteIP != nil && isTrustedProxy(remoteIP) {
+		if forwarded := parseForwardedIP(r.Header.Get("X-Forwarded-For")); forwarded != nil {
+			return forwarded.String()
 		}
+		if realIP := parseSingleIP(r.Header.Get("X-Real-IP")); realIP != nil {
+			return realIP.String()
+		}
+	} else if remoteIP != nil && hasForwardedHeaders(r) {
+		warnUntrustedForwardedHeaders(remoteIP)
 	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return host
+	if remoteIP != nil {
+		return remoteIP.String()
 	}
 	return r.RemoteAddr
+}
+
+const trustedProxyEnvKey = "MAXX_TRUSTED_PROXIES"
+
+var (
+	trustedProxyOnce     sync.Once
+	trustedProxyWarnOnce sync.Once
+	trustedProxyIPs      map[string]struct{}
+	trustedProxyCIDR     []*net.IPNet
+)
+
+func isTrustedProxy(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	trustedProxyOnce.Do(loadTrustedProxies)
+	if _, ok := trustedProxyIPs[ip.String()]; ok {
+		return true
+	}
+	for _, cidr := range trustedProxyCIDR {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func loadTrustedProxies() {
+	trustedProxyIPs = make(map[string]struct{})
+	raw := strings.TrimSpace(os.Getenv(trustedProxyEnvKey))
+	if raw == "" {
+		return
+	}
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if _, cidr, err := net.ParseCIDR(entry); err == nil {
+			trustedProxyCIDR = append(trustedProxyCIDR, cidr)
+			continue
+		}
+		if ip := net.ParseIP(entry); ip != nil {
+			trustedProxyIPs[ip.String()] = struct{}{}
+		}
+	}
+}
+
+func warnUntrustedForwardedHeaders(remoteIP net.IP) {
+	trustedProxyWarnOnce.Do(func() {
+		if strings.TrimSpace(os.Getenv(trustedProxyEnvKey)) == "" {
+			log.Printf("[Auth] Ignoring forwarded headers from untrusted proxy %s. Set %s to trust proxies.", remoteIP.String(), trustedProxyEnvKey)
+		}
+	})
+}
+
+func hasForwardedHeaders(r *http.Request) bool {
+	return strings.TrimSpace(r.Header.Get("X-Forwarded-For")) != "" ||
+		strings.TrimSpace(r.Header.Get("X-Real-IP")) != ""
+}
+
+func parseRemoteIP(remoteAddr string) net.IP {
+	if remoteAddr == "" {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil {
+		return net.ParseIP(host)
+	}
+	return net.ParseIP(remoteAddr)
+}
+
+func parseForwardedIP(headerVal string) net.IP {
+	if headerVal == "" {
+		return nil
+	}
+	for _, part := range strings.Split(headerVal, ",") {
+		if ip := parseSingleIP(part); ip != nil {
+			return ip
+		}
+	}
+	return nil
+}
+
+func parseSingleIP(value string) net.IP {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return net.ParseIP(value)
 }

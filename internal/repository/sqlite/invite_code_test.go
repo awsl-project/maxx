@@ -272,4 +272,53 @@ func TestInviteCodeRollbackConsume_Idempotent(t *testing.T) {
 	}
 }
 
+func TestInviteCodeConsumeAndCreateUser_RollbackOnUserCreateFailure(t *testing.T) {
+	db := newInviteTestDB(t)
+	codeRepo := NewInviteCodeRepository(db)
+	userRepo := NewUserRepository(db)
+
+	code := &domain.InviteCode{
+		TenantID:   1,
+		CodeHash:   "hash-atomic",
+		CodePrefix: "HASH",
+		Status:     domain.InviteCodeStatusActive,
+		MaxUses:    1,
+		UsedCount:  0,
+	}
+	if err := codeRepo.Create(code); err != nil {
+		t.Fatalf("create code: %v", err)
+	}
+
+	existing := &domain.User{
+		TenantID:     1,
+		Username:     "dup-user",
+		PasswordHash: "hash",
+		Role:         domain.UserRoleMember,
+		Status:       domain.UserStatusPending,
+	}
+	if err := userRepo.Create(existing); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	user := &domain.User{
+		TenantID:     1,
+		Username:     "dup-user",
+		PasswordHash: "hash",
+		Role:         domain.UserRoleMember,
+		Status:       domain.UserStatusPending,
+	}
+
+	if _, err := codeRepo.ConsumeAndCreateUser(1, "hash-atomic", time.Now(), user); err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+
+	updated, err := codeRepo.GetByID(1, code.ID)
+	if err != nil {
+		t.Fatalf("get code: %v", err)
+	}
+	if updated.UsedCount != 0 {
+		t.Fatalf("usedCount = %d, want 0", updated.UsedCount)
+	}
+}
+
 func ptrTime(t time.Time) *time.Time { return &t }

@@ -731,6 +731,21 @@ func (s *AdminService) UpdateInviteCode(tenantID uint64, code *domain.InviteCode
 	if code.TenantID != 0 && code.TenantID != tenantID {
 		return domain.ErrNotFound
 	}
+	current, err := s.inviteCodeRepo.GetByID(tenantID, code.ID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return domain.ErrNotFound
+	}
+	if code.Status != "" && code.Status != current.Status {
+		if code.Status == domain.InviteCodeStatusActive {
+			desiredMax := code.MaxUses
+			if desiredMax > 0 && current.UsedCount >= desiredMax {
+				return domain.ErrInvalidState
+			}
+		}
+	}
 	return s.inviteCodeRepo.Update(tenantID, code)
 }
 

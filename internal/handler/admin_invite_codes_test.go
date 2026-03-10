@@ -18,6 +18,7 @@ type adminTestInviteCodeRepo struct {
 	list         []*domain.InviteCode
 	updateErr    error
 	deleteCalled bool
+	updatedCode  *domain.InviteCode
 }
 
 func (r *adminTestInviteCodeRepo) Create(code *domain.InviteCode) error { return nil }
@@ -25,6 +26,7 @@ func (r *adminTestInviteCodeRepo) Update(tenantID uint64, code *domain.InviteCod
 	if r.updateErr != nil {
 		return r.updateErr
 	}
+	r.updatedCode = code
 	return nil
 }
 func (r *adminTestInviteCodeRepo) Delete(tenantID uint64, id uint64) error {
@@ -83,6 +85,39 @@ func TestAdminHandler_UpdateInviteCode_NotFoundReturns404(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+func TestAdminHandler_UpdateInviteCode_AllowsZeroMaxUses(t *testing.T) {
+	inviteRepo := &adminTestInviteCodeRepo{
+		code: &domain.InviteCode{
+			ID:        1,
+			TenantID:  1,
+			Status:    domain.InviteCodeStatusActive,
+			MaxUses:   5,
+			UsedCount: 3,
+		},
+	}
+	h := newAdminHandlerForInviteCodeTests(inviteRepo)
+
+	body, err := json.Marshal(map[string]any{"maxUses": 0})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/invite-codes/1", bytes.NewReader(body))
+	ctx := maxxctx.WithUserRole(req.Context(), string(domain.UserRoleAdmin))
+	ctx = maxxctx.WithTenantID(ctx, 1)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if inviteRepo.updatedCode == nil || inviteRepo.updatedCode.MaxUses != 0 {
+		t.Fatalf("updated maxUses = %v, want 0", inviteRepo.updatedCode)
 	}
 }
 

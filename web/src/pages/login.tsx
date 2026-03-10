@@ -216,14 +216,14 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               {isLoading ? t('login.registering') : t('login.register')}
             </Button>
 
-          <Button
-            type="button"
-            variant="ghost"
-            className="w-full"
-            onClick={() => { setMode('login'); setError(''); }}
-          >
-            {t('login.backToLogin')}
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => { setMode('login'); setError(''); }}
+            >
+              {t('login.backToLogin')}
+            </Button>
           </form>
         </div>
       </div>
