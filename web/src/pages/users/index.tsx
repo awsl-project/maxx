@@ -249,16 +249,22 @@ export function UsersPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.username')}</label>
+              <label className="text-sm font-medium" htmlFor="create-user-username">
+                {t('users.username')}
+              </label>
               <Input
+                id="create-user-username"
                 value={formData.username}
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                 placeholder={t('users.username')}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.password')}</label>
+              <label className="text-sm font-medium" htmlFor="create-user-password">
+                {t('users.password')}
+              </label>
               <Input
+                id="create-user-password"
                 type="password"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -266,8 +272,11 @@ export function UsersPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.role')}</label>
+              <label className="text-sm font-medium" htmlFor="create-user-role">
+                {t('users.role')}
+              </label>
               <select
+                id="create-user-role"
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
@@ -301,16 +310,22 @@ export function UsersPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.username')}</label>
+              <label className="text-sm font-medium" htmlFor="edit-user-username">
+                {t('users.username')}
+              </label>
               <Input
+                id="edit-user-username"
                 value={formData.username}
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                 placeholder={t('users.username')}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.role')}</label>
+              <label className="text-sm font-medium" htmlFor="edit-user-role">
+                {t('users.role')}
+              </label>
               <select
+                id="edit-user-role"
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
@@ -320,8 +335,11 @@ export function UsersPage() {
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('users.status')}</label>
+              <label className="text-sm font-medium" htmlFor="edit-user-status">
+                {t('users.status')}
+              </label>
               <select
+                id="edit-user-status"
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={formData.status}
                 onChange={(e) => setFormData({ ...formData, status: e.target.value as UserStatus })}

@@ -46,7 +46,11 @@ func (h *AdminHandler) handleInviteCodes(w http.ResponseWriter, r *http.Request,
 		}
 		code, err := h.svc.GetInviteCode(tenantID, id)
 		if err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+			if errors.Is(err, domain.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 			return
 		}
 		if !canAccessInviteCode(r, code, h.authEnabled) {
@@ -89,7 +93,11 @@ func (h *AdminHandler) handleListInviteCodes(w http.ResponseWriter, r *http.Requ
 func (h *AdminHandler) handleGetInviteCode(w http.ResponseWriter, r *http.Request, tenantID uint64, id uint64) {
 	code, err := h.svc.GetInviteCode(tenantID, id)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+		if errors.Is(err, domain.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 	if !canAccessInviteCode(r, code, h.authEnabled) {
@@ -138,7 +146,11 @@ func (h *AdminHandler) handleCreateInviteCodes(w http.ResponseWriter, r *http.Re
 func (h *AdminHandler) handleUpdateInviteCode(w http.ResponseWriter, r *http.Request, tenantID uint64, id uint64) {
 	existing, err := h.svc.GetInviteCode(tenantID, id)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+		if errors.Is(err, domain.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 	if !canAccessInviteCode(r, existing, h.authEnabled) {
@@ -207,7 +219,11 @@ func (h *AdminHandler) handleUpdateInviteCode(w http.ResponseWriter, r *http.Req
 func (h *AdminHandler) handleInviteCodeUsages(w http.ResponseWriter, r *http.Request, tenantID uint64, codeID uint64) {
 	code, err := h.svc.GetInviteCode(tenantID, codeID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+		if errors.Is(err, domain.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 	if !canAccessInviteCode(r, code, h.authEnabled) {

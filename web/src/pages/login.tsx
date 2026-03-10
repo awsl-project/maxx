@@ -168,7 +168,11 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   };
 
   if (mode === 'register') {
-    const isRegisterDisabled = isLoading || !username || !password || !confirmPassword || !inviteCode;
+    const isRegisterDisabled = isLoading ||
+      !username.trim() ||
+      !password.trim() ||
+      !confirmPassword.trim() ||
+      !inviteCode.trim();
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">

@@ -280,14 +280,6 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.userRepo.GetByUsername(body.Username); err == nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
-		return
-	} else if err != domain.ErrNotFound {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-		return
-	}
-
 	codeHash := domain.HashInviteCode(body.InviteCode)
 	tenantID, err := h.resolveInviteTenant(codeHash)
 	if err != nil {
@@ -299,18 +291,11 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
-		return
-	}
-
 	user := &domain.User{
-		TenantID:     tenantID,
-		Username:     body.Username,
-		PasswordHash: string(hash),
-		Role:         domain.UserRoleMember,
-		Status:       domain.UserStatusPending,
+		TenantID: tenantID,
+		Username: body.Username,
+		Role:     domain.UserRoleMember,
+		Status:   domain.UserStatusPending,
 	}
 
 	now := time.Now()
@@ -341,6 +326,44 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 					log.Printf("[Auth] Failed to record invite code usage (failed): %v", usageErr)
 				}
 			}
+			return
+		}
+
+		cleanup := func() {
+			if user.ID != 0 {
+				if err := h.userRepo.Delete(tenantID, user.ID); err != nil && err != domain.ErrNotFound {
+					log.Printf("[Auth] Failed to cleanup user after invite consume: %v", err)
+				}
+			}
+			if invite != nil {
+				if err := h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, invite.ID); err != nil && !errors.Is(err, domain.ErrNotFound) {
+					log.Printf("[Auth] Failed to rollback invite code after user cleanup: %v", err)
+				}
+			}
+		}
+
+		if existing, lookupErr := h.userRepo.GetByUsername(body.Username); lookupErr == nil {
+			if existing.ID != user.ID {
+				cleanup()
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+				return
+			}
+		} else if lookupErr != domain.ErrNotFound {
+			cleanup()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+			return
+		}
+
+		hash, hashErr := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+		if hashErr != nil {
+			cleanup()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+			return
+		}
+		user.PasswordHash = string(hash)
+		if err := h.userRepo.Update(user); err != nil {
+			cleanup()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update user"})
 			return
 		}
 	} else {
@@ -399,6 +422,21 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[ALERT] Invite code rollback reconciliation failed (tenant=%d invite=%d usage=%d): %v", tenantID, inviteID, usageID, reconcileErr)
 			}(tenantID, invite.ID, rollbackUsageID)
 		}()
+
+		if _, lookupErr := h.userRepo.GetByUsername(body.Username); lookupErr == nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+			return
+		} else if lookupErr != domain.ErrNotFound {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+			return
+		}
+
+		hash, hashErr := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+		if hashErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+			return
+		}
+		user.PasswordHash = string(hash)
 
 		user.InviteCodeID = &invite.ID
 		if err := h.userRepo.Create(user); err != nil {
