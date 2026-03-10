@@ -54,9 +54,6 @@ func (r *adminTestInviteCodeRepo) Consume(tenantID uint64, codeHash string, now 
 func (r *adminTestInviteCodeRepo) RollbackConsume(tenantID uint64, usageID uint64) error {
 	return nil
 }
-func (r *adminTestInviteCodeRepo) RollbackConsumeByInviteID(tenantID uint64, inviteID uint64) error {
-	return nil
-}
 
 func newAdminHandlerForInviteCodeTests(inviteRepo *adminTestInviteCodeRepo) *AdminHandler {
 	adminSvc := service.NewTestAdminService(inviteRepo)

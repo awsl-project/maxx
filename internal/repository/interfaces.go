@@ -38,7 +38,6 @@ type InviteCodeRepository interface {
 	List(tenantID uint64) ([]*domain.InviteCode, error)
 	Consume(tenantID uint64, codeHash string, now time.Time) (*domain.InviteCode, error)
 	RollbackConsume(tenantID uint64, usageID uint64) error
-	RollbackConsumeByInviteID(tenantID uint64, inviteID uint64) error
 	GetByCodeHashAny(codeHash string) (*domain.InviteCode, error)
 }
 

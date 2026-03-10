@@ -173,6 +173,7 @@ func (r *InviteCodeRepository) ConsumeAndCreateUser(tenantID uint64, codeHash st
 		if err != nil {
 			return err
 		}
+		user.TenantID = tenantID
 		user.InviteCodeID = &result.ID
 		user.CreatedAt = now
 		user.UpdatedAt = now
@@ -291,29 +292,6 @@ func (r *InviteCodeRepository) RollbackConsume(tenantID uint64, usageID uint64) 
 			})
 		return updateInvite.Error
 	})
-}
-
-func (r *InviteCodeRepository) RollbackConsumeByInviteID(tenantID uint64, inviteID uint64) error {
-	if inviteID == 0 {
-		return domain.ErrNotFound
-	}
-	if r.nowFunc == nil {
-		r.nowFunc = time.Now
-	}
-	now := r.nowFunc().UnixMilli()
-	result := tenantScope(r.db.gorm.Model(&InviteCode{}), tenantID).
-		Where("id = ? AND deleted_at = 0 AND used_count > 0", inviteID).
-		Updates(map[string]any{
-			"used_count": gorm.Expr("used_count - 1"),
-			"updated_at": now,
-		})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
 }
 
 func (r *InviteCodeRepository) toModel(code *domain.InviteCode) *InviteCode {

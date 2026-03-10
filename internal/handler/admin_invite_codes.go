@@ -253,6 +253,39 @@ func (h *AdminHandler) handleInviteCodeUsages(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
+	if maxxctx.GetUserRole(r.Context()) != string(domain.UserRoleAdmin) {
+		type inviteCodeUsageRedacted struct {
+			ID           uint64    `json:"id"`
+			CreatedAt    time.Time `json:"createdAt"`
+			UpdatedAt    time.Time `json:"updatedAt"`
+			TenantID     uint64    `json:"tenantID"`
+			InviteCodeID uint64    `json:"inviteCodeID"`
+			UserID       uint64    `json:"userID"`
+			Username     string    `json:"username"`
+			UsedAt       time.Time `json:"usedAt"`
+			Result       string    `json:"result"`
+			Reason       string    `json:"reason,omitempty"`
+			RolledBack   bool      `json:"rolledBack,omitempty"`
+		}
+		redacted := make([]inviteCodeUsageRedacted, 0, len(usages))
+		for _, usage := range usages {
+			redacted = append(redacted, inviteCodeUsageRedacted{
+				ID:           usage.ID,
+				CreatedAt:    usage.CreatedAt,
+				UpdatedAt:    usage.UpdatedAt,
+				TenantID:     usage.TenantID,
+				InviteCodeID: usage.InviteCodeID,
+				UserID:       usage.UserID,
+				Username:     usage.Username,
+				UsedAt:       usage.UsedAt,
+				Result:       usage.Result,
+				Reason:       usage.Reason,
+				RolledBack:   usage.RolledBack,
+			})
+		}
+		writeJSON(w, http.StatusOK, redacted)
+		return
+	}
 	writeJSON(w, http.StatusOK, usages)
 }
 

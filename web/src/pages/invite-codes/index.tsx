@@ -211,6 +211,8 @@ export function InviteCodesPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleDelete(code)}
+                            title={`Delete invite code ${code.codePrefix}`}
+                            aria-label={`Delete invite code ${code.codePrefix}`}
                             disabled={isBusy}
                           >
                             <Trash2 className="h-4 w-4" />

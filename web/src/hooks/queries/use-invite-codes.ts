@@ -15,7 +15,6 @@ import {
 export const inviteCodeKeys = {
   all: ['invite-codes'] as const,
   lists: () => [...inviteCodeKeys.all, 'list'] as const,
-  list: () => [...inviteCodeKeys.lists()] as const,
   details: () => [...inviteCodeKeys.all, 'detail'] as const,
   detail: (id: number) => [...inviteCodeKeys.details(), id] as const,
   usages: (id: number) => [...inviteCodeKeys.all, 'usages', id] as const,
@@ -23,7 +22,7 @@ export const inviteCodeKeys = {
 
 export function useInviteCodes() {
   return useQuery({
-    queryKey: inviteCodeKeys.list(),
+    queryKey: inviteCodeKeys.lists(),
     queryFn: () => getTransport().getInviteCodes(),
   });
 }

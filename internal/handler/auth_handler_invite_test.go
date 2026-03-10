@@ -51,13 +51,12 @@ func (r *stubInviteUserRepo) ListByTenantAndStatus(tenantID uint64, status domai
 func (r *stubInviteUserRepo) CountActive() (int64, error) { return 0, nil }
 
 type stubInviteRepo struct {
-	invite               *domain.InviteCode
-	consumeErr           error
-	consumeCalled        bool
-	lastConsumeTenantID  uint64
-	rollbackCount        int
-	lastRollbackUsageID  uint64
-	lastRollbackInviteID uint64
+	invite              *domain.InviteCode
+	consumeErr          error
+	consumeCalled       bool
+	lastConsumeTenantID uint64
+	rollbackCount       int
+	lastRollbackUsageID uint64
 }
 
 func (r *stubInviteRepo) Create(code *domain.InviteCode) error                  { return nil }
@@ -87,11 +86,6 @@ func (r *stubInviteRepo) Consume(tenantID uint64, codeHash string, nowTime time.
 func (r *stubInviteRepo) RollbackConsume(tenantID uint64, usageID uint64) error {
 	r.rollbackCount++
 	r.lastRollbackUsageID = usageID
-	return nil
-}
-func (r *stubInviteRepo) RollbackConsumeByInviteID(tenantID uint64, inviteID uint64) error {
-	r.rollbackCount++
-	r.lastRollbackInviteID = inviteID
 	return nil
 }
 
@@ -144,6 +138,9 @@ func TestHandleApply_RollbackOnCreateFailure(t *testing.T) {
 	}
 	if len(usageRepo.usages) != 1 {
 		t.Fatalf("usage records = %d, want 1", len(usageRepo.usages))
+	}
+	if inviteRepo.lastRollbackUsageID != usageRepo.usages[0].ID {
+		t.Fatalf("lastRollbackUsageID = %d, want %d", inviteRepo.lastRollbackUsageID, usageRepo.usages[0].ID)
 	}
 	if usageRepo.usages[0].Result != "failed" {
 		t.Fatalf("usage result = %s, want failed", usageRepo.usages[0].Result)
@@ -223,11 +220,8 @@ func TestHandleApply_RollbackWithoutUsageRepo(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
 	}
-	if inviteRepo.lastRollbackInviteID != 9 {
-		t.Fatalf("lastRollbackInviteID = %d, want %d", inviteRepo.lastRollbackInviteID, 9)
-	}
-	if inviteRepo.lastRollbackUsageID != 0 {
-		t.Fatalf("lastRollbackUsageID = %d, want 0", inviteRepo.lastRollbackUsageID)
+	if inviteRepo.rollbackCount != 0 {
+		t.Fatalf("rollbackCount = %d, want 0", inviteRepo.rollbackCount)
 	}
 }
 
@@ -253,11 +247,8 @@ func TestHandleApply_RollbackWhenUsageCreateFails(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
 	}
-	if inviteRepo.lastRollbackInviteID != 10 {
-		t.Fatalf("lastRollbackInviteID = %d, want %d", inviteRepo.lastRollbackInviteID, 10)
-	}
-	if inviteRepo.lastRollbackUsageID != 0 {
-		t.Fatalf("lastRollbackUsageID = %d, want 0", inviteRepo.lastRollbackUsageID)
+	if inviteRepo.rollbackCount != 0 {
+		t.Fatalf("rollbackCount = %d, want 0", inviteRepo.rollbackCount)
 	}
 }
 

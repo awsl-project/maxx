@@ -154,7 +154,9 @@ export function UsersPage() {
                   <TableHead>{t('users.role')}</TableHead>
                   <TableHead>{t('users.status')}</TableHead>
                   <TableHead>{t('users.lastLogin')}</TableHead>
-                  <TableHead className="w-[140px]" />
+                  <TableHead className="w-[140px]">
+                    <span className="sr-only">{t('common.actions')}</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

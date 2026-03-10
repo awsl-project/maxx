@@ -297,6 +297,13 @@ func TestApply_DuplicateUsername(t *testing.T) {
 		"inviteCode": inviteCode2,
 	})
 	AssertStatus(t, resp, http.StatusConflict)
+
+	resp = env.UnauthPost("/api/admin/auth/apply", map[string]string{
+		"username":   "new-apply-user",
+		"password":   "password3",
+		"inviteCode": inviteCode2,
+	})
+	AssertStatus(t, resp, http.StatusCreated)
 }
 
 func TestChangePassword_WrongOldPassword(t *testing.T) {

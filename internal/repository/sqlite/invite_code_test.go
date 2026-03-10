@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -100,23 +101,35 @@ func TestInviteCodeConsume_Concurrent(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	success := 0
-	mu := sync.Mutex{}
+	results := make(chan error, 10)
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := repo.Consume(1, "hash-concurrent", time.Now()); err == nil {
-				mu.Lock()
-				success++
-				mu.Unlock()
-			}
+			_, err := repo.Consume(1, "hash-concurrent", time.Now())
+			results <- err
 		}()
 	}
 	wg.Wait()
+	close(results)
 
-	if success != 1 {
-		t.Fatalf("success = %d, want 1", success)
+	successes := 0
+	failures := 0
+	for err := range results {
+		if err == nil {
+			successes++
+			continue
+		}
+		failures++
+		if !errors.Is(err, domain.ErrInviteCodeExhausted) {
+			t.Fatalf("unexpected consume error: %v", err)
+		}
+	}
+	if successes+failures != 10 {
+		t.Fatalf("total results = %d, want 10", successes+failures)
+	}
+	if successes != 1 {
+		t.Fatalf("success = %d, want 1", successes)
 	}
 
 	updated, err := repo.GetByID(1, code.ID)

@@ -302,6 +302,7 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	var invite *domain.InviteCode
 	if creator, ok := h.inviteCodeRepo.(inviteCodeUserCreator); ok {
+		var rollbackUsageID uint64
 		hash, hashErr := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 		if hashErr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
@@ -343,10 +344,33 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 					log.Printf("[Auth] Failed to cleanup user after invite consume: %v", err)
 				}
 			}
-			if invite != nil {
-				if err := h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, invite.ID); err != nil && !errors.Is(err, domain.ErrNotFound) {
-					log.Printf("[Auth] Failed to rollback invite code after user cleanup: %v", err)
+			if invite == nil {
+				return
+			}
+			if rollbackUsageID == 0 && h.inviteUsageRepo != nil {
+				usage := &domain.InviteCodeUsage{
+					TenantID:     tenantID,
+					InviteCodeID: invite.ID,
+					UserID:       user.ID,
+					Username:     body.Username,
+					UsedAt:       time.Now(),
+					IP:           getClientIP(r),
+					UserAgent:    r.UserAgent(),
+					Result:       "failed",
+					Reason:       "rollback",
 				}
+				if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
+					log.Printf("[Auth] Failed to record invite code usage (rollback): %v", usageErr)
+				} else {
+					rollbackUsageID = usage.ID
+				}
+			}
+			if rollbackUsageID == 0 {
+				log.Printf("[Auth] Skipping invite rollback because no usage record is available")
+				return
+			}
+			if err := h.inviteCodeRepo.RollbackConsume(tenantID, rollbackUsageID); err != nil && !errors.Is(err, domain.ErrNotFound) {
+				log.Printf("[Auth] Failed to rollback invite code after user cleanup: %v", err)
 			}
 		}
 
@@ -380,8 +404,26 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 			}
 
 			rollback := func() error {
+				if rollbackUsageID == 0 && h.inviteUsageRepo != nil {
+					usage := &domain.InviteCodeUsage{
+						TenantID:     tenantID,
+						InviteCodeID: invite.ID,
+						UserID:       user.ID,
+						Username:     body.Username,
+						UsedAt:       time.Now(),
+						IP:           getClientIP(r),
+						UserAgent:    r.UserAgent(),
+						Result:       "failed",
+						Reason:       "rollback",
+					}
+					if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
+						return usageErr
+					}
+					rollbackUsageID = usage.ID
+				}
 				if rollbackUsageID == 0 {
-					return h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, invite.ID)
+					log.Printf("[Auth] Skipping invite rollback because no usage record is available")
+					return nil
 				}
 				return h.inviteCodeRepo.RollbackConsume(tenantID, rollbackUsageID)
 			}
@@ -400,22 +442,21 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 
 			log.Printf("[ALERT] Invite code rollback failed after retries (tenant=%d invite=%d usage=%d): %v", tenantID, invite.ID, rollbackUsageID, rollbackErr)
 
-			go func(tenantID, inviteID, usageID uint64) {
+			go func(tenantID, usageID uint64) {
+				if usageID == 0 {
+					return
+				}
 				reconcileBackoffs := []time.Duration{time.Second, 2 * time.Second, 5 * time.Second}
 				var reconcileErr error
 				for _, backoff := range reconcileBackoffs {
 					time.Sleep(backoff)
-					if usageID == 0 {
-						reconcileErr = h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, inviteID)
-					} else {
-						reconcileErr = h.inviteCodeRepo.RollbackConsume(tenantID, usageID)
-					}
+					reconcileErr = h.inviteCodeRepo.RollbackConsume(tenantID, usageID)
 					if reconcileErr == nil {
 						return
 					}
 				}
-				log.Printf("[ALERT] Invite code rollback reconciliation failed (tenant=%d invite=%d usage=%d): %v", tenantID, inviteID, usageID, reconcileErr)
-			}(tenantID, invite.ID, rollbackUsageID)
+				log.Printf("[ALERT] Invite code rollback reconciliation failed (tenant=%d usage=%d): %v", tenantID, usageID, reconcileErr)
+			}(tenantID, rollbackUsageID)
 		}()
 
 		if _, lookupErr := h.userRepo.GetByUsername(body.Username); lookupErr == nil {

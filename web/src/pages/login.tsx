@@ -211,6 +211,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                 placeholder={t('login.inviteCodePlaceholder')}
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value)}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
                 disabled={isLoading}
               />
               {error && <p className="text-destructive text-sm">{error}</p>}
