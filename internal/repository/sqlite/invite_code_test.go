@@ -208,12 +208,67 @@ func TestInviteCodeUpdate_NoChangeDoesNotReturnNotFound(t *testing.T) {
 		t.Fatalf("set updated_at: %v", err)
 	}
 
-	prevNow := nowFunc
-	nowFunc = func() time.Time { return fixed }
-	t.Cleanup(func() { nowFunc = prevNow })
+	repo.SetNowFunc(func() time.Time { return fixed })
+	t.Cleanup(func() { repo.SetNowFunc(nil) })
 
 	if err := repo.Update(1, code); err != nil {
 		t.Fatalf("update no-change error = %v, want nil", err)
+	}
+}
+
+func TestInviteCodeRollbackConsume_Idempotent(t *testing.T) {
+	db := newInviteTestDB(t)
+	codeRepo := NewInviteCodeRepository(db)
+	usageRepo := NewInviteCodeUsageRepository(db)
+
+	code := &domain.InviteCode{
+		TenantID:   1,
+		CodeHash:   "hash-rollback",
+		CodePrefix: "HASH",
+		Status:     domain.InviteCodeStatusActive,
+		MaxUses:    1,
+		UsedCount:  1,
+	}
+	if err := codeRepo.Create(code); err != nil {
+		t.Fatalf("create code: %v", err)
+	}
+
+	usage := &domain.InviteCodeUsage{
+		TenantID:     1,
+		InviteCodeID: code.ID,
+		UserID:       0,
+		Username:     "test",
+		UsedAt:       time.Now(),
+		Result:       "failed",
+	}
+	if err := usageRepo.Create(usage); err != nil {
+		t.Fatalf("create usage: %v", err)
+	}
+
+	if err := codeRepo.RollbackConsume(1, usage.ID); err != nil {
+		t.Fatalf("rollback consume: %v", err)
+	}
+	if err := codeRepo.RollbackConsume(1, usage.ID); err != nil {
+		t.Fatalf("rollback consume again: %v", err)
+	}
+
+	updated, err := codeRepo.GetByID(1, code.ID)
+	if err != nil {
+		t.Fatalf("get code: %v", err)
+	}
+	if updated.UsedCount != 0 {
+		t.Fatalf("usedCount = %d, want 0", updated.UsedCount)
+	}
+
+	usages, err := usageRepo.ListByCodeID(1, code.ID)
+	if err != nil {
+		t.Fatalf("list usages: %v", err)
+	}
+	if len(usages) != 1 {
+		t.Fatalf("usages = %d, want 1", len(usages))
+	}
+	if !usages[0].RolledBack {
+		t.Fatalf("usage.RolledBack = false, want true")
 	}
 }
 

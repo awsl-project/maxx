@@ -40,37 +40,24 @@ func (r *adminTestInviteCodeRepo) GetByID(tenantID uint64, id uint64) (*domain.I
 func (r *adminTestInviteCodeRepo) GetByCodeHash(tenantID uint64, codeHash string) (*domain.InviteCode, error) {
 	return nil, domain.ErrNotFound
 }
+func (r *adminTestInviteCodeRepo) GetByCodeHashAny(codeHash string) (*domain.InviteCode, error) {
+	return nil, domain.ErrNotFound
+}
 func (r *adminTestInviteCodeRepo) List(tenantID uint64) ([]*domain.InviteCode, error) {
 	return r.list, nil
 }
 func (r *adminTestInviteCodeRepo) Consume(tenantID uint64, codeHash string, now time.Time) (*domain.InviteCode, error) {
 	return nil, domain.ErrInviteCodeInvalid
 }
-func (r *adminTestInviteCodeRepo) RollbackConsume(tenantID uint64, id uint64) error { return nil }
+func (r *adminTestInviteCodeRepo) RollbackConsume(tenantID uint64, usageID uint64) error {
+	return nil
+}
+func (r *adminTestInviteCodeRepo) RollbackConsumeByInviteID(tenantID uint64, inviteID uint64) error {
+	return nil
+}
 
 func newAdminHandlerForInviteCodeTests(inviteRepo *adminTestInviteCodeRepo) *AdminHandler {
-	adminSvc := service.NewAdminService(
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		inviteRepo,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		"",
-		nil,
-		nil,
-		nil,
-	)
+	adminSvc := service.NewTestAdminService(inviteRepo)
 	return NewAdminHandler(adminSvc, nil, "")
 }
 

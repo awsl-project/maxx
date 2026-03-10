@@ -9,13 +9,24 @@ import (
 )
 
 type InviteCodeRepository struct {
-	db *DB
+	db      *DB
+	nowFunc func() time.Time
 }
 
-var nowFunc = time.Now
-
 func NewInviteCodeRepository(db *DB) *InviteCodeRepository {
-	return &InviteCodeRepository{db: db}
+	return &InviteCodeRepository{
+		db:      db,
+		nowFunc: time.Now,
+	}
+}
+
+// SetNowFunc overrides the time provider (useful for tests).
+func (r *InviteCodeRepository) SetNowFunc(fn func() time.Time) {
+	if fn == nil {
+		r.nowFunc = time.Now
+		return
+	}
+	r.nowFunc = fn
 }
 
 func (r *InviteCodeRepository) Create(code *domain.InviteCode) error {
@@ -35,7 +46,10 @@ func (r *InviteCodeRepository) Create(code *domain.InviteCode) error {
 }
 
 func (r *InviteCodeRepository) Update(tenantID uint64, code *domain.InviteCode) error {
-	code.UpdatedAt = nowFunc()
+	if r.nowFunc == nil {
+		r.nowFunc = time.Now
+	}
+	code.UpdatedAt = r.nowFunc()
 	result := tenantScope(r.db.gorm.Model(&InviteCode{}), tenantID).
 		Where("id = ? AND deleted_at = 0", code.ID).
 		Updates(map[string]any{
@@ -65,12 +79,19 @@ func (r *InviteCodeRepository) Update(tenantID uint64, code *domain.InviteCode) 
 
 func (r *InviteCodeRepository) Delete(tenantID uint64, id uint64) error {
 	now := time.Now().UnixMilli()
-	return tenantScope(r.db.gorm.Model(&InviteCode{}), tenantID).
-		Where("id = ?", id).
+	result := tenantScope(r.db.gorm.Model(&InviteCode{}), tenantID).
+		Where("id = ? AND deleted_at = 0", id).
 		Updates(map[string]any{
 			"deleted_at": now,
 			"updated_at": now,
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *InviteCodeRepository) GetByID(tenantID uint64, id uint64) (*domain.InviteCode, error) {
@@ -87,6 +108,19 @@ func (r *InviteCodeRepository) GetByID(tenantID uint64, id uint64) (*domain.Invi
 func (r *InviteCodeRepository) GetByCodeHash(tenantID uint64, codeHash string) (*domain.InviteCode, error) {
 	var model InviteCode
 	if err := tenantScope(r.db.gorm, tenantID).
+		Where("code_hash = ? AND deleted_at = 0", codeHash).
+		First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
+}
+
+func (r *InviteCodeRepository) GetByCodeHashAny(codeHash string) (*domain.InviteCode, error) {
+	var model InviteCode
+	if err := r.db.gorm.
 		Where("code_hash = ? AND deleted_at = 0", codeHash).
 		First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -176,14 +210,65 @@ func (r *InviteCodeRepository) Consume(tenantID uint64, codeHash string, now tim
 	return result, nil
 }
 
-func (r *InviteCodeRepository) RollbackConsume(tenantID uint64, id uint64) error {
+func (r *InviteCodeRepository) RollbackConsume(tenantID uint64, usageID uint64) error {
+	if usageID == 0 {
+		return domain.ErrNotFound
+	}
+
 	now := time.Now().UnixMilli()
-	return tenantScope(r.db.gorm.Model(&InviteCode{}), tenantID).
-		Where("id = ? AND deleted_at = 0", id).
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		var usage InviteCodeUsage
+		if err := tenantScope(tx, tenantID).
+			Where("id = ?", usageID).
+			First(&usage).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+
+		if usage.RolledBack != 0 {
+			return nil
+		}
+
+		updateUsage := tenantScope(tx.Model(&InviteCodeUsage{}), tenantID).
+			Where("id = ? AND rolled_back = 0", usageID).
+			Updates(map[string]any{
+				"rolled_back": 1,
+				"updated_at":  now,
+			})
+		if updateUsage.Error != nil {
+			return updateUsage.Error
+		}
+		if updateUsage.RowsAffected == 0 {
+			return nil
+		}
+
+		updateInvite := tenantScope(tx.Model(&InviteCode{}), tenantID).
+			Where("id = ? AND deleted_at = 0 AND used_count > 0", usage.InviteCodeID).
+			Updates(map[string]any{
+				"used_count": gorm.Expr("used_count - 1"),
+				"updated_at": now,
+			})
+		return updateInvite.Error
+	})
+}
+
+func (r *InviteCodeRepository) RollbackConsumeByInviteID(tenantID uint64, inviteID uint64) error {
+	if inviteID == 0 {
+		return domain.ErrNotFound
+	}
+	now := time.Now().UnixMilli()
+	result := tenantScope(r.db.gorm.Model(&InviteCode{}), tenantID).
+		Where("id = ? AND deleted_at = 0 AND used_count > 0", inviteID).
 		Updates(map[string]any{
-			"used_count": gorm.Expr("CASE WHEN used_count > 0 THEN used_count - 1 ELSE 0 END"),
+			"used_count": gorm.Expr("used_count - 1"),
 			"updated_at": now,
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
 }
 
 func (r *InviteCodeRepository) toModel(code *domain.InviteCode) *InviteCode {
@@ -288,6 +373,10 @@ func (r *InviteCodeUsageRepository) ListByUserID(tenantID uint64, userID uint64)
 }
 
 func (r *InviteCodeUsageRepository) toUsageModel(usage *domain.InviteCodeUsage) *InviteCodeUsage {
+	rolledBack := 0
+	if usage.RolledBack {
+		rolledBack = 1
+	}
 	return &InviteCodeUsage{
 		BaseModel: BaseModel{
 			ID:        usage.ID,
@@ -303,21 +392,23 @@ func (r *InviteCodeUsageRepository) toUsageModel(usage *domain.InviteCodeUsage) 
 		UserAgent:    usage.UserAgent,
 		Result:       usage.Result,
 		Reason:       usage.Reason,
+		RolledBack:   rolledBack,
 	}
 }
 
 func (r *InviteCodeUsageRepository) toUsageDomain(model *InviteCodeUsage) *domain.InviteCodeUsage {
 	return &domain.InviteCodeUsage{
-		ID:          model.ID,
-		CreatedAt:   fromTimestamp(model.CreatedAt),
-		TenantID:    model.TenantID,
+		ID:           model.ID,
+		CreatedAt:    fromTimestamp(model.CreatedAt),
+		TenantID:     model.TenantID,
 		InviteCodeID: model.InviteCodeID,
-		UserID:      model.UserID,
-		Username:    model.Username,
-		UsedAt:      fromTimestamp(model.UsedAt),
-		IP:          model.IP,
-		UserAgent:   model.UserAgent,
-		Result:      model.Result,
-		Reason:      model.Reason,
+		UserID:       model.UserID,
+		Username:     model.Username,
+		UsedAt:       fromTimestamp(model.UsedAt),
+		IP:           model.IP,
+		UserAgent:    model.UserAgent,
+		Result:       model.Result,
+		Reason:       model.Reason,
+		RolledBack:   model.RolledBack != 0,
 	}
 }

@@ -15,13 +15,13 @@ import (
 
 // AuthHandler handles authentication-related endpoints
 type AuthHandler struct {
-	authMiddleware *AuthMiddleware
-	userRepo       repository.UserRepository
-	tenantRepo     repository.TenantRepository
-	inviteCodeRepo repository.InviteCodeRepository
+	authMiddleware  *AuthMiddleware
+	userRepo        repository.UserRepository
+	tenantRepo      repository.TenantRepository
+	inviteCodeRepo  repository.InviteCodeRepository
 	inviteUsageRepo repository.InviteCodeUsageRepository
-	authEnabled    bool
-	passkeyStore   *passkeySessionStore
+	authEnabled     bool
+	passkeyStore    *passkeySessionStore
 }
 
 // NewAuthHandler creates a new auth handler
@@ -34,13 +34,13 @@ func NewAuthHandler(
 	authEnabled bool,
 ) *AuthHandler {
 	return &AuthHandler{
-		authMiddleware: authMiddleware,
-		userRepo:       userRepo,
-		tenantRepo:     tenantRepo,
-		inviteCodeRepo: inviteCodeRepo,
+		authMiddleware:  authMiddleware,
+		userRepo:        userRepo,
+		tenantRepo:      tenantRepo,
+		inviteCodeRepo:  inviteCodeRepo,
 		inviteUsageRepo: inviteUsageRepo,
-		authEnabled:    authEnabled,
-		passkeyStore:   newPasskeySessionStore(),
+		authEnabled:     authEnabled,
+		passkeyStore:    newPasskeySessionStore(),
 	}
 }
 
@@ -281,8 +281,16 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := domain.DefaultTenantID
 	codeHash := domain.HashInviteCode(body.InviteCode)
+	tenantID, err := h.resolveInviteTenant(codeHash)
+	if err != nil {
+		if isInviteCodeError(err) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": inviteCodeErrorMessage(err)})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
 	now := time.Now()
 	invite, err := h.inviteCodeRepo.Consume(tenantID, codeHash, now)
 	if err != nil {
@@ -295,9 +303,16 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	consumed := true
+	var rollbackUsageID uint64
 	defer func() {
 		if consumed {
-			if rollbackErr := h.inviteCodeRepo.RollbackConsume(tenantID, invite.ID); rollbackErr != nil {
+			if rollbackUsageID == 0 {
+				if rollbackErr := h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, invite.ID); rollbackErr != nil {
+					log.Printf("[Auth] Failed to rollback invite code usage by invite ID: %v", rollbackErr)
+				}
+				return
+			}
+			if rollbackErr := h.inviteCodeRepo.RollbackConsume(tenantID, rollbackUsageID); rollbackErr != nil {
 				log.Printf("[Auth] Failed to rollback invite code usage: %v", rollbackErr)
 			}
 		}
@@ -319,6 +334,8 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 			}
 			if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
 				log.Printf("[Auth] Failed to record invite code usage (hash_failed): %v", usageErr)
+			} else {
+				rollbackUsageID = usage.ID
 			}
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
@@ -355,6 +372,8 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 			}
 			if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
 				log.Printf("[Auth] Failed to record invite code usage (failed): %v", usageErr)
+			} else {
+				rollbackUsageID = usage.ID
 			}
 		}
 		return
@@ -486,6 +505,23 @@ func (h *AuthHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *AuthHandler) resolveInviteTenant(codeHash string) (uint64, error) {
+	if h.inviteCodeRepo == nil {
+		return 0, domain.ErrInviteCodeInvalid
+	}
+	invite, err := h.inviteCodeRepo.GetByCodeHashAny(codeHash)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return 0, domain.ErrInviteCodeInvalid
+		}
+		return 0, err
+	}
+	if invite == nil || invite.TenantID == 0 {
+		return 0, domain.ErrInviteCodeInvalid
+	}
+	return invite.TenantID, nil
 }
 
 func inviteCodeErrorMessage(err error) string {

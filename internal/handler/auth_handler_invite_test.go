@@ -31,7 +31,7 @@ func (r *stubUserRepo) Create(user *domain.User) error {
 	return nil
 }
 
-func (r *stubUserRepo) Update(user *domain.User) error { return nil }
+func (r *stubUserRepo) Update(user *domain.User) error          { return nil }
 func (r *stubUserRepo) Delete(tenantID uint64, id uint64) error { return nil }
 func (r *stubUserRepo) GetByID(tenantID uint64, id uint64) (*domain.User, error) {
 	return nil, domain.ErrNotFound
@@ -42,8 +42,8 @@ func (r *stubUserRepo) GetByUsername(username string) (*domain.User, error) {
 	}
 	return nil, domain.ErrNotFound
 }
-func (r *stubUserRepo) GetDefault() (*domain.User, error) { return nil, domain.ErrNotFound }
-func (r *stubUserRepo) List() ([]*domain.User, error) { return nil, nil }
+func (r *stubUserRepo) GetDefault() (*domain.User, error)                    { return nil, domain.ErrNotFound }
+func (r *stubUserRepo) List() ([]*domain.User, error)                        { return nil, nil }
 func (r *stubUserRepo) ListByTenant(tenantID uint64) ([]*domain.User, error) { return nil, nil }
 func (r *stubUserRepo) ListByTenantAndStatus(tenantID uint64, status domain.UserStatus) ([]*domain.User, error) {
 	return nil, nil
@@ -51,39 +51,62 @@ func (r *stubUserRepo) ListByTenantAndStatus(tenantID uint64, status domain.User
 func (r *stubUserRepo) CountActive() (int64, error) { return 0, nil }
 
 type stubInviteRepo struct {
-	invite        *domain.InviteCode
-	consumeErr    error
-	consumeCalled bool
-	rollbackCount int
+	invite               *domain.InviteCode
+	consumeErr           error
+	consumeCalled        bool
+	lastConsumeTenantID  uint64
+	rollbackCount        int
+	lastRollbackUsageID  uint64
+	lastRollbackInviteID uint64
 }
 
-func (r *stubInviteRepo) Create(code *domain.InviteCode) error { return nil }
+func (r *stubInviteRepo) Create(code *domain.InviteCode) error                  { return nil }
 func (r *stubInviteRepo) Update(tenantID uint64, code *domain.InviteCode) error { return nil }
-func (r *stubInviteRepo) Delete(tenantID uint64, id uint64) error { return nil }
+func (r *stubInviteRepo) Delete(tenantID uint64, id uint64) error               { return nil }
 func (r *stubInviteRepo) GetByID(tenantID uint64, id uint64) (*domain.InviteCode, error) {
 	return nil, domain.ErrNotFound
 }
 func (r *stubInviteRepo) GetByCodeHash(tenantID uint64, codeHash string) (*domain.InviteCode, error) {
 	return nil, domain.ErrNotFound
 }
+func (r *stubInviteRepo) GetByCodeHashAny(codeHash string) (*domain.InviteCode, error) {
+	if r.invite != nil && r.invite.CodeHash == codeHash {
+		return r.invite, nil
+	}
+	return nil, domain.ErrNotFound
+}
 func (r *stubInviteRepo) List(tenantID uint64) ([]*domain.InviteCode, error) { return nil, nil }
 func (r *stubInviteRepo) Consume(tenantID uint64, codeHash string, nowTime time.Time) (*domain.InviteCode, error) {
 	r.consumeCalled = true
+	r.lastConsumeTenantID = tenantID
 	if r.consumeErr != nil {
 		return nil, r.consumeErr
 	}
 	return r.invite, nil
 }
-func (r *stubInviteRepo) RollbackConsume(tenantID uint64, id uint64) error {
+func (r *stubInviteRepo) RollbackConsume(tenantID uint64, usageID uint64) error {
 	r.rollbackCount++
+	r.lastRollbackUsageID = usageID
+	return nil
+}
+func (r *stubInviteRepo) RollbackConsumeByInviteID(tenantID uint64, inviteID uint64) error {
+	r.rollbackCount++
+	r.lastRollbackInviteID = inviteID
 	return nil
 }
 
 type stubInviteUsageRepo struct {
-	usages []*domain.InviteCodeUsage
+	usages    []*domain.InviteCodeUsage
+	nextID    uint64
+	createErr error
 }
 
 func (r *stubInviteUsageRepo) Create(usage *domain.InviteCodeUsage) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
+	r.nextID++
+	usage.ID = r.nextID
 	r.usages = append(r.usages, usage)
 	return nil
 }
@@ -96,7 +119,8 @@ func (r *stubInviteUsageRepo) ListByUserID(tenantID uint64, userID uint64) ([]*d
 
 func TestHandleApply_RollbackOnCreateFailure(t *testing.T) {
 	userRepo := &stubUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
-	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 7}}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 7, TenantID: 1, CodeHash: codeHash}}
 	usageRepo := &stubInviteUsageRepo{}
 
 	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, usageRepo, true)
@@ -128,7 +152,11 @@ func TestHandleApply_RollbackOnCreateFailure(t *testing.T) {
 
 func TestHandleApply_InviteCodeExpired(t *testing.T) {
 	userRepo := &stubUserRepo{users: map[string]*domain.User{}}
-	inviteRepo := &stubInviteRepo{consumeErr: domain.ErrInviteCodeExpired}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{
+		invite:     &domain.InviteCode{ID: 7, TenantID: 1, CodeHash: codeHash},
+		consumeErr: domain.ErrInviteCodeExpired,
+	}
 
 	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
 
@@ -150,7 +178,11 @@ func TestHandleApply_InviteCodeExpired(t *testing.T) {
 
 func TestHandleApply_InviteCodeSystemError(t *testing.T) {
 	userRepo := &stubUserRepo{users: map[string]*domain.User{}}
-	inviteRepo := &stubInviteRepo{consumeErr: errors.New("db down")}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{
+		invite:     &domain.InviteCode{ID: 7, TenantID: 1, CodeHash: codeHash},
+		consumeErr: errors.New("db down"),
+	}
 
 	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
 
@@ -167,5 +199,97 @@ func TestHandleApply_InviteCodeSystemError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+}
+
+func TestHandleApply_RollbackWithoutUsageRepo(t *testing.T) {
+	userRepo := &stubUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 9, TenantID: 1, CodeHash: codeHash}}
+
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
+
+	payload := map[string]string{
+		"username":   "user4",
+		"password":   "pass4",
+		"inviteCode": "CODE123",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/admin/auth/apply", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+	if inviteRepo.lastRollbackInviteID != 9 {
+		t.Fatalf("lastRollbackInviteID = %d, want %d", inviteRepo.lastRollbackInviteID, 9)
+	}
+	if inviteRepo.lastRollbackUsageID != 0 {
+		t.Fatalf("lastRollbackUsageID = %d, want 0", inviteRepo.lastRollbackUsageID)
+	}
+}
+
+func TestHandleApply_RollbackWhenUsageCreateFails(t *testing.T) {
+	userRepo := &stubUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 10, TenantID: 1, CodeHash: codeHash}}
+	usageRepo := &stubInviteUsageRepo{createErr: errors.New("usage down")}
+
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, usageRepo, true)
+
+	payload := map[string]string{
+		"username":   "user6",
+		"password":   "pass6",
+		"inviteCode": "CODE123",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/admin/auth/apply", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+	if inviteRepo.lastRollbackInviteID != 10 {
+		t.Fatalf("lastRollbackInviteID = %d, want %d", inviteRepo.lastRollbackInviteID, 10)
+	}
+	if inviteRepo.lastRollbackUsageID != 0 {
+		t.Fatalf("lastRollbackUsageID = %d, want 0", inviteRepo.lastRollbackUsageID)
+	}
+}
+
+func TestHandleApply_ResolveTenantFromInvite(t *testing.T) {
+	userRepo := &stubUserRepo{users: map[string]*domain.User{}}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 11, TenantID: 42, CodeHash: codeHash}}
+
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
+
+	payload := map[string]string{
+		"username":   "user5",
+		"password":   "pass5",
+		"inviteCode": "CODE123",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/admin/auth/apply", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	created := userRepo.users["user5"]
+	if created == nil {
+		t.Fatalf("user not created")
+	}
+	if created.TenantID != 42 {
+		t.Fatalf("tenantID = %d, want 42", created.TenantID)
+	}
+	if inviteRepo.lastConsumeTenantID != 42 {
+		t.Fatalf("consume tenantID = %d, want 42", inviteRepo.lastConsumeTenantID)
 	}
 }

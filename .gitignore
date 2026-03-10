@@ -45,3 +45,7 @@ Thumbs.db
 
 .claude/
 wailsjs/
+
+AGENTS.md
+
+.logs/

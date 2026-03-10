@@ -203,21 +203,23 @@ export function UsersPage() {
                               <Check className="h-4 w-4 text-green-600" />
                             </Button>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openEditDialog(user)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          {!user.isDefault && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDelete(user.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEditDialog(user)}
+                        aria-label={`${t('users.editUser')}: ${user.username}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      {!user.isDefault && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(user.id)}
+                          aria-label={`${t('common.delete')}: ${user.username}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                           )}
                         </div>
                       </TableCell>

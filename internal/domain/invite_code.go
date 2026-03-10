@@ -15,6 +15,9 @@ const (
 	InviteCodeStatusDisabled InviteCodeStatus = "disabled"
 )
 
+// InviteCodeInvalidPrefix is returned when a code cannot be normalized.
+const InviteCodeInvalidPrefix = "<invalid-invite>"
+
 // InviteCode represents an invitation code used for registration.
 type InviteCode struct {
 	ID        uint64     `json:"id"`
@@ -28,7 +31,7 @@ type InviteCode struct {
 	CodePrefix string           `json:"codePrefix"`
 	Status     InviteCodeStatus `json:"status"`
 
-	MaxUses  uint64 `json:"maxUses"`
+	MaxUses   uint64 `json:"maxUses"`
 	UsedCount uint64 `json:"usedCount"`
 
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
@@ -42,17 +45,18 @@ type InviteCodeUsage struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
 
-	TenantID     uint64 `json:"tenantID"`
-	InviteCodeID uint64 `json:"inviteCodeID"`
-	UserID       uint64 `json:"userID"`
-	Username     string `json:"username"`
+	TenantID     uint64    `json:"tenantID"`
+	InviteCodeID uint64    `json:"inviteCodeID"`
+	UserID       uint64    `json:"userID"`
+	Username     string    `json:"username"`
 	UsedAt       time.Time `json:"usedAt"`
 
 	IP        string `json:"ip"`
 	UserAgent string `json:"userAgent"`
 
-	Result string `json:"result"`
-	Reason string `json:"reason,omitempty"`
+	Result     string `json:"result"`
+	Reason     string `json:"reason,omitempty"`
+	RolledBack bool   `json:"rolledBack,omitempty"`
 }
 
 // InviteCodeCreateItem contains a newly created invite code and its plain text.
@@ -84,6 +88,9 @@ func HashInviteCode(code string) string {
 // InviteCodePrefix returns a short prefix for display.
 func InviteCodePrefix(code string) string {
 	normalized := NormalizeInviteCode(code)
+	if normalized == "" {
+		return InviteCodeInvalidPrefix
+	}
 	if len(normalized) <= 8 {
 		return normalized
 	}

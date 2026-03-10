@@ -49,11 +49,15 @@ func (h *AdminHandler) handleInviteCodes(w http.ResponseWriter, r *http.Request,
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 			return
 		}
-		if !canAccessInviteCode(r, code) {
+		if !canAccessInviteCode(r, code, h.authEnabled) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 			return
 		}
 		if err := h.svc.DeleteInviteCode(tenantID, id); err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+				return
+			}
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
@@ -88,7 +92,7 @@ func (h *AdminHandler) handleGetInviteCode(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 		return
 	}
-	if !canAccessInviteCode(r, code) {
+	if !canAccessInviteCode(r, code, h.authEnabled) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 		return
 	}
@@ -137,7 +141,7 @@ func (h *AdminHandler) handleUpdateInviteCode(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 		return
 	}
-	if !canAccessInviteCode(r, existing) {
+	if !canAccessInviteCode(r, existing, h.authEnabled) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 		return
 	}
@@ -198,7 +202,7 @@ func (h *AdminHandler) handleInviteCodeUsages(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 		return
 	}
-	if !canAccessInviteCode(r, code) {
+	if !canAccessInviteCode(r, code, h.authEnabled) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 		return
 	}
@@ -210,7 +214,10 @@ func (h *AdminHandler) handleInviteCodeUsages(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, usages)
 }
 
-func canAccessInviteCode(r *http.Request, code *domain.InviteCode) bool {
+func canAccessInviteCode(r *http.Request, code *domain.InviteCode, authEnabled bool) bool {
+	if !authEnabled {
+		return true
+	}
 	role := maxxctx.GetUserRole(r.Context())
 	if role == string(domain.UserRoleAdmin) {
 		return true

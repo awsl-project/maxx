@@ -26,7 +26,7 @@ function mapRegisterError(error: string | undefined, t: (key: string) => string)
     case 'invite code disabled':
       return t('login.inviteCodeDisabled');
     default:
-      return error || t('login.registerFailed');
+      return error;
   }
 }
 

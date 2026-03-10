@@ -680,6 +680,7 @@ func (s *AdminService) CreateInviteCodes(
 	result := &domain.InviteCodeCreateResult{
 		Items: make([]domain.InviteCodeCreateItem, 0, count),
 	}
+	createdIDs := make([]uint64, 0, count)
 
 	for i := 0; i < count; i++ {
 		var lastErr error
@@ -703,6 +704,7 @@ func (s *AdminService) CreateInviteCodes(
 				lastErr = err
 				continue
 			}
+			createdIDs = append(createdIDs, code.ID)
 			result.Items = append(result.Items, domain.InviteCodeCreateItem{
 				Code:       plain,
 				InviteCode: code,
@@ -711,6 +713,11 @@ func (s *AdminService) CreateInviteCodes(
 			break
 		}
 		if lastErr != nil {
+			for _, id := range createdIDs {
+				if err := s.inviteCodeRepo.Delete(tenantID, id); err != nil && err != domain.ErrNotFound {
+					log.Printf("[Admin] Failed to cleanup invite code %d after create error: %v", id, err)
+				}
+			}
 			return nil, lastErr
 		}
 	}
@@ -824,7 +831,7 @@ func (s *AdminService) ResetModelMappingsToDefaults(tenantID uint64) error {
 // GetAvailableClientTypes returns all available client types for model mapping
 func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 	return []domain.ClientType{
-		"",                       // Empty means applies to all
+		"", // Empty means applies to all
 		domain.ClientTypeClaude,
 		domain.ClientTypeOpenAI,
 		domain.ClientTypeGemini,
@@ -892,11 +899,11 @@ type RecalculateCostsResult struct {
 
 // RecalculateCostsProgress represents progress update for cost recalculation
 type RecalculateCostsProgress struct {
-	Phase       string `json:"phase"`       // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
-	Current     int    `json:"current"`     // Current item being processed
-	Total       int    `json:"total"`       // Total items to process
-	Percentage  int    `json:"percentage"`  // 0-100
-	Message     string `json:"message"`     // Human-readable message
+	Phase      string `json:"phase"`      // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
+	Current    int    `json:"current"`    // Current item being processed
+	Total      int    `json:"total"`      // Total items to process
+	Percentage int    `json:"percentage"` // 0-100
+	Message    string `json:"message"`    // Human-readable message
 }
 
 // RecalculateCosts recalculates cost for all attempts using the current price table

@@ -183,15 +183,15 @@ func (APIToken) TableName() string { return "api_tokens" }
 // InviteCode model
 type InviteCode struct {
 	SoftDeleteModel
-	TenantID         uint64 `gorm:"index;uniqueIndex:idx_invite_codes_tenant_hash"`
-	CodeHash         string `gorm:"size:128;uniqueIndex:idx_invite_codes_tenant_hash"`
-	CodePrefix       string `gorm:"size:32"`
-	Status           string `gorm:"size:32;default:'active'"`
-	MaxUses          uint64
-	UsedCount        uint64
-	ExpiresAt        int64
-	CreatedByUserID  uint64 `gorm:"index"`
-	Note             LongText
+	TenantID        uint64 `gorm:"index;uniqueIndex:idx_invite_codes_tenant_hash"`
+	CodeHash        string `gorm:"size:128;uniqueIndex:idx_invite_codes_tenant_hash"`
+	CodePrefix      string `gorm:"size:32"`
+	Status          string `gorm:"size:32;default:'active'"`
+	MaxUses         uint64
+	UsedCount       uint64
+	ExpiresAt       int64
+	CreatedByUserID uint64 `gorm:"index"`
+	Note            LongText
 }
 
 func (InviteCode) TableName() string { return "invite_codes" }
@@ -208,6 +208,7 @@ type InviteCodeUsage struct {
 	UserAgent    string `gorm:"size:512"`
 	Result       string `gorm:"size:32"`
 	Reason       string `gorm:"size:255"`
+	RolledBack   int    `gorm:"default:0"`
 }
 
 func (InviteCodeUsage) TableName() string { return "invite_code_usages" }

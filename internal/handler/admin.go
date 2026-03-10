@@ -19,19 +19,21 @@ import (
 // AdminHandler handles admin API requests over HTTP
 // Delegates business logic to AdminService
 type AdminHandler struct {
-	svc       *service.AdminService
-	backupSvc *service.BackupService
-	userRepo  repository.UserRepository
-	logPath   string
-	restartFn func() error
+	svc         *service.AdminService
+	backupSvc   *service.BackupService
+	userRepo    repository.UserRepository
+	logPath     string
+	restartFn   func() error
+	authEnabled bool
 }
 
 // NewAdminHandler creates a new admin handler
 func NewAdminHandler(svc *service.AdminService, backupSvc *service.BackupService, logPath string) *AdminHandler {
 	return &AdminHandler{
-		svc:       svc,
-		backupSvc: backupSvc,
-		logPath:   logPath,
+		svc:         svc,
+		backupSvc:   backupSvc,
+		logPath:     logPath,
+		authEnabled: true,
 	}
 }
 
@@ -43,6 +45,11 @@ func (h *AdminHandler) SetUserRepo(repo repository.UserRepository) {
 // SetRestartFunc sets the restart callback for admin restart endpoint.
 func (h *AdminHandler) SetRestartFunc(fn func() error) {
 	h.restartFn = fn
+}
+
+// SetAuthEnabled sets whether auth is enabled for this handler.
+func (h *AdminHandler) SetAuthEnabled(enabled bool) {
+	h.authEnabled = enabled
 }
 
 // ServeHTTP routes admin requests

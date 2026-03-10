@@ -188,10 +188,6 @@ func (h *AdminHandler) handleApproveUser(w http.ResponseWriter, tenantID uint64,
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "user is not pending approval"})
 		return
 	}
-	if user.InviteCodeID == nil || *user.InviteCodeID == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invite code required for approval"})
-		return
-	}
 
 	user.Status = domain.UserStatusActive
 	if err := h.userRepo.Update(user); err != nil {

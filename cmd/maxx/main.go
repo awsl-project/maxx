@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"syscall"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
@@ -357,6 +357,7 @@ func main() {
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	adminHandler.SetUserRepo(userRepo)
+	adminHandler.SetAuthEnabled(authEnabled)
 	authHandler := handler.NewAuthHandler(
 		authMiddleware,
 		userRepo,

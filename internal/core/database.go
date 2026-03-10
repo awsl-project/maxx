@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	"golang.org/x/crypto/bcrypt"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
@@ -26,6 +25,7 @@ import (
 	"github.com/awsl-project/maxx/internal/service"
 	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // DatabaseConfig 数据库配置
@@ -399,6 +399,7 @@ func InitializeServerComponents(
 	)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	adminHandler.SetUserRepo(repos.UserRepo)
+	adminHandler.SetAuthEnabled(authEnabled)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
 	kiroHandler := handler.NewKiroHandler(adminService)
 	codexHandler := handler.NewCodexHandler(adminService, repos.CodexQuotaRepo, wailsBroadcaster)
