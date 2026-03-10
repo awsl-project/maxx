@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -305,17 +306,47 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	consumed := true
 	var rollbackUsageID uint64
 	defer func() {
-		if consumed {
+		if !consumed {
+			return
+		}
+
+		rollback := func() error {
 			if rollbackUsageID == 0 {
-				if rollbackErr := h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, invite.ID); rollbackErr != nil {
-					log.Printf("[Auth] Failed to rollback invite code usage by invite ID: %v", rollbackErr)
-				}
+				return h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, invite.ID)
+			}
+			return h.inviteCodeRepo.RollbackConsume(tenantID, rollbackUsageID)
+		}
+
+		backoffs := []time.Duration{0, 200 * time.Millisecond, 500 * time.Millisecond}
+		var rollbackErr error
+		for _, backoff := range backoffs {
+			if backoff > 0 {
+				time.Sleep(backoff)
+			}
+			rollbackErr = rollback()
+			if rollbackErr == nil {
 				return
 			}
-			if rollbackErr := h.inviteCodeRepo.RollbackConsume(tenantID, rollbackUsageID); rollbackErr != nil {
-				log.Printf("[Auth] Failed to rollback invite code usage: %v", rollbackErr)
-			}
 		}
+
+		log.Printf("[ALERT] Invite code rollback failed after retries (tenant=%d invite=%d usage=%d): %v", tenantID, invite.ID, rollbackUsageID, rollbackErr)
+
+		go func(tenantID, inviteID, usageID uint64) {
+			reconcileBackoffs := []time.Duration{time.Second, 2 * time.Second, 5 * time.Second}
+			var reconcileErr error
+			for _, backoff := range reconcileBackoffs {
+				time.Sleep(backoff)
+				if usageID == 0 {
+					reconcileErr = h.inviteCodeRepo.RollbackConsumeByInviteID(tenantID, inviteID)
+				} else {
+					reconcileErr = h.inviteCodeRepo.RollbackConsume(tenantID, usageID)
+				}
+				if reconcileErr == nil {
+					return
+				}
+			}
+			log.Printf("[ALERT] Invite code rollback reconciliation failed (tenant=%d invite=%d usage=%d): %v", tenantID, inviteID, usageID, reconcileErr)
+		}(tenantID, invite.ID, rollbackUsageID)
 	}()
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
@@ -525,16 +556,16 @@ func (h *AuthHandler) resolveInviteTenant(codeHash string) (uint64, error) {
 }
 
 func inviteCodeErrorMessage(err error) string {
-	switch err {
-	case domain.ErrInviteCodeRequired:
+	switch {
+	case errors.Is(err, domain.ErrInviteCodeRequired):
 		return err.Error()
-	case domain.ErrInviteCodeInvalid:
+	case errors.Is(err, domain.ErrInviteCodeInvalid):
 		return err.Error()
-	case domain.ErrInviteCodeExpired:
+	case errors.Is(err, domain.ErrInviteCodeExpired):
 		return err.Error()
-	case domain.ErrInviteCodeExhausted:
+	case errors.Is(err, domain.ErrInviteCodeExhausted):
 		return err.Error()
-	case domain.ErrInviteCodeDisabled:
+	case errors.Is(err, domain.ErrInviteCodeDisabled):
 		return err.Error()
 	default:
 		return "invite code invalid"
@@ -542,16 +573,14 @@ func inviteCodeErrorMessage(err error) string {
 }
 
 func isInviteCodeError(err error) bool {
-	switch err {
-	case domain.ErrInviteCodeRequired,
-		domain.ErrInviteCodeInvalid,
-		domain.ErrInviteCodeExpired,
-		domain.ErrInviteCodeExhausted,
-		domain.ErrInviteCodeDisabled:
-		return true
-	default:
+	if err == nil {
 		return false
 	}
+	return errors.Is(err, domain.ErrInviteCodeRequired) ||
+		errors.Is(err, domain.ErrInviteCodeInvalid) ||
+		errors.Is(err, domain.ErrInviteCodeExpired) ||
+		errors.Is(err, domain.ErrInviteCodeExhausted) ||
+		errors.Is(err, domain.ErrInviteCodeDisabled)
 }
 
 func getClientIP(r *http.Request) string {

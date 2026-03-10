@@ -44,6 +44,7 @@ type InviteCode struct {
 type InviteCodeUsage struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 
 	TenantID     uint64    `json:"tenantID"`
 	InviteCodeID uint64    `json:"inviteCodeID"`

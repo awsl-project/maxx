@@ -330,6 +330,7 @@ func NewInviteCodeUsageRepository(db *DB) *InviteCodeUsageRepository {
 func (r *InviteCodeUsageRepository) Create(usage *domain.InviteCodeUsage) error {
 	now := time.Now()
 	usage.CreatedAt = now
+	usage.UpdatedAt = now
 	if usage.UsedAt.IsZero() {
 		usage.UsedAt = now
 	}
@@ -381,7 +382,7 @@ func (r *InviteCodeUsageRepository) toUsageModel(usage *domain.InviteCodeUsage) 
 		BaseModel: BaseModel{
 			ID:        usage.ID,
 			CreatedAt: toTimestamp(usage.CreatedAt),
-			UpdatedAt: toTimestamp(usage.CreatedAt),
+			UpdatedAt: toTimestamp(usage.UpdatedAt),
 		},
 		TenantID:     usage.TenantID,
 		InviteCodeID: usage.InviteCodeID,
@@ -400,6 +401,7 @@ func (r *InviteCodeUsageRepository) toUsageDomain(model *InviteCodeUsage) *domai
 	return &domain.InviteCodeUsage{
 		ID:           model.ID,
 		CreatedAt:    fromTimestamp(model.CreatedAt),
+		UpdatedAt:    fromTimestamp(model.UpdatedAt),
 		TenantID:     model.TenantID,
 		InviteCodeID: model.InviteCodeID,
 		UserID:       model.UserID,

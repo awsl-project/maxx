@@ -145,98 +145,99 @@ export function UsersPage() {
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="space-y-6">
-          <Card className="m-6">
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('users.username')}</TableHead>
-                    <TableHead>{t('users.role')}</TableHead>
-                    <TableHead>{t('users.status')}</TableHead>
-                    <TableHead>{t('users.lastLogin')}</TableHead>
-                    <TableHead className="w-[140px]" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {users?.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">
-                        {user.username}
-                        {user.isDefault && (
-                          <Badge variant="outline" className="ml-2">
-                            {t('users.defaultUser')}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                          {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
+        <Card className="m-6">
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('users.username')}</TableHead>
+                  <TableHead>{t('users.role')}</TableHead>
+                  <TableHead>{t('users.status')}</TableHead>
+                  <TableHead>{t('users.lastLogin')}</TableHead>
+                  <TableHead className="w-[140px]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users?.map((user) => (
+                  <TableRow key={user.id}>
+                    <TableCell className="font-medium">
+                      {user.username}
+                      {user.isDefault && (
+                        <Badge variant="outline" className="ml-2">
+                          {t('users.defaultUser')}
                         </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={user.status === 'active' ? 'default' : 'outline'}
-                          className={
-                            user.status === 'active'
-                              ? 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20'
-                              : 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20'
-                          }
-                        >
-                          {user.status === 'active' ? t('users.statusActive') : t('users.statusPending')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {formatDate(user.lastLoginAt)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          {user.status === 'pending' && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleApprove(user.id)}
-                              title={t('users.approve')}
-                              aria-label={t('users.approve')}
-                              disabled={approveUser.isPending}
-                            >
-                              <Check className="h-4 w-4 text-green-600" />
-                            </Button>
-                          )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openEditDialog(user)}
-                        aria-label={`${t('users.editUser')}: ${user.username}`}
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                        {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={user.status === 'active' ? 'default' : 'outline'}
+                        className={
+                          user.status === 'active'
+                            ? 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20'
+                            : 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20'
+                        }
                       >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      {!user.isDefault && (
+                        {user.status === 'active' ? t('users.statusActive') : t('users.statusPending')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {formatDate(user.lastLoginAt)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {user.status === 'pending' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleApprove(user.id)}
+                            title={t('users.approve')}
+                            aria-label={t('users.approve')}
+                            disabled={approveUser.isPending}
+                          >
+                            <Check className="h-4 w-4 text-green-600" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleDelete(user.id)}
-                          aria-label={`${t('common.delete')}: ${user.username}`}
+                          onClick={() => openEditDialog(user)}
+                          title={t('users.editUser')}
+                          aria-label={`${t('users.editUser')}: ${user.username}`}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Pencil className="h-4 w-4" />
                         </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {(!users || users.length === 0) && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                        {t('common.noData')}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
+                        {!user.isDefault && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(user.id)}
+                            title={t('common.delete')}
+                            aria-label={`${t('common.delete')}: ${user.username}`}
+                            disabled={deleteUser.isPending}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(!users || users.length === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                      {t('common.noData')}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Create User Dialog */}
@@ -278,7 +279,7 @@ export function UsersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleCreate}
@@ -332,7 +333,7 @@ export function UsersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingUser(null)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleUpdate}
