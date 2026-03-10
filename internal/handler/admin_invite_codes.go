@@ -17,7 +17,7 @@ func (h *AdminHandler) handleInviteCodes(w http.ResponseWriter, r *http.Request,
 	// Handle /admin/invite-codes/{id}/usages
 	if id > 0 && len(parts) > 3 && parts[3] == "usages" {
 		if r.Method == http.MethodGet {
-			h.handleInviteCodeUsages(w, tenantID, id)
+			h.handleInviteCodeUsages(w, r, tenantID, id)
 		} else {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		}
@@ -27,9 +27,9 @@ func (h *AdminHandler) handleInviteCodes(w http.ResponseWriter, r *http.Request,
 	switch r.Method {
 	case http.MethodGet:
 		if id > 0 {
-			h.handleGetInviteCode(w, tenantID, id)
+			h.handleGetInviteCode(w, r, tenantID, id)
 		} else {
-			h.handleListInviteCodes(w, tenantID)
+			h.handleListInviteCodes(w, r, tenantID)
 		}
 	case http.MethodPost:
 		h.handleCreateInviteCodes(w, r, tenantID)
@@ -44,6 +44,15 @@ func (h *AdminHandler) handleInviteCodes(w http.ResponseWriter, r *http.Request,
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
 			return
 		}
+		code, err := h.svc.GetInviteCode(tenantID, id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+			return
+		}
+		if !canAccessInviteCode(r, code) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+			return
+		}
 		if err := h.svc.DeleteInviteCode(tenantID, id); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -54,18 +63,32 @@ func (h *AdminHandler) handleInviteCodes(w http.ResponseWriter, r *http.Request,
 	}
 }
 
-func (h *AdminHandler) handleListInviteCodes(w http.ResponseWriter, tenantID uint64) {
+func (h *AdminHandler) handleListInviteCodes(w http.ResponseWriter, r *http.Request, tenantID uint64) {
 	codes, err := h.svc.GetInviteCodes(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if maxxctx.GetUserRole(r.Context()) == string(domain.UserRoleMember) {
+		userID := maxxctx.GetUserID(r.Context())
+		filtered := make([]*domain.InviteCode, 0, len(codes))
+		for _, code := range codes {
+			if code.CreatedByUserID == userID {
+				filtered = append(filtered, code)
+			}
+		}
+		codes = filtered
+	}
 	writeJSON(w, http.StatusOK, codes)
 }
 
-func (h *AdminHandler) handleGetInviteCode(w http.ResponseWriter, tenantID uint64, id uint64) {
+func (h *AdminHandler) handleGetInviteCode(w http.ResponseWriter, r *http.Request, tenantID uint64, id uint64) {
 	code, err := h.svc.GetInviteCode(tenantID, id)
 	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+		return
+	}
+	if !canAccessInviteCode(r, code) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 		return
 	}
@@ -111,6 +134,10 @@ func (h *AdminHandler) handleCreateInviteCodes(w http.ResponseWriter, r *http.Re
 func (h *AdminHandler) handleUpdateInviteCode(w http.ResponseWriter, r *http.Request, tenantID uint64, id uint64) {
 	existing, err := h.svc.GetInviteCode(tenantID, id)
 	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+		return
+	}
+	if !canAccessInviteCode(r, existing) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
 		return
 	}
@@ -165,11 +192,32 @@ func (h *AdminHandler) handleUpdateInviteCode(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, existing)
 }
 
-func (h *AdminHandler) handleInviteCodeUsages(w http.ResponseWriter, tenantID uint64, codeID uint64) {
+func (h *AdminHandler) handleInviteCodeUsages(w http.ResponseWriter, r *http.Request, tenantID uint64, codeID uint64) {
+	code, err := h.svc.GetInviteCode(tenantID, codeID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+		return
+	}
+	if !canAccessInviteCode(r, code) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+		return
+	}
 	usages, err := h.svc.ListInviteCodeUsages(tenantID, codeID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, usages)
+}
+
+func canAccessInviteCode(r *http.Request, code *domain.InviteCode) bool {
+	role := maxxctx.GetUserRole(r.Context())
+	if role == string(domain.UserRoleAdmin) {
+		return true
+	}
+	if role == string(domain.UserRoleMember) {
+		userID := maxxctx.GetUserID(r.Context())
+		return code.CreatedByUserID == userID
+	}
+	return false
 }

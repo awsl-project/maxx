@@ -12,6 +12,7 @@ import {
   BarChart3,
   DollarSign,
   BookOpen,
+  Ticket,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -109,9 +110,8 @@ export const sidebarConfig: SidebarConfig = {
           type: 'standard',
           key: 'invite-codes',
           to: '/invite-codes',
-          icon: Key,
+          icon: Ticket,
           labelKey: 'nav.inviteCodes',
-          adminOnly: true,
           authOnly: true,
         },
         {

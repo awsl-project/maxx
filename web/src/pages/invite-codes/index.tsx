@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Button,
@@ -39,6 +39,8 @@ export function InviteCodesPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newCodesDialog, setNewCodesDialog] = useState<InviteCodeCreateItem[] | null>(null);
   const [usageDialogCode, setUsageDialogCode] = useState<InviteCode | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
 
   const { data: usages, isLoading: usagesLoading } = useInviteCodeUsages(usageDialogCode?.id ?? 0);
 
@@ -48,6 +50,15 @@ export function InviteCodesPage() {
     expiresAt: '',
     note: '',
   });
+
+  useEffect(
+    () => () => {
+      if (copiedTimerRef.current) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const resetForm = () => {
     setFormData({ count: '1', maxUses: '1', expiresAt: '', note: '' });
@@ -86,7 +97,23 @@ export function InviteCodesPage() {
   const copyCodes = async () => {
     if (!newCodesDialog) return;
     const text = newCodesDialog.map((item) => item.code).join('\n');
-    await navigator.clipboard.writeText(text);
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      console.error('Clipboard API is not available.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAll(true);
+      if (copiedTimerRef.current) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+      copiedTimerRef.current = window.setTimeout(() => {
+        setCopiedAll(false);
+        copiedTimerRef.current = null;
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to copy invite codes.', error);
+    }
   };
 
   const formatDate = (value?: string) => {
@@ -113,7 +140,7 @@ export function InviteCodesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-full flex-col">
       <PageHeader
         title={t('inviteCodes.title')}
         description={t('inviteCodes.description')}
@@ -125,80 +152,84 @@ export function InviteCodesPage() {
         )}
       />
 
-      <Card className="m-6">
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('inviteCodes.codePrefix')}</TableHead>
-                <TableHead>{t('inviteCodes.status')}</TableHead>
-                <TableHead>{t('inviteCodes.usage')}</TableHead>
-                <TableHead>{t('inviteCodes.expiresAt')}</TableHead>
-                <TableHead>{t('inviteCodes.note')}</TableHead>
-                <TableHead className="w-[140px]" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {codes?.map((code) => (
-                <TableRow key={code.id}>
-                  <TableCell className="font-medium">{code.codePrefix}</TableCell>
-                  <TableCell>
-                    <Badge variant={code.status === 'active' ? 'default' : 'outline'}>
-                      {code.status === 'active' ? t('inviteCodes.statusActive') : t('inviteCodes.statusDisabled')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{maxUsesLabel(code)}</TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
-                    {formatDate(code.expiresAt)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
-                    {code.note || '-'}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setUsageDialogCode(code)}
-                        title={t('inviteCodes.viewUsages')}
-                        aria-label={t('inviteCodes.viewUsages')}
-                        disabled={isBusy}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleToggleStatus(code)}
-                        title={t('inviteCodes.toggleStatus')}
-                        aria-label={t('inviteCodes.toggleStatus')}
-                        disabled={isBusy}
-                      >
-                        {code.status === 'active' ? <Ban className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(code)}
-                        disabled={isBusy}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {(!codes || codes.length === 0) && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    {t('common.noData')}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <div className="flex-1 overflow-y-auto">
+        <div className="space-y-6">
+          <Card className="m-6">
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('inviteCodes.codePrefix')}</TableHead>
+                    <TableHead>{t('inviteCodes.status')}</TableHead>
+                    <TableHead>{t('inviteCodes.usage')}</TableHead>
+                    <TableHead>{t('inviteCodes.expiresAt')}</TableHead>
+                    <TableHead>{t('inviteCodes.note')}</TableHead>
+                    <TableHead className="w-[140px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {codes?.map((code) => (
+                    <TableRow key={code.id}>
+                      <TableCell className="font-medium">{code.codePrefix}</TableCell>
+                      <TableCell>
+                        <Badge variant={code.status === 'active' ? 'default' : 'outline'}>
+                          {code.status === 'active' ? t('inviteCodes.statusActive') : t('inviteCodes.statusDisabled')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{maxUsesLabel(code)}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {formatDate(code.expiresAt)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {code.note || '-'}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setUsageDialogCode(code)}
+                            title={t('inviteCodes.viewUsages')}
+                            aria-label={t('inviteCodes.viewUsages')}
+                            disabled={isBusy}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleToggleStatus(code)}
+                            title={t('inviteCodes.toggleStatus')}
+                            aria-label={t('inviteCodes.toggleStatus')}
+                            disabled={isBusy}
+                          >
+                            {code.status === 'active' ? <Ban className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(code)}
+                            disabled={isBusy}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(!codes || codes.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                        {t('common.noData')}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent>
@@ -262,7 +293,11 @@ export function InviteCodesPage() {
           </DialogHeader>
           <div className="space-y-2">
             <Button variant="secondary" onClick={copyCodes} className="w-full">
-              <Copy className="mr-2 h-4 w-4" />
+              {copiedAll ? (
+                <Check className="mr-2 h-4 w-4 text-green-500" />
+              ) : (
+                <Copy className="mr-2 h-4 w-4" />
+              )}
               {t('inviteCodes.copyAll')}
             </Button>
             <div className="max-h-64 overflow-auto rounded border p-3 text-sm">
@@ -319,6 +354,7 @@ export function InviteCodesPage() {
           </div>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }
