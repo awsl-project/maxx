@@ -11,7 +11,11 @@ export function AdminRoute({ children }: AdminRouteProps) {
   const { t } = useTranslation();
   const { authEnabled, user, isLoading } = useAuth();
 
-  if (isLoading || (authEnabled && !user)) {
+  if (!authEnabled) {
+    return <>{children}</>;
+  }
+
+  if (isLoading || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <span className="text-muted-foreground">{t('common.loading')}</span>
@@ -19,7 +23,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
     );
   }
 
-  if (authEnabled && user.role !== 'admin') {
+  if (user.role !== 'admin') {
     return <Navigate to="/" replace />;
   }
 
