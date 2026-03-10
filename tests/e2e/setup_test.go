@@ -335,6 +335,27 @@ func (e *TestEnv) CreatePendingUser(username, password string) {
 	resp.Body.Close()
 }
 
+// GenerateTokenForUsername creates a JWT for an existing user so legacy
+// header-based test helpers can keep exercising admin middleware paths.
+func (e *TestEnv) GenerateTokenForUsername(username string) string {
+	e.t.Helper()
+
+	userRepo := sqlite.NewUserRepository(e.DB)
+	user, err := userRepo.GetByUsername(username)
+	if err != nil {
+		e.t.Fatalf("Failed to load user %q: %v", username, err)
+	}
+
+	settingRepo := sqlite.NewSystemSettingRepository(e.DB)
+	authMiddleware := handler.NewAuthMiddleware(settingRepo)
+	token, err := authMiddleware.GenerateToken(user)
+	if err != nil {
+		e.t.Fatalf("Failed to generate token for user %q: %v", username, err)
+	}
+
+	return token
+}
+
 // RawPost sends a POST request with a raw string body (for invalid JSON testing).
 func (e *TestEnv) RawPost(path string, rawBody string) *http.Response {
 	e.t.Helper()
