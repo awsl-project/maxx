@@ -10,16 +10,22 @@ interface AdminRouteProps {
 export function AdminRoute({ children }: AdminRouteProps) {
   const { t } = useTranslation();
   const { authEnabled, user, isLoading } = useAuth();
+  const loadingScreen = (
+    <div className="flex min-h-screen items-center justify-center">
+      <span className="text-muted-foreground">{t('common.loading')}</span>
+    </div>
+  );
+  const authUser = authEnabled ? user : null;
 
-  if (isLoading || (authEnabled && !user)) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <span className="text-muted-foreground">{t('common.loading')}</span>
-      </div>
-    );
+  if (isLoading) {
+    return loadingScreen;
   }
 
-  if (authEnabled && user.role !== 'admin') {
+  if (authEnabled && !authUser) {
+    return loadingScreen;
+  }
+
+  if (authUser && authUser.role !== 'admin') {
     return <Navigate to="/" replace />;
   }
 
