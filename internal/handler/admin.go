@@ -205,8 +205,9 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		// Preserve ID and timestamps
+		// Preserve ID, TenantID and timestamps
 		provider.ID = existing.ID
+		provider.TenantID = existing.TenantID
 		provider.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProvider(tenantID, &provider); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -462,6 +463,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			return
 		}
 		project.ID = existing.ID
+		project.TenantID = existing.TenantID
 		project.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProject(tenantID, &project); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -636,6 +638,7 @@ func (h *AdminHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request
 			return
 		}
 		config.ID = existing.ID
+		config.TenantID = existing.TenantID
 		config.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateRetryConfig(tenantID, &config); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -706,6 +709,7 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 			return
 		}
 		strategy.ID = existing.ID
+		strategy.TenantID = existing.TenantID
 		strategy.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateRoutingStrategy(tenantID, &strategy); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
