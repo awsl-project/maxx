@@ -147,7 +147,6 @@ export function useStreamingRequests(options: StreamingOptions = {}): StreamingS
     }
     // throttleMs 变更时立即刷出缓冲状态，避免节流切换时丢失更新。
     setActiveRequests(new Map(activeRequestsRef.current));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [throttleMs]);
 
   return useMemo((): StreamingState => {

@@ -113,6 +113,8 @@ func main() {
 	modelPriceRepo := sqlite.NewModelPriceRepository(db)
 	tenantRepo := sqlite.NewTenantRepository(db)
 	userRepo := sqlite.NewUserRepository(db)
+	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
+	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
@@ -295,6 +297,8 @@ func main() {
 		attemptRepo,
 		settingRepo,
 		cachedAPITokenRepo,
+		inviteCodeRepo,
+		inviteCodeUsageRepo,
 		cachedModelMappingRepo,
 		usageStatsRepo,
 		responseModelRepo,
@@ -353,7 +357,14 @@ func main() {
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	adminHandler.SetUserRepo(userRepo)
-	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo, authEnabled)
+	authHandler := handler.NewAuthHandler(
+		authMiddleware,
+		userRepo,
+		tenantRepo,
+		inviteCodeRepo,
+		inviteCodeUsageRepo,
+		authEnabled,
+	)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
 	antigravityHandler.SetTaskService(antigravityTaskSvc)
 	kiroHandler := handler.NewKiroHandler(adminService)

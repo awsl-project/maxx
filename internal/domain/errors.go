@@ -18,6 +18,11 @@ var (
     ErrUpstreamError     = errors.New("upstream error")
     ErrFormatConversion  = errors.New("format conversion error")
     ErrUnsupportedFormat = errors.New("unsupported format")
+    ErrInviteCodeRequired  = errors.New("invite code required")
+    ErrInviteCodeInvalid   = errors.New("invite code invalid")
+    ErrInviteCodeExpired   = errors.New("invite code expired")
+    ErrInviteCodeExhausted = errors.New("invite code exhausted")
+    ErrInviteCodeDisabled  = errors.New("invite code disabled")
 )
 
 // ProxyError represents an error during proxy execution

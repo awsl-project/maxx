@@ -80,6 +80,13 @@ export type {
   AuthLoginResult,
   AuthRegisterResult,
   PasskeyCredential,
+  InviteCode,
+  InviteCodeUsage,
+  InviteCodeStatus,
+  CreateInviteCodeData,
+  UpdateInviteCodeData,
+  InviteCodeCreateItem,
+  InviteCodeCreateResult,
   // API Token
   APIToken,
   APITokenCreateResult,

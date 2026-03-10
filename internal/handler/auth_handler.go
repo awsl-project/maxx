@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -17,16 +18,27 @@ type AuthHandler struct {
 	authMiddleware *AuthMiddleware
 	userRepo       repository.UserRepository
 	tenantRepo     repository.TenantRepository
+	inviteCodeRepo repository.InviteCodeRepository
+	inviteUsageRepo repository.InviteCodeUsageRepository
 	authEnabled    bool
 	passkeyStore   *passkeySessionStore
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(authMiddleware *AuthMiddleware, userRepo repository.UserRepository, tenantRepo repository.TenantRepository, authEnabled bool) *AuthHandler {
+func NewAuthHandler(
+	authMiddleware *AuthMiddleware,
+	userRepo repository.UserRepository,
+	tenantRepo repository.TenantRepository,
+	inviteCodeRepo repository.InviteCodeRepository,
+	inviteUsageRepo repository.InviteCodeUsageRepository,
+	authEnabled bool,
+) *AuthHandler {
 	return &AuthHandler{
 		authMiddleware: authMiddleware,
 		userRepo:       userRepo,
 		tenantRepo:     tenantRepo,
+		inviteCodeRepo: inviteCodeRepo,
+		inviteUsageRepo: inviteUsageRepo,
 		authEnabled:    authEnabled,
 		passkeyStore:   newPasskeySessionStore(),
 	}
@@ -239,8 +251,9 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username   string `json:"username"`
+		Password   string `json:"password"`
+		InviteCode string `json:"inviteCode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -251,24 +264,117 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
 		return
 	}
+	if strings.TrimSpace(body.InviteCode) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": domain.ErrInviteCodeRequired.Error()})
+		return
+	}
+	if h.inviteCodeRepo == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "invite code not supported"})
+		return
+	}
+
+	if _, err := h.userRepo.GetByUsername(body.Username); err == nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+		return
+	} else if err != domain.ErrNotFound {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	tenantID := domain.DefaultTenantID
+	codeHash := domain.HashInviteCode(body.InviteCode)
+	now := time.Now()
+	invite, err := h.inviteCodeRepo.Consume(tenantID, codeHash, now)
+	if err != nil {
+		if isInviteCodeError(err) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": inviteCodeErrorMessage(err)})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	consumed := true
+	defer func() {
+		if consumed {
+			if rollbackErr := h.inviteCodeRepo.RollbackConsume(tenantID, invite.ID); rollbackErr != nil {
+				log.Printf("[Auth] Failed to rollback invite code usage: %v", rollbackErr)
+			}
+		}
+	}()
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
+		if h.inviteUsageRepo != nil {
+			usage := &domain.InviteCodeUsage{
+				TenantID:     tenantID,
+				InviteCodeID: invite.ID,
+				UserID:       0,
+				Username:     body.Username,
+				UsedAt:       time.Now(),
+				IP:           getClientIP(r),
+				UserAgent:    r.UserAgent(),
+				Result:       "failed",
+				Reason:       "hash_failed",
+			}
+			if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
+				log.Printf("[Auth] Failed to record invite code usage (hash_failed): %v", usageErr)
+			}
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
 		return
 	}
 
 	user := &domain.User{
-		TenantID:     domain.DefaultTenantID,
+		TenantID:     tenantID,
 		Username:     body.Username,
 		PasswordHash: string(hash),
 		Role:         domain.UserRoleMember,
 		Status:       domain.UserStatusPending,
+		InviteCodeID: &invite.ID,
 	}
 
 	if err := h.userRepo.Create(user); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+		if _, lookupErr := h.userRepo.GetByUsername(body.Username); lookupErr == nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "username already exists"})
+		} else {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		}
+
+		if h.inviteUsageRepo != nil {
+			usage := &domain.InviteCodeUsage{
+				TenantID:     tenantID,
+				InviteCodeID: invite.ID,
+				UserID:       0,
+				Username:     body.Username,
+				UsedAt:       time.Now(),
+				IP:           getClientIP(r),
+				UserAgent:    r.UserAgent(),
+				Result:       "failed",
+				Reason:       "create_user_failed",
+			}
+			if usageErr := h.inviteUsageRepo.Create(usage); usageErr != nil {
+				log.Printf("[Auth] Failed to record invite code usage (failed): %v", usageErr)
+			}
+		}
 		return
+	}
+	consumed = false
+
+	if h.inviteUsageRepo != nil {
+		usage := &domain.InviteCodeUsage{
+			TenantID:     tenantID,
+			InviteCodeID: invite.ID,
+			UserID:       user.ID,
+			Username:     user.Username,
+			UsedAt:       time.Now(),
+			IP:           getClientIP(r),
+			UserAgent:    r.UserAgent(),
+			Result:       "success",
+		}
+		if err := h.inviteUsageRepo.Create(usage); err != nil {
+			log.Printf("[Auth] Failed to record invite code usage: %v", err)
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -380,4 +486,54 @@ func (h *AuthHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+func inviteCodeErrorMessage(err error) string {
+	switch err {
+	case domain.ErrInviteCodeRequired:
+		return err.Error()
+	case domain.ErrInviteCodeInvalid:
+		return err.Error()
+	case domain.ErrInviteCodeExpired:
+		return err.Error()
+	case domain.ErrInviteCodeExhausted:
+		return err.Error()
+	case domain.ErrInviteCodeDisabled:
+		return err.Error()
+	default:
+		return "invite code invalid"
+	}
+}
+
+func isInviteCodeError(err error) bool {
+	switch err {
+	case domain.ErrInviteCodeRequired,
+		domain.ErrInviteCodeInvalid,
+		domain.ErrInviteCodeExpired,
+		domain.ErrInviteCodeExhausted,
+		domain.ErrInviteCodeDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
+func getClientIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }

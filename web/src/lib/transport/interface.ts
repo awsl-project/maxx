@@ -50,6 +50,11 @@ import type {
   AuthRegisterResult,
   ApplyResult,
   ChangePasswordResult,
+  InviteCode,
+  InviteCodeUsage,
+  CreateInviteCodeData,
+  UpdateInviteCodeData,
+  InviteCodeCreateResult,
   User,
   CreateUserData,
   UpdateUserData,
@@ -208,7 +213,7 @@ export interface Transport {
   listPasskeyCredentials(): Promise<PasskeyCredential[]>;
   deletePasskeyCredential(id: string): Promise<void>;
   register(username: string, password: string, tenantID?: number): Promise<AuthRegisterResult>;
-  apply(username: string, password: string): Promise<ApplyResult>;
+  apply(username: string, password: string, inviteCode: string): Promise<ApplyResult>;
   changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult>;
   setAuthToken(token: string): void;
   clearAuthToken(): void;
@@ -228,6 +233,14 @@ export interface Transport {
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
   deleteAPIToken(id: number): Promise<void>;
+
+  // ===== Invite Code API =====
+  getInviteCodes(): Promise<InviteCode[]>;
+  getInviteCode(id: number): Promise<InviteCode>;
+  createInviteCodes(data: CreateInviteCodeData): Promise<InviteCodeCreateResult>;
+  updateInviteCode(id: number, data: UpdateInviteCodeData): Promise<InviteCode>;
+  deleteInviteCode(id: number): Promise<void>;
+  getInviteCodeUsages(id: number): Promise<InviteCodeUsage[]>;
 
   // ===== Usage Stats API =====
   getUsageStats(filter?: UsageStatsFilter): Promise<UsageStats[]>;

@@ -10,6 +10,26 @@ interface LoginPageProps {
   onSuccess: (token: string, user?: AuthUser) => void;
 }
 
+function mapRegisterError(error: string | undefined, t: (key: string) => string) {
+  if (!error) {
+    return t('login.registerFailed');
+  }
+  switch (error) {
+    case 'invite code required':
+      return t('login.inviteCodeRequired');
+    case 'invite code invalid':
+      return t('login.inviteCodeInvalid');
+    case 'invite code expired':
+      return t('login.inviteCodeExpired');
+    case 'invite code exhausted':
+      return t('login.inviteCodeExhausted');
+    case 'invite code disabled':
+      return t('login.inviteCodeDisabled');
+    default:
+      return error || t('login.registerFailed');
+  }
+}
+
 export function LoginPage({ onSuccess }: LoginPageProps) {
   const { t } = useTranslation();
   const { transport } = useTransport();
@@ -17,6 +37,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -76,18 +97,19 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     setIsLoading(true);
 
     try {
-      const result = await transport.apply(username, password);
+      const result = await transport.apply(username, password, inviteCode);
       if (result.success) {
         setSuccessMessage(t('login.registerSuccess'));
         setMode('login');
         setPassword('');
         setConfirmPassword('');
+        setInviteCode('');
       } else {
-        setError(result.error || t('login.registerFailed'));
+        setError(mapRegisterError(result.error, t));
       }
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { error?: string } } };
-      setError(axiosError?.response?.data?.error || t('login.registerFailed'));
+      setError(mapRegisterError(axiosError?.response?.data?.error, t));
     } finally {
       setIsLoading(false);
     }
@@ -146,7 +168,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   };
 
   if (mode === 'register') {
-    const isRegisterDisabled = isLoading || !username || !password || !confirmPassword;
+    const isRegisterDisabled = isLoading || !username || !password || !confirmPassword || !inviteCode;
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -180,6 +202,13 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={isLoading}
               />
+              <Input
+                type="text"
+                placeholder={t('login.inviteCodePlaceholder')}
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                disabled={isLoading}
+              />
               {error && <p className="text-destructive text-sm">{error}</p>}
             </div>
 
@@ -187,14 +216,14 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               {isLoading ? t('login.registering') : t('login.register')}
             </Button>
 
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full"
-              onClick={() => { setMode('login'); setError(''); }}
-            >
-              {t('login.backToLogin')}
-            </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={() => { setMode('login'); setError(''); }}
+          >
+            {t('login.backToLogin')}
+          </Button>
           </form>
         </div>
       </div>

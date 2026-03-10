@@ -107,6 +107,15 @@ export const sidebarConfig: SidebarConfig = {
         },
         {
           type: 'standard',
+          key: 'invite-codes',
+          to: '/invite-codes',
+          icon: Key,
+          labelKey: 'nav.inviteCodes',
+          adminOnly: true,
+          authOnly: true,
+        },
+        {
+          type: 'standard',
           key: 'users',
           to: '/users',
           icon: UserCog,

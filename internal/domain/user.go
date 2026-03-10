@@ -37,6 +37,9 @@ type User struct {
 	// Passkey/WebAuthn 凭据列表（JSON 序列化），不序列化
 	PasskeyCredentials string `json:"-"`
 
+	// 注册所用邀请码（可为空）
+	InviteCodeID *uint64 `json:"inviteCodeID,omitempty"`
+
 	// 角色
 	Role UserRole `json:"role"`
 

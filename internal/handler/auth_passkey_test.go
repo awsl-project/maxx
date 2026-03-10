@@ -181,7 +181,7 @@ func newPasskeyHandlerAndToken(t *testing.T, user *domain.User) (*AuthHandler, s
 
 	userRepo := newPasskeyTestUserRepo(user)
 	authMiddleware := NewAuthMiddleware(nil)
-	handler := NewAuthHandler(authMiddleware, userRepo, &passkeyTestTenantRepo{}, true)
+	handler := NewAuthHandler(authMiddleware, userRepo, &passkeyTestTenantRepo{}, nil, nil, true)
 
 	token, err := authMiddleware.GenerateToken(user)
 	if err != nil {

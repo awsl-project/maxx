@@ -753,6 +753,61 @@ export interface AuthRegisterResult {
   error?: string;
 }
 
+// ===== Invite Codes =====
+
+export type InviteCodeStatus = 'active' | 'disabled';
+
+export interface InviteCode {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  tenantID: number;
+  codePrefix: string;
+  status: InviteCodeStatus;
+  maxUses: number;
+  usedCount: number;
+  expiresAt?: string;
+  createdByUserID: number;
+  note?: string;
+}
+
+export interface InviteCodeUsage {
+  id: number;
+  createdAt: string;
+  tenantID: number;
+  inviteCodeID: number;
+  userID: number;
+  username: string;
+  usedAt: string;
+  ip: string;
+  userAgent: string;
+  result: string;
+  reason?: string;
+}
+
+export interface CreateInviteCodeData {
+  count?: number;
+  maxUses?: number;
+  expiresAt?: string;
+  note?: string;
+}
+
+export interface UpdateInviteCodeData {
+  status?: InviteCodeStatus;
+  maxUses?: number;
+  expiresAt?: string;
+  note?: string;
+}
+
+export interface InviteCodeCreateItem {
+  code: string;
+  inviteCode: InviteCode;
+}
+
+export interface InviteCodeCreateResult {
+  items: InviteCodeCreateItem[];
+}
+
 // ===== API Token =====
 
 export interface APIToken {

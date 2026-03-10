@@ -67,6 +67,8 @@ type DatabaseRepos struct {
 	ModelPriceRepo            repository.ModelPriceRepository
 	TenantRepo                repository.TenantRepository
 	UserRepo                  repository.UserRepository
+	InviteCodeRepo            repository.InviteCodeRepository
+	InviteCodeUsageRepo       repository.InviteCodeUsageRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
@@ -131,6 +133,8 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	modelPriceRepo := sqlite.NewModelPriceRepository(db)
 	tenantRepo := sqlite.NewTenantRepository(db)
 	userRepo := sqlite.NewUserRepository(db)
+	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
+	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -173,6 +177,8 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		ModelPriceRepo:            modelPriceRepo,
 		TenantRepo:                tenantRepo,
 		UserRepo:                  userRepo,
+		InviteCodeRepo:            inviteCodeRepo,
+		InviteCodeUsageRepo:       inviteCodeUsageRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -336,6 +342,8 @@ func InitializeServerComponents(
 		repos.AttemptRepo,
 		repos.SettingRepo,
 		repos.CachedAPITokenRepo,
+		repos.InviteCodeRepo,
+		repos.InviteCodeUsageRepo,
 		repos.CachedModelMappingRepo,
 		repos.UsageStatsRepo,
 		repos.ResponseModelRepo,
@@ -372,7 +380,14 @@ func InitializeServerComponents(
 	} else {
 		log.Println("Admin API authentication is disabled (no MAXX_ADMIN_PASSWORD set)")
 	}
-	authHandler := handler.NewAuthHandler(authMiddleware, repos.UserRepo, repos.TenantRepo, authEnabled)
+	authHandler := handler.NewAuthHandler(
+		authMiddleware,
+		repos.UserRepo,
+		repos.TenantRepo,
+		repos.InviteCodeRepo,
+		repos.InviteCodeUsageRepo,
+		authEnabled,
+	)
 
 	log.Printf("[Core] Creating handlers")
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(repos.CachedAPITokenRepo, repos.SettingRepo)

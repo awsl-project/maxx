@@ -102,6 +102,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleLogs(w, r)
 	case "api-tokens":
 		h.handleAPITokens(w, r, id)
+	case "invite-codes":
+		h.handleInviteCodes(w, r, id, parts)
 	case "model-mappings":
 		h.handleModelMappings(w, r, id)
 	case "usage-stats":
