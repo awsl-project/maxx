@@ -4,28 +4,98 @@ on:
     types: [opened, reopened, ready_for_review]
   issue_comment:
 jobs:
+  authorize_actor:
+    if: ${{ github.event.sender.type != 'Bot' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      allowed: ${{ steps.authorize.outputs.allowed }}
+    steps:
+      - name: Check triggering actor authorization
+        id: authorize
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const allowedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const { owner, repo } = context.repo;
+            const actor = context.actor;
+            const eventName = context.eventName;
+            const payload = context.payload;
+
+            const setAllowed = (value, reason) => {
+              core.setOutput('allowed', value ? 'true' : 'false');
+              core.info(reason);
+            };
+
+            if (eventName === 'issue_comment') {
+              if (!payload.issue?.pull_request) {
+                return setAllowed(false, 'Ignoring issue_comment event that is not tied to a pull request.');
+              }
+
+              const association = payload.comment?.author_association ?? 'NONE';
+              return setAllowed(
+                allowedAssociations.has(association),
+                `Issue comment actor ${actor} has author_association=${association}.`,
+              );
+            }
+
+            if (eventName !== 'pull_request') {
+              return setAllowed(false, `Unsupported event: ${eventName}`);
+            }
+
+            if (actor === owner) {
+              return setAllowed(true, `Actor ${actor} is the repository owner.`);
+            }
+
+            if (payload.repository?.owner?.type === 'Organization') {
+              try {
+                const membership = await github.graphql(
+                  `query($organization: String!, $login: String!) {
+                    organization(login: $organization) {
+                      member(login: $login) {
+                        login
+                      }
+                    }
+                  }`,
+                  {
+                    organization: owner,
+                    login: actor,
+                  },
+                );
+
+                if (membership.organization?.member?.login) {
+                  return setAllowed(true, `Actor ${actor} is a member of organization ${owner}.`);
+                }
+              } catch (error) {
+                core.warning(`Organization membership lookup failed for ${actor}: ${error.message}`);
+              }
+            }
+
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner,
+                repo,
+                username: actor,
+              });
+
+              return setAllowed(
+                Boolean(data.permission && data.permission !== 'none'),
+                `Actor ${actor} collaborator permission=${data.permission ?? 'none'}, role=${data.role_name ?? 'unknown'}.`,
+              );
+            } catch (error) {
+              if (error.status === 404) {
+                return setAllowed(false, `Actor ${actor} is not a collaborator on ${owner}/${repo}.`);
+              }
+
+              throw error;
+            }
+
   pr_agent_job:
-    if: >-
-      ${{
-        github.event.sender.type != 'Bot' &&
-        (
-          (
-            github.event_name == 'pull_request' &&
-            contains(
-              fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
-              github.event.pull_request.author_association
-            )
-          ) ||
-          (
-            github.event_name == 'issue_comment' &&
-            github.event.issue.pull_request &&
-            contains(
-              fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
-              github.event.comment.author_association
-            )
-          )
-        )
-      }}
+    needs: authorize_actor
+    if: ${{ needs.authorize_actor.outputs.allowed == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       issues: write
