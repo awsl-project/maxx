@@ -50,4 +50,16 @@ func TestExtractModelVersionFromSSELine(t *testing.T) {
 	if got := extractModelVersionFromSSELine("data: {\"response\":{\"modelVersion\":\"gemini-2.5-flash\"}}\n"); got != "gemini-2.5-flash" {
 		t.Fatalf("expected wrapped modelVersion, got %q", got)
 	}
+	if got := extractModelVersionFromSSELine("event: message\n"); got != "" {
+		t.Fatalf("expected empty for non-data line, got %q", got)
+	}
+	if got := extractModelVersionFromSSELine("data: [DONE]\n"); got != "" {
+		t.Fatalf("expected empty for done line, got %q", got)
+	}
+	if got := extractModelVersionFromSSELine("data: {invalid}\n"); got != "" {
+		t.Fatalf("expected empty for invalid json, got %q", got)
+	}
+	if got := extractModelVersionFromSSELine("data: {\"other\":\"value\"}\n"); got != "" {
+		t.Fatalf("expected empty when modelVersion missing, got %q", got)
+	}
 }

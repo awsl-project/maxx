@@ -417,7 +417,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 		line, err := reader.ReadString('\n')
 		if line != "" {
 			if metrics := usage.ExtractFromSSELine(line); metrics != nil {
-				lastMetrics = metrics
+				lastMetrics = usage.AdjustForClientType(metrics, domain.ClientTypeCodex)
 			}
 			if model := extractModelFromSSELine(line); model != "" {
 				lastModel = model

@@ -1204,18 +1204,6 @@ func extractModelVersion(body []byte) string {
 	return ""
 }
 
-// extractModelVersionFromSSE extracts modelVersion from SSE content
-// Looks for the last "modelVersion" field in the SSE data
-func extractModelVersionFromSSE(sseContent string) string {
-	var lastModelVersion string
-	for _, line := range strings.Split(sseContent, "\n") {
-		if modelVersion := extractModelVersionFromSSELine(line); modelVersion != "" {
-			lastModelVersion = modelVersion
-		}
-	}
-	return lastModelVersion
-}
-
 func extractModelVersionFromSSELine(line string) string {
 	line = strings.TrimSpace(line)
 	if !strings.HasPrefix(line, "data:") {

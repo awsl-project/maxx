@@ -259,17 +259,6 @@ func extractModelFromResponse(body []byte) string {
 	return ""
 }
 
-// extractModelFromSSE extracts the last model field from accumulated SSE content.
-func extractModelFromSSE(sseContent string) string {
-	var lastModel string
-	for line := range strings.SplitSeq(sseContent, "\n") {
-		if model := extractModelFromSSELine(line); model != "" {
-			lastModel = model
-		}
-	}
-	return lastModel
-}
-
 func extractModelFromSSELine(line string) string {
 	line = strings.TrimSpace(line)
 	if !strings.HasPrefix(line, "data:") {
