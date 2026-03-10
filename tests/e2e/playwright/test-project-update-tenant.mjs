@@ -31,6 +31,8 @@ const HEADED = !!process.env.HEADED;
 
 let exitCode = 0;
 let browser = null;
+let projectId = null;
+let jwt = null;
 
 function assert(condition, msg) {
   if (!condition) {
@@ -66,6 +68,21 @@ async function adminAPI(method, path, body, token) {
   return json;
 }
 
+// ===== Cleanup Helper =====
+async function cleanup() {
+  if (projectId && jwt) {
+    try {
+      await adminAPI('DELETE', `/projects/${projectId}`, null, jwt);
+      console.log('Test project cleaned up');
+    } catch (e) {
+      console.warn('Failed to cleanup test project:', e.message);
+    }
+  }
+  if (browser) {
+    try { await browser.close(); } catch {}
+  }
+}
+
 // ===== Main Test =====
 (async () => {
   // --- Setup: Admin login ---
@@ -75,7 +92,7 @@ async function adminAPI(method, path, body, token) {
     password: PASS,
   });
   assert(loginResp.token, 'Should receive JWT token');
-  const jwt = loginResp.token;
+  jwt = loginResp.token;
   console.log('Admin login success');
 
   // --- Setup: Create Project ---
@@ -93,6 +110,7 @@ async function adminAPI(method, path, body, token) {
   );
   assert(project.id, 'Project should have an ID');
   assert(project.slug, 'Project should have a slug');
+  projectId = project.id;
   console.log(`Project created: id=${project.id}, name=${project.name}, slug=${project.slug}`);
 
   // Verify project appears in list via API
@@ -114,21 +132,20 @@ async function adminAPI(method, path, body, token) {
   await page.fill('input[type="text"]', USER);
   await page.fill('input[type="password"]', PASS);
   await page.locator('button[type="submit"]').click();
-  await page.waitForTimeout(2000);
+  await page.waitForURL('**/(dashboard|projects|stats|routes)**', { timeout: 10000 });
   console.log('Browser login success');
 
   // Step 2: Navigate to projects page and verify project visible
   console.log('\n--- Step 2: Navigate to Projects ---');
   await page.goto(`${BASE}/projects`);
-  await page.waitForTimeout(2000);
   const projectCard = page.locator(`text=${projectName}`);
-  assert((await projectCard.count()) > 0, `Project "${projectName}" should be visible in project list`);
+  await projectCard.first().waitFor({ state: 'visible', timeout: 10000 });
   console.log('Project visible in list');
 
   // Step 3: Click project to go to detail page
   console.log('\n--- Step 3: Navigate to Project Detail ---');
   await projectCard.first().click();
-  await page.waitForTimeout(2000);
+  await page.locator('input#name').waitFor({ state: 'visible', timeout: 10000 });
   const detailBody = await page.textContent('body');
   assert(detailBody.includes(projectName), 'Detail page should show project name');
   console.log('Project detail page loaded');
@@ -137,16 +154,16 @@ async function adminAPI(method, path, body, token) {
   console.log('\n--- Step 4: Toggle Custom Routes ---');
   const routesTab = page.locator('button[role="tab"], [data-value="routes"]').filter({ hasText: /Routes|路由/ });
   await routesTab.click();
-  await page.waitForTimeout(1000);
+  await page.locator('button[role="switch"]').first().waitFor({ state: 'visible', timeout: 5000 });
 
   // Find and click the custom routes switch
   const customRoutesSwitch = page.locator('button[role="switch"]').first();
-  const switchCountBefore = await customRoutesSwitch.count();
-  assert(switchCountBefore > 0, 'Should find custom routes switch');
+  assert((await customRoutesSwitch.count()) > 0, 'Should find custom routes switch');
 
-  // Toggle it on
+  // Toggle it on and wait for API response
   await customRoutesSwitch.click();
-  await page.waitForTimeout(2000);
+  await page.waitForResponse((resp) => resp.url().includes('/projects/') && resp.request().method() === 'PUT', { timeout: 5000 });
+  await page.waitForTimeout(500);
   console.log('Custom routes toggled');
 
   // Step 5: Verify project still exists via API (the critical check)
@@ -163,32 +180,25 @@ async function adminAPI(method, path, body, token) {
   // Step 6: Navigate back to project list and verify project is still visible
   console.log('\n--- Step 6: Navigate Back to Project List ---');
   await page.goto(`${BASE}/projects`);
-  await page.waitForTimeout(2000);
   const projectCardAfter = page.locator(`text=${projectName}`);
-  assert(
-    (await projectCardAfter.count()) > 0,
-    `Project "${projectName}" should still be visible after toggling custom routes`,
-  );
+  await projectCardAfter.first().waitFor({ state: 'visible', timeout: 10000 });
   console.log('Project still visible in list after toggle');
 
   // Step 7: Go back to detail, edit name via overview tab (another PUT)
   console.log('\n--- Step 7: Edit Project Name in Overview ---');
   await projectCardAfter.first().click();
-  await page.waitForTimeout(2000);
-
-  // Should be on overview tab by default
   const nameInput = page.locator('input#name');
-  assert((await nameInput.count()) > 0, 'Should find name input on overview tab');
+  await nameInput.waitFor({ state: 'visible', timeout: 10000 });
 
   const newName = `${projectName}-Edited`;
   await nameInput.fill(newName);
-  await page.waitForTimeout(500);
 
-  // Click save button
+  // Click save button and wait for API response
   const saveButton = page.locator('button').filter({ hasText: /Save|保存/ });
-  assert((await saveButton.count()) > 0, 'Should find save button');
+  await saveButton.waitFor({ state: 'visible', timeout: 5000 });
   await saveButton.click();
-  await page.waitForTimeout(2000);
+  await page.waitForResponse((resp) => resp.url().includes('/projects/') && resp.request().method() === 'PUT', { timeout: 5000 });
+  await page.waitForTimeout(500);
   console.log(`Project name changed to: ${newName}`);
 
   // Step 8: Verify project still in API list after name edit
@@ -202,30 +212,19 @@ async function adminAPI(method, path, body, token) {
   // Step 9: Navigate to project list one more time
   console.log('\n--- Step 9: Final Project List Check ---');
   await page.goto(`${BASE}/projects`);
-  await page.waitForTimeout(2000);
   const finalCard = page.locator(`text=${newName}`);
-  assert(
-    (await finalCard.count()) > 0,
-    `Project "${newName}" should be visible in project list after all updates`,
-  );
+  await finalCard.first().waitFor({ state: 'visible', timeout: 10000 });
   console.log('Project visible in final list check');
-
-  // Cleanup: delete test project
-  console.log('\n--- Cleanup ---');
-  await adminAPI('DELETE', `/projects/${project.id}`, null, jwt);
-  console.log('Test project deleted');
 
   // Screenshot
   await page.screenshot({ path: '/tmp/project-update-tenant-result.png' });
   console.log('Screenshot: /tmp/project-update-tenant-result.png');
 
   console.log(`\n===== Test ${exitCode === 0 ? 'PASSED' : 'FAILED'} =====`);
-  await browser.close();
+  await cleanup();
   process.exit(exitCode);
 })().catch(async (err) => {
   console.error('Test error:', err.message);
-  if (browser) {
-    try { await browser.close(); } catch {}
-  }
+  await cleanup();
   process.exit(1);
 });
