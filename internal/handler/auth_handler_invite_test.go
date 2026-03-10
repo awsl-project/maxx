@@ -12,13 +12,13 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
-type stubUserRepo struct {
+type stubInviteUserRepo struct {
 	users     map[string]*domain.User
 	nextID    uint64
 	createErr error
 }
 
-func (r *stubUserRepo) Create(user *domain.User) error {
+func (r *stubInviteUserRepo) Create(user *domain.User) error {
 	if r.createErr != nil {
 		return r.createErr
 	}
@@ -31,24 +31,24 @@ func (r *stubUserRepo) Create(user *domain.User) error {
 	return nil
 }
 
-func (r *stubUserRepo) Update(user *domain.User) error          { return nil }
-func (r *stubUserRepo) Delete(tenantID uint64, id uint64) error { return nil }
-func (r *stubUserRepo) GetByID(tenantID uint64, id uint64) (*domain.User, error) {
+func (r *stubInviteUserRepo) Update(user *domain.User) error          { return nil }
+func (r *stubInviteUserRepo) Delete(tenantID uint64, id uint64) error { return nil }
+func (r *stubInviteUserRepo) GetByID(tenantID uint64, id uint64) (*domain.User, error) {
 	return nil, domain.ErrNotFound
 }
-func (r *stubUserRepo) GetByUsername(username string) (*domain.User, error) {
+func (r *stubInviteUserRepo) GetByUsername(username string) (*domain.User, error) {
 	if u, ok := r.users[username]; ok {
 		return u, nil
 	}
 	return nil, domain.ErrNotFound
 }
-func (r *stubUserRepo) GetDefault() (*domain.User, error)                    { return nil, domain.ErrNotFound }
-func (r *stubUserRepo) List() ([]*domain.User, error)                        { return nil, nil }
-func (r *stubUserRepo) ListByTenant(tenantID uint64) ([]*domain.User, error) { return nil, nil }
-func (r *stubUserRepo) ListByTenantAndStatus(tenantID uint64, status domain.UserStatus) ([]*domain.User, error) {
+func (r *stubInviteUserRepo) GetDefault() (*domain.User, error)                    { return nil, domain.ErrNotFound }
+func (r *stubInviteUserRepo) List() ([]*domain.User, error)                        { return nil, nil }
+func (r *stubInviteUserRepo) ListByTenant(tenantID uint64) ([]*domain.User, error) { return nil, nil }
+func (r *stubInviteUserRepo) ListByTenantAndStatus(tenantID uint64, status domain.UserStatus) ([]*domain.User, error) {
 	return nil, nil
 }
-func (r *stubUserRepo) CountActive() (int64, error) { return 0, nil }
+func (r *stubInviteUserRepo) CountActive() (int64, error) { return 0, nil }
 
 type stubInviteRepo struct {
 	invite               *domain.InviteCode
@@ -118,7 +118,7 @@ func (r *stubInviteUsageRepo) ListByUserID(tenantID uint64, userID uint64) ([]*d
 }
 
 func TestHandleApply_RollbackOnCreateFailure(t *testing.T) {
-	userRepo := &stubUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 7, TenantID: 1, CodeHash: codeHash}}
 	usageRepo := &stubInviteUsageRepo{}
@@ -151,7 +151,7 @@ func TestHandleApply_RollbackOnCreateFailure(t *testing.T) {
 }
 
 func TestHandleApply_InviteCodeExpired(t *testing.T) {
-	userRepo := &stubUserRepo{users: map[string]*domain.User{}}
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}}
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{
 		invite:     &domain.InviteCode{ID: 7, TenantID: 1, CodeHash: codeHash},
@@ -177,7 +177,7 @@ func TestHandleApply_InviteCodeExpired(t *testing.T) {
 }
 
 func TestHandleApply_InviteCodeSystemError(t *testing.T) {
-	userRepo := &stubUserRepo{users: map[string]*domain.User{}}
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}}
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{
 		invite:     &domain.InviteCode{ID: 7, TenantID: 1, CodeHash: codeHash},
@@ -203,7 +203,7 @@ func TestHandleApply_InviteCodeSystemError(t *testing.T) {
 }
 
 func TestHandleApply_RollbackWithoutUsageRepo(t *testing.T) {
-	userRepo := &stubUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 9, TenantID: 1, CodeHash: codeHash}}
 
@@ -232,7 +232,7 @@ func TestHandleApply_RollbackWithoutUsageRepo(t *testing.T) {
 }
 
 func TestHandleApply_RollbackWhenUsageCreateFails(t *testing.T) {
-	userRepo := &stubUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}, createErr: errors.New("db down")}
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 10, TenantID: 1, CodeHash: codeHash}}
 	usageRepo := &stubInviteUsageRepo{createErr: errors.New("usage down")}
@@ -262,7 +262,7 @@ func TestHandleApply_RollbackWhenUsageCreateFails(t *testing.T) {
 }
 
 func TestHandleApply_ResolveTenantFromInvite(t *testing.T) {
-	userRepo := &stubUserRepo{users: map[string]*domain.User{}}
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}}
 	codeHash := domain.HashInviteCode("CODE123")
 	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 11, TenantID: 42, CodeHash: codeHash}}
 

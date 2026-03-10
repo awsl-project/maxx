@@ -26,7 +26,7 @@ import {
   useInviteCodeUsages,
 } from '@/hooks/queries';
 import { PageHeader } from '@/components/layout';
-import { Plus, Loader2, Copy, Eye, Ban, Check, Trash2 } from 'lucide-react';
+import { Plus, Loader2, Copy, Eye, Ban, Check, Trash2, Ticket } from 'lucide-react';
 import type { InviteCode, InviteCodeCreateItem } from '@/lib/transport';
 
 export function InviteCodesPage() {
@@ -144,6 +144,8 @@ export function InviteCodesPage() {
       <PageHeader
         title={t('inviteCodes.title')}
         description={t('inviteCodes.description')}
+        icon={Ticket}
+        iconClassName="text-amber-500"
         actions={(
           <Button onClick={() => setShowCreateDialog(true)}>
             <Plus className="mr-2 h-4 w-4" />
