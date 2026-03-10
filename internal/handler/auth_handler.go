@@ -280,7 +280,8 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	codeHash := domain.HashInviteCode(body.InviteCode)
+	inviteCode := strings.TrimSpace(body.InviteCode)
+	codeHash := domain.HashInviteCode(inviteCode)
 	tenantID, err := h.resolveInviteTenant(codeHash)
 	if err != nil {
 		if isInviteCodeError(err) {
@@ -301,6 +302,13 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	var invite *domain.InviteCode
 	if creator, ok := h.inviteCodeRepo.(inviteCodeUserCreator); ok {
+		hash, hashErr := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+		if hashErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+			return
+		}
+		user.PasswordHash = string(hash)
+
 		invite, err = creator.ConsumeAndCreateUser(tenantID, codeHash, now, user)
 		if err != nil {
 			if isInviteCodeError(err) {
@@ -351,19 +359,6 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		} else if lookupErr != domain.ErrNotFound {
 			cleanup()
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-			return
-		}
-
-		hash, hashErr := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
-		if hashErr != nil {
-			cleanup()
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
-			return
-		}
-		user.PasswordHash = string(hash)
-		if err := h.userRepo.Update(user); err != nil {
-			cleanup()
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update user"})
 			return
 		}
 	} else {
@@ -647,10 +642,12 @@ func getClientIP(r *http.Request) string {
 	}
 	remoteIP := parseRemoteIP(r.RemoteAddr)
 	if remoteIP != nil && isTrustedProxy(remoteIP) {
-		if forwarded := parseForwardedIP(r.Header.Get("X-Forwarded-For")); forwarded != nil {
-			return forwarded.String()
+		if forwarded := parseForwardedIPs(r.Header.Get("X-Forwarded-For")); len(forwarded) > 0 {
+			if clientIP := findUntrustedForwardedIP(forwarded); clientIP != nil {
+				return clientIP.String()
+			}
 		}
-		if realIP := parseSingleIP(r.Header.Get("X-Real-IP")); realIP != nil {
+		if realIP := parseSingleIP(r.Header.Get("X-Real-IP")); realIP != nil && !isTrustedProxy(realIP) {
 			return realIP.String()
 		}
 	} else if remoteIP != nil && hasForwardedHeaders(r) {
@@ -736,13 +733,37 @@ func parseRemoteIP(remoteAddr string) net.IP {
 }
 
 func parseForwardedIP(headerVal string) net.IP {
+	forwarded := parseForwardedIPs(headerVal)
+	if len(forwarded) == 0 {
+		return nil
+	}
+	return findUntrustedForwardedIP(forwarded)
+}
+
+func parseForwardedIPs(headerVal string) []net.IP {
 	if headerVal == "" {
 		return nil
 	}
-	for _, part := range strings.Split(headerVal, ",") {
+	parts := strings.Split(headerVal, ",")
+	ips := make([]net.IP, 0, len(parts))
+	for _, part := range parts {
 		if ip := parseSingleIP(part); ip != nil {
-			return ip
+			ips = append(ips, ip)
 		}
+	}
+	return ips
+}
+
+func findUntrustedForwardedIP(forwarded []net.IP) net.IP {
+	for i := len(forwarded) - 1; i >= 0; i-- {
+		ip := forwarded[i]
+		if ip == nil {
+			continue
+		}
+		if isTrustedProxy(ip) {
+			continue
+		}
+		return ip
 	}
 	return nil
 }

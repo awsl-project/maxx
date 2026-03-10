@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -14,67 +15,81 @@ import (
 func (h *AdminHandler) handleInviteCodes(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
 	tenantID := maxxctx.GetTenantID(r.Context())
 
-	// Handle /admin/invite-codes/{id}/usages
-	if id > 0 && len(parts) > 3 && parts[3] == "usages" {
+	switch {
+	case len(parts) == 2:
+		switch r.Method {
+		case http.MethodGet:
+			h.handleListInviteCodes(w, r, tenantID)
+		case http.MethodPost:
+			h.handleCreateInviteCodes(w, r, tenantID)
+		default:
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+		return
+	case len(parts) == 3:
+		if id == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid invite code id"})
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			h.handleGetInviteCode(w, r, tenantID, id)
+		case http.MethodPut:
+			h.handleUpdateInviteCode(w, r, tenantID, id)
+		case http.MethodDelete:
+			code, err := h.svc.GetInviteCode(tenantID, id)
+			if err != nil {
+				if errors.Is(err, domain.ErrNotFound) {
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+					return
+				}
+				log.Printf("[AdminInviteCodes] Failed to load invite code %d: %v", id, err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+				return
+			}
+			if !canAccessInviteCode(r, code, h.authEnabled) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+				return
+			}
+			if err := h.svc.DeleteInviteCode(tenantID, id); err != nil {
+				if errors.Is(err, domain.ErrNotFound) {
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
+					return
+				}
+				if errors.Is(err, domain.ErrInvalidState) {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid invite code state"})
+					return
+				}
+				log.Printf("[AdminInviteCodes] Failed to delete invite code %d: %v", id, err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"success": true})
+		default:
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+		return
+	case len(parts) == 4 && parts[3] == "usages":
+		if id == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid invite code id"})
+			return
+		}
 		if r.Method == http.MethodGet {
 			h.handleInviteCodeUsages(w, r, tenantID, id)
 		} else {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		}
 		return
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		if id > 0 {
-			h.handleGetInviteCode(w, r, tenantID, id)
-		} else {
-			h.handleListInviteCodes(w, r, tenantID)
-		}
-	case http.MethodPost:
-		h.handleCreateInviteCodes(w, r, tenantID)
-	case http.MethodPut:
-		if id == 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
-			return
-		}
-		h.handleUpdateInviteCode(w, r, tenantID, id)
-	case http.MethodDelete:
-		if id == 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
-			return
-		}
-		code, err := h.svc.GetInviteCode(tenantID, id)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
-				return
-			}
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-			return
-		}
-		if !canAccessInviteCode(r, code, h.authEnabled) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
-			return
-		}
-		if err := h.svc.DeleteInviteCode(tenantID, id); err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "invite code not found"})
-				return
-			}
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"success": true})
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	}
 }
 
 func (h *AdminHandler) handleListInviteCodes(w http.ResponseWriter, r *http.Request, tenantID uint64) {
 	codes, err := h.svc.GetInviteCodes(tenantID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		log.Printf("[AdminInviteCodes] Failed to list invite codes: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 	if maxxctx.GetUserRole(r.Context()) == string(domain.UserRoleMember) {
@@ -137,7 +152,8 @@ func (h *AdminHandler) handleCreateInviteCodes(w http.ResponseWriter, r *http.Re
 	createdBy := maxxctx.GetUserID(r.Context())
 	result, err := h.svc.CreateInviteCodes(tenantID, createdBy, body.Count, maxUses, expiresAt, strings.TrimSpace(body.Note))
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		log.Printf("[AdminInviteCodes] Failed to create invite codes: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -210,7 +226,8 @@ func (h *AdminHandler) handleUpdateInviteCode(w http.ResponseWriter, r *http.Req
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid invite code state"})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		log.Printf("[AdminInviteCodes] Failed to update invite code %d: %v", existing.ID, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 	writeJSON(w, http.StatusOK, existing)
@@ -232,7 +249,8 @@ func (h *AdminHandler) handleInviteCodeUsages(w http.ResponseWriter, r *http.Req
 	}
 	usages, err := h.svc.ListInviteCodeUsages(tenantID, codeID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		log.Printf("[AdminInviteCodes] Failed to list invite code usages %d: %v", codeID, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 	writeJSON(w, http.StatusOK, usages)
