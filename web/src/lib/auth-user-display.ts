@@ -51,8 +51,26 @@ export interface AuthUserDisplay {
 export function getAuthUserDisplay(user?: AuthUser | null): AuthUserDisplay {
   const username = compactWhitespace(user?.username);
   const tenantName = compactWhitespace(user?.tenantName);
-  const rawIdentity = username || tenantName || (user?.id ? `UID-${user.id}` : 'Maxx');
-  const avatarSource = username || tenantName || (user?.id ? `${user.id}` : 'MX');
+  const hasUsername = username !== '';
+  const hasTenantName = tenantName !== '';
+  const userId = user?.id;
+  const tenantId = user?.tenantID;
+  const hasUserId = userId != null;
+  const hasTenantId = tenantId != null;
+  const rawIdentity = hasUsername
+    ? username
+    : hasUserId
+      ? `UID-${userId}`
+      : hasTenantId
+        ? `T-${tenantId}`
+        : 'Maxx';
+  const avatarSource = hasUsername
+    ? username
+    : hasUserId
+      ? `${userId}`
+      : hasTenantName
+        ? tenantName
+        : 'MX';
   const avatarFallback = (Array.from(avatarSource.replace(/\s+/g, ''))
     .slice(0, 2)
     .join('') || 'MX'
@@ -61,9 +79,13 @@ export function getAuthUserDisplay(user?: AuthUser | null): AuthUserDisplay {
   return {
     maskedIdentity: maskAccountIdentifier(rawIdentity) || 'Maxx',
     rawIdentity,
-    tenantLabel: tenantName ? maskAccountIdentifier(tenantName) : `T-${user?.tenantID ?? '?'}`,
-    userLabel: user?.id ? `UID-${user.id}` : 'UID-?',
-    tenantIDLabel: user?.tenantID ? `T-${user.tenantID}` : 'T-?',
+    tenantLabel: hasTenantName
+      ? maskAccountIdentifier(tenantName)
+      : hasTenantId
+        ? `T-${tenantId}`
+        : 'T-?',
+    userLabel: hasUserId ? `UID-${userId}` : 'UID-?',
+    tenantIDLabel: hasTenantId ? `T-${tenantId}` : 'T-?',
     avatarFallback,
   };
 }

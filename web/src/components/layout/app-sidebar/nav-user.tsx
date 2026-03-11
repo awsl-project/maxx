@@ -74,9 +74,10 @@ export function NavUser() {
   const { t, i18n } = useTranslation();
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
-  const { user, authEnabled, logout } = useAuth();
+  const { user, authEnabled, isLoading, logout } = useAuth();
   const changePassword = useChangeMyPassword();
   const isCollapsed = !isMobile && state === 'collapsed';
+  const hasAuthenticatedUser = authEnabled && Boolean(user) && !isLoading;
 
   const [showPasskeyDialog, setShowPasskeyDialog] = useState(false);
   const [showAccountDialog, setShowAccountDialog] = useState(false);
@@ -92,7 +93,8 @@ export function NavUser() {
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const passwordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [passkeySuccess, setPasskeySuccess] = useState('');
-  const passkeyCredentials = usePasskeyCredentials(showPasskeyDialog && authEnabled);
+  const securityAvailable = hasAuthenticatedUser;
+  const passkeyCredentials = usePasskeyCredentials(showPasskeyDialog && securityAvailable);
   const deletePasskeyCredential = useDeletePasskeyCredential();
   const registerPasskey = useRegisterPasskey();
 
@@ -229,22 +231,26 @@ export function NavUser() {
 
   const displayUser = getAuthUserDisplay(user);
   const menuDisplayName = displayUser.maskedIdentity;
-  const hasAuthenticatedUser = authEnabled && Boolean(user);
-  const roleLabel = user
-    ? user.role === 'admin'
-      ? t('users.roleAdmin')
-      : t('users.roleMember')
-    : t('common.unknown');
-  const accountStatusLabel = hasAuthenticatedUser
-    ? t('users.statusActive')
-    : authEnabled
-      ? t('common.unknown')
-      : t('nav.authDisabled');
+  const roleLabel = isLoading
+    ? t('common.loading')
+    : user
+      ? user.role === 'admin'
+        ? t('users.roleAdmin')
+        : t('users.roleMember')
+      : t('common.unknown');
+  const accountStatusLabel = isLoading
+    ? t('common.loading')
+    : hasAuthenticatedUser
+      ? t('users.statusActive')
+      : authEnabled
+        ? t('common.unknown')
+        : t('nav.authDisabled');
   const accountTitle = `${displayUser.maskedIdentity} · ${displayUser.tenantLabel}`;
-  const detailLine = hasAuthenticatedUser
-    ? `${displayUser.tenantLabel} · ${displayUser.userLabel}`
-    : t('common.unknown');
-  const securityAvailable = hasAuthenticatedUser;
+  const detailLine = isLoading
+    ? t('common.loading')
+    : hasAuthenticatedUser
+      ? `${displayUser.tenantLabel} · ${displayUser.userLabel}`
+      : t('common.unknown');
 
   const openUsersPage = () => {
     navigate('/users');
@@ -753,3 +759,4 @@ export function NavUser() {
     </SidebarMenu>
   );
 }
+
