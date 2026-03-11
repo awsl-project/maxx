@@ -9,7 +9,7 @@ interface AdminRouteProps {
 
 export function AdminRoute({ children }: AdminRouteProps) {
   const { t } = useTranslation();
-  const { authEnabled, user, isLoading, isAuthenticated } = useAuth();
+  const { authEnabled, user, isLoading } = useAuth();
 
   if (isLoading) {
     return (
