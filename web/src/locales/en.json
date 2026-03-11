@@ -27,6 +27,8 @@
     "refresh": "Refresh",
     "copy": "Copy",
     "copied": "Copied",
+    "show": "Show",
+    "hide": "Hide",
     "saving": "Saving...",
     "saved": "Saved",
     "clientType": "Client Type",

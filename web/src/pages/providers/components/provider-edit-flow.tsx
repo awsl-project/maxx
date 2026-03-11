@@ -10,6 +10,8 @@ import {
   ArrowRight,
   Zap,
   Filter,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -304,6 +306,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     });
   };
 
+  const [showApiKey, setShowApiKey] = useState(false);
   const [formData, setFormData] = useState<EditFormData>({
     name: provider.name,
     baseURL: provider.config?.custom?.baseURL || '',
@@ -660,13 +663,23 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       <span>{t('provider.apiKeyEdit')}</span>
                     </div>
                   </label>
-                  <Input
-                    type="password"
-                    value={formData.apiKey}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
-                    placeholder={t('provider.keyPlaceholder')}
-                    className="w-full"
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={formData.apiKey}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
+                      placeholder={t('provider.keyPlaceholder')}
+                      className="w-full pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

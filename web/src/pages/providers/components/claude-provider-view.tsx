@@ -13,6 +13,8 @@ import {
   AlertCircle,
   Copy,
   Check,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -218,6 +220,7 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   const config = provider.config?.claude;
   const updateProvider = useUpdateProvider();
@@ -329,8 +332,15 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-mono text-sm text-foreground bg-card px-2 py-1 rounded border border-border/50 flex-1 truncate">
-                      {config.refreshToken.slice(0, 30)}...
+                      {showToken ? config.refreshToken : `${config.refreshToken.slice(0, 30)}...`}
                     </div>
+                    <button
+                      onClick={() => setShowToken(!showToken)}
+                      className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                      title={showToken ? t('common.hide') : t('common.show')}
+                    >
+                      {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                     <button
                       onClick={handleCopyToken}
                       className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
