@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Moon,
   Sun,
@@ -31,6 +32,7 @@ import { useTransport } from '@/lib/transport/context';
 import { useAuth } from '@/lib/auth-context';
 import { getAuthUserDisplay } from '@/lib/auth-user-display';
 import {
+  userKeys,
   useChangeMyPassword,
   useDeletePasskeyCredential,
   usePasskeyCredentials,
@@ -74,6 +76,7 @@ export function NavUser() {
   const { t, i18n } = useTranslation();
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
+  const queryClient = useQueryClient();
   const { user, authEnabled, isLoading, logout } = useAuth();
   const changePassword = useChangeMyPassword();
   const isCollapsed = !isMobile && state === 'collapsed';
@@ -105,6 +108,22 @@ export function NavUser() {
       }
     };
   }, []);
+  useEffect(() => {
+    if (securityAvailable) {
+      return;
+    }
+    setShowPasskeyDialog(false);
+    setShowPasswordDialog(false);
+    setPasskeyError('');
+    setPasskeySuccess('');
+    setDeletingPasskeyID(null);
+    setPasswordError('');
+    setPasswordSuccess('');
+    deletePasskeyCredential.reset();
+    registerPasskey.reset();
+    queryClient.cancelQueries({ queryKey: userKeys.passkeys() });
+    queryClient.removeQueries({ queryKey: userKeys.passkeys() });
+  }, [securityAvailable, deletePasskeyCredential, registerPasskey, queryClient]);
   const currentLanguage = (i18n.resolvedLanguage || i18n.language || 'en')
     .toLowerCase()
     .startsWith('zh')

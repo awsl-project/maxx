@@ -6,8 +6,11 @@ function compactWhitespace(value?: string | null): string {
 
 function maskSegment(value: string): string {
   const chars = Array.from(value);
-  if (chars.length <= 1) {
+  if (chars.length === 0) {
     return value;
+  }
+  if (chars.length === 1) {
+    return '*';
   }
   if (chars.length === 2) {
     return `${chars[0]}*`;
