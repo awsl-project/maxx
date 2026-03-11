@@ -24,6 +24,7 @@ import { ModelMappingsPage } from '@/pages/model-mappings';
 import { ModelPricesPage } from '@/pages/model-prices';
 import { UsersPage } from '@/pages/users';
 import { AdminRoute } from '@/components/auth/admin-route';
+import { InviteCodesPage } from '@/pages/invite-codes';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 
 function AppRoutes() {
@@ -71,6 +72,7 @@ function AppRoutes() {
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="sessions" element={<SessionsPage />} />
           <Route path="api-tokens" element={<APITokensPage />} />
+          <Route path="invite-codes" element={<InviteCodesPage />} />
           <Route path="model-mappings" element={<ModelMappingsPage />} />
           <Route path="model-prices" element={<ModelPricesPage />} />
           <Route path="retry-configs" element={<RetryConfigsPage />} />

@@ -130,6 +130,7 @@ func (r *UserRepository) toModel(u *domain.User) *User {
 		Username:           u.Username,
 		PasswordHash:       u.PasswordHash,
 		PasskeyCredentials: LongText(u.PasskeyCredentials),
+		InviteCodeID:       derefUint64(u.InviteCodeID),
 		Role:               string(u.Role),
 		Status:             status,
 		IsDefault:          isDefault,
@@ -151,6 +152,7 @@ func (r *UserRepository) toDomain(m *User) *domain.User {
 		Username:           m.Username,
 		PasswordHash:       m.PasswordHash,
 		PasskeyCredentials: string(m.PasskeyCredentials),
+		InviteCodeID:       uint64PtrOrNil(m.InviteCodeID),
 		Role:               domain.UserRole(m.Role),
 		Status:             status,
 		IsDefault:          m.IsDefault == 1,
@@ -176,4 +178,18 @@ func (r *UserRepository) CountActive() (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+func derefUint64(v *uint64) uint64 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+func uint64PtrOrNil(v uint64) *uint64 {
+	if v == 0 {
+		return nil
+	}
+	return &v
 }

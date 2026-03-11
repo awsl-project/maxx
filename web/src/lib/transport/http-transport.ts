@@ -54,6 +54,11 @@ import type {
   User,
   CreateUserData,
   UpdateUserData,
+  InviteCode,
+  InviteCodeUsage,
+  CreateInviteCodeData,
+  UpdateInviteCodeData,
+  InviteCodeCreateResult,
   APIToken,
   APITokenCreateResult,
   CreateAPITokenData,
@@ -681,7 +686,7 @@ export class HttpTransport implements Transport {
     password: string,
     tenantID?: number,
   ): Promise<AuthRegisterResult> {
-    const { data } = await axios.post<AuthRegisterResult>('/api/admin/auth/register', {
+    const { data } = await this.client.post<AuthRegisterResult>('/auth/register', {
       username,
       password,
       tenantID,
@@ -689,8 +694,12 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async apply(username: string, password: string): Promise<ApplyResult> {
-    const { data } = await this.client.post<ApplyResult>('/auth/apply', { username, password });
+  async apply(username: string, password: string, inviteCode: string): Promise<ApplyResult> {
+    const { data } = await this.client.post<ApplyResult>('/auth/apply', {
+      username,
+      password,
+      inviteCode,
+    });
     return data;
   }
 
@@ -769,6 +778,37 @@ export class HttpTransport implements Transport {
 
   async deleteAPIToken(id: number): Promise<void> {
     await this.client.delete(`/api-tokens/${id}`);
+  }
+
+  // ===== Invite Code API =====
+
+  async getInviteCodes(): Promise<InviteCode[]> {
+    const { data } = await this.client.get<InviteCode[]>('/invite-codes');
+    return data ?? [];
+  }
+
+  async getInviteCode(id: number): Promise<InviteCode> {
+    const { data } = await this.client.get<InviteCode>(`/invite-codes/${id}`);
+    return data;
+  }
+
+  async createInviteCodes(payload: CreateInviteCodeData): Promise<InviteCodeCreateResult> {
+    const { data } = await this.client.post<InviteCodeCreateResult>('/invite-codes', payload);
+    return data;
+  }
+
+  async updateInviteCode(id: number, payload: UpdateInviteCodeData): Promise<InviteCode> {
+    const { data } = await this.client.put<InviteCode>(`/invite-codes/${id}`, payload);
+    return data;
+  }
+
+  async deleteInviteCode(id: number): Promise<void> {
+    await this.client.delete(`/invite-codes/${id}`);
+  }
+
+  async getInviteCodeUsages(id: number): Promise<InviteCodeUsage[]> {
+    const { data } = await this.client.get<InviteCodeUsage[]>(`/invite-codes/${id}/usages`);
+    return data ?? [];
   }
 
   // ===== Usage Stats API =====

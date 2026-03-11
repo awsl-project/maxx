@@ -56,6 +56,8 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	modelPriceRepo := sqlite.NewModelPriceRepository(db)
 	tenantRepo := sqlite.NewTenantRepository(db)
 	userRepo := sqlite.NewUserRepository(db)
+	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
+	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
 
 	// Create cached repositories
 	cachedProviderRepo := cached.NewProviderRepository(providerRepo)
@@ -126,6 +128,8 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		attemptRepo,
 		settingRepo,
 		cachedAPITokenRepo,
+		inviteCodeRepo,
+		inviteCodeUsageRepo,
 		cachedModelMappingRepo,
 		usageStatsRepo,
 		responseModelRepo,
@@ -153,7 +157,7 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	// Create handlers
 	adminHandler := handler.NewAdminHandler(adminService, backupService, "")
 	adminHandler.SetUserRepo(userRepo)
-	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo, true)
+	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo, inviteCodeRepo, inviteCodeUsageRepo, true)
 
 	// Create models handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
@@ -327,12 +331,34 @@ func AssertStatus(t *testing.T, resp *http.Response, expected int) {
 // CreatePendingUser creates a user with pending status via the /apply endpoint and returns the username.
 func (e *TestEnv) CreatePendingUser(username, password string) {
 	e.t.Helper()
+	inviteCode := e.CreateInviteCode()
 	resp := e.UnauthPost("/api/admin/auth/apply", map[string]string{
-		"username": username,
-		"password": password,
+		"username":   username,
+		"password":   password,
+		"inviteCode": inviteCode,
 	})
 	AssertStatus(e.t, resp, http.StatusCreated)
 	resp.Body.Close()
+}
+
+// CreateInviteCode creates a single invite code via admin API and returns the plain code.
+func (e *TestEnv) CreateInviteCode() string {
+	e.t.Helper()
+	resp := e.AdminPost("/api/admin/invite-codes", map[string]any{
+		"count":   1,
+		"maxUses": 1,
+	})
+	AssertStatus(e.t, resp, http.StatusCreated)
+	var result struct {
+		Items []struct {
+			Code string `json:"code"`
+		} `json:"items"`
+	}
+	DecodeJSON(e.t, resp, &result)
+	if len(result.Items) == 0 || result.Items[0].Code == "" {
+		e.t.Fatalf("Failed to create invite code")
+	}
+	return result.Items[0].Code
 }
 
 // RawPost sends a POST request with a raw string body (for invalid JSON testing).

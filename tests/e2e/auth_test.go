@@ -256,9 +256,11 @@ func TestRegister_EmptyFields(t *testing.T) {
 func TestApply_Success(t *testing.T) {
 	env := NewTestEnv(t)
 
+	inviteCode := env.CreateInviteCode()
 	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
-		"username": "apply-user",
-		"password": "apply-password",
+		"username":   "apply-user",
+		"password":   "apply-password",
+		"inviteCode": inviteCode,
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 
@@ -278,19 +280,30 @@ func TestApply_DuplicateUsername(t *testing.T) {
 	env := NewTestEnv(t)
 
 	// First apply
+	inviteCode1 := env.CreateInviteCode()
 	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
-		"username": "dup-apply-user",
-		"password": "password1",
+		"username":   "dup-apply-user",
+		"password":   "password1",
+		"inviteCode": inviteCode1,
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 	resp.Body.Close()
 
 	// Duplicate apply
+	inviteCode2 := env.CreateInviteCode()
 	resp = env.UnauthPost("/api/admin/auth/apply", map[string]string{
-		"username": "dup-apply-user",
-		"password": "password2",
+		"username":   "dup-apply-user",
+		"password":   "password2",
+		"inviteCode": inviteCode2,
 	})
 	AssertStatus(t, resp, http.StatusConflict)
+
+	resp = env.UnauthPost("/api/admin/auth/apply", map[string]string{
+		"username":   "new-apply-user",
+		"password":   "password3",
+		"inviteCode": inviteCode2,
+	})
+	AssertStatus(t, resp, http.StatusCreated)
 }
 
 func TestChangePassword_WrongOldPassword(t *testing.T) {

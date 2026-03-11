@@ -2,6 +2,7 @@ package service
 
 import (
 	"crypto/rand"
+	"encoding/base32"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -39,6 +40,8 @@ type AdminService struct {
 	attemptRepo         repository.ProxyUpstreamAttemptRepository
 	settingRepo         repository.SystemSettingRepository
 	apiTokenRepo        repository.APITokenRepository
+	inviteCodeRepo      repository.InviteCodeRepository
+	inviteCodeUsageRepo repository.InviteCodeUsageRepository
 	modelMappingRepo    repository.ModelMappingRepository
 	usageStatsRepo      repository.UsageStatsRepository
 	responseModelRepo   repository.ResponseModelRepository
@@ -66,6 +69,8 @@ func NewAdminService(
 	attemptRepo repository.ProxyUpstreamAttemptRepository,
 	settingRepo repository.SystemSettingRepository,
 	apiTokenRepo repository.APITokenRepository,
+	inviteCodeRepo repository.InviteCodeRepository,
+	inviteCodeUsageRepo repository.InviteCodeUsageRepository,
 	modelMappingRepo repository.ModelMappingRepository,
 	usageStatsRepo repository.UsageStatsRepository,
 	responseModelRepo repository.ResponseModelRepository,
@@ -86,6 +91,8 @@ func NewAdminService(
 		attemptRepo:         attemptRepo,
 		settingRepo:         settingRepo,
 		apiTokenRepo:        apiTokenRepo,
+		inviteCodeRepo:      inviteCodeRepo,
+		inviteCodeUsageRepo: inviteCodeUsageRepo,
 		modelMappingRepo:    modelMappingRepo,
 		usageStatsRepo:      usageStatsRepo,
 		responseModelRepo:   responseModelRepo,
@@ -636,6 +643,126 @@ func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {
 	return s.apiTokenRepo.Delete(tenantID, id)
 }
 
+// ===== Invite Code API =====
+
+func (s *AdminService) GetInviteCodes(tenantID uint64) ([]*domain.InviteCode, error) {
+	if s.inviteCodeRepo == nil {
+		return nil, fmt.Errorf("invite code repository not configured")
+	}
+	return s.inviteCodeRepo.List(tenantID)
+}
+
+func (s *AdminService) GetInviteCode(tenantID uint64, id uint64) (*domain.InviteCode, error) {
+	if s.inviteCodeRepo == nil {
+		return nil, fmt.Errorf("invite code repository not configured")
+	}
+	return s.inviteCodeRepo.GetByID(tenantID, id)
+}
+
+func (s *AdminService) CreateInviteCodes(
+	tenantID uint64,
+	createdByUserID uint64,
+	count int,
+	maxUses uint64,
+	expiresAt *time.Time,
+	note string,
+) (*domain.InviteCodeCreateResult, error) {
+	if s.inviteCodeRepo == nil {
+		return nil, fmt.Errorf("invite code repository not configured")
+	}
+	if count <= 0 {
+		count = 1
+	}
+	if count > 100 {
+		return nil, fmt.Errorf("count too large (max 100)")
+	}
+
+	result := &domain.InviteCodeCreateResult{
+		Items: make([]domain.InviteCodeCreateItem, 0, count),
+	}
+	createdIDs := make([]uint64, 0, count)
+
+	for i := 0; i < count; i++ {
+		var lastErr error
+		for attempt := 0; attempt < 5; attempt++ {
+			plain, hash, prefix, err := generateInviteCode()
+			if err != nil {
+				return nil, err
+			}
+			code := &domain.InviteCode{
+				TenantID:        tenantID,
+				CodeHash:        hash,
+				CodePrefix:      prefix,
+				Status:          domain.InviteCodeStatusActive,
+				MaxUses:         maxUses,
+				UsedCount:       0,
+				ExpiresAt:       expiresAt,
+				CreatedByUserID: createdByUserID,
+				Note:            note,
+			}
+			if err := s.inviteCodeRepo.Create(code); err != nil {
+				lastErr = err
+				continue
+			}
+			createdIDs = append(createdIDs, code.ID)
+			result.Items = append(result.Items, domain.InviteCodeCreateItem{
+				Code:       plain,
+				InviteCode: code,
+			})
+			lastErr = nil
+			break
+		}
+		if lastErr != nil {
+			for _, id := range createdIDs {
+				if err := s.inviteCodeRepo.Delete(tenantID, id); err != nil && err != domain.ErrNotFound {
+					log.Printf("[Admin] Failed to cleanup invite code %d after create error: %v", id, err)
+				}
+			}
+			return nil, lastErr
+		}
+	}
+	return result, nil
+}
+
+func (s *AdminService) UpdateInviteCode(tenantID uint64, code *domain.InviteCode) error {
+	if s.inviteCodeRepo == nil {
+		return fmt.Errorf("invite code repository not configured")
+	}
+	if code.TenantID != 0 && code.TenantID != tenantID {
+		return domain.ErrNotFound
+	}
+	current, err := s.inviteCodeRepo.GetByID(tenantID, code.ID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return domain.ErrNotFound
+	}
+	if code.Status != "" && code.Status != current.Status {
+		if code.Status == domain.InviteCodeStatusActive {
+			desiredMax := code.MaxUses
+			if desiredMax > 0 && current.UsedCount >= desiredMax {
+				return domain.ErrInvalidState
+			}
+		}
+	}
+	return s.inviteCodeRepo.Update(tenantID, code)
+}
+
+func (s *AdminService) DeleteInviteCode(tenantID uint64, id uint64) error {
+	if s.inviteCodeRepo == nil {
+		return fmt.Errorf("invite code repository not configured")
+	}
+	return s.inviteCodeRepo.Delete(tenantID, id)
+}
+
+func (s *AdminService) ListInviteCodeUsages(tenantID uint64, codeID uint64) ([]*domain.InviteCodeUsage, error) {
+	if s.inviteCodeUsageRepo == nil {
+		return nil, fmt.Errorf("invite code usage repository not configured")
+	}
+	return s.inviteCodeUsageRepo.ListByCodeID(tenantID, codeID)
+}
+
 // generateAPIToken creates a new random token
 // Returns: plain token, prefix for display, error if generation fails
 func generateAPIToken() (plain string, prefix string, err error) {
@@ -658,6 +785,17 @@ func generateAPIToken() (plain string, prefix string, err error) {
 	}
 
 	return plain, prefix, nil
+}
+
+func generateInviteCode() (plain string, hash string, prefix string, err error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", "", "", fmt.Errorf("failed to generate invite code: %w", err)
+	}
+	plain = strings.ToUpper(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(bytes))
+	hash = domain.HashInviteCode(plain)
+	prefix = domain.InviteCodePrefix(plain)
+	return plain, hash, prefix, nil
 }
 
 // ===== Model Mapping API =====
@@ -708,7 +846,7 @@ func (s *AdminService) ResetModelMappingsToDefaults(tenantID uint64) error {
 // GetAvailableClientTypes returns all available client types for model mapping
 func (s *AdminService) GetAvailableClientTypes() []domain.ClientType {
 	return []domain.ClientType{
-		"",                       // Empty means applies to all
+		"", // Empty means applies to all
 		domain.ClientTypeClaude,
 		domain.ClientTypeOpenAI,
 		domain.ClientTypeGemini,
@@ -776,11 +914,11 @@ type RecalculateCostsResult struct {
 
 // RecalculateCostsProgress represents progress update for cost recalculation
 type RecalculateCostsProgress struct {
-	Phase       string `json:"phase"`       // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
-	Current     int    `json:"current"`     // Current item being processed
-	Total       int    `json:"total"`       // Total items to process
-	Percentage  int    `json:"percentage"`  // 0-100
-	Message     string `json:"message"`     // Human-readable message
+	Phase      string `json:"phase"`      // "calculating", "updating_attempts", "updating_requests", "aggregating_stats", "completed"
+	Current    int    `json:"current"`    // Current item being processed
+	Total      int    `json:"total"`      // Total items to process
+	Percentage int    `json:"percentage"` // 0-100
+	Message    string `json:"message"`    // Human-readable message
 }
 
 // RecalculateCosts recalculates cost for all attempts using the current price table

@@ -73,6 +73,8 @@ func newAdminHandlerForProviderImportExportTests(providerRepo *adminTestProvider
 		nil,
 		nil,
 		nil,
+		nil,
+		nil,
 		"",
 		nil,
 		nil,

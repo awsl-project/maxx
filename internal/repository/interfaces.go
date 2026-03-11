@@ -29,6 +29,24 @@ type UserRepository interface {
 	CountActive() (int64, error)
 }
 
+type InviteCodeRepository interface {
+	Create(code *domain.InviteCode) error
+	Update(tenantID uint64, code *domain.InviteCode) error
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.InviteCode, error)
+	GetByCodeHash(tenantID uint64, codeHash string) (*domain.InviteCode, error)
+	List(tenantID uint64) ([]*domain.InviteCode, error)
+	Consume(tenantID uint64, codeHash string, now time.Time) (*domain.InviteCode, error)
+	RollbackConsume(tenantID uint64, usageID uint64) error
+	GetByCodeHashAny(codeHash string) (*domain.InviteCode, error)
+}
+
+type InviteCodeUsageRepository interface {
+	Create(usage *domain.InviteCodeUsage) error
+	ListByCodeID(tenantID uint64, codeID uint64) ([]*domain.InviteCodeUsage, error)
+	ListByUserID(tenantID uint64, userID uint64) ([]*domain.InviteCodeUsage, error)
+}
+
 type ProviderRepository interface {
 	Create(provider *domain.Provider) error
 	Update(provider *domain.Provider) error

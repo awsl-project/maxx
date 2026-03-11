@@ -76,6 +76,7 @@ type User struct {
 	Username           string `gorm:"size:255;uniqueIndex"`
 	PasswordHash       string `gorm:"size:255"`
 	PasskeyCredentials LongText
+	InviteCodeID       uint64 `gorm:"index"`
 	Role               string `gorm:"size:64;default:'admin'"`
 	Status             string `gorm:"size:64;default:'pending'"`
 	IsDefault          int
@@ -178,6 +179,39 @@ type APIToken struct {
 }
 
 func (APIToken) TableName() string { return "api_tokens" }
+
+// InviteCode model
+type InviteCode struct {
+	SoftDeleteModel
+	TenantID        uint64 `gorm:"index;uniqueIndex:idx_invite_codes_tenant_hash"`
+	CodeHash        string `gorm:"size:128;uniqueIndex:idx_invite_codes_tenant_hash"`
+	CodePrefix      string `gorm:"size:32"`
+	Status          string `gorm:"size:32;default:'active'"`
+	MaxUses         uint64
+	UsedCount       uint64
+	ExpiresAt       int64
+	CreatedByUserID uint64 `gorm:"index"`
+	Note            LongText
+}
+
+func (InviteCode) TableName() string { return "invite_codes" }
+
+// InviteCodeUsage model
+type InviteCodeUsage struct {
+	BaseModel
+	TenantID     uint64 `gorm:"index"`
+	InviteCodeID uint64 `gorm:"index"`
+	UserID       uint64 `gorm:"index"`
+	Username     string `gorm:"size:255"`
+	UsedAt       int64  `gorm:"index"`
+	IP           string `gorm:"size:64"`
+	UserAgent    string `gorm:"size:512"`
+	Result       string `gorm:"size:32"`
+	Reason       string `gorm:"size:255"`
+	RolledBack   int    `gorm:"default:0"`
+}
+
+func (InviteCodeUsage) TableName() string { return "invite_code_usages" }
 
 // ModelMapping model
 type ModelMapping struct {
@@ -417,6 +451,8 @@ func AllModels() []any {
 		&RetryConfig{},
 		&RoutingStrategy{},
 		&APIToken{},
+		&InviteCode{},
+		&InviteCodeUsage{},
 		&ModelMapping{},
 		&AntigravityQuota{},
 		&CodexQuota{},

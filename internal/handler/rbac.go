@@ -35,6 +35,10 @@ func CheckRBAC(r *http.Request, resource string) bool {
 
 	// Member can only GET certain resources
 	if role == string(domain.UserRoleMember) {
+		// Members can manage invite codes
+		if resource == "invite-codes" {
+			return true
+		}
 		if r.Method != http.MethodGet {
 			return false
 		}
