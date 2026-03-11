@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Playwright 虚拟认证器 Passkey Discoverable Login 测试
  *
  * 测试流程：
@@ -76,8 +76,17 @@ function assert(condition, msg) {
   await menuBtn.click();
   await page.waitForTimeout(500);
 
+  // 打开安全中心子菜单
+  const securityMenuItem = page
+    .locator('[role="menuitem"]')
+    .filter({ hasText: /Security Center|安全中心/ });
+  await securityMenuItem.click();
+  await page.waitForTimeout(300);
+
   // 查找并点击 Manage Passkeys 菜单
-  const passkeyMenuItem = page.locator('[role="menuitem"]').filter({ hasText: /Passkey|passkey/ });
+  const passkeyMenuItem = page
+    .locator('[role="menuitem"]')
+    .filter({ hasText: /Manage Passkeys|管理 Passkey|Passkey|passkey/ });
   await passkeyMenuItem.click();
   await page.waitForTimeout(1000);
   console.log('  Passkey Management dialog opened');
