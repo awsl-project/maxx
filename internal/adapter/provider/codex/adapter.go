@@ -423,7 +423,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 	for {
 		select {
 		case <-ctx.Done():
-			a.sendFinalStreamEvents(eventChan, &collector, &model)
+			a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 			if responseCompleted {
 				return nil
 			}
@@ -444,7 +444,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 			// Write to client
 			_, writeErr := c.Writer.Write([]byte(line))
 			if writeErr != nil {
-				a.sendFinalStreamEvents(eventChan, &collector, &model)
+				a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 				if responseCompleted {
 					return nil
 				}
@@ -462,7 +462,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 		}
 
 		if err != nil {
-			a.sendFinalStreamEvents(eventChan, &collector, &model)
+			a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 			if err == io.EOF || responseCompleted {
 				return nil
 			}
@@ -488,10 +488,17 @@ func isCodexResponseCompletedLine(line string) bool {
 	return gjson.Get(data, "type").String() == "response.completed"
 }
 
-func (a *CodexAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, collector *usage.StreamCollector, model *string) {
+func (a *CodexAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, collector *usage.StreamCollector, model *string, resp *http.Response) {
 	if eventChan == nil {
 		return
 	}
+
+	// Send response info (body not accumulated to avoid unbounded memory growth)
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    "[streaming]",
+	})
 
 	// Send token usage collected incrementally
 	if collector.Metrics != nil && !collector.Metrics.IsEmpty() {

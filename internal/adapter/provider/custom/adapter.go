@@ -343,6 +343,13 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 
 	// Helper to send final events via EventChannel
 	sendFinalEvents := func() {
+		// Send response info (body not accumulated to avoid unbounded memory growth)
+		eventChan.SendResponseInfo(&domain.ResponseInfo{
+			Status:  resp.StatusCode,
+			Headers: flattenHeaders(resp.Header),
+			Body:    "[streaming]",
+		})
+
 		// Send token usage collected incrementally
 		if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
 			// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)

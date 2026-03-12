@@ -375,7 +375,7 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 	for {
 		select {
 		case <-ctx.Done():
-			a.sendFinalStreamEvents(eventChan, &collector, &model)
+			a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 			if responseCompleted {
 				return nil
 			}
@@ -396,7 +396,7 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 			// Write to client
 			_, writeErr := c.Writer.Write([]byte(line))
 			if writeErr != nil {
-				a.sendFinalStreamEvents(eventChan, &collector, &model)
+				a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 				if responseCompleted {
 					return nil
 				}
@@ -414,7 +414,7 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 		}
 
 		if err != nil {
-			a.sendFinalStreamEvents(eventChan, &collector, &model)
+			a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 			if err == io.EOF || responseCompleted {
 				return nil
 			}
@@ -442,10 +442,17 @@ func isClaudeResponseCompletedLine(line string) bool {
 	return gjson.Get(data, "type").String() == "message_stop"
 }
 
-func (a *ClaudeAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, collector *usage.StreamCollector, model *string) {
+func (a *ClaudeAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, collector *usage.StreamCollector, model *string, resp *http.Response) {
 	if eventChan == nil {
 		return
 	}
+
+	// Send response info (body not accumulated to avoid unbounded memory growth)
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    "[streaming]",
+	})
 
 	// Send token usage collected incrementally
 	if collector.Metrics != nil && !collector.Metrics.IsEmpty() {

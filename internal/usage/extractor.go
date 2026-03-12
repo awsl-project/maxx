@@ -299,7 +299,6 @@ func ExtractFromStreamContent(content string) *Metrics {
 // avoiding the need to buffer the entire SSE stream in memory.
 type StreamCollector struct {
 	Metrics *Metrics
-	Model   string
 }
 
 // ProcessSSELine processes a single SSE line (e.g. "data: {...}\n") and

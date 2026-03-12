@@ -778,6 +778,13 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 
 	// Helper to send collected metrics at stream end
 	sendFinalEvents := func() {
+		// Send response info (body not accumulated to avoid unbounded memory growth)
+		eventChan.SendResponseInfo(&domain.ResponseInfo{
+			Status:  resp.StatusCode,
+			Headers: flattenHeaders(resp.Header),
+			Body:    "[streaming]",
+		})
+
 		// Send token usage collected incrementally
 		if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
 			eventChan.SendMetrics(&domain.AdapterMetrics{
