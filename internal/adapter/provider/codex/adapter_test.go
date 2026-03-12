@@ -128,3 +128,47 @@ func TestApplyCodexHeadersUsesDefaultUAWhenClientReqNil(t *testing.T) {
 		t.Fatalf("expected default Codex User-Agent when client request is nil, got %q", got)
 	}
 }
+
+func TestExtractModelFromSSELine(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		wantSet  bool
+		wantVal  string
+	}{
+		{"extracts model", `data: {"model":"gpt-4.1","type":"response.created"}`, true, "gpt-4.1"},
+		{"ignores non-data", `event: response.created`, false, ""},
+		{"ignores DONE", `data: [DONE]`, false, ""},
+		{"ignores invalid json", `data: not-json`, false, ""},
+		{"ignores empty model", `data: {"model":"","type":"response.created"}`, false, ""},
+		{"handles trailing newline", "data: {\"model\":\"o3-pro\"}\n", true, "o3-pro"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var model string
+			extractModelFromSSELine(tc.line, &model)
+			if tc.wantSet && model != tc.wantVal {
+				t.Fatalf("expected model=%q, got %q", tc.wantVal, model)
+			}
+			if !tc.wantSet && model != "" {
+				t.Fatalf("expected model to remain empty, got %q", model)
+			}
+		})
+	}
+}
+
+func TestExtractModelFromSSELine_KeepsLast(t *testing.T) {
+	lines := []string{
+		`data: {"model":"gpt-4.1","type":"response.created"}`,
+		`data: {"type":"response.output_text.delta","delta":"hello"}`,
+		`data: {"model":"gpt-4.1-2025-04-14","type":"response.completed","response":{}}`,
+	}
+	var model string
+	for _, line := range lines {
+		extractModelFromSSELine(line, &model)
+	}
+	if model != "gpt-4.1-2025-04-14" {
+		t.Fatalf("expected last model, got %q", model)
+	}
+}

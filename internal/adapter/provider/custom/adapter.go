@@ -332,8 +332,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
 	// Adapter simply passes through the upstream SSE data
 
-	// Collect all SSE events for response body and token extraction
-	var sseBuffer strings.Builder
+	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
+	var collector usage.StreamCollector
+	var responseModel string
 	var sseError error // Track any SSE error event
 	ctx := context.Background()
 	if c.Request != nil {
@@ -342,32 +343,23 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 
 	// Helper to send final events via EventChannel
 	sendFinalEvents := func() {
-		if sseBuffer.Len() > 0 {
-			// Send updated response body
-			eventChan.SendResponseInfo(&domain.ResponseInfo{
-				Status:  resp.StatusCode,
-				Headers: flattenHeaders(resp.Header),
-				Body:    sseBuffer.String(),
+		// Send token usage collected incrementally
+		if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
+			// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
+			metrics := usage.AdjustForClientType(collector.Metrics, clientType)
+			eventChan.SendMetrics(&domain.AdapterMetrics{
+				InputTokens:          metrics.InputTokens,
+				OutputTokens:         metrics.OutputTokens,
+				CacheReadCount:       metrics.CacheReadCount,
+				CacheCreationCount:   metrics.CacheCreationCount,
+				Cache5mCreationCount: metrics.Cache5mCreationCount,
+				Cache1hCreationCount: metrics.Cache1hCreationCount,
 			})
+		}
 
-			// Extract and send token usage
-			if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
-				// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
-				metrics = usage.AdjustForClientType(metrics, clientType)
-				eventChan.SendMetrics(&domain.AdapterMetrics{
-					InputTokens:          metrics.InputTokens,
-					OutputTokens:         metrics.OutputTokens,
-					CacheReadCount:       metrics.CacheReadCount,
-					CacheCreationCount:   metrics.CacheCreationCount,
-					Cache5mCreationCount: metrics.Cache5mCreationCount,
-					Cache1hCreationCount: metrics.Cache1hCreationCount,
-				})
-			}
-
-			// Extract and send responseModel
-			if responseModel := extractResponseModelFromSSE(sseBuffer.String(), clientType); responseModel != "" {
-				eventChan.SendResponseModel(responseModel)
-			}
+		// Send model collected incrementally
+		if responseModel != "" {
+			eventChan.SendResponseModel(responseModel)
 		}
 	}
 
@@ -475,8 +467,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					}
 				}
 
-				// Collect all SSE content (preserve complete format including newlines)
-				sseBuffer.WriteString(processedLine)
+				// Extract metrics and model incrementally per line
+				collector.ProcessSSELine(processedLine)
+				extractResponseModelFromSSELine(processedLine, clientType, &responseModel)
 
 				// Check for SSE error events in data lines BEFORE writing to client
 				lineStr := processedLine
@@ -897,44 +890,38 @@ func extractResponseModel(body []byte, targetType domain.ClientType) string {
 	return ""
 }
 
-// extractResponseModelFromSSE extracts the model name from SSE content based on target type
-func extractResponseModelFromSSE(sseContent string, targetType domain.ClientType) string {
-	var lastModel string
-	lines := strings.Split(sseContent, "\n")
-
-	for _, line := range lines {
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if dataStr == "" || dataStr == "[DONE]" {
-			continue
-		}
-
-		var payload map[string]interface{}
-		if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
-			continue
-		}
-
-		switch targetType {
-		case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
-			// Claude/OpenAI: check for "model" in various places
-			if model, ok := payload["model"].(string); ok && model != "" {
-				lastModel = model
-			}
-			// Claude SSE: check message_start event
-			if msg, ok := payload["message"].(map[string]interface{}); ok {
-				if model, ok := msg["model"].(string); ok && model != "" {
-					lastModel = model
-				}
-			}
-		case domain.ClientTypeGemini:
-			// Gemini: check for "modelVersion"
-			if model, ok := payload["modelVersion"].(string); ok && model != "" {
-				lastModel = model
-			}
-		}
+// extractResponseModelFromSSELine extracts the model name from a single SSE line based on target type.
+func extractResponseModelFromSSELine(line string, targetType domain.ClientType, model *string) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return
+	}
+	dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if dataStr == "" || dataStr == "[DONE]" {
+		return
 	}
 
-	return lastModel
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
+		return
+	}
+
+	switch targetType {
+	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
+		// Claude/OpenAI: check for "model" in various places
+		if m, ok := payload["model"].(string); ok && m != "" {
+			*model = m
+		}
+		// Claude SSE: check message_start event
+		if msg, ok := payload["message"].(map[string]interface{}); ok {
+			if m, ok := msg["model"].(string); ok && m != "" {
+				*model = m
+			}
+		}
+	case domain.ClientTypeGemini:
+		// Gemini: check for "modelVersion"
+		if m, ok := payload["modelVersion"].(string); ok && m != "" {
+			*model = m
+		}
+	}
 }

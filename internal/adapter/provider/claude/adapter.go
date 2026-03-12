@@ -361,8 +361,9 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
 	}
 
-	// Collect SSE for token extraction
-	var sseBuffer strings.Builder
+	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
+	var collector usage.StreamCollector
+	var model string
 	reader := bufio.NewReader(resp.Body)
 	firstChunkSent := false
 	responseCompleted := false
@@ -374,7 +375,7 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 	for {
 		select {
 		case <-ctx.Done():
-			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			a.sendFinalStreamEvents(eventChan, &collector, &model)
 			if responseCompleted {
 				return nil
 			}
@@ -384,7 +385,9 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 
 		line, err := reader.ReadString('\n')
 		if line != "" {
-			sseBuffer.WriteString(line)
+			// Extract metrics and model incrementally per line
+			collector.ProcessSSELine(line)
+			extractModelFromSSELine(line, &model)
 
 			if isClaudeResponseCompletedLine(line) {
 				responseCompleted = true
@@ -393,7 +396,7 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 			// Write to client
 			_, writeErr := c.Writer.Write([]byte(line))
 			if writeErr != nil {
-				a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+				a.sendFinalStreamEvents(eventChan, &collector, &model)
 				if responseCompleted {
 					return nil
 				}
@@ -411,7 +414,7 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 		}
 
 		if err != nil {
-			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			a.sendFinalStreamEvents(eventChan, &collector, &model)
 			if err == io.EOF || responseCompleted {
 				return nil
 			}
@@ -439,33 +442,48 @@ func isClaudeResponseCompletedLine(line string) bool {
 	return gjson.Get(data, "type").String() == "message_stop"
 }
 
-func (a *ClaudeAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, sseBuffer *strings.Builder, resp *http.Response) {
+func (a *ClaudeAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, collector *usage.StreamCollector, model *string) {
 	if eventChan == nil {
 		return
 	}
-	if sseBuffer.Len() > 0 {
-		// Update response body with collected SSE
-		eventChan.SendResponseInfo(&domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    sseBuffer.String(),
+
+	// Send token usage collected incrementally
+	if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
+		eventChan.SendMetrics(&domain.AdapterMetrics{
+			InputTokens:          collector.Metrics.InputTokens,
+			OutputTokens:         collector.Metrics.OutputTokens,
+			CacheReadCount:       collector.Metrics.CacheReadCount,
+			CacheCreationCount:   collector.Metrics.CacheCreationCount,
+			Cache5mCreationCount: collector.Metrics.Cache5mCreationCount,
+			Cache1hCreationCount: collector.Metrics.Cache1hCreationCount,
 		})
+	}
 
-		// Extract token usage from stream
-		if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
-			eventChan.SendMetrics(&domain.AdapterMetrics{
-				InputTokens:          metrics.InputTokens,
-				OutputTokens:         metrics.OutputTokens,
-				CacheReadCount:       metrics.CacheReadCount,
-				CacheCreationCount:   metrics.CacheCreationCount,
-				Cache5mCreationCount: metrics.Cache5mCreationCount,
-				Cache1hCreationCount: metrics.Cache1hCreationCount,
-			})
-		}
+	// Send model collected incrementally
+	if *model != "" {
+		eventChan.SendResponseModel(*model)
+	}
+}
 
-		// Extract model from stream
-		if model := extractModelFromSSE(sseBuffer.String()); model != "" {
-			eventChan.SendResponseModel(model)
+// extractModelFromSSELine extracts model from a single SSE line, updating the model pointer if found.
+func extractModelFromSSELine(line string, model *string) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return
+	}
+	data := strings.TrimPrefix(line, "data: ")
+	data = strings.TrimPrefix(data, "data:")
+	data = strings.TrimSpace(data)
+	if data == "[DONE]" || data == "" {
+		return
+	}
+	// Claude puts model in message_start event
+	if gjson.Valid(data) {
+		eventType := gjson.Get(data, "type").String()
+		if eventType == "message_start" {
+			if m := gjson.Get(data, "message.model").String(); m != "" {
+				*model = m
+			}
 		}
 	}
 }
@@ -666,31 +684,6 @@ func extractModelFromResponse(body []byte) string {
 	return ""
 }
 
-func extractModelFromSSE(sseContent string) string {
-	var lastModel string
-	for _, line := range strings.Split(sseContent, "\n") {
-		if !strings.HasPrefix(line, "data: ") && !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		data = strings.TrimPrefix(data, "data:")
-		data = strings.TrimSpace(data)
-		if data == "[DONE]" || data == "" {
-			continue
-		}
-
-		// Claude puts model in message_start event
-		if gjson.Valid(data) {
-			eventType := gjson.Get(data, "type").String()
-			if eventType == "message_start" {
-				if model := gjson.Get(data, "message.model").String(); model != "" {
-					lastModel = model
-				}
-			}
-		}
-	}
-	return lastModel
-}
 
 var claudeFilteredHeaders = map[string]bool{
 	// Hop-by-hop headers

@@ -772,41 +772,33 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 		openaiState = converter.NewTransformState()
 	}
 
-	// Collect all SSE events for response body and token extraction
-	var sseBuffer strings.Builder
+	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
+	var collector usage.StreamCollector
+	var modelVersion string
 
-	// Helper to extract tokens and send events
+	// Helper to send collected metrics at stream end
 	sendFinalEvents := func() {
-		if sseBuffer.Len() > 0 {
-			// Send updated response body
-			eventChan.SendResponseInfo(&domain.ResponseInfo{
-				Status:  resp.StatusCode,
-				Headers: flattenHeaders(resp.Header),
-				Body:    sseBuffer.String(),
+		// Send token usage collected incrementally
+		if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
+			eventChan.SendMetrics(&domain.AdapterMetrics{
+				InputTokens:          collector.Metrics.InputTokens,
+				OutputTokens:         collector.Metrics.OutputTokens,
+				CacheReadCount:       collector.Metrics.CacheReadCount,
+				CacheCreationCount:   collector.Metrics.CacheCreationCount,
+				Cache5mCreationCount: collector.Metrics.Cache5mCreationCount,
+				Cache1hCreationCount: collector.Metrics.Cache1hCreationCount,
 			})
+		}
 
-			// Extract and send token usage
-			if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
-				eventChan.SendMetrics(&domain.AdapterMetrics{
-					InputTokens:          metrics.InputTokens,
-					OutputTokens:         metrics.OutputTokens,
-					CacheReadCount:       metrics.CacheReadCount,
-					CacheCreationCount:   metrics.CacheCreationCount,
-					Cache5mCreationCount: metrics.Cache5mCreationCount,
-					Cache1hCreationCount: metrics.Cache1hCreationCount,
-				})
+		// Send model collected incrementally
+		mv := modelVersion
+		if claudeState != nil {
+			if cv := claudeState.GetModelVersion(); cv != "" {
+				mv = cv
 			}
-
-			// Extract and send response model
-			var modelVersion string
-			if claudeState != nil {
-				modelVersion = claudeState.GetModelVersion()
-			} else {
-				modelVersion = extractModelVersionFromSSE(sseBuffer.String())
-			}
-			if modelVersion != "" {
-				eventChan.SendResponseModel(modelVersion)
-			}
+		}
+		if mv != "" {
+			eventChan.SendResponseModel(mv)
 		}
 	}
 
@@ -847,8 +839,9 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 					continue
 				}
 
-				// Collect original SSE for token extraction (extractor handles v1internal wrapper)
-				sseBuffer.WriteString(line)
+				// Extract metrics and model incrementally per line
+				collector.ProcessSSELine(line)
+				extractModelVersionFromSSELine(line, &modelVersion)
 
 				var output []byte
 				if isClaudeClient {
@@ -1216,6 +1209,34 @@ func extractModelVersion(body []byte) string {
 	}
 
 	return ""
+}
+
+// extractModelVersionFromSSELine extracts modelVersion from a single SSE line, updating the model pointer if found.
+func extractModelVersionFromSSELine(line string, model *string) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data: ") {
+		return
+	}
+	data := strings.TrimPrefix(line, "data: ")
+
+	// Try direct format: {"modelVersion": "..."}
+	var chunk struct {
+		ModelVersion string `json:"modelVersion"`
+	}
+	if err := json.Unmarshal([]byte(data), &chunk); err == nil && chunk.ModelVersion != "" {
+		*model = chunk.ModelVersion
+		return
+	}
+
+	// Try v1internal wrapper format: {"response": {"modelVersion": "..."}}
+	var wrapper struct {
+		Response struct {
+			ModelVersion string `json:"modelVersion"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal([]byte(data), &wrapper); err == nil && wrapper.Response.ModelVersion != "" {
+		*model = wrapper.Response.ModelVersion
+	}
 }
 
 // extractModelVersionFromSSE extracts modelVersion from SSE content
