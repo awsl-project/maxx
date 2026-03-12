@@ -1221,10 +1221,13 @@ func extractModelVersion(body []byte) string {
 // extractModelVersionFromSSELine extracts modelVersion from a single SSE line, updating the model pointer if found.
 func extractModelVersionFromSSELine(line string, model *string) {
 	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, "data: ") {
+	if !strings.HasPrefix(line, "data:") {
 		return
 	}
-	data := strings.TrimPrefix(line, "data: ")
+	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if data == "" || data == "[DONE]" {
+		return
+	}
 
 	// Try direct format: {"modelVersion": "..."}
 	var chunk struct {

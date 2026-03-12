@@ -517,11 +517,11 @@ func (a *CodexAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, 
 // extractModelFromSSELine extracts model from a single SSE line, updating the model pointer if found.
 func extractModelFromSSELine(line string, model *string) {
 	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, "data: ") {
+	if !strings.HasPrefix(line, "data:") {
 		return
 	}
-	data := strings.TrimPrefix(line, "data: ")
-	if data == "[DONE]" {
+	data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if data == "" || data == "[DONE]" {
 		return
 	}
 	var chunk struct {

@@ -919,10 +919,12 @@ func extractResponseModelFromSSELine(line string, targetType domain.ClientType, 
 		if m, ok := payload["model"].(string); ok && m != "" {
 			*model = m
 		}
-		// Claude SSE: check message_start event
-		if msg, ok := payload["message"].(map[string]interface{}); ok {
-			if m, ok := msg["model"].(string); ok && m != "" {
-				*model = m
+		// Claude SSE: check message_start event for model in message object
+		if eventType, ok := payload["type"].(string); ok && eventType == "message_start" {
+			if msg, ok := payload["message"].(map[string]interface{}); ok {
+				if m, ok := msg["model"].(string); ok && m != "" {
+					*model = m
+				}
 			}
 		}
 	case domain.ClientTypeGemini:
