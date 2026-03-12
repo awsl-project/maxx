@@ -35,12 +35,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: '.node-version'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          package_json_file: web/package.json
 
       - name: Build frontend
         working-directory: web

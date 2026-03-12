@@ -31,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: ".node-version"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -115,7 +115,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: ".node-version"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -182,7 +182,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: ".node-version"
 
       - name: Install Linux Build Dependencies
         run: |
