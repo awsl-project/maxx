@@ -276,6 +276,14 @@ func initDefaultPrices() *PriceTable {
 		CacheReadPriceMicro: 175_000,    // $0.175/M
 	})
 
+	// gpt-5.4: input=$2.50, cache_read=$0.25, output=$15
+	pt.Set(&ModelPricing{
+		ModelID:             "gpt-5.4",
+		InputPriceMicro:     2_500_000,  // $2.50/M
+		OutputPriceMicro:    15_000_000, // $15.00/M
+		CacheReadPriceMicro: 250_000,    // $0.25/M
+	})
+
 	// ========== GPT-4o 系列 ==========
 	// gpt-4o: input=$2.50, output=$10, cache_read=$1.25
 	pt.Set(&ModelPricing{
