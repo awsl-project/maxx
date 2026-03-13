@@ -61,6 +61,9 @@ interface DialogProviderProps {
   children: ReactNode;
 }
 
+/**
+ * Provides a queue-based alert/confirm dialog system so dialogs never overlap.
+ */
 export function DialogProvider({ children }: DialogProviderProps) {
   const { t } = useTranslation();
   const [activeRequest, setActiveRequest] = useState<DialogRequest | null>(null);
@@ -105,6 +108,9 @@ export function DialogProvider({ children }: DialogProviderProps) {
     setActiveRequest(request);
   }, []);
 
+  /**
+   * Shows a confirm dialog and resolves with the user's choice.
+   */
   const confirm = useCallback(
     (options: ConfirmDialogOptions) =>
       new Promise<boolean>((resolve) => {
@@ -118,6 +124,9 @@ export function DialogProvider({ children }: DialogProviderProps) {
     [enqueueRequest],
   );
 
+  /**
+   * Shows an alert dialog and resolves when the user acknowledges.
+   */
   const alert = useCallback(
     (options: AlertDialogOptions) =>
       new Promise<void>((resolve) => {
@@ -138,7 +147,9 @@ export function DialogProvider({ children }: DialogProviderProps) {
         ...queueRef.current,
       ];
 
-      pendingRequests.forEach((request) => resolveRequest(request, false));
+      pendingRequests.forEach((request) => {
+        resolveRequest(request, false);
+      });
       activeRequestRef.current = null;
       queueRef.current = [];
     };
@@ -197,6 +208,9 @@ export function DialogProvider({ children }: DialogProviderProps) {
   );
 }
 
+/**
+ * Hook that exposes the dialog helpers; must be used inside DialogProvider.
+ */
 export function useDialog() {
   const context = useContext(DialogContext);
 
