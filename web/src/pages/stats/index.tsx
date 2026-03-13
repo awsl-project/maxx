@@ -561,7 +561,7 @@ export function StatsPage() {
   }, [stats]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <PageHeader
         icon={BarChart3}
         iconClassName="text-emerald-500"
@@ -627,10 +627,13 @@ export function StatsPage() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+      <div
+        data-testid="stats-scroll-region"
+        className="flex-1 min-h-0 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden"
+      >
         {/* 左侧筛选栏 */}
-        <div className="md:w-72 border-b md:border-b-0 md:border-r border-border/40 flex-shrink-0 max-h-[35vh] md:max-h-none overflow-y-auto">
-          <div className="h-full overflow-y-auto p-4 space-y-6">
+        <div className="md:w-72 border-b md:border-b-0 md:border-r border-border/40 flex-shrink-0 overflow-visible md:overflow-y-auto">
+          <div className="p-4 space-y-6 md:h-full md:overflow-y-auto">
             {/* 标题 */}
             <div className="flex items-center pb-2 border-b border-border/40">
               <span className="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
@@ -804,7 +807,7 @@ export function StatsPage() {
         </div>
 
         {/* 右侧内容区 */}
-        <div className="flex-1 flex flex-col overflow-hidden p-4 md:p-6">
+        <div className="flex-1 min-h-0 flex flex-col p-4 md:p-6 md:overflow-y-auto">
           <div className="max-w-7xl mx-auto w-full flex flex-col gap-6 flex-1 min-h-0">
             {/* 当前筛选条件摘要 */}
             <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
@@ -845,7 +848,7 @@ export function StatsPage() {
             </div>
 
             {/* 汇总卡片 - 与 Dashboard 一致的排列顺序 */}
-            <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <div data-testid="stats-summary-grid" className="grid gap-4 grid-cols-2 lg:grid-cols-4">
               <StatCard
                 title={t('stats.requests')}
                 value={summary.totalRequests.toLocaleString()}
@@ -885,7 +888,7 @@ export function StatsPage() {
             ) : chartData.length === 0 ? (
               <div className="text-center text-muted-foreground py-8">{t('common.noData')}</div>
             ) : (
-              <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <Card data-testid="stats-chart-card" className="border-border/50 bg-card/50 backdrop-blur-sm">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-emerald-500" />
