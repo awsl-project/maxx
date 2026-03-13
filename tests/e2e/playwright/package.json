@@ -3,12 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test-passkey-discoverable.mjs && node test-requests-project-filter.mjs && node test-stats-chart-resize.mjs && node test-codex-reasoning-servicetier.mjs",
+    "test": "node test-passkey-discoverable.mjs && node test-requests-project-filter.mjs && node test-stats-chart-resize.mjs && node test-codex-reasoning-servicetier.mjs && playwright test -c playwright.config.ts",
     "test:codex-overrides": "node test-codex-reasoning-servicetier.mjs",
     "test:codex-overrides:headed": "HEADED=1 node test-codex-reasoning-servicetier.mjs",
     "test:passkey": "node test-passkey-discoverable.mjs",
     "test:project-filter": "node test-requests-project-filter.mjs",
     "test:stats-chart": "node test-stats-chart-resize.mjs",
+    "test:stats-page": "playwright test -c playwright.config.ts",
+    "test:stats-page:headed": "HEADED=1 playwright test -c playwright.config.ts --headed",
     "test:headed": "HEADED=1 node test-passkey-discoverable.mjs",
     "test:project-filter:headed": "HEADED=1 node test-requests-project-filter.mjs",
     "test:stats-chart:headed": "HEADED=1 node test-stats-chart-resize.mjs"
