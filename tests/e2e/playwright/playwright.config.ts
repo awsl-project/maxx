@@ -3,7 +3,8 @@ import { defineConfig, devices } from 'playwright/test';
 export default defineConfig({
   testDir: '.',
   testMatch: ['*.spec.ts'],
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   outputDir: 'test-results',
   use: {
@@ -20,13 +21,22 @@ export default defineConfig({
   },
   projects: [
     {
+      name: 'e2e-chromium',
+      testIgnore: ['stats-page.spec.ts'],
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    {
       name: 'desktop-chromium',
+      testMatch: ['stats-page.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
       },
     },
     {
       name: 'mobile-chromium',
+      testMatch: ['stats-page.spec.ts'],
       use: {
         browserName: 'chromium',
         viewport: { width: 390, height: 844 },

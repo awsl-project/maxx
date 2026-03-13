@@ -108,7 +108,15 @@ async function mockStatsPageApis(page: Page) {
       return json(usageStats);
     }
 
-    return json([]);
+    return route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: 'Unmocked admin endpoint',
+        pathname,
+        url: route.request().url(),
+      }),
+    });
   });
 }
 
@@ -127,6 +135,11 @@ test('desktop stats page renders summary and chart content', async ({ page }) =>
 });
 
 test('stats page scroll region supports vertical scrolling', async ({ page }, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'mobile-chromium',
+    'scroll overflow is exercised in the mobile layout targeted by this regression test',
+  );
+
   await page.goto('/stats');
 
   const scrollRegion = page.getByTestId('stats-scroll-region');
@@ -141,22 +154,19 @@ test('stats page scroll region supports vertical scrolling', async ({ page }, te
   }));
 
   expect(before.scrollTop).toBe(0);
+  expect(before.scrollHeight).toBeGreaterThan(before.clientHeight);
 
-  if (before.scrollHeight <= before.clientHeight) {
-    await expect(chartCard).toBeInViewport();
-  } else {
-    await scrollRegion.hover();
-    await page.mouse.wheel(0, 1800);
+  await scrollRegion.hover();
+  await page.mouse.wheel(0, 1800);
 
-    await expect
-      .poll(() => scrollRegion.evaluate((element) => element.scrollTop), { timeout: 2000 })
-      .toBeGreaterThan(0);
+  await expect
+    .poll(() => scrollRegion.evaluate((element) => element.scrollTop), { timeout: 2000 })
+    .toBeGreaterThan(0);
 
-    const afterScrollTop = await scrollRegion.evaluate((element) => element.scrollTop);
-    expect(afterScrollTop).toBeGreaterThan(0);
+  const afterScrollTop = await scrollRegion.evaluate((element) => element.scrollTop);
+  expect(afterScrollTop).toBeGreaterThan(0);
 
-    await expect(chartCard).toBeInViewport();
-  }
+  await expect(chartCard).toBeInViewport();
 
   await testInfo.attach('stats-scroll-report-screenshot', {
     body: await page.screenshot({ fullPage: true }),
