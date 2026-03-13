@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query-client';
 import { TransportProvider } from '@/lib/transport';
 import { ThemeProvider } from '@/components/theme-provider';
+import { DialogProvider } from '@/contexts/dialog-context';
 import App from './App';
 import './index.css';
 import '@/lib/i18n';
@@ -65,7 +66,9 @@ createRoot(document.getElementById('root')!).render(
     <ThemeProvider defaultTheme="system" storageKey="maxx-ui-theme">
       <TransportProvider fallback={<LoadingFallback />} errorFallback={ErrorFallback}>
         <QueryClientProvider client={queryClient}>
-          <App />
+          <DialogProvider>
+            <App />
+          </DialogProvider>
         </QueryClientProvider>
       </TransportProvider>
     </ThemeProvider>

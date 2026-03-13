@@ -24,9 +24,11 @@ import { PageHeader } from '@/components/layout/page-header';
 import { Plus, Trash2, Pencil, Workflow } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { RoutingStrategy, RoutingStrategyType } from '@/lib/transport';
+import { useDialog } from '@/contexts/dialog-context';
 
 export function RoutingStrategiesPage() {
   const { t } = useTranslation();
+  const { confirm } = useDialog();
   const { data: strategies, isLoading } = useRoutingStrategies();
   const { data: projects } = useProjects();
   const createStrategy = useCreateRoutingStrategy();
@@ -71,10 +73,16 @@ export function RoutingStrategiesPage() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('Are you sure you want to delete this strategy?')) {
-      deleteStrategy.mutate(id);
-    }
+  const handleDelete = async (id: number) => {
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('routingStrategies.deleteConfirm'),
+      confirmText: t('common.delete'),
+      confirmVariant: 'destructive',
+    });
+    if (!confirmed) return;
+
+    deleteStrategy.mutate(id);
   };
 
   const getProjectName = (pid: number) => {

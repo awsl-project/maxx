@@ -57,10 +57,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SidebarMenu, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
+import { useDialog } from '@/contexts/dialog-context';
 
 export function NavUser() {
   const { isMobile, state } = useSidebar();
   const { t, i18n } = useTranslation();
+  const { alert, confirm } = useDialog();
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
   const { user, authEnabled, logout } = useAuth();
@@ -111,7 +113,13 @@ export function NavUser() {
   };
 
   const handleRestartServer = async () => {
-    if (!window.confirm(t('nav.restartServerConfirm'))) return;
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('nav.restartServerConfirm'),
+      confirmText: t('nav.restartServer'),
+    });
+    if (!confirmed) return;
+
     try {
       if (desktopRestartAvailable) {
         const launcher = (
@@ -128,9 +136,10 @@ export function NavUser() {
       await transport.restartServer();
     } catch (error) {
       console.error('Restart server failed:', error);
-      if (typeof window !== 'undefined') {
-        window.alert(t('nav.restartServerFailed'));
-      }
+      await alert({
+        title: t('nav.notifications'),
+        description: t('nav.restartServerFailed'),
+      });
     }
   };
 
@@ -161,7 +170,13 @@ export function NavUser() {
   };
 
   const handleDeletePasskey = async (credentialID: string) => {
-    if (!window.confirm(t('users.passkeyDeleteConfirm'))) return;
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('users.passkeyDeleteConfirm'),
+      confirmText: t('common.delete'),
+      confirmVariant: 'destructive',
+    });
+    if (!confirmed) return;
 
     setPasskeyError('');
     setDeletingPasskeyID(credentialID);

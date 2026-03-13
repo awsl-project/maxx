@@ -28,9 +28,11 @@ import {
 import { PageHeader } from '@/components/layout';
 import { Plus, Loader2, Copy, Eye, Ban, Check, Trash2, Ticket } from 'lucide-react';
 import type { InviteCode, InviteCodeCreateItem } from '@/lib/transport';
+import { useDialog } from '@/contexts/dialog-context';
 
 export function InviteCodesPage() {
   const { t } = useTranslation();
+  const { confirm } = useDialog();
   const { data: codes, isLoading } = useInviteCodes();
   const createInviteCodes = useCreateInviteCodes();
   const updateInviteCode = useUpdateInviteCode();
@@ -89,8 +91,15 @@ export function InviteCodesPage() {
     updateInviteCode.mutate({ id: code.id, data: { status: nextStatus } });
   };
 
-  const handleDelete = (code: InviteCode) => {
-    if (!window.confirm(t('inviteCodes.deleteConfirm'))) return;
+  const handleDelete = async (code: InviteCode) => {
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('inviteCodes.deleteConfirm'),
+      confirmText: t('common.delete'),
+      confirmVariant: 'destructive',
+    });
+    if (!confirmed) return;
+
     deleteInviteCode.mutate(code.id);
   };
 
@@ -146,12 +155,12 @@ export function InviteCodesPage() {
         description={t('inviteCodes.description')}
         icon={Ticket}
         iconClassName="text-amber-500"
-        actions={(
+        actions={
           <Button onClick={() => setShowCreateDialog(true)}>
             <Plus className="mr-2 h-4 w-4" />
             {t('inviteCodes.create')}
           </Button>
-        )}
+        }
       />
 
       <div className="flex-1 overflow-y-auto">
@@ -175,7 +184,9 @@ export function InviteCodesPage() {
                       <TableCell className="font-medium">{code.codePrefix}</TableCell>
                       <TableCell>
                         <Badge variant={code.status === 'active' ? 'default' : 'outline'}>
-                          {code.status === 'active' ? t('inviteCodes.statusActive') : t('inviteCodes.statusDisabled')}
+                          {code.status === 'active'
+                            ? t('inviteCodes.statusActive')
+                            : t('inviteCodes.statusDisabled')}
                         </Badge>
                       </TableCell>
                       <TableCell>{maxUsesLabel(code)}</TableCell>
@@ -205,7 +216,11 @@ export function InviteCodesPage() {
                             aria-label={t('inviteCodes.toggleStatus')}
                             disabled={isBusy}
                           >
-                            {code.status === 'active' ? <Ban className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                            {code.status === 'active' ? (
+                              <Ban className="h-4 w-4" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
                           </Button>
                           <Button
                             variant="ghost"
@@ -279,7 +294,13 @@ export function InviteCodesPage() {
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => { setShowCreateDialog(false); resetForm(); }}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowCreateDialog(false);
+                resetForm();
+              }}
+            >
               {t('common.cancel')}
             </Button>
             <Button onClick={handleCreate} disabled={createInviteCodes.isPending}>
@@ -320,7 +341,9 @@ export function InviteCodesPage() {
           <DialogHeader>
             <DialogTitle>{t('inviteCodes.usagesTitle')}</DialogTitle>
             <DialogDescription>
-              {usageDialogCode ? `${t('inviteCodes.codePrefix')}: ${usageDialogCode.codePrefix}` : ''}
+              {usageDialogCode
+                ? `${t('inviteCodes.codePrefix')}: ${usageDialogCode.codePrefix}`
+                : ''}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-80 overflow-auto">
@@ -342,7 +365,9 @@ export function InviteCodesPage() {
                     <TableRow key={usage.id}>
                       <TableCell>{usage.username || '-'}</TableCell>
                       <TableCell>{formatDate(usage.usedAt)}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{usage.ip || '-'}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {usage.ip || '-'}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {(!usages || usages.length === 0) && (
@@ -358,7 +383,6 @@ export function InviteCodesPage() {
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

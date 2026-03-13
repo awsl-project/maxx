@@ -15,6 +15,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/layout/page-header';
+import { useDialog } from '@/contexts/dialog-context';
 import { OverviewTab } from './tabs/overview';
 import { RoutesTab } from './tabs/routes';
 import { SessionsTab } from './tabs/sessions';
@@ -27,20 +28,28 @@ export function ProjectDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const { confirm } = useDialog();
   const { data: project, isLoading, error } = useProject(Number(id) || 0);
   const deleteProject = useDeleteProject();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!project) return;
-    if (confirm(t('projects.deleteConfirm', { name: project.name }))) {
-      deleteProject.mutate(project.id, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-          navigate('/projects');
-        },
-      });
-    }
+
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('projects.deleteConfirm', { name: project.name }),
+      confirmText: t('common.delete'),
+      confirmVariant: 'destructive',
+    });
+    if (!confirmed) return;
+
+    deleteProject.mutate(project.id, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+        navigate('/projects');
+      },
+    });
   };
 
   if (isLoading) {

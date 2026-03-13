@@ -26,19 +26,14 @@ import {
   useDeleteUser,
   useApproveUser,
 } from '@/hooks/queries';
-import {
-  Plus,
-  Loader2,
-  Pencil,
-  Trash2,
-  UserCog,
-  Check,
-} from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, UserCog, Check } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 import type { User, UserRole, UserStatus } from '@/lib/transport';
+import { useDialog } from '@/contexts/dialog-context';
 
 export function UsersPage() {
   const { t } = useTranslation();
+  const { confirm } = useDialog();
   const { data: users, isLoading } = useUsers();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
@@ -91,7 +86,14 @@ export function UsersPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm(t('users.deleteConfirm'))) return;
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('users.deleteConfirm'),
+      confirmText: t('common.delete'),
+      confirmVariant: 'destructive',
+    });
+    if (!confirmed) return;
+
     try {
       await deleteUser.mutateAsync(id);
     } catch {
@@ -137,7 +139,12 @@ export function UsersPage() {
         description={t('users.description')}
         icon={UserCog}
         actions={
-          <Button onClick={() => { resetForm(); setShowCreateDialog(true); }}>
+          <Button
+            onClick={() => {
+              resetForm();
+              setShowCreateDialog(true);
+            }}
+          >
             <Plus className="mr-2 h-4 w-4" />
             {t('users.addUser')}
           </Button>
@@ -184,7 +191,9 @@ export function UsersPage() {
                             : 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20'
                         }
                       >
-                        {user.status === 'active' ? t('users.statusActive') : t('users.statusPending')}
+                        {user.status === 'active'
+                          ? t('users.statusActive')
+                          : t('users.statusPending')}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
@@ -355,10 +364,7 @@ export function UsersPage() {
             <Button variant="outline" onClick={() => setEditingUser(null)}>
               {t('common.cancel')}
             </Button>
-            <Button
-              onClick={handleUpdate}
-              disabled={!formData.username || updateUser.isPending}
-            >
+            <Button onClick={handleUpdate} disabled={!formData.username || updateUser.isPending}>
               {updateUser.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('users.editUser')}
             </Button>
