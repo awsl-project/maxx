@@ -1,7 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
 type UsageStat = {
+  id: number;
+  createdAt: string;
   timeBucket: string;
+  granularity: string;
+  routeID: number;
+  providerID: number;
+  projectID: number;
+  apiTokenID: number;
+  clientType: string;
+  model: string;
   totalRequests: number;
   successfulRequests: number;
   failedRequests: number;
@@ -19,7 +28,16 @@ function buildUsageStats(): UsageStat[] {
   return Array.from({ length: 24 }, (_, index) => {
     const bucket = new Date(now.getTime() - (23 - index) * 60 * 60 * 1000);
     return {
+      id: index + 1,
+      createdAt: now.toISOString(),
       timeBucket: bucket.toISOString(),
+      granularity: 'hour',
+      routeID: 100 + index,
+      providerID: (index % 3) + 1,
+      projectID: index % 2 === 0 ? 11 : 12,
+      apiTokenID: index % 2 === 0 ? 21 : 22,
+      clientType: index % 2 === 0 ? 'openai' : 'claude',
+      model: index % 2 === 0 ? 'gpt-5' : 'claude-sonnet-4',
       totalRequests: 120 + index,
       successfulRequests: 116 + index,
       failedRequests: 4,
@@ -129,7 +147,10 @@ test('stats page scroll region supports vertical scrolling', async ({ page }, te
   } else {
     await scrollRegion.hover();
     await page.mouse.wheel(0, 1800);
-    await page.waitForTimeout(200);
+
+    await expect
+      .poll(() => scrollRegion.evaluate((element) => element.scrollTop), { timeout: 2000 })
+      .toBeGreaterThan(0);
 
     const afterScrollTop = await scrollRegion.evaluate((element) => element.scrollTop);
     expect(afterScrollTop).toBeGreaterThan(0);
