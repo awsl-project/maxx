@@ -1,0 +1,13 @@
+{
+  "name": "maxx-e2e",
+  "private": true,
+  "packageManager": "pnpm@10.7.0",
+  "scripts": {
+    "test": "playwright test -c playwright.config.ts",
+    "test:headed": "playwright test -c playwright.config.ts --headed",
+    "test:report": "playwright show-report playwright-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
