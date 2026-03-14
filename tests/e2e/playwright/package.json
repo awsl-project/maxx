@@ -5,7 +5,9 @@
   "scripts": {
     "test": "playwright test -c playwright.config.ts",
     "test:codex-overrides": "playwright test -c playwright.config.ts codex-reasoning-servicetier.spec.ts --project=e2e-chromium",
+    "test:documentation-page": "playwright test -c playwright.config.ts documentation-page.spec.ts --project=e2e-chromium",
     "test:codex-overrides:headed": "playwright test -c playwright.config.ts codex-reasoning-servicetier.spec.ts --project=e2e-chromium --headed",
+    "test:documentation-page:headed": "playwright test -c playwright.config.ts documentation-page.spec.ts --project=e2e-chromium --headed",
     "test:passkey": "playwright test -c playwright.config.ts passkey-discoverable.spec.ts --project=e2e-chromium",
     "test:project-filter": "playwright test -c playwright.config.ts requests-project-filter.spec.ts --project=e2e-chromium",
     "test:project-update-tenant": "playwright test -c playwright.config.ts project-update-tenant.spec.ts --project=e2e-chromium",

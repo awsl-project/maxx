@@ -301,7 +301,7 @@ function DocumentationSection() {
 
   return (
     <Tabs value={activeTab} onValueChange={handleDocumentationTabChange} className="w-full">
-      <TabsList className="grid w-full grid-cols-3 gap-3 bg-transparent p-0">
+      <TabsList data-testid="documentation-page-tabs" className="grid w-full grid-cols-3 gap-3 bg-transparent p-0">
         {documentationTabs.map((tab) => {
           const Icon = tab.icon;
 
@@ -309,6 +309,7 @@ function DocumentationSection() {
             <TabsTrigger
               key={tab.value}
               value={tab.value}
+              data-testid={`documentation-page-tab-${tab.value}`}
               className="h-auto min-h-[96px] flex-col items-start justify-start gap-3 rounded-xl border border-border/70 bg-card px-4 py-4 text-left data-active:border-primary/30 data-active:bg-primary/5"
             >
               <Icon className={`h-4 w-4 ${tab.iconClassName}`} />
@@ -321,7 +322,7 @@ function DocumentationSection() {
         })}
       </TabsList>
 
-      <TabsContent value="quickstart" className="mt-6">
+      <TabsContent value="quickstart" data-testid="documentation-quickstart-content" className="mt-6">
         <Card className="border-border bg-card">
           <CardContent className="space-y-5 pt-6">
             <div className="space-y-1">
@@ -353,6 +354,7 @@ function DocumentationSection() {
             <Tabs
               value={quickstartClient}
               onValueChange={handleQuickstartClientChange}
+              data-testid="documentation-quickstart-client-tabs"
               className="w-full"
             >
               <TabsList className="grid w-full grid-cols-4 h-10 p-1 bg-muted">
@@ -369,6 +371,7 @@ function DocumentationSection() {
                   {t('documentation.tokenInputLabel')}
                 </label>
                 <Input
+                  data-testid="documentation-quickstart-token-input"
                   value={quickstartToken}
                   onChange={(event) => setQuickstartToken(event.target.value)}
                   placeholder={t('documentation.tokenInputPlaceholder')}
@@ -379,6 +382,7 @@ function DocumentationSection() {
                   {t('documentation.projectSlugLabel')}
                 </label>
                 <Input
+                  data-testid="documentation-quickstart-project-slug-input"
                   value={quickstartProjectSlug}
                   onChange={(event) => setQuickstartProjectSlug(event.target.value.trim())}
                   placeholder={t('documentation.projectSlugPlaceholder')}
@@ -434,7 +438,11 @@ function DocumentationSection() {
               <p className="text-xs leading-5 text-cyan-700 dark:text-cyan-300">
                 {t('documentation.quickStartDiagnosticHint')}
               </p>
-              <Button variant="outline" onClick={() => setActiveTab('diagnostics')}>
+              <Button
+                variant="outline"
+                data-testid="documentation-open-diagnostics-button"
+                onClick={() => setActiveTab('diagnostics')}
+              >
                 {t('documentation.quickStartDiagnosticAction')}
               </Button>
             </div>
@@ -442,7 +450,7 @@ function DocumentationSection() {
         </Card>
       </TabsContent>
 
-      <TabsContent value="examples" className="mt-6">
+      <TabsContent value="examples" data-testid="documentation-examples-content" className="mt-6">
         <Card className="border-border bg-card">
           <CardContent className="space-y-6 pt-6">
             <div className="space-y-1">
@@ -460,6 +468,7 @@ function DocumentationSection() {
             <Tabs
               value={exampleClient}
               onValueChange={handleExampleClientChange}
+              data-testid="documentation-example-client-tabs"
               className="w-full"
             >
               <TabsList className="grid w-full grid-cols-4 h-12 p-1 bg-muted">
@@ -846,7 +855,7 @@ function DocumentationSection() {
         </Card>
       </TabsContent>
 
-      <TabsContent value="diagnostics" className="mt-6">
+      <TabsContent value="diagnostics" data-testid="documentation-diagnostics-content" className="mt-6">
         <Card className="border-border bg-card">
           <CardContent className="space-y-4 pt-6">
             <div className="space-y-1">
@@ -857,10 +866,11 @@ function DocumentationSection() {
               <p className="text-xs text-muted-foreground">{t('documentation.diagnosticsDesc')}</p>
             </div>
 
-            <div className="space-y-2">
+            <div data-testid="documentation-diagnostics-list" className="space-y-2">
               {diagnostics.map((item) => (
                 <div
                   key={item.key}
+                  data-testid={`documentation-diagnostic-${item.key}`}
                   className="flex items-start justify-between gap-4 rounded-md border border-border/70 p-3"
                 >
                   <div className="space-y-1">
