@@ -83,6 +83,8 @@ test('documentation page keeps tab state and links quick start to diagnostics', 
   await expect(examplesGeminiTab).toHaveAttribute('aria-selected', 'true');
   await expect(examples).toContainText('generateContent');
 
+  await page.screenshot({ path: testInfo.outputPath('documentation-examples.png'), fullPage: true });
+
   await page.getByTestId('documentation-page-tab-quickstart').click();
   await expect(quickstart).toBeVisible();
   await expect(page.getByTestId('documentation-quickstart-token-input')).toHaveValue(
