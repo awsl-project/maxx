@@ -6,6 +6,7 @@ import {
   CardContent,
   Input,
   Badge,
+  Label,
   Table,
   TableBody,
   TableCell,
@@ -28,8 +29,20 @@ import {
 } from '@/hooks/queries';
 import { Plus, Loader2, Pencil, Trash2, UserCog, Check } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
+import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
+import { getManagedPasswordError, getManagedPasswordRuleState } from '@/lib/managed-password';
 import type { User, UserRole, UserStatus } from '@/lib/transport';
 import { useDialog } from '@/contexts/dialog-context';
+
+type CreateUserField = 'username' | 'password' | 'confirmPassword';
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) {
+    return null;
+  }
+
+  return <p className="text-destructive text-xs">{message}</p>;
+}
 
 export function UsersPage() {
   const { t } = useTranslation();
@@ -45,25 +58,110 @@ export function UsersPage() {
   const [formData, setFormData] = useState({
     username: '',
     password: '',
+    confirmPassword: '',
     role: 'member' as UserRole,
     status: 'active' as UserStatus,
   });
+  const [createFieldErrors, setCreateFieldErrors] = useState<
+    Partial<Record<CreateUserField, string>>
+  >({});
+  const [createFormError, setCreateFormError] = useState('');
+  const [showCreatePasswordRules, setShowCreatePasswordRules] = useState(false);
 
   const resetForm = () => {
-    setFormData({ username: '', password: '', role: 'member', status: 'active' });
+    setFormData({
+      username: '',
+      password: '',
+      confirmPassword: '',
+      role: 'member',
+      status: 'active',
+    });
   };
 
+  const resetCreateDialogState = () => {
+    resetForm();
+    setCreateFieldErrors({});
+    setCreateFormError('');
+    setShowCreatePasswordRules(false);
+    createUser.reset();
+  };
+
+  const createPasswordRuleState = getManagedPasswordRuleState(formData.password);
+  const createPasswordInvalidMessage = t('login.passwordFormatInvalid');
+  const createPasswordFormatError = getManagedPasswordError(
+    formData.password,
+    createPasswordInvalidMessage,
+  );
+  const createPasswordFieldError =
+    createFieldErrors.password === createPasswordFormatError
+      ? undefined
+      : createFieldErrors.password;
+  const isCreateSubmitDisabled =
+    createUser.isPending ||
+    !formData.username.trim() ||
+    !formData.password.trim() ||
+    !formData.confirmPassword.trim() ||
+    !!createPasswordFormatError ||
+    formData.password !== formData.confirmPassword;
+
   const handleCreate = async () => {
+    setCreateFieldErrors({});
+    setCreateFormError('');
+
+    const nextErrors: Partial<Record<CreateUserField, string>> = {};
+    if (!formData.username.trim()) {
+      nextErrors.username = t('login.usernameRequired');
+    }
+    if (!formData.password.trim()) {
+      nextErrors.password = t('login.passwordRequired');
+    }
+    if (createPasswordFormatError) {
+      nextErrors.password = createPasswordFormatError;
+    }
+    if (!formData.confirmPassword.trim()) {
+      nextErrors.confirmPassword = t('login.confirmPasswordRequired');
+    }
+    if (
+      formData.password &&
+      formData.confirmPassword &&
+      formData.password !== formData.confirmPassword
+    ) {
+      nextErrors.confirmPassword = t('users.passwordMismatch');
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setCreateFieldErrors(nextErrors);
+      return;
+    }
+
     try {
       await createUser.mutateAsync({
-        username: formData.username,
+        username: formData.username.trim(),
         password: formData.password,
         role: formData.role,
       });
       setShowCreateDialog(false);
-      resetForm();
-    } catch {
-      // Error handled by mutation
+      resetCreateDialogState();
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: { error?: string } } };
+      const errorMsg = axiosError?.response?.data?.error;
+
+      if (errorMsg === 'username and password are required') {
+        setCreateFormError(t('login.registerFailed'));
+        return;
+      }
+      if (errorMsg === 'user already exists or invalid data') {
+        setCreateFieldErrors({ username: t('login.usernameExists') });
+        return;
+      }
+      if (errorMsg?.startsWith('password must be at least 8 characters')) {
+        setShowCreatePasswordRules(true);
+        setCreateFieldErrors({ password: createPasswordInvalidMessage });
+        return;
+      }
+      if (errorMsg) {
+        setCreateFormError(errorMsg);
+      }
     }
   };
 
@@ -114,6 +212,7 @@ export function UsersPage() {
     setFormData({
       username: user.username,
       password: '',
+      confirmPassword: '',
       role: user.role,
       status: user.status || 'active',
     });
@@ -141,7 +240,7 @@ export function UsersPage() {
         actions={
           <Button
             onClick={() => {
-              resetForm();
+              resetCreateDialogState();
               setShowCreateDialog(true);
             }}
           >
@@ -252,40 +351,124 @@ export function UsersPage() {
       </div>
 
       {/* Create User Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+      <Dialog
+        open={showCreateDialog}
+        onOpenChange={(open) => {
+          setShowCreateDialog(open);
+          if (!open) {
+            resetCreateDialogState();
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('users.addUser')}</DialogTitle>
             <DialogDescription>{t('users.description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {createFormError && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {createFormError}
+              </div>
+            )}
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="create-user-username">
+              <Label htmlFor="create-user-username">
                 {t('users.username')}
-              </label>
+              </Label>
               <Input
                 id="create-user-username"
                 value={formData.username}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                aria-invalid={createFieldErrors.username ? 'true' : undefined}
+                onChange={(e) => {
+                  setFormData({ ...formData, username: e.target.value });
+                  setCreateFieldErrors((current) => ({ ...current, username: undefined }));
+                  setCreateFormError('');
+                }}
                 placeholder={t('users.username')}
               />
+              <FieldError message={createFieldErrors.username} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="create-user-password">
+              <Label htmlFor="create-user-password">
                 {t('users.password')}
-              </label>
-              <Input
-                id="create-user-password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder={t('users.password')}
-              />
+              </Label>
+              <div className="relative">
+                <Input
+                  id="create-user-password"
+                  type="password"
+                  value={formData.password}
+                  placeholder={t('users.password')}
+                  autoComplete="new-password"
+                  aria-invalid={createFieldErrors.password ? 'true' : undefined}
+                  onFocus={() => setShowCreatePasswordRules(true)}
+                  onBlur={() => setShowCreatePasswordRules(false)}
+                  onChange={(e) => {
+                    const nextPassword = e.target.value;
+                    const nextPasswordError = getManagedPasswordError(
+                      nextPassword,
+                      createPasswordInvalidMessage,
+                    );
+                    setFormData({
+                      ...formData,
+                      password: nextPassword,
+                    });
+                    setShowCreatePasswordRules(true);
+                    setCreateFieldErrors((current) => ({
+                      ...current,
+                      password: nextPasswordError,
+                      confirmPassword:
+                        formData.confirmPassword && nextPassword !== formData.confirmPassword
+                          ? t('users.passwordMismatch')
+                          : undefined,
+                    }));
+                    setCreateFormError('');
+                  }}
+                />
+                <PasswordRulesPopover
+                  open={showCreatePasswordRules}
+                  ruleState={createPasswordRuleState}
+                  title={t('login.passwordChecklistTitle')}
+                  progressLabel={t('login.passwordCategoryProgress', {
+                    count: createPasswordRuleState.categoryCount,
+                  })}
+                  minLengthLabel={t('login.passwordRuleMinLength')}
+                  numberLabel={t('login.passwordRuleNumber')}
+                  letterLabel={t('login.passwordRuleLetter')}
+                  punctuationLabel={t('login.passwordRulePunctuation')}
+                />
+              </div>
+              <FieldError message={createPasswordFieldError} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="create-user-role">
+              <Label htmlFor="create-user-confirm-password">
+                {t('login.confirmPasswordLabel')}
+              </Label>
+              <Input
+                id="create-user-confirm-password"
+                type="password"
+                value={formData.confirmPassword}
+                placeholder={t('login.confirmPasswordPlaceholder')}
+                autoComplete="new-password"
+                aria-invalid={createFieldErrors.confirmPassword ? 'true' : undefined}
+                onChange={(e) => {
+                  const nextConfirmPassword = e.target.value;
+                  setFormData({ ...formData, confirmPassword: nextConfirmPassword });
+                  setCreateFieldErrors((current) => ({
+                    ...current,
+                    confirmPassword:
+                      nextConfirmPassword && formData.password !== nextConfirmPassword
+                        ? t('users.passwordMismatch')
+                        : undefined,
+                  }));
+                  setCreateFormError('');
+                }}
+              />
+              <FieldError message={createFieldErrors.confirmPassword} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-user-role">
                 {t('users.role')}
-              </label>
+              </Label>
               <select
                 id="create-user-role"
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -298,13 +481,16 @@ export function UsersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCreateDialog(false);
+                resetCreateDialogState();
+              }}
+            >
               {t('common.cancel')}
             </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={!formData.username || !formData.password || createUser.isPending}
-            >
+            <Button onClick={handleCreate} disabled={isCreateSubmitDisabled}>
               {createUser.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('users.addUser')}
             </Button>

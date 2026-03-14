@@ -368,7 +368,7 @@ func TestApproveUser_Success(t *testing.T) {
 	env := NewTestEnv(t)
 
 	// Create a pending user via the apply endpoint
-	env.CreatePendingUser("pendinguser", "pending-password-123")
+	env.CreatePendingUser("pendinguser", "Pending1!")
 
 	// Find the pending user in the list
 	resp := env.AdminGet("/api/admin/users")
