@@ -310,12 +310,14 @@ function DocumentationSection() {
               key={tab.value}
               value={tab.value}
               data-testid={`documentation-page-tab-${tab.value}`}
-              className="h-auto min-h-[96px] flex-col items-start justify-start gap-3 rounded-xl border border-border/70 bg-card px-4 py-4 text-left data-active:border-primary/30 data-active:bg-primary/5"
+              className="h-auto min-h-[96px] min-w-0 whitespace-normal flex-col items-start justify-start gap-3 rounded-xl border border-border/70 bg-card px-4 py-4 text-left data-active:border-primary/30 data-active:bg-primary/5"
             >
               <Icon className={`h-4 w-4 ${tab.iconClassName}`} />
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">{tab.label}</p>
-                <p className="text-xs leading-5 text-muted-foreground">{tab.description}</p>
+              <div className="min-w-0 w-full space-y-1">
+                <p className="text-sm font-semibold text-foreground break-words">{tab.label}</p>
+                <p className="text-xs leading-5 text-muted-foreground whitespace-normal break-words">
+                  {tab.description}
+                </p>
               </div>
             </TabsTrigger>
           );
