@@ -71,6 +71,9 @@ export function DialogProvider({ children }: DialogProviderProps) {
   const queueRef = useRef<DialogRequest[]>([]);
   const nextIdRef = useRef(1);
 
+  /**
+   * Resolves the current dialog request with the provided user decision.
+   */
   const resolveRequest = useCallback((request: DialogRequest, confirmed: boolean) => {
     if (request.kind === 'confirm') {
       request.resolve(confirmed);
@@ -80,12 +83,18 @@ export function DialogProvider({ children }: DialogProviderProps) {
     request.resolve();
   }, []);
 
+  /**
+   * Advances the queue to the next pending dialog, if any.
+   */
   const showNextRequest = useCallback(() => {
     const nextRequest = queueRef.current.shift() ?? null;
     activeRequestRef.current = nextRequest;
     setActiveRequest(nextRequest);
   }, []);
 
+  /**
+   * Closes the active dialog and continues with the next queued request.
+   */
   const closeActiveRequest = useCallback(
     (confirmed: boolean) => {
       const request = activeRequestRef.current;
@@ -98,6 +107,9 @@ export function DialogProvider({ children }: DialogProviderProps) {
     [resolveRequest, showNextRequest],
   );
 
+  /**
+   * Queues a dialog request, immediately showing it when no dialog is active.
+   */
   const enqueueRequest = useCallback((request: DialogRequest) => {
     if (activeRequestRef.current) {
       queueRef.current.push(request);
