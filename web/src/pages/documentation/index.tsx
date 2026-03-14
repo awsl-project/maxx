@@ -301,7 +301,11 @@ function DocumentationSection() {
 
   return (
     <Tabs value={activeTab} onValueChange={handleDocumentationTabChange} className="w-full">
-      <TabsList data-testid="documentation-page-tabs" className="grid w-full grid-cols-3 gap-3 bg-transparent p-0">
+      <TabsList
+        variant="line"
+        data-testid="documentation-page-tabs"
+        className="grid w-full grid-cols-3 gap-3 bg-transparent p-0 group-data-horizontal/tabs:!h-auto"
+      >
         {documentationTabs.map((tab) => {
           const Icon = tab.icon;
 
@@ -310,7 +314,7 @@ function DocumentationSection() {
               key={tab.value}
               value={tab.value}
               data-testid={`documentation-page-tab-${tab.value}`}
-              className="h-auto min-h-[96px] min-w-0 whitespace-normal flex-col items-start justify-start gap-3 rounded-xl border border-border/70 bg-card px-4 py-4 text-left data-active:border-primary/30 data-active:bg-primary/5"
+              className="!h-auto min-h-[96px] min-w-0 whitespace-normal flex-col items-start justify-start gap-3 rounded-xl border border-border/70 bg-card px-4 py-4 text-left shadow-none after:hidden data-active:border-primary/30 data-active:bg-primary/5 data-active:shadow-none"
             >
               <Icon className={`h-4 w-4 ${tab.iconClassName}`} />
               <div className="min-w-0 w-full space-y-1">
