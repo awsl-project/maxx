@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
@@ -29,6 +30,41 @@ type AuthHandler struct {
 
 type inviteCodeUserCreator interface {
 	ConsumeAndCreateUser(tenantID uint64, codeHash string, now time.Time, user *domain.User) (*domain.InviteCode, error)
+}
+
+const registrationPasswordValidationError = "password must be at least 8 characters and include a number, a letter, and one of ! @ # $ % ^ & * ? . , _ - + = / \\"
+const registrationPasswordValidationCode = "PASSWORD_POLICY_VIOLATION"
+
+const supportedRegistrationPasswordPunctuation = "!@#$%^&*?.,_-+=/\\"
+
+func isValidRegistrationPassword(password string) bool {
+	if utf8.RuneCountInString(password) < 8 {
+		return false
+	}
+
+	var hasNumber bool
+	var hasLetter bool
+	var hasPunctuation bool
+
+	for _, r := range password {
+		switch {
+		case r >= '0' && r <= '9':
+			hasNumber = true
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			hasLetter = true
+		case strings.ContainsRune(supportedRegistrationPasswordPunctuation, r):
+			hasPunctuation = true
+		}
+	}
+
+	return hasNumber && hasLetter && hasPunctuation
+}
+
+func writeRegistrationPasswordValidationError(w http.ResponseWriter) {
+	writeJSON(w, http.StatusBadRequest, map[string]any{
+		"error": registrationPasswordValidationError,
+		"code":  registrationPasswordValidationCode,
+	})
 }
 
 // NewAuthHandler creates a new auth handler
@@ -203,6 +239,10 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
 		return
 	}
+	if !isValidRegistrationPassword(body.Password) {
+		writeRegistrationPasswordValidationError(w)
+		return
+	}
 
 	// Use tenant from the authenticated admin's token
 	tenantID := claims.TenantID
@@ -269,6 +309,10 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 
 	if body.Username == "" || body.Password == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
+		return
+	}
+	if !isValidRegistrationPassword(body.Password) {
+		writeRegistrationPasswordValidationError(w)
 		return
 	}
 	if strings.TrimSpace(body.InviteCode) == "" {
@@ -558,6 +602,10 @@ func (h *AuthHandler) handleChangePassword(w http.ResponseWriter, r *http.Reques
 
 	if body.OldPassword == "" || body.NewPassword == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "oldPassword and newPassword are required"})
+		return
+	}
+	if !isValidRegistrationPassword(body.NewPassword) {
+		writeRegistrationPasswordValidationError(w)
 		return
 	}
 

@@ -11,7 +11,7 @@ func getMemberToken(t *testing.T, env *TestEnv) string {
 	// Admin registers a new member user
 	resp := env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "member-user",
-		"password": "member-password",
+		"password": "Member1!",
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 

@@ -121,7 +121,7 @@ func TestHandleApply_RollbackOnCreateFailure(t *testing.T) {
 
 	payload := map[string]string{
 		"username":   "user1",
-		"password":   "pass1",
+		"password":   "Pass1!aa",
 		"inviteCode": "CODE123",
 	}
 	body, _ := json.Marshal(payload)
@@ -159,7 +159,7 @@ func TestHandleApply_InviteCodeExpired(t *testing.T) {
 
 	payload := map[string]string{
 		"username":   "user2",
-		"password":   "pass2",
+		"password":   "Pass2!aa",
 		"inviteCode": "CODE123",
 	}
 	body, _ := json.Marshal(payload)
@@ -185,7 +185,7 @@ func TestHandleApply_InviteCodeSystemError(t *testing.T) {
 
 	payload := map[string]string{
 		"username":   "user3",
-		"password":   "pass3",
+		"password":   "Pass3!aa",
 		"inviteCode": "CODE123",
 	}
 	body, _ := json.Marshal(payload)
@@ -208,7 +208,7 @@ func TestHandleApply_RollbackWithoutUsageRepo(t *testing.T) {
 
 	payload := map[string]string{
 		"username":   "user4",
-		"password":   "pass4",
+		"password":   "Pass4!aa",
 		"inviteCode": "CODE123",
 	}
 	body, _ := json.Marshal(payload)
@@ -235,7 +235,7 @@ func TestHandleApply_RollbackWhenUsageCreateFails(t *testing.T) {
 
 	payload := map[string]string{
 		"username":   "user6",
-		"password":   "pass6",
+		"password":   "Pass6!aa",
 		"inviteCode": "CODE123",
 	}
 	body, _ := json.Marshal(payload)
@@ -261,7 +261,7 @@ func TestHandleApply_ResolveTenantFromInvite(t *testing.T) {
 
 	payload := map[string]string{
 		"username":   "user5",
-		"password":   "pass5",
+		"password":   "Pass5!aa",
 		"inviteCode": "CODE123",
 	}
 	body, _ := json.Marshal(payload)
@@ -282,5 +282,34 @@ func TestHandleApply_ResolveTenantFromInvite(t *testing.T) {
 	}
 	if inviteRepo.lastConsumeTenantID != 42 {
 		t.Fatalf("consume tenantID = %d, want 42", inviteRepo.lastConsumeTenantID)
+	}
+}
+
+func TestHandleApply_InvalidPasswordRejectedBeforeInviteConsume(t *testing.T) {
+	userRepo := &stubInviteUserRepo{users: map[string]*domain.User{}}
+	codeHash := domain.HashInviteCode("CODE123")
+	inviteRepo := &stubInviteRepo{invite: &domain.InviteCode{ID: 12, TenantID: 42, CodeHash: codeHash}}
+
+	h := NewAuthHandler(nil, userRepo, nil, inviteRepo, nil, true)
+
+	payload := map[string]string{
+		"username":   "user7",
+		"password":   "weakpass",
+		"inviteCode": "CODE123",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/admin/auth/apply", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if inviteRepo.consumeCalled {
+		t.Fatalf("invite consume should not be called for invalid password")
+	}
+	if len(userRepo.users) != 0 {
+		t.Fatalf("unexpected users created: %d", len(userRepo.users))
 	}
 }

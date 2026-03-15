@@ -78,7 +78,7 @@ func TestRegister_Success(t *testing.T) {
 	// Admin registers a new user
 	resp := env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "newuser",
-		"password": "newuser-password",
+		"password": "Newuser1!",
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 
@@ -106,7 +106,7 @@ func TestRegister_Success(t *testing.T) {
 	// Verify the new user can login
 	resp = env.UnauthPost("/api/admin/auth/login", map[string]string{
 		"username": "newuser",
-		"password": "newuser-password",
+		"password": "Newuser1!",
 	})
 	AssertStatus(t, resp, http.StatusOK)
 }
@@ -117,7 +117,7 @@ func TestChangePassword_Success(t *testing.T) {
 	// Change admin password
 	resp := env.RequestWithToken(http.MethodPut, "/api/admin/auth/password", map[string]string{
 		"oldPassword": "test-admin-password",
-		"newPassword": "new-admin-password",
+		"newPassword": "Newadmin1!",
 	}, env.Token)
 	AssertStatus(t, resp, http.StatusOK)
 
@@ -138,7 +138,7 @@ func TestChangePassword_Success(t *testing.T) {
 	// Verify new password works
 	resp = env.UnauthPost("/api/admin/auth/login", map[string]string{
 		"username": "admin",
-		"password": "new-admin-password",
+		"password": "Newadmin1!",
 	})
 	AssertStatus(t, resp, http.StatusOK)
 }
@@ -184,12 +184,12 @@ func TestLogin_PendingUser(t *testing.T) {
 	env := NewTestEnv(t)
 
 	// Create a pending user via the apply endpoint
-	env.CreatePendingUser("pending-user", "pending-password")
+	env.CreatePendingUser("pending-user", "Pending1!")
 
 	// Try to login as pending user
 	resp := env.UnauthPost("/api/admin/auth/login", map[string]string{
 		"username": "pending-user",
-		"password": "pending-password",
+		"password": "Pending1!",
 	})
 	AssertStatus(t, resp, http.StatusForbidden)
 }
@@ -200,7 +200,7 @@ func TestRegister_MemberForbidden(t *testing.T) {
 
 	resp := env.RequestWithToken(http.MethodPost, "/api/admin/auth/register", map[string]string{
 		"username": "another-user",
-		"password": "another-password",
+		"password": "Another1!",
 	}, memberToken)
 	AssertStatus(t, resp, http.StatusForbidden)
 }
@@ -210,7 +210,7 @@ func TestRegister_NoAuth(t *testing.T) {
 
 	resp := env.UnauthPost("/api/admin/auth/register", map[string]string{
 		"username": "noauth-user",
-		"password": "noauth-password",
+		"password": "Noauth1!",
 	})
 	AssertStatus(t, resp, http.StatusUnauthorized)
 }
@@ -221,7 +221,7 @@ func TestRegister_DuplicateUsername(t *testing.T) {
 	// Register first user
 	resp := env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "duplicate-user",
-		"password": "password1",
+		"password": "Duplicate1!",
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 	resp.Body.Close()
@@ -229,7 +229,7 @@ func TestRegister_DuplicateUsername(t *testing.T) {
 	// Register same username again
 	resp = env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "duplicate-user",
-		"password": "password2",
+		"password": "Duplicate2!",
 	})
 	AssertStatus(t, resp, http.StatusConflict)
 }
@@ -253,13 +253,32 @@ func TestRegister_EmptyFields(t *testing.T) {
 	AssertStatus(t, resp, http.StatusBadRequest)
 }
 
+func TestRegister_InvalidPassword(t *testing.T) {
+	env := NewTestEnv(t)
+
+	resp := env.AdminPost("/api/admin/auth/register", map[string]string{
+		"username": "weak-user",
+		"password": "weakpass",
+	})
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+	if _, ok := result["error"]; !ok {
+		t.Fatalf("Expected error in response, got %v", result)
+	}
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
+	}
+}
+
 func TestApply_Success(t *testing.T) {
 	env := NewTestEnv(t)
 
 	inviteCode := env.CreateInviteCode()
 	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
 		"username":   "apply-user",
-		"password":   "apply-password",
+		"password":   "Apply123!",
 		"inviteCode": inviteCode,
 	})
 	AssertStatus(t, resp, http.StatusCreated)
@@ -283,7 +302,7 @@ func TestApply_DuplicateUsername(t *testing.T) {
 	inviteCode1 := env.CreateInviteCode()
 	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
 		"username":   "dup-apply-user",
-		"password":   "password1",
+		"password":   "Dupapply1!",
 		"inviteCode": inviteCode1,
 	})
 	AssertStatus(t, resp, http.StatusCreated)
@@ -293,17 +312,38 @@ func TestApply_DuplicateUsername(t *testing.T) {
 	inviteCode2 := env.CreateInviteCode()
 	resp = env.UnauthPost("/api/admin/auth/apply", map[string]string{
 		"username":   "dup-apply-user",
-		"password":   "password2",
+		"password":   "Dupapply2!",
 		"inviteCode": inviteCode2,
 	})
 	AssertStatus(t, resp, http.StatusConflict)
 
 	resp = env.UnauthPost("/api/admin/auth/apply", map[string]string{
 		"username":   "new-apply-user",
-		"password":   "password3",
+		"password":   "Newapply3!",
 		"inviteCode": inviteCode2,
 	})
 	AssertStatus(t, resp, http.StatusCreated)
+}
+
+func TestApply_InvalidPassword(t *testing.T) {
+	env := NewTestEnv(t)
+
+	inviteCode := env.CreateInviteCode()
+	resp := env.UnauthPost("/api/admin/auth/apply", map[string]string{
+		"username":   "weak-apply-user",
+		"password":   "weakpass",
+		"inviteCode": inviteCode,
+	})
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+	if _, ok := result["error"]; !ok {
+		t.Fatalf("Expected error in response, got %v", result)
+	}
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
+	}
 }
 
 func TestChangePassword_WrongOldPassword(t *testing.T) {
@@ -311,9 +351,28 @@ func TestChangePassword_WrongOldPassword(t *testing.T) {
 
 	resp := env.RequestWithToken(http.MethodPut, "/api/admin/auth/password", map[string]string{
 		"oldPassword": "wrong-old-password",
-		"newPassword": "new-password",
+		"newPassword": "Newpass1!",
 	}, env.Token)
 	AssertStatus(t, resp, http.StatusUnauthorized)
+}
+
+func TestChangePassword_InvalidNewPassword(t *testing.T) {
+	env := NewTestEnv(t)
+
+	resp := env.RequestWithToken(http.MethodPut, "/api/admin/auth/password", map[string]string{
+		"oldPassword": "test-admin-password",
+		"newPassword": "weakpass",
+	}, env.Token)
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+	if _, ok := result["error"]; !ok {
+		t.Fatalf("Expected error in response, got %v", result)
+	}
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
+	}
 }
 
 func TestChangePassword_NoAuth(t *testing.T) {
@@ -321,7 +380,7 @@ func TestChangePassword_NoAuth(t *testing.T) {
 
 	resp := env.UnauthPut("/api/admin/auth/password", map[string]string{
 		"oldPassword": "test-admin-password",
-		"newPassword": "new-password",
+		"newPassword": "Newpass1!",
 	})
 	AssertStatus(t, resp, http.StatusUnauthorized)
 }

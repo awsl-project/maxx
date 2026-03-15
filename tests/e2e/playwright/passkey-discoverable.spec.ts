@@ -101,6 +101,17 @@ test('passkey discoverable login works without username', async ({ browser }, te
     await expect(usernameField).toHaveValue('');
     console.log('  Username field is empty: ✓');
 
+    const passkeyToggle = page
+      .locator('button[aria-expanded]')
+      .filter({ hasText: /Passkey Login|Passkey 登录/ })
+      .first();
+    await expect(passkeyToggle).toBeVisible({ timeout: 5000 });
+    if ((await passkeyToggle.getAttribute('aria-expanded')) !== 'true') {
+      await passkeyToggle.click();
+    }
+    await expect(passkeyToggle).toHaveAttribute('aria-expanded', 'true');
+    console.log('  Passkey section expanded: ✓');
+
     const passkeyLoginButton = page.locator('button').filter({ hasText: /Login with Passkey|使用 Passkey 登录/ }).first();
     await expect(passkeyLoginButton).toBeEnabled();
     console.log('  Passkey login button is enabled without username: ✓');

@@ -19,6 +19,9 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
+import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
+import { FieldError } from '@/components/field-error';
+import { PasswordInput } from '@/components/password-input';
 import { useTransport } from '@/lib/transport/context';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -36,9 +39,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Label,
 } from '@/components/ui';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {
+  getManagedPasswordError,
+  getManagedPasswordRuleState,
+  isPasswordPolicyViolationResponse,
+} from '@/lib/managed-password';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -58,6 +66,8 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SidebarMenu, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
 import { useDialog } from '@/contexts/dialog-context';
+
+type PasswordField = 'oldPassword' | 'newPassword' | 'confirmPassword';
 
 export function NavUser() {
   const { isMobile, state } = useSidebar();
@@ -80,7 +90,13 @@ export function NavUser() {
   });
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordFieldErrors, setPasswordFieldErrors] = useState<
+    Partial<Record<PasswordField, string>>
+  >({});
+  const [showPasswordRules, setShowPasswordRules] = useState(false);
+  const [newPasswordsVisible, setNewPasswordsVisible] = useState(false);
   const passwordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const passwordRequestIdRef = useRef(0);
   const [passkeySuccess, setPasskeySuccess] = useState('');
   const passkeyCredentials = usePasskeyCredentials(showPasskeyDialog && authEnabled);
   const deletePasskeyCredential = useDeletePasskeyCredential();
@@ -107,6 +123,37 @@ export function NavUser() {
         go?: { desktop?: { LauncherApp?: { RestartServer?: () => unknown } } };
       }
     ).go?.desktop?.LauncherApp?.RestartServer;
+  const passwordRuleState = getManagedPasswordRuleState(passwordForm.newPassword);
+  const passwordInvalidMessage = t('login.passwordFormatInvalid');
+  const passwordFormatError = getManagedPasswordError(
+    passwordForm.newPassword,
+    passwordInvalidMessage,
+  );
+  const passwordFieldError =
+    passwordFieldErrors.newPassword === passwordFormatError
+      ? undefined
+      : passwordFieldErrors.newPassword;
+  const isChangePasswordDisabled =
+    !passwordForm.oldPassword.trim() ||
+    !passwordForm.newPassword.trim() ||
+    !passwordForm.confirmPassword.trim() ||
+    !!passwordFormatError ||
+    passwordForm.newPassword !== passwordForm.confirmPassword ||
+    changePassword.isPending;
+
+  const resetPasswordDialogState = () => {
+    passwordRequestIdRef.current += 1;
+    setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+    setPasswordFieldErrors({});
+    setPasswordError('');
+    setPasswordSuccess('');
+    setShowPasswordRules(false);
+    setNewPasswordsVisible(false);
+    if (passwordTimeoutRef.current) {
+      clearTimeout(passwordTimeoutRef.current);
+      passwordTimeoutRef.current = null;
+    }
+  };
 
   const handleToggleLanguage = () => {
     i18n.changeLanguage(currentLanguage === 'zh' ? 'en' : 'zh');
@@ -144,28 +191,75 @@ export function NavUser() {
   };
 
   const handleChangePassword = async () => {
+    setPasswordFieldErrors({});
     setPasswordError('');
     setPasswordSuccess('');
 
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError(t('users.passwordMismatch'));
+    const nextErrors: Partial<Record<PasswordField, string>> = {};
+    if (!passwordForm.oldPassword.trim()) {
+      nextErrors.oldPassword = t('users.oldPassword');
+    }
+    if (!passwordForm.newPassword.trim()) {
+      nextErrors.newPassword = t('login.passwordRequired');
+    }
+    if (passwordFormatError) {
+      setShowPasswordRules(true);
+    }
+    if (!passwordForm.confirmPassword.trim()) {
+      nextErrors.confirmPassword = t('login.confirmPasswordRequired');
+    }
+    if (
+      passwordForm.confirmPassword.trim() &&
+      passwordForm.newPassword !== passwordForm.confirmPassword
+    ) {
+      nextErrors.confirmPassword = t('users.passwordMismatch');
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setPasswordFieldErrors(nextErrors);
+      if (nextErrors.newPassword) {
+        setShowPasswordRules(true);
+      }
       return;
     }
+
+    const requestId = passwordRequestIdRef.current + 1;
+    passwordRequestIdRef.current = requestId;
 
     try {
       await changePassword.mutateAsync({
         oldPassword: passwordForm.oldPassword,
         newPassword: passwordForm.newPassword,
       });
+      if (requestId !== passwordRequestIdRef.current) {
+        return;
+      }
       setPasswordSuccess(t('users.changePasswordSuccess'));
       setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordFieldErrors({});
+      setShowPasswordRules(false);
       if (passwordTimeoutRef.current) {
         clearTimeout(passwordTimeoutRef.current);
       }
-      passwordTimeoutRef.current = setTimeout(() => setShowPasswordDialog(false), 1500);
+      passwordTimeoutRef.current = setTimeout(() => {
+        if (requestId !== passwordRequestIdRef.current) {
+          return;
+        }
+        setShowPasswordDialog(false);
+        resetPasswordDialogState();
+      }, 1500);
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string } } };
-      setPasswordError(axiosError?.response?.data?.error || t('users.changePasswordFailed'));
+      if (requestId !== passwordRequestIdRef.current) {
+        return;
+      }
+      const axiosError = err as { response?: { data?: { error?: string; code?: string } } };
+      const errorData = axiosError?.response?.data;
+      const errorMsg = errorData?.error;
+      if (isPasswordPolicyViolationResponse(errorData)) {
+        setShowPasswordRules(true);
+        return;
+      }
+      setPasswordError(errorMsg || t('users.changePasswordFailed'));
     }
   };
 
@@ -443,9 +537,7 @@ export function NavUser() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => {
-                      setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
-                      setPasswordError('');
-                      setPasswordSuccess('');
+                      resetPasswordDialogState();
                       setShowPasswordDialog(true);
                     }}
                   >
@@ -469,7 +561,15 @@ export function NavUser() {
       </SidebarMenuItem>
 
       {/* Change Password Dialog */}
-      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+      <Dialog
+        open={showPasswordDialog}
+        onOpenChange={(open) => {
+          setShowPasswordDialog(open);
+          if (!open) {
+            resetPasswordDialogState();
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('users.changePassword')}</DialogTitle>
@@ -477,42 +577,97 @@ export function NavUser() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label htmlFor="old-password" className="text-sm font-medium">
+              <Label htmlFor="old-password">
                 {t('users.oldPassword')}
-              </label>
-              <Input
+              </Label>
+              <PasswordInput
                 id="old-password"
-                type="password"
                 value={passwordForm.oldPassword}
-                onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
+                aria-invalid={passwordFieldErrors.oldPassword ? 'true' : undefined}
+                onChange={(e) => {
+                  setPasswordForm({ ...passwordForm, oldPassword: e.target.value });
+                  setPasswordFieldErrors((current) => ({ ...current, oldPassword: undefined }));
+                  setPasswordError('');
+                }}
                 placeholder={t('users.oldPassword')}
               />
+              <FieldError message={passwordFieldErrors.oldPassword} />
             </div>
             <div className="space-y-2">
-              <label htmlFor="new-password" className="text-sm font-medium">
+              <Label htmlFor="new-password">
                 {t('users.newPassword')}
-              </label>
-              <Input
-                id="new-password"
-                type="password"
-                value={passwordForm.newPassword}
-                onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                placeholder={t('users.newPassword')}
-              />
+              </Label>
+              <div className="relative">
+                <PasswordInput
+                  id="new-password"
+                  value={passwordForm.newPassword}
+                  aria-invalid={passwordFieldErrors.newPassword ? 'true' : undefined}
+                  onFocus={() => setShowPasswordRules(true)}
+                  onBlur={() => setShowPasswordRules(false)}
+                  onChange={(e) => {
+                    const nextPassword = e.target.value;
+                    const nextPasswordError = getManagedPasswordError(
+                      nextPassword,
+                      passwordInvalidMessage,
+                    );
+                    setPasswordForm({ ...passwordForm, newPassword: nextPassword });
+                    setShowPasswordRules(true);
+                    setPasswordFieldErrors((current) => ({
+                      ...current,
+                      newPassword: nextPasswordError,
+                      confirmPassword:
+                        passwordForm.confirmPassword &&
+                        nextPassword !== passwordForm.confirmPassword
+                          ? t('users.passwordMismatch')
+                          : undefined,
+                    }));
+                    setPasswordError('');
+                  }}
+                  placeholder={t('users.newPassword')}
+                  visible={newPasswordsVisible}
+                  onVisibleChange={setNewPasswordsVisible}
+                />
+                <PasswordRulesPopover
+                  open={showPasswordRules}
+                  ruleState={passwordRuleState}
+                  title={t('login.passwordChecklistTitle')}
+                  progressLabel={t('login.passwordCategoryProgress', {
+                    count: passwordRuleState.categoryCount,
+                  })}
+                  minLengthLabel={t('login.passwordRuleMinLength')}
+                  numberLabel={t('login.passwordRuleNumber')}
+                  letterLabel={t('login.passwordRuleLetter')}
+                  punctuationLabel={t('login.passwordRulePunctuation')}
+                />
+              </div>
+              <FieldError message={passwordFieldError} />
             </div>
             <div className="space-y-2">
-              <label htmlFor="confirm-new-password" className="text-sm font-medium">
+              <Label htmlFor="confirm-new-password">
                 {t('users.confirmNewPassword')}
-              </label>
-              <Input
+              </Label>
+              <PasswordInput
                 id="confirm-new-password"
-                type="password"
                 value={passwordForm.confirmPassword}
-                onChange={(e) =>
-                  setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })
-                }
+                aria-invalid={passwordFieldErrors.confirmPassword ? 'true' : undefined}
+                onChange={(e) => {
+                  const nextConfirmPassword = e.target.value;
+                setPasswordForm({ ...passwordForm, confirmPassword: nextConfirmPassword });
+                setPasswordFieldErrors((current) => ({
+                  ...current,
+                  confirmPassword:
+                      nextConfirmPassword.trim() &&
+                      passwordForm.newPassword !== nextConfirmPassword
+                        ? t('users.passwordMismatch')
+                        : undefined,
+                }));
+                  setPasswordError('');
+                }}
                 placeholder={t('users.confirmNewPassword')}
+                visible={newPasswordsVisible}
+                onVisibleChange={setNewPasswordsVisible}
               />
+              <FieldError message={passwordFieldErrors.confirmPassword} />
             </div>
             {passwordError && <p className="text-destructive text-sm">{passwordError}</p>}
             {passwordSuccess && (
@@ -520,18 +675,16 @@ export function NavUser() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPasswordDialog(false);
+                resetPasswordDialogState();
+              }}
+            >
               {t('common.cancel')}
             </Button>
-            <Button
-              onClick={handleChangePassword}
-              disabled={
-                !passwordForm.oldPassword ||
-                !passwordForm.newPassword ||
-                !passwordForm.confirmPassword ||
-                changePassword.isPending
-              }
-            >
+            <Button onClick={handleChangePassword} disabled={isChangePasswordDisabled}>
               {changePassword.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('common.confirm')}
             </Button>
