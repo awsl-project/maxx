@@ -6,6 +6,8 @@ import {
   FingerprintIcon,
 } from 'lucide-react';
 import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
+import { FieldError } from '@/components/field-error';
+import { PasswordInput } from '@/components/password-input';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -41,20 +43,6 @@ function getRegisterPasswordError(password: string, t: (key: string) => string) 
   return getManagedPasswordError(password, t('login.passwordFormatInvalid'));
 }
 
-function buildAuthUser(user: AuthUser | undefined) {
-  if (!user) {
-    return undefined;
-  }
-
-  return {
-    id: user.id,
-    username: user.username,
-    tenantID: user.tenantID,
-    tenantName: user.tenantName,
-    role: user.role,
-  } satisfies AuthUser;
-}
-
 function mapRegisterError(
   error: string | undefined,
   t: (key: string) => string,
@@ -81,20 +69,13 @@ function mapRegisterError(
   }
 }
 
-function FieldError({ message }: { message?: string }) {
-  if (!message) {
-    return null;
-  }
-
-  return <p className="text-destructive text-xs">{message}</p>;
-}
-
 export function LoginPage({ onSuccess }: LoginPageProps) {
   const { t } = useTranslation();
   const { transport } = useTransport();
   const [authTab, setAuthTab] = useState<AuthTab>('login');
   const [passkeyExpanded, setPasskeyExpanded] = useState(false);
   const [showRegisterPasswordRules, setShowRegisterPasswordRules] = useState(false);
+  const [registerPasswordsVisible, setRegisterPasswordsVisible] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
 
   const [loginUsername, setLoginUsername] = useState('');
@@ -173,7 +154,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     try {
       const result = await transport.login(loginUsername.trim(), loginPassword);
       if (result.success && result.token) {
-        onSuccess(result.token, buildAuthUser(result.user));
+        onSuccess(result.token, result.user as AuthUser | undefined);
         return;
       }
 
@@ -284,7 +265,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       const authentication = await startAuthentication({ optionsJSON: beginResult.options });
       const finishResult = await transport.finishPasskeyLogin(beginResult.sessionID, authentication);
       if (finishResult.success && finishResult.token) {
-        onSuccess(finishResult.token, buildAuthUser(finishResult.user));
+        onSuccess(finishResult.token, finishResult.user as AuthUser | undefined);
         return;
       }
 
@@ -350,6 +331,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                     } else {
                       setShowRegisterPasswordRules(false);
                     }
+                    setRegisterPasswordsVisible(false);
                     clearLoginMessages();
                     clearRegisterMessages();
                   }}
@@ -532,9 +514,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                       <div className="space-y-2">
                         <Label htmlFor="register-password">{t('login.passwordLabel')}</Label>
                         <div className="relative">
-                          <Input
+                          <PasswordInput
                             id="register-password"
-                            type="password"
                             value={registerPassword}
                             placeholder={t('login.passwordPlaceholder')}
                             autoComplete="new-password"
@@ -558,6 +539,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                               }));
                               setRegisterFormError('');
                             }}
+                            visible={registerPasswordsVisible}
+                            onVisibleChange={setRegisterPasswordsVisible}
                           />
                           <PasswordRulesPopover
                             open={showRegisterPasswordRules}
@@ -578,9 +561,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
                       <div className="space-y-2">
                         <Label htmlFor="register-confirm-password">{t('login.confirmPasswordLabel')}</Label>
-                        <Input
+                        <PasswordInput
                           id="register-confirm-password"
-                          type="password"
                           value={confirmPassword}
                           placeholder={t('login.confirmPasswordPlaceholder')}
                           autoComplete="new-password"
@@ -599,6 +581,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                             }));
                             setRegisterFormError('');
                           }}
+                          visible={registerPasswordsVisible}
+                          onVisibleChange={setRegisterPasswordsVisible}
                         />
                         <FieldError message={registerFieldErrors.confirmPassword} />
                       </div>

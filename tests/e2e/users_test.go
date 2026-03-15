@@ -244,6 +244,26 @@ func TestCreateUser_DuplicateUsername(t *testing.T) {
 	}
 }
 
+func TestCreateUser_InvalidPassword(t *testing.T) {
+	env := NewTestEnv(t)
+
+	body := map[string]any{
+		"username": "weak-user",
+		"password": "weakpass",
+		"role":     "member",
+	}
+
+	resp := env.AdminPost("/api/admin/users", body)
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
+	}
+}
+
 func TestCreateUser_InvalidJSON(t *testing.T) {
 	env := NewTestEnv(t)
 

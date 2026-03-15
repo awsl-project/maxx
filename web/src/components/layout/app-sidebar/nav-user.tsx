@@ -20,6 +20,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
 import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
+import { FieldError } from '@/components/field-error';
+import { PasswordInput } from '@/components/password-input';
 import { useTransport } from '@/lib/transport/context';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -40,8 +42,11 @@ import {
   Label,
 } from '@/components/ui';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { getManagedPasswordError, getManagedPasswordRuleState } from '@/lib/managed-password';
+import {
+  getManagedPasswordError,
+  getManagedPasswordRuleState,
+  isPasswordPolicyViolationResponse,
+} from '@/lib/managed-password';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -63,14 +68,6 @@ import { SidebarMenu, SidebarMenuItem, useSidebar } from '@/components/ui/sideba
 import { useDialog } from '@/contexts/dialog-context';
 
 type PasswordField = 'oldPassword' | 'newPassword' | 'confirmPassword';
-
-function FieldError({ message }: { message?: string }) {
-  if (!message) {
-    return null;
-  }
-
-  return <p className="text-destructive text-xs">{message}</p>;
-}
 
 export function NavUser() {
   const { isMobile, state } = useSidebar();
@@ -97,6 +94,7 @@ export function NavUser() {
     Partial<Record<PasswordField, string>>
   >({});
   const [showPasswordRules, setShowPasswordRules] = useState(false);
+  const [newPasswordsVisible, setNewPasswordsVisible] = useState(false);
   const passwordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [passkeySuccess, setPasskeySuccess] = useState('');
   const passkeyCredentials = usePasskeyCredentials(showPasskeyDialog && authEnabled);
@@ -148,6 +146,7 @@ export function NavUser() {
     setPasswordError('');
     setPasswordSuccess('');
     setShowPasswordRules(false);
+    setNewPasswordsVisible(false);
     if (passwordTimeoutRef.current) {
       clearTimeout(passwordTimeoutRef.current);
       passwordTimeoutRef.current = null;
@@ -233,9 +232,10 @@ export function NavUser() {
       }
       passwordTimeoutRef.current = setTimeout(() => setShowPasswordDialog(false), 1500);
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string } } };
-      const errorMsg = axiosError?.response?.data?.error;
-      if (errorMsg?.startsWith('password must be at least 8 characters')) {
+      const axiosError = err as { response?: { data?: { error?: string; code?: string } } };
+      const errorData = axiosError?.response?.data;
+      const errorMsg = errorData?.error;
+      if (isPasswordPolicyViolationResponse(errorData)) {
         setShowPasswordRules(true);
         setPasswordFieldErrors({ newPassword: passwordInvalidMessage });
         return;
@@ -561,9 +561,8 @@ export function NavUser() {
               <Label htmlFor="old-password">
                 {t('users.oldPassword')}
               </Label>
-              <Input
+              <PasswordInput
                 id="old-password"
-                type="password"
                 value={passwordForm.oldPassword}
                 aria-invalid={passwordFieldErrors.oldPassword ? 'true' : undefined}
                 onChange={(e) => {
@@ -580,9 +579,8 @@ export function NavUser() {
                 {t('users.newPassword')}
               </Label>
               <div className="relative">
-                <Input
+                <PasswordInput
                   id="new-password"
-                  type="password"
                   value={passwordForm.newPassword}
                   aria-invalid={passwordFieldErrors.newPassword ? 'true' : undefined}
                   onFocus={() => setShowPasswordRules(true)}
@@ -607,6 +605,8 @@ export function NavUser() {
                     setPasswordError('');
                   }}
                   placeholder={t('users.newPassword')}
+                  visible={newPasswordsVisible}
+                  onVisibleChange={setNewPasswordsVisible}
                 />
                 <PasswordRulesPopover
                   open={showPasswordRules}
@@ -627,9 +627,8 @@ export function NavUser() {
               <Label htmlFor="confirm-new-password">
                 {t('users.confirmNewPassword')}
               </Label>
-              <Input
+              <PasswordInput
                 id="confirm-new-password"
-                type="password"
                 value={passwordForm.confirmPassword}
                 aria-invalid={passwordFieldErrors.confirmPassword ? 'true' : undefined}
                 onChange={(e) => {
@@ -645,6 +644,8 @@ export function NavUser() {
                   setPasswordError('');
                 }}
                 placeholder={t('users.confirmNewPassword')}
+                visible={newPasswordsVisible}
+                onVisibleChange={setNewPasswordsVisible}
               />
               <FieldError message={passwordFieldErrors.confirmPassword} />
             </div>

@@ -267,6 +267,9 @@ func TestRegister_InvalidPassword(t *testing.T) {
 	if _, ok := result["error"]; !ok {
 		t.Fatalf("Expected error in response, got %v", result)
 	}
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
+	}
 }
 
 func TestApply_Success(t *testing.T) {
@@ -338,6 +341,9 @@ func TestApply_InvalidPassword(t *testing.T) {
 	if _, ok := result["error"]; !ok {
 		t.Fatalf("Expected error in response, got %v", result)
 	}
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
+	}
 }
 
 func TestChangePassword_WrongOldPassword(t *testing.T) {
@@ -363,6 +369,9 @@ func TestChangePassword_InvalidNewPassword(t *testing.T) {
 	DecodeJSON(t, resp, &result)
 	if _, ok := result["error"]; !ok {
 		t.Fatalf("Expected error in response, got %v", result)
+	}
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
 	}
 }
 

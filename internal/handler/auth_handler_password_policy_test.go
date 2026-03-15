@@ -154,6 +154,13 @@ func TestHandleRegister_InvalidPasswordRejected(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
+	var result map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["code"] != registrationPasswordValidationCode {
+		t.Fatalf("code = %v, want %s", result["code"], registrationPasswordValidationCode)
+	}
 	if userRepo.createCalls != 0 {
 		t.Fatalf("createCalls = %d, want 0", userRepo.createCalls)
 	}
@@ -198,6 +205,13 @@ func TestHandleChangePassword_InvalidNewPasswordRejected(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["code"] != registrationPasswordValidationCode {
+		t.Fatalf("code = %v, want %s", result["code"], registrationPasswordValidationCode)
 	}
 	if userRepo.updateCalls != 0 {
 		t.Fatalf("updateCalls = %d, want 0", userRepo.updateCalls)

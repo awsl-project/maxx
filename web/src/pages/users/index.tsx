@@ -28,21 +28,19 @@ import {
   useApproveUser,
 } from '@/hooks/queries';
 import { Plus, Loader2, Pencil, Trash2, UserCog, Check } from 'lucide-react';
+import { FieldError } from '@/components/field-error';
 import { PageHeader } from '@/components/layout';
+import { PasswordInput } from '@/components/password-input';
 import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
-import { getManagedPasswordError, getManagedPasswordRuleState } from '@/lib/managed-password';
+import {
+  getManagedPasswordError,
+  getManagedPasswordRuleState,
+  isPasswordPolicyViolationResponse,
+} from '@/lib/managed-password';
 import type { User, UserRole, UserStatus } from '@/lib/transport';
 import { useDialog } from '@/contexts/dialog-context';
 
 type CreateUserField = 'username' | 'password' | 'confirmPassword';
-
-function FieldError({ message }: { message?: string }) {
-  if (!message) {
-    return null;
-  }
-
-  return <p className="text-destructive text-xs">{message}</p>;
-}
 
 export function UsersPage() {
   const { t } = useTranslation();
@@ -67,6 +65,7 @@ export function UsersPage() {
   >({});
   const [createFormError, setCreateFormError] = useState('');
   const [showCreatePasswordRules, setShowCreatePasswordRules] = useState(false);
+  const [createPasswordsVisible, setCreatePasswordsVisible] = useState(false);
 
   const resetForm = () => {
     setFormData({
@@ -83,6 +82,7 @@ export function UsersPage() {
     setCreateFieldErrors({});
     setCreateFormError('');
     setShowCreatePasswordRules(false);
+    setCreatePasswordsVisible(false);
     createUser.reset();
   };
 
@@ -143,8 +143,9 @@ export function UsersPage() {
       setShowCreateDialog(false);
       resetCreateDialogState();
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string } } };
-      const errorMsg = axiosError?.response?.data?.error;
+      const axiosError = err as { response?: { data?: { error?: string; code?: string } } };
+      const errorData = axiosError?.response?.data;
+      const errorMsg = errorData?.error;
 
       if (errorMsg === 'username and password are required') {
         setCreateFormError(t('login.registerFailed'));
@@ -154,7 +155,7 @@ export function UsersPage() {
         setCreateFieldErrors({ username: t('login.usernameExists') });
         return;
       }
-      if (errorMsg?.startsWith('password must be at least 8 characters')) {
+      if (isPasswordPolicyViolationResponse(errorData)) {
         setShowCreatePasswordRules(true);
         setCreateFieldErrors({ password: createPasswordInvalidMessage });
         return;
@@ -393,9 +394,8 @@ export function UsersPage() {
                 {t('users.password')}
               </Label>
               <div className="relative">
-                <Input
+                <PasswordInput
                   id="create-user-password"
-                  type="password"
                   value={formData.password}
                   placeholder={t('users.password')}
                   autoComplete="new-password"
@@ -423,6 +423,8 @@ export function UsersPage() {
                     }));
                     setCreateFormError('');
                   }}
+                  visible={createPasswordsVisible}
+                  onVisibleChange={setCreatePasswordsVisible}
                 />
                 <PasswordRulesPopover
                   open={showCreatePasswordRules}
@@ -443,9 +445,8 @@ export function UsersPage() {
               <Label htmlFor="create-user-confirm-password">
                 {t('login.confirmPasswordLabel')}
               </Label>
-              <Input
+              <PasswordInput
                 id="create-user-confirm-password"
-                type="password"
                 value={formData.confirmPassword}
                 placeholder={t('login.confirmPasswordPlaceholder')}
                 autoComplete="new-password"
@@ -462,6 +463,8 @@ export function UsersPage() {
                   }));
                   setCreateFormError('');
                 }}
+                visible={createPasswordsVisible}
+                onVisibleChange={setCreatePasswordsVisible}
               />
               <FieldError message={createFieldErrors.confirmPassword} />
             </div>

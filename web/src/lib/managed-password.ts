@@ -1,4 +1,5 @@
 export const COMMON_PASSWORD_PUNCTUATION_PATTERN = /[!@#$%^&*?.,_\-+=/\\]/;
+export const PASSWORD_POLICY_VIOLATION_CODE = 'PASSWORD_POLICY_VIOLATION';
 
 export interface ManagedPasswordRuleState {
   minLength: boolean;
@@ -11,7 +12,7 @@ export interface ManagedPasswordRuleState {
 
 export function getManagedPasswordRuleState(password: string): ManagedPasswordRuleState {
   const checks = {
-    minLength: password.length >= 8,
+    minLength: Array.from(password).length >= 8,
     hasNumber: /\d/.test(password),
     hasLetter: /[A-Za-z]/.test(password),
     hasPunctuation: COMMON_PASSWORD_PUNCTUATION_PATTERN.test(password),
@@ -40,4 +41,8 @@ export function getManagedPasswordError(password: string, invalidMessage: string
   }
 
   return undefined;
+}
+
+export function isPasswordPolicyViolationResponse(data?: { code?: string }) {
+  return data?.code === PASSWORD_POLICY_VIOLATION_CODE;
 }

@@ -33,6 +33,7 @@ type inviteCodeUserCreator interface {
 }
 
 const registrationPasswordValidationError = "password must be at least 8 characters and include a number, a letter, and one of ! @ # $ % ^ & * ? . , _ - + = / \\"
+const registrationPasswordValidationCode = "PASSWORD_POLICY_VIOLATION"
 
 const supportedRegistrationPasswordPunctuation = "!@#$%^&*?.,_-+=/\\"
 
@@ -57,6 +58,13 @@ func isValidRegistrationPassword(password string) bool {
 	}
 
 	return hasNumber && hasLetter && hasPunctuation
+}
+
+func writeRegistrationPasswordValidationError(w http.ResponseWriter) {
+	writeJSON(w, http.StatusBadRequest, map[string]any{
+		"error": registrationPasswordValidationError,
+		"code":  registrationPasswordValidationCode,
+	})
 }
 
 // NewAuthHandler creates a new auth handler
@@ -232,7 +240,7 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isValidRegistrationPassword(body.Password) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": registrationPasswordValidationError})
+		writeRegistrationPasswordValidationError(w)
 		return
 	}
 
@@ -304,7 +312,7 @@ func (h *AuthHandler) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isValidRegistrationPassword(body.Password) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": registrationPasswordValidationError})
+		writeRegistrationPasswordValidationError(w)
 		return
 	}
 	if strings.TrimSpace(body.InviteCode) == "" {
@@ -597,7 +605,7 @@ func (h *AuthHandler) handleChangePassword(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !isValidRegistrationPassword(body.NewPassword) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": registrationPasswordValidationError})
+		writeRegistrationPasswordValidationError(w)
 		return
 	}
 
