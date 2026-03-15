@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
   BookOpen,
-  Code,
   Copy,
   Check,
   AlertTriangle,
@@ -22,10 +21,21 @@ import {
   Input,
   Badge,
   Button,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
-import { useProxyStatus, useProviders, useRoutes, useSettings } from '@/hooks/queries';
+import {
+  useProxyStatus,
+  useProviders,
+  useRoutes,
+  useSettings,
+  useAPITokens,
+} from '@/hooks/queries';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
 
 interface CodeBlockProps {
@@ -56,7 +66,7 @@ function CodeBlock({ code, id, copiedCode, onCopy }: CodeBlockProps) {
 }
 
 type QuickstartClient = 'claude' | 'openai' | 'codex' | 'gemini';
-type DocumentationPageTab = 'quickstart' | 'examples' | 'diagnostics';
+type DocumentationPageTab = 'quickstart' | 'diagnostics';
 
 interface QuickstartBundle {
   primaryLabel: string;
@@ -64,16 +74,16 @@ interface QuickstartBundle {
   secondaryLabel?: string;
   secondaryCode?: string;
   verifyCode: string;
+  oneliner: string;
 }
 
-const MAXX_TOKEN_PATTERN = /^maxx_[A-Za-z0-9_-]{8,}$/;
 
 function isQuickstartClient(value: string): value is QuickstartClient {
   return value === 'claude' || value === 'openai' || value === 'codex' || value === 'gemini';
 }
 
 function isDocumentationPageTab(value: string): value is DocumentationPageTab {
-  return value === 'quickstart' || value === 'examples' || value === 'diagnostics';
+  return value === 'quickstart' || value === 'diagnostics';
 }
 
 function buildQuickstartBundle(params: {
@@ -86,52 +96,60 @@ function buildQuickstartBundle(params: {
   const projectSlug = params.projectSlug.trim();
   const projectPrefix = projectSlug ? `/project/${projectSlug}` : '';
 
+  const baseUrl = params.baseUrl;
+
   switch (params.client) {
-    case 'claude':
+    case 'claude': {
+      const settingsJson = JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: token, ANTHROPIC_BASE_URL: baseUrl } });
       return {
         primaryLabel: 'settings.json',
         primaryCode: `{
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "${token}",
-    "ANTHROPIC_BASE_URL": "${params.baseUrl}"
+    "ANTHROPIC_BASE_URL": "${baseUrl}"
   }
 }`,
-        verifyCode: `ANTHROPIC_BASE_URL="${params.baseUrl}" ANTHROPIC_AUTH_TOKEN="${token}" claude`,
+        verifyCode: `ANTHROPIC_BASE_URL="${baseUrl}" ANTHROPIC_AUTH_TOKEN="${token}" claude`,
+        oneliner: `mkdir -p ~/.claude && printf '%s\\n' '${settingsJson}' > ~/.claude/settings.json`,
       };
+    }
     case 'openai':
       return {
         primaryLabel: '.env',
-        primaryCode: `OPENAI_BASE_URL=${params.baseUrl}${projectPrefix}/v1
+        primaryCode: `OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1
 OPENAI_API_KEY=${token}`,
-        verifyCode: `curl -X POST ${params.baseUrl}${projectPrefix}/v1/chat/completions \\
+        verifyCode: `curl -X POST ${baseUrl}${projectPrefix}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${token}" \\
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}'`,
+        oneliner: `printf 'OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1\\nOPENAI_API_KEY=${token}\\n' > .env`,
       };
     case 'codex': {
-      const bundle = buildCodexConfigBundle({
-        token,
-        baseUrl: `${params.baseUrl}${projectPrefix || ''}`,
-      });
+      const codexBaseUrl = `${baseUrl}${projectPrefix || ''}`;
+      const bundle = buildCodexConfigBundle({ token, baseUrl: codexBaseUrl });
+      const tomlEscaped = bundle.configToml.replace(/\n/g, '\\n');
+      const authJson = JSON.stringify({ OPENAI_API_KEY: token });
       return {
         primaryLabel: 'config.toml',
         primaryCode: bundle.configToml,
         secondaryLabel: 'auth.json',
         secondaryCode: bundle.authJson,
         verifyCode: 'codex',
+        oneliner: `mkdir -p ~/.codex && printf '${tomlEscaped}\\n' > ~/.codex/config.toml && printf '%s\\n' '${authJson}' > ~/.codex/auth.json`,
       };
     }
     case 'gemini':
       return {
         primaryLabel: 'curl',
-        primaryCode: `curl -X POST ${params.baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
+        primaryCode: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
   -H "Content-Type: application/json" \\
   -H "x-goog-api-key: ${token}" \\
   -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
-        verifyCode: `curl -X POST ${params.baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
+        verifyCode: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
   -H "Content-Type: application/json" \\
   -H "x-goog-api-key: ${token}" \\
   -d '{"contents":[{"parts":[{"text":"diagnose"}]}]}'`,
+        oneliner: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent -H "Content-Type: application/json" -H "x-goog-api-key: ${token}" -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
       };
   }
 }
@@ -162,30 +180,44 @@ function DocumentationSection() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DocumentationPageTab>('quickstart');
   const [quickstartClient, setQuickstartClient] = useState<QuickstartClient>('claude');
-  const [exampleClient, setExampleClient] = useState<QuickstartClient>('claude');
-  const [quickstartToken, setQuickstartToken] = useState('');
+  const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
   const [quickstartProjectSlug, setQuickstartProjectSlug] = useState('');
   const { data: proxyStatus } = useProxyStatus();
   const { data: settings } = useSettings();
   const { data: providers } = useProviders();
   const { data: routes } = useRoutes();
+  const { data: apiTokens = [] } = useAPITokens();
   const baseUrl = buildProxyBaseUrl(proxyStatus);
-  const codexTemplate = useMemo(
-    () => buildCodexConfigBundle({ token: 'maxx_your_token_here', baseUrl }),
-    [baseUrl],
-  );
+  const tokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
+  const enabledTokens = apiTokens.filter((t) => t.isEnabled);
+
+  const activeTokenId = useMemo(() => {
+    if (enabledTokens.length === 0) return null;
+    if (selectedTokenId !== null && enabledTokens.some((t) => String(t.id) === selectedTokenId)) {
+      return selectedTokenId;
+    }
+    return String(enabledTokens[0].id);
+  }, [selectedTokenId, enabledTokens]);
+
+  const effectiveToken = useMemo(() => {
+    if (activeTokenId === null) return '';
+    const found = enabledTokens.find((t) => String(t.id) === activeTokenId);
+    return found?.tokenPrefix || '';
+  }, [activeTokenId, enabledTokens]);
+
   const quickstartBundle = useMemo(
     () =>
       buildQuickstartBundle({
         client: quickstartClient,
-        token: quickstartToken,
+        token: effectiveToken,
         baseUrl,
         projectSlug: quickstartProjectSlug,
       }),
-    [quickstartClient, quickstartToken, baseUrl, quickstartProjectSlug],
+    [quickstartClient, effectiveToken, baseUrl, quickstartProjectSlug],
   );
-  const tokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
-  const tokenFormatOk = !tokenAuthEnabled || MAXX_TOKEN_PATTERN.test(quickstartToken.trim());
+
+  const tokenFormatOk = !tokenAuthEnabled || enabledTokens.length > 0;
+
   const diagnostics = useMemo(
     () => [
       {
@@ -231,9 +263,9 @@ function DocumentationSection() {
         ok: tokenFormatOk,
         hint: t('documentation.diagnosticTokenFormatHint'),
         detail: tokenAuthEnabled
-          ? quickstartToken.trim() === ''
-            ? t('documentation.diagnosticTokenRequired')
-            : t('documentation.diagnosticTokenProvided')
+          ? enabledTokens.length > 0
+            ? t('documentation.diagnosticTokenProvided')
+            : t('documentation.diagnosticTokenRequired')
           : t('documentation.diagnosticTokenOptional'),
       },
     ],
@@ -247,7 +279,7 @@ function DocumentationSection() {
       providers,
       routes,
       tokenFormatOk,
-      quickstartToken,
+      enabledTokens.length,
     ],
   );
 
@@ -269,12 +301,6 @@ function DocumentationSection() {
     }
   };
 
-  const handleExampleClientChange = (value: string) => {
-    if (isQuickstartClient(value)) {
-      setExampleClient(value);
-    }
-  };
-
   const documentationTabs = [
     {
       value: 'quickstart' as const,
@@ -282,13 +308,6 @@ function DocumentationSection() {
       iconClassName: 'text-emerald-500',
       label: t('documentation.pageTabQuickStart'),
       description: t('documentation.pageTabQuickStartDesc'),
-    },
-    {
-      value: 'examples' as const,
-      icon: Code,
-      iconClassName: 'text-blue-500',
-      label: t('documentation.pageTabClientExamples'),
-      description: t('documentation.pageTabClientExamplesDesc'),
     },
     {
       value: 'diagnostics' as const,
@@ -304,7 +323,7 @@ function DocumentationSection() {
       <TabsList
         variant="line"
         data-testid="documentation-page-tabs"
-        className="grid w-full grid-cols-3 gap-3 bg-transparent p-0 group-data-horizontal/tabs:!h-auto"
+        className="grid w-full grid-cols-2 gap-3 bg-transparent p-0 group-data-horizontal/tabs:!h-auto"
       >
         {documentationTabs.map((tab) => {
           const Icon = tab.icon;
@@ -363,11 +382,31 @@ function DocumentationSection() {
               data-testid="documentation-quickstart-client-tabs"
               className="w-full"
             >
-              <TabsList className="grid w-full grid-cols-4 h-10 p-1 bg-muted">
-                <TabsTrigger value="claude">Claude</TabsTrigger>
-                <TabsTrigger value="openai">OpenAI</TabsTrigger>
-                <TabsTrigger value="codex">Codex</TabsTrigger>
-                <TabsTrigger value="gemini">Gemini</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-4 h-12 p-1 bg-muted">
+                <TabsTrigger value="claude">
+                  <div className="flex items-center justify-center gap-2">
+                    <ClientIcon type="claude" size={16} className="shrink-0" />
+                    <span className="leading-none">Claude</span>
+                  </div>
+                </TabsTrigger>
+                <TabsTrigger value="openai">
+                  <div className="flex items-center justify-center gap-2">
+                    <ClientIcon type="openai" size={16} className="shrink-0" />
+                    <span className="leading-none">OpenAI</span>
+                  </div>
+                </TabsTrigger>
+                <TabsTrigger value="codex">
+                  <div className="flex items-center justify-center gap-2">
+                    <ClientIcon type="codex" size={16} className="shrink-0" />
+                    <span className="leading-none">Codex</span>
+                  </div>
+                </TabsTrigger>
+                <TabsTrigger value="gemini">
+                  <div className="flex items-center justify-center gap-2">
+                    <ClientIcon type="gemini" size={16} className="shrink-0" />
+                    <span className="leading-none">Gemini</span>
+                  </div>
+                </TabsTrigger>
               </TabsList>
             </Tabs>
 
@@ -376,12 +415,34 @@ function DocumentationSection() {
                 <label className="text-xs font-semibold">
                   {t('documentation.tokenInputLabel')}
                 </label>
-                <Input
-                  data-testid="documentation-quickstart-token-input"
-                  value={quickstartToken}
-                  onChange={(event) => setQuickstartToken(event.target.value)}
-                  placeholder={t('documentation.tokenInputPlaceholder')}
-                />
+                {enabledTokens.length > 0 && activeTokenId !== null ? (
+                  <Select
+                    value={activeTokenId}
+                    onValueChange={(value) => {
+                      if (value !== null) setSelectedTokenId(value);
+                    }}
+                  >
+                    <SelectTrigger data-testid="documentation-quickstart-token-select" className="w-full">
+                      <SelectValue>
+                        {(() => {
+                          const t = enabledTokens.find((tk) => String(tk.id) === activeTokenId);
+                          return t ? `${t.name} (${t.tokenPrefix})` : '';
+                        })()}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {enabledTokens.map((token) => (
+                        <SelectItem key={token.id} value={String(token.id)}>
+                          {token.name} ({token.tokenPrefix})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    {t('documentation.tokenNoneHint')}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-semibold">
@@ -403,10 +464,33 @@ function DocumentationSection() {
             )}
 
             <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-4 w-4 text-emerald-500" />
+                <h3 className="text-sm font-semibold">{t('documentation.onelinerTitle')}</h3>
+              </div>
+              <CodeBlock
+                code={quickstartBundle.oneliner}
+                id={`quickstart-${quickstartClient}-oneliner`}
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
+              />
+            </div>
+
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">{t('documentation.wizardGenerated')}</h3>
                 <Badge variant="outline">{quickstartBundle.primaryLabel}</Badge>
               </div>
+              {quickstartClient === 'claude' && (
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.settingsJsonDesc')}
+                </p>
+              )}
+              {quickstartClient === 'codex' && (
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.configTomlDesc')}
+                </p>
+              )}
               <CodeBlock
                 code={quickstartBundle.primaryCode}
                 id={`quickstart-${quickstartClient}-primary`}
@@ -421,9 +505,57 @@ function DocumentationSection() {
                   <h3 className="text-sm font-semibold">{t('documentation.wizardGenerated')}</h3>
                   <Badge variant="outline">{quickstartBundle.secondaryLabel}</Badge>
                 </div>
+                {quickstartClient === 'codex' && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.authJsonDesc')}
+                  </p>
+                )}
                 <CodeBlock
                   code={quickstartBundle.secondaryCode}
                   id={`quickstart-${quickstartClient}-secondary`}
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+            )}
+
+            {/* Claude: shell function alternative */}
+            {quickstartClient === 'claude' && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">{t('documentation.shellFunction')}</h3>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.shellFunctionDesc')}
+                </p>
+                <CodeBlock
+                  code={`claude_maxx() {
+    export ANTHROPIC_BASE_URL="${baseUrl}"
+    export ANTHROPIC_AUTH_TOKEN="${effectiveToken.trim() || 'maxx_your_token_here'}"
+    claude "$@"
+}`}
+                  id="quickstart-claude-shell"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+            )}
+
+            {/* OpenAI / Gemini: project proxy endpoint */}
+            {(quickstartClient === 'openai' || quickstartClient === 'gemini') && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.projectProxyDesc')}
+                </p>
+                <CodeBlock
+                  code={
+                    quickstartClient === 'openai'
+                      ? `POST ${baseUrl}/project/{project-slug}/v1/chat/completions`
+                      : `POST ${baseUrl}/{project-slug}/v1beta/models/{model}:generateContent`
+                  }
+                  id={`quickstart-${quickstartClient}-project-proxy`}
                   copiedCode={copiedCode}
                   onCopy={copyToClipboard}
                 />
@@ -440,6 +572,41 @@ function DocumentationSection() {
               />
             </div>
 
+            {/* Token Authentication (shared) */}
+            <div className="pt-4 border-t border-border space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                <h3 className="text-sm font-semibold">
+                  {t('documentation.tokenAuthentication')}
+                </h3>
+              </div>
+
+              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.tokenEnabledDesc')}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
+                <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.tokenDisabledDesc')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.tokenDisabledNote')}
+                </p>
+              </div>
+
+              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                  <p className="font-medium">{t('documentation.tokenManagement')}</p>
+                  <p>{t('documentation.tokenManagementDesc')}</p>
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-col gap-3 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-4 md:flex-row md:items-center md:justify-between">
               <p className="text-xs leading-5 text-cyan-700 dark:text-cyan-300">
                 {t('documentation.quickStartDiagnosticHint')}
@@ -452,411 +619,6 @@ function DocumentationSection() {
                 {t('documentation.quickStartDiagnosticAction')}
               </Button>
             </div>
-          </CardContent>
-        </Card>
-      </TabsContent>
-
-      <TabsContent value="examples" data-testid="documentation-examples-content" className="mt-6">
-        <Card className="border-border bg-card">
-          <CardContent className="space-y-6 pt-6">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Code className="h-4 w-4 text-blue-500" />
-                <h2 className="text-base font-semibold">
-                  {t('documentation.clientExamplesTitle')}
-                </h2>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t('documentation.clientExamplesDesc')}
-              </p>
-            </div>
-
-            <Tabs
-              value={exampleClient}
-              onValueChange={handleExampleClientChange}
-              data-testid="documentation-example-client-tabs"
-              className="w-full"
-            >
-              <TabsList className="grid w-full grid-cols-4 h-12 p-1 bg-muted">
-                <TabsTrigger value="claude">
-                  <div className="flex items-center justify-center gap-2">
-                    <ClientIcon type="claude" size={16} className="shrink-0" />
-                    <span className="leading-none">Claude Code</span>
-                  </div>
-                </TabsTrigger>
-                <TabsTrigger value="openai">
-                  <div className="flex items-center justify-center gap-2">
-                    <ClientIcon type="openai" size={16} className="shrink-0" />
-                    <span className="leading-none">OpenAI</span>
-                  </div>
-                </TabsTrigger>
-                <TabsTrigger value="codex">
-                  <div className="flex items-center justify-center gap-2">
-                    <ClientIcon type="codex" size={16} className="shrink-0" />
-                    <span className="leading-none">Codex CLI</span>
-                  </div>
-                </TabsTrigger>
-                <TabsTrigger value="gemini">
-                  <div className="flex items-center justify-center gap-2">
-                    <ClientIcon type="gemini" size={16} className="shrink-0" />
-                    <span className="leading-none">Gemini</span>
-                  </div>
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Claude Code CLI */}
-              <TabsContent value="claude" className="space-y-4 mt-6">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold">{t('documentation.claudeConfig')}</h3>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.claudeConfigDesc')}
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.settingsJson')}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.settingsJsonDesc')}
-                  </p>
-                  <CodeBlock
-                    code={`{
-  "env": {
-    "ANTHROPIC_AUTH_TOKEN": "your-api-key-here",
-    "ANTHROPIC_BASE_URL": "${baseUrl}"
-  }
-}`}
-                    id="claude-settings"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.shellFunction')}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.shellFunctionDesc')}
-                  </p>
-                  <CodeBlock
-                    code={`claude_maxx() {
-    export ANTHROPIC_BASE_URL="${baseUrl}"
-    export ANTHROPIC_AUTH_TOKEN="your-api-key-here"
-    claude "$@"
-}`}
-                    id="claude-shell"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                {/* Token Authentication for Claude Code */}
-                <div className="pt-4 border-t border-border space-y-3">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <h3 className="text-sm font-semibold">
-                      {t('documentation.tokenAuthentication')}
-                    </h3>
-                  </div>
-
-                  <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                    <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenEnabledDesc')}
-                    </p>
-                    <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                      <p>{t('documentation.claudeTokenEnabledNote')}</p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                    <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.claudeTokenDisabledNote')}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenDisabledNote')}
-                    </p>
-                  </div>
-
-                  <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                    <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                    <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                      <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                      <p>{t('documentation.tokenManagementDesc')}</p>
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
-
-              {/* OpenAI API */}
-              <TabsContent value="openai" className="space-y-4 mt-6">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Code className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold">{t('documentation.apiEndpoint')}</h3>
-                  </div>
-                  <CodeBlock
-                    code={`POST ${baseUrl}/v1/chat/completions`}
-                    id="openai-endpoint"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.requestExample')}</h3>
-                  <CodeBlock
-                    code={`curl -X POST ${baseUrl}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer maxx_your_token_here" \\
-  -d '{
-    "model": "gpt-4",
-    "messages": [
-      {"role": "user", "content": "Hello, GPT!"}
-    ]
-  }'`}
-                    id="openai-example"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.projectProxyDesc')}
-                  </p>
-                  <CodeBlock
-                    code={`POST ${baseUrl}/project/{project-slug}/v1/chat/completions`}
-                    id="openai-project"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                {/* Token Authentication */}
-                <div className="pt-4 border-t border-border space-y-3">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <h3 className="text-sm font-semibold">
-                      {t('documentation.tokenAuthentication')}
-                    </h3>
-                  </div>
-
-                  <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                    <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenEnabledDesc')}
-                    </p>
-                    <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                      <p>
-                        <strong>{t('documentation.requestHeader')}:</strong>{' '}
-                        <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                          Authorization: Bearer maxx_your_token_here
-                        </code>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                    <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenDisabledDesc')}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenDisabledNote')}
-                    </p>
-                  </div>
-
-                  <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                    <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                    <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                      <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                      <p>{t('documentation.tokenManagementDesc')}</p>
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
-
-              {/* Codex CLI */}
-              <TabsContent value="codex" className="space-y-4 mt-6">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold">{t('documentation.codexConfig')}</h3>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.codexConfigDesc')}
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.configToml')}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.configTomlDesc')}
-                  </p>
-                  <CodeBlock
-                    code={codexTemplate.configToml}
-                    id="codex-config"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.authJson')}</h3>
-                  <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
-                  <CodeBlock
-                    code={codexTemplate.authJson}
-                    id="codex-auth"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.usage')}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.codexUsageDesc')}
-                  </p>
-                  <CodeBlock
-                    code={`codex`}
-                    id="codex-usage"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                {/* Token Authentication for Codex CLI */}
-                <div className="pt-4 border-t border-border space-y-3">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <h3 className="text-sm font-semibold">
-                      {t('documentation.tokenAuthentication')}
-                    </h3>
-                  </div>
-
-                  <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                    <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenEnabledDesc')}
-                    </p>
-                    <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                      <p>{t('documentation.codexTokenEnabledNote')}</p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                    <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.codexTokenDisabledNote')}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenDisabledNote')}
-                    </p>
-                  </div>
-
-                  <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                    <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                    <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                      <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                      <p>{t('documentation.tokenManagementDesc')}</p>
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
-
-              {/* Gemini API */}
-              <TabsContent value="gemini" className="space-y-4 mt-6">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Code className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="text-sm font-semibold">{t('documentation.apiEndpoint')}</h3>
-                  </div>
-                  <CodeBlock
-                    code={`POST ${baseUrl}/v1beta/models/{model}:generateContent`}
-                    id="gemini-endpoint"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.requestExample')}</h3>
-                  <CodeBlock
-                    code={`curl -X POST ${baseUrl}/v1beta/models/gemini-pro:generateContent \\
-  -H "Content-Type: application/json" \\
-  -H "x-goog-api-key: maxx_your_token_here" \\
-  -d '{
-    "contents": [{
-      "parts": [{"text": "Hello, Gemini!"}]
-    }]
-  }'`}
-                    id="gemini-example"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.projectProxyDesc')}
-                  </p>
-                  <CodeBlock
-                    code={`POST ${baseUrl}/{project-slug}/v1beta/models/{model}:generateContent`}
-                    id="gemini-project"
-                    copiedCode={copiedCode}
-                    onCopy={copyToClipboard}
-                  />
-                </div>
-
-                {/* Token Authentication */}
-                <div className="pt-4 border-t border-border space-y-3">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <h3 className="text-sm font-semibold">
-                      {t('documentation.tokenAuthentication')}
-                    </h3>
-                  </div>
-
-                  <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                    <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenEnabledDesc')}
-                    </p>
-                    <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                      <p>
-                        <strong>{t('documentation.requestHeader')}:</strong>{' '}
-                        <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                          x-goog-api-key: maxx_your_token_here
-                        </code>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                    <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenDisabledDesc')}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('documentation.tokenDisabledNote')}
-                    </p>
-                  </div>
-
-                  <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                    <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                    <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                      <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                      <p>{t('documentation.tokenManagementDesc')}</p>
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
-            </Tabs>
           </CardContent>
         </Card>
       </TabsContent>

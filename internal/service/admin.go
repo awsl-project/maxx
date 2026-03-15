@@ -767,7 +767,7 @@ func (s *AdminService) ListInviteCodeUsages(tenantID uint64, codeID uint64) ([]*
 // Returns: plain token, prefix for display, error if generation fails
 func generateAPIToken() (plain string, prefix string, err error) {
 	const tokenPrefix = "maxx_"
-	const tokenPrefixDisplayLen = 12
+	const tokenPrefixDisplayLen = 24
 
 	// Generate 32 random bytes (64 hex chars)
 	bytes := make([]byte, 32)
