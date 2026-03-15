@@ -3,5 +3,9 @@ export function FieldError({ message }: { message?: string }) {
     return null;
   }
 
-  return <p className="text-destructive text-xs">{message}</p>;
+  return (
+    <p role="alert" aria-live="polite" className="text-destructive text-xs">
+      {message}
+    </p>
+  );
 }

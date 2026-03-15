@@ -225,6 +225,10 @@ func (h *AdminHandler) handleUpdateUserPassword(w http.ResponseWriter, r *http.R
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password is required"})
 		return
 	}
+	if !isValidRegistrationPassword(body.Password) {
+		writeRegistrationPasswordValidationError(w)
+		return
+	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {

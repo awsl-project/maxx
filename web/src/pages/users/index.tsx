@@ -93,9 +93,7 @@ export function UsersPage() {
     createPasswordInvalidMessage,
   );
   const createPasswordFieldError =
-    createFieldErrors.password === createPasswordFormatError
-      ? undefined
-      : createFieldErrors.password;
+    createFieldErrors.password === createPasswordFormatError ? undefined : createFieldErrors.password;
   const isCreateSubmitDisabled =
     createUser.isPending ||
     !formData.username.trim() ||
@@ -116,7 +114,7 @@ export function UsersPage() {
       nextErrors.password = t('login.passwordRequired');
     }
     if (createPasswordFormatError) {
-      nextErrors.password = createPasswordFormatError;
+      setShowCreatePasswordRules(true);
     }
     if (!formData.confirmPassword.trim()) {
       nextErrors.confirmPassword = t('login.confirmPasswordRequired');
@@ -157,7 +155,6 @@ export function UsersPage() {
       }
       if (isPasswordPolicyViolationResponse(errorData)) {
         setShowCreatePasswordRules(true);
-        setCreateFieldErrors({ password: createPasswordInvalidMessage });
         return;
       }
       if (errorMsg) {

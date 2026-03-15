@@ -107,7 +107,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       ? undefined
       : registerFieldErrors.password;
   const isRegisterSubmitDisabled =
-    isRegisterLoading ||
+    anyLoading ||
     !registerUsername.trim() ||
     !registerPassword.trim() ||
     !confirmPassword.trim() ||
@@ -133,6 +133,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
+    if (anyLoading) {
+      return;
+    }
     clearLoginMessages();
     clearPasskeyMessages();
 
@@ -183,6 +186,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
   const handleRegister = async (e: FormEvent) => {
     e.preventDefault();
+    if (anyLoading) {
+      return;
+    }
     clearRegisterMessages();
 
     const nextErrors: Partial<Record<RegisterField, string>> = {};
@@ -194,7 +200,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     }
     const passwordFormatError = getRegisterPasswordError(registerPassword, t);
     if (passwordFormatError) {
-      nextErrors.password = passwordFormatError;
+      setShowRegisterPasswordRules(true);
     }
     if (!confirmPassword.trim()) {
       nextErrors.confirmPassword = t('login.confirmPasswordRequired');
@@ -246,6 +252,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   };
 
   const handlePasskeyLogin = async () => {
+    if (anyLoading) {
+      return;
+    }
     clearPasskeyMessages();
     setLoginFormError('');
 
@@ -325,6 +334,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                 <Tabs
                   value={authTab}
                   onValueChange={(value) => {
+                    if (anyLoading) {
+                      return;
+                    }
                     setAuthTab(value as AuthTab);
                     if (value === 'register') {
                       setPasskeyExpanded(false);
@@ -338,10 +350,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                   className="w-full"
                 >
                   <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl p-1">
-                    <TabsTrigger value="login" className="rounded-lg text-sm">
+                    <TabsTrigger value="login" className="rounded-lg text-sm" disabled={anyLoading}>
                       {t('login.primaryTitle')}
                     </TabsTrigger>
-                    <TabsTrigger value="register" className="rounded-lg text-sm">
+                    <TabsTrigger value="register" className="rounded-lg text-sm" disabled={anyLoading}>
                       {t('login.registerSummaryTitle')}
                     </TabsTrigger>
                   </TabsList>
@@ -404,7 +416,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                         type="submit"
                         className="w-full"
                         size="lg"
-                        disabled={isLoginLoading || !loginUsername.trim() || !loginPassword.trim()}
+                        disabled={anyLoading || !loginUsername.trim() || !loginPassword.trim()}
                       >
                         {isLoginLoading ? t('login.verifying') : t('login.submit')}
                       </Button>
@@ -466,7 +478,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                             variant="secondary"
                             size="lg"
                             onClick={handlePasskeyLogin}
-                            disabled={isPasskeyLoading || isLoginLoading || isRegisterLoading}
+                            disabled={anyLoading}
                           >
                             {isPasskeyLoading ? t('login.verifying') : t('login.passkeyLogin')}
                           </Button>

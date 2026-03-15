@@ -96,6 +96,7 @@ export function NavUser() {
   const [showPasswordRules, setShowPasswordRules] = useState(false);
   const [newPasswordsVisible, setNewPasswordsVisible] = useState(false);
   const passwordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const passwordRequestIdRef = useRef(0);
   const [passkeySuccess, setPasskeySuccess] = useState('');
   const passkeyCredentials = usePasskeyCredentials(showPasskeyDialog && authEnabled);
   const deletePasskeyCredential = useDeletePasskeyCredential();
@@ -141,6 +142,7 @@ export function NavUser() {
     changePassword.isPending;
 
   const resetPasswordDialogState = () => {
+    passwordRequestIdRef.current += 1;
     setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
     setPasswordFieldErrors({});
     setPasswordError('');
@@ -201,12 +203,15 @@ export function NavUser() {
       nextErrors.newPassword = t('login.passwordRequired');
     }
     if (passwordFormatError) {
-      nextErrors.newPassword = passwordFormatError;
+      setShowPasswordRules(true);
     }
     if (!passwordForm.confirmPassword.trim()) {
       nextErrors.confirmPassword = t('login.confirmPasswordRequired');
     }
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    if (
+      passwordForm.confirmPassword.trim() &&
+      passwordForm.newPassword !== passwordForm.confirmPassword
+    ) {
       nextErrors.confirmPassword = t('users.passwordMismatch');
     }
 
@@ -218,11 +223,17 @@ export function NavUser() {
       return;
     }
 
+    const requestId = passwordRequestIdRef.current + 1;
+    passwordRequestIdRef.current = requestId;
+
     try {
       await changePassword.mutateAsync({
         oldPassword: passwordForm.oldPassword,
         newPassword: passwordForm.newPassword,
       });
+      if (requestId !== passwordRequestIdRef.current) {
+        return;
+      }
       setPasswordSuccess(t('users.changePasswordSuccess'));
       setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
       setPasswordFieldErrors({});
@@ -230,14 +241,22 @@ export function NavUser() {
       if (passwordTimeoutRef.current) {
         clearTimeout(passwordTimeoutRef.current);
       }
-      passwordTimeoutRef.current = setTimeout(() => setShowPasswordDialog(false), 1500);
+      passwordTimeoutRef.current = setTimeout(() => {
+        if (requestId !== passwordRequestIdRef.current) {
+          return;
+        }
+        setShowPasswordDialog(false);
+        resetPasswordDialogState();
+      }, 1500);
     } catch (err: unknown) {
+      if (requestId !== passwordRequestIdRef.current) {
+        return;
+      }
       const axiosError = err as { response?: { data?: { error?: string; code?: string } } };
       const errorData = axiosError?.response?.data;
       const errorMsg = errorData?.error;
       if (isPasswordPolicyViolationResponse(errorData)) {
         setShowPasswordRules(true);
-        setPasswordFieldErrors({ newPassword: passwordInvalidMessage });
         return;
       }
       setPasswordError(errorMsg || t('users.changePasswordFailed'));
@@ -633,14 +652,15 @@ export function NavUser() {
                 aria-invalid={passwordFieldErrors.confirmPassword ? 'true' : undefined}
                 onChange={(e) => {
                   const nextConfirmPassword = e.target.value;
-                  setPasswordForm({ ...passwordForm, confirmPassword: nextConfirmPassword });
-                  setPasswordFieldErrors((current) => ({
-                    ...current,
-                    confirmPassword:
-                      nextConfirmPassword && passwordForm.newPassword !== nextConfirmPassword
+                setPasswordForm({ ...passwordForm, confirmPassword: nextConfirmPassword });
+                setPasswordFieldErrors((current) => ({
+                  ...current,
+                  confirmPassword:
+                      nextConfirmPassword.trim() &&
+                      passwordForm.newPassword !== nextConfirmPassword
                         ? t('users.passwordMismatch')
                         : undefined,
-                  }));
+                }));
                   setPasswordError('');
                 }}
                 placeholder={t('users.confirmNewPassword')}

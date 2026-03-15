@@ -17,43 +17,33 @@ export function PasswordInput({
 }) {
   const { t } = useTranslation();
   const [internalVisible, setInternalVisible] = useState(false);
-  const [focused, setFocused] = useState(false);
   const resolvedVisible = visible ?? internalVisible;
 
   return (
-    <div className="relative">
+    <div className="group/password-input relative">
       <Input
         type={resolvedVisible ? 'text' : 'password'}
         className={cn('pr-10', className)}
-        onFocus={(event) => {
-          setFocused(true);
-          onFocus?.(event);
-        }}
-        onBlur={(event) => {
-          setFocused(false);
-          onBlur?.(event);
-        }}
+        onFocus={onFocus}
+        onBlur={onBlur}
         {...props}
       />
-      {focused && (
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label={resolvedVisible ? t('common.hide') : t('common.show')}
-          title={resolvedVisible ? t('common.hide') : t('common.show')}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            const nextVisible = !resolvedVisible;
-            if (visible === undefined) {
-              setInternalVisible(nextVisible);
-            }
-            onVisibleChange?.(nextVisible);
-          }}
-        >
-          {resolvedVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-        </button>
-      )}
+      <button
+        type="button"
+        aria-label={resolvedVisible ? t('common.hide') : t('common.show')}
+        title={resolvedVisible ? t('common.hide') : t('common.show')}
+        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/password-input:pointer-events-auto group-focus-within/password-input:opacity-100"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          const nextVisible = !resolvedVisible;
+          if (visible === undefined) {
+            setInternalVisible(nextVisible);
+          }
+          onVisibleChange?.(nextVisible);
+        }}
+      >
+        {resolvedVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
     </div>
   );
 }

@@ -52,8 +52,12 @@ func (r *registerTestUserRepo) Create(user *domain.User) error {
 
 func (r *registerTestUserRepo) Update(user *domain.User) error {
 	r.updateCalls++
-	if _, ok := r.usersByID[user.ID]; !ok {
+	existing, ok := r.usersByID[user.ID]
+	if !ok {
 		return domain.ErrNotFound
+	}
+	if existing.Username != user.Username {
+		delete(r.usersByUsername, existing.Username)
 	}
 	cloned := *user
 	r.usersByID[user.ID] = &cloned
