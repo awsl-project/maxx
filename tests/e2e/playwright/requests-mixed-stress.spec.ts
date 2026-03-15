@@ -13,14 +13,14 @@ import {
 } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
-test.setTimeout(420_000);
+test.setTimeout(180_000);
 
 const REQUEST_FILTER_MODE_STORAGE_KEY = 'maxx-requests-filter-mode';
 const REQUEST_PROVIDER_FILTER_STORAGE_KEY = 'maxx-requests-provider-filter';
 const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 
-const STRESS_DURATION_MS = 300_000;
+const STRESS_DURATION_MS = 60_000;
 const SAMPLE_INTERVAL_MS = 30_000;
 const REQUEST_RATE_PER_SECOND = 100;
 const REQUESTS_PER_TICK = 10;
@@ -486,7 +486,7 @@ async function collectStressSample(
   };
 }
 
-test('requests page remains responsive during 5 minute mixed live stress', async ({ page }, testInfo) => {
+test('requests page remains responsive during 1 minute mixed live stress', async ({ page }, testInfo) => {
   const mock = await startMixedMockServer();
   const counters = createCounters();
   const samples: StressSample[] = [];

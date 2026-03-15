@@ -176,7 +176,7 @@ func (r *ProxyRequestRepository) listCursorExcludingStatuses(
 	var models []ProxyRequest
 	err := baseQuery.
 		Session(&gorm.Session{}).
-		Where("status NOT IN ?", statuses).
+		Where("(status NOT IN ? OR status IS NULL)", statuses).
 		Order(orderBy).
 		Limit(limit).
 		Find(&models).Error
@@ -188,7 +188,7 @@ func (r *ProxyRequestRepository) ListActive(tenantID uint64) ([]*domain.ProxyReq
 	var models []ProxyRequest
 	if err := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
 		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id").
-		Where("status IN ?", []string{"PENDING", "IN_PROGRESS"}).
+		Where("status IN ?", activeProxyRequestStatuses).
 		Order("id DESC").
 		Find(&models).Error; err != nil {
 		return nil, err
