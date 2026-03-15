@@ -95,6 +95,7 @@ test('stats chart survives repeated zero-dimension resize cycles', async ({ page
   let jwt: string | null = null;
   let providerId: number | null = null;
   let routeId: number | null = null;
+  let previousApiTokenAuthEnabled: string | undefined;
   const projectIds: number[] = [];
   const tokenIds: number[] = [];
 
@@ -108,6 +109,8 @@ test('stats chart survives repeated zero-dimension resize cycles', async ({ page
     expect(jwt).toBeTruthy();
     console.log('✅ Admin login success');
 
+    const settings = await adminAPI('GET', '/settings', undefined, jwt);
+    previousApiTokenAuthEnabled = settings.api_token_auth_enabled;
     await adminAPI('PUT', '/settings/api_token_auth_enabled', { value: 'true' }, jwt);
     console.log('✅ API token auth enabled');
 
@@ -291,6 +294,16 @@ test('stats chart survives repeated zero-dimension resize cycles', async ({ page
     });
     console.log(`  Screenshot: ${screenshotPath}`);
   } finally {
+    if (previousApiTokenAuthEnabled !== undefined) {
+      try {
+        await adminAPI(
+          'PUT',
+          '/settings/api_token_auth_enabled',
+          { value: previousApiTokenAuthEnabled },
+          jwt ?? undefined,
+        );
+      } catch {}
+    }
     for (const id of tokenIds.reverse()) {
       try {
         await adminAPI('DELETE', `/api-tokens/${id}`, undefined, jwt ?? undefined);

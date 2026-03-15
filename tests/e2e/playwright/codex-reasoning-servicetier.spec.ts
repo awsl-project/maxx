@@ -96,6 +96,7 @@ test('codex provider overrides reasoning and service tier as configured', async 
   const mock = await startMockCodexServer();
   let jwt: string | null = null;
   let apiTokenId: number | null = null;
+  let previousApiTokenAuthEnabled: string | undefined;
   const routeIds: number[] = [];
   const providerIds: number[] = [];
 
@@ -110,6 +111,8 @@ test('codex provider overrides reasoning and service tier as configured', async 
     console.log('✅ Admin login success');
 
     console.log('\n--- Setup: Enable API Token Auth ---');
+    const settings = await adminAPI('GET', '/settings', undefined, jwt);
+    previousApiTokenAuthEnabled = settings.api_token_auth_enabled;
     await adminAPI('PUT', '/settings/api_token_auth_enabled', { value: 'true' }, jwt);
     console.log('✅ API token auth enabled');
 
@@ -343,6 +346,16 @@ test('codex provider overrides reasoning and service tier as configured', async 
 
     console.log('✅ Cleanup completed');
   } finally {
+    if (previousApiTokenAuthEnabled !== undefined) {
+      try {
+        await adminAPI(
+          'PUT',
+          '/settings/api_token_auth_enabled',
+          { value: previousApiTokenAuthEnabled },
+          jwt ?? undefined,
+        );
+      } catch {}
+    }
     if (apiTokenId) {
       try {
         await adminAPI('DELETE', `/api-tokens/${apiTokenId}`, undefined, jwt ?? undefined);

@@ -495,9 +495,16 @@ test('requests page remains responsive during 5 minute mixed live stress', async
   let providerId: number | null = null;
   let projectId: number | null = null;
   let routeId: number | null = null;
+  let previousApiTokenAuthEnabled: string | undefined;
 
   try {
     jwt = await resolveAdminToken();
+    if (jwt) {
+      const settings = await adminAPI('GET', '/settings', undefined, jwt);
+      previousApiTokenAuthEnabled = settings.api_token_auth_enabled;
+      // 该压测通过项目代理直接打流量，不依赖 API Token 鉴权。
+      await adminAPI('PUT', '/settings/api_token_auth_enabled', { value: 'false' }, jwt);
+    }
 
     const ts = Date.now();
     const retryConfig = await adminAPI(
@@ -633,6 +640,16 @@ test('requests page remains responsive during 5 minute mixed live stress', async
     expect(anyUIOrderingViolation).toBe(false);
     expect(maxRenderedRows).toBeLessThanOrEqual(MAX_RENDERED_ROWS);
   } finally {
+    if (previousApiTokenAuthEnabled !== undefined) {
+      try {
+        await adminAPI(
+          'PUT',
+          '/settings/api_token_auth_enabled',
+          { value: previousApiTokenAuthEnabled },
+          jwt,
+        );
+      } catch {}
+    }
     if (routeId) {
       try {
         await adminAPI('DELETE', `/routes/${routeId}`, undefined, jwt);

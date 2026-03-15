@@ -93,6 +93,7 @@ test('requests page can filter by project and persist selection', async ({ page 
   let jwt: string | null = null;
   let providerId: number | null = null;
   let routeId: number | null = null;
+  let previousApiTokenAuthEnabled: string | undefined;
   const projectIds: number[] = [];
   const tokenIds: number[] = [];
 
@@ -107,6 +108,8 @@ test('requests page can filter by project and persist selection', async ({ page 
     console.log('✅ Admin login success');
 
     console.log('\n--- Setup: Enable API Token Auth ---');
+    const settings = await adminAPI('GET', '/settings', undefined, jwt);
+    previousApiTokenAuthEnabled = settings.api_token_auth_enabled;
     await adminAPI('PUT', '/settings/api_token_auth_enabled', { value: 'true' }, jwt);
     console.log('✅ API token auth enabled');
 
@@ -295,6 +298,16 @@ test('requests page can filter by project and persist selection', async ({ page 
     });
     console.log('  Screenshot: /tmp/requests-project-filter-result.png');
   } finally {
+    if (previousApiTokenAuthEnabled !== undefined) {
+      try {
+        await adminAPI(
+          'PUT',
+          '/settings/api_token_auth_enabled',
+          { value: previousApiTokenAuthEnabled },
+          jwt ?? undefined,
+        );
+      } catch {}
+    }
     for (const id of tokenIds.reverse()) {
       try {
         await adminAPI('DELETE', `/api-tokens/${id}`, undefined, jwt ?? undefined);
