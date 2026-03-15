@@ -43,7 +43,7 @@ async function mockDocumentationApis(page: Page) {
         {
           id: 1,
           name: 'Dev Token',
-          tokenPrefix: 'maxx_dev12345...',
+          tokenPrefix: 'maxx_dev1234567890abcdef...',
           isEnabled: true,
           useCount: 10,
           createdAt: '2026-01-01T00:00:00Z',
@@ -52,7 +52,7 @@ async function mockDocumentationApis(page: Page) {
         {
           id: 2,
           name: 'Prod Token',
-          tokenPrefix: 'maxx_prod6789...',
+          tokenPrefix: 'maxx_prod678901234abcdef...',
           isEnabled: true,
           useCount: 100,
           createdAt: '2026-01-01T00:00:00Z',
@@ -87,14 +87,16 @@ test('documentation page keeps tab state and links quick start to diagnostics', 
   const quickstart = page.getByTestId('documentation-quickstart-content');
   const diagnostics = page.getByTestId('documentation-diagnostics-content');
 
-  // First token should be auto-selected and its prefix visible in config
-  await expect(quickstart).toContainText('maxx_dev12345');
-
   const quickstartCodexTab = quickstart.getByRole('tab', { name: 'Codex' });
   await quickstartCodexTab.click();
   await expect(quickstartCodexTab).toHaveAttribute('aria-selected', 'true');
 
+  // Fill token and project slug
+  await page.getByTestId('documentation-quickstart-token-input').fill('maxx_docsdemo1234567890abcdef');
   await page.getByTestId('documentation-quickstart-project-slug-input').fill('docs-demo');
+
+  // Generated config should contain the full token from input
+  await expect(quickstart).toContainText('maxx_docsdemo1234567890abcdef');
 
   await page.screenshot({ path: testInfo.outputPath('documentation-quickstart.png'), fullPage: true });
 
@@ -108,6 +110,9 @@ test('documentation page keeps tab state and links quick start to diagnostics', 
 
   // Switch back to Codex and verify state is preserved
   await quickstartCodexTab.click();
+  await expect(page.getByTestId('documentation-quickstart-token-input')).toHaveValue(
+    'maxx_docsdemo1234567890abcdef',
+  );
   await expect(page.getByTestId('documentation-quickstart-project-slug-input')).toHaveValue(
     'docs-demo',
   );
@@ -127,21 +132,16 @@ test('documentation page keeps tab state and links quick start to diagnostics', 
   await page.screenshot({ path: testInfo.outputPath('documentation-diagnostics.png'), fullPage: true });
 });
 
-test('token select shows available tokens and switches between them', async ({ page }) => {
+test('token select shows available tokens', async ({ page }) => {
   await page.goto('/documentation');
 
-  const quickstart = page.getByTestId('documentation-quickstart-content');
-
-  // First token auto-selected, config should contain its prefix
-  await expect(quickstart).toContainText('maxx_dev12345');
-
-  // Open the token select dropdown and pick the second token
+  // Open the token select dropdown
   await page.getByTestId('documentation-quickstart-token-select').click();
   await expect(page.getByRole('option', { name: /Dev Token/ })).toBeVisible();
   await expect(page.getByRole('option', { name: /Prod Token/ })).toBeVisible();
+  await page.keyboard.press('Escape');
 
-  await page.getByRole('option', { name: /Prod Token/ }).click();
-
-  // Config should now contain the second token's prefix
-  await expect(quickstart).toContainText('maxx_prod6789');
+  // Fill token input — config should use the full token from input
+  await page.getByTestId('documentation-quickstart-token-input').fill('maxx_real_full_token_here');
+  await expect(page.getByTestId('documentation-quickstart-content')).toContainText('maxx_real_full_token_here');
 });

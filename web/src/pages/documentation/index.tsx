@@ -181,6 +181,7 @@ function DocumentationSection() {
   const [activeTab, setActiveTab] = useState<DocumentationPageTab>('quickstart');
   const [quickstartClient, setQuickstartClient] = useState<QuickstartClient>('claude');
   const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
+  const [quickstartTokenInput, setQuickstartTokenInput] = useState('');
   const [quickstartProjectSlug, setQuickstartProjectSlug] = useState('');
   const { data: proxyStatus } = useProxyStatus();
   const { data: settings } = useSettings();
@@ -201,16 +202,9 @@ function DocumentationSection() {
     return String(enabledTokens[0].id);
   }, [selectedTokenId, enabledTokens]);
 
-  // tokenPrefix is a display-only truncated value (e.g. "maxx_abc123...").
-  // The full token is only shown at creation time and not stored in the API.
-  // We use the prefix in generated configs so users can identify which token
-  // to paste; buildQuickstartBundle treats any value ending with "..." as a
-  // placeholder hint rather than a real credential.
-  const effectiveToken = useMemo(() => {
-    if (activeTokenId === null) return '';
-    const found = enabledTokens.find((t) => String(t.id) === activeTokenId);
-    return found?.tokenPrefix || '';
-  }, [activeTokenId, enabledTokens]);
+  // Use manually pasted token if provided; otherwise fall back to empty
+  // (buildQuickstartBundle will use "maxx_your_token_here" placeholder).
+  const effectiveToken = quickstartTokenInput.trim();
 
   const quickstartBundle = useMemo(
     () =>
@@ -223,7 +217,9 @@ function DocumentationSection() {
     [quickstartClient, effectiveToken, baseUrl, quickstartProjectSlug],
   );
 
-  const tokenFormatOk = !tokenAuthEnabled || enabledTokens.length > 0;
+  const MAXX_TOKEN_PATTERN = /^maxx_[A-Za-z0-9_-]{8,}$/;
+  const tokenFormatOk =
+    !tokenAuthEnabled || MAXX_TOKEN_PATTERN.test(quickstartTokenInput.trim());
 
   const diagnostics = useMemo(
     () => [
@@ -270,7 +266,7 @@ function DocumentationSection() {
         ok: tokenFormatOk,
         hint: t('documentation.diagnosticTokenFormatHint'),
         detail: tokenAuthEnabled
-          ? enabledTokens.length > 0
+          ? quickstartTokenInput.trim()
             ? t('documentation.diagnosticTokenProvided')
             : t('documentation.diagnosticTokenRequired')
           : t('documentation.diagnosticTokenOptional'),
@@ -286,7 +282,7 @@ function DocumentationSection() {
       providers,
       routes,
       tokenFormatOk,
-      enabledTokens.length,
+      quickstartTokenInput,
     ],
   );
 
@@ -422,7 +418,7 @@ function DocumentationSection() {
                 <label className="text-xs font-semibold">
                   {t('documentation.tokenInputLabel')}
                 </label>
-                {enabledTokens.length > 0 && activeTokenId !== null ? (
+                {enabledTokens.length > 0 && activeTokenId !== null && (
                   <Select
                     value={activeTokenId}
                     onValueChange={(value) => {
@@ -432,8 +428,8 @@ function DocumentationSection() {
                     <SelectTrigger data-testid="documentation-quickstart-token-select" className="w-full">
                       <SelectValue>
                         {(() => {
-                          const t = enabledTokens.find((tk) => String(tk.id) === activeTokenId);
-                          return t ? `${t.name} (${t.tokenPrefix})` : '';
+                          const tk = enabledTokens.find((t) => String(t.id) === activeTokenId);
+                          return tk ? `${tk.name} (${tk.tokenPrefix})` : '';
                         })()}
                       </SelectValue>
                     </SelectTrigger>
@@ -445,16 +441,13 @@ function DocumentationSection() {
                       ))}
                     </SelectContent>
                   </Select>
-                ) : (
-                  <p className="text-xs text-muted-foreground pt-1">
-                    {t('documentation.tokenNoneHint')}
-                  </p>
                 )}
-                {activeTokenId !== null && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.tokenPrefixHint')}
-                  </p>
-                )}
+                <Input
+                  data-testid="documentation-quickstart-token-input"
+                  value={quickstartTokenInput}
+                  onChange={(event) => setQuickstartTokenInput(event.target.value)}
+                  placeholder={t('documentation.tokenInputPlaceholder')}
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-semibold">
