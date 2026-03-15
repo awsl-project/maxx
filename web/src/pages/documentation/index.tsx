@@ -189,7 +189,9 @@ function DocumentationSection() {
   const { data: apiTokens = [] } = useAPITokens();
   const baseUrl = buildProxyBaseUrl(proxyStatus);
   const tokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
-  const enabledTokens = apiTokens.filter((t) => t.isEnabled);
+  const enabledTokens = apiTokens.filter(
+    (t) => t.isEnabled && (!t.expiresAt || new Date(t.expiresAt) > new Date()),
+  );
 
   const activeTokenId = useMemo(() => {
     if (enabledTokens.length === 0) return null;
@@ -199,6 +201,11 @@ function DocumentationSection() {
     return String(enabledTokens[0].id);
   }, [selectedTokenId, enabledTokens]);
 
+  // tokenPrefix is a display-only truncated value (e.g. "maxx_abc123...").
+  // The full token is only shown at creation time and not stored in the API.
+  // We use the prefix in generated configs so users can identify which token
+  // to paste; buildQuickstartBundle treats any value ending with "..." as a
+  // placeholder hint rather than a real credential.
   const effectiveToken = useMemo(() => {
     if (activeTokenId === null) return '';
     const found = enabledTokens.find((t) => String(t.id) === activeTokenId);
@@ -443,6 +450,11 @@ function DocumentationSection() {
                     {t('documentation.tokenNoneHint')}
                   </p>
                 )}
+                {activeTokenId !== null && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('documentation.tokenPrefixHint')}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-semibold">
@@ -553,7 +565,7 @@ function DocumentationSection() {
                   code={
                     quickstartClient === 'openai'
                       ? `POST ${baseUrl}/project/{project-slug}/v1/chat/completions`
-                      : `POST ${baseUrl}/{project-slug}/v1beta/models/{model}:generateContent`
+                      : `POST ${baseUrl}/project/{project-slug}/v1beta/models/{model}:generateContent`
                   }
                   id={`quickstart-${quickstartClient}-project-proxy`}
                   copiedCode={copiedCode}
