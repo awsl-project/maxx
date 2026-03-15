@@ -31,7 +31,7 @@ func collectRequestIDs(items []*domain.ProxyRequest) []uint64 {
 	return ids
 }
 
-func TestProxyRequestListCursorPrioritizesActiveRequests(t *testing.T) {
+func TestProxyRequestListCursorReturnsNewestIDsFirst(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
@@ -61,18 +61,18 @@ func TestProxyRequestListCursorPrioritizesActiveRequests(t *testing.T) {
 
 	expected := []uint64{
 		requests[5].ID,
-		requests[3].ID,
-		requests[1].ID,
 		requests[4].ID,
+		requests[3].ID,
 		requests[2].ID,
+		requests[1].ID,
 		requests[0].ID,
 	}
 	if got := collectRequestIDs(items); fmt.Sprint(got) != fmt.Sprint(expected) {
-		t.Fatalf("expected active-first order %v, got %v", expected, got)
+		t.Fatalf("expected descending id order %v, got %v", expected, got)
 	}
 }
 
-func TestProxyRequestListCursorBeforeCursorKeepsActiveRequestsAheadOfTerminalOnes(t *testing.T) {
+func TestProxyRequestListCursorBeforeCursorDoesNotRepeatOrSkipRecords(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
@@ -95,58 +95,39 @@ func TestProxyRequestListCursorBeforeCursorKeepsActiveRequestsAheadOfTerminalOne
 		}
 	}
 
-	items, err := repo.ListCursor(1, 10, requests[4].ID, 0, nil)
+	firstPage, err := repo.ListCursor(1, 3, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	firstPageExpected := []uint64{requests[5].ID, requests[4].ID, requests[3].ID}
+	if got := collectRequestIDs(firstPage); fmt.Sprint(got) != fmt.Sprint(firstPageExpected) {
+		t.Fatalf("expected first page %v, got %v", firstPageExpected, got)
+	}
+
+	secondPage, err := repo.ListCursor(1, 3, firstPage[len(firstPage)-1].ID, 0, nil)
 	if err != nil {
 		t.Fatalf("ListCursor failed: %v", err)
 	}
 
-	expected := []uint64{
+	secondPageExpected := []uint64{
+		requests[2].ID,
+		requests[1].ID,
+		requests[0].ID,
+	}
+	if got := collectRequestIDs(secondPage); fmt.Sprint(got) != fmt.Sprint(secondPageExpected) {
+		t.Fatalf("expected second page %v, got %v", secondPageExpected, got)
+	}
+
+	combined := append(collectRequestIDs(firstPage), collectRequestIDs(secondPage)...)
+	expectedCombined := []uint64{
+		requests[5].ID,
+		requests[4].ID,
 		requests[3].ID,
-		requests[1].ID,
 		requests[2].ID,
+		requests[1].ID,
 		requests[0].ID,
 	}
-	if got := collectRequestIDs(items); fmt.Sprint(got) != fmt.Sprint(expected) {
-		t.Fatalf("expected active-first order before cursor %v, got %v", expected, got)
-	}
-}
-
-func TestProxyRequestListCursorIncludesNullStatusesInTerminalSegment(t *testing.T) {
-	db, err := NewDBWithDSN("sqlite://:memory:")
-	if err != nil {
-		t.Fatalf("Failed to create DB: %v", err)
-	}
-	defer db.Close()
-
-	repo := NewProxyRequestRepository(db)
-	requests := []*domain.ProxyRequest{
-		buildTestProxyRequest("COMPLETED", 1),
-		buildTestProxyRequest("PENDING", 2),
-		buildTestProxyRequest("FAILED", 3),
-	}
-
-	for _, request := range requests {
-		if err := repo.Create(request); err != nil {
-			t.Fatalf("Failed to create request: %v", err)
-		}
-	}
-
-	// 直接写入 NULL，覆盖 status NOT IN 的 SQL 三值逻辑边界。
-	if err := db.gorm.Exec("UPDATE proxy_requests SET status = NULL WHERE id = ?", requests[2].ID).Error; err != nil {
-		t.Fatalf("Failed to null out status: %v", err)
-	}
-
-	items, err := repo.ListCursor(1, 10, 0, 0, nil)
-	if err != nil {
-		t.Fatalf("ListCursor failed: %v", err)
-	}
-
-	expected := []uint64{
-		requests[1].ID,
-		requests[2].ID,
-		requests[0].ID,
-	}
-	if got := collectRequestIDs(items); fmt.Sprint(got) != fmt.Sprint(expected) {
-		t.Fatalf("expected NULL-status rows to remain in terminal segment %v, got %v", expected, got)
+	if fmt.Sprint(combined) != fmt.Sprint(expectedCombined) {
+		t.Fatalf("expected combined pages %v, got %v", expectedCombined, combined)
 	}
 }

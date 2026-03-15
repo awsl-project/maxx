@@ -113,74 +113,12 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 		orderBy = "id ASC"
 	}
 
-	// 有显式状态过滤时，直接按 id 排序即可；活跃优先只适用于混合状态列表。
-	if filter != nil && filter.Status != nil {
-		var models []ProxyRequest
-		if err := baseQuery.Order(orderBy).Limit(limit).Find(&models).Error; err != nil {
-			return nil, err
-		}
-		return r.toDomainList(models), nil
-	}
-
-	// 混合状态列表分两段查询：
-	// 1. 先取活跃请求（PENDING/IN_PROGRESS）
-	// 2. 再补终态请求
-	// 这样既保留“传输中始终在前”，又避免 CASE ORDER BY 导致的大范围排序回退。
-	activeModels, err := r.listCursorByStatuses(baseQuery, activeProxyRequestStatuses, orderBy, limit)
-	if err != nil {
+	// 游标分页必须保持全局单调 ID 顺序，活跃优先排序交给前端展示层处理。
+	var models []ProxyRequest
+	if err := baseQuery.Order(orderBy).Limit(limit).Find(&models).Error; err != nil {
 		return nil, err
 	}
-	if len(activeModels) >= limit {
-		return r.toDomainList(activeModels), nil
-	}
-
-	remaining := limit - len(activeModels)
-	terminalModels, err := r.listCursorExcludingStatuses(baseQuery, activeProxyRequestStatuses, orderBy, remaining)
-	if err != nil {
-		return nil, err
-	}
-
-	return r.toDomainList(append(activeModels, terminalModels...)), nil
-}
-
-func (r *ProxyRequestRepository) listCursorByStatuses(
-	baseQuery *gorm.DB,
-	statuses []string,
-	orderBy string,
-	limit int,
-) ([]ProxyRequest, error) {
-	if limit <= 0 {
-		return nil, nil
-	}
-
-	var models []ProxyRequest
-	err := baseQuery.
-		Session(&gorm.Session{}).
-		Where("status IN ?", statuses).
-		Order(orderBy).
-		Limit(limit).
-		Find(&models).Error
-	return models, err
-}
-
-func (r *ProxyRequestRepository) listCursorExcludingStatuses(
-	baseQuery *gorm.DB,
-	statuses []string,
-	orderBy string,
-	limit int,
-) ([]ProxyRequest, error) {
-	if limit <= 0 {
-		return nil, nil
-	}
-
-	var models []ProxyRequest
-	err := baseQuery.
-		Session(&gorm.Session{}).
-		Where("(status NOT IN ? OR status IS NULL)", statuses).
-		Order(orderBy).
-		Limit(limit).
-		Find(&models).Error
-	return models, err
+	return r.toDomainList(models), nil
 }
 
 // ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
