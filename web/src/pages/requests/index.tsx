@@ -188,7 +188,6 @@ export function RequestsPage() {
     }, 0);
   }, [allRequests]);
   const hasActiveRequests = activeCount > 0;
-  const enableMarquee = activeCount <= 10;
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   // 高频实时更新时，仅保留可视区域附近的桌面行，减少表格重排和重绘成本。
@@ -619,7 +618,6 @@ export function RequestsPage() {
                         showTokenColumn={apiTokenAuthEnabled}
                         forceProjectBinding={forceProjectBinding}
                         nowMs={nowMs}
-                        enableMarquee={enableMarquee}
                         onOpenRequest={handleOpenRequest}
                       />
                     ))}
@@ -794,7 +792,6 @@ type LogRowProps = {
   showTokenColumn?: boolean;
   forceProjectBinding?: boolean;
   nowMs: number;
-  enableMarquee: boolean;
   onOpenRequest: (id: number) => void;
 };
 
@@ -807,7 +804,6 @@ function LogRow({
   showTokenColumn,
   forceProjectBinding,
   nowMs,
-  enableMarquee,
   onOpenRequest,
 }: LogRowProps) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
@@ -888,12 +884,8 @@ function LogRow({
         isPendingBinding &&
           cn('bg-amber-500/10 even:bg-amber-500/15', 'hover:bg-amber-500/25', 'border-l-2 border-l-amber-500'),
 
-        // Active/Pending state - Blue left border + (optional) Marquee animation
-        isPending &&
-          !isPendingBinding &&
-          (enableMarquee
-            ? 'animate-marquee-row'
-            : cn('bg-blue-500/5 even:bg-blue-500/10', 'border-l-2 border-l-blue-500/50')),
+        // 桌面端虚拟列表已经限制了 DOM 行数，这里恢复原始跑马灯样式。
+        isPending && !isPendingBinding && 'animate-marquee-row',
 
         // New Item Flash Animation
         isRecent && !isPending && !isPendingBinding && 'bg-accent/20',
@@ -1058,7 +1050,6 @@ const MemoLogRow = memo(
     if (prev.showProjectColumn !== next.showProjectColumn) return false;
     if (prev.showTokenColumn !== next.showTokenColumn) return false;
     if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
-    if (prev.enableMarquee !== next.enableMarquee) return false;
     if (prev.onOpenRequest !== next.onOpenRequest) return false;
 
     const prevPending = prev.request.status === 'PENDING' || prev.request.status === 'IN_PROGRESS';
