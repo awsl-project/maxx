@@ -11,6 +11,7 @@ import {
   type CursorPaginationParams,
   type CursorPaginationResult,
 } from '@/lib/transport';
+import { prioritizeActiveRequests } from '@/lib/request-order';
 
 // Query Keys
 export const requestKeys = {
@@ -221,7 +222,9 @@ export function useProxyRequestUpdates() {
             const limit = typeof params?.limit === 'number' ? params.limit : undefined;
 
             const normalizePage = (items: ProxyRequest[]) => {
-              let nextItems = items;
+              // 首屏列表和 WS 增量更新都统一走这里，避免同一页里出现
+              // “已完成/失败”仍停留在活跃请求前面的短暂错序。
+              let nextItems = prioritizeActiveRequests(items);
               let hasMore = old.hasMore;
 
               if (typeof limit === 'number' && limit > 0 && nextItems.length > limit) {
@@ -307,12 +310,12 @@ export function useProxyRequestUpdates() {
 
               if (!matchesFilter(updatedRequest)) {
                 const newItems = page.items.filter((r) => r.id !== requestId);
-                return { ...page, items: newItems };
+                return { ...page, items: prioritizeActiveRequests(newItems) };
               }
 
               const newItems = [...page.items];
               newItems[index] = updatedRequest;
-              return { ...page, items: newItems };
+              return { ...page, items: prioritizeActiveRequests(newItems) };
             });
 
             if (hasExisting) {
@@ -332,7 +335,13 @@ export function useProxyRequestUpdates() {
 
             return {
               ...old,
-              pages: [{ ...firstPage, items: [updatedRequest, ...firstPage.items] }, ...updatedPages.slice(1)],
+              pages: [
+                {
+                  ...firstPage,
+                  items: prioritizeActiveRequests([updatedRequest, ...firstPage.items]),
+                },
+                ...updatedPages.slice(1),
+              ],
             };
           });
         }
