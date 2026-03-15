@@ -78,6 +78,10 @@ interface QuickstartBundle {
 }
 
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 function isQuickstartClient(value: string): value is QuickstartClient {
   return value === 'claude' || value === 'openai' || value === 'codex' || value === 'gemini';
 }
@@ -110,7 +114,7 @@ function buildQuickstartBundle(params: {
   }
 }`,
         verifyCode: `ANTHROPIC_BASE_URL="${baseUrl}" ANTHROPIC_AUTH_TOKEN="${token}" claude`,
-        oneliner: `mkdir -p ~/.claude && printf '%s\\n' '${settingsJson}' > ~/.claude/settings.json`,
+        oneliner: `mkdir -p ~/.claude && printf '%s\\n' ${shellQuote(settingsJson)} > ~/.claude/settings.json`,
       };
     }
     case 'openai':
@@ -122,12 +126,11 @@ OPENAI_API_KEY=${token}`,
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${token}" \\
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}'`,
-        oneliner: `printf 'OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1\\nOPENAI_API_KEY=${token}\\n' > .env`,
+        oneliner: `printf '%s\\n' ${shellQuote(`OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1\nOPENAI_API_KEY=${token}`)} > .env`,
       };
     case 'codex': {
       const codexBaseUrl = `${baseUrl}${projectPrefix || ''}`;
       const bundle = buildCodexConfigBundle({ token, baseUrl: codexBaseUrl });
-      const tomlEscaped = bundle.configToml.replace(/\n/g, '\\n');
       const authJson = JSON.stringify({ OPENAI_API_KEY: token });
       return {
         primaryLabel: 'config.toml',
@@ -135,7 +138,7 @@ OPENAI_API_KEY=${token}`,
         secondaryLabel: 'auth.json',
         secondaryCode: bundle.authJson,
         verifyCode: 'codex',
-        oneliner: `mkdir -p ~/.codex && printf '${tomlEscaped}\\n' > ~/.codex/config.toml && printf '%s\\n' '${authJson}' > ~/.codex/auth.json`,
+        oneliner: `mkdir -p ~/.codex && printf '%s\\n' ${shellQuote(bundle.configToml)} > ~/.codex/config.toml && printf '%s\\n' ${shellQuote(authJson)} > ~/.codex/auth.json`,
       };
     }
     case 'gemini':
