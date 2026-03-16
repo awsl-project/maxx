@@ -850,8 +850,6 @@
     "quickStartStepToken": "2. Fill token and project (optional)",
     "quickStartStepCopy": "3. Copy config and verify",
     "tokenInputLabel": "API Token",
-    "tokenNoneHint": "No API tokens yet — a sample value will be used. Create one in 'API Tokens' page.",
-    "tokenPrefixHint": "The config below shows the token prefix for reference. Replace it with the full token you saved when creating it.",
     "tokenInputPlaceholder": "maxx_xxx (sample token is used if empty)",
     "projectSlugLabel": "Project Slug (Optional)",
     "projectSlugPlaceholder": "my-project",

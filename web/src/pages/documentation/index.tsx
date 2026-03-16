@@ -21,21 +21,10 @@ import {
   Input,
   Badge,
   Button,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from '@/components/ui';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
-import {
-  useProxyStatus,
-  useProviders,
-  useRoutes,
-  useSettings,
-  useAPITokens,
-} from '@/hooks/queries';
+import { useProxyStatus, useProviders, useRoutes, useSettings } from '@/hooks/queries';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
 
 interface CodeBlockProps {
@@ -183,46 +172,28 @@ function DocumentationSection() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DocumentationPageTab>('quickstart');
   const [quickstartClient, setQuickstartClient] = useState<QuickstartClient>('claude');
-  const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
-  const [quickstartTokenInput, setQuickstartTokenInput] = useState('');
+  const [quickstartToken, setQuickstartToken] = useState('');
   const [quickstartProjectSlug, setQuickstartProjectSlug] = useState('');
   const { data: proxyStatus } = useProxyStatus();
   const { data: settings } = useSettings();
   const { data: providers } = useProviders();
   const { data: routes } = useRoutes();
-  const { data: apiTokens = [] } = useAPITokens();
   const baseUrl = buildProxyBaseUrl(proxyStatus);
   const tokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
-  const enabledTokens = apiTokens.filter(
-    (t) => t.isEnabled && (!t.expiresAt || new Date(t.expiresAt) > new Date()),
-  );
-
-  const activeTokenId = useMemo(() => {
-    if (enabledTokens.length === 0) return null;
-    if (selectedTokenId !== null && enabledTokens.some((t) => String(t.id) === selectedTokenId)) {
-      return selectedTokenId;
-    }
-    return String(enabledTokens[0].id);
-  }, [selectedTokenId, enabledTokens]);
-
-  // Use manually pasted token if provided; otherwise fall back to empty
-  // (buildQuickstartBundle will use "maxx_your_token_here" placeholder).
-  const effectiveToken = quickstartTokenInput.trim();
 
   const quickstartBundle = useMemo(
     () =>
       buildQuickstartBundle({
         client: quickstartClient,
-        token: effectiveToken,
+        token: quickstartToken.trim(),
         baseUrl,
         projectSlug: quickstartProjectSlug,
       }),
-    [quickstartClient, effectiveToken, baseUrl, quickstartProjectSlug],
+    [quickstartClient, quickstartToken, baseUrl, quickstartProjectSlug],
   );
 
-  const MAXX_TOKEN_PATTERN = /^maxx_[A-Za-z0-9_-]{8,}$/;
   const tokenFormatOk =
-    !tokenAuthEnabled || MAXX_TOKEN_PATTERN.test(quickstartTokenInput.trim());
+    !tokenAuthEnabled || /^maxx_[A-Za-z0-9_-]{8,}$/.test(quickstartToken.trim());
 
   const diagnostics = useMemo(
     () => [
@@ -269,7 +240,7 @@ function DocumentationSection() {
         ok: tokenFormatOk,
         hint: t('documentation.diagnosticTokenFormatHint'),
         detail: tokenAuthEnabled
-          ? quickstartTokenInput.trim()
+          ? quickstartToken.trim()
             ? t('documentation.diagnosticTokenProvided')
             : t('documentation.diagnosticTokenRequired')
           : t('documentation.diagnosticTokenOptional'),
@@ -285,7 +256,7 @@ function DocumentationSection() {
       providers,
       routes,
       tokenFormatOk,
-      quickstartTokenInput,
+      quickstartToken,
     ],
   );
 
@@ -421,34 +392,10 @@ function DocumentationSection() {
                 <label className="text-xs font-semibold">
                   {t('documentation.tokenInputLabel')}
                 </label>
-                {enabledTokens.length > 0 && activeTokenId !== null && (
-                  <Select
-                    value={activeTokenId}
-                    onValueChange={(value) => {
-                      if (value !== null) setSelectedTokenId(value);
-                    }}
-                  >
-                    <SelectTrigger data-testid="documentation-quickstart-token-select" className="w-full">
-                      <SelectValue>
-                        {(() => {
-                          const tk = enabledTokens.find((t) => String(t.id) === activeTokenId);
-                          return tk ? `${tk.name} (${tk.tokenPrefix})` : '';
-                        })()}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {enabledTokens.map((token) => (
-                        <SelectItem key={token.id} value={String(token.id)}>
-                          {token.name} ({token.tokenPrefix})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
                 <Input
                   data-testid="documentation-quickstart-token-input"
-                  value={quickstartTokenInput}
-                  onChange={(event) => setQuickstartTokenInput(event.target.value)}
+                  value={quickstartToken}
+                  onChange={(event) => setQuickstartToken(event.target.value)}
                   placeholder={t('documentation.tokenInputPlaceholder')}
                 />
               </div>
@@ -540,7 +487,7 @@ function DocumentationSection() {
                 <CodeBlock
                   code={`claude_maxx() {
     export ANTHROPIC_BASE_URL="${baseUrl}"
-    export ANTHROPIC_AUTH_TOKEN="${effectiveToken.trim() || 'maxx_your_token_here'}"
+    export ANTHROPIC_AUTH_TOKEN="${quickstartToken.trim() || 'maxx_your_token_here'}"
     claude "$@"
 }`}
                   id="quickstart-claude-shell"

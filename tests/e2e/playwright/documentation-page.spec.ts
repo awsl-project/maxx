@@ -39,26 +39,7 @@ async function mockDocumentationApis(page: Page) {
     }
 
     if (pathname === '/api/admin/api-tokens') {
-      return json([
-        {
-          id: 1,
-          name: 'Dev Token',
-          tokenPrefix: 'maxx_dev1234567890abcdef...',
-          isEnabled: true,
-          useCount: 10,
-          createdAt: '2026-01-01T00:00:00Z',
-          updatedAt: '2026-01-01T00:00:00Z',
-        },
-        {
-          id: 2,
-          name: 'Prod Token',
-          tokenPrefix: 'maxx_prod678901234abcdef...',
-          isEnabled: true,
-          useCount: 100,
-          createdAt: '2026-01-01T00:00:00Z',
-          updatedAt: '2026-01-01T00:00:00Z',
-        },
-      ]);
+      return json([]);
     }
 
     return route.fulfill({
@@ -91,7 +72,6 @@ test('documentation page keeps tab state and links quick start to diagnostics', 
   await quickstartCodexTab.click();
   await expect(quickstartCodexTab).toHaveAttribute('aria-selected', 'true');
 
-  // Fill token and project slug
   await page.getByTestId('documentation-quickstart-token-input').fill('maxx_docsdemo1234567890abcdef');
   await page.getByTestId('documentation-quickstart-project-slug-input').fill('docs-demo');
 
@@ -130,18 +110,4 @@ test('documentation page keeps tab state and links quick start to diagnostics', 
   await expect(diagnostics.getByText(/^(Action Needed|待处理)$/)).toHaveCount(0);
 
   await page.screenshot({ path: testInfo.outputPath('documentation-diagnostics.png'), fullPage: true });
-});
-
-test('token select shows available tokens', async ({ page }) => {
-  await page.goto('/documentation');
-
-  // Open the token select dropdown
-  await page.getByTestId('documentation-quickstart-token-select').click();
-  await expect(page.getByRole('option', { name: /Dev Token/ })).toBeVisible();
-  await expect(page.getByRole('option', { name: /Prod Token/ })).toBeVisible();
-  await page.keyboard.press('Escape');
-
-  // Fill token input — config should use the full token from input
-  await page.getByTestId('documentation-quickstart-token-input').fill('maxx_real_full_token_here');
-  await expect(page.getByTestId('documentation-quickstart-content')).toContainText('maxx_real_full_token_here');
 });

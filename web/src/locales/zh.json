@@ -850,8 +850,6 @@
     "quickStartStepToken": "2. 填写 Token 与项目（可选）",
     "quickStartStepCopy": "3. 复制配置并验证",
     "tokenInputLabel": "API Token",
-    "tokenNoneHint": "暂无 API Token，将使用示例值。可前往「API 令牌」页面创建。",
-    "tokenPrefixHint": "下方配置中显示的是 Token 前缀，仅供识别。请替换为创建时保存的完整 Token。",
     "tokenInputPlaceholder": "maxx_xxx（为空时使用示例值）",
     "projectSlugLabel": "项目 Slug（可选）",
     "projectSlugPlaceholder": "my-project",
