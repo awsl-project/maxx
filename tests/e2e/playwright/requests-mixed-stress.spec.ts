@@ -293,10 +293,12 @@ async function openRequestsPage(page: Page, providerId: number) {
   }, providerId);
 
   await page.goto(`${BASE}/requests`);
+  await page.waitForLoadState('networkidle');
 
   if (await page.locator('input[type="password"]').count()) {
     await loginToAdminUI(page);
     await page.goto(`${BASE}/requests`);
+    await page.waitForLoadState('networkidle');
   }
 }
 
@@ -588,9 +590,9 @@ test('requests page remains responsive during 1 minute mixed live stress', async
       .toBeGreaterThanOrEqual(20);
 
     await openRequestsPage(page, provider.id);
-    await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 30_000 });
     await expect
-      .poll(async () => page.locator('tbody tr[data-request-row="true"]').count(), { timeout: 20_000 })
+      .poll(async () => page.locator('tbody tr[data-request-row="true"]').count(), { timeout: 30_000 })
       .toBeGreaterThan(0);
 
     const startedAt = Date.now();

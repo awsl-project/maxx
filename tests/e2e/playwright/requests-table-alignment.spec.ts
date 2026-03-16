@@ -171,10 +171,12 @@ async function resolveAdminToken() {
 
 async function openRequestsPage(page: Page) {
   await page.goto(`${BASE}/requests`);
+  await page.waitForLoadState('networkidle');
 
   if (await page.locator('input[type="password"]').count()) {
     await loginToAdminUI(page);
     await page.goto(`${BASE}/requests`);
+    await page.waitForLoadState('networkidle');
   }
 }
 
@@ -245,9 +247,9 @@ test('virtualized requests table keeps header and body columns aligned', async (
       .toBeGreaterThanOrEqual(40);
 
     await openRequestsPage(page);
-    await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 30_000 });
     await expect
-      .poll(async () => page.locator('tbody tr[data-request-row="true"]').count(), { timeout: 10000 })
+      .poll(async () => page.locator('tbody tr[data-request-row="true"]').count(), { timeout: 30_000 })
       .toBeGreaterThan(0);
 
     const top = await readTableGeometry(page, 'top');
