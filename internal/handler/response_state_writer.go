@@ -1,6 +1,10 @@
 package handler
 
-import "net/http"
+import (
+	"bufio"
+	"net"
+	"net/http"
+)
 
 type responseStateWriter struct {
 	http.ResponseWriter
@@ -29,6 +33,27 @@ func (w *responseStateWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+func (w *responseStateWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	w.started = true
+	return hijacker.Hijack()
+}
+
+func (w *responseStateWriter) Push(target string, opts *http.PushOptions) error {
+	pusher, ok := w.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return pusher.Push(target, opts)
+}
+
+func (w *responseStateWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func responseHasStarted(w http.ResponseWriter) bool {
