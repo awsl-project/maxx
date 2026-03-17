@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -305,29 +306,7 @@ func revertCodexQuotaIdentityMigration(db *gorm.DB) error {
 	if !db.Migrator().HasColumn(&CodexQuota{}, "identity_key") {
 		return nil
 	}
-	switch db.Dialector.Name() {
-	case "mysql":
-		if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_identity ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
-			return err
-		}
-		if err := db.Exec("DROP INDEX idx_codex_quotas_email ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
-			return err
-		}
-		if err := db.Exec("CREATE UNIQUE INDEX idx_codex_quotas_tenant_email ON codex_quotas(tenant_id, email)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
-			return err
-		}
-	default:
-		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_identity").Error; err != nil {
-			return err
-		}
-		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_email").Error; err != nil {
-			return err
-		}
-		if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_quotas_tenant_email ON codex_quotas(tenant_id, email)").Error; err != nil {
-			return err
-		}
-	}
-	return nil
+	return fmt.Errorf("reverting codex quota identity migration is irreversible: cannot safely recreate idx_codex_quotas_tenant_email because CodexQuota rows may now contain duplicate (tenant_id, email) values after identity/email migration")
 }
 
 func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
@@ -74,6 +75,29 @@ func TestCodexQuotaIdentityMigrationV9Up(t *testing.T) {
 	assertIndexMissing(t, gormDB, "idx_codex_quotas_tenant_email")
 }
 
+func TestCodexQuotaIdentityMigrationV9DownReturnsIrreversibleError(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open sqlite db: %v", err)
+	}
+	defer db.Close()
+
+	gormDB := db.GormDB()
+	prepareCodexQuotaMigrationFixture(t, gormDB)
+
+	migration := findMigrationByVersion(t, 9)
+	err = migration.Down(gormDB)
+	if err == nil {
+		t.Fatal("expected irreversible down migration error")
+	}
+	if !strings.Contains(err.Error(), "idx_codex_quotas_tenant_email") {
+		t.Fatalf("expected error to mention idx_codex_quotas_tenant_email, got %q", err)
+	}
+	if !strings.Contains(err.Error(), "identity/email") {
+		t.Fatalf("expected error to mention CodexQuota identity/email situation, got %q", err)
+	}
+}
+
 func prepareCodexQuotaDedupeFixture(t *testing.T, gormDB *gorm.DB) {
 	t.Helper()
 	if err := gormDB.Exec(`DROP TABLE IF EXISTS codex_quotas`).Error; err != nil {
@@ -128,11 +152,11 @@ func prepareCodexQuotaMigrationFixture(t *testing.T, gormDB *gorm.DB) {
 		t.Fatalf("create old unique index: %v", err)
 	}
 	inserts := []string{
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'first@example.com', 'acct-1')`,
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'second@example.com', 'acct-1')`,
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'third@example.com', 'acct-2')`,
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (2, NULL, 'other-tenant@example.com', 'acct-1')`,
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'legacy@example.com', '')`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (1, NULL, 'first@example.com', 'acct-1', 100)`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (1, NULL, 'second@example.com', 'acct-1', 200)`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (1, NULL, 'third@example.com', 'acct-2', 150)`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (2, NULL, 'other-tenant@example.com', 'acct-1', 120)`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (1, NULL, 'legacy@example.com', '', 90)`,
 	}
 	for _, sql := range inserts {
 		if err := gormDB.Exec(sql).Error; err != nil {
