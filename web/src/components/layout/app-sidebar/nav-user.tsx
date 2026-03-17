@@ -16,6 +16,7 @@ import {
   Plus,
   ShieldAlert,
   Trash2,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
@@ -301,16 +302,47 @@ export function NavUser() {
     }
   };
 
+  const maskNumericIdentity = (value?: number) => {
+    if (!value || value <= 0) return '••';
+    const raw = String(value);
+    if (raw.length <= 2) return `••${raw}`;
+    return `${'•'.repeat(Math.max(2, raw.length - 2))}${raw.slice(-2)}`;
+  };
+
   const username = user?.username?.trim() || '';
-  const hasUsername = username.length > 0;
+  const roleLabel = user
+    ? user.role === 'admin'
+      ? t('users.roleAdmin')
+      : t('users.roleMember')
+    : t('nav.accountFallback');
+  const tenantLabel = user?.tenantName?.trim()
+    ? user.tenantName.trim()
+    : user?.tenantID && user.tenantID > 0
+      ? t('nav.tenantFallback', { id: user.tenantID })
+      : t('nav.tenantUnknown');
+  const accountName = username || t('nav.accountFallback');
+  const accountStatusLabel = authEnabled
+    ? t('nav.accountStatusProtected')
+    : t('nav.accountStatusLocal');
+  const accountSubtitle = user
+    ? [roleLabel, tenantLabel].filter(Boolean).join(' · ')
+    : t('nav.accountIdentityUnknown');
+  const accountIdentity = user
+    ? `${t('nav.identityMaskUser', { value: maskNumericIdentity(user.id) })} · ${t('nav.identityMaskTenant', { value: maskNumericIdentity(user.tenantID) })}`
+    : t('nav.accountIdentityUnknown');
   const displayUser = {
-    name: username,
+    name: accountName,
+    subtitle: accountSubtitle,
+    identity: accountIdentity,
+    status: accountStatusLabel,
     avatar: '/logo.png',
   };
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
   const menuDisplayName = displayUser.name || 'Maxx';
   const menuDisplayFallback = menuDisplayName.slice(0, 2).toUpperCase();
-  const accountTitle = hasUsername ? displayUser.name : undefined;
+  const accountTitle = [displayUser.name, displayUser.subtitle, displayUser.identity]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <SidebarMenu>
@@ -372,48 +404,67 @@ export function NavUser() {
             )}
           </button>
 
-          {hasUsername &&
-            (isCollapsed ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={(props) => (
-                    <button
-                      {...props}
-                      type="button"
-                      className={cn(
-                        'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-                        props.className,
-                      )}
-                    >
-                      <Avatar className="h-6 w-6 rounded-lg">
-                        <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                        <AvatarFallback className="rounded-lg text-[10px]">
-                          {displayUserFallback}
-                        </AvatarFallback>
-                      </Avatar>
-                    </button>
-                  )}
-                />
-                <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
-                  <span className="text-xs font-medium">{displayUser.name}</span>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <div
-                className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
-                title={accountTitle}
-              >
-                <Avatar className="h-6 w-6 rounded-lg">
-                  <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                  <AvatarFallback className="rounded-lg text-[10px]">
-                    {displayUserFallback}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <span className="block truncate text-xs font-medium">{displayUser.name}</span>
+          {isCollapsed ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={(props) => (
+                  <button
+                    {...props}
+                    type="button"
+                    className={cn(
+                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                      props.className,
+                    )}
+                  >
+                    <Avatar className="h-6 w-6 rounded-lg">
+                      <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                      <AvatarFallback className="rounded-lg text-[10px]">
+                        {displayUserFallback}
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                )}
+              />
+              <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium">{displayUser.name}</span>
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {displayUser.status}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">{displayUser.subtitle}</div>
+                  <div className="text-[10px] text-muted-foreground/80">{displayUser.identity}</div>
                 </div>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 py-1.5"
+              title={accountTitle}
+            >
+              <Avatar className="h-7 w-7 rounded-lg">
+                <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                <AvatarFallback className="rounded-lg text-[10px]">
+                  {displayUserFallback}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="block truncate text-xs font-medium">{displayUser.name}</span>
+                  <span className="rounded-full bg-sidebar px-1.5 py-0.5 text-[9px] font-medium text-sidebar-foreground/75">
+                    {displayUser.status}
+                  </span>
+                </div>
+                <span className="block truncate text-[11px] text-sidebar-foreground/75">
+                  {displayUser.subtitle}
+                </span>
+                <span className="block truncate text-[10px] text-sidebar-foreground/55">
+                  {displayUser.identity}
+                </span>
               </div>
-            ))}
+            </div>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -432,33 +483,85 @@ export function NavUser() {
               )}
             />
             <DropdownMenuContent
-              className="!w-32 rounded-lg max-w-xs !min-w-0"
-              style={{ width: '8rem' }}
+              className="!w-72 rounded-lg max-w-sm !min-w-0"
+              style={{ width: '18rem' }}
               side={isMobile ? 'bottom' : 'right'}
               align="end"
               sideOffset={4}
             >
               <DropdownMenuGroup>
                 <DropdownMenuLabel>
-                  <div className="flex items-center gap-2 w-full">
+                  <div className="flex items-start gap-2 w-full">
                     <Avatar className="h-8 w-8 rounded-lg">
                       <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
                       <AvatarFallback className="rounded-lg">{menuDisplayFallback}</AvatarFallback>
                     </Avatar>
-                    <div className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-medium">{menuDisplayName}</span>
-                      {user && (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
-                          {user.tenantName && ` · ${user.tenantName}`}
+                    <div className="grid flex-1 text-left text-sm leading-tight gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium">{menuDisplayName}</span>
+                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {displayUser.status}
                         </span>
-                      )}
+                      </div>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {displayUser.subtitle}
+                      </span>
+                      <span className="truncate text-[10px] text-muted-foreground/80">
+                        {displayUser.identity}
+                      </span>
                     </div>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
               </DropdownMenuGroup>
+
+              {authEnabled && (
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                    {t('nav.account')}
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem onClick={logout}>
+                    <ArrowLeftRight />
+                    <span>{t('nav.switchAccount')}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              )}
+
+              {authEnabled && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      {t('nav.security')}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setPasskeyError('');
+                        setPasskeySuccess('');
+                        setShowPasskeyDialog(true);
+                      }}
+                    >
+                      <ShieldAlert />
+                      <span>{t('nav.managePasskeys')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        resetPasswordDialogState();
+                        setShowPasswordDialog(true);
+                      }}
+                    >
+                      <KeyRound />
+                      <span>{t('nav.changePassword')}</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </>
+              )}
+
+              <DropdownMenuSeparator />
               <DropdownMenuGroup>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('nav.system')}
+                </DropdownMenuLabel>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     {theme === 'light' ? (
@@ -509,43 +612,12 @@ export function NavUser() {
                     </DropdownMenuSubContent>
                   </DropdownMenuPortal>
                 </DropdownMenuSub>
-              </DropdownMenuGroup>
-              <>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleRestartServer}>
                   <RefreshCw />
                   <span>{t('nav.restartServer')}</span>
                 </DropdownMenuItem>
-              </>
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setPasskeyError('');
-                      setPasskeySuccess('');
-                      setShowPasskeyDialog(true);
-                    }}
-                  >
-                    <ShieldAlert />
-                    <span>{t('nav.managePasskeys')}</span>
-                  </DropdownMenuItem>
-                </>
-              )}
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      resetPasswordDialogState();
-                      setShowPasswordDialog(true);
-                    }}
-                  >
-                    <KeyRound />
-                    <span>{t('nav.changePassword')}</span>
-                  </DropdownMenuItem>
-                </>
-              )}
+              </DropdownMenuGroup>
+
               {authEnabled && (
                 <>
                   <DropdownMenuSeparator />
@@ -577,9 +649,7 @@ export function NavUser() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="old-password">
-                {t('users.oldPassword')}
-              </Label>
+              <Label htmlFor="old-password">{t('users.oldPassword')}</Label>
               <PasswordInput
                 id="old-password"
                 value={passwordForm.oldPassword}
@@ -594,9 +664,7 @@ export function NavUser() {
               <FieldError message={passwordFieldErrors.oldPassword} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="new-password">
-                {t('users.newPassword')}
-              </Label>
+              <Label htmlFor="new-password">{t('users.newPassword')}</Label>
               <div className="relative">
                 <PasswordInput
                   id="new-password"
@@ -643,24 +711,21 @@ export function NavUser() {
               <FieldError message={passwordFieldError} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm-new-password">
-                {t('users.confirmNewPassword')}
-              </Label>
+              <Label htmlFor="confirm-new-password">{t('users.confirmNewPassword')}</Label>
               <PasswordInput
                 id="confirm-new-password"
                 value={passwordForm.confirmPassword}
                 aria-invalid={passwordFieldErrors.confirmPassword ? 'true' : undefined}
                 onChange={(e) => {
                   const nextConfirmPassword = e.target.value;
-                setPasswordForm({ ...passwordForm, confirmPassword: nextConfirmPassword });
-                setPasswordFieldErrors((current) => ({
-                  ...current,
-                  confirmPassword:
-                      nextConfirmPassword.trim() &&
-                      passwordForm.newPassword !== nextConfirmPassword
+                  setPasswordForm({ ...passwordForm, confirmPassword: nextConfirmPassword });
+                  setPasswordFieldErrors((current) => ({
+                    ...current,
+                    confirmPassword:
+                      nextConfirmPassword.trim() && passwordForm.newPassword !== nextConfirmPassword
                         ? t('users.passwordMismatch')
                         : undefined,
-                }));
+                  }));
                   setPasswordError('');
                 }}
                 placeholder={t('users.confirmNewPassword')}
