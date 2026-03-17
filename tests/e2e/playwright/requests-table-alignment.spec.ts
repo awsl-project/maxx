@@ -1,4 +1,4 @@
-﻿import http from 'node:http';
+import http from 'node:http';
 
 import { expect, test, type Page } from 'playwright/test';
 
@@ -246,7 +246,7 @@ test('virtualized requests table keeps header and body columns aligned', async (
       )
       .toBeGreaterThanOrEqual(40);
 
-    await openRequestsPage(page);
+    await openRequestsPage(page, provider.id);
     await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(async () => page.locator('tbody tr[data-request-row="true"]').count(), { timeout: 30_000 })

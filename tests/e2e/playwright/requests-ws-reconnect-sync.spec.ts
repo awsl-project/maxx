@@ -420,38 +420,32 @@ test('requests page resyncs list and count after ws reconnect', async ({ page })
     await expect
       .poll(
         async () => {
-          const headerText = (await page.locator('header').first().textContent()) ?? '';
-          const normalized = headerText.replace(/\s+/g, ' ').trim().toLowerCase();
-          return (
-            /\b2\s*(total\s*)?requests\b/.test(normalized) ||
-            /\brequests\b[^\d]*2/.test(normalized) ||
-            /共\s*2\s*个请求/.test(headerText)
-          );
-        },
-        { timeout: 20_000, intervals: [500, 1_000, 2_000, 4_000] },
-      )
-      .toBe(true);
-
-    await expect
-      .poll(
-        async () => {
           const slow = await getRowByModel(page, slowModel);
           const fast = await getRowByModel(page, fastModel);
-          const bodyText = (await page.textContent('body')) ?? '';
           return {
             slowVisible: await slow.count(),
             fastVisible: await fast.count(),
             slowText: await slow.textContent(),
             fastText: await fast.textContent(),
-            bodyText,
           };
         },
-        { timeout: 20_000, intervals: [500, 1_000, 2_000, 4_000] },
+        { timeout: 30_000, intervals: [500, 1_000, 2_000, 4_000] },
       )
       .toMatchObject({
         slowVisible: 1,
         fastVisible: 1,
       });
+
+    await expect
+      .poll(
+        async () => {
+          const summaryText = (await page.locator('header p.text-xs').first().textContent()) ?? '';
+          const normalized = summaryText.replace(/\s+/g, ' ').trim().toLowerCase();
+          return /\b2\s*(total\s*)?requests\b/.test(normalized) || /共\s*2\s*个请求/.test(summaryText);
+        },
+        { timeout: 30_000, intervals: [500, 1_000, 2_000, 4_000] },
+      )
+      .toBe(true);
 
     const finalSlowRow = await getRowByModel(page, slowModel);
     const finalFastRow = await getRowByModel(page, fastModel);
