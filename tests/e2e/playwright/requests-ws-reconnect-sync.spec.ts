@@ -114,12 +114,23 @@ async function resolveAdminToken() {
  * Opens the requests page with a provider filter preloaded into localStorage.
  */
 async function openRequestsPage(page: Page, providerId: number) {
-  await page.addInitScript((id) => {
-    localStorage.setItem(REQUEST_FILTER_MODE_STORAGE_KEY, 'provider');
-    localStorage.setItem(REQUEST_PROVIDER_FILTER_STORAGE_KEY, String(id));
-    localStorage.removeItem(REQUEST_TOKEN_FILTER_STORAGE_KEY);
-    localStorage.removeItem(REQUEST_PROJECT_FILTER_STORAGE_KEY);
-  }, providerId);
+  await page.addInitScript(
+    ({ id, keys }) => {
+      localStorage.setItem(keys.mode, 'provider');
+      localStorage.setItem(keys.provider, String(id));
+      localStorage.removeItem(keys.token);
+      localStorage.removeItem(keys.project);
+    },
+    {
+      id: providerId,
+      keys: {
+        mode: REQUEST_FILTER_MODE_STORAGE_KEY,
+        provider: REQUEST_PROVIDER_FILTER_STORAGE_KEY,
+        token: REQUEST_TOKEN_FILTER_STORAGE_KEY,
+        project: REQUEST_PROJECT_FILTER_STORAGE_KEY,
+      },
+    },
+  );
 
   await page.goto(`${BASE}/requests`);
   await page.waitForLoadState('networkidle');
