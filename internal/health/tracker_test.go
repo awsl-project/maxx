@@ -1,6 +1,7 @@
 package health
 
 import (
+	"math"
 	"net/http"
 	"testing"
 	"time"
@@ -525,5 +526,53 @@ func TestTrackerRateLimitPenaltyAffectsScore(t *testing.T) {
 
 	if got1, got2 := tracker.Score(1, "codex"), tracker.Score(2, "codex"); got1 >= got2 {
 		t.Fatalf("Score(rate-limited provider) = %f, Score(generic failure provider) = %f, want lower score for recent rate limit", got1, got2)
+	}
+}
+
+func TestTrackerDecayUsesConfiguredHalfLife(t *testing.T) {
+	tracker := NewTracker()
+	baseTime := time.Date(2026, 3, 17, 16, 30, 0, 0, time.UTC)
+	tracker.now = func() time.Time { return baseTime }
+	tracker.decayHalfLife = 2 * time.Minute
+
+	tracker.Record(AttemptResult{
+		ProviderID: 1,
+		ClientType: "claude",
+		Success:    true,
+	})
+
+	tracker.now = func() time.Time { return baseTime.Add(tracker.decayHalfLife) }
+	_ = tracker.Score(1, "claude")
+
+	tracker.mu.Lock()
+	got := tracker.stats["1:claude"].recentSuccess
+	tracker.mu.Unlock()
+
+	if math.Abs(got-0.5) > 0.01 {
+		t.Fatalf("recentSuccess after one half-life = %f, want about 0.5", got)
+	}
+}
+
+func TestTrackerDecayHalfLifeHalvesRecentSignal(t *testing.T) {
+	tracker := NewTracker()
+	baseTime := time.Date(2026, 3, 17, 16, 0, 0, 0, time.UTC)
+	tracker.now = func() time.Time { return baseTime }
+
+	tracker.Record(AttemptResult{
+		ProviderID: 31,
+		ClientType: "openai",
+		Success:    true,
+		Duration:   50 * time.Millisecond,
+	})
+
+	tracker.now = func() time.Time { return baseTime.Add(tracker.decayHalfLife) }
+	_ = tracker.Score(31, "openai")
+
+	tracker.mu.Lock()
+	recentSuccess := tracker.getStatsLocked(31, "openai").recentSuccess
+	tracker.mu.Unlock()
+
+	if diff := recentSuccess - 0.5; diff < -0.05 || diff > 0.05 {
+		t.Fatalf("recentSuccess after one half-life = %.4f, want about 0.5", recentSuccess)
 	}
 }

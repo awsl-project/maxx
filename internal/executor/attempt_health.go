@@ -3,7 +3,9 @@ package executor
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -27,9 +29,7 @@ func (e *Executor) normalizeAttemptError(parentCtx context.Context, attemptCtx c
 		if proxyErr, ok := err.(*domain.ProxyError); ok {
 			proxyErr.Retryable = true
 			proxyErr.IsNetworkError = true
-			if proxyErr.HTTPStatusCode == 0 {
-				proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
-			}
+			proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
 			proxyErr.Err = timeoutErr
 			return proxyErr
 		}
@@ -39,6 +39,9 @@ func (e *Executor) normalizeAttemptError(parentCtx context.Context, attemptCtx c
 		proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
 		return proxyErr
 	}
+	if isLikelyNetworkError(err) {
+		return newNetworkProxyError(err, true, "provider network error")
+	}
 	if attemptCtx == nil || !errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
 		return err
 	}
@@ -46,9 +49,7 @@ func (e *Executor) normalizeAttemptError(parentCtx context.Context, attemptCtx c
 	if proxyErr, ok := err.(*domain.ProxyError); ok {
 		proxyErr.Retryable = true
 		proxyErr.IsNetworkError = true
-		if proxyErr.HTTPStatusCode == 0 {
-			proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
-		}
+		proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
 		if !errors.Is(proxyErr.Err, context.DeadlineExceeded) {
 			proxyErr.Err = context.DeadlineExceeded
 		}
@@ -66,9 +67,7 @@ func normalizeResponseStartedError(attemptCtx context.Context, timeoutErr error,
 		if proxyErr, ok := err.(*domain.ProxyError); ok {
 			proxyErr.Retryable = false
 			proxyErr.IsNetworkError = true
-			if proxyErr.HTTPStatusCode == 0 {
-				proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
-			}
+			proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
 			proxyErr.Err = timeoutErr
 			return proxyErr
 		}
@@ -78,13 +77,14 @@ func normalizeResponseStartedError(attemptCtx context.Context, timeoutErr error,
 		proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
 		return proxyErr
 	}
+	if isLikelyNetworkError(err) {
+		return newNetworkProxyError(err, false, "provider network error after response started")
+	}
 	if attemptCtx != nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
 		if proxyErr, ok := err.(*domain.ProxyError); ok {
 			proxyErr.Retryable = false
 			proxyErr.IsNetworkError = true
-			if proxyErr.HTTPStatusCode == 0 {
-				proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
-			}
+			proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
 			if !errors.Is(proxyErr.Err, context.DeadlineExceeded) {
 				proxyErr.Err = context.DeadlineExceeded
 			}
@@ -143,17 +143,47 @@ func (e *Executor) recordAttemptHealth(
 		result.IsTimeout = errors.Is(proxyErr.Err, context.DeadlineExceeded) ||
 			errors.Is(proxyErr.Err, domain.ErrFirstByteTimeout) ||
 			errors.Is(proxyErr.Err, domain.ErrStreamIdleTimeout)
-		result.IsNetwork = proxyErr.IsNetworkError || result.IsTimeout
+		result.IsNetwork = proxyErr.IsNetworkError || result.IsTimeout || isLikelyNetworkError(proxyErr.Err)
 		result.IsRateLimit = proxyErr.RateLimitInfo != nil ||
 			proxyErr.RetryAfter > 0 ||
 			result.StatusCode == http.StatusTooManyRequests
 		result.IsServerErr = proxyErr.IsServerError || result.StatusCode >= http.StatusInternalServerError
 	} else {
 		result.IsTimeout = errors.Is(err, context.DeadlineExceeded)
-		result.IsNetwork = result.IsTimeout
+		result.IsNetwork = result.IsTimeout || isLikelyNetworkError(err)
 	}
 
 	e.healthTracker.Record(result)
+}
+
+func newNetworkProxyError(err error, retryable bool, message string) *domain.ProxyError {
+	proxyErr := domain.NewProxyErrorWithMessage(err, retryable, message)
+	proxyErr.IsNetworkError = true
+	proxyErr.HTTPStatusCode = http.StatusBadGateway
+	return proxyErr
+}
+
+func isLikelyNetworkError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
 }
 
 func (e *Executor) capRetryWait(wait time.Duration, requestStart time.Time, fromRetryAfter bool) time.Duration {

@@ -1,6 +1,9 @@
 package flow
 
-import "io"
+import (
+	"io"
+	"sync"
+)
 
 type AttemptActivityObserver interface {
 	NoteFirstByte()
@@ -44,6 +47,7 @@ type attemptActivityReadCloser struct {
 	io.ReadCloser
 	observer      AttemptActivityObserver
 	firstByteSeen bool
+	completeOnce  sync.Once
 }
 
 func (r *attemptActivityReadCloser) Read(p []byte) (int, error) {
@@ -56,7 +60,18 @@ func (r *attemptActivityReadCloser) Read(p []byte) (int, error) {
 		r.observer.NoteActivity()
 	}
 	if err == io.EOF {
-		r.observer.CompleteResponseBody()
+		r.complete()
 	}
 	return n, err
+}
+
+func (r *attemptActivityReadCloser) Close() error {
+	r.complete()
+	return r.ReadCloser.Close()
+}
+
+func (r *attemptActivityReadCloser) complete() {
+	r.completeOnce.Do(func() {
+		r.observer.CompleteResponseBody()
+	})
 }

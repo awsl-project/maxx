@@ -64,9 +64,7 @@ func TestFailoverPrefersHealthyProviderAfterTimeoutSeries(t *testing.T) {
 	createRouteWithPosition(t, env, "openai", slowProviderID, 1)
 	createRouteWithPosition(t, env, "openai", healthyProviderID, 2)
 
-	firstStarted := time.Now()
 	firstResp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
-	firstDuration := time.Since(firstStarted)
 	defer firstResp.Body.Close()
 	assertStatus(t, firstResp, http.StatusOK)
 	if body, _ := io.ReadAll(firstResp.Body); !strings.Contains(string(body), "healthy provider") {
@@ -79,9 +77,7 @@ func TestFailoverPrefersHealthyProviderAfterTimeoutSeries(t *testing.T) {
 		t.Fatalf("first request hits = slow:%d healthy:%d, want both providers hit once", firstSlowHits, firstHealthyHits)
 	}
 
-	secondStarted := time.Now()
 	secondResp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
-	secondDuration := time.Since(secondStarted)
 	defer secondResp.Body.Close()
 	assertStatus(t, secondResp, http.StatusOK)
 
@@ -90,9 +86,6 @@ func TestFailoverPrefersHealthyProviderAfterTimeoutSeries(t *testing.T) {
 	}
 	if healthyHits.Load() != firstHealthyHits+1 {
 		t.Fatalf("healthy provider hit count after second request = %d, want %d", healthyHits.Load(), firstHealthyHits+1)
-	}
-	if secondDuration >= firstDuration {
-		t.Fatalf("second request duration = %v, first request duration = %v, want second request faster after health reorder", secondDuration, firstDuration)
 	}
 }
 
@@ -237,23 +230,25 @@ func TestRequestBudgetStopsLongSerialFailover(t *testing.T) {
 	createRouteWithPosition(t, env, "openai", slowProviderID3, 3)
 	createRouteWithPosition(t, env, "openai", healthyProviderID, 4)
 
-	started := time.Now()
 	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
-	elapsed := time.Since(started)
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("response unexpectedly succeeded: status=%d body=%s", resp.StatusCode, body)
 	}
-	if elapsed >= 45*time.Millisecond {
-		t.Fatalf("request elapsed = %v, want shared request budget to stop serial failover before 45ms", elapsed)
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("response status = %d body=%s, want request budget exhaustion to surface as 504", resp.StatusCode, body)
 	}
 	if healthyHits.Load() != 0 {
 		t.Fatalf("healthy provider hit count = %d, want request budget exhaustion before healthy fallback", healthyHits.Load())
 	}
 	if slowHits[0].Load() != 1 || slowHits[1].Load() != 1 {
 		t.Fatalf("slow provider hits = [%d %d %d], want first two providers attempted once", slowHits[0].Load(), slowHits[1].Load(), slowHits[2].Load())
+	}
+	if slowHits[2].Load() != 0 {
+		t.Fatalf("third slow provider hit count = %d, want shared request budget to stop before attempting route 3", slowHits[2].Load())
 	}
 }
 

@@ -25,6 +25,7 @@ func (w *responseStateWriter) Write(b []byte) (int, error) {
 }
 
 func (w *responseStateWriter) Flush() {
+	w.started = true
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}

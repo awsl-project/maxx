@@ -11,6 +11,7 @@ import (
 
 type attemptWatchdog struct {
 	mu                sync.Mutex
+	stopOnce          sync.Once
 	now               func() time.Time
 	start             time.Time
 	firstByteTimeout  time.Duration
@@ -50,11 +51,9 @@ func (w *attemptWatchdog) Stop() {
 	if w == nil {
 		return
 	}
-	select {
-	case <-w.stopCh:
-	default:
+	w.stopOnce.Do(func() {
 		close(w.stopCh)
-	}
+	})
 }
 
 func (w *attemptWatchdog) TimeoutErr() error {

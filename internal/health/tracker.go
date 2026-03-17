@@ -322,7 +322,7 @@ func (t *Tracker) decayLocked(stats *providerStats) {
 		return
 	}
 
-	factor := math.Exp(-float64(elapsed) / float64(t.decayHalfLife))
+	factor := math.Exp(-math.Ln2 * float64(elapsed) / float64(t.decayHalfLife))
 	stats.recentSuccess *= factor
 	stats.recentFailure *= factor
 	stats.recentTimeout *= factor
