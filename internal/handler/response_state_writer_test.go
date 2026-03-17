@@ -25,6 +25,22 @@ func TestResponseStateWriterFlushMarksStarted(t *testing.T) {
 	}
 }
 
+func TestResponseStateWriterFlushWithoutUnderlyingFlusherDoesNotMarkStarted(t *testing.T) {
+	base := &basicResponseWriter{header: make(http.Header)}
+	writer := newResponseStateWriter(base)
+
+	flusher, ok := writer.(http.Flusher)
+	if !ok {
+		t.Fatalf("writer type = %T, want http.Flusher wrapper", writer)
+	}
+
+	flusher.Flush()
+
+	if responseHasStarted(writer) {
+		t.Fatal("responseHasStarted = true, want false when underlying writer does not support Flush")
+	}
+}
+
 func TestResponseStateWriterPreservesHijacker(t *testing.T) {
 	base := &hijackableResponseWriter{ResponseRecorder: httptest.NewRecorder()}
 	writer := newResponseStateWriter(base)
@@ -130,4 +146,23 @@ type pushableResponseWriter struct {
 func (w *pushableResponseWriter) Push(target string, _ *http.PushOptions) error {
 	w.pushedTarget = target
 	return nil
+}
+
+type basicResponseWriter struct {
+	header http.Header
+	status int
+	body   []byte
+}
+
+func (w *basicResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *basicResponseWriter) WriteHeader(statusCode int) {
+	w.status = statusCode
+}
+
+func (w *basicResponseWriter) Write(b []byte) (int, error) {
+	w.body = append(w.body, b...)
+	return len(b), nil
 }
