@@ -201,3 +201,35 @@ func TestBackupImport_SkipStrategy(t *testing.T) {
 		t.Fatalf("Expected import with skip strategy to succeed, got %v", result["success"])
 	}
 }
+
+func TestBackupExport_ExcludedProviderIsOmitted(t *testing.T) {
+	env := NewTestEnv(t)
+
+	provider := map[string]any{
+		"name":              "excluded-provider",
+		"type":              "custom",
+		"excludeFromExport": true,
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "https://api.example.com",
+				"apiKey":  "sk-hidden-key",
+			},
+		},
+		"supportedClientTypes": []string{"claude"},
+	}
+	resp := env.AdminPost("/api/admin/providers", provider)
+	AssertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+
+	resp = env.AdminGet("/api/admin/backup/export")
+	AssertStatus(t, resp, http.StatusOK)
+
+	var backup map[string]any
+	DecodeJSON(t, resp, &backup)
+
+	data := backup["data"].(map[string]any)
+	providers, _ := data["providers"].([]any)
+	if len(providers) != 0 {
+		t.Fatalf("expected excluded providers to be omitted from backup export, got %d entries", len(providers))
+	}
+}

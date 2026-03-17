@@ -100,6 +100,7 @@ export interface Provider {
   config: ProviderConfig | null;
   supportedClientTypes: ClientType[];
   supportModels?: string[]; // 支持的模型列表（通配符模式），空数组表示支持所有模型
+  excludeFromExport?: boolean; // 为 true 时不参与导出/备份
 }
 
 // supportedClientTypes 可选，后端会根据 provider type 自动设置

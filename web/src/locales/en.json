@@ -1218,7 +1218,9 @@
     "endpointOverride": "Endpoint Override",
     "errorCooldownTitle": "3. Error Cooldown",
     "disableErrorCooldown": "Disable Error Cooldown",
-    "disableErrorCooldownDesc": "When enabled, errors won't trigger automatic cooldown. Manual freezes and explicit cooldown times still apply."
+    "disableErrorCooldownDesc": "When enabled, errors won't trigger automatic cooldown. Manual freezes and explicit cooldown times still apply.",
+    "excludeFromExport": "Exclude from export and backup",
+    "excludeFromExportDesc": "When enabled, this provider stays local to this system and will not be included in exported files or backup packages."
   },
   "cooldown": {
     "title": "Cooldown Protection",

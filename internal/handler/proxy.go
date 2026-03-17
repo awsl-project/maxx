@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
@@ -293,14 +294,22 @@ func writeError(w http.ResponseWriter, status int, message string) {
 
 func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 	w.Header().Set("Content-Type", "application/json")
-	if err.RetryAfter > 0 {
-		sec := int64(err.RetryAfter.Seconds())
+	retryAfter := err.RetryAfter
+	if retryAfter <= 0 && err.CooldownUntil != nil {
+		retryAfter = time.Until(*err.CooldownUntil)
+	}
+	if retryAfter > 0 {
+		sec := int64(retryAfter.Seconds())
 		if sec <= 0 {
 			sec = 1
 		}
 		w.Header().Set("Retry-After", strconv.FormatInt(sec, 10))
 	}
-	w.WriteHeader(http.StatusBadGateway)
+	statusCode := http.StatusBadGateway
+	if err.HTTPStatusCode >= 400 && err.HTTPStatusCode < 600 {
+		statusCode = err.HTTPStatusCode
+	}
+	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"error": map[string]interface{}{
 			"message":   err.Error(),
@@ -313,14 +322,22 @@ func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	if err.RetryAfter > 0 {
-		sec := int64(err.RetryAfter.Seconds())
+	retryAfter := err.RetryAfter
+	if retryAfter <= 0 && err.CooldownUntil != nil {
+		retryAfter = time.Until(*err.CooldownUntil)
+	}
+	if retryAfter > 0 {
+		sec := int64(retryAfter.Seconds())
 		if sec <= 0 {
 			sec = 1
 		}
 		w.Header().Set("Retry-After", strconv.FormatInt(sec, 10))
 	}
-	w.WriteHeader(http.StatusOK)
+	statusCode := http.StatusOK
+	if err.HTTPStatusCode >= 400 && err.HTTPStatusCode < 600 {
+		statusCode = err.HTTPStatusCode
+	}
+	w.WriteHeader(statusCode)
 
 	errorEvent := map[string]interface{}{
 		"type": "error",

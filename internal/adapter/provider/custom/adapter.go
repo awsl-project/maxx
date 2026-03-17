@@ -189,6 +189,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			rateLimitInfo := parseRateLimitInfo(resp, body, clientType)
 			if rateLimitInfo != nil {
 				proxyErr.RateLimitInfo = rateLimitInfo
+				applyRateLimitRetryHints(proxyErr, resp, rateLimitInfo)
 			}
 		}
 
@@ -825,6 +826,12 @@ func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.Clie
 		}
 	}
 
+	if resetTime.IsZero() {
+		if t := extractStructuredResetTime(body); !t.IsZero() {
+			resetTime = t
+		}
+	}
+
 	// If no reset time found, use default based on type
 	if resetTime.IsZero() {
 		switch rateLimitType {
@@ -846,6 +853,84 @@ func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.Clie
 		RetryHintMessage: bodyStr,
 		ClientType:       string(clientType), // Cooldown applies to specific client type
 	}
+}
+
+func applyRateLimitRetryHints(proxyErr *domain.ProxyError, resp *http.Response, rateLimitInfo *domain.RateLimitInfo) {
+	if proxyErr == nil || resp == nil {
+		return
+	}
+
+	if retryAfter, until := parseRetryAfterHeader(resp.Header.Get("Retry-After")); retryAfter > 0 {
+		proxyErr.RetryAfter = retryAfter
+		if until != nil {
+			proxyErr.CooldownUntil = until
+		}
+	}
+
+	if rateLimitInfo != nil && !rateLimitInfo.QuotaResetTime.IsZero() {
+		until := rateLimitInfo.QuotaResetTime
+		if proxyErr.CooldownUntil == nil {
+			proxyErr.CooldownUntil = &until
+		}
+		if proxyErr.RetryAfter <= 0 {
+			if retryAfter := time.Until(until); retryAfter > 0 {
+				proxyErr.RetryAfter = retryAfter
+			}
+		}
+	}
+}
+
+func parseRetryAfterHeader(value string) (time.Duration, *time.Time) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		until := time.Now().Add(time.Duration(seconds) * time.Second)
+		return time.Duration(seconds) * time.Second, &until
+	}
+	if t, err := http.ParseTime(value); err == nil {
+		delay := time.Until(t)
+		if delay > 0 {
+			return delay, &t
+		}
+		return 0, nil
+	}
+	return 0, nil
+}
+
+func extractStructuredResetTime(body []byte) time.Time {
+	var payload interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return time.Time{}
+	}
+	return findResetTime(payload)
+}
+
+func findResetTime(v interface{}) time.Time {
+	switch value := v.(type) {
+	case map[string]interface{}:
+		for key, raw := range value {
+			switch key {
+			case "QuotaResetTime", "quotaResetTime", "quota_reset_time", "quotaResetTimeStamp", "cooldownUntil", "CooldownUntil":
+				if s, ok := raw.(string); ok {
+					if parsed, err := time.Parse(time.RFC3339, s); err == nil {
+						return parsed
+					}
+				}
+			}
+			if parsed := findResetTime(raw); !parsed.IsZero() {
+				return parsed
+			}
+		}
+	case []interface{}:
+		for _, item := range value {
+			if parsed := findResetTime(item); !parsed.IsZero() {
+				return parsed
+			}
+		}
+	}
+	return time.Time{}
 }
 
 // extractTimeFromMessage tries to extract time duration from error message

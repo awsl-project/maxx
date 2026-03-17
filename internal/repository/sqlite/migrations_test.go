@@ -21,3 +21,15 @@ func TestIsMySQLDuplicateIndexError(t *testing.T) {
 		t.Fatalf("expected false for unrelated error")
 	}
 }
+
+func TestIsMySQLMissingIndexError(t *testing.T) {
+	if !isMySQLMissingIndexError(&mysqlDriver.MySQLError{Number: 1091, Message: "Can't DROP"}) {
+		t.Fatalf("expected true for ER_CANT_DROP_FIELD_OR_KEY(1091)")
+	}
+	if !isMySQLMissingIndexError(errors.New("Error 1091: Can't DROP 'idx_x'; check that column/key exists")) {
+		t.Fatalf("expected true for missing index string match fallback")
+	}
+	if isMySQLMissingIndexError(errors.New("some other error")) {
+		t.Fatalf("expected false for unrelated error")
+	}
+}
