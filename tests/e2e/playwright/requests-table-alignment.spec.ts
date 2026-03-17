@@ -10,6 +10,11 @@ import {
   loginToAdminUI,
 } from './helpers';
 
+const REQUEST_FILTER_MODE_STORAGE_KEY = 'maxx-requests-filter-mode';
+const REQUEST_PROVIDER_FILTER_STORAGE_KEY = 'maxx-requests-provider-filter';
+const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
+const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
+
 test.describe.configure({ mode: 'serial' });
 
 type TableGeometry = {
@@ -169,7 +174,27 @@ async function resolveAdminToken() {
   }
 }
 
-async function openRequestsPage(page: Page) {
+async function openRequestsPage(page: Page, providerId?: number) {
+  if (providerId !== undefined) {
+    await page.addInitScript(
+      ({ id, keys }) => {
+        localStorage.setItem(keys.mode, 'provider');
+        localStorage.setItem(keys.provider, String(id));
+        localStorage.removeItem(keys.token);
+        localStorage.removeItem(keys.project);
+      },
+      {
+        id: providerId,
+        keys: {
+          mode: REQUEST_FILTER_MODE_STORAGE_KEY,
+          provider: REQUEST_PROVIDER_FILTER_STORAGE_KEY,
+          token: REQUEST_TOKEN_FILTER_STORAGE_KEY,
+          project: REQUEST_PROJECT_FILTER_STORAGE_KEY,
+        },
+      },
+    );
+  }
+
   await page.goto(`${BASE}/requests`);
   await page.waitForLoadState('networkidle');
 
