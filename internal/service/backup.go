@@ -89,6 +89,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 	projectIDToSlug := make(map[uint64]string)
 	retryConfigIDToName := make(map[uint64]string)
 	apiTokenIDToName := make(map[uint64]string)
+	routeIDToName := make(map[uint64]string)
 
 	// 1. Export SystemSettings
 	settings, err := s.settingRepo.GetAll()
@@ -172,12 +173,18 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export routes: %w", err)
 	}
 	for _, r := range routes {
+		providerName, ok := providerIDToName[r.ProviderID]
+		if !ok {
+			continue
+		}
+		routeName := fmt.Sprintf("%s:%s:%s", providerName, r.ClientType, projectIDToSlug[r.ProjectID])
+		routeIDToName[r.ID] = routeName
 		backup.Data.Routes = append(backup.Data.Routes, domain.BackupRoute{
 			IsEnabled:       r.IsEnabled,
 			IsNative:        r.IsNative,
 			ProjectSlug:     projectIDToSlug[r.ProjectID],
 			ClientType:      r.ClientType,
-			ProviderName:    providerIDToName[r.ProviderID],
+			ProviderName:    providerName,
 			Position:        r.Position,
 			RetryConfigName: retryConfigIDToName[r.RetryConfigID],
 		})
@@ -207,6 +214,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to export model mappings: %w", err)
 	}
+mappingLoop:
 	for _, m := range mappings {
 		bm := domain.BackupModelMapping{
 			Scope:        m.Scope,
@@ -218,7 +226,11 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		}
 		// Convert IDs to names
 		if m.ProviderID != 0 {
-			bm.ProviderName = providerIDToName[m.ProviderID]
+			providerName, ok := providerIDToName[m.ProviderID]
+			if !ok {
+				continue
+			}
+			bm.ProviderName = providerName
 		}
 		if m.ProjectID != 0 {
 			bm.ProjectSlug = projectIDToSlug[m.ProjectID]
@@ -228,16 +240,11 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		}
 		// Route reference: combine identifiers
 		if m.RouteID != 0 {
-			// Find the route to get its composite key
-			for _, r := range routes {
-				if r.ID == m.RouteID {
-					bm.RouteName = fmt.Sprintf("%s:%s:%s",
-						providerIDToName[r.ProviderID],
-						r.ClientType,
-						projectIDToSlug[r.ProjectID])
-					break
-				}
+			routeName, ok := routeIDToName[m.RouteID]
+			if !ok {
+				continue mappingLoop
 			}
+			bm.RouteName = routeName
 		}
 		backup.Data.ModelMappings = append(backup.Data.ModelMappings, bm)
 	}

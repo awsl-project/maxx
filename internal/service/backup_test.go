@@ -233,6 +233,139 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	}
 }
 
+func TestBackupService_Export_SkipsReferencesToExcludedProviders(t *testing.T) {
+	db := newBackupServiceTestDB(t, "excluded-provider.db")
+	providerRepo := sqlite.NewProviderRepository(db)
+	projectRepo := sqlite.NewProjectRepository(db)
+	routeRepo := sqlite.NewRouteRepository(db)
+	modelMappingRepo := sqlite.NewModelMappingRepository(db)
+
+	includedProvider := &domain.Provider{
+		TenantID: domain.DefaultTenantID,
+		Name:     "included-provider",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{
+			Custom: &domain.ProviderConfigCustom{
+				BaseURL: "https://api.included.example",
+				APIKey:  "included-key",
+			},
+		},
+	}
+	if err := providerRepo.Create(includedProvider); err != nil {
+		t.Fatalf("create included provider: %v", err)
+	}
+
+	excludedProvider := &domain.Provider{
+		TenantID:          domain.DefaultTenantID,
+		Name:              "excluded-provider",
+		Type:              "custom",
+		ExcludeFromExport: true,
+		Config: &domain.ProviderConfig{
+			Custom: &domain.ProviderConfigCustom{
+				BaseURL: "https://api.excluded.example",
+				APIKey:  "excluded-key",
+			},
+		},
+	}
+	if err := providerRepo.Create(excludedProvider); err != nil {
+		t.Fatalf("create excluded provider: %v", err)
+	}
+
+	project := &domain.Project{
+		TenantID: domain.DefaultTenantID,
+		Name:     "Project One",
+		Slug:     "project-one",
+	}
+	if err := projectRepo.Create(project); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	includedRoute := &domain.Route{
+		TenantID:   domain.DefaultTenantID,
+		IsEnabled:  true,
+		ClientType: domain.ClientTypeOpenAI,
+		ProviderID: includedProvider.ID,
+		ProjectID:  project.ID,
+		Position:   1,
+	}
+	if err := routeRepo.Create(includedRoute); err != nil {
+		t.Fatalf("create included route: %v", err)
+	}
+
+	excludedRoute := &domain.Route{
+		TenantID:   domain.DefaultTenantID,
+		IsEnabled:  true,
+		ClientType: domain.ClientTypeOpenAI,
+		ProviderID: excludedProvider.ID,
+		ProjectID:  project.ID,
+		Position:   2,
+	}
+	if err := routeRepo.Create(excludedRoute); err != nil {
+		t.Fatalf("create excluded route: %v", err)
+	}
+
+	includedMapping := &domain.ModelMapping{
+		TenantID:     domain.DefaultTenantID,
+		Scope:        domain.ModelMappingScopeRoute,
+		ClientType:   domain.ClientTypeOpenAI,
+		ProviderType: "custom",
+		ProviderID:   includedProvider.ID,
+		ProjectID:    project.ID,
+		RouteID:      includedRoute.ID,
+		Pattern:      "keep-me",
+		Target:       "gpt-4.1",
+		Priority:     1,
+	}
+	if err := modelMappingRepo.Create(includedMapping); err != nil {
+		t.Fatalf("create included mapping: %v", err)
+	}
+
+	excludedProviderMapping := &domain.ModelMapping{
+		TenantID:     domain.DefaultTenantID,
+		Scope:        domain.ModelMappingScopeProvider,
+		ProviderType: "custom",
+		ProviderID:   excludedProvider.ID,
+		Pattern:      "drop-provider-ref",
+		Target:       "gpt-4.1-mini",
+		Priority:     2,
+	}
+	if err := modelMappingRepo.Create(excludedProviderMapping); err != nil {
+		t.Fatalf("create excluded provider mapping: %v", err)
+	}
+
+	excludedRouteMapping := &domain.ModelMapping{
+		TenantID:   domain.DefaultTenantID,
+		Scope:      domain.ModelMappingScopeRoute,
+		ClientType: domain.ClientTypeOpenAI,
+		RouteID:    excludedRoute.ID,
+		Pattern:    "drop-route-ref",
+		Target:     "gpt-4.1-nano",
+		Priority:   3,
+	}
+	if err := modelMappingRepo.Create(excludedRouteMapping); err != nil {
+		t.Fatalf("create excluded route mapping: %v", err)
+	}
+
+	svc := newBackupServiceForTest(t, db)
+	backup, err := svc.Export(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("export backup: %v", err)
+	}
+
+	if len(backup.Data.Providers) != 1 || backup.Data.Providers[0].Name != "included-provider" {
+		t.Fatalf("providers = %+v, want only included provider", backup.Data.Providers)
+	}
+	if len(backup.Data.Routes) != 1 || backup.Data.Routes[0].ProviderName != "included-provider" {
+		t.Fatalf("routes = %+v, want only included route", backup.Data.Routes)
+	}
+	if len(backup.Data.ModelMappings) != 1 || backup.Data.ModelMappings[0].Pattern != "keep-me" {
+		t.Fatalf("modelMappings = %+v, want only included mapping", backup.Data.ModelMappings)
+	}
+	if backup.Data.ModelMappings[0].RouteName == "" {
+		t.Fatalf("expected exported mapping to retain route reference: %+v", backup.Data.ModelMappings[0])
+	}
+}
+
 func TestBackupService_Import_ModelMappingsSkipDuplicates(t *testing.T) {
 	db := newBackupServiceTestDB(t, "dupe.db")
 	seedBackupRoundtripData(t, db)
