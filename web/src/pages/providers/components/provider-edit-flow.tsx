@@ -307,7 +307,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   };
 
   const [showApiKey, setShowApiKey] = useState(false);
-  const shouldShowApiKeyField = !provider.excludeFromExport;
   const [formData, setFormData] = useState<EditFormData>({
     name: provider.name,
     baseURL: provider.config?.custom?.baseURL || '',
@@ -659,45 +658,36 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   </p>
                 </div>
 
-                {shouldShowApiKeyField ? (
-                  <div>
-                    <label className="text-sm font-medium text-foreground block mb-2">
-                      <div className="flex items-center gap-2">
-                        <Key size={14} />
-                        <span>{t('provider.apiKeyEdit')}</span>
-                      </div>
-                    </label>
-                    <div className="relative">
-                      <Input
-                        type={showApiKey ? 'text' : 'password'}
-                        value={formData.apiKey}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
-                        placeholder={t('provider.keyPlaceholder')}
-                        className="w-full pr-10"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                        tabIndex={-1}
-                      >
-                        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
+                <div>
+                  <label className="text-sm font-medium text-foreground block mb-2">
+                    <div className="flex items-center gap-2">
+                      <Key size={14} />
+                      <span>{t('provider.apiKeyEdit')}</span>
                     </div>
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={formData.apiKey}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
+                      placeholder={t('provider.keyPlaceholder')}
+                      className="w-full pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label={showApiKey ? t('common.hide') : t('common.show')}
+                    >
+                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
-                ) : (
-                  <div>
-                    <label className="text-sm font-medium text-foreground block mb-2">
-                      <div className="flex items-center gap-2">
-                        <Key size={14} />
-                        <span>{t('provider.apiKeyEdit')}</span>
-                      </div>
-                    </label>
-                    <div className="p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
-                      {t('provider.apiKeyHiddenForExcluded')}
+                  {provider.excludeFromExport && (
+                    <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
+                      {t('provider.apiKeyExcludedHint')}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>
