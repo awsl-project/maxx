@@ -1,4 +1,4 @@
-﻿import http from 'node:http';
+import http from 'node:http';
 
 import { expect, test, type Page } from 'playwright/test';
 
