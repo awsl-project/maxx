@@ -322,14 +322,22 @@ func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	if err.RetryAfter > 0 {
-		sec := int64(err.RetryAfter.Seconds())
+	retryAfter := err.RetryAfter
+	if retryAfter <= 0 && err.CooldownUntil != nil {
+		retryAfter = time.Until(*err.CooldownUntil)
+	}
+	if retryAfter > 0 {
+		sec := int64(retryAfter.Seconds())
 		if sec <= 0 {
 			sec = 1
 		}
 		w.Header().Set("Retry-After", strconv.FormatInt(sec, 10))
 	}
-	w.WriteHeader(http.StatusOK)
+	statusCode := http.StatusOK
+	if err.HTTPStatusCode >= 400 && err.HTTPStatusCode < 600 {
+		statusCode = err.HTTPStatusCode
+	}
+	w.WriteHeader(statusCode)
 
 	errorEvent := map[string]interface{}{
 		"type": "error",

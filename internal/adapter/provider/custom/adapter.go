@@ -869,7 +869,9 @@ func applyRateLimitRetryHints(proxyErr *domain.ProxyError, resp *http.Response, 
 
 	if rateLimitInfo != nil && !rateLimitInfo.QuotaResetTime.IsZero() {
 		until := rateLimitInfo.QuotaResetTime
-		proxyErr.CooldownUntil = &until
+		if proxyErr.CooldownUntil == nil {
+			proxyErr.CooldownUntil = &until
+		}
 		if proxyErr.RetryAfter <= 0 {
 			if retryAfter := time.Until(until); retryAfter > 0 {
 				proxyErr.RetryAfter = retryAfter
@@ -892,7 +894,7 @@ func parseRetryAfterHeader(value string) (time.Duration, *time.Time) {
 		if delay > 0 {
 			return delay, &t
 		}
-		return 0, &t
+		return 0, nil
 	}
 	return 0, nil
 }
