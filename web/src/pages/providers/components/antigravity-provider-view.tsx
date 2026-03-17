@@ -305,7 +305,8 @@ export function AntigravityProviderView({
         id: provider.id,
         data: {
           ...provider,
-          config: {
+          excludeFromExport: !!provider.excludeFromExport,
+        config: {
             ...provider.config,
             antigravity: {
               ...antigravityConfig,
@@ -329,7 +330,8 @@ export function AntigravityProviderView({
         id: provider.id,
         data: {
           ...provider,
-          config: {
+          excludeFromExport: !!provider.excludeFromExport,
+        config: {
             ...provider.config,
             disableErrorCooldown: checked,
             antigravity: {

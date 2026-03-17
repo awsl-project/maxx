@@ -123,9 +123,10 @@ func TestAdminHandler_ProvidersImport_WithTrailingSlash(t *testing.T) {
 func TestAdminHandler_ProvidersExport_WithTrailingSlash(t *testing.T) {
 	providerRepo := &adminTestProviderRepo{
 		providers: []*domain.Provider{{
-			ID:   1,
-			Name: "exported-provider",
-			Type: "custom",
+			ID:                1,
+			Name:              "exported-provider",
+			Type:              "custom",
+			ExcludeFromExport: true,
 		}},
 	}
 	h := newAdminHandlerForProviderImportExportTests(providerRepo)
@@ -151,7 +152,7 @@ func TestAdminHandler_ProvidersExport_WithTrailingSlash(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	if len(providers) != 1 || providers[0].Name != "exported-provider" {
-		t.Fatalf("providers = %+v, want one exported-provider", providers)
+	if len(providers) != 0 {
+		t.Fatalf("providers = %+v, want excluded providers to be omitted", providers)
 	}
 }

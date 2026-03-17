@@ -385,7 +385,8 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
         id: provider.id,
         data: {
           ...provider,
-          config: {
+          excludeFromExport: !!provider.excludeFromExport,
+        config: {
             ...provider.config,
             codex: {
               ...config,
@@ -408,7 +409,8 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
         id: provider.id,
         data: {
           ...provider,
-          config: {
+          excludeFromExport: !!provider.excludeFromExport,
+        config: {
             ...provider.config,
             disableErrorCooldown: checked,
             codex: {
@@ -432,7 +434,8 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
         id: provider.id,
         data: {
           ...provider,
-          config: {
+          excludeFromExport: !!provider.excludeFromExport,
+        config: {
             ...provider.config,
             codex: {
               ...config,
@@ -455,7 +458,8 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
         id: provider.id,
         data: {
           ...provider,
-          config: {
+          excludeFromExport: !!provider.excludeFromExport,
+        config: {
             ...provider.config,
             codex: {
               ...config,

@@ -238,6 +238,9 @@ type Provider struct {
 	// 如果配置了，在 Route 匹配时会检查前置映射后的模型是否在支持列表中
 	// 空数组表示支持所有模型
 	SupportModels []string `json:"supportModels,omitempty"`
+
+	// 为 true 时，该 provider 不参与导出/备份
+	ExcludeFromExport bool `json:"excludeFromExport,omitempty"`
 }
 
 type Project struct {

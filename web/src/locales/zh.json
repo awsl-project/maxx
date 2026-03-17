@@ -1218,7 +1218,9 @@
     "endpointOverride": "端点覆盖",
     "errorCooldownTitle": "3. 错误冷冻",
     "disableErrorCooldown": "禁用错误冷冻",
-    "disableErrorCooldownDesc": "开启后，错误将不再触发自动冷冻；手动冷冻与上游明确冷冻时间仍会生效。"
+    "disableErrorCooldownDesc": "开启后，错误将不再触发自动冷冻；手动冷冻与上游明确冷冻时间仍会生效。",
+    "excludeFromExport": "从导出与备份中排除",
+    "excludeFromExportDesc": "开启后，该提供商仅保留在当前系统中，不会被写入导出文件或系统备份。"
   },
   "cooldown": {
     "title": "冷却保护中",

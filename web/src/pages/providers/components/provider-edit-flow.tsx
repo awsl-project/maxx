@@ -385,6 +385,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        excludeFromExport: !!provider.excludeFromExport,
       };
 
       await updateProvider.mutateAsync({ id: Number(provider.id), data });
@@ -446,6 +447,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        excludeFromExport: !!provider.excludeFromExport,
       };
 
       const newProvider = await createProvider.mutateAsync(data);

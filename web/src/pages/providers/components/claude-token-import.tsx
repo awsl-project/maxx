@@ -254,6 +254,7 @@ export function ClaudeTokenImport() {
       const providerData: CreateProviderData = {
         type: 'claude',
         name: oauthResult.email || 'Claude Account',
+        excludeFromExport: false,
         config: {
           claude: {
             email: oauthResult.email || '',

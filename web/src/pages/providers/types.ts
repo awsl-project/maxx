@@ -234,6 +234,7 @@ export type ProviderFormData = {
   modelMappings?: TemplateModelMapping[]; // 模型映射
   logo?: string; // Logo URL
   disableErrorCooldown?: boolean;
+  excludeFromExport?: boolean;
 };
 
 // Create step type

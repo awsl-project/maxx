@@ -40,6 +40,7 @@ type BackupProvider struct {
 	Config               *ProviderConfig `json:"config,omitempty"`
 	SupportedClientTypes []ClientType    `json:"supportedClientTypes,omitempty"`
 	SupportModels        []string        `json:"supportModels,omitempty"`
+	ExcludeFromExport    bool            `json:"excludeFromExport,omitempty"`
 }
 
 // BackupProject represents a project for backup (using slug as identifier)

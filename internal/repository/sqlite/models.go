@@ -95,6 +95,7 @@ type Provider struct {
 	Config               LongText
 	SupportedClientTypes LongText
 	SupportModels        LongText
+	ExcludeFromExport    int `gorm:"default:0"`
 }
 
 func (Provider) TableName() string { return "providers" }

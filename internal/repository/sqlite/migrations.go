@@ -119,7 +119,7 @@ var migrations = []Migration{
 
 			// 2. Update all existing rows to belong to default tenant
 			for _, table := range tenantScopedTables {
-				result := db.Exec("UPDATE "+table+" SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
+				result := db.Exec("UPDATE " + table + " SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
 				if result.Error != nil {
 					log.Printf("[Migration] Warning: Failed to update tenant_id for %s: %v", table, result.Error)
 					// Continue with other tables
@@ -203,6 +203,15 @@ var migrations = []Migration{
 				}
 			}
 			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			return nil
+		},
+	}, {
+		Version:     7,
+		Description: "Backfill providers.exclude_from_export defaults to 0",
+		Up: func(db *gorm.DB) error {
+			return db.Exec("UPDATE providers SET exclude_from_export = 0 WHERE exclude_from_export IS NULL").Error
 		},
 		Down: func(db *gorm.DB) error {
 			return nil
