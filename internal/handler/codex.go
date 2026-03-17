@@ -603,10 +603,11 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 
 		config := provider.Config.Codex
 		email := config.Email
+		identityKey := domain.CodexQuotaIdentityKey(config.Email, config.AccountID)
 
 		// 优先从数据库获取缓存的配额（无论是否过期）
-		if email != "" && h.quotaRepo != nil {
-			cachedQuota, err := h.quotaRepo.GetByEmail(tenantID, email)
+		if identityKey != "" && h.quotaRepo != nil {
+			cachedQuota, err := h.quotaRepo.GetByIdentityKey(tenantID, identityKey)
 			if err == nil && cachedQuota != nil {
 				result.Quotas[provider.ID] = h.domainQuotaToResponse(cachedQuota)
 				continue
@@ -680,11 +681,12 @@ func (h *CodexHandler) isTokenExpired(expiresAt string) bool {
 
 // saveQuotaToDB saves Codex quota to database
 func (h *CodexHandler) saveQuotaToDB(email, accountID, planType string, usage *codex.CodexUsageResponse, isForbidden bool) {
-	if h.quotaRepo == nil || email == "" {
+	if h.quotaRepo == nil || domain.CodexQuotaIdentityKey(email, accountID) == "" {
 		return
 	}
 
 	quota := &domain.CodexQuota{
+		IdentityKey: domain.CodexQuotaIdentityKey(email, accountID),
 		Email:       email,
 		AccountID:   accountID,
 		PlanType:    planType,

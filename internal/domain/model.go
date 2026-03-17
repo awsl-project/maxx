@@ -651,7 +651,7 @@ type CodexRateLimitInfo struct {
 	SecondaryWindow *CodexQuotaWindow `json:"secondaryWindow,omitempty"`
 }
 
-// Codex 账户配额（基于邮箱存储）
+// Codex 账户配额（优先按 account_id 区分，回退到 email）
 type CodexQuota struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -663,7 +663,10 @@ type CodexQuota struct {
 	// 所属租户
 	TenantID uint64 `json:"tenantID"`
 
-	// 邮箱作为唯一标识
+	// 配额身份键：优先 account:<account_id>，否则 email:<email>
+	IdentityKey string `json:"identityKey"`
+
+	// 邮箱（展示和回退匹配用）
 	Email string `json:"email"`
 
 	// 账户 ID
@@ -683,6 +686,18 @@ type CodexQuota struct {
 
 	// 代码审查限流
 	CodeReviewWindow *CodexQuotaWindow `json:"codeReviewWindow,omitempty"`
+}
+
+func CodexQuotaIdentityKey(email, accountID string) string {
+	accountID = strings.TrimSpace(accountID)
+	if accountID != "" {
+		return "account:" + accountID
+	}
+	email = strings.TrimSpace(email)
+	if email != "" {
+		return "email:" + email
+	}
+	return ""
 }
 
 // Provider 统计信息

@@ -249,8 +249,9 @@ func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 // CodexQuota model
 type CodexQuota struct {
 	SoftDeleteModel
-	TenantID         uint64 `gorm:"uniqueIndex:idx_codex_quotas_tenant_email"`
-	Email            string `gorm:"size:255;uniqueIndex:idx_codex_quotas_tenant_email"`
+	TenantID         uint64 `gorm:"uniqueIndex:idx_codex_quotas_tenant_identity"`
+	IdentityKey      string `gorm:"size:255;column:identity_key;uniqueIndex:idx_codex_quotas_tenant_identity"`
+	Email            string `gorm:"size:255;index:idx_codex_quotas_email"`
 	AccountID        string `gorm:"size:128;column:account_id"`
 	PlanType         string `gorm:"size:64"`
 	IsForbidden      int

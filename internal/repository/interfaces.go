@@ -191,8 +191,10 @@ type AntigravityQuotaRepository interface {
 }
 
 type CodexQuotaRepository interface {
-	// Upsert 更新或插入配额（基于邮箱）
+	// Upsert 更新或插入配额（优先基于 identityKey，其次回退邮箱）
 	Upsert(quota *domain.CodexQuota) error
+	// GetByIdentityKey 根据身份键获取配额
+	GetByIdentityKey(tenantID uint64, identityKey string) (*domain.CodexQuota, error)
 	// GetByEmail 根据邮箱获取配额
 	GetByEmail(tenantID uint64, email string) (*domain.CodexQuota, error)
 	// List 获取所有配额
