@@ -2,9 +2,11 @@ package sqlite
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
+	"gorm.io/gorm"
 )
 
 func TestIsMySQLDuplicateIndexError(t *testing.T) {
@@ -42,6 +44,38 @@ func TestDedupeCodexQuotaIdentityRows(t *testing.T) {
 	defer db.Close()
 
 	gormDB := db.GormDB()
+	prepareCodexQuotaDedupeFixture(t, gormDB)
+
+	if err := dedupeCodexQuotaIdentityRows(gormDB); err != nil {
+		t.Fatalf("dedupe identities: %v", err)
+	}
+
+	assertCodexQuotaFixtureCounts(t, gormDB)
+}
+
+func TestCodexQuotaIdentityMigrationV9Up(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open sqlite db: %v", err)
+	}
+	defer db.Close()
+
+	gormDB := db.GormDB()
+	prepareCodexQuotaMigrationFixture(t, gormDB)
+
+	migration := findMigrationByVersion(t, 9)
+	if err := migration.Up(gormDB); err != nil {
+		t.Fatalf("run migration v9 up: %v", err)
+	}
+
+	assertCodexQuotaPostMigrationState(t, gormDB)
+	assertIndexExists(t, gormDB, "idx_codex_quotas_tenant_identity", true)
+	assertIndexExists(t, gormDB, "idx_codex_quotas_email", false)
+	assertIndexMissing(t, gormDB, "idx_codex_quotas_tenant_email")
+}
+
+func prepareCodexQuotaDedupeFixture(t *testing.T, gormDB *gorm.DB) {
+	t.Helper()
 	if err := gormDB.Exec(`DROP TABLE IF EXISTS codex_quotas`).Error; err != nil {
 		t.Fatalf("drop table: %v", err)
 	}
@@ -58,7 +92,6 @@ func TestDedupeCodexQuotaIdentityRows(t *testing.T) {
 	`).Error; err != nil {
 		t.Fatalf("create table: %v", err)
 	}
-
 	inserts := []string{
 		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, 'account:acct-1', 'first@example.com', 'acct-1')`,
 		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, 'account:acct-1', 'second@example.com', 'acct-1')`,
@@ -71,11 +104,45 @@ func TestDedupeCodexQuotaIdentityRows(t *testing.T) {
 			t.Fatalf("insert fixture: %v", err)
 		}
 	}
+}
 
-	if err := dedupeCodexQuotaIdentityRows(gormDB); err != nil {
-		t.Fatalf("dedupe identities: %v", err)
+func prepareCodexQuotaMigrationFixture(t *testing.T, gormDB *gorm.DB) {
+	t.Helper()
+	if err := gormDB.Exec(`DROP TABLE IF EXISTS codex_quotas`).Error; err != nil {
+		t.Fatalf("drop table: %v", err)
 	}
+	if err := gormDB.Exec(`
+		CREATE TABLE codex_quotas (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant_id INTEGER NOT NULL,
+			identity_key TEXT,
+			email TEXT,
+			account_id TEXT,
+			deleted_at INTEGER DEFAULT 0,
+			updated_at INTEGER DEFAULT 0
+		)
+	`).Error; err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if err := gormDB.Exec(`CREATE UNIQUE INDEX idx_codex_quotas_tenant_email ON codex_quotas(tenant_id, email)`).Error; err != nil {
+		t.Fatalf("create old unique index: %v", err)
+	}
+	inserts := []string{
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'first@example.com', 'acct-1')`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'second@example.com', 'acct-1')`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'third@example.com', 'acct-2')`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (2, NULL, 'other-tenant@example.com', 'acct-1')`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'legacy@example.com', '')`,
+	}
+	for _, sql := range inserts {
+		if err := gormDB.Exec(sql).Error; err != nil {
+			t.Fatalf("insert fixture: %v", err)
+		}
+	}
+}
 
+func assertCodexQuotaFixtureCounts(t *testing.T, gormDB *gorm.DB) {
+	t.Helper()
 	var duplicateCount int64
 	if err := gormDB.Raw(`SELECT COUNT(*) FROM codex_quotas WHERE tenant_id = 1 AND identity_key = 'account:acct-1'`).Scan(&duplicateCount).Error; err != nil {
 		t.Fatalf("count duplicate rows: %v", err)
@@ -98,5 +165,75 @@ func TestDedupeCodexQuotaIdentityRows(t *testing.T) {
 	}
 	if nullIdentityCount != 1 {
 		t.Fatalf("expected null identity rows to be preserved, got %d", nullIdentityCount)
+	}
+}
+
+func assertCodexQuotaPostMigrationState(t *testing.T, gormDB *gorm.DB) {
+	t.Helper()
+	var duplicateCount int64
+	if err := gormDB.Raw(`SELECT COUNT(*) FROM codex_quotas WHERE tenant_id = 1 AND identity_key = 'account:acct-1'`).Scan(&duplicateCount).Error; err != nil {
+		t.Fatalf("count duplicate rows: %v", err)
+	}
+	if duplicateCount != 1 {
+		t.Fatalf("expected migrated duplicate identity rows to collapse to 1, got %d", duplicateCount)
+	}
+
+	var tenant2Count int64
+	if err := gormDB.Raw(`SELECT COUNT(*) FROM codex_quotas WHERE tenant_id = 2 AND identity_key = 'account:acct-1'`).Scan(&tenant2Count).Error; err != nil {
+		t.Fatalf("count tenant 2 rows: %v", err)
+	}
+	if tenant2Count != 1 {
+		t.Fatalf("expected tenant 2 migrated row to be preserved, got %d", tenant2Count)
+	}
+
+	var legacyEmailCount int64
+	if err := gormDB.Raw(`SELECT COUNT(*) FROM codex_quotas WHERE tenant_id = 1 AND identity_key = 'email:legacy@example.com'`).Scan(&legacyEmailCount).Error; err != nil {
+		t.Fatalf("count legacy email rows: %v", err)
+	}
+	if legacyEmailCount != 1 {
+		t.Fatalf("expected legacy null identity row to backfill to email identity, got %d", legacyEmailCount)
+	}
+}
+
+func findMigrationByVersion(t *testing.T, version int) Migration {
+	t.Helper()
+	for _, migration := range migrations {
+		if migration.Version == version {
+			return migration
+		}
+	}
+	t.Fatalf("migration v%d not found", version)
+	return Migration{}
+}
+
+func assertIndexExists(t *testing.T, gormDB *gorm.DB, name string, wantUnique bool) {
+	t.Helper()
+	var rows []struct {
+		Name   string `gorm:"column:name"`
+		Unique int    `gorm:"column:unique"`
+	}
+	if err := gormDB.Raw(`PRAGMA index_list('codex_quotas')`).Scan(&rows).Error; err != nil {
+		t.Fatalf("list indexes: %v", err)
+	}
+	for _, row := range rows {
+		if row.Name == name {
+			if (row.Unique == 1) != wantUnique {
+				t.Fatalf("index %s unique=%v, want %v", name, row.Unique == 1, wantUnique)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected index %s to exist; got %v", name, rows)
+}
+
+func assertIndexMissing(t *testing.T, gormDB *gorm.DB, name string) {
+	t.Helper()
+	var count int64
+	query := fmt.Sprintf("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='%s'", name)
+	if err := gormDB.Raw(query).Scan(&count).Error; err != nil {
+		t.Fatalf("check index missing: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected index %s to be missing, got count %d", name, count)
 	}
 }
