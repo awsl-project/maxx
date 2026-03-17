@@ -618,6 +618,7 @@ test('requests page remains responsive during 1 minute mixed live stress', async
     }
 
     await trafficPromise;
+    await page.waitForTimeout(300);
     samples.push(await collectStressSample(page, provider.id, jwt, startedAt));
 
     const finalList = await adminAPI(

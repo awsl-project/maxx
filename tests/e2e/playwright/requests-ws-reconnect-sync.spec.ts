@@ -418,6 +418,12 @@ test('requests page resyncs list and count after ws reconnect', async ({ page })
     });
 
     await expect
+      .poll(async () => (await page.textContent('[data-testid="requests-count"]'))?.trim(), {
+        timeout: 20_000,
+      })
+      .toBe('2');
+
+    await expect
       .poll(
         async () => {
           const slow = await getRowByModel(page, slowModel);
