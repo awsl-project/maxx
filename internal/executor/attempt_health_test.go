@@ -78,3 +78,42 @@ func TestRecordAttemptHealthMarksWrappedNetworkProxyError(t *testing.T) {
 		t.Fatalf("tracker record = %#v, want IsNetwork=true", tracker.records[0])
 	}
 }
+
+func TestNormalizeAttemptErrorPrefersAttemptDeadlineOverRawNetworkClassification(t *testing.T) {
+	exec := &Executor{}
+	attemptCtx, cancel := context.WithDeadline(context.Background(), time.Now())
+	defer cancel()
+	<-attemptCtx.Done()
+
+	err := exec.normalizeAttemptError(context.Background(), attemptCtx, nil, context.DeadlineExceeded, false)
+
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("error type = %T, want *domain.ProxyError", err)
+	}
+	if proxyErr.HTTPStatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("HTTPStatusCode = %d, want %d", proxyErr.HTTPStatusCode, http.StatusGatewayTimeout)
+	}
+	if !errors.Is(proxyErr.Err, context.DeadlineExceeded) {
+		t.Fatalf("ProxyError.Err = %v, want context.DeadlineExceeded", proxyErr.Err)
+	}
+}
+
+func TestNormalizeResponseStartedErrorPrefersAttemptDeadlineOverRawNetworkClassification(t *testing.T) {
+	attemptCtx, cancel := context.WithDeadline(context.Background(), time.Now())
+	defer cancel()
+	<-attemptCtx.Done()
+
+	err := normalizeResponseStartedError(attemptCtx, nil, context.DeadlineExceeded)
+
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("error type = %T, want *domain.ProxyError", err)
+	}
+	if proxyErr.HTTPStatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("HTTPStatusCode = %d, want %d", proxyErr.HTTPStatusCode, http.StatusGatewayTimeout)
+	}
+	if !errors.Is(proxyErr.Err, context.DeadlineExceeded) {
+		t.Fatalf("ProxyError.Err = %v, want context.DeadlineExceeded", proxyErr.Err)
+	}
+}

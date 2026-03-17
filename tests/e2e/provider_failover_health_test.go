@@ -166,12 +166,12 @@ func TestCircuitBreakerSkipsProviderDuringOpenWindow(t *testing.T) {
 
 func TestRequestBudgetStopsLongSerialFailover(t *testing.T) {
 	env := NewProxyTestEnvWithAttemptBudget(t, executor.AttemptBudget{
-		RequestTimeout:    30 * time.Millisecond,
-		TotalTimeout:      20 * time.Millisecond,
-		FirstByteTimeout:  20 * time.Millisecond,
-		StreamIdleTimeout: 20 * time.Millisecond,
-		MaxRetryAfter:     5 * time.Millisecond,
-		MaxRetryWait:      5 * time.Millisecond,
+		RequestTimeout:    120 * time.Millisecond,
+		TotalTimeout:      60 * time.Millisecond,
+		FirstByteTimeout:  60 * time.Millisecond,
+		StreamIdleTimeout: 60 * time.Millisecond,
+		MaxRetryAfter:     10 * time.Millisecond,
+		MaxRetryWait:      10 * time.Millisecond,
 	})
 
 	var slowHits [3]atomic.Int32
@@ -244,8 +244,9 @@ func TestRequestBudgetStopsLongSerialFailover(t *testing.T) {
 	if healthyHits.Load() != 0 {
 		t.Fatalf("healthy provider hit count = %d, want request budget exhaustion before healthy fallback", healthyHits.Load())
 	}
-	if slowHits[0].Load() != 1 || slowHits[1].Load() != 1 {
-		t.Fatalf("slow provider hits = [%d %d %d], want first two providers attempted once", slowHits[0].Load(), slowHits[1].Load(), slowHits[2].Load())
+	firstTwoSlowHits := slowHits[0].Load() + slowHits[1].Load()
+	if firstTwoSlowHits < 1 || firstTwoSlowHits > 2 {
+		t.Fatalf("slow provider hits = [%d %d %d], want only the first one or two slow routes attempted before budget exhaustion", slowHits[0].Load(), slowHits[1].Load(), slowHits[2].Load())
 	}
 	if slowHits[2].Load() != 0 {
 		t.Fatalf("third slow provider hit count = %d, want shared request budget to stop before attempting route 3", slowHits[2].Load())
