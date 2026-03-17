@@ -318,7 +318,13 @@ func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
 			JOIN codex_quotas AS keeper
 			  ON doomed.tenant_id = keeper.tenant_id
 			 AND doomed.identity_key = keeper.identity_key
-			 AND doomed.id > keeper.id
+			 AND (
+				COALESCE(keeper.updated_at, 0) > COALESCE(doomed.updated_at, 0)
+				OR (
+					COALESCE(keeper.updated_at, 0) = COALESCE(doomed.updated_at, 0)
+					AND keeper.id < doomed.id
+				)
+			 )
 			WHERE doomed.identity_key IS NOT NULL
 			  AND TRIM(doomed.identity_key) != ''
 		`).Error
@@ -331,7 +337,13 @@ func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
 				JOIN codex_quotas AS keeper
 				  ON doomed.tenant_id = keeper.tenant_id
 				 AND doomed.identity_key = keeper.identity_key
-				 AND doomed.id > keeper.id
+				 AND (
+					COALESCE(keeper.updated_at, 0) > COALESCE(doomed.updated_at, 0)
+					OR (
+						COALESCE(keeper.updated_at, 0) = COALESCE(doomed.updated_at, 0)
+						AND keeper.id < doomed.id
+					)
+				 )
 				WHERE doomed.identity_key IS NOT NULL
 				  AND TRIM(doomed.identity_key) != ''
 			)

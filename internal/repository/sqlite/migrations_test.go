@@ -117,11 +117,11 @@ func prepareCodexQuotaDedupeFixture(t *testing.T, gormDB *gorm.DB) {
 		t.Fatalf("create table: %v", err)
 	}
 	inserts := []string{
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, 'account:acct-1', 'first@example.com', 'acct-1')`,
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, 'account:acct-1', 'second@example.com', 'acct-1')`,
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, 'account:acct-2', 'third@example.com', 'acct-2')`,
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (2, 'account:acct-1', 'other-tenant@example.com', 'acct-1')`,
-		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id) VALUES (1, NULL, 'legacy@example.com', '')`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (1, 'account:acct-1', 'first@example.com', 'acct-1', 100)`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (1, 'account:acct-1', 'second@example.com', 'acct-1', 200)`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (1, 'account:acct-2', 'third@example.com', 'acct-2', 150)`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (2, 'account:acct-1', 'other-tenant@example.com', 'acct-1', 120)`,
+		`INSERT INTO codex_quotas (tenant_id, identity_key, email, account_id, updated_at) VALUES (1, NULL, 'legacy@example.com', '', 90)`,
 	}
 	for _, sql := range inserts {
 		if err := gormDB.Exec(sql).Error; err != nil {
