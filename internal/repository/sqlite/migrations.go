@@ -211,12 +211,9 @@ var migrations = []Migration{
 		Version:     7,
 		Description: "Backfill providers.exclude_from_export defaults to 0",
 		Up: func(db *gorm.DB) error {
-<<<<<<< fix/issue-413-requests-ws-reconnect-sync
 			if !db.Migrator().HasColumn(&Provider{}, "exclude_from_export") {
 				return nil
 			}
-=======
->>>>>>> main
 			return db.Exec("UPDATE providers SET exclude_from_export = 0 WHERE exclude_from_export IS NULL").Error
 		},
 		Down: func(db *gorm.DB) error {
@@ -224,18 +221,12 @@ var migrations = []Migration{
 		},
 	},
 	{
-<<<<<<< fix/issue-413-requests-ws-reconnect-sync
 		Version:     8,
 		Description: "Make Codex quota identity account-aware to avoid same-email quota collisions",
 		Up: func(db *gorm.DB) error {
 			if !db.Migrator().HasColumn(&CodexQuota{}, "identity_key") {
 				return nil
 			}
-=======
-		Version:     7,
-		Description: "Make Codex quota identity account-aware to avoid same-email quota collisions",
-		Up: func(db *gorm.DB) error {
->>>>>>> main
 			var backfillSQL string
 			switch db.Dialector.Name() {
 			case "mysql":
@@ -288,12 +279,9 @@ var migrations = []Migration{
 			return nil
 		},
 		Down: func(db *gorm.DB) error {
-<<<<<<< fix/issue-413-requests-ws-reconnect-sync
 			if !db.Migrator().HasColumn(&CodexQuota{}, "identity_key") {
 				return nil
 			}
-=======
->>>>>>> main
 			switch db.Dialector.Name() {
 			case "mysql":
 				if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_identity ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
