@@ -1075,6 +1075,7 @@
     "project": "Project",
     "usage": "Usage",
     "lastUsed": "Last Used",
+    "recentIP": "Recent IP",
     "never": "Never",
     "active": "Active",
     "expired": "Expired",

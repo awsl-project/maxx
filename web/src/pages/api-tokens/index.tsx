@@ -274,6 +274,17 @@ export function APITokensPage() {
     return new Date(token.expiresAt) < new Date();
   };
 
+  const formatDateTime = (value?: string) => {
+    if (!value) return t('apiTokens.never');
+    return new Date(value).toLocaleString(i18n.resolvedLanguage ?? i18n.language, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   return (
     <div className="flex flex-col h-full bg-background">
       <PageHeader
@@ -364,6 +375,7 @@ export function APITokensPage() {
                       <TableHead>{t('apiTokens.project')}</TableHead>
                       <TableHead>{t('common.status')}</TableHead>
                       <TableHead>{t('apiTokens.usage')}</TableHead>
+                      <TableHead>{t('apiTokens.recentIP')}</TableHead>
                       <TableHead>{t('apiTokens.lastUsed')}</TableHead>
                       <TableHead className="text-right">{t('common.actions')}</TableHead>
                     </TableRow>
@@ -433,17 +445,25 @@ export function APITokensPage() {
                           </div>
                         </TableCell>
                         <TableCell>
+                          {token.lastIP ? (
+                            <div className="space-y-1 text-xs">
+                              <code className="inline-flex rounded bg-surface-secondary px-2 py-1 font-mono text-text-secondary">
+                                {token.lastIP}
+                              </code>
+                              <div className="flex items-center gap-1 text-text-muted">
+                                <Clock className="h-3 w-3" />
+                                {formatDateTime(token.lastIPAt)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-text-muted">{t('apiTokens.never')}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
                           {token.lastUsedAt ? (
                             <div className="flex items-center gap-1 text-xs text-text-muted">
                               <Clock className="h-3 w-3" />
-                              {new Date(token.lastUsedAt).toLocaleDateString(
-                                i18n.resolvedLanguage ?? i18n.language,
-                                {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric',
-                                },
-                              )}
+                              {formatDateTime(token.lastUsedAt)}
                             </div>
                           ) : (
                             <span className="text-xs text-text-muted">{t('apiTokens.never')}</span>

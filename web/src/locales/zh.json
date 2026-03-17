@@ -1075,6 +1075,7 @@
     "project": "项目",
     "usage": "使用次数",
     "lastUsed": "最后使用",
+    "recentIP": "最近 IP",
     "never": "从未",
     "active": "活跃",
     "expired": "已过期",

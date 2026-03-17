@@ -802,6 +802,12 @@ type APIToken struct {
 	// 最后使用时间
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 
+	// 最近一次使用的来源 IP
+	LastIP string `json:"lastIP,omitempty"`
+
+	// 最近一次来源 IP 的记录时间
+	LastIPAt *time.Time `json:"lastIPAt,omitempty"`
+
 	// 使用次数
 	UseCount uint64 `json:"useCount"`
 

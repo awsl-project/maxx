@@ -826,6 +826,8 @@ export interface APIToken {
   devMode: boolean;
   expiresAt?: string;
   lastUsedAt?: string;
+  lastIP?: string;
+  lastIPAt?: string;
   useCount: number;
 }
 

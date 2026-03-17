@@ -259,7 +259,7 @@ type APITokenRepository interface {
 	GetByID(tenantID uint64, id uint64) (*domain.APIToken, error)
 	GetByToken(tenantID uint64, token string) (*domain.APIToken, error)
 	List(tenantID uint64) ([]*domain.APIToken, error)
-	IncrementUseCount(tenantID uint64, id uint64) error
+	UpdateLastSeen(tenantID uint64, id uint64, lastIP string, lastSeenAt time.Time) error
 }
 
 type ModelMappingRepository interface {

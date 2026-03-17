@@ -175,6 +175,8 @@ type APIToken struct {
 	DevMode     int `gorm:"default:0"`
 	ExpiresAt   int64
 	LastUsedAt  int64
+	LastIP      string `gorm:"size:64"`
+	LastIPAt    int64
 	UseCount    uint64
 }
 
