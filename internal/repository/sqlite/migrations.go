@@ -309,6 +309,36 @@ var migrations = []Migration{
 	},
 }
 
+func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
+	switch db.Dialector.Name() {
+	case "mysql":
+		return db.Exec(`
+			DELETE doomed
+			FROM codex_quotas AS doomed
+			JOIN codex_quotas AS keeper
+			  ON doomed.tenant_id = keeper.tenant_id
+			 AND doomed.identity_key = keeper.identity_key
+			 AND doomed.id > keeper.id
+			WHERE doomed.identity_key IS NOT NULL
+			  AND TRIM(doomed.identity_key) != ''
+		`).Error
+	default:
+		return db.Exec(`
+			DELETE FROM codex_quotas
+			WHERE id IN (
+				SELECT doomed.id
+				FROM codex_quotas AS doomed
+				JOIN codex_quotas AS keeper
+				  ON doomed.tenant_id = keeper.tenant_id
+				 AND doomed.identity_key = keeper.identity_key
+				 AND doomed.id > keeper.id
+				WHERE doomed.identity_key IS NOT NULL
+				  AND TRIM(doomed.identity_key) != ''
+			)
+		`).Error
+	}
+}
+
 func isMySQLDuplicateIndexError(err error) bool {
 	if err == nil {
 		return false
