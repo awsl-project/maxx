@@ -174,7 +174,6 @@ export function AntigravityTokenImport() {
       const providerData: CreateProviderData = {
         type: 'antigravity',
         name: finalEmail || 'Antigravity Account',
-        excludeFromExport: false,
         config: {
           antigravity: {
             email: finalEmail,

@@ -287,8 +287,7 @@ export function KiroProviderView({ provider, onDelete, onClose }: KiroProviderVi
         id: provider.id,
         data: {
           ...provider,
-          excludeFromExport: !!provider.excludeFromExport,
-        config: {
+          config: {
             ...provider.config,
             disableErrorCooldown: checked,
             kiro: {

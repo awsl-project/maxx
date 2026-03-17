@@ -119,7 +119,7 @@ var migrations = []Migration{
 
 			// 2. Update all existing rows to belong to default tenant
 			for _, table := range tenantScopedTables {
-				result := db.Exec("UPDATE " + table + " SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
+				result := db.Exec("UPDATE "+table+" SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
 				if result.Error != nil {
 					log.Printf("[Migration] Warning: Failed to update tenant_id for %s: %v", table, result.Error)
 					// Continue with other tables

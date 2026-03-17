@@ -238,8 +238,7 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
         id: provider.id,
         data: {
           ...provider,
-          excludeFromExport: !!provider.excludeFromExport,
-        config: {
+          config: {
             ...provider.config,
             disableErrorCooldown: checked,
             claude: config,

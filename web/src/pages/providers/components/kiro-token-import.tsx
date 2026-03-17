@@ -76,7 +76,6 @@ export function KiroTokenImport() {
       const providerData: CreateProviderData = {
         type: 'kiro',
         name: finalEmail || 'Kiro Account',
-        excludeFromExport: false,
         config: {
           kiro: {
             authMethod: 'social',

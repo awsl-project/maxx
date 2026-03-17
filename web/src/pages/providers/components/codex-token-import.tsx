@@ -236,7 +236,6 @@ export function CodexTokenImport() {
       const providerData: CreateProviderData = {
         type: 'codex',
         name: oauthResult.email || 'Codex Account',
-        excludeFromExport: false,
         config: {
           codex: {
             email: oauthResult.email || '',

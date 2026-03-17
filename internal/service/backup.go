@@ -119,7 +119,6 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 			Config:               p.Config,
 			SupportedClientTypes: p.SupportedClientTypes,
 			SupportModels:        p.SupportModels,
-			ExcludeFromExport:    p.ExcludeFromExport,
 		})
 	}
 
