@@ -1196,6 +1196,7 @@
     "apiEndpoint": "API Endpoint",
     "apiKey": "API Key",
     "apiKeyEdit": "API Key (leave empty to keep current)",
+    "apiKeyHiddenForExcluded": "API key editing is unavailable because this provider is excluded from export and backup. Disable that setting on creation if you need to rotate the key here.",
     "optionalUrlNote": "Optional if client-specific URLs are set below.",
     "namePlaceholder": "e.g. Production OpenAI",
     "endpointPlaceholder": "https://api.openai.com/v1",

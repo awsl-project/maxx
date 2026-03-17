@@ -1196,6 +1196,7 @@
     "apiEndpoint": "API 端点",
     "apiKey": "API 密钥",
     "apiKeyEdit": "API 密钥（留空保持当前值）",
+    "apiKeyHiddenForExcluded": "由于该提供商已设置为“从导出与备份中排除”，这里暂不提供 API 密钥编辑。若需要在此轮换密钥，请在创建时关闭该设置。",
     "optionalUrlNote": "如果下面设置了客户端特定的 URL，则此项为可选。",
     "namePlaceholder": "例如：Production OpenAI",
     "endpointPlaceholder": "https://api.openai.com/v1",

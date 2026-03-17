@@ -634,9 +634,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 />
               </div>
 
-              <div
-                className={`grid grid-cols-1 gap-6 ${shouldShowApiKeyField ? 'md:grid-cols-2' : ''}`}
-              >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
@@ -661,7 +659,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   </p>
                 </div>
 
-                {shouldShowApiKeyField && (
+                {shouldShowApiKeyField ? (
                   <div>
                     <label className="text-sm font-medium text-foreground block mb-2">
                       <div className="flex items-center gap-2">
@@ -685,6 +683,18 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       >
                         {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-sm font-medium text-foreground block mb-2">
+                      <div className="flex items-center gap-2">
+                        <Key size={14} />
+                        <span>{t('provider.apiKeyEdit')}</span>
+                      </div>
+                    </label>
+                    <div className="p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
+                      {t('provider.apiKeyHiddenForExcluded')}
                     </div>
                   </div>
                 )}
