@@ -95,6 +95,7 @@ type Provider struct {
 	Config               LongText
 	SupportedClientTypes LongText
 	SupportModels        LongText
+	ExcludeFromExport    int `gorm:"default:0"`
 }
 
 func (Provider) TableName() string { return "providers" }
@@ -176,6 +177,8 @@ type APIToken struct {
 	DevMode     int `gorm:"default:0"`
 	ExpiresAt   int64
 	LastUsedAt  int64
+	LastIP      string `gorm:"size:64"`
+	LastIPAt    int64
 	UseCount    uint64
 }
 
@@ -250,8 +253,9 @@ func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 // CodexQuota model
 type CodexQuota struct {
 	SoftDeleteModel
-	TenantID         uint64 `gorm:"uniqueIndex:idx_codex_quotas_tenant_email"`
-	Email            string `gorm:"size:255;uniqueIndex:idx_codex_quotas_tenant_email"`
+	TenantID         uint64 `gorm:"uniqueIndex:idx_codex_quotas_tenant_identity"`
+	IdentityKey      string `gorm:"size:255;column:identity_key;uniqueIndex:idx_codex_quotas_tenant_identity"`
+	Email            string `gorm:"size:255;index:idx_codex_quotas_email"`
 	AccountID        string `gorm:"size:128;column:account_id"`
 	PlanType         string `gorm:"size:64"`
 	IsForbidden      int

@@ -385,6 +385,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        excludeFromExport: !!provider.excludeFromExport,
       };
 
       await updateProvider.mutateAsync({ id: Number(provider.id), data });
@@ -446,6 +447,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        excludeFromExport: !!provider.excludeFromExport,
       };
 
       const newProvider = await createProvider.mutateAsync(data);
@@ -675,11 +677,16 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      tabIndex={-1}
+                      aria-label={showApiKey ? t('common.hide') : t('common.show')}
                     >
                       {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {provider.excludeFromExport && (
+                    <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
+                      {t('provider.apiKeyExcludedHint')}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

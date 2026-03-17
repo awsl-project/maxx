@@ -166,8 +166,14 @@ func (s *AdminService) ExportProviders(tenantID uint64) ([]*domain.Provider, err
 	if err != nil {
 		return nil, err
 	}
-	// Return as-is, the handler will handle JSON serialization
-	return providers, nil
+	filtered := make([]*domain.Provider, 0, len(providers))
+	for _, provider := range providers {
+		if provider.ExcludeFromExport {
+			continue
+		}
+		filtered = append(filtered, provider)
+	}
+	return filtered, nil
 }
 
 // ImportProviders imports providers from exported data

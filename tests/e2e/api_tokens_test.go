@@ -255,3 +255,57 @@ func TestCreateAPIToken_WithExpiry(t *testing.T) {
 		t.Fatal("Expected expiresAt to persist after retrieval")
 	}
 }
+
+func TestAPITokenLastIPIsReturnedAfterProxyRequest(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockOpenAIUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai", mock.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = env.AdminPost("/api/admin/api-tokens", map[string]any{
+		"name":        "ip-audit-token",
+		"description": "Token for IP tracking",
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	tokenStr, ok := created["token"].(string)
+	if !ok || tokenStr == "" {
+		t.Fatalf("Expected token string, got %v", created["token"])
+	}
+
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), map[string]string{
+		"Authorization":   "Bearer " + tokenStr,
+		"X-Forwarded-For": "198.51.100.42",
+	})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		resp = env.doRequest(http.MethodGet, "/api/admin/api-tokens", nil, env.Token)
+		AssertStatus(t, resp, http.StatusOK)
+
+		var tokens []map[string]any
+		DecodeJSON(t, resp, &tokens)
+		if len(tokens) != 1 {
+			t.Fatalf("Expected 1 api token, got %d", len(tokens))
+		}
+
+		if tokens[0]["lastIP"] == "198.51.100.42" && tokens[0]["lastIPAt"] != nil && tokens[0]["lastUsedAt"] != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Expected lastIP/lastIPAt/lastUsedAt to be populated, got %+v", tokens[0])
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

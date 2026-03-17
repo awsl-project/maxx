@@ -117,8 +117,11 @@ func (r *APITokenRepository) List(tenantID uint64) ([]*domain.APIToken, error) {
 	return r.repo.List(tenantID)
 }
 
-func (r *APITokenRepository) IncrementUseCount(tenantID uint64, id uint64) error {
-	if err := r.repo.IncrementUseCount(tenantID, id); err != nil {
+func (r *APITokenRepository) UpdateLastSeen(tenantID uint64, id uint64, lastIP string, lastSeenAt time.Time) error {
+	if lastSeenAt.IsZero() {
+		lastSeenAt = time.Now()
+	}
+	if err := r.repo.UpdateLastSeen(tenantID, id, lastIP, lastSeenAt); err != nil {
 		return err
 	}
 
@@ -126,8 +129,11 @@ func (r *APITokenRepository) IncrementUseCount(tenantID uint64, id uint64) error
 	r.mu.Lock()
 	if t, ok := r.cache[id]; ok {
 		t.UseCount++
-		now := time.Now()
-		t.LastUsedAt = &now
+		t.LastUsedAt = &lastSeenAt
+		if lastIP != "" {
+			t.LastIP = lastIP
+			t.LastIPAt = &lastSeenAt
+		}
 	}
 	r.mu.Unlock()
 	return nil

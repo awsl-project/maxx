@@ -144,11 +144,13 @@ func (m *TokenAuthMiddleware) ValidateRequest(req *http.Request, clientType doma
 	}
 
 	// Update usage (async to not block request)
-	go func() {
-		if err := m.tokenRepo.IncrementUseCount(apiToken.TenantID, apiToken.ID); err != nil {
-			log.Printf("[TokenAuth] Failed to increment token use count for ID %d: %v", apiToken.ID, err)
+	lastSeenAt := time.Now()
+	clientIP := strings.TrimSpace(getClientIP(req))
+	go func(tenantID uint64, tokenID uint64, lastIP string, seenAt time.Time) {
+		if err := m.tokenRepo.UpdateLastSeen(tenantID, tokenID, lastIP, seenAt); err != nil {
+			log.Printf("[TokenAuth] Failed to update token last seen for ID %d: %v", tokenID, err)
 		}
-	}()
+	}(apiToken.TenantID, apiToken.ID, clientIP, lastSeenAt)
 
 	return apiToken, nil
 }

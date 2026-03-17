@@ -205,12 +205,13 @@ func (s *CodexTaskService) isTokenExpired(expiresAt string) bool {
 
 // saveQuotaToDB saves Codex quota to database
 func (s *CodexTaskService) saveQuotaToDB(tenantID uint64, email, accountID, planType string, usage *codex.CodexUsageResponse, isForbidden bool) {
-	if s.quotaRepo == nil || email == "" {
+	if s.quotaRepo == nil || domain.CodexQuotaIdentityKey(email, accountID) == "" {
 		return
 	}
 
 	quota := &domain.CodexQuota{
 		TenantID:    tenantID,
+		IdentityKey: domain.CodexQuotaIdentityKey(email, accountID),
 		Email:       email,
 		AccountID:   accountID,
 		PlanType:    planType,
@@ -303,9 +304,11 @@ func (s *CodexTaskService) autoSortRoutesForTenant(ctx context.Context, tenantID
 	}
 	log.Printf("[CodexTask] Tenant %d: found %d quotas in database", tenantID, len(quotas))
 
-	quotaByEmail := make(map[string]*domain.CodexQuota)
+	quotaByIdentity := make(map[string]*domain.CodexQuota)
 	for _, q := range quotas {
-		quotaByEmail[q.Email] = q
+		if key := domain.CodexQuotaIdentityKey(q.Email, q.AccountID); key != "" {
+			quotaByIdentity[key] = q
+		}
 	}
 
 	// Collect all unique scopes
@@ -320,7 +323,7 @@ func (s *CodexTaskService) autoSortRoutesForTenant(ctx context.Context, tenantID
 
 	var allUpdates []domain.RoutePositionUpdate
 	for sc := range scopes {
-		updates := s.sortRoutesForScope(routes, providerMap, quotaByEmail, sc.clientType, sc.projectID)
+		updates := s.sortRoutesForScope(routes, providerMap, quotaByIdentity, sc.clientType, sc.projectID)
 		allUpdates = append(allUpdates, updates...)
 	}
 
@@ -340,7 +343,7 @@ func (s *CodexTaskService) autoSortRoutesForTenant(ctx context.Context, tenantID
 func (s *CodexTaskService) sortRoutesForScope(
 	routes []*domain.Route,
 	providerMap map[uint64]*domain.Provider,
-	quotaByEmail map[string]*domain.CodexQuota,
+	quotaByIdentity map[string]*domain.CodexQuota,
 	clientType domain.ClientType,
 	projectID uint64,
 ) []domain.RoutePositionUpdate {
@@ -380,8 +383,8 @@ func (s *CodexTaskService) sortRoutesForScope(
 		var remainingPercent *float64
 
 		if provider.Config != nil && provider.Config.Codex != nil {
-			email := provider.Config.Codex.Email
-			if quota := quotaByEmail[email]; quota != nil && !quota.IsForbidden {
+			identityKey := domain.CodexQuotaIdentityKey(provider.Config.Codex.Email, provider.Config.Codex.AccountID)
+			if quota := quotaByIdentity[identityKey]; quota != nil && !quota.IsForbidden {
 				resetTime, remainingPercent = s.getSortKey(quota)
 			}
 		}

@@ -91,7 +91,10 @@ export function useProxyUpstreamAttempts(proxyRequestId: number) {
   });
 }
 
-// 订阅 ProxyRequest 实时更新
+/**
+ * Subscribes to live request events and reconciles React Query caches after
+ * request updates or WebSocket reconnects.
+ */
 export function useProxyRequestUpdates() {
   const queryClient = useQueryClient();
 
@@ -435,6 +438,26 @@ export function useProxyRequestUpdates() {
       },
     );
 
+    const unsubscribeReconnect = transport.subscribe('_ws_reconnected', () => {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+
+      // 断线窗口里的 WS 事件已经不可信，重连后统一走 Query 补偿同步。
+      pendingRequests.clear();
+      pendingAttemptsByRequest.clear();
+      knownRequestIds.clear();
+
+      void queryClient.refetchQueries({ queryKey: requestKeys.lists(), type: 'active' });
+      void queryClient.refetchQueries({ queryKey: [...requestKeys.all, 'infinite'], type: 'active' });
+      void queryClient.refetchQueries({ queryKey: requestKeys.details(), type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['requestsCount'], type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['providers', 'stats'], type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['cooldowns'], type: 'active' });
+    });
+
     return () => {
       if (flushTimer) {
         clearTimeout(flushTimer);
@@ -444,6 +467,7 @@ export function useProxyRequestUpdates() {
       pendingAttemptsByRequest.clear();
       unsubscribeRequest();
       unsubscribeAttempt();
+      unsubscribeReconnect();
     };
   }, [queryClient]);
 }
