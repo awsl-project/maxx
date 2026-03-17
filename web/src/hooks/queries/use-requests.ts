@@ -91,7 +91,10 @@ export function useProxyUpstreamAttempts(proxyRequestId: number) {
   });
 }
 
-// 订阅 ProxyRequest 实时更新
+/**
+ * Subscribes to live request events and reconciles React Query caches after
+ * request updates or WebSocket reconnects.
+ */
 export function useProxyRequestUpdates() {
   const queryClient = useQueryClient();
 

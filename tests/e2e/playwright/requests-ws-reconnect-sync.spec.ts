@@ -21,10 +21,17 @@ const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const ACTIVE_STATUS_RE = /pending|stream|waiting|in progress|等待|传输|绑定/i;
 const TERMINAL_STATUS_RE = /completed|failed|cancelled|rejected|完成|失败|取消|拒绝/i;
 
+/**
+ * Waits for a fixed delay inside the reconnect test mock server.
+ */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Starts a mock Claude-compatible provider whose responses complete while the
+ * requests page WebSocket is intentionally disconnected.
+ */
 function startReconnectMockServer(): Promise<{ server: http.Server; port: number }> {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -86,6 +93,10 @@ function startReconnectMockServer(): Promise<{ server: http.Server; port: number
   });
 }
 
+/**
+ * Reuses the current admin session when possible and falls back to API login
+ * when admin auth is enabled.
+ */
 async function resolveAdminToken() {
   try {
     await adminAPI('GET', '/settings');
@@ -99,6 +110,9 @@ async function resolveAdminToken() {
   }
 }
 
+/**
+ * Opens the requests page with a provider filter preloaded into localStorage.
+ */
 async function openRequestsPage(page: Page, providerId: number) {
   await page.addInitScript((id) => {
     localStorage.setItem(REQUEST_FILTER_MODE_STORAGE_KEY, 'provider');
@@ -117,6 +131,10 @@ async function openRequestsPage(page: Page, providerId: number) {
   }
 }
 
+/**
+ * Installs a browser-side WebSocket shim that can force disconnects and block
+ * reconnect attempts without taking HTTP traffic offline.
+ */
 async function installWebSocketTestHarness(page: Page) {
   await page.addInitScript(() => {
     const NativeWebSocket = window.WebSocket;
@@ -213,12 +231,17 @@ async function installWebSocketTestHarness(page: Page) {
   });
 }
 
-async function sendProjectRequest(url: string, model: string) {
+/**
+ * Sends one project-routed Claude request with an explicit session id so the
+ * reconnect regression does not inherit session bindings from earlier specs.
+ */
+async function sendProjectRequest(url: string, model: string, sessionId: string) {
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01',
+      'X-Session-Id': sessionId,
     },
     body: JSON.stringify({
       model,
@@ -234,6 +257,9 @@ async function sendProjectRequest(url: string, model: string) {
   return text;
 }
 
+/**
+ * Locates the rendered requests table row for an exact request model.
+ */
 async function getRowByModel(page: Page, model: string) {
   return page.locator('tbody tr[data-request-row="true"]', {
     has: page.getByText(model, { exact: true }),
@@ -304,12 +330,13 @@ test('requests page resyncs list and count after ws reconnect', async ({ page })
     const projectURL = `${BASE}/project/${project.slug}/v1/messages`;
     const slowModel = `claude-sonnet-4-20250514__slow-success__issue-413-a-${ts}`;
     const fastModel = `claude-sonnet-4-20250514__fast-success__issue-413-b-${ts}`;
+    const sessionId = `issue-413-session-${ts}`;
 
     await installWebSocketTestHarness(page);
     await openRequestsPage(page, provider.id);
     await expect(page.locator('body')).toContainText(/Requests|请求/, { timeout: 30_000 });
 
-    const firstRequestPromise = sendProjectRequest(projectURL, slowModel);
+    const firstRequestPromise = sendProjectRequest(projectURL, slowModel, sessionId);
 
     await expect
       .poll(
@@ -336,7 +363,7 @@ test('requests page resyncs list and count after ws reconnect', async ({ page })
     });
 
     await firstRequestPromise;
-    await sendProjectRequest(projectURL, fastModel);
+    await sendProjectRequest(projectURL, fastModel, sessionId);
 
     await expect
       .poll(
