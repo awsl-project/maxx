@@ -119,7 +119,7 @@ var migrations = []Migration{
 
 			// 2. Update all existing rows to belong to default tenant
 			for _, table := range tenantScopedTables {
-				result := db.Exec("UPDATE "+table+" SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
+				result := db.Exec("UPDATE " + table + " SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
 				if result.Error != nil {
 					log.Printf("[Migration] Warning: Failed to update tenant_id for %s: %v", table, result.Error)
 					// Continue with other tables
@@ -207,6 +207,105 @@ var migrations = []Migration{
 		Down: func(db *gorm.DB) error {
 			return nil
 		},
+	}, {
+		Version:     7,
+		Description: "Backfill providers.exclude_from_export defaults to 0",
+		Up: func(db *gorm.DB) error {
+			if !db.Migrator().HasColumn(&Provider{}, "exclude_from_export") {
+				return nil
+			}
+			return db.Exec("UPDATE providers SET exclude_from_export = 0 WHERE exclude_from_export IS NULL").Error
+		},
+		Down: func(db *gorm.DB) error {
+			return nil
+		},
+	},
+	{
+		Version:     8,
+		Description: "Make Codex quota identity account-aware to avoid same-email quota collisions",
+		Up: func(db *gorm.DB) error {
+			if !db.Migrator().HasColumn(&CodexQuota{}, "identity_key") {
+				return nil
+			}
+			var backfillSQL string
+			switch db.Dialector.Name() {
+			case "mysql":
+				backfillSQL = `
+					UPDATE codex_quotas
+					SET identity_key = CASE
+						WHEN account_id IS NOT NULL AND TRIM(account_id) != '' THEN CONCAT('account:', TRIM(account_id))
+						WHEN email IS NOT NULL AND TRIM(email) != '' THEN CONCAT('email:', TRIM(email))
+						ELSE NULL
+					END
+					WHERE identity_key IS NULL OR TRIM(identity_key) = ''
+				`
+			default:
+				backfillSQL = `
+					UPDATE codex_quotas
+					SET identity_key = CASE
+						WHEN account_id IS NOT NULL AND TRIM(account_id) != '' THEN 'account:' || TRIM(account_id)
+						WHEN email IS NOT NULL AND TRIM(email) != '' THEN 'email:' || TRIM(email)
+						ELSE NULL
+					END
+					WHERE identity_key IS NULL OR TRIM(identity_key) = ''
+				`
+			}
+			if err := db.Exec(backfillSQL).Error; err != nil {
+				return err
+			}
+
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_email ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				if err := db.Exec("CREATE INDEX idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX idx_codex_quotas_tenant_identity ON codex_quotas(tenant_id, identity_key)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+			default:
+				if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_email").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_quotas_tenant_identity ON codex_quotas(tenant_id, identity_key)").Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			if !db.Migrator().HasColumn(&CodexQuota{}, "identity_key") {
+				return nil
+			}
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_identity ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				if err := db.Exec("DROP INDEX idx_codex_quotas_email ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX idx_codex_quotas_tenant_email ON codex_quotas(tenant_id, email)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+			default:
+				if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_identity").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_email").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_quotas_tenant_email ON codex_quotas(tenant_id, email)").Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 	},
 }
 
@@ -221,6 +320,18 @@ func isMySQLDuplicateIndexError(err error) bool {
 	// 兜底：错误可能被包装成字符串，避免使用过宽的 "duplicate" 匹配导致吞掉其它错误。
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "duplicate key name") || strings.Contains(lower, "error 1061")
+}
+
+func isMySQLMissingIndexError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1091 // ER_CANT_DROP_FIELD_OR_KEY
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "can't drop") && strings.Contains(lower, "check that column/key exists")
 }
 
 // RunMigrations 运行所有待执行的迁移
