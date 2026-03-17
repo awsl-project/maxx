@@ -634,7 +634,9 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div
+                className={`grid grid-cols-1 gap-6 ${shouldShowApiKeyField ? 'md:grid-cols-2' : ''}`}
+              >
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
