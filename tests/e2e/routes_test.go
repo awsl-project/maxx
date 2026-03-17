@@ -66,6 +66,9 @@ func TestCreateRoute(t *testing.T) {
 	if created["isEnabled"] != true {
 		t.Fatalf("Expected isEnabled=true, got %v", created["isEnabled"])
 	}
+	if int(created["weight"].(float64)) != 1 {
+		t.Fatalf("Expected default weight=1, got %v", created["weight"])
+	}
 
 	id, ok := created["id"].(float64)
 	if !ok || id == 0 {
@@ -137,6 +140,7 @@ func TestUpdateRoute(t *testing.T) {
 	// Update the route (disable it)
 	updated := map[string]any{
 		"isEnabled": false,
+		"weight":    9,
 	}
 
 	resp = env.AdminPut(fmt.Sprintf("/api/admin/routes/%d", int(id)), updated)
@@ -147,6 +151,32 @@ func TestUpdateRoute(t *testing.T) {
 
 	if result["isEnabled"] != false {
 		t.Fatalf("Expected isEnabled=false, got %v", result["isEnabled"])
+	}
+	if int(result["weight"].(float64)) != 9 {
+		t.Fatalf("Expected weight=9, got %v", result["weight"])
+	}
+}
+
+func TestCreateRoute_WithExplicitWeight(t *testing.T) {
+	env := NewTestEnv(t)
+	providerID := createTestProvider(t, env)
+
+	route := map[string]any{
+		"isEnabled":  true,
+		"isNative":   true,
+		"clientType": "claude",
+		"providerID": providerID,
+		"position":   1,
+		"weight":     7,
+	}
+
+	resp := env.AdminPost("/api/admin/routes", route)
+	AssertStatus(t, resp, http.StatusCreated)
+
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	if int(created["weight"].(float64)) != 7 {
+		t.Fatalf("Expected weight=7, got %v", created["weight"])
 	}
 }
 

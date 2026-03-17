@@ -17,11 +17,11 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
-	"github.com/tidwall/sjson"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/exec"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	"github.com/tidwall/sjson"
 )
 
 // TokenCache caches access tokens
@@ -271,6 +271,9 @@ func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseW
 	if c.Request != nil {
 		ctx = c.Request.Context()
 	}
+	// CPA 非流式接口会缓冲完整响应后一次性返回，无法暴露真实上游首字节。
+	// 这类路径退回到 TotalTimeout 控制，避免把大响应误判成 first-byte timeout。
+	flow.DisableFirstByteTimeout(c)
 
 	resp, err := a.executor.Execute(ctx, a.authObj, execReq, execOpts)
 	if err != nil {

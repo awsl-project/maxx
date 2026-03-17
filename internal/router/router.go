@@ -1,13 +1,16 @@
 package router
 
 import (
+	"math"
 	"math/rand"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/health"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 )
 
@@ -37,11 +40,14 @@ type Router struct {
 	projectRepo         *cached.ProjectRepository
 
 	// Adapter cache
-	adapters map[uint64]provider.ProviderAdapter
-	mu       sync.RWMutex
+	adapters  map[uint64]provider.ProviderAdapter
+	mu        sync.RWMutex
+	shuffle   *rand.Rand
+	shuffleMu sync.Mutex
 
 	// Cooldown manager
 	cooldownManager *cooldown.Manager
+	healthTracker   health.ProviderTracker
 }
 
 // NewRouter creates a new router
@@ -51,6 +57,7 @@ func NewRouter(
 	routingStrategyRepo *cached.RoutingStrategyRepository,
 	retryConfigRepo *cached.RetryConfigRepository,
 	projectRepo *cached.ProjectRepository,
+	healthTracker health.ProviderTracker,
 ) *Router {
 	return &Router{
 		routeRepo:           routeRepo,
@@ -60,6 +67,8 @@ func NewRouter(
 		projectRepo:         projectRepo,
 		adapters:            make(map[uint64]provider.ProviderAdapter),
 		cooldownManager:     cooldown.Default(),
+		healthTracker:       healthTracker,
+		shuffle:             rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -183,8 +192,11 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 	// Get routing strategy
 	strategy := r.getRoutingStrategy(tenantID, projectID)
 
-	// Sort routes by strategy
-	r.sortRoutes(filtered, strategy)
+	// priority 路由先排顺序；weighted_random 在构建 matched 后再与健康分一起做联合排序，
+	// 避免被后续 health reorder 退化成确定性排序。
+	if strategy.Type != domain.RoutingStrategyWeightedRandom || r.healthTracker == nil {
+		r.sortRoutes(filtered, strategy)
+	}
 
 	// Get default retry config
 	defaultRetry, _ := r.retryConfigRepo.GetDefault(tenantID)
@@ -204,6 +216,9 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 
 		// Skip providers in cooldown
 		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType)) {
+			continue
+		}
+		if r.healthTracker != nil && r.healthTracker.IsCircuitOpen(route.ProviderID, string(clientType)) {
 			continue
 		}
 
@@ -241,6 +256,25 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 		return nil, domain.ErrNoRoutes
 	}
 
+	if r.healthTracker != nil {
+		scores := make(map[uint64]float64, len(matched))
+		for _, matchedRoute := range matched {
+			scores[matchedRoute.Provider.ID] = r.healthTracker.Score(matchedRoute.Provider.ID, string(clientType))
+		}
+		if strategy.Type == domain.RoutingStrategyWeightedRandom {
+			r.sortMatchedWeightedRandomWithHealth(matched, scores)
+		} else {
+			sort.SliceStable(matched, func(i, j int) bool {
+				left := scores[matched[i].Provider.ID]
+				right := scores[matched[j].Provider.ID]
+				if left == right {
+					return false
+				}
+				return left > right
+			})
+		}
+	}
+
 	return matched, nil
 }
 
@@ -272,15 +306,110 @@ func (r *Router) getRoutingStrategy(tenantID uint64, projectID uint64) *domain.R
 func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStrategy) {
 	switch strategy.Type {
 	case domain.RoutingStrategyWeightedRandom:
-		// Shuffle with weights (simplified - just shuffle for now)
-		rand.Shuffle(len(routes), func(i, j int) {
-			routes[i], routes[j] = routes[j], routes[i]
-		})
+		r.sortRoutesWeightedRandom(routes)
 	default: // priority
 		sort.Slice(routes, func(i, j int) bool {
 			return routes[i].Position < routes[j].Position
 		})
 	}
+}
+
+func (r *Router) sortRoutesWeightedRandom(routes []*domain.Route) {
+	if len(routes) < 2 {
+		return
+	}
+	if r.shuffle == nil {
+		r.shuffle = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+
+	type weightedRoute struct {
+		route *domain.Route
+		key   float64
+	}
+
+	weighted := make([]weightedRoute, 0, len(routes))
+	r.shuffleMu.Lock()
+	for _, route := range routes {
+		weight := route.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		u := r.shuffle.Float64()
+		if u <= 0 {
+			u = math.SmallestNonzeroFloat64
+		}
+		weighted = append(weighted, weightedRoute{
+			route: route,
+			key:   math.Pow(u, 1/float64(weight)),
+		})
+	}
+	r.shuffleMu.Unlock()
+
+	sort.SliceStable(weighted, func(i, j int) bool {
+		return weighted[i].key > weighted[j].key
+	})
+	for i := range routes {
+		routes[i] = weighted[i].route
+	}
+}
+
+func (r *Router) sortMatchedWeightedRandomWithHealth(matched []*MatchedRoute, scores map[uint64]float64) {
+	if len(matched) < 2 {
+		return
+	}
+	if r.shuffle == nil {
+		r.shuffle = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+
+	type weightedMatch struct {
+		route *MatchedRoute
+		key   float64
+	}
+
+	weighted := make([]weightedMatch, 0, len(matched))
+	r.shuffleMu.Lock()
+	for _, matchedRoute := range matched {
+		weight := matchedRoute.Route.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		effectiveWeight := float64(weight) * healthWeightMultiplier(scores[matchedRoute.Provider.ID])
+		if effectiveWeight <= 0 {
+			effectiveWeight = math.SmallestNonzeroFloat64
+		}
+		u := r.shuffle.Float64()
+		if u <= 0 {
+			u = math.SmallestNonzeroFloat64
+		}
+		weighted = append(weighted, weightedMatch{
+			route: matchedRoute,
+			key:   math.Pow(u, 1/effectiveWeight),
+		})
+	}
+	r.shuffleMu.Unlock()
+
+	sort.SliceStable(weighted, func(i, j int) bool {
+		return weighted[i].key > weighted[j].key
+	})
+	for i := range matched {
+		matched[i] = weighted[i].route
+	}
+}
+
+func healthWeightMultiplier(score float64) float64 {
+	const (
+		scale    = 300.0
+		maxScore = 1500.0
+		minScore = -1500.0
+	)
+
+	switch {
+	case score > maxScore:
+		score = maxScore
+	case score < minScore:
+		score = minScore
+	}
+	return math.Exp(score / scale)
 }
 
 // GetCooldowns returns all active cooldowns
@@ -308,4 +437,3 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter) {
 		})
 	}
 }
-

@@ -137,6 +137,7 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		proxyErr.IsNetworkError = true
 		return proxyErr
 	}
+	resp.Body = flow.WrapResponseBody(c, resp.Body)
 	defer resp.Body.Close()
 
 	// Check for 401 (token expired) and retry once
@@ -171,6 +172,7 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			proxyErr.IsNetworkError = true
 			return proxyErr
 		}
+		resp.Body = flow.WrapResponseBody(c, resp.Body)
 		defer resp.Body.Close()
 	}
 

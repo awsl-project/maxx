@@ -2,7 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -69,7 +71,7 @@ func (h *ProxyHandler) SetRequestTracker(tracker RequestTracker) {
 
 // ServeHTTP handles proxy requests
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := flow.NewCtx(w, r)
+	ctx := flow.NewCtx(newResponseStateWriter(w), r)
 	handlers := make([]flow.HandlerFunc, len(h.extra)+1)
 	copy(handlers, h.extra)
 	handlers[len(h.extra)] = h.dispatch
@@ -233,13 +235,25 @@ func (h *ProxyHandler) dispatch(c *flow.Ctx) {
 	if err == nil {
 		return
 	}
+	if responseHasStarted(c.Writer) {
+		c.Err = err
+		c.Abort()
+		return
+	}
 	proxyErr, ok := err.(*domain.ProxyError)
 	if ok {
-		if stream {
-			writeStreamError(c.Writer, proxyErr)
-		} else {
-			writeProxyError(c.Writer, proxyErr)
-		}
+		h.writeDispatchError(c, proxyErr, stream)
+		c.Err = err
+		c.Abort()
+		return
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		writeError(c.Writer, http.StatusGatewayTimeout, err.Error())
+		c.Err = err
+		c.Abort()
+		return
+	}
+	if errors.Is(err, context.Canceled) {
 		c.Err = err
 		c.Abort()
 		return
@@ -247,6 +261,17 @@ func (h *ProxyHandler) dispatch(c *flow.Ctx) {
 	writeError(c.Writer, http.StatusInternalServerError, err.Error())
 	c.Err = err
 	c.Abort()
+}
+
+func (h *ProxyHandler) writeDispatchError(c *flow.Ctx, proxyErr *domain.ProxyError, stream bool) {
+	if responseHasStarted(c.Writer) {
+		return
+	}
+	if stream {
+		writeStreamError(c.Writer, proxyErr)
+		return
+	}
+	writeProxyError(c.Writer, proxyErr)
 }
 
 func normalizeOpenAIChatCompletionsPayload(body []byte) ([]byte, bool) {
@@ -300,7 +325,11 @@ func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 		}
 		w.Header().Set("Retry-After", strconv.FormatInt(sec, 10))
 	}
-	w.WriteHeader(http.StatusBadGateway)
+	statusCode := err.HTTPStatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusBadGateway
+	}
+	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"error": map[string]interface{}{
 			"message":   err.Error(),
@@ -320,7 +349,11 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 		}
 		w.Header().Set("Retry-After", strconv.FormatInt(sec, 10))
 	}
-	w.WriteHeader(http.StatusOK)
+	statusCode := err.HTTPStatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusBadGateway
+	}
+	w.WriteHeader(statusCode)
 
 	errorEvent := map[string]interface{}{
 		"type": "error",

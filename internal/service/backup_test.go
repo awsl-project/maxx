@@ -106,6 +106,7 @@ func seedBackupRoundtripData(t *testing.T, db *sqlite.DB) {
 		ClientType:    domain.ClientTypeOpenAI,
 		ProviderID:    provider.ID,
 		Position:      7,
+		Weight:        9,
 		RetryConfigID: retryConfig.ID,
 	}
 	if err := routeRepo.Create(route); err != nil {
@@ -230,6 +231,13 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	}
 	if foundCustomMapping != 1 {
 		t.Fatalf("custom model mapping count = %d, want 1", foundCustomMapping)
+	}
+
+	if len(roundtrip.Data.Routes) != 1 {
+		t.Fatalf("routes count = %d, want 1", len(roundtrip.Data.Routes))
+	}
+	if roundtrip.Data.Routes[0].Weight != 9 {
+		t.Fatalf("route weight = %d, want preserved weight 9", roundtrip.Data.Routes[0].Weight)
 	}
 }
 

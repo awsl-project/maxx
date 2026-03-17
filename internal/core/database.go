@@ -1,4 +1,4 @@
-package core
+﻿package core
 
 import (
 	"fmt"
@@ -17,6 +17,7 @@ import (
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
+	"github.com/awsl-project/maxx/internal/health"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
@@ -254,12 +255,14 @@ func InitializeServerComponents(
 	}
 
 	log.Printf("[Core] Creating router")
+	providerHealthTracker := health.NewTracker()
 	r := router.NewRouter(
 		repos.CachedRouteRepo,
 		repos.CachedProviderRepo,
 		repos.CachedRoutingStrategyRepo,
 		repos.CachedRetryConfigRepo,
 		repos.CachedProjectRepo,
+		providerHealthTracker,
 	)
 
 	log.Printf("[Core] Initializing provider adapters")
@@ -322,6 +325,7 @@ func InitializeServerComponents(
 		projectWaiter,
 		instanceID,
 		statsAggregator,
+		providerHealthTracker,
 	)
 
 	log.Printf("[Core] Creating client adapter")

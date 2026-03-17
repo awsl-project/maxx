@@ -135,6 +135,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		proxyErr.IsNetworkError = true
 		return proxyErr
 	}
+	resp.Body = flow.WrapResponseBody(c, resp.Body)
 	defer resp.Body.Close()
 
 	// Handle 401 (token expired) - refresh and retry once
@@ -165,6 +166,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			proxyErr.IsNetworkError = true
 			return proxyErr
 		}
+		resp.Body = flow.WrapResponseBody(c, resp.Body)
 		defer resp.Body.Close()
 	}
 
@@ -690,7 +692,6 @@ func extractModelFromResponse(body []byte) string {
 	}
 	return ""
 }
-
 
 var claudeFilteredHeaders = map[string]bool{
 	// Hop-by-hop headers

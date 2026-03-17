@@ -4,11 +4,9 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/converter"
-	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/pricing"
@@ -27,25 +25,13 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	proxyReq := state.proxyReq
 	ctx := state.ctx
 	clearDetail := e.shouldClearRequestDetailFor(state)
-
-	// Pre-warm tokens for all matched routes in parallel.
-	// This avoids serial token refresh delays when failing over between providers.
-	if len(state.routes) > 1 {
-		type tokenWarmer interface {
-			WarmToken(ctx context.Context) error
-		}
-		var wg sync.WaitGroup
-		for _, mr := range state.routes {
-			if warmer, ok := mr.ProviderAdapter.(tokenWarmer); ok {
-				wg.Add(1)
-				go func(w tokenWarmer) {
-					defer wg.Done()
-					_ = w.WarmToken(ctx)
-				}(warmer)
-			}
-		}
-		wg.Wait()
+	requestStart := time.Now()
+	if proxyReq != nil && !proxyReq.StartTime.IsZero() {
+		requestStart = proxyReq.StartTime
 	}
+
+	requestBudgetExhausted := false
+	responseStartedFailure := false
 
 	for _, matchedRoute := range state.routes {
 		if ctx.Err() != nil {
@@ -112,6 +98,22 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				c.Err = state.lastErr
 				return
 			}
+			requestRemaining := time.Duration(0)
+			if e.attemptBudget.RequestTimeout > 0 {
+				requestRemaining = e.attemptBudget.RequestRemainingSince(requestStart)
+				if requestRemaining <= 0 {
+					requestBudgetExhausted = true
+					state.lastErr = domain.NewProxyErrorWithMessage(context.DeadlineExceeded, true, "request budget exhausted")
+					if proxyErr, ok := state.lastErr.(*domain.ProxyError); ok {
+						proxyErr.IsNetworkError = true
+						proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
+					}
+					break
+				}
+			}
+			if e.healthTracker != nil && !e.healthTracker.AllowAttempt(matchedRoute.Provider.ID, string(clientType)) {
+				break
+			}
 
 			attemptStartTime := time.Now()
 			attemptRecord := &domain.ProxyUpstreamAttempt{
@@ -152,7 +154,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			c.Set(flow.KeyEventChan, eventChan)
 			c.Set(flow.KeyBroadcaster, e.broadcaster)
 			eventDone := make(chan struct{})
-			go e.processAdapterEventsRealtime(eventChan, attemptRecord, eventDone, clearDetail)
 
 			var responseWriter http.ResponseWriter
 			var convertingWriter *ConvertingResponseWriter
@@ -165,10 +166,41 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				responseWriter = responseCapture
 			}
 
+			attemptTimeout := e.attemptBudget.TotalTimeout
+			if requestRemaining > 0 && (attemptTimeout <= 0 || requestRemaining < attemptTimeout) {
+				attemptTimeout = requestRemaining
+			}
+			attemptCtx, cancelAttempt := context.WithCancel(ctx)
+			if attemptTimeout > 0 {
+				attemptCtx, cancelAttempt = context.WithTimeout(ctx, attemptTimeout)
+			}
+			watchdog := newAttemptWatchdog(
+				attemptStartTime,
+				e.attemptBudget.FirstByteTimeout,
+				e.attemptBudget.StreamIdleTimeout,
+				cancelAttempt,
+			)
+			c.Set(flow.KeyAttemptActivity, watchdog)
+			responseWriter = newAttemptActivityWriter(responseWriter, watchdog)
+			go e.processAdapterEventsRealtime(eventChan, attemptRecord, eventDone, clearDetail, watchdog)
 			originalWriter := c.Writer
+			originalRequest := c.Request
 			c.Writer = responseWriter
+			c.Request = c.Request.WithContext(attemptCtx)
+			attemptDone := func() {}
+			if e.healthTracker != nil {
+				attemptDone = e.healthTracker.BeginAttempt(matchedRoute.Provider.ID, string(clientType))
+			}
 			err := matchedRoute.ProviderAdapter.Execute(c, matchedRoute.Provider)
+			var watchdogErr error
+			if watchdog != nil {
+				watchdogErr = watchdog.TimeoutErr()
+				watchdog.Stop()
+			}
+			err = e.normalizeAttemptError(ctx, attemptCtx, watchdogErr, err, responseCapture.Started())
+			cancelAttempt()
 			c.Writer = originalWriter
+			c.Request = originalRequest
 
 			if needsConversion && convertingWriter != nil && !state.isStream {
 				if finalizeErr := convertingWriter.Finalize(); finalizeErr != nil {
@@ -183,6 +215,13 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				attemptRecord.EndTime = time.Now()
 				attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 				attemptRecord.Status = "COMPLETED"
+				recordedHealth := false
+				if e.shouldRecordAttemptHealth(ctx) {
+					e.recordAttemptHealth(matchedRoute.Provider.ID, clientType, attemptRecord, responseCapture.StatusCode(), nil)
+					recordedHealth = true
+				}
+				attemptDone()
+				e.releaseHalfOpenProbeIfNeeded(matchedRoute.Provider.ID, clientType, attemptRecord, recordedHealth)
 
 				if attemptRecord.InputTokenCount > 0 || attemptRecord.OutputTokenCount > 0 {
 					metrics := &usage.Metrics{
@@ -215,7 +254,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				}
 				state.currentAttempt = nil
 
-				cooldown.Default().RecordSuccess(matchedRoute.Provider.ID, string(currentClientType))
+				e.clearSuccessCooldowns(matchedRoute.Provider.ID, currentClientType, originalClientType)
 
 				proxyReq.Status = "COMPLETED"
 				proxyReq.EndTime = time.Now()
@@ -260,6 +299,16 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			attemptRecord.EndTime = time.Now()
 			attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 			state.lastErr = err
+			if responseCapture.Started() {
+				responseStartedFailure = true
+			}
+			recordedHealth := false
+			if e.shouldRecordAttemptHealth(ctx) {
+				e.recordAttemptHealth(matchedRoute.Provider.ID, clientType, attemptRecord, responseCapture.StatusCode(), err)
+				recordedHealth = true
+			}
+			attemptDone()
+			e.releaseHalfOpenProbeIfNeeded(matchedRoute.Provider.ID, clientType, attemptRecord, recordedHealth)
 
 			if ctx.Err() != nil {
 				attemptRecord.Status = "CANCELLED"
@@ -375,8 +424,14 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 
 			if attempt < retryConfig.MaxRetries {
 				waitTime := e.calculateBackoff(retryConfig, attempt)
+				fromRetryAfter := false
 				if proxyErr.RetryAfter > 0 {
 					waitTime = proxyErr.RetryAfter
+					fromRetryAfter = true
+				}
+				waitTime = e.capRetryWait(waitTime, requestStart, fromRetryAfter)
+				if waitTime <= 0 {
+					break
 				}
 				select {
 				case <-ctx.Done():
@@ -401,6 +456,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				case <-time.After(waitTime):
 				}
 			}
+		}
+		if requestBudgetExhausted || responseStartedFailure {
+			break
 		}
 	}
 
