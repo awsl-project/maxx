@@ -418,10 +418,14 @@ test('requests page resyncs list and count after ws reconnect', async ({ page })
     });
 
     await expect
-      .poll(async () => (await page.textContent('[data-testid="requests-count"]'))?.trim(), {
-        timeout: 20_000,
-      })
-      .toBe('2');
+      .poll(
+        async () => {
+          const headerText = (await page.locator('header').first().textContent()) ?? '';
+          return /\b2 total requests\b/.test(headerText) || /共\s*2\s*个请求/.test(headerText);
+        },
+        { timeout: 20_000, intervals: [500, 1_000, 2_000, 4_000] },
+      )
+      .toBe(true);
 
     await expect
       .poll(
