@@ -90,6 +90,7 @@
     "accountStatusLocal": "本地",
     "accountIdentityUnknown": "身份信息不可用",
     "tenantFallback": "工作区 #{{id}}",
+    "tenantUnknown": "工作区信息不可用",
     "identityMaskUser": "用户 {{value}}",
     "identityMaskTenant": "租户 {{value}}",
     "switchAccount": "切换账号",

@@ -317,7 +317,9 @@ export function NavUser() {
     : t('nav.accountFallback');
   const tenantLabel = user?.tenantName?.trim()
     ? user.tenantName.trim()
-    : t('nav.tenantFallback', { id: user?.tenantID ?? 1 });
+    : user?.tenantID && user.tenantID > 0
+      ? t('nav.tenantFallback', { id: user.tenantID })
+      : t('nav.tenantUnknown');
   const accountName = username || t('nav.accountFallback');
   const accountStatusLabel = authEnabled
     ? t('nav.accountStatusProtected')
