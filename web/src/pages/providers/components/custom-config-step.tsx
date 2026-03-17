@@ -225,36 +225,36 @@ export function CustomConfigStep() {
             <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
               {t('provider.errorCooldownTitle')}
             </h3>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                <div className="pr-4">
-                  <div className="text-sm font-medium text-foreground">
-                    {t('provider.disableErrorCooldown')}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('provider.disableErrorCooldownDesc')}
-                  </p>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.disableErrorCooldown')}
                 </div>
-                <Switch
-                  checked={!!formData.disableErrorCooldown}
-                  onCheckedChange={(checked) => updateFormData({ disableErrorCooldown: checked })}
-                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.disableErrorCooldownDesc')}
+                </p>
               </div>
+              <Switch
+                checked={!!formData.disableErrorCooldown}
+                onCheckedChange={(checked) => updateFormData({ disableErrorCooldown: checked })}
+              />
+            </div>
+          </div>
 
-              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-                <div className="pr-4">
-                  <div className="text-sm font-medium text-foreground">
-                    {t('provider.excludeFromExport')}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('provider.excludeFromExportDesc')}
-                  </p>
-                </div>
-                <Switch
-                  checked={!!formData.excludeFromExport}
-                  onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
-                />
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+              {t('provider.excludeFromExport')}
+            </h3>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.excludeFromExportDesc')}
+                </p>
               </div>
+              <Switch
+                checked={!!formData.excludeFromExport}
+                onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
+              />
             </div>
           </div>
 
