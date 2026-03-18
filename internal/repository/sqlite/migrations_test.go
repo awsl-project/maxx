@@ -120,6 +120,44 @@ func TestCodexQuotaIdentityMigrationV8DownReturnsIrreversibleError(t *testing.T)
 	}
 }
 
+func TestCodexQuotaIdentityBackfillSQL_MySQLUsesAccountAwareConcat(t *testing.T) {
+	sql := codexQuotaIdentityBackfillSQL("mysql")
+	if !strings.Contains(sql, "CONCAT('account:'") {
+		t.Fatalf("expected mysql backfill SQL to use CONCAT for account identities, got %q", sql)
+	}
+	if !strings.Contains(sql, "CONCAT('email:'") {
+		t.Fatalf("expected mysql backfill SQL to use CONCAT for email identities, got %q", sql)
+	}
+	if strings.Contains(sql, "||") {
+		t.Fatalf("expected mysql backfill SQL not to use sqlite concatenation, got %q", sql)
+	}
+}
+
+func TestCodexQuotaIdentityBackfillSQL_SQLiteUsesPipeConcatenation(t *testing.T) {
+	sql := codexQuotaIdentityBackfillSQL("sqlite")
+	if !strings.Contains(sql, "'account:' || TRIM(account_id)") {
+		t.Fatalf("expected sqlite backfill SQL to use pipe concatenation for account identities, got %q", sql)
+	}
+	if !strings.Contains(sql, "'email:' || TRIM(email)") {
+		t.Fatalf("expected sqlite backfill SQL to use pipe concatenation for email identities, got %q", sql)
+	}
+	if strings.Contains(sql, "CONCAT(") {
+		t.Fatalf("expected sqlite backfill SQL not to use mysql CONCAT, got %q", sql)
+	}
+}
+
+func TestCodexQuotaIdentityDedupeSQL_UsesDialectSpecificDeleteSyntax(t *testing.T) {
+	mysqlSQL := codexQuotaIdentityDedupeSQL("mysql")
+	if !strings.Contains(mysqlSQL, "DELETE doomed") || !strings.Contains(mysqlSQL, "JOIN codex_quotas AS keeper") {
+		t.Fatalf("expected mysql dedupe SQL to use delete-join syntax, got %q", mysqlSQL)
+	}
+
+	sqliteSQL := codexQuotaIdentityDedupeSQL("sqlite")
+	if !strings.Contains(sqliteSQL, "DELETE FROM codex_quotas") || !strings.Contains(sqliteSQL, "WHERE id IN") {
+		t.Fatalf("expected sqlite dedupe SQL to use delete-by-subquery syntax, got %q", sqliteSQL)
+	}
+}
+
 func openRawSQLiteDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := filepath.Join(t.TempDir(), "migrations-test.db")

@@ -287,9 +287,38 @@ func revertCodexQuotaIdentityMigration(db *gorm.DB) error {
 }
 
 func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
-	switch db.Dialector.Name() {
+	return db.Exec(codexQuotaIdentityDedupeSQL(db.Dialector.Name())).Error
+}
+
+func codexQuotaIdentityBackfillSQL(dialector string) string {
+	switch dialector {
 	case "mysql":
-		return db.Exec(`
+		return `
+			UPDATE codex_quotas
+			SET identity_key = CASE
+				WHEN account_id IS NOT NULL AND TRIM(account_id) != '' THEN CONCAT('account:', TRIM(account_id))
+				WHEN email IS NOT NULL AND TRIM(email) != '' THEN CONCAT('email:', TRIM(email))
+				ELSE NULL
+			END
+			WHERE identity_key IS NULL OR TRIM(identity_key) = ''
+		`
+	default:
+		return `
+			UPDATE codex_quotas
+			SET identity_key = CASE
+				WHEN account_id IS NOT NULL AND TRIM(account_id) != '' THEN 'account:' || TRIM(account_id)
+				WHEN email IS NOT NULL AND TRIM(email) != '' THEN 'email:' || TRIM(email)
+				ELSE NULL
+			END
+			WHERE identity_key IS NULL OR TRIM(identity_key) = ''
+		`
+	}
+}
+
+func codexQuotaIdentityDedupeSQL(dialector string) string {
+	switch dialector {
+	case "mysql":
+		return `
 			DELETE doomed
 			FROM codex_quotas AS doomed
 			JOIN codex_quotas AS keeper
@@ -305,9 +334,9 @@ func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
 			 )
 			WHERE doomed.identity_key IS NOT NULL
 			  AND TRIM(doomed.identity_key) != ''
-		`).Error
+		`
 	default:
-		return db.Exec(`
+		return `
 			DELETE FROM codex_quotas
 			WHERE id IN (
 				SELECT doomed.id
@@ -326,7 +355,7 @@ func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
 				WHERE doomed.identity_key IS NOT NULL
 				  AND TRIM(doomed.identity_key) != ''
 			)
-		`).Error
+		`
 	}
 }
 
