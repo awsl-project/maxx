@@ -65,6 +65,44 @@ func TestCodexQuotaIdentityMigrationV8Up(t *testing.T) {
 	assertIndexMissing(t, gormDB, "idx_codex_quotas_tenant_email")
 }
 
+func TestCodexQuotaIdentityMigrationV8UpPreservesDeletedHistory(t *testing.T) {
+	gormDB := openRawSQLiteDB(t)
+	prepareCodexQuotaMigrationFixtureWithDeletedHistory(t, gormDB)
+
+	migration := findMigrationByVersion(t, 8)
+	if err := migration.Up(gormDB); err != nil {
+		t.Fatalf("run migration v8 up with deleted history: %v", err)
+	}
+
+	var activeCount int64
+	if err := gormDB.Raw(`
+		SELECT COUNT(*)
+		FROM codex_quotas
+		WHERE tenant_id = 1
+		  AND identity_key = 'account:acct-1'
+		  AND deleted_at = 0
+	`).Scan(&activeCount).Error; err != nil {
+		t.Fatalf("count active rows: %v", err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("expected one active row to remain, got %d", activeCount)
+	}
+
+	var deletedCount int64
+	if err := gormDB.Raw(`
+		SELECT COUNT(*)
+		FROM codex_quotas
+		WHERE tenant_id = 1
+		  AND identity_key = 'account:acct-1'
+		  AND deleted_at != 0
+	`).Scan(&deletedCount).Error; err != nil {
+		t.Fatalf("count deleted rows: %v", err)
+	}
+	if deletedCount != 1 {
+		t.Fatalf("expected deleted historical row to be preserved, got %d", deletedCount)
+	}
+}
+
 func TestCodexQuotaIdentityMigrationV8DownReturnsIrreversibleError(t *testing.T) {
 	gormDB := openRawSQLiteDB(t)
 	prepareCodexQuotaMigrationFixture(t, gormDB)
@@ -89,6 +127,13 @@ func openRawSQLiteDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open raw sqlite db: %v", err)
 	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatalf("get raw sqlite sql.DB: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
 	return gormDB
 }
 
@@ -163,6 +208,45 @@ func prepareCodexQuotaMigrationFixture(t *testing.T, gormDB *gorm.DB) {
 		`INSERT INTO codex_quotas (id, tenant_id, identity_key, email, account_id, updated_at) VALUES ('row-3', 1, NULL, 'third@example.com', 'acct-2', 150)`,
 		`INSERT INTO codex_quotas (id, tenant_id, identity_key, email, account_id, updated_at) VALUES ('row-4', 2, NULL, 'other-tenant@example.com', 'acct-1', 120)`,
 		`INSERT INTO codex_quotas (id, tenant_id, identity_key, email, account_id, updated_at) VALUES ('row-5', 1, NULL, 'legacy@example.com', '', 90)`,
+	}
+	for _, sql := range inserts {
+		if err := gormDB.Exec(sql).Error; err != nil {
+			t.Fatalf("insert fixture: %v", err)
+		}
+	}
+}
+
+func prepareCodexQuotaMigrationFixtureWithDeletedHistory(t *testing.T, gormDB *gorm.DB) {
+	t.Helper()
+	if err := gormDB.Exec(`DROP TABLE IF EXISTS codex_quotas`).Error; err != nil {
+		t.Fatalf("drop table: %v", err)
+	}
+	if err := gormDB.Exec(`
+		CREATE TABLE codex_quotas (
+			id TEXT PRIMARY KEY,
+			created_at INTEGER DEFAULT 0,
+			updated_at INTEGER DEFAULT 0,
+			deleted_at INTEGER DEFAULT 0,
+			tenant_id INTEGER NOT NULL,
+			identity_key TEXT,
+			email TEXT,
+			account_id TEXT,
+			plan_type TEXT,
+			is_forbidden INTEGER DEFAULT 0,
+			primary_window TEXT,
+			secondary_window TEXT,
+			code_review_window TEXT
+		)
+	`).Error; err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if err := gormDB.Exec(`CREATE UNIQUE INDEX idx_codex_quotas_tenant_email ON codex_quotas(tenant_id, email)`).Error; err != nil {
+		t.Fatalf("create old unique index: %v", err)
+	}
+	inserts := []string{
+		`INSERT INTO codex_quotas (id, tenant_id, identity_key, email, account_id, deleted_at, updated_at) VALUES ('row-deleted', 1, NULL, 'old@example.com', 'acct-1', 111, 100)`,
+		`INSERT INTO codex_quotas (id, tenant_id, identity_key, email, account_id, deleted_at, updated_at) VALUES ('row-active', 1, NULL, 'current@example.com', 'acct-1', 0, 200)`,
+		`INSERT INTO codex_quotas (id, tenant_id, identity_key, email, account_id, deleted_at, updated_at) VALUES ('row-other', 1, NULL, 'other@example.com', 'acct-2', 0, 150)`,
 	}
 	for _, sql := range inserts {
 		if err := gormDB.Exec(sql).Error; err != nil {

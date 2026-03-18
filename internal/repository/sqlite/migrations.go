@@ -276,30 +276,7 @@ func applyCodexQuotaIdentityMigration(db *gorm.DB) error {
 	if err := dedupeCodexQuotaIdentityRows(db); err != nil {
 		return err
 	}
-
-	switch db.Dialector.Name() {
-	case "mysql":
-		if err := db.Exec("CREATE UNIQUE INDEX idx_codex_quotas_tenant_identity ON codex_quotas(tenant_id, identity_key)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
-			return err
-		}
-		if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_email ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
-			return err
-		}
-		if err := db.Exec("CREATE INDEX idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
-			return err
-		}
-	default:
-		if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_quotas_tenant_identity ON codex_quotas(tenant_id, identity_key)").Error; err != nil {
-			return err
-		}
-		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_email").Error; err != nil {
-			return err
-		}
-		if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil {
-			return err
-		}
-	}
-	return nil
+	return ensureCodexQuotaIdentityIndexes(db)
 }
 
 func revertCodexQuotaIdentityMigration(db *gorm.DB) error {
@@ -318,6 +295,7 @@ func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
 			JOIN codex_quotas AS keeper
 			  ON doomed.tenant_id = keeper.tenant_id
 			 AND doomed.identity_key = keeper.identity_key
+			 AND COALESCE(doomed.deleted_at, 0) = COALESCE(keeper.deleted_at, 0)
 			 AND (
 				COALESCE(keeper.updated_at, 0) > COALESCE(doomed.updated_at, 0)
 				OR (
@@ -337,6 +315,7 @@ func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
 				JOIN codex_quotas AS keeper
 				  ON doomed.tenant_id = keeper.tenant_id
 				 AND doomed.identity_key = keeper.identity_key
+				 AND COALESCE(doomed.deleted_at, 0) = COALESCE(keeper.deleted_at, 0)
 				 AND (
 					COALESCE(keeper.updated_at, 0) > COALESCE(doomed.updated_at, 0)
 					OR (
@@ -349,6 +328,59 @@ func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
 			)
 		`).Error
 	}
+}
+
+func ensureCodexQuotaIdentityIndexes(db *gorm.DB) error {
+	switch db.Dialector.Name() {
+	case "mysql":
+		if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_identity ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
+			return err
+		}
+		if err := db.Exec("CREATE UNIQUE INDEX idx_codex_quotas_tenant_identity ON codex_quotas(tenant_id, identity_key, deleted_at)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+			return err
+		}
+		if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_email ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
+			return err
+		}
+		if err := db.Exec("CREATE INDEX idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+			return err
+		}
+	case "postgres":
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_identity").Error; err != nil {
+			return err
+		}
+		if err := db.Exec(`
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_quotas_tenant_identity
+			ON codex_quotas(tenant_id, identity_key)
+			WHERE deleted_at = 0 AND identity_key IS NOT NULL AND TRIM(identity_key) != ''
+		`).Error; err != nil {
+			return err
+		}
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_email").Error; err != nil {
+			return err
+		}
+		if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil {
+			return err
+		}
+	default:
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_identity").Error; err != nil {
+			return err
+		}
+		if err := db.Exec(`
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_quotas_tenant_identity
+			ON codex_quotas(tenant_id, identity_key)
+			WHERE deleted_at = 0 AND identity_key IS NOT NULL AND TRIM(identity_key) != ''
+		`).Error; err != nil {
+			return err
+		}
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_email").Error; err != nil {
+			return err
+		}
+		if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func isMySQLDuplicateIndexError(err error) bool {
