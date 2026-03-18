@@ -250,11 +250,14 @@ type AntigravityQuota struct {
 func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 
 // CodexQuota model
+// NOTE: identity/email indexes are intentionally managed by explicit migrations,
+// not by GORM AutoMigrate. Creating the new unique identity index during
+// AutoMigrate can fail on historical data before the dedupe migration runs.
 type CodexQuota struct {
 	SoftDeleteModel
-	TenantID         uint64 `gorm:"uniqueIndex:idx_codex_quotas_tenant_identity"`
-	IdentityKey      string `gorm:"size:255;column:identity_key;uniqueIndex:idx_codex_quotas_tenant_identity"`
-	Email            string `gorm:"size:255;index:idx_codex_quotas_email"`
+	TenantID         uint64
+	IdentityKey      string `gorm:"size:255;column:identity_key"`
+	Email            string `gorm:"size:255"`
 	AccountID        string `gorm:"size:128;column:account_id"`
 	PlanType         string `gorm:"size:64"`
 	IsForbidden      int
