@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   Copy,
@@ -102,7 +102,7 @@ function buildQuickstartBundle(params: {
     "ANTHROPIC_BASE_URL": "${baseUrl}"
   }
 }`,
-        verifyCode: `ANTHROPIC_BASE_URL="${baseUrl}" ANTHROPIC_AUTH_TOKEN="${token}" claude`,
+        verifyCode: `ANTHROPIC_BASE_URL=${shellQuote(baseUrl)} ANTHROPIC_AUTH_TOKEN=${shellQuote(token)} claude`,
         oneliner: `mkdir -p ~/.claude && printf '%s\\n' ${shellQuote(settingsJson)} > ~/.claude/settings.json`,
       };
     }
@@ -111,37 +111,36 @@ function buildQuickstartBundle(params: {
         primaryLabel: '.env',
         primaryCode: `OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1
 OPENAI_API_KEY=${token}`,
-        verifyCode: `curl -X POST ${baseUrl}${projectPrefix}/v1/chat/completions \\
+        verifyCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1/chat/completions`)} \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${token}" \\
+  -H ${shellQuote(`Authorization: Bearer ${token}`)} \\
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}'`,
         oneliner: `printf '%s\\n' ${shellQuote(`OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1\nOPENAI_API_KEY=${token}`)} > .env`,
       };
     case 'codex': {
       const codexBaseUrl = `${baseUrl}${projectPrefix || ''}`;
       const bundle = buildCodexConfigBundle({ token, baseUrl: codexBaseUrl });
-      const authJson = JSON.stringify({ OPENAI_API_KEY: token });
       return {
         primaryLabel: 'config.toml',
         primaryCode: bundle.configToml,
         secondaryLabel: 'auth.json',
         secondaryCode: bundle.authJson,
         verifyCode: 'codex',
-        oneliner: `mkdir -p ~/.codex && printf '%s\\n' ${shellQuote(bundle.configToml)} > ~/.codex/config.toml && printf '%s\\n' ${shellQuote(authJson)} > ~/.codex/auth.json`,
+        oneliner: `mkdir -p ~/.codex && printf '%s\\n' ${shellQuote(bundle.configToml)} > ~/.codex/config.toml && printf '%s\\n' ${shellQuote(bundle.authJson)} > ~/.codex/auth.json`,
       };
     }
     case 'gemini':
       return {
         primaryLabel: 'curl',
-        primaryCode: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
+        primaryCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} \\
   -H "Content-Type: application/json" \\
-  -H "x-goog-api-key: ${token}" \\
+  -H ${shellQuote(`x-goog-api-key: ${token}`)} \\
   -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
-        verifyCode: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
+        verifyCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} \\
   -H "Content-Type: application/json" \\
-  -H "x-goog-api-key: ${token}" \\
+  -H ${shellQuote(`x-goog-api-key: ${token}`)} \\
   -d '{"contents":[{"parts":[{"text":"diagnose"}]}]}'`,
-        oneliner: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent -H "Content-Type: application/json" -H "x-goog-api-key: ${token}" -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
+        oneliner: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} -H "Content-Type: application/json" -H ${shellQuote(`x-goog-api-key: ${token}`)} -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
       };
   }
 }
@@ -170,6 +169,7 @@ export function DocumentationPage() {
 function DocumentationSection() {
   const { t } = useTranslation();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const [activeTab, setActiveTab] = useState<DocumentationPageTab>('quickstart');
   const [quickstartClient, setQuickstartClient] = useState<QuickstartClient>('claude');
   const [quickstartToken, setQuickstartToken] = useState('');
@@ -260,10 +260,26 @@ function DocumentationSection() {
     ],
   );
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedCode(id);
-    setTimeout(() => setCopiedCode(null), 2000);
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      setCopiedCode(id);
+      copyTimerRef.current = setTimeout(() => setCopiedCode(null), 2000);
+    } catch {
+      console.error('Failed to copy to clipboard.');
+    }
   };
 
   const handleDocumentationTabChange = (value: string) => {
