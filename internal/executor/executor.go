@@ -1,4 +1,4 @@
-package executor
+﻿package executor
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/awsl-project/maxx/internal/health"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/stats"
@@ -35,8 +34,6 @@ type Executor struct {
 	engine           *flow.Engine
 	middlewares      []flow.HandlerFunc
 	cooldownSem      chan struct{} // semaphore to limit concurrent cooldown update goroutines
-	attemptBudget    AttemptBudget
-	healthTracker    health.ProviderTracker
 }
 
 // NewExecutor creates a new executor
@@ -52,7 +49,6 @@ func NewExecutor(
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
 	statsAggregator *stats.StatsAggregator,
-	healthTracker health.ProviderTracker,
 ) *Executor {
 	return &Executor{
 		router:           r,
@@ -69,39 +65,11 @@ func NewExecutor(
 		converter:        converter.GetGlobalRegistry(),
 		engine:           flow.NewEngine(),
 		cooldownSem:      make(chan struct{}, 10),
-		attemptBudget:    DefaultAttemptBudget(),
-		healthTracker:    healthTracker,
 	}
 }
 
 func (e *Executor) Use(handlers ...flow.HandlerFunc) {
 	e.middlewares = append(e.middlewares, handlers...)
-}
-
-func (e *Executor) SetAttemptBudget(budget AttemptBudget) {
-	e.attemptBudget = budget
-}
-
-func (e *Executor) clearSuccessCooldowns(providerID uint64, currentClientType domain.ClientType, originalClientType domain.ClientType) {
-	if providerID == 0 {
-		return
-	}
-
-	seen := make(map[string]struct{}, 2)
-	clearFor := func(clientType domain.ClientType) {
-		if clientType == "" {
-			return
-		}
-		key := string(clientType)
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		cooldown.Default().RecordSuccess(providerID, key)
-	}
-
-	clearFor(currentClientType)
-	clearFor(originalClientType)
 }
 
 // Execute runs the executor middleware chain with a new flow context.
@@ -359,7 +327,6 @@ func (e *Executor) processAdapterEventsRealtime(
 	attempt *domain.ProxyUpstreamAttempt,
 	done chan struct{},
 	clearDetail bool,
-	watchdog *attemptWatchdog,
 ) {
 	defer close(done)
 
@@ -427,9 +394,6 @@ func (e *Executor) processAdapterEventsRealtime(
 					// Calculate TTFT as duration from start time to first token time
 					firstTokenTime := time.UnixMilli(ev.FirstTokenTime)
 					attempt.TTFT = firstTokenTime.Sub(attempt.StartTime)
-					if watchdog != nil {
-						watchdog.NoteFirstByte()
-					}
 					dirty = true
 				}
 			}

@@ -110,10 +110,6 @@ func (r *RouteRepository) toModel(route *domain.Route) *Route {
 	if route.IsNative {
 		isNative = 1
 	}
-	weight := route.Weight
-	if weight <= 0 {
-		weight = 1
-	}
 	return &Route{
 		SoftDeleteModel: SoftDeleteModel{
 			BaseModel: BaseModel{
@@ -130,16 +126,11 @@ func (r *RouteRepository) toModel(route *domain.Route) *Route {
 		ClientType:    string(route.ClientType),
 		ProviderID:    route.ProviderID,
 		Position:      route.Position,
-		Weight:        weight,
 		RetryConfigID: route.RetryConfigID,
 	}
 }
 
 func (r *RouteRepository) toDomain(m *Route) *domain.Route {
-	weight := m.Weight
-	if weight <= 0 {
-		weight = 1
-	}
 	return &domain.Route{
 		ID:            m.ID,
 		CreatedAt:     fromTimestamp(m.CreatedAt),
@@ -152,7 +143,6 @@ func (r *RouteRepository) toDomain(m *Route) *domain.Route {
 		ClientType:    domain.ClientType(m.ClientType),
 		ProviderID:    m.ProviderID,
 		Position:      m.Position,
-		Weight:        weight,
 		RetryConfigID: m.RetryConfigID,
 	}
 }

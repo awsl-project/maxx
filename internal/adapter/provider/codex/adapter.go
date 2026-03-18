@@ -177,7 +177,6 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		proxyErr.IsNetworkError = true
 		return proxyErr
 	}
-	resp.Body = flow.WrapResponseBody(c, resp.Body)
 	defer resp.Body.Close()
 
 	// Handle 401 (token expired) - refresh and retry once
@@ -208,7 +207,6 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			proxyErr.IsNetworkError = true
 			return proxyErr
 		}
-		resp.Body = flow.WrapResponseBody(c, resp.Body)
 		defer resp.Body.Close()
 	}
 
@@ -689,6 +687,7 @@ func extractModelFromResponse(body []byte) string {
 	}
 	return ""
 }
+
 
 // applyCodexHeaders applies headers for Codex API requests
 // It follows the CLIProxyAPI pattern: passthrough client headers, use defaults only when missing

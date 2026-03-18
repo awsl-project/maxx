@@ -179,7 +179,6 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 			ClientType:      r.ClientType,
 			ProviderName:    providerIDToName[r.ProviderID],
 			Position:        r.Position,
-			Weight:          r.Weight,
 			RetryConfigName: retryConfigIDToName[r.RetryConfigID],
 		})
 	}
@@ -676,7 +675,6 @@ func (s *BackupService) importRoutes(tenantID uint64, routes []domain.BackupRout
 			ClientType:    br.ClientType,
 			ProviderID:    providerID,
 			Position:      br.Position,
-			Weight:        br.Weight,
 			RetryConfigID: retryConfigID,
 		}
 

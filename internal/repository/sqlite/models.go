@@ -133,7 +133,6 @@ type Route struct {
 	ClientType    string `gorm:"size:64"`
 	ProviderID    uint64
 	Position      int
-	Weight        int `gorm:"default:1"`
 	RetryConfigID uint64
 }
 

@@ -153,7 +153,6 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		proxyErr.IsNetworkError = true
 		return proxyErr
 	}
-	resp.Body = flow.WrapResponseBody(c, resp.Body)
 	defer resp.Body.Close()
 
 	// Check for error response

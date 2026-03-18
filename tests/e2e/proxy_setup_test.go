@@ -13,7 +13,6 @@ import (
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
-	"github.com/awsl-project/maxx/internal/health"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
@@ -39,23 +38,9 @@ type ProxyTestEnv struct {
 	Token  string // Admin JWT token
 }
 
-type ProxyTestEnvOptions struct {
-	AttemptBudget *executor.AttemptBudget
-}
-
 // NewProxyTestEnv creates a test environment that includes the proxy handler,
 // suitable for end-to-end proxy integration testing.
 func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
-	return newProxyTestEnv(t, ProxyTestEnvOptions{})
-}
-
-func NewProxyTestEnvWithAttemptBudget(t *testing.T, budget executor.AttemptBudget) *ProxyTestEnv {
-	return newProxyTestEnv(t, ProxyTestEnvOptions{
-		AttemptBudget: &budget,
-	})
-}
-
-func newProxyTestEnv(t *testing.T, opts ProxyTestEnvOptions) *ProxyTestEnv {
 	t.Helper()
 
 	// Clear global cooldown state from previous tests (singleton is shared across tests)
@@ -144,10 +129,9 @@ func newProxyTestEnv(t *testing.T, opts ProxyTestEnvOptions) *ProxyTestEnv {
 
 	// Create WebSocket hub
 	wsHub := handler.NewWebSocketHub()
-	providerHealthTracker := health.NewTracker()
 
 	// Create Router (for proxy pipeline)
-	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo, providerHealthTracker)
+	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo)
 
 	// Create admin service with Router as adapter refresher
 	adminService := service.NewAdminService(
@@ -192,10 +176,7 @@ func newProxyTestEnv(t *testing.T, opts ProxyTestEnvOptions) *ProxyTestEnv {
 	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
 
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance", statsAggregator, providerHealthTracker)
-	if opts.AttemptBudget != nil {
-		requestExecutor.SetAttemptBudget(*opts.AttemptBudget)
-	}
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance", statsAggregator)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()

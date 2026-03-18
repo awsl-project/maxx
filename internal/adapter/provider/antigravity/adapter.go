@@ -239,7 +239,6 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					proxyErr.IsNetworkError = true // Mark as network error (connection timeout, DNS failure, etc.)
 					return proxyErr
 				}
-				resp.Body = flow.WrapResponseBody(c, resp.Body)
 
 				// Check for 401 (token expired) and retry once
 				if resp.StatusCode == http.StatusUnauthorized {
@@ -274,7 +273,6 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						proxyErr.IsNetworkError = true // Mark as network error
 						return proxyErr
 					}
-					resp.Body = flow.WrapResponseBody(c, resp.Body)
 				}
 
 				// Check for error response

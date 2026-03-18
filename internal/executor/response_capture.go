@@ -12,7 +12,6 @@ type ResponseCapture struct {
 	statusCode int
 	body       bytes.Buffer
 	headers    http.Header
-	started    bool
 }
 
 // NewResponseCapture creates a new ResponseCapture wrapper
@@ -27,13 +26,11 @@ func NewResponseCapture(w http.ResponseWriter) *ResponseCapture {
 // WriteHeader captures the status code and forwards to underlying writer
 func (rc *ResponseCapture) WriteHeader(code int) {
 	rc.statusCode = code
-	rc.started = true
 	rc.ResponseWriter.WriteHeader(code)
 }
 
 // Write captures the body and forwards to underlying writer
 func (rc *ResponseCapture) Write(b []byte) (int, error) {
-	rc.started = true
 	rc.body.Write(b)
 	return rc.ResponseWriter.Write(b)
 }
@@ -58,10 +55,6 @@ func (rc *ResponseCapture) StatusCode() int {
 // Body returns the captured response body
 func (rc *ResponseCapture) Body() string {
 	return rc.body.String()
-}
-
-func (rc *ResponseCapture) Started() bool {
-	return rc.started
 }
 
 // CapturedHeaders returns the headers that were set

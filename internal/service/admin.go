@@ -239,16 +239,10 @@ func (s *AdminService) GetRoute(tenantID uint64, id uint64) (*domain.Route, erro
 
 func (s *AdminService) CreateRoute(tenantID uint64, route *domain.Route) error {
 	route.TenantID = tenantID
-	if route.Weight <= 0 {
-		route.Weight = 1
-	}
 	return s.routeRepo.Create(route)
 }
 
 func (s *AdminService) UpdateRoute(tenantID uint64, route *domain.Route) error {
-	if route.Weight <= 0 {
-		route.Weight = 1
-	}
 	return s.routeRepo.Update(route)
 }
 

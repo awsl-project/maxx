@@ -67,7 +67,6 @@ type BackupRoute struct {
 	ClientType      ClientType `json:"clientType"`
 	ProviderName    string     `json:"providerName"`
 	Position        int        `json:"position"`
-	Weight          int        `json:"weight"`
 	RetryConfigName string     `json:"retryConfigName"` // empty = default
 }
 
