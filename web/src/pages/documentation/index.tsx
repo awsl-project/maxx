@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   Copy,
@@ -170,6 +170,11 @@ function DocumentationSection() {
   const { t } = useTranslation();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
   const [activeTab, setActiveTab] = useState<DocumentationPageTab>('quickstart');
   const [quickstartClient, setQuickstartClient] = useState<QuickstartClient>('claude');
   const [quickstartToken, setQuickstartToken] = useState('');
@@ -262,18 +267,29 @@ function DocumentationSection() {
 
   const copyToClipboard = async (text: string, id: string) => {
     try {
+      let copied = false;
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
+        try {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        } catch {
+          copied = false;
+        }
+      }
+      if (!copied) {
         const textarea = document.createElement('textarea');
         textarea.value = text;
         textarea.style.position = 'fixed';
         textarea.style.opacity = '0';
         document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
+        try {
+          textarea.select();
+          copied = document.execCommand('copy');
+        } finally {
+          document.body.removeChild(textarea);
+        }
       }
+      if (!copied) throw new Error('Clipboard copy failed');
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       setCopiedCode(id);
       copyTimerRef.current = setTimeout(() => setCopiedCode(null), 2000);
