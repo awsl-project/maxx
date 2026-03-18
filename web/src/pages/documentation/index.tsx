@@ -518,8 +518,8 @@ function DocumentationSection() {
                 </p>
                 <CodeBlock
                   code={`claude_maxx() {
-    export ANTHROPIC_BASE_URL="${baseUrl}"
-    export ANTHROPIC_AUTH_TOKEN="${quickstartToken.trim() || 'maxx_your_token_here'}"
+    export ANTHROPIC_BASE_URL=${shellQuote(baseUrl)}
+    export ANTHROPIC_AUTH_TOKEN=${shellQuote(quickstartToken.trim() || 'maxx_your_token_here')}
     claude "$@"
 }`}
                   id="quickstart-claude-shell"
