@@ -247,30 +247,7 @@ func applyCodexQuotaIdentityMigration(db *gorm.DB) error {
 	if !db.Migrator().HasColumn(&CodexQuota{}, "identity_key") {
 		return nil
 	}
-	var backfillSQL string
-	switch db.Dialector.Name() {
-	case "mysql":
-		backfillSQL = `
-			UPDATE codex_quotas
-			SET identity_key = CASE
-				WHEN account_id IS NOT NULL AND TRIM(account_id) != '' THEN CONCAT('account:', TRIM(account_id))
-				WHEN email IS NOT NULL AND TRIM(email) != '' THEN CONCAT('email:', TRIM(email))
-				ELSE NULL
-			END
-			WHERE identity_key IS NULL OR TRIM(identity_key) = ''
-		`
-	default:
-		backfillSQL = `
-			UPDATE codex_quotas
-			SET identity_key = CASE
-				WHEN account_id IS NOT NULL AND TRIM(account_id) != '' THEN 'account:' || TRIM(account_id)
-				WHEN email IS NOT NULL AND TRIM(email) != '' THEN 'email:' || TRIM(email)
-				ELSE NULL
-			END
-			WHERE identity_key IS NULL OR TRIM(identity_key) = ''
-		`
-	}
-	if err := db.Exec(backfillSQL).Error; err != nil {
+	if err := db.Exec(codexQuotaIdentityBackfillSQL(db.Dialector.Name())).Error; err != nil {
 		return err
 	}
 	if err := dedupeCodexQuotaIdentityRows(db); err != nil {
