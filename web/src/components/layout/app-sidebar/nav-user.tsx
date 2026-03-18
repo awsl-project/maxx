@@ -340,9 +340,7 @@ export function NavUser() {
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
   const menuDisplayName = displayUser.name || 'Maxx';
   const menuDisplayFallback = menuDisplayName.slice(0, 2).toUpperCase();
-  const accountTitle = [displayUser.name, displayUser.subtitle, displayUser.identity]
-    .filter(Boolean)
-    .join(' · ');
+  const accountTitle = displayUser.name || undefined;
 
   return (
     <SidebarMenu>
@@ -426,42 +424,22 @@ export function NavUser() {
                 )}
               />
               <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium">{displayUser.name}</span>
-                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {displayUser.status}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">{displayUser.subtitle}</div>
-                  <div className="text-[10px] text-muted-foreground/80">{displayUser.identity}</div>
-                </div>
+                <span className="text-xs font-medium">{displayUser.name}</span>
               </TooltipContent>
             </Tooltip>
           ) : (
             <div
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 py-1.5"
+              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
               title={accountTitle}
             >
-              <Avatar className="h-7 w-7 rounded-lg">
+              <Avatar className="h-6 w-6 rounded-lg">
                 <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
                 <AvatarFallback className="rounded-lg text-[10px]">
                   {displayUserFallback}
                 </AvatarFallback>
               </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="block truncate text-xs font-medium">{displayUser.name}</span>
-                  <span className="rounded-full bg-sidebar px-1.5 py-0.5 text-[9px] font-medium text-sidebar-foreground/75">
-                    {displayUser.status}
-                  </span>
-                </div>
-                <span className="block truncate text-[11px] text-sidebar-foreground/75">
-                  {displayUser.subtitle}
-                </span>
-                <span className="block truncate text-[10px] text-sidebar-foreground/55">
-                  {displayUser.identity}
-                </span>
+              <div className="min-w-0">
+                <span className="block truncate text-xs font-medium">{displayUser.name}</span>
               </div>
             </div>
           )}
