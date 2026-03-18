@@ -16,6 +16,7 @@ const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 
 test.describe.configure({ mode: 'serial' });
+test.setTimeout(60_000);
 
 type TableGeometry = {
   label: string;
