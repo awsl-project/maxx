@@ -5,6 +5,7 @@ import { useSidebar } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { buildProxyBaseUrl } from '@/lib/codex-config';
 
 export function NavProxyStatus() {
   const { t } = useTranslation();
@@ -13,7 +14,7 @@ export function NavProxyStatus() {
   const [copied, setCopied] = useState(false);
 
   const proxyAddress = proxyStatus?.address ?? '...';
-  const fullUrl = `http://${proxyAddress}`;
+  const fullUrl = proxyStatus?.address ? buildProxyBaseUrl(proxyStatus) : '...';
   const isCollapsed = state === 'collapsed';
   const versionDisplay = proxyStatus?.version ?? '...';
   const handleCopy = async () => {
