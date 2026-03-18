@@ -8,16 +8,13 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   outputDir: 'test-results',
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    // The Playwright suite exercises the backend-served web app on :9880.
+    // This keeps local runs aligned with the CI workflow that builds web/dist
+    // before compiling the Go binary.
+    baseURL: process.env.MAXX_E2E_BASE_URL || 'http://localhost:9880',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-  },
-  webServer: {
-    command: 'cd ../../../web && pnpm dev --host 127.0.0.1 --port 4173',
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
   },
   projects: [
     {
