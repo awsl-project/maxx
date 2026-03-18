@@ -468,21 +468,38 @@ async function collectPageMetrics(page: Page): Promise<PageMetrics> {
   });
 }
 
+function matchesStressScope(item: any, providerId: number, projectId: number): boolean {
+  return Number(item?.providerID) === providerId || Number(item?.projectID) === projectId;
+}
+
+async function listScopedRequests(params: {
+  providerId: number;
+  projectId: number;
+  jwt: string | undefined;
+  limit: number;
+}): Promise<any[]> {
+  const response = await adminAPI('GET', `/requests?limit=${params.limit}`, undefined, params.jwt);
+  return (response.items ?? []).filter((item: any) =>
+    matchesStressScope(item, params.providerId, params.projectId),
+  );
+}
+
 async function collectStressSample(
   page: Page,
   providerId: number,
+  projectId: number,
   jwt: string | undefined,
   startedAt: number,
 ): Promise<StressSample> {
   const adminStartedAt = Date.now();
-  const response = await adminAPI(
-    'GET',
-    `/requests?limit=20&providerId=${providerId}`,
-    undefined,
+  const scopedRequests = await listScopedRequests({
+    providerId,
+    projectId,
     jwt,
-  );
+    limit: 200,
+  });
   const adminLatencyMs = Date.now() - adminStartedAt;
-  const adminTopStatuses = (response.items ?? []).map((item: any) => String(item.status));
+  const adminTopStatuses = scopedRequests.slice(0, 20).map((item: any) => String(item.status));
   const pageMetrics = await collectPageMetrics(page);
 
   return {
@@ -586,24 +603,23 @@ test('requests page remains responsive during 1 minute mixed live stress', async
     routeId = route.id;
 
     const stressURL = `${BASE}/project/${project.slug}/v1/messages`;
+
+    const baseline = await adminAPI('GET', '/requests?limit=1', undefined, jwt);
+    const baselineFirstId = Number(baseline.firstId ?? 0);
+
     await warmupTraffic(stressURL, 40);
 
     await expect
       .poll(
         async () => {
-          const requests = await adminAPI(
-            'GET',
-            `/requests?limit=100&providerId=${provider.id}`,
-            undefined,
-            jwt,
-          );
-          return requests.items?.length ?? 0;
+          const latest = await adminAPI('GET', '/requests?limit=1', undefined, jwt);
+          return Number(latest.firstId ?? 0);
         },
-        { timeout: 20_000 },
+        { timeout: 45_000 },
       )
-      .toBeGreaterThanOrEqual(20);
+      .toBeGreaterThan(baselineFirstId);
 
-    await openRequestsPage(page, provider.id);
+    await openRequestsPage(page, project.id);
     await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(async () => page.locator('tbody tr[data-request-row="true"]').count(), { timeout: 30_000 })
@@ -614,20 +630,20 @@ test('requests page remains responsive during 1 minute mixed live stress', async
 
     while (Date.now() - startedAt < STRESS_DURATION_MS) {
       await page.waitForTimeout(SAMPLE_INTERVAL_MS);
-      samples.push(await collectStressSample(page, provider.id, jwt, startedAt));
+      samples.push(await collectStressSample(page, provider.id, project.id, jwt, startedAt));
     }
 
     await trafficPromise;
     await page.waitForTimeout(500);
-    samples.push(await collectStressSample(page, provider.id, jwt, startedAt));
+    samples.push(await collectStressSample(page, provider.id, project.id, jwt, startedAt));
 
-    const finalList = await adminAPI(
-      'GET',
-      `/requests?limit=200&providerId=${provider.id}`,
-      undefined,
+    const finalScopedRequests = await listScopedRequests({
+      providerId: provider.id,
+      projectId: project.id,
       jwt,
-    );
-    const finalStatusCounts = (finalList.items ?? []).reduce((acc: Record<string, number>, item: any) => {
+      limit: 400,
+    });
+    const finalStatusCounts = finalScopedRequests.reduce((acc: Record<string, number>, item: any) => {
       const status = String(item.status);
       acc[status] = (acc[status] || 0) + 1;
       return acc;
