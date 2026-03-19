@@ -354,10 +354,16 @@ jobs:
             # 拖拽 maxx.app 到 Applications 文件夹
             ```
 
-            > ⚠️ 如果提示"应用已损坏"，请运行：
-            > ```bash
-            > sudo xattr -d com.apple.quarantine /Applications/maxx.app
-            > ```
+            > ⚠️ 如果提示"应用已损坏"，请按以下步骤排查：
+            > 1. 清理隔离属性：
+            >    ```bash
+            >    sudo xattr -rd com.apple.quarantine /Applications/maxx.app
+            >    ```
+            > 2. 在访达中右键 `maxx.app`，选择一次**打开**。
+            > 3. 如果仍失败，重装后重试：
+            >    ```bash
+            >    brew uninstall --cask awsl-project/awsl/maxx && brew install --cask awsl-project/awsl/maxx
+            >    ```
 
             **Linux**
             ```bash

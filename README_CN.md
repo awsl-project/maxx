@@ -90,13 +90,18 @@ volumes:
 
 ```bash
 # 安装
-brew install --no-quarantine awsl-project/awsl/maxx
+brew install --cask awsl-project/awsl/maxx
 
 # 升级
-brew upgrade --no-quarantine awsl-project/awsl/maxx
+brew upgrade --cask awsl-project/awsl/maxx
 ```
 
-> **提示：** 如果提示"应用已损坏"，请运行：`sudo xattr -d com.apple.quarantine /Applications/maxx.app`
+> **故障排查：macOS 提示“应用已损坏”**
+> 1. 清理隔离属性：
+>    `sudo xattr -rd com.apple.quarantine /Applications/maxx.app`
+> 2. 在访达中右键 `maxx.app`，选择一次**打开**。
+> 3. 如果仍失败，重装后再重试：
+>    `brew uninstall --cask awsl-project/awsl/maxx && brew install --cask awsl-project/awsl/maxx`
 
 </details>
 
