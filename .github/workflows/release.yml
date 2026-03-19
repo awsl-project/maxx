@@ -38,7 +38,11 @@ jobs:
             echo "Using manual version: $RESOLVED_VERSION"
           else
             git fetch --tags --force
-            LAST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -n 1)
+            LAST_TAG=$(
+              git tag --list --sort=-version:refname |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
+              head -n 1
+            )
 
             if [[ -z "$LAST_TAG" ]]; then
               RESOLVED_VERSION="v0.0.1"
