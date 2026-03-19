@@ -110,7 +110,9 @@ jobs:
       contents: write
 
   update-homebrew:
-    needs: wails-build
+    needs:
+      - release
+      - wails-build
     uses: ./.github/workflows/update-homebrew.yml
     with:
       tag: ${{ needs.release.outputs.resolved_version }}
