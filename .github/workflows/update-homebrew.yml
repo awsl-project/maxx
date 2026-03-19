@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate tag input
+        id: validate-tag
         run: |
           set -euo pipefail
           VERSION="${{ inputs.tag }}"
@@ -37,11 +38,12 @@ jobs:
           fi
 
           echo "Using tag: $VERSION"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Download macOS checksums
         run: |
           set -euo pipefail
-          VERSION="${{ inputs.tag }}"
+          VERSION="${{ steps.validate-tag.outputs.tag }}"
           BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
           curl -fsSL "${BASE_URL}/maxx-macOS-arm64.dmg.sha256" -o arm64.sha256
           curl -fsSL "${BASE_URL}/maxx-macOS-amd64.dmg.sha256" -o amd64.sha256
@@ -51,7 +53,7 @@ jobs:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
-          VERSION="${{ inputs.tag }}"
+          VERSION="${{ steps.validate-tag.outputs.tag }}"
           VERSION_NUM="${VERSION#v}"
 
           ARM64_SHA=$(tr -d '\n\r' < arm64.sha256)
