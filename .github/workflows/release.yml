@@ -1,48 +1,83 @@
 name: Release
 
-run-name: Release ${{ inputs.version }}
+run-name: Release ${{ inputs.release_type }}
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: '版本号 (例如: v1.0.0)'
+      release_type:
+        description: 'Release action type (patch, minor, major)'
         required: true
-        type: string
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
 
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.compute-version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Validate version format
+      - name: Compute next version
+        id: compute-version
         run: |
-          if [[ ! "${{ inputs.version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: 版本号格式不正确，应为 vX.Y.Z"
-            exit 1
+          set -euo pipefail
+          release_type="${{ inputs.release_type }}"
+          latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+          if [[ -z "$latest_tag" ]]; then
+            latest_tag="v0.0.0"
           fi
+          version="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "$version"
+          case "$release_type" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+            *)
+              echo "Error: unsupported release_type: $release_type"
+              exit 1
+              ;;
+          esac
+          new_tag="v${major}.${minor}.${patch}"
+          echo "version=$new_tag" >> "$GITHUB_OUTPUT"
+          echo "Computed next version: $new_tag (from $latest_tag, bump $release_type)"
 
       - name: Check if tag exists
         run: |
-          if git rev-parse "${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "Error: Tag ${{ inputs.version }} 已存在"
+          if git rev-parse "${{ steps.compute-version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Error: Tag ${{ steps.compute-version.outputs.version }} 已存在"
             exit 1
           fi
 
       - name: Create tag
         run: |
-          git tag ${{ inputs.version }}
-          git push origin ${{ inputs.version }}
+          git tag ${{ steps.compute-version.outputs.version }}
+          git push origin ${{ steps.compute-version.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
-          name: ${{ inputs.version }}
+          tag_name: ${{ steps.compute-version.outputs.version }}
+          name: ${{ steps.compute-version.outputs.version }}
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -51,7 +86,7 @@ jobs:
     needs: release
     uses: ./.github/workflows/ci-docker-build.yml
     with:
-      tag: ${{ inputs.version }}
+      tag: ${{ needs.release.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -60,7 +95,7 @@ jobs:
     needs: release
     uses: ./.github/workflows/ci-wails-build.yml
     with:
-      tag: ${{ inputs.version }}
+      tag: ${{ needs.release.outputs.version }}
     permissions:
       contents: write
 
@@ -68,6 +103,6 @@ jobs:
     needs: wails-build
     uses: ./.github/workflows/update-homebrew.yml
     with:
-      tag: ${{ inputs.version }}
+      tag: ${{ needs.release.outputs.version }}
     secrets:
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
