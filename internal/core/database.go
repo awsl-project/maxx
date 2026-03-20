@@ -73,6 +73,7 @@ type DatabaseRepos struct {
 
 // ServerComponents 包含服务器运行所需的所有组件
 type ServerComponents struct {
+	DB                  *sqlite.DB
 	Router              *router.Router
 	WebSocketHub        *handler.WebSocketHub
 	WailsBroadcaster    *event.WailsBroadcaster
@@ -415,6 +416,7 @@ func InitializeServerComponents(
 	proxyHandler.SetRequestTracker(requestTracker)
 
 	components := &ServerComponents{
+		DB:                  repos.DB,
 		Router:              r,
 		WebSocketHub:        wsHub,
 		WailsBroadcaster:    wailsBroadcaster,

@@ -96,10 +96,18 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	mux.Handle("/v1/models", components.ModelsHandler)
 	mux.Handle("/v1beta/models/", components.ProxyHandler)
 
+	// 健康检查：校验数据库等核心依赖的可用性
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if components.DB != nil {
+			if err := components.DB.Ping(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(`{"status":"unhealthy","database":"unreachable"}`))
+				return
+			}
+		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		w.Write([]byte(`{"status":"ok","database":"ok"}`))
 	})
 
 	mux.HandleFunc("/ws", components.WebSocketHub.HandleWebSocket)

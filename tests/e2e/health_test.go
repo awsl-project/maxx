@@ -17,4 +17,9 @@ func TestHealthCheck(t *testing.T) {
 	if result["status"] != "ok" {
 		t.Fatalf("Expected status 'ok', got %q", result["status"])
 	}
+
+	// 校验数据库状态字段
+	if result["database"] != "ok" {
+		t.Fatalf("Expected database 'ok', got %q", result["database"])
+	}
 }

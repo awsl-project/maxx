@@ -111,6 +111,15 @@ func (d *DB) autoMigrate() error {
 	return d.gorm.AutoMigrate(AllModels()...)
 }
 
+// Ping 检查数据库连接是否可用
+func (d *DB) Ping() error {
+	sqlDB, err := d.gorm.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Ping()
+}
+
 func (d *DB) Close() error {
 	sqlDB, err := d.gorm.DB()
 	if err != nil {
