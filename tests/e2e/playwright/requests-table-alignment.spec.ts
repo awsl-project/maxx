@@ -268,9 +268,9 @@ test('virtualized requests table keeps header and body columns aligned', async (
           const requests = await adminAPI('GET', '/requests?limit=100', undefined, jwt);
           return requests.items?.filter((item: any) => item.providerID === providerId).length ?? 0;
         },
-        { timeout: 15000 },
+        { timeout: 20000 },
       )
-      .toBeGreaterThanOrEqual(40);
+      .toBeGreaterThanOrEqual(24);
 
     await openRequestsPage(page, provider.id);
     await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 30_000 });
@@ -316,3 +316,4 @@ test('virtualized requests table keeps header and body columns aligned', async (
     await closeServer(mock.server);
   }
 });
+

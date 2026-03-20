@@ -130,7 +130,7 @@ func (h *WebSocketHub) authenticateRequest(r *http.Request) (wsClient, bool) {
 	h.mu.RUnlock()
 
 	if auth == nil {
-		return wsClient{tenantID: domain.DefaultTenantID, userID: domain.DefaultUserID, role: string(domain.UserRoleAdmin)}, true
+		return wsClient{}, false
 	}
 
 	token := strings.TrimSpace(r.URL.Query().Get("access_token"))

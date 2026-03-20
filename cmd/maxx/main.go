@@ -375,7 +375,7 @@ func main() {
 
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
-	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
+	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo, tokenAuthMiddleware)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -416,6 +416,10 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	if authMiddleware != nil {
+		wsHub.SetAuthMiddleware(authMiddleware)
+	}
 
 	// WebSocket endpoint
 	mux.HandleFunc("/ws", wsHub.HandleWebSocket)
