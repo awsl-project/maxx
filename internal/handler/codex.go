@@ -208,6 +208,11 @@ func (h *CodexHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request) 
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
+	if tenantID == 0 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "tenant context is required"})
+		return
+	}
+
 	result, err := h.StartOAuth(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

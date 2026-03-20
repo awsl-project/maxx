@@ -283,10 +283,9 @@ func (h *WebSocketHub) broadcastJSONMessage(tenantID uint64, scoped bool, defaul
 	h.tryEnqueueBroadcast(msg, "")
 }
 
-// BroadcastLog sends a log message to connected clients in the default tenant only.
-// Instance-wide log streams are not tenant-safe, so avoid leaking them across tenant boundaries.
+// BroadcastLog sends a log message to all connected clients.
 func (h *WebSocketHub) BroadcastLog(message string) {
-	h.broadcastJSONMessage(domain.DefaultTenantID, false, true, "log_message", message)
+	h.broadcastJSONMessage(0, false, false, "log_message", message)
 }
 
 // WebSocketLogWriter implements io.Writer to capture logs and broadcast via WebSocket
