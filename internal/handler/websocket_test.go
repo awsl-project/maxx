@@ -12,7 +12,7 @@ import (
 
 func TestWebSocketHub_BroadcastProxyRequest_SendsSnapshot(t *testing.T) {
 	hub := &WebSocketHub{
-		broadcast: make(chan WSMessage, 1),
+		broadcast: make(chan queuedWSMessage, 1),
 	}
 
 	req := &domain.ProxyRequest{
@@ -26,7 +26,8 @@ func TestWebSocketHub_BroadcastProxyRequest_SendsSnapshot(t *testing.T) {
 	// 如果 Broadcast 发送的是同一个指针，那么这里对原对象的修改会“污染”队列中的消息。
 	req.Status = "COMPLETED"
 
-	msg := <-hub.broadcast
+	queued := <-hub.broadcast
+	msg := queued.message
 	if msg.Type != "proxy_request_update" {
 		t.Fatalf("unexpected message type: %s", msg.Type)
 	}
@@ -50,7 +51,7 @@ func TestWebSocketHub_BroadcastProxyRequest_SendsSnapshot(t *testing.T) {
 
 func TestWebSocketHub_BroadcastProxyUpstreamAttempt_SendsSnapshot(t *testing.T) {
 	hub := &WebSocketHub{
-		broadcast: make(chan WSMessage, 1),
+		broadcast: make(chan queuedWSMessage, 1),
 	}
 
 	attempt := &domain.ProxyUpstreamAttempt{
@@ -62,7 +63,8 @@ func TestWebSocketHub_BroadcastProxyUpstreamAttempt_SendsSnapshot(t *testing.T) 
 	hub.BroadcastProxyUpstreamAttempt(attempt)
 	attempt.Status = "COMPLETED"
 
-	msg := <-hub.broadcast
+	queued := <-hub.broadcast
+	msg := queued.message
 	if msg.Type != "proxy_upstream_attempt_update" {
 		t.Fatalf("unexpected message type: %s", msg.Type)
 	}
@@ -86,9 +88,9 @@ func TestWebSocketHub_BroadcastProxyUpstreamAttempt_SendsSnapshot(t *testing.T) 
 
 func TestWebSocketHub_BroadcastDrop_IncrementsCounter(t *testing.T) {
 	hub := &WebSocketHub{
-		broadcast: make(chan WSMessage, 1),
+		broadcast: make(chan queuedWSMessage, 1),
 	}
-	hub.broadcast <- WSMessage{Type: "dummy", Data: nil}
+	hub.broadcast <- queuedWSMessage{message: WSMessage{Type: "dummy", Data: nil}}
 
 	before := hub.broadcastDroppedTotal.Load()
 
@@ -108,12 +110,12 @@ func TestWebSocketHub_BroadcastDrop_IncrementsCounter(t *testing.T) {
 func TestWebSocketLogWriter_NoDeadlockOnFullChannel(t *testing.T) {
 	// Create hub WITHOUT starting run() goroutine, so channel stays full
 	hub := &WebSocketHub{
-		broadcast: make(chan WSMessage, 100),
+		broadcast: make(chan queuedWSMessage, 100),
 	}
 
 	// Fill broadcast channel completely
 	for i := 0; i < 100; i++ {
-		hub.broadcast <- WSMessage{Type: "fill", Data: i}
+		hub.broadcast <- queuedWSMessage{message: WSMessage{Type: "fill", Data: i}}
 	}
 
 	// Create WebSocketLogWriter pointing to this hub
@@ -149,7 +151,7 @@ func TestWebSocketLogWriter_NoDeadlockOnFullChannel(t *testing.T) {
 
 func TestWebSocketHub_BroadcastMessage_SendsSnapshot(t *testing.T) {
 	hub := &WebSocketHub{
-		broadcast: make(chan WSMessage, 1),
+		broadcast: make(chan queuedWSMessage, 1),
 	}
 
 	type payload struct {
@@ -162,7 +164,8 @@ func TestWebSocketHub_BroadcastMessage_SendsSnapshot(t *testing.T) {
 	// 如果 BroadcastMessage 直接把指针放进队列，这里修改会污染后续消费者看到的数据。
 	p.A = 2
 
-	msg := <-hub.broadcast
+	queued := <-hub.broadcast
+	msg := queued.message
 	if msg.Type != "custom_event" {
 		t.Fatalf("unexpected message type: %s", msg.Type)
 	}

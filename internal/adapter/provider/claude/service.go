@@ -68,6 +68,7 @@ func ValidateRefreshToken(ctx context.Context, refreshToken string) (*ClaudeToke
 // OAuthSession represents an OAuth authorization session
 type OAuthSession struct {
 	State        string
+	TenantID     uint64
 	CodeVerifier string
 	CreatedAt    time.Time
 	ExpiresAt    time.Time
@@ -113,7 +114,7 @@ func (m *OAuthManager) GenerateState() (string, error) {
 }
 
 // CreateSession creates a new OAuth session with PKCE
-func (m *OAuthManager) CreateSession(state string) (*OAuthSession, *PKCEChallenge, error) {
+func (m *OAuthManager) CreateSession(state string, tenantID uint64) (*OAuthSession, *PKCEChallenge, error) {
 	pkce, err := GeneratePKCEChallenge()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate PKCE challenge: %w", err)
@@ -121,6 +122,7 @@ func (m *OAuthManager) CreateSession(state string) (*OAuthSession, *PKCEChalleng
 
 	session := &OAuthSession{
 		State:        state,
+		TenantID:     tenantID,
 		CodeVerifier: pkce.CodeVerifier,
 		CreatedAt:    time.Now(),
 		ExpiresAt:    time.Now().Add(5 * time.Minute),
@@ -153,10 +155,22 @@ func (m *OAuthManager) GetSession(state string) (*OAuthSession, bool) {
 // CompleteSession completes the OAuth session and broadcasts the result
 func (m *OAuthManager) CompleteSession(state string, result *OAuthResult) {
 	result.State = state
+
+	var tenantID uint64
+	if val, ok := m.sessions.Load(state); ok {
+		if session, ok := val.(*OAuthSession); ok {
+			tenantID = session.TenantID
+		}
+	}
+
 	m.sessions.Delete(state)
 
 	if m.broadcaster != nil {
-		m.broadcaster.BroadcastMessage("claude_oauth_result", result)
+		if tenantID != 0 {
+			m.broadcaster.BroadcastMessageToTenant(tenantID, "claude_oauth_result", result)
+		} else {
+			m.broadcaster.BroadcastMessage("claude_oauth_result", result)
+		}
 	}
 }
 

@@ -157,9 +157,12 @@ type ProxyUpstreamAttemptRepository interface {
 	ListAll() ([]*domain.ProxyUpstreamAttempt, error)
 	// CountAll returns total count of attempts
 	CountAll() (int64, error)
+	// CountByTenant returns total count of attempts for a tenant (or all tenants when using TenantIDAll)
+	CountByTenant(tenantID uint64) (int64, error)
 	// StreamForCostCalc iterates through all attempts for cost calculation
 	// Calls the callback with batches of minimal data, returns early if callback returns error
 	StreamForCostCalc(batchSize int, callback func(batch []*domain.AttemptCostData) error) error
+	StreamForCostCalcByTenant(tenantID uint64, batchSize int, callback func(batch []*domain.AttemptCostData) error) error
 	// UpdateCost updates only the cost field of an attempt
 	UpdateCost(id uint64, cost uint64) error
 	// BatchUpdateCosts updates costs for multiple attempts in a single transaction

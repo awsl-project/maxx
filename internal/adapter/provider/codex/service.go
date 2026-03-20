@@ -86,6 +86,7 @@ func ValidateRefreshToken(ctx context.Context, refreshToken string) (*CodexToken
 // OAuthSession represents an OAuth authorization session
 type OAuthSession struct {
 	State        string
+	TenantID     uint64
 	CodeVerifier string
 	CreatedAt    time.Time
 	ExpiresAt    time.Time
@@ -137,7 +138,7 @@ func (m *OAuthManager) GenerateState() (string, error) {
 }
 
 // CreateSession creates a new OAuth session with PKCE
-func (m *OAuthManager) CreateSession(state string) (*OAuthSession, *PKCEChallenge, error) {
+func (m *OAuthManager) CreateSession(state string, tenantID uint64) (*OAuthSession, *PKCEChallenge, error) {
 	// Generate PKCE challenge
 	pkce, err := GeneratePKCEChallenge()
 	if err != nil {
@@ -146,6 +147,7 @@ func (m *OAuthManager) CreateSession(state string) (*OAuthSession, *PKCEChalleng
 
 	session := &OAuthSession{
 		State:        state,
+		TenantID:     tenantID,
 		CodeVerifier: pkce.CodeVerifier,
 		CreatedAt:    time.Now(),
 		ExpiresAt:    time.Now().Add(5 * time.Minute), // 5 minute timeout
@@ -181,12 +183,23 @@ func (m *OAuthManager) CompleteSession(state string, result *OAuthResult) {
 	// Ensure state matches
 	result.State = state
 
+	var tenantID uint64
+	if val, ok := m.sessions.Load(state); ok {
+		if session, ok := val.(*OAuthSession); ok {
+			tenantID = session.TenantID
+		}
+	}
+
 	// Delete session
 	m.sessions.Delete(state)
 
 	// Broadcast result via WebSocket
 	if m.broadcaster != nil {
-		m.broadcaster.BroadcastMessage("codex_oauth_result", result)
+		if tenantID != 0 {
+			m.broadcaster.BroadcastMessageToTenant(tenantID, "codex_oauth_result", result)
+		} else {
+			m.broadcaster.BroadcastMessage("codex_oauth_result", result)
+		}
 	}
 }
 
