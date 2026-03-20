@@ -9,6 +9,7 @@ type Broadcaster interface {
 	BroadcastProxyUpstreamAttempt(attempt *domain.ProxyUpstreamAttempt)
 	BroadcastLog(message string)
 	BroadcastMessage(messageType string, data interface{})
+	BroadcastMessageToTenant(tenantID uint64, messageType string, data interface{})
 }
 
 // NopBroadcaster 空实现，用于测试或不需要广播的场景
@@ -18,6 +19,7 @@ func (n *NopBroadcaster) BroadcastProxyRequest(req *domain.ProxyRequest)        
 func (n *NopBroadcaster) BroadcastProxyUpstreamAttempt(attempt *domain.ProxyUpstreamAttempt) {}
 func (n *NopBroadcaster) BroadcastLog(message string)                                        {}
 func (n *NopBroadcaster) BroadcastMessage(messageType string, data interface{})              {}
+func (n *NopBroadcaster) BroadcastMessageToTenant(tenantID uint64, messageType string, data interface{}) {}
 
 // SanitizeProxyRequestForBroadcast 用于“实时广播”场景瘦身 payload：
 // 去掉 request/response 大字段，避免 WebSocket 消息动辄几十/几百 KB，导致前端 JSON.parse / GC 卡死。

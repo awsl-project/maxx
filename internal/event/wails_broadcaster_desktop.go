@@ -73,6 +73,14 @@ func (w *WailsBroadcaster) BroadcastLog(message string) {
 	w.emitWailsEvent("log_message", message)
 }
 
+// BroadcastMessageToTenant broadcasts a tenant-scoped custom message
+func (w *WailsBroadcaster) BroadcastMessageToTenant(tenantID uint64, messageType string, data interface{}) {
+	if w.inner != nil {
+		w.inner.BroadcastMessageToTenant(tenantID, messageType, data)
+	}
+	w.emitWailsEvent(messageType, data)
+}
+
 // BroadcastMessage broadcasts a custom message
 func (w *WailsBroadcaster) BroadcastMessage(messageType string, data interface{}) {
 	if w.inner != nil {
