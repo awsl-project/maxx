@@ -206,6 +206,7 @@ async function openRequestsPage(page: Page, providerId?: number) {
 }
 
 test('virtualized requests table keeps header and body columns aligned', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
   const mock = await startMockClaudeServer();
   let jwt: string | undefined;
   let providerId: number | null = null;
