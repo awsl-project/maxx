@@ -308,6 +308,9 @@ type Route struct {
 	// 位置，数字越小越优先
 	Position int `json:"position"`
 
+	// 权重，用于加权随机路由策略，值越大被选中概率越高，默认 1
+	Weight int `json:"weight"`
+
 	// 重试配置，0 表示使用系统默认
 	RetryConfigID uint64 `json:"retryConfigID"`
 }

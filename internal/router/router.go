@@ -272,14 +272,44 @@ func (r *Router) getRoutingStrategy(tenantID uint64, projectID uint64) *domain.R
 func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStrategy) {
 	switch strategy.Type {
 	case domain.RoutingStrategyWeightedRandom:
-		// Shuffle with weights (simplified - just shuffle for now)
-		rand.Shuffle(len(routes), func(i, j int) {
-			routes[i], routes[j] = routes[j], routes[i]
-		})
+		// 按权重做概率排序：权重越大，排在前面的概率越高
+		weightedShuffle(routes)
 	default: // priority
 		sort.Slice(routes, func(i, j int) bool {
 			return routes[i].Position < routes[j].Position
 		})
+	}
+}
+
+// weightedShuffle 按权重做加权随机排序
+// 使用加权采样算法：每次从剩余路由中按权重概率选一个放到当前位置
+func weightedShuffle(routes []*domain.Route) {
+	n := len(routes)
+	for i := 0; i < n-1; i++ {
+		// 计算剩余路由的权重总和
+		totalWeight := 0
+		for j := i; j < n; j++ {
+			w := routes[j].Weight
+			if w <= 0 {
+				w = 1
+			}
+			totalWeight += w
+		}
+
+		// 按权重随机选择一个
+		r := rand.Intn(totalWeight)
+		cumulative := 0
+		for j := i; j < n; j++ {
+			w := routes[j].Weight
+			if w <= 0 {
+				w = 1
+			}
+			cumulative += w
+			if r < cumulative {
+				routes[i], routes[j] = routes[j], routes[i]
+				break
+			}
+		}
 	}
 }
 

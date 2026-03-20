@@ -361,6 +361,15 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 				existing.Position = int(f)
 			}
 		}
+		if v, ok := updates["weight"]; ok {
+			if f, ok := v.(float64); ok {
+				w := int(f)
+				if w <= 0 {
+					w = 1
+				}
+				existing.Weight = w
+			}
+		}
 		if v, ok := updates["retryConfigID"]; ok {
 			if f, ok := v.(float64); ok {
 				existing.RetryConfigID = uint64(f)
