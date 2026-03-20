@@ -146,7 +146,7 @@ type CodexOAuthStartResult struct {
 }
 
 // StartOAuth starts the OAuth authorization flow
-func (h *CodexHandler) StartOAuth() (*CodexOAuthStartResult, error) {
+func (h *CodexHandler) StartOAuth(tenantID uint64) (*CodexOAuthStartResult, error) {
 	// Generate random state token
 	state, err := h.oauthManager.GenerateState()
 	if err != nil {
@@ -154,7 +154,7 @@ func (h *CodexHandler) StartOAuth() (*CodexOAuthStartResult, error) {
 	}
 
 	// Create OAuth session with PKCE
-	_, pkce, err := h.oauthManager.CreateSession(state)
+	_, pkce, err := h.oauthManager.CreateSession(state, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -207,7 +207,8 @@ func (h *CodexHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request) 
 		cancel()
 	}
 
-	result, err := h.StartOAuth()
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.StartOAuth(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

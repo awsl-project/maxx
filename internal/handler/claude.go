@@ -102,13 +102,13 @@ type ClaudeOAuthStartResult struct {
 }
 
 // StartOAuth starts the OAuth authorization flow
-func (h *ClaudeHandler) StartOAuth() (*ClaudeOAuthStartResult, error) {
+func (h *ClaudeHandler) StartOAuth(tenantID uint64) (*ClaudeOAuthStartResult, error) {
 	state, err := h.oauthManager.GenerateState()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	_, pkce, err := h.oauthManager.CreateSession(state)
+	_, pkce, err := h.oauthManager.CreateSession(state, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -158,7 +158,8 @@ func (h *ClaudeHandler) handleOAuthStart(w http.ResponseWriter, r *http.Request)
 		cancel()
 	}
 
-	result, err := h.StartOAuth()
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.StartOAuth(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
