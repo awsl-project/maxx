@@ -53,8 +53,13 @@ func (r *ProxyUpstreamAttemptRepository) ListAll() ([]*domain.ProxyUpstreamAttem
 }
 
 func (r *ProxyUpstreamAttemptRepository) CountAll() (int64, error) {
+	return r.CountByTenant(domain.TenantIDAll)
+}
+
+func (r *ProxyUpstreamAttemptRepository) CountByTenant(tenantID uint64) (int64, error) {
 	var count int64
-	if err := r.db.gorm.Model(&ProxyUpstreamAttempt{}).Count(&count).Error; err != nil {
+	query := tenantScope(r.db.gorm.Model(&ProxyUpstreamAttempt{}), tenantID)
+	if err := query.Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -63,6 +68,10 @@ func (r *ProxyUpstreamAttemptRepository) CountAll() (int64, error) {
 // StreamForCostCalc iterates through all attempts in batches for cost calculation
 // Only fetches fields needed for cost calculation, avoiding expensive JSON parsing
 func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callback func(batch []*domain.AttemptCostData) error) error {
+	return r.StreamForCostCalcByTenant(domain.TenantIDAll, batchSize, callback)
+}
+
+func (r *ProxyUpstreamAttemptRepository) StreamForCostCalcByTenant(tenantID uint64, batchSize int, callback func(batch []*domain.AttemptCostData) error) error {
 	var lastID uint64 = 0
 
 	for {
@@ -81,10 +90,14 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 			Cost              uint64 `gorm:"column:cost"`
 		}
 
-		err := r.db.gorm.Table("proxy_upstream_attempts").
+		query := r.db.gorm.Table("proxy_upstream_attempts").
 			Select("id, proxy_request_id, response_model, mapped_model, request_model, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost").
-			Where("id > ?", lastID).
-			Order("id").
+			Where("id > ?", lastID)
+		if tenantID != domain.TenantIDAll {
+			query = query.Where("tenant_id = ?", tenantID)
+		}
+
+		err := query.Order("id").
 			Limit(batchSize).
 			Find(&results).Error
 
