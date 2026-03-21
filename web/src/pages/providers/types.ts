@@ -157,9 +157,9 @@ export const quickTemplates: QuickTemplate[] = [
     logoUrl: duckcodingLogo,
     supportedClients: ['claude', 'codex', 'gemini'],
     clientBaseURLs: {
-      claude: 'https://jp.duckcoding.com',
-      codex: 'https://jp.duckcoding.com/v1',
-      gemini: 'https://jp.duckcoding.com',
+      claude: 'https://api.duckcoding.ai',
+      codex: 'https://api.duckcoding.ai/v1',
+      gemini: 'https://api.duckcoding.ai',
     },
   },
   {
@@ -172,7 +172,7 @@ export const quickTemplates: QuickTemplate[] = [
     logoUrl: freeDuckLogo,
     supportedClients: ['claude'],
     clientBaseURLs: {
-      claude: 'https://free.duckcoding.com',
+      claude: 'https://free.duckcoding.ai',
     },
   },
   {
