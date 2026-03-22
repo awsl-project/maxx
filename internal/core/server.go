@@ -103,6 +103,7 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	})
 
 	mux.HandleFunc("/ws", components.WebSocketHub.HandleWebSocket)
+	mux.Handle("/provider/", components.ProviderProxyHandler)
 
 	if s.config.ServeStatic {
 		staticHandler := handler.NewStaticHandler()

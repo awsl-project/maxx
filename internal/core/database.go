@@ -89,6 +89,7 @@ type ServerComponents struct {
 	ClaudeHandler       *handler.ClaudeHandler
 	ClaudeOAuthServer   *ClaudeOAuthServer
 	ProjectProxyHandler *handler.ProjectProxyHandler
+	ProviderProxyHandler *handler.ProviderProxyHandler
 	RequestTracker      *RequestTracker
 	PprofManager        *PprofManager
 	AuthMiddleware      *handler.AuthMiddleware
@@ -431,6 +432,7 @@ func InitializeServerComponents(
 		ClaudeHandler:       claudeHandler,
 		ClaudeOAuthServer:   claudeOAuthServer,
 		ProjectProxyHandler: projectProxyHandler,
+		ProviderProxyHandler: handler.NewProviderProxyHandler(proxyHandler, modelsHandler, repos.CachedProviderRepo, repos.CachedRouteRepo, repos.ProxyRequestRepo),
 		RequestTracker:      requestTracker,
 		PprofManager:        pprofMgr,
 		AuthMiddleware:      authMiddleware,

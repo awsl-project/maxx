@@ -194,6 +194,8 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 
 	// Create models handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
+	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, modelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo)
 
 	// Setup routes (mirroring main.go)
 	mux := http.NewServeMux()
@@ -216,6 +218,8 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 	mux.Handle("/v1/responses", proxyHandler)
 	mux.Handle("/v1/responses/", proxyHandler)
 	mux.Handle("/v1beta/models/", proxyHandler)
+	mux.Handle("/project/", projectProxyHandler)
+	mux.Handle("/provider/", providerProxyHandler)
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

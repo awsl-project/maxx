@@ -376,6 +376,7 @@ func main() {
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, modelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -409,6 +410,8 @@ func main() {
 	mux.Handle("/v1/responses/", proxyHandler)
 	// Gemini API (Google AI Studio style)
 	mux.Handle("/v1beta/models/", proxyHandler)
+	// Provider-scoped proxy routes
+	mux.Handle("/provider/", providerProxyHandler)
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
