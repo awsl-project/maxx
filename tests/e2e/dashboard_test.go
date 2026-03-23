@@ -2,7 +2,9 @@ package e2e_test
 
 import (
 	"net/http"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
@@ -120,8 +122,21 @@ func TestGetDashboard_UsesConfiguredTimezone(t *testing.T) {
 }
 
 func TestGetDashboard_DefaultsToSystemTimezoneWhenUnset(t *testing.T) {
-	env := NewTestEnv(t)
+	originalTZ, hadTZ := os.LookupEnv("TZ")
+	originalLocal := time.Local
+	t.Cleanup(func() {
+		if hadTZ {
+			_ = os.Setenv("TZ", originalTZ)
+		} else {
+			_ = os.Unsetenv("TZ")
+		}
+		time.Local = originalLocal
+	})
 
+	_ = os.Unsetenv("TZ")
+	time.Local = time.UTC
+
+	env := NewTestEnv(t)
 	resp := env.AdminGet("/api/admin/dashboard")
 	AssertStatus(t, resp, http.StatusOK)
 
@@ -130,5 +145,32 @@ func TestGetDashboard_DefaultsToSystemTimezoneWhenUnset(t *testing.T) {
 
 	if dashboard["timezone"] != "UTC" {
 		t.Fatalf("Expected dashboard timezone UTC in test env, got %v", dashboard["timezone"])
+	}
+}
+
+func TestGetDashboard_DoesNotEchoInvalidTZEnv(t *testing.T) {
+	originalTZ, hadTZ := os.LookupEnv("TZ")
+	originalLocal := time.Local
+	t.Cleanup(func() {
+		if hadTZ {
+			_ = os.Setenv("TZ", originalTZ)
+		} else {
+			_ = os.Unsetenv("TZ")
+		}
+		time.Local = originalLocal
+	})
+
+	_ = os.Setenv("TZ", "Mars/Phobos")
+	time.Local = time.UTC
+
+	env := NewTestEnv(t)
+	resp := env.AdminGet("/api/admin/dashboard")
+	AssertStatus(t, resp, http.StatusOK)
+
+	var dashboard map[string]any
+	DecodeJSON(t, resp, &dashboard)
+
+	if dashboard["timezone"] != "UTC" {
+		t.Fatalf("Expected invalid TZ env to fall back to UTC, got %v", dashboard["timezone"])
 	}
 }
