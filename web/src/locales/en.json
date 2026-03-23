@@ -1223,6 +1223,7 @@
     "cancel": "Cancel",
     "none": "None",
     "defaultEndpoint": "Default endpoint",
+    "proxyUrl": "Provider URL",
     "validationFailed": "Validation failed",
     "tokenValidationFailed": "Token validation failed",
     "multiplier": "Price Multiplier",

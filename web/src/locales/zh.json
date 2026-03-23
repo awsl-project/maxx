@@ -1223,6 +1223,7 @@
     "cancel": "取消",
     "none": "无",
     "defaultEndpoint": "默认端点",
+    "proxyUrl": "提供商 URL",
     "validationFailed": "验证失败",
     "tokenValidationFailed": "令牌验证失败",
     "multiplier": "价格倍率",

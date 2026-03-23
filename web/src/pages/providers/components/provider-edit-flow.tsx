@@ -49,6 +49,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
+import { ProviderProxyURLCard } from './provider-proxy-url-card';
 
 // Provider Model Mappings Section for Custom Providers
 function ProviderModelMappings({ provider }: { provider: Provider }) {
@@ -614,6 +615,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-7xl space-y-8">
+          <ProviderProxyURLCard provider={provider} />
+
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
               {t('provider.basicInfo')}

@@ -67,7 +67,7 @@ function startMockClaudeServer(): Promise<{ server: http.Server; port: number }>
   });
 }
 
-test('provider-scoped proxy route records requests in the UI', async ({ page }, testInfo) => {
+test('provider-scoped proxy route records requests and shows provider URL in the UI', async ({ page }, testInfo) => {
   const mock = await startMockClaudeServer();
   let jwt: string | null = null;
   let providerId: number | null = null;
@@ -133,6 +133,7 @@ test('provider-scoped proxy route records requests in the UI', async ({ page }, 
     expect(apiToken).toBeTruthy();
 
     const requestModel = `claude-sonnet-4-20250514-provider-ui-${Date.now()}`;
+    const expectedProviderProxyUrl = `${new URL(BASE).origin}/provider/${provider.id}/`;
     const response = await fetch(`${BASE}/provider/${provider.id}/v1/messages`, {
       method: 'POST',
       headers: {
@@ -170,7 +171,14 @@ test('provider-scoped proxy route records requests in the UI', async ({ page }, 
       }, { timeout: 15000 })
       .toBe(true);
 
-    await page.screenshot({ path: testInfo.outputPath('provider-proxy-route.png'), fullPage: true });
+    await page.goto(`${BASE}/providers/${provider.id}/edit`);
+    await expect(page.locator('[data-testid="provider-proxy-url"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="provider-proxy-url"]')).toContainText(
+      expectedProviderProxyUrl,
+      { timeout: 10000 },
+    );
+
+    await page.screenshot({ path: testInfo.outputPath('provider-edit-url.png'), fullPage: true });
   } finally {
     if (tokenId) {
       await adminAPI('DELETE', `/api-tokens/${tokenId}`, undefined, jwt ?? undefined).catch(() => undefined);

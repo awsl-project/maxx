@@ -42,6 +42,7 @@ import { ModelInput } from '@/components/ui/model-input';
 import { CODEX_COLOR } from '../types';
 import { useCodexBatchQuotas } from '@/hooks/queries';
 import { CLIProxyAPISwitch } from './cliproxyapi-switch';
+import { ProviderProxyURLCard } from './provider-proxy-url-card';
 
 interface CodexProviderViewProps {
   provider: Provider;
@@ -557,6 +558,8 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-7xl space-y-8">
+          <ProviderProxyURLCard provider={provider} />
+
           {/* Info Card */}
           <div className="bg-muted rounded-xl p-6 border border-border">
             <div className="flex items-start justify-between gap-6">
