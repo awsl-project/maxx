@@ -3,6 +3,7 @@ package sqlite
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,23 +23,60 @@ func NewUsageStatsRepository(db *DB) *UsageStatsRepository {
 	return &UsageStatsRepository{db: db}
 }
 
-// getConfiguredTimezone 获取配置的时区，默认 Asia/Shanghai
+// getConfiguredTimezone 获取配置的时区。
+// 未配置时默认跟随部署环境时区；若无法解析，再退回 UTC。
 func (r *UsageStatsRepository) getConfiguredTimezone() *time.Location {
 	var value string
 	err := r.db.gorm.Table("system_settings").
-		Where("key = ?", domain.SettingKeyTimezone).
+		Where("setting_key = ?", domain.SettingKeyTimezone).
 		Pluck("value", &value).Error
-	if err != nil || value == "" {
-		value = "Asia/Shanghai" // 默认时区
+	if err != nil {
+		log.Printf("[UsageStats] Failed to load timezone setting, falling back to system timezone: %v", err)
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return getSystemTimezoneLocation()
 	}
 
 	loc, err := time.LoadLocation(value)
 	if err != nil {
-		log.Printf("[UsageStats] Invalid timezone %q, falling back to UTC+8: %v", value, err)
-		// 手动创建 UTC+8 时区作为 fallback（避免 Docker 容器无 tzdata 导致 panic）
-		loc = time.FixedZone("UTC+8", 8*60*60)
+		log.Printf("[UsageStats] Invalid timezone %q, falling back to system timezone: %v", value, err)
+		return getSystemTimezoneLocation()
 	}
 	return loc
+}
+
+func getSystemTimezoneLocation() *time.Location {
+	if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
+		log.Printf("[UsageStats] Invalid TZ environment value %q, falling back to time.Local", tz)
+	}
+
+	if time.Local != nil {
+		return time.Local
+	}
+
+	return time.UTC
+}
+
+func getConfiguredTimezoneName(loc *time.Location) string {
+	if loc == nil {
+		return "UTC"
+	}
+
+	name := strings.TrimSpace(loc.String())
+	if name != "" && name != "Local" {
+		return name
+	}
+
+	if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
+		return tz
+	}
+
+	return "UTC"
 }
 
 // Upsert 更新或插入统计记录
@@ -1539,7 +1577,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		mu     sync.Mutex
 		result = &domain.DashboardData{
 			ProviderStats: make(map[uint64]domain.DashboardProviderStats),
-			Timezone:      loc.String(),
+			Timezone:      getConfiguredTimezoneName(loc),
 		}
 		g errgroup.Group
 	)

@@ -222,12 +222,23 @@ const COMMON_TIMEZONES = [
   'Pacific/Auckland',
 ];
 
+const getBrowserTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+const getTimezoneOptions = (currentTimezone: string) => {
+  if (COMMON_TIMEZONES.includes(currentTimezone)) {
+    return COMMON_TIMEZONES;
+  }
+
+  return [currentTimezone, ...COMMON_TIMEZONES];
+};
+
 function TimezoneSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
 
-  const currentTimezone = settings?.timezone || 'Asia/Shanghai';
+  const currentTimezone = settings?.timezone || getBrowserTimezone();
+  const timezoneOptions = getTimezoneOptions(currentTimezone);
 
   const handleTimezoneChange = async (value: string) => {
     await updateSetting.mutateAsync({
@@ -259,7 +270,7 @@ function TimezoneSection() {
             <SelectValue>{currentTimezone}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {COMMON_TIMEZONES.map((tz) => (
+            {timezoneOptions.map((tz) => (
               <SelectItem key={tz} value={tz}>
                 {tz}
               </SelectItem>
