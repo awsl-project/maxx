@@ -1,6 +1,7 @@
 package cached
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -8,11 +9,15 @@ import (
 )
 
 type sessionTestRepo struct {
+	mu            sync.Mutex
 	session       *domain.Session
 	lastTouchedAt time.Time
 }
 
 func (r *sessionTestRepo) Create(session *domain.Session) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if session.ID == 0 {
 		session.ID = 1
 	}
@@ -29,12 +34,18 @@ func (r *sessionTestRepo) Create(session *domain.Session) error {
 }
 
 func (r *sessionTestRepo) Update(session *domain.Session) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	clone := *session
 	r.session = &clone
 	return nil
 }
 
 func (r *sessionTestRepo) Touch(tenantID uint64, sessionID string, touchedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.session == nil || r.session.TenantID != tenantID || r.session.SessionID != sessionID {
 		return domain.ErrNotFound
 	}
@@ -45,6 +56,9 @@ func (r *sessionTestRepo) Touch(tenantID uint64, sessionID string, touchedAt tim
 }
 
 func (r *sessionTestRepo) GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.session == nil || r.session.TenantID != tenantID || r.session.SessionID != sessionID {
 		return nil, domain.ErrNotFound
 	}
@@ -54,6 +68,9 @@ func (r *sessionTestRepo) GetBySessionID(tenantID uint64, sessionID string) (*do
 }
 
 func (r *sessionTestRepo) List(tenantID uint64) ([]*domain.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.session == nil || r.session.TenantID != tenantID {
 		return nil, nil
 	}
@@ -175,4 +192,37 @@ func TestSessionRepositoryTouchDoesNotMutatePreviouslyReturnedCopy(t *testing.T)
 	if !second.UpdatedAt.Equal(touchedAt) {
 		t.Fatalf("UpdatedAt = %v, want %v", second.UpdatedAt, touchedAt)
 	}
+}
+
+func TestSessionRepositoryConcurrentGetAndTouch(t *testing.T) {
+	baseRepo := &sessionTestRepo{}
+	repo := NewSessionRepository(baseRepo)
+	session := &domain.Session{
+		TenantID:   1,
+		SessionID:  "session-concurrent",
+		ClientType: domain.ClientTypeCodex,
+	}
+
+	if err := repo.Create(session); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				if _, err := repo.GetBySessionID(session.TenantID, session.SessionID); err != nil {
+					t.Errorf("GetBySessionID() error = %v", err)
+					return
+				}
+				if err := repo.Touch(session.TenantID, session.SessionID, time.Unix(int64(worker*1000+j), 0).UTC()); err != nil {
+					t.Errorf("Touch() error = %v", err)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }

@@ -39,9 +39,27 @@ func (r *SessionRepository) Touch(tenantID uint64, sessionID string, touchedAt t
 	if touchedAt.IsZero() {
 		touchedAt = time.Now()
 	}
-	return tenantScope(r.db.gorm.Model(&Session{}), tenantID).
+
+	result := tenantScope(r.db.gorm.Model(&Session{}), tenantID).
 		Where("session_id = ? AND deleted_at = 0", sessionID).
-		Update("updated_at", toTimestamp(touchedAt)).Error
+		Update("updated_at", toTimestamp(touchedAt))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
+	var count int64
+	if err := tenantScope(r.db.gorm.Model(&Session{}), tenantID).
+		Where("session_id = ? AND deleted_at = 0", sessionID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *SessionRepository) Delete(id uint64) error {

@@ -961,6 +961,7 @@
     "sessionRetentionHours": "请求会话保留时间",
     "sessionRetentionHoursDesc": "超过此时间未活跃的会话将被自动清理，0 表示不清理",
     "retentionHoursHint": "0 表示不清理",
+    "retentionValidationError": "请求记录保留时间和请求会话保留时间必须是大于等于 0 的整数，请求详情保留时间必须是大于等于 -1 的整数。",
     "requestDetailRetention": "请求详情保留时间",
     "requestDetailRetentionDesc": "-1 表示永久保存，0 表示不保存详情，其他数字表示保留的秒数。仅影响请求/响应 Body 的存储，不影响统计数据。",
     "timezone": "时区",

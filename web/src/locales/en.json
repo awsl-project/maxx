@@ -961,6 +961,7 @@
     "sessionRetentionHours": "Session Retention",
     "sessionRetentionHoursDesc": "Sessions inactive longer than this will be automatically cleaned up, 0 means no cleanup",
     "retentionHoursHint": "0 = no cleanup",
+    "retentionValidationError": "Request and session retention must be integers greater than or equal to 0. Request detail retention must be an integer greater than or equal to -1.",
     "requestDetailRetention": "Request Detail Retention",
     "requestDetailRetentionDesc": "-1 means permanent storage, 0 means don't save details, other numbers mean retention in seconds. Only affects request/response body storage, not statistics.",
     "timezone": "Timezone",

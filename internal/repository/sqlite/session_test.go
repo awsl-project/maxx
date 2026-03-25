@@ -159,3 +159,20 @@ func TestSessionDeleteOlderThanHardDeletesExpiredSoftDeletedRows(t *testing.T) {
 		t.Fatalf("Expected soft-deleted expired session to be hard-deleted, raw count=%d", rawCount)
 	}
 }
+
+func TestSessionTouchReturnsNotFoundWhenSessionMissing(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewSessionRepository(db)
+	err = repo.Touch(1, "missing-session", time.Now())
+	if err == nil {
+		t.Fatal("expected Touch to return ErrNotFound for missing session")
+	}
+	if err != domain.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}

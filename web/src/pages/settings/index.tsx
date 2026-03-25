@@ -49,6 +49,10 @@ function parseRetentionInteger(value: string): number | null {
     return null;
   }
 
+  if (!/^-?\d+$/.test(trimmed)) {
+    return null;
+  }
+
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
     return null;
@@ -312,6 +316,7 @@ function DataRetentionSection() {
   const [requestDraft, setRequestDraft] = useState('');
   const [sessionDraft, setSessionDraft] = useState('');
   const [detailDraft, setDetailDraft] = useState('');
+  const [validationError, setValidationError] = useState('');
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
@@ -337,6 +342,12 @@ function DataRetentionSection() {
     }
   }, [requestRetentionHours, sessionRetentionHours, requestDetailRetentionSeconds, initialized]);
 
+  useEffect(() => {
+    if (validationError) {
+      setValidationError('');
+    }
+  }, [requestDraft, sessionDraft, detailDraft, validationError]);
+
   const hasChanges =
     initialized &&
     (requestDraft !== requestRetentionHours ||
@@ -347,26 +358,35 @@ function DataRetentionSection() {
     const requestNum = parseRetentionInteger(requestDraft);
     const sessionNum = parseRetentionInteger(sessionDraft);
     const detailNum = parseRetentionInteger(detailDraft);
+    const updates: Array<{ key: string; value: string }> = [];
 
-    if (requestNum !== null && requestNum >= 0 && requestDraft !== requestRetentionHours) {
-      await updateSetting.mutateAsync({
-        key: 'request_retention_hours',
-        value: String(requestNum),
-      });
+    if (requestDraft !== requestRetentionHours) {
+      if (requestNum === null || requestNum < 0) {
+        setValidationError(t('settings.retentionValidationError'));
+        return;
+      }
+      updates.push({ key: 'request_retention_hours', value: String(requestNum) });
     }
 
-    if (sessionNum !== null && sessionNum >= 0 && sessionDraft !== sessionRetentionHours) {
-      await updateSetting.mutateAsync({
-        key: 'session_retention_hours',
-        value: String(sessionNum),
-      });
+    if (sessionDraft !== sessionRetentionHours) {
+      if (sessionNum === null || sessionNum < 0) {
+        setValidationError(t('settings.retentionValidationError'));
+        return;
+      }
+      updates.push({ key: 'session_retention_hours', value: String(sessionNum) });
     }
 
-    if (detailNum !== null && detailNum >= -1 && detailDraft !== requestDetailRetentionSeconds) {
-      await updateSetting.mutateAsync({
-        key: 'request_detail_retention_seconds',
-        value: String(detailNum),
-      });
+    if (detailDraft !== requestDetailRetentionSeconds) {
+      if (detailNum === null || detailNum < -1) {
+        setValidationError(t('settings.retentionValidationError'));
+        return;
+      }
+      updates.push({ key: 'request_detail_retention_seconds', value: String(detailNum) });
+    }
+
+    setValidationError('');
+    for (const update of updates) {
+      await updateSetting.mutateAsync(update);
     }
   };
 
@@ -389,6 +409,7 @@ function DataRetentionSection() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {validationError && <p className="text-xs text-destructive">{validationError}</p>}
         <div className="space-y-1.5">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
             <Label

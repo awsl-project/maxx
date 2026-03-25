@@ -80,13 +80,15 @@ func (r *SessionRepository) GetBySessionID(tenantID uint64, sessionID string) (*
 	if tenantID == domain.TenantIDAll {
 		for key, s := range r.cache {
 			if key.SessionID == sessionID {
+				clonedSession := cloneSession(s)
 				r.mu.RUnlock()
-				return cloneSession(s), nil
+				return clonedSession, nil
 			}
 		}
 	} else if s, ok := r.cache[sessionCacheKey{TenantID: tenantID, SessionID: sessionID}]; ok {
+		clonedSession := cloneSession(s)
 		r.mu.RUnlock()
-		return cloneSession(s), nil
+		return clonedSession, nil
 	}
 	r.mu.RUnlock()
 
@@ -107,13 +109,15 @@ func (r *SessionRepository) GetOrCreate(tenantID uint64, sessionID string, clien
 	if tenantID == domain.TenantIDAll {
 		for key, s := range r.cache {
 			if key.SessionID == sessionID {
+				clonedSession := cloneSession(s)
 				r.mu.RUnlock()
-				return cloneSession(s), nil
+				return clonedSession, nil
 			}
 		}
 	} else if s, ok := r.cache[sessionCacheKey{TenantID: tenantID, SessionID: sessionID}]; ok {
+		clonedSession := cloneSession(s)
 		r.mu.RUnlock()
-		return cloneSession(s), nil
+		return clonedSession, nil
 	}
 	r.mu.RUnlock()
 
