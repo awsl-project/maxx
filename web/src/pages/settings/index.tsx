@@ -334,25 +334,30 @@ function DataRetentionSection() {
     requestDetailRetentionSeconds,
   ]);
 
-  useEffect(() => {
-    if (initialized) {
-      setRequestDraft(requestRetentionHours);
-      setSessionDraft(sessionRetentionHours);
-      setDetailDraft(requestDetailRetentionSeconds);
-    }
-  }, [requestRetentionHours, sessionRetentionHours, requestDetailRetentionSeconds, initialized]);
-
-  useEffect(() => {
-    if (validationError) {
-      setValidationError('');
-    }
-  }, [requestDraft, sessionDraft, detailDraft, validationError]);
-
   const hasChanges =
     initialized &&
     (requestDraft !== requestRetentionHours ||
       sessionDraft !== sessionRetentionHours ||
       detailDraft !== requestDetailRetentionSeconds);
+
+  useEffect(() => {
+    // 仅在本地没有未保存修改时，才用服务端最新值回填表单
+    if (initialized && !hasChanges) {
+      setRequestDraft(requestRetentionHours);
+      setSessionDraft(sessionRetentionHours);
+      setDetailDraft(requestDetailRetentionSeconds);
+    }
+  }, [
+    requestRetentionHours,
+    sessionRetentionHours,
+    requestDetailRetentionSeconds,
+    initialized,
+    hasChanges,
+  ]);
+
+  useEffect(() => {
+    setValidationError((current) => (current ? '' : current));
+  }, [requestDraft, sessionDraft, detailDraft]);
 
   const handleSave = async () => {
     const requestNum = parseRetentionInteger(requestDraft);
