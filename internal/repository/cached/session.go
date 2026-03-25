@@ -49,6 +49,10 @@ func (r *SessionRepository) Update(s *domain.Session) error {
 }
 
 func (r *SessionRepository) Touch(tenantID uint64, sessionID string, touchedAt time.Time) error {
+	if touchedAt.IsZero() {
+		touchedAt = time.Now()
+	}
+
 	if err := r.repo.Touch(tenantID, sessionID, touchedAt); err != nil {
 		return err
 	}

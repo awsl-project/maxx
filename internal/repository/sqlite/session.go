@@ -87,7 +87,7 @@ func (r *SessionRepository) DeleteOlderThan(before time.Time) (int64, error) {
 	}
 
 	result := r.db.gorm.
-		Where("deleted_at = 0 AND updated_at < ?", toTimestamp(before)).
+		Where("updated_at < ?", toTimestamp(before)).
 		Delete(&Session{})
 	if result.Error != nil {
 		return 0, result.Error

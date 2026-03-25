@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment, useId } from 'react';
 import {
   Settings,
   Monitor,
@@ -24,6 +24,7 @@ import {
   CardTitle,
   Button,
   Input,
+  Label,
   Switch,
   Select,
   SelectContent,
@@ -286,6 +287,9 @@ function DataRetentionSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
+  const requestRetentionInputId = useId();
+  const sessionRetentionInputId = useId();
+  const requestDetailRetentionInputId = useId();
 
   const requestRetentionHours = settings?.request_retention_hours ?? '168';
   const sessionRetentionHours = settings?.session_retention_hours ?? '168';
@@ -303,7 +307,13 @@ function DataRetentionSection() {
       setDetailDraft(requestDetailRetentionSeconds);
       setInitialized(true);
     }
-  }, [isLoading, initialized, requestRetentionHours, sessionRetentionHours, requestDetailRetentionSeconds]);
+  }, [
+    isLoading,
+    initialized,
+    requestRetentionHours,
+    sessionRetentionHours,
+    requestDetailRetentionSeconds,
+  ]);
 
   useEffect(() => {
     if (initialized) {
@@ -367,10 +377,14 @@ function DataRetentionSection() {
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <div className="text-sm font-medium text-muted-foreground shrink-0">
+            <Label
+              htmlFor={requestRetentionInputId}
+              className="text-sm font-medium text-muted-foreground shrink-0"
+            >
               {t('settings.requestRetentionHours')}
-            </div>
+            </Label>
             <Input
+              id={requestRetentionInputId}
               type="number"
               value={requestDraft}
               onChange={(e) => setRequestDraft(e.target.value)}
@@ -385,10 +399,14 @@ function DataRetentionSection() {
 
         <div className="space-y-1.5 pt-4 border-t border-border">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <div className="text-sm font-medium text-muted-foreground shrink-0">
+            <Label
+              htmlFor={sessionRetentionInputId}
+              className="text-sm font-medium text-muted-foreground shrink-0"
+            >
               {t('settings.sessionRetentionHours')}
-            </div>
+            </Label>
             <Input
+              id={sessionRetentionInputId}
               type="number"
               value={sessionDraft}
               onChange={(e) => setSessionDraft(e.target.value)}
@@ -403,10 +421,14 @@ function DataRetentionSection() {
 
         <div className="space-y-1.5 pt-4 border-t border-border">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <div className="text-sm font-medium text-muted-foreground shrink-0">
+            <Label
+              htmlFor={requestDetailRetentionInputId}
+              className="text-sm font-medium text-muted-foreground shrink-0"
+            >
               {t('settings.requestDetailRetention')}
-            </div>
+            </Label>
             <Input
+              id={requestDetailRetentionInputId}
               type="number"
               value={detailDraft}
               onChange={(e) => setDetailDraft(e.target.value)}
@@ -416,7 +438,9 @@ function DataRetentionSection() {
             />
             <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
           </div>
-          <p className="text-xs text-muted-foreground">{t('settings.requestDetailRetentionDesc')}</p>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.requestDetailRetentionDesc')}
+          </p>
         </div>
       </CardContent>
     </Card>

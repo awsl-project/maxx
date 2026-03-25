@@ -110,3 +110,52 @@ func TestSessionDeleteOlderThanHardDeletesExpiredRows(t *testing.T) {
 		t.Fatalf("Expected old session to be hard-deleted, raw count=%d", rawCount)
 	}
 }
+
+func TestSessionDeleteOlderThanHardDeletesExpiredSoftDeletedRows(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewSessionRepository(db)
+	session := &domain.Session{
+		TenantID:   1,
+		SessionID:  "session-soft-deleted-old",
+		ClientType: domain.ClientTypeCodex,
+	}
+
+	if err := repo.Create(session); err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	if err := repo.Delete(session.ID); err != nil {
+		t.Fatalf("Delete session: %v", err)
+	}
+
+	expiredAt := time.Now().Add(-72 * time.Hour)
+	if err := db.GormDB().
+		Model(&Session{}).
+		Where("id = ?", session.ID).
+		Updates(map[string]any{
+			"updated_at": toTimestamp(expiredAt),
+			"deleted_at": toTimestamp(expiredAt),
+		}).Error; err != nil {
+		t.Fatalf("Age soft-deleted session: %v", err)
+	}
+
+	deleted, err := repo.DeleteOlderThan(time.Now().Add(-24 * time.Hour))
+	if err != nil {
+		t.Fatalf("DeleteOlderThan: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("Expected 1 deleted session, got %d", deleted)
+	}
+
+	var rawCount int64
+	if err := db.GormDB().Model(&Session{}).Where("id = ?", session.ID).Count(&rawCount).Error; err != nil {
+		t.Fatalf("Count raw sessions: %v", err)
+	}
+	if rawCount != 0 {
+		t.Fatalf("Expected soft-deleted expired session to be hard-deleted, raw count=%d", rawCount)
+	}
+}
