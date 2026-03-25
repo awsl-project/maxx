@@ -35,6 +35,15 @@ func (r *SessionRepository) Update(s *domain.Session) error {
 	return r.db.gorm.Save(model).Error
 }
 
+func (r *SessionRepository) Touch(tenantID uint64, sessionID string, touchedAt time.Time) error {
+	if touchedAt.IsZero() {
+		touchedAt = time.Now()
+	}
+	return tenantScope(r.db.gorm.Model(&Session{}), tenantID).
+		Where("session_id = ? AND deleted_at = 0", sessionID).
+		Update("updated_at", toTimestamp(touchedAt)).Error
+}
+
 func (r *SessionRepository) Delete(id uint64) error {
 	now := time.Now().UnixMilli()
 	return r.db.gorm.Model(&Session{}).
@@ -58,7 +67,10 @@ func (r *SessionRepository) GetBySessionID(tenantID uint64, sessionID string) (*
 
 func (r *SessionRepository) List(tenantID uint64) ([]*domain.Session, error) {
 	var models []Session
-	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("created_at DESC").Find(&models).Error; err != nil {
+	if err := tenantScope(r.db.gorm, tenantID).
+		Where("deleted_at = 0").
+		Order("updated_at DESC, created_at DESC").
+		Find(&models).Error; err != nil {
 		return nil, err
 	}
 
@@ -67,6 +79,20 @@ func (r *SessionRepository) List(tenantID uint64) ([]*domain.Session, error) {
 		sessions[i] = r.toDomain(&m)
 	}
 	return sessions, nil
+}
+
+func (r *SessionRepository) DeleteOlderThan(before time.Time) (int64, error) {
+	if before.IsZero() {
+		return 0, nil
+	}
+
+	result := r.db.gorm.
+		Where("deleted_at = 0 AND updated_at < ?", toTimestamp(before)).
+		Delete(&Session{})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return result.RowsAffected, nil
 }
 
 func (r *SessionRepository) toModel(s *domain.Session) *Session {

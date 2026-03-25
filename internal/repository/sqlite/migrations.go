@@ -241,6 +241,33 @@ var migrations = []Migration{
 			return revertCodexQuotaIdentityMigration(db)
 		},
 	},
+	{
+		Version:     10,
+		Description: "Add sessions cleanup index on deleted_at and updated_at",
+		Up: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				err := db.Exec("CREATE INDEX idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)").Error
+			}
+		},
+		Down: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_sessions_deleted_updated_at ON sessions").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				return nil
+			default:
+				return db.Exec("DROP INDEX IF EXISTS idx_sessions_deleted_updated_at").Error
+			}
+		},
+	},
 }
 
 func applyCodexQuotaIdentityMigration(db *gorm.DB) error {

@@ -258,6 +258,7 @@ func main() {
 		UsageStats:         usageStatsRepo,
 		ProxyRequest:       proxyRequestRepo,
 		AttemptRepo:        attemptRepo,
+		SessionRepo:        cachedSessionRepo,
 		Settings:           settingRepo,
 		AntigravityTaskSvc: antigravityTaskSvc,
 		CodexTaskSvc:       codexTaskSvc,

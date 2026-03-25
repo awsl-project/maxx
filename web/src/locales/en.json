@@ -958,6 +958,8 @@
     "dataRetention": "Data Retention",
     "requestRetentionHours": "Request Retention",
     "requestRetentionHoursDesc": "Requests older than this will be automatically cleaned up, 0 means no cleanup",
+    "sessionRetentionHours": "Session Retention",
+    "sessionRetentionHoursDesc": "Sessions inactive longer than this will be automatically cleaned up, 0 means no cleanup",
     "retentionHoursHint": "0 = no cleanup",
     "requestDetailRetention": "Request Detail Retention",
     "requestDetailRetentionDesc": "-1 means permanent storage, 0 means don't save details, other numbers mean retention in seconds. Only affects request/response body storage, not statistics.",

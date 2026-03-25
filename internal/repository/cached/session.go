@@ -3,6 +3,7 @@ package cached
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
@@ -44,6 +45,29 @@ func (r *SessionRepository) Update(s *domain.Session) error {
 	r.mu.Lock()
 	r.cache[sessionCacheKey{TenantID: s.TenantID, SessionID: s.SessionID}] = s
 	r.mu.Unlock()
+	return nil
+}
+
+func (r *SessionRepository) Touch(tenantID uint64, sessionID string, touchedAt time.Time) error {
+	if err := r.repo.Touch(tenantID, sessionID, touchedAt); err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if tenantID == domain.TenantIDAll {
+		for key, session := range r.cache {
+			if key.SessionID == sessionID {
+				session.UpdatedAt = touchedAt
+			}
+		}
+		return nil
+	}
+
+	if session, ok := r.cache[sessionCacheKey{TenantID: tenantID, SessionID: sessionID}]; ok {
+		session.UpdatedAt = touchedAt
+	}
 	return nil
 }
 
@@ -123,4 +147,17 @@ func (r *SessionRepository) GetOrCreate(tenantID uint64, sessionID string, clien
 
 func (r *SessionRepository) List(tenantID uint64) ([]*domain.Session, error) {
 	return r.repo.List(tenantID)
+}
+
+func (r *SessionRepository) DeleteOlderThan(before time.Time) (int64, error) {
+	deleted, err := r.repo.DeleteOlderThan(before)
+	if err != nil {
+		return 0, err
+	}
+	if deleted > 0 {
+		r.mu.Lock()
+		r.cache = make(map[sessionCacheKey]*domain.Session)
+		r.mu.Unlock()
+	}
+	return deleted, nil
 }

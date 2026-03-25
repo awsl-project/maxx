@@ -176,6 +176,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	c.Set(flow.KeyAPITokenID, apiTokenID)
 
 	var projectID uint64
+	now := time.Now()
 	if pidStr := r.Header.Get("X-Maxx-Project-ID"); pidStr != "" {
 		if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
 			projectID = pid
@@ -194,6 +195,9 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		} else if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
 			projectID = apiToken.ProjectID
 			log.Printf("[Proxy] Using project ID from token: %d", projectID)
+		}
+		if touchErr := h.sessionRepo.Touch(tenantID, sessionID, now); touchErr != nil {
+			log.Printf("[Proxy] Failed to touch session %s: %v", sessionID, touchErr)
 		}
 	} else {
 		if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {

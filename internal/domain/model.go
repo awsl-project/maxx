@@ -567,6 +567,7 @@ type SystemSetting struct {
 const (
 	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeySessionRetentionHours         = "session_retention_hours"          // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
 	SettingKeyRequestDetailRetentionSeconds = "request_detail_retention_seconds" // 请求详情保留秒数，-1=永久保存(默认)，0=不保存，>0=保留秒数
 	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用

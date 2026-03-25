@@ -96,8 +96,10 @@ type ProjectRepository interface {
 type SessionRepository interface {
 	Create(session *domain.Session) error
 	Update(session *domain.Session) error
+	Touch(tenantID uint64, sessionID string, touchedAt time.Time) error
 	GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error)
 	List(tenantID uint64) ([]*domain.Session, error)
+	DeleteOlderThan(before time.Time) (int64, error)
 }
 
 // ProxyRequestFilter 请求列表过滤条件

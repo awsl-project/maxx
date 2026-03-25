@@ -15,6 +15,7 @@ import (
 
 const (
 	defaultRequestRetentionHours = 168 // 默认保留 168 小时（7天）
+	defaultSessionRetentionHours = 168 // 默认保留 168 小时（7天）
 
 	// sqlite maintenance throttle
 	sqliteVacuumMinInterval = time.Hour
@@ -35,6 +36,7 @@ type BackgroundTaskDeps struct {
 	UsageStats         repository.UsageStatsRepository
 	ProxyRequest       repository.ProxyRequestRepository
 	AttemptRepo        repository.ProxyUpstreamAttemptRepository
+	SessionRepo        repository.SessionRepository
 	Settings           repository.SystemSettingRepository
 	AntigravityTaskSvc *service.AntigravityTaskService
 	CodexTaskSvc       *service.CodexTaskService
@@ -97,6 +99,9 @@ func (d *BackgroundTaskDeps) runCleanupTasks() {
 	// 3. 清理过期请求记录
 	d.cleanupOldRequests()
 
+	// 4. 清理过期会话
+	d.cleanupOldSessions()
+
 	// 注：请求详情清理由独立的 runRequestDetailCleanup 任务处理（动态间隔）
 }
 
@@ -128,6 +133,36 @@ func (d *BackgroundTaskDeps) cleanupOldRequests() {
 	// Only attempt when using sqlite dialector and when throttling allows.
 	// Failure (e.g. database is locked) must not affect the cleanup flow.
 	d.maybeSQLiteCheckpointAndVacuum(deletedRequests)
+}
+
+// cleanupOldSessions 清理过期的请求会话
+func (d *BackgroundTaskDeps) cleanupOldSessions() {
+	if d.SessionRepo == nil || d.Settings == nil {
+		return
+	}
+
+	retentionHours := defaultSessionRetentionHours
+	if val, err := d.Settings.Get(domain.SettingKeySessionRetentionHours); err == nil && val != "" {
+		if hours, err := strconv.Atoi(val); err == nil {
+			retentionHours = hours
+		}
+	}
+
+	if retentionHours <= 0 {
+		return
+	}
+
+	before := time.Now().Add(-time.Duration(retentionHours) * time.Hour)
+	deletedSessions, err := d.SessionRepo.DeleteOlderThan(before)
+	if err != nil {
+		log.Printf("[Task] Failed to delete old sessions: %v", err)
+		return
+	}
+	if deletedSessions > 0 {
+		log.Printf("[Task] Deleted %d sessions older than %d hours", deletedSessions, retentionHours)
+	}
+
+	d.maybeSQLiteCheckpointAndVacuum(deletedSessions)
 }
 
 func (d *BackgroundTaskDeps) maybeSQLiteCheckpointAndVacuum(deletedRequests int64) {
