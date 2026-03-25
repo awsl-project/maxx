@@ -268,6 +268,46 @@ var migrations = []Migration{
 			}
 		},
 	},
+	{
+		Version:     11,
+		Description: "Reorder sessions cleanup index to lead with updated_at",
+		Up: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_sessions_deleted_updated_at ON sessions").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				err := db.Exec("CREATE INDEX idx_sessions_updated_deleted_at ON sessions(updated_at, deleted_at)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				if err := db.Exec("DROP INDEX IF EXISTS idx_sessions_deleted_updated_at").Error; err != nil {
+					return err
+				}
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_updated_deleted_at ON sessions(updated_at, deleted_at)").Error
+			}
+		},
+		Down: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_sessions_updated_deleted_at ON sessions").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				err := db.Exec("CREATE INDEX idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				if err := db.Exec("DROP INDEX IF EXISTS idx_sessions_updated_deleted_at").Error; err != nil {
+					return err
+				}
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)").Error
+			}
+		},
+	},
 }
 
 func applyCodexQuotaIdentityMigration(db *gorm.DB) error {

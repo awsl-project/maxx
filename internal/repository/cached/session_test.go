@@ -97,3 +97,82 @@ func TestSessionRepositoryTouchNormalizesZeroTimestamp(t *testing.T) {
 		t.Fatalf("cached UpdatedAt = %v, want %v", cachedSession.UpdatedAt, baseRepo.lastTouchedAt)
 	}
 }
+
+func TestSessionRepositoryGetBySessionIDReturnsDetachedCopy(t *testing.T) {
+	baseRepo := &sessionTestRepo{}
+	repo := NewSessionRepository(baseRepo)
+	rejectedAt := time.Unix(1710000300, 0).UTC()
+	deletedAt := rejectedAt.Add(-time.Minute)
+	session := &domain.Session{
+		TenantID:   1,
+		SessionID:  "session-detached-copy",
+		ClientType: domain.ClientTypeCodex,
+		ProjectID:  7,
+		DeletedAt:  &deletedAt,
+		RejectedAt: &rejectedAt,
+	}
+
+	if err := repo.Create(session); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	first, err := repo.GetBySessionID(session.TenantID, session.SessionID)
+	if err != nil {
+		t.Fatalf("GetBySessionID(first) error = %v", err)
+	}
+	first.ProjectID = 99
+	first.DeletedAt = nil
+	firstRejectedAt := time.Unix(1710000900, 0).UTC()
+	first.RejectedAt = &firstRejectedAt
+
+	second, err := repo.GetBySessionID(session.TenantID, session.SessionID)
+	if err != nil {
+		t.Fatalf("GetBySessionID(second) error = %v", err)
+	}
+	if second.ProjectID != 7 {
+		t.Fatalf("ProjectID = %d, want 7", second.ProjectID)
+	}
+	if second.DeletedAt == nil || !second.DeletedAt.Equal(deletedAt) {
+		t.Fatalf("DeletedAt = %v, want %v", second.DeletedAt, deletedAt)
+	}
+	if second.RejectedAt == nil || !second.RejectedAt.Equal(rejectedAt) {
+		t.Fatalf("RejectedAt = %v, want %v", second.RejectedAt, rejectedAt)
+	}
+}
+
+func TestSessionRepositoryTouchDoesNotMutatePreviouslyReturnedCopy(t *testing.T) {
+	baseRepo := &sessionTestRepo{}
+	repo := NewSessionRepository(baseRepo)
+	session := &domain.Session{
+		TenantID:   1,
+		SessionID:  "session-touch-detached",
+		ClientType: domain.ClientTypeCodex,
+	}
+
+	if err := repo.Create(session); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	first, err := repo.GetBySessionID(session.TenantID, session.SessionID)
+	if err != nil {
+		t.Fatalf("GetBySessionID(first) error = %v", err)
+	}
+	originalUpdatedAt := first.UpdatedAt
+
+	touchedAt := time.Unix(1710001200, 0).UTC()
+	if err := repo.Touch(session.TenantID, session.SessionID, touchedAt); err != nil {
+		t.Fatalf("Touch() error = %v", err)
+	}
+
+	if !first.UpdatedAt.Equal(originalUpdatedAt) {
+		t.Fatalf("previously returned copy was mutated to %v, want %v", first.UpdatedAt, originalUpdatedAt)
+	}
+
+	second, err := repo.GetBySessionID(session.TenantID, session.SessionID)
+	if err != nil {
+		t.Fatalf("GetBySessionID(second) error = %v", err)
+	}
+	if !second.UpdatedAt.Equal(touchedAt) {
+		t.Fatalf("UpdatedAt = %v, want %v", second.UpdatedAt, touchedAt)
+	}
+}

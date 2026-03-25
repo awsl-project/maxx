@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,6 +148,35 @@ func TestCodexQuotaIdentityMigrationV8DownReturnsIrreversibleError(t *testing.T)
 	}
 }
 
+func TestSessionCleanupMigrationV11UpReordersCleanupIndex(t *testing.T) {
+	gormDB := openRawSQLiteDB(t)
+	prepareSessionMigrationFixture(t, gormDB)
+
+	migration := findMigrationByVersion(t, 11)
+	if err := migration.Up(gormDB); err != nil {
+		t.Fatalf("run migration v11 up: %v", err)
+	}
+
+	assertIndexMissing(t, gormDB, "idx_sessions_deleted_updated_at")
+	assertSessionIndexColumns(t, gormDB, "idx_sessions_updated_deleted_at", []string{"updated_at", "deleted_at"})
+}
+
+func TestSessionCleanupMigrationV11DownRestoresLegacyIndexOrder(t *testing.T) {
+	gormDB := openRawSQLiteDB(t)
+	prepareSessionMigrationFixture(t, gormDB)
+
+	migration := findMigrationByVersion(t, 11)
+	if err := migration.Up(gormDB); err != nil {
+		t.Fatalf("run migration v11 up: %v", err)
+	}
+	if err := migration.Down(gormDB); err != nil {
+		t.Fatalf("run migration v11 down: %v", err)
+	}
+
+	assertIndexMissing(t, gormDB, "idx_sessions_updated_deleted_at")
+	assertSessionIndexColumns(t, gormDB, "idx_sessions_deleted_updated_at", []string{"deleted_at", "updated_at"})
+}
+
 func TestCodexQuotaIdentityBackfillSQL_MySQLUsesAccountAwareConcat(t *testing.T) {
 	sql := codexQuotaIdentityBackfillSQL("mysql")
 	if !strings.Contains(sql, "CONCAT('account:'") {
@@ -278,6 +308,31 @@ func prepareCodexQuotaMigrationFixture(t *testing.T, gormDB *gorm.DB) {
 		if err := gormDB.Exec(sql).Error; err != nil {
 			t.Fatalf("insert fixture: %v", err)
 		}
+	}
+}
+
+func prepareSessionMigrationFixture(t *testing.T, gormDB *gorm.DB) {
+	t.Helper()
+	if err := gormDB.Exec(`DROP TABLE IF EXISTS sessions`).Error; err != nil {
+		t.Fatalf("drop sessions table: %v", err)
+	}
+	if err := gormDB.Exec(`
+		CREATE TABLE sessions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			created_at INTEGER DEFAULT 0,
+			updated_at INTEGER DEFAULT 0,
+			deleted_at INTEGER DEFAULT 0,
+			tenant_id INTEGER NOT NULL,
+			session_id TEXT NOT NULL,
+			client_type TEXT NOT NULL,
+			project_id INTEGER DEFAULT 0,
+			rejected_at INTEGER DEFAULT 0
+		)
+	`).Error; err != nil {
+		t.Fatalf("create sessions table: %v", err)
+	}
+	if err := gormDB.Exec(`CREATE INDEX idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)`).Error; err != nil {
+		t.Fatalf("create legacy session index: %v", err)
 	}
 }
 
@@ -476,5 +531,44 @@ func assertIndexMissing(t *testing.T, gormDB *gorm.DB, name string) {
 	}
 	if count != 0 {
 		t.Fatalf("expected index %s to be missing, got count %d", name, count)
+	}
+}
+
+func assertSessionIndexColumns(t *testing.T, gormDB *gorm.DB, name string, wantColumns []string) {
+	t.Helper()
+
+	type indexListRow struct {
+		Name string `gorm:"column:name"`
+	}
+	var indexes []indexListRow
+	if err := gormDB.Raw(`PRAGMA index_list('sessions')`).Scan(&indexes).Error; err != nil {
+		t.Fatalf("list session indexes: %v", err)
+	}
+
+	found := false
+	for _, index := range indexes {
+		if index.Name == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected session index %s to exist; got %v", name, indexes)
+	}
+
+	type indexInfoRow struct {
+		Name string `gorm:"column:name"`
+	}
+	var columns []indexInfoRow
+	if err := gormDB.Raw(fmt.Sprintf("PRAGMA index_info('%s')", name)).Scan(&columns).Error; err != nil {
+		t.Fatalf("get session index columns: %v", err)
+	}
+
+	gotColumns := make([]string, 0, len(columns))
+	for _, column := range columns {
+		gotColumns = append(gotColumns, column.Name)
+	}
+	if !slices.Equal(gotColumns, wantColumns) {
+		t.Fatalf("session index %s columns = %v, want %v", name, gotColumns, wantColumns)
 	}
 }

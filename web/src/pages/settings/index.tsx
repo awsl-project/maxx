@@ -43,6 +43,20 @@ import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
 import { getDefaultThemes, getLuxuryThemes } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
+function parseRetentionInteger(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    return null;
+  }
+
+  return parsed;
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
 
@@ -330,28 +344,28 @@ function DataRetentionSection() {
       detailDraft !== requestDetailRetentionSeconds);
 
   const handleSave = async () => {
-    const requestNum = parseInt(requestDraft, 10);
-    const sessionNum = parseInt(sessionDraft, 10);
-    const detailNum = parseInt(detailDraft, 10);
+    const requestNum = parseRetentionInteger(requestDraft);
+    const sessionNum = parseRetentionInteger(sessionDraft);
+    const detailNum = parseRetentionInteger(detailDraft);
 
-    if (!isNaN(requestNum) && requestNum >= 0 && requestDraft !== requestRetentionHours) {
+    if (requestNum !== null && requestNum >= 0 && requestDraft !== requestRetentionHours) {
       await updateSetting.mutateAsync({
         key: 'request_retention_hours',
-        value: requestDraft,
+        value: String(requestNum),
       });
     }
 
-    if (!isNaN(sessionNum) && sessionNum >= 0 && sessionDraft !== sessionRetentionHours) {
+    if (sessionNum !== null && sessionNum >= 0 && sessionDraft !== sessionRetentionHours) {
       await updateSetting.mutateAsync({
         key: 'session_retention_hours',
-        value: sessionDraft,
+        value: String(sessionNum),
       });
     }
 
-    if (!isNaN(detailNum) && detailNum >= -1 && detailDraft !== requestDetailRetentionSeconds) {
+    if (detailNum !== null && detailNum >= -1 && detailDraft !== requestDetailRetentionSeconds) {
       await updateSetting.mutateAsync({
         key: 'request_detail_retention_seconds',
-        value: detailDraft,
+        value: String(detailNum),
       });
     }
   };
@@ -390,6 +404,7 @@ function DataRetentionSection() {
               onChange={(e) => setRequestDraft(e.target.value)}
               className="w-24"
               min={0}
+              step={1}
               disabled={updateSetting.isPending}
             />
             <span className="text-xs text-muted-foreground">{t('common.hours')}</span>
@@ -412,6 +427,7 @@ function DataRetentionSection() {
               onChange={(e) => setSessionDraft(e.target.value)}
               className="w-24"
               min={0}
+              step={1}
               disabled={updateSetting.isPending}
             />
             <span className="text-xs text-muted-foreground">{t('common.hours')}</span>
@@ -434,6 +450,7 @@ function DataRetentionSection() {
               onChange={(e) => setDetailDraft(e.target.value)}
               className="w-24"
               min={-1}
+              step={1}
               disabled={updateSetting.isPending}
             />
             <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
