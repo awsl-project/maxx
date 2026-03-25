@@ -71,8 +71,22 @@ function AppRoutes() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="sessions" element={<SessionsPage />} />
-          <Route path="api-tokens" element={<APITokensPage />} />
-          <Route path="invite-codes" element={<InviteCodesPage />} />
+          <Route
+            path="api-tokens"
+            element={
+              <AdminRoute>
+                <APITokensPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="invite-codes"
+            element={
+              <AdminRoute>
+                <InviteCodesPage />
+              </AdminRoute>
+            }
+          />
           <Route path="model-mappings" element={<ModelMappingsPage />} />
           <Route path="model-prices" element={<ModelPricesPage />} />
           <Route path="retry-configs" element={<RetryConfigsPage />} />

@@ -118,7 +118,7 @@ func TestAdminHandler_UpdateInviteCode_AllowsZeroMaxUses(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_ListInviteCodes_MemberFiltersOwn(t *testing.T) {
+func TestAdminHandler_ListInviteCodes_MemberForbidden(t *testing.T) {
 	inviteRepo := &adminTestInviteCodeRepo{
 		list: []*domain.InviteCode{
 			{ID: 1, TenantID: 1, CreatedByUserID: 10},
@@ -136,20 +136,12 @@ func TestAdminHandler_ListInviteCodes_MemberFiltersOwn(t *testing.T) {
 
 	h.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-
-	var result []domain.InviteCode
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if len(result) != 1 || result[0].ID != 1 {
-		t.Fatalf("filtered result = %+v, want only invite code 1", result)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 }
 
-func TestAdminHandler_GetInviteCode_MemberOwnAllowed(t *testing.T) {
+func TestAdminHandler_GetInviteCode_MemberForbidden(t *testing.T) {
 	inviteRepo := &adminTestInviteCodeRepo{
 		code: &domain.InviteCode{ID: 1, TenantID: 1, CreatedByUserID: 10},
 	}
@@ -164,8 +156,8 @@ func TestAdminHandler_GetInviteCode_MemberOwnAllowed(t *testing.T) {
 
 	h.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 }
 
@@ -184,8 +176,8 @@ func TestAdminHandler_GetInviteCode_MemberOtherForbidden(t *testing.T) {
 
 	h.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 }
 
@@ -204,8 +196,8 @@ func TestAdminHandler_DeleteInviteCode_MemberOtherForbidden(t *testing.T) {
 
 	h.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 	if inviteRepo.deleteCalled {
 		t.Fatalf("delete should not be called for unauthorized member")
@@ -227,7 +219,7 @@ func TestAdminHandler_InviteCodeUsages_MemberOtherForbidden(t *testing.T) {
 
 	h.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 }

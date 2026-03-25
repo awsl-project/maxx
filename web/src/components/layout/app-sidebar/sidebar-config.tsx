@@ -105,6 +105,8 @@ export const sidebarConfig: SidebarConfig = {
           to: '/api-tokens',
           icon: Key,
           labelKey: 'nav.apiTokens',
+          adminOnly: true,
+          authOnly: true,
         },
         {
           type: 'standard',
@@ -112,6 +114,7 @@ export const sidebarConfig: SidebarConfig = {
           to: '/invite-codes',
           icon: Ticket,
           labelKey: 'nav.inviteCodes',
+          adminOnly: true,
           authOnly: true,
         },
         {
