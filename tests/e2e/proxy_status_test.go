@@ -22,8 +22,9 @@ func TestGetProxyStatus(t *testing.T) {
 
 func TestGetPublicProxyStatus(t *testing.T) {
 	env := NewTestEnv(t)
+	memberToken := getMemberToken(t, env)
 
-	resp := env.AdminGet("/api/proxy-status")
+	resp := env.RequestWithToken(http.MethodGet, "/api/proxy-status", nil, memberToken)
 	AssertStatus(t, resp, http.StatusOK)
 
 	var status map[string]any

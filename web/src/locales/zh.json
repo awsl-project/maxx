@@ -248,6 +248,8 @@
     "multiplier": "倍率",
     "costMismatchTitle": "前端计算值与后端不一致",
     "calculatedCost": "（计算：{{cost}}）",
+    "loadingProxyStatus": "正在加载代理状态",
+    "proxyStatusLoadFailed": "加载代理状态失败：{{message}}",
     "diff": {
       "addedUpstream": "上游新增",
       "removedClient": "客户端移除",

@@ -9,7 +9,7 @@ interface CopyAsCurlButtonProps {
   requestInfo: RequestInfo;
 }
 
-function generateCurlCommand(requestInfo: RequestInfo, proxyPort: string): string {
+function generateCurlCommand(requestInfo: RequestInfo, proxyPort?: string | null): string {
   const parts: string[] = ['curl'];
 
   // Method (default is GET, so only add if different)
@@ -54,11 +54,23 @@ function generateCurlCommand(requestInfo: RequestInfo, proxyPort: string): strin
 export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const { data: proxyStatus, isLoading: isProxyStatusLoading } = useProxyStatus();
+  const {
+    data: proxyStatus,
+    isLoading: isProxyStatusLoading,
+    isError: isProxyStatusError,
+    error: proxyStatusError,
+  } = useProxyStatus();
   const proxyPort = proxyStatus?.port ? String(proxyStatus.port) : null;
+  const proxyStatusErrorMessage =
+    proxyStatusError instanceof Error ? proxyStatusError.message : t('common.unknown');
+  const buttonTitle = isProxyStatusLoading
+    ? t('requests.loadingProxyStatus')
+    : isProxyStatusError
+      ? t('requests.proxyStatusLoadFailed', { message: proxyStatusErrorMessage })
+      : undefined;
 
   const handleCopy = async () => {
-    if (!proxyPort) {
+    if (isProxyStatusLoading || isProxyStatusError) {
       return;
     }
 
@@ -77,8 +89,8 @@ export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
       variant="outline"
       size="sm"
       onClick={handleCopy}
-      disabled={!proxyPort}
-      title={!proxyPort && isProxyStatusLoading ? 'Loading proxy status' : undefined}
+      disabled={isProxyStatusLoading || isProxyStatusError}
+      title={buttonTitle}
       className="h-6 px-2 text-[10px] gap-1"
     >
       {copied ? (

@@ -248,6 +248,8 @@
     "multiplier": "Multiplier",
     "costMismatchTitle": "Front-end calculation differs from backend",
     "calculatedCost": "(calc: {{cost}})",
+    "loadingProxyStatus": "Loading proxy status",
+    "proxyStatusLoadFailed": "Failed to load proxy status: {{message}}",
     "diff": {
       "addedUpstream": "Added in Upstream",
       "removedClient": "Removed from Client",

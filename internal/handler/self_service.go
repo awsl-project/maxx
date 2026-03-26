@@ -16,6 +16,8 @@ var publicSettingsAllowlist = map[string]struct{}{
 	"api_token_auth_enabled": {},
 	"force_project_binding":  {},
 	"force_project_timeout":  {},
+	"auto_sort_antigravity":  {},
+	"auto_sort_codex":        {},
 }
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
@@ -39,7 +41,7 @@ func writeSelfServiceInvalidID(w http.ResponseWriter, resource string) {
 
 func parseSelfServiceID(w http.ResponseWriter, resource, raw string) (uint64, bool) {
 	id, err := strconv.ParseUint(raw, 10, 64)
-	if err != nil {
+	if err != nil || id == 0 {
 		writeSelfServiceInvalidID(w, resource)
 		return 0, false
 	}
@@ -221,6 +223,9 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 		if !isAdmin {
 			providers = sanitizeProviders(providers)
 		}
+		if providers == nil {
+			providers = []*domain.Provider{}
+		}
 		writeJSON(w, http.StatusOK, providers)
 	case http.MethodPost:
 		if !h.requireAdmin(w, r) {
@@ -347,6 +352,9 @@ func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Reque
 			writeSelfServiceInternalError(w, "GetProjects failed", err)
 			return
 		}
+		if projects == nil {
+			projects = []*domain.Project{}
+		}
 		writeJSON(w, http.StatusOK, projects)
 	case http.MethodPost:
 		if !h.requireAdmin(w, r) {
@@ -453,6 +461,9 @@ func (h *SelfServiceHandler) handleRoutes(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			writeSelfServiceInternalError(w, "GetRoutes failed", err)
 			return
+		}
+		if routes == nil {
+			routes = []*domain.Route{}
 		}
 		writeJSON(w, http.StatusOK, routes)
 	case http.MethodPost:
@@ -671,7 +682,12 @@ func (h *SelfServiceHandler) handleProviderStats(w http.ResponseWriter, r *http.
 	clientType := r.URL.Query().Get("client_type")
 	var projectID uint64
 	if pidStr := r.URL.Query().Get("project_id"); pidStr != "" {
-		projectID, _ = strconv.ParseUint(pidStr, 10, 64)
+		var err error
+		projectID, err = strconv.ParseUint(pidStr, 10, 64)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid project_id query parameter"})
+			return
+		}
 	}
 
 	stats, err := h.svc.GetProviderStats(tenantID, clientType, projectID)
@@ -889,7 +905,11 @@ func (h *SelfServiceHandler) handleAPITokens(w http.ResponseWriter, r *http.Requ
 		writeSelfServiceInternalError(w, "GetAPITokens failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, sanitizeAPITokens(tokens))
+	tokens = sanitizeAPITokens(tokens)
+	if tokens == nil {
+		tokens = []*domain.APIToken{}
+	}
+	writeJSON(w, http.StatusOK, tokens)
 }
 
 func (h *SelfServiceHandler) handleProxyStatus(w http.ResponseWriter, r *http.Request) {
@@ -1011,6 +1031,9 @@ func (h *SelfServiceHandler) handleModelPrices(w http.ResponseWriter, r *http.Re
 		writeSelfServiceInternalError(w, "GetModelPrices failed", err)
 		return
 	}
+	if prices == nil {
+		prices = []*domain.ModelPrice{}
+	}
 	writeJSON(w, http.StatusOK, prices)
 }
 
@@ -1024,6 +1047,9 @@ func (h *SelfServiceHandler) handleResponseModels(w http.ResponseWriter, r *http
 	if err != nil {
 		writeSelfServiceInternalError(w, "GetResponseModelNames failed", err)
 		return
+	}
+	if names == nil {
+		names = []string{}
 	}
 	writeJSON(w, http.StatusOK, names)
 }

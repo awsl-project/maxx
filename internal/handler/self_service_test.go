@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -925,6 +926,38 @@ func TestSelfServiceHandler_GetProviderStats_MemberAllowed(t *testing.T) {
 	}
 }
 
+func TestSelfServiceHandler_GetProviderStats_InvalidProjectID_ReturnsBadRequest(t *testing.T) {
+	statsRepo := &selfServiceUsageStatsRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:   &selfServiceProviderRepo{},
+		projectRepo:    &selfServiceProjectRepo{},
+		usageStatsRepo: statsRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/provider-stats?project_id=abc"))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["error"] != "invalid project_id query parameter" {
+		t.Fatalf("error = %q, want invalid project_id query parameter", body["error"])
+	}
+	if statsRepo.lastTenantID != 0 || statsRepo.lastClientType != "" || statsRepo.lastProjectID != 0 {
+		t.Fatalf(
+			"usage stats repo should not be called, got tenant:%d client:%q project:%d",
+			statsRepo.lastTenantID,
+			statsRepo.lastClientType,
+			statsRepo.lastProjectID,
+		)
+	}
+}
+
 func TestSelfServiceHandler_GetPublicSettings_FiltersSensitiveKeys(t *testing.T) {
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
 		providerRepo: &selfServiceProviderRepo{},
@@ -934,6 +967,8 @@ func TestSelfServiceHandler_GetPublicSettings_FiltersSensitiveKeys(t *testing.T)
 				"api_token_auth_enabled": "true",
 				"force_project_binding":  "true",
 				"force_project_timeout":  "45",
+				"auto_sort_antigravity":  "true",
+				"auto_sort_codex":        "false",
 				"jwt_secret":             "hidden",
 				"pprof_password":         "secret",
 			},
@@ -951,10 +986,14 @@ func TestSelfServiceHandler_GetPublicSettings_FiltersSensitiveKeys(t *testing.T)
 	if err := json.Unmarshal(rec.Body.Bytes(), &settings); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(settings) != 3 {
-		t.Fatalf("settings length = %d, want 3, settings = %+v", len(settings), settings)
+	if len(settings) != 5 {
+		t.Fatalf("settings length = %d, want 5, settings = %+v", len(settings), settings)
 	}
-	if settings["api_token_auth_enabled"] != "true" || settings["force_project_binding"] != "true" || settings["force_project_timeout"] != "45" {
+	if settings["api_token_auth_enabled"] != "true" ||
+		settings["force_project_binding"] != "true" ||
+		settings["force_project_timeout"] != "45" ||
+		settings["auto_sort_antigravity"] != "true" ||
+		settings["auto_sort_codex"] != "false" {
 		t.Fatalf("settings = %+v, want public setting values", settings)
 	}
 	if _, ok := settings["jwt_secret"]; ok {
@@ -1068,12 +1107,19 @@ func TestSelfServiceHandler_InvalidResourceIDs_ReturnBadRequest(t *testing.T) {
 		path string
 	}{
 		{name: "providers", path: "/providers/not-a-number"},
+		{name: "providers zero", path: "/providers/0"},
 		{name: "routes", path: "/routes/not-a-number"},
+		{name: "routes zero", path: "/routes/0"},
 		{name: "projects", path: "/projects/not-a-number"},
+		{name: "projects zero", path: "/projects/0"},
 		{name: "retry-configs", path: "/retry-configs/not-a-number"},
+		{name: "retry-configs zero", path: "/retry-configs/0"},
 		{name: "model-mappings", path: "/model-mappings/not-a-number"},
+		{name: "model-mappings zero", path: "/model-mappings/0"},
 		{name: "api-tokens", path: "/api-tokens/not-a-number"},
+		{name: "api-tokens zero", path: "/api-tokens/0"},
 		{name: "model-prices", path: "/model-prices/not-a-number"},
+		{name: "model-prices zero", path: "/model-prices/0"},
 	}
 
 	for _, tc := range cases {
@@ -1278,5 +1324,42 @@ func TestSelfServiceHandler_ListResponseModels_MemberAllowed(t *testing.T) {
 	}
 	if len(names) != 2 || names[0] != "gpt-4.1" {
 		t.Fatalf("names = %+v, want response model names", names)
+	}
+}
+
+func TestSelfServiceHandler_ListEndpoints_EmptySlicesSerializeAsJSONArray(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:      &selfServiceProviderRepo{},
+		routeRepo:         &selfServiceRouteRepo{},
+		projectRepo:       &selfServiceProjectRepo{},
+		apiTokenRepo:      &selfServiceAPITokenRepo{},
+		responseModelRepo: &selfServiceResponseModelRepo{},
+		modelPriceRepo:    &selfServiceModelPriceRepo{},
+	})
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{name: "providers", path: "/providers"},
+		{name: "projects", path: "/projects"},
+		{name: "routes", path: "/routes"},
+		{name: "api tokens", path: "/api-tokens"},
+		{name: "model prices", path: "/model-prices"},
+		{name: "response models", path: "/response-models"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, tc.path))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+			}
+			if body := strings.TrimSpace(rec.Body.String()); body != "[]" {
+				t.Fatalf("body = %q, want []", body)
+			}
+		})
 	}
 }
