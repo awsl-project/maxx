@@ -447,24 +447,24 @@ export class HttpTransport implements Transport {
   // ===== Antigravity API =====
 
   async validateAntigravityToken(refreshToken: string): Promise<AntigravityTokenValidationResult> {
-    const { data } = await axios.post<AntigravityTokenValidationResult>(
-      '/api/antigravity/validate-token',
+    const { data } = await this.client.post<AntigravityTokenValidationResult>(
+      '/antigravity/validate-token',
       { refreshToken },
     );
     return data;
   }
 
   async validateAntigravityTokens(tokens: string[]): Promise<AntigravityBatchValidationResult> {
-    const { data } = await axios.post<AntigravityBatchValidationResult>(
-      '/api/antigravity/validate-tokens',
+    const { data } = await this.client.post<AntigravityBatchValidationResult>(
+      '/antigravity/validate-tokens',
       { tokens },
     );
     return data;
   }
 
   async validateAntigravityTokenText(tokenText: string): Promise<AntigravityBatchValidationResult> {
-    const { data } = await axios.post<AntigravityBatchValidationResult>(
-      '/api/antigravity/validate-tokens',
+    const { data } = await this.client.post<AntigravityBatchValidationResult>(
+      '/antigravity/validate-tokens',
       { tokenText },
     );
     return data;
@@ -475,36 +475,36 @@ export class HttpTransport implements Transport {
     forceRefresh?: boolean,
   ): Promise<AntigravityQuotaData> {
     const params = forceRefresh ? { refresh: 'true' } : undefined;
-    const { data } = await axios.get<AntigravityQuotaData>(
-      `/api/antigravity/providers/${providerId}/quota`,
+    const { data } = await this.client.get<AntigravityQuotaData>(
+      `/antigravity/providers/${providerId}/quota`,
       { params },
     );
     return data;
   }
 
   async getAntigravityBatchQuotas(): Promise<Record<number, AntigravityQuotaData>> {
-    const { data } = await axios.get<{ quotas: Record<number, AntigravityQuotaData> }>(
-      '/api/antigravity/providers/quotas',
+    const { data } = await this.client.get<{ quotas: Record<number, AntigravityQuotaData> }>(
+      '/antigravity/providers/quotas',
     );
     return data.quotas;
   }
 
   async startAntigravityOAuth(): Promise<{ authURL: string; state: string }> {
-    const { data } = await axios.post<{ authURL: string; state: string }>(
-      '/api/antigravity/oauth/start',
+    const { data } = await this.client.post<{ authURL: string; state: string }>(
+      '/antigravity/oauth/start',
     );
     return data;
   }
 
   async refreshAntigravityQuotas(): Promise<{ success: boolean; refreshed: number }> {
-    const { data } = await axios.post<{ success: boolean; refreshed: number }>(
-      '/api/antigravity/refresh-quotas',
+    const { data } = await this.client.post<{ success: boolean; refreshed: number }>(
+      '/antigravity/refresh-quotas',
     );
     return data;
   }
 
   async sortAntigravityRoutes(): Promise<{ success: boolean }> {
-    const { data } = await axios.post<{ success: boolean }>('/api/antigravity/sort-routes');
+    const { data } = await this.client.post<{ success: boolean }>('/antigravity/sort-routes');
     return data;
   }
 
@@ -540,29 +540,31 @@ export class HttpTransport implements Transport {
   // ===== Kiro API =====
 
   async validateKiroSocialToken(refreshToken: string): Promise<KiroTokenValidationResult> {
-    const { data } = await axios.post<KiroTokenValidationResult>(
-      '/api/kiro/validate-social-token',
+    const { data } = await this.client.post<KiroTokenValidationResult>(
+      '/kiro/validate-social-token',
       { refreshToken },
     );
     return data;
   }
 
   async getKiroProviderQuota(providerId: number): Promise<KiroQuotaData> {
-    const { data } = await axios.get<KiroQuotaData>(`/api/kiro/providers/${providerId}/quota`);
+    const { data } = await this.client.get<KiroQuotaData>(`/kiro/providers/${providerId}/quota`);
     return data;
   }
 
   // ===== Codex API =====
 
   async validateCodexToken(refreshToken: string): Promise<CodexTokenValidationResult> {
-    const { data } = await axios.post<CodexTokenValidationResult>('/api/codex/validate-token', {
+    const { data } = await this.client.post<CodexTokenValidationResult>('/codex/validate-token', {
       refreshToken,
     });
     return data;
   }
 
   async startCodexOAuth(): Promise<{ authURL: string; state: string }> {
-    const { data } = await axios.post<{ authURL: string; state: string }>('/api/codex/oauth/start');
+    const { data } = await this.client.post<{ authURL: string; state: string }>(
+      '/codex/oauth/start',
+    );
     return data;
   }
 
@@ -570,56 +572,58 @@ export class HttpTransport implements Transport {
     code: string,
     state: string,
   ): Promise<import('./types').CodexOAuthResult> {
-    const { data } = await axios.post<import('./types').CodexOAuthResult>(
-      '/api/codex/oauth/exchange',
+    const { data } = await this.client.post<import('./types').CodexOAuthResult>(
+      '/codex/oauth/exchange',
       { code, state },
     );
     return data;
   }
 
   async refreshCodexProviderInfo(providerId: number): Promise<CodexTokenValidationResult> {
-    const { data } = await axios.post<CodexTokenValidationResult>(
-      `/api/codex/provider/${providerId}/refresh`,
+    const { data } = await this.client.post<CodexTokenValidationResult>(
+      `/codex/provider/${providerId}/refresh`,
     );
     return data;
   }
 
   async getCodexProviderUsage(providerId: number): Promise<CodexUsageResponse> {
-    const { data } = await axios.get<CodexUsageResponse>(`/api/codex/provider/${providerId}/usage`);
+    const { data } = await this.client.get<CodexUsageResponse>(
+      `/codex/provider/${providerId}/usage`,
+    );
     return data;
   }
 
   async getCodexBatchQuotas(): Promise<Record<number, CodexQuotaData>> {
-    const { data } = await axios.get<{ quotas: Record<number, CodexQuotaData> }>(
-      '/api/codex/providers/quotas',
+    const { data } = await this.client.get<{ quotas: Record<number, CodexQuotaData> }>(
+      '/codex/providers/quotas',
     );
     return data.quotas ?? {};
   }
 
   async refreshCodexQuotas(): Promise<{ success: boolean; refreshed: boolean }> {
-    const { data } = await axios.post<{ success: boolean; refreshed: boolean }>(
-      '/api/codex/refresh-quotas',
+    const { data } = await this.client.post<{ success: boolean; refreshed: boolean }>(
+      '/codex/refresh-quotas',
     );
     return data;
   }
 
   async sortCodexRoutes(): Promise<{ success: boolean }> {
-    const { data } = await axios.post<{ success: boolean }>('/api/codex/sort-routes');
+    const { data } = await this.client.post<{ success: boolean }>('/codex/sort-routes');
     return data;
   }
 
   // ===== Claude API =====
 
   async validateClaudeToken(refreshToken: string): Promise<ClaudeTokenValidationResult> {
-    const { data } = await axios.post<ClaudeTokenValidationResult>('/api/claude/validate-token', {
+    const { data } = await this.client.post<ClaudeTokenValidationResult>('/claude/validate-token', {
       refreshToken,
     });
     return data;
   }
 
   async startClaudeOAuth(): Promise<{ authURL: string; state: string }> {
-    const { data } = await axios.post<{ authURL: string; state: string }>(
-      '/api/claude/oauth/start',
+    const { data } = await this.client.post<{ authURL: string; state: string }>(
+      '/claude/oauth/start',
     );
     return data;
   }
@@ -628,16 +632,16 @@ export class HttpTransport implements Transport {
     code: string,
     state: string,
   ): Promise<import('./types').ClaudeOAuthResult> {
-    const { data } = await axios.post<import('./types').ClaudeOAuthResult>(
-      '/api/claude/oauth/exchange',
+    const { data } = await this.client.post<import('./types').ClaudeOAuthResult>(
+      '/claude/oauth/exchange',
       { code, state },
     );
     return data;
   }
 
   async refreshClaudeProviderInfo(providerId: number): Promise<ClaudeTokenValidationResult> {
-    const { data } = await axios.post<ClaudeTokenValidationResult>(
-      `/api/claude/provider/${providerId}/refresh`,
+    const { data } = await this.client.post<ClaudeTokenValidationResult>(
+      `/claude/provider/${providerId}/refresh`,
     );
     return data;
   }
@@ -665,7 +669,7 @@ export class HttpTransport implements Transport {
   }
 
   async login(username: string, password: string): Promise<AuthLoginResult> {
-    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/login', {
+    const { data } = await this.adminClient.post<AuthLoginResult>('/auth/login', {
       username,
       password,
     });
@@ -673,8 +677,8 @@ export class HttpTransport implements Transport {
   }
 
   async startPasskeyLogin(username?: string): Promise<PasskeyLoginOptionsResult> {
-    const { data } = await axios.post<PasskeyLoginOptionsResult>(
-      '/api/admin/auth/passkey/login/options',
+    const { data } = await this.adminClient.post<PasskeyLoginOptionsResult>(
+      '/auth/passkey/login/options',
       { username: username || '' },
     );
     return data;
@@ -684,7 +688,7 @@ export class HttpTransport implements Transport {
     sessionID: string,
     credential: AuthenticationResponseJSON,
   ): Promise<AuthLoginResult> {
-    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/passkey/login/verify', {
+    const { data } = await this.adminClient.post<AuthLoginResult>('/auth/passkey/login/verify', {
       sessionID,
       credential,
     });

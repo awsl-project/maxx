@@ -44,7 +44,8 @@ interface ProviderRowProps {
   provider: Provider;
   stats?: ProviderStats;
   streamingCount: number;
-  onClick: () => void;
+  onClick?: () => void;
+  title?: string;
 }
 
 // 获取 Claude 模型额度百分比和重置时间
@@ -197,7 +198,7 @@ function getCodexWeekQuotaInfo(
   };
 }
 
-export function ProviderRow({ provider, stats, streamingCount, onClick }: ProviderRowProps) {
+export function ProviderRow({ provider, stats, streamingCount, onClick, title }: ProviderRowProps) {
   const { t } = useTranslation();
   // 使用通用配置系统
   const typeConfig = getProviderTypeConfig(provider.type);
@@ -222,14 +223,20 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
   const codex5HInfo = isCodex ? getCodex5HQuotaInfo(codexQuota) : null;
   const codexWeekInfo = isCodex ? getCodexWeekQuotaInfo(codexQuota) : null;
 
+  const isInteractive = !!onClick;
+
   return (
     <div
       onClick={onClick}
+      title={title}
       className={cn(
-        'group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden cursor-pointer',
+        'group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden',
+        isInteractive ? 'cursor-pointer' : 'cursor-default opacity-90',
         streamingCount > 0
           ? 'bg-card ring-1 ring-black/5 dark:ring-white/10'
-          : 'bg-card/60 border-border hover:bg-card hover:border-primary/40 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)] hover:scale-[1.01] shadow-sm',
+          : isInteractive
+            ? 'bg-card/60 border-border hover:bg-card hover:border-primary/40 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)] hover:scale-[1.01] shadow-sm'
+            : 'bg-card/60 border-border shadow-sm',
       )}
       style={{
         borderColor: streamingCount > 0 ? `${color}60` : undefined,

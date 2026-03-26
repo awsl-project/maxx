@@ -38,6 +38,7 @@ export function ProvidersPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const canManageProviderSettings = user?.role === 'admin';
+  const providerReadOnlyHint = t('providers.readOnlyHint');
 
   // 订阅请求更新事件，确保 providerStats 实时刷新
   useProxyRequestUpdates();
@@ -217,15 +218,27 @@ export function ProvidersPage() {
           accept=".json"
           className="hidden"
         />
-        <Button
-          onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2"
-          title={t('providers.importProviders')}
-          variant={'outline'}
-        >
-          <Upload size={14} />
-          <span>{t('common.import')}</span>
-        </Button>
+        {canManageProviderSettings ? (
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2"
+            title={t('providers.importProviders')}
+            variant={'outline'}
+          >
+            <Upload size={14} />
+            <span>{t('common.import')}</span>
+          </Button>
+        ) : (
+          <Button
+            className="flex items-center gap-2"
+            title={t('providers.importProvidersAdminOnly')}
+            variant={'outline'}
+            disabled
+          >
+            <Upload size={14} />
+            <span>{t('common.import')}</span>
+          </Button>
+        )}
         <Button
           onClick={handleExport}
           className="flex items-center gap-2"
@@ -236,10 +249,17 @@ export function ProvidersPage() {
           <Download size={14} />
           <span>{t('common.export')}</span>
         </Button>
-        <Button onClick={() => navigate('/providers/create')}>
-          <Plus size={14} />
-          <span>{t('providers.addProvider')}</span>
-        </Button>
+        {canManageProviderSettings ? (
+          <Button onClick={() => navigate('/providers/create')}>
+            <Plus size={14} />
+            <span>{t('providers.addProvider')}</span>
+          </Button>
+        ) : (
+          <Button title={t('providers.addProviderAdminOnly')} disabled>
+            <Plus size={14} />
+            <span>{t('providers.addProvider')}</span>
+          </Button>
+        )}
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
@@ -254,8 +274,14 @@ export function ProvidersPage() {
               <p className="text-body">{t('providers.noProviders')}</p>
               <p className="text-caption mt-2">{t('providers.noProvidersHint')}</p>
               <Button
-                onClick={() => navigate('/providers/create')}
+                onClick={() => canManageProviderSettings && navigate('/providers/create')}
                 className=" mt-6 flex items-center gap-2"
+                title={
+                  canManageProviderSettings
+                    ? t('providers.addProvider')
+                    : t('providers.addProviderAdminOnly')
+                }
+                disabled={!canManageProviderSettings}
               >
                 <Plus size={14} />
                 <span>{t('providers.addProvider')}</span>
@@ -351,7 +377,12 @@ export function ProvidersPage() {
                               provider={provider}
                               stats={providerStats[provider.id]}
                               streamingCount={countsByProvider.get(provider.id) || 0}
-                              onClick={() => navigate(`/providers/${provider.id}/edit`)}
+                              onClick={
+                                canManageProviderSettings
+                                  ? () => navigate(`/providers/${provider.id}/edit`)
+                                  : undefined
+                              }
+                              title={!canManageProviderSettings ? providerReadOnlyHint : undefined}
                             />
                           ))}
                         </div>

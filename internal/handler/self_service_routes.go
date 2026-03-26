@@ -12,6 +12,7 @@ var selfServiceRoutePatterns = []string{
 	"/api/retry-configs",
 	"/api/retry-configs/",
 	"/api/provider-stats",
+	"/api/provider-stats/",
 	"/api/api-tokens",
 	"/api/api-tokens/",
 	"/api/model-mappings",
@@ -21,6 +22,7 @@ var selfServiceRoutePatterns = []string{
 	"/api/model-prices",
 	"/api/model-prices/",
 	"/api/response-models",
+	"/api/response-models/",
 }
 
 // RegisterSelfServiceRoutes registers the admin and self-service HTTP endpoints under /api.
