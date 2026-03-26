@@ -3,11 +3,11 @@ import { AppSidebar } from './app-sidebar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { ForceProjectDialog } from '@/components/force-project-dialog';
 import { usePendingSession } from '@/hooks/use-pending-session';
-import { useSettings } from '@/hooks/queries';
+import { usePublicSettings } from '@/hooks/queries';
 
 export function AppLayout() {
   const { pendingSession, clearPendingSession } = usePendingSession();
-  const { data: settings } = useSettings();
+  const { data: settings } = usePublicSettings();
 
   const forceProjectEnabled = settings?.force_project_binding === 'true';
   const timeoutSeconds = parseInt(settings?.force_project_timeout || '30', 10);

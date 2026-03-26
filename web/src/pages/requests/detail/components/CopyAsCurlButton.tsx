@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui';
 import { Terminal, Check } from 'lucide-react';
 import type { RequestInfo } from '@/lib/transport';
-import { useSetting } from '@/hooks/queries';
+import { useProxyStatus } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
 
 interface CopyAsCurlButtonProps {
@@ -54,8 +54,8 @@ function generateCurlCommand(requestInfo: RequestInfo, proxyPort: string): strin
 export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const { data: settingData } = useSetting('proxy_port');
-  const proxyPort = settingData?.value || '9880';
+  const { data: proxyStatus } = useProxyStatus();
+  const proxyPort = proxyStatus?.port ? String(proxyStatus.port) : '9880';
 
   const handleCopy = async () => {
     try {

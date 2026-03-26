@@ -7,12 +7,18 @@ import {
   useProxyRequestUpdates,
   useProxyRequestsCount,
   useProviders,
+  usePublicSettings,
   useProjects,
-  useAPITokens,
-  useSettings,
+  useVisibleAPITokens,
 } from '@/hooks/queries';
 import { Activity, RefreshCw, Loader2, CheckCircle, AlertTriangle, Ban } from 'lucide-react';
-import type { APIToken, Project, ProxyRequest, ProxyRequestStatus, Provider } from '@/lib/transport';
+import type {
+  APIToken,
+  Project,
+  ProxyRequest,
+  ProxyRequestStatus,
+  Provider,
+} from '@/lib/transport';
 import { ClientIcon } from '@/components/icons/client-icons';
 import {
   Table,
@@ -123,8 +129,8 @@ export function RequestsPage() {
 
   const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
   const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
-  const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useAPITokens();
-  const { data: settings } = useSettings();
+  const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useVisibleAPITokens();
+  const { data: settings } = usePublicSettings();
 
   const waitingProviderFilterValidation =
     filterMode === 'provider' && selectedProviderId !== undefined && !providersIsSuccess;
@@ -132,18 +138,20 @@ export function RequestsPage() {
     filterMode === 'token' && selectedTokenId !== undefined && !apiTokensIsSuccess;
   const waitingProjectFilterValidation =
     filterMode === 'project' && selectedProjectId !== undefined && !projectsIsSuccess;
-  const requestsQueryEnabled = !waitingProviderFilterValidation && !waitingTokenFilterValidation && !waitingProjectFilterValidation;
+  const requestsQueryEnabled =
+    !waitingProviderFilterValidation &&
+    !waitingTokenFilterValidation &&
+    !waitingProjectFilterValidation;
 
   // 使用 Infinite Query
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-    isFetching,
-    refetch,
-  } = useInfiniteProxyRequests(activeProviderId, selectedStatus, activeTokenId, activeProjectId, requestsQueryEnabled);
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isFetching, refetch } =
+    useInfiniteProxyRequests(
+      activeProviderId,
+      selectedStatus,
+      activeTokenId,
+      activeProjectId,
+      requestsQueryEnabled,
+    );
 
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(
     activeProviderId,
@@ -179,7 +187,8 @@ export function RequestsPage() {
   const allRequests = useMemo(() => {
     return data?.pages.flatMap((page) => page.items) ?? [];
   }, [data]);
-  const showLoadingState = (isLoading || isFetching || !requestsQueryEnabled) && allRequests.length === 0;
+  const showLoadingState =
+    (isLoading || isFetching || !requestsQueryEnabled) && allRequests.length === 0;
   const hasRenderedRequests = allRequests.length > 0;
 
   const activeCount = useMemo(() => {
@@ -193,8 +202,7 @@ export function RequestsPage() {
   // 高频实时更新时，仅保留可视区域附近的桌面行，减少表格重排和重绘成本。
   const shouldVirtualizeDesktop =
     !isMobile && allRequests.length >= REQUESTS_VIRTUALIZE_THRESHOLD && viewportHeight > 0;
-  const desktopColumnCount =
-    14 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
+  const desktopColumnCount = 14 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
   const desktopVirtualRange = useMemo(() => {
     if (!shouldVirtualizeDesktop) {
       return {
@@ -205,28 +213,14 @@ export function RequestsPage() {
       };
     }
 
-    return calculateVirtualRange(
-      allRequests.length,
-      scrollTop,
-      viewportHeight,
-      desktopRowHeight,
-    );
-  }, [
-    allRequests.length,
-    desktopRowHeight,
-    scrollTop,
-    shouldVirtualizeDesktop,
-    viewportHeight,
-  ]);
+    return calculateVirtualRange(allRequests.length, scrollTop, viewportHeight, desktopRowHeight);
+  }, [allRequests.length, desktopRowHeight, scrollTop, shouldVirtualizeDesktop, viewportHeight]);
   const desktopVisibleRequests = useMemo(() => {
     if (!shouldVirtualizeDesktop) {
       return allRequests;
     }
 
-    return allRequests.slice(
-      desktopVirtualRange.startIndex,
-      desktopVirtualRange.endIndex,
-    );
+    return allRequests.slice(desktopVirtualRange.startIndex, desktopVirtualRange.endIndex);
   }, [allRequests, desktopVirtualRange, shouldVirtualizeDesktop]);
 
   // 全局 tick：仅在有“传输中”请求时更新，避免每行一个定时器导致重渲染风暴
@@ -281,13 +275,7 @@ export function RequestsPage() {
     if (nextHeight > 0 && Math.abs(nextHeight - desktopRowHeight) > 1) {
       setDesktopRowHeight(nextHeight);
     }
-  }, [
-    apiTokenAuthEnabled,
-    desktopRowHeight,
-    desktopVisibleRequests,
-    hasProjects,
-    isMobile,
-  ]);
+  }, [apiTokenAuthEnabled, desktopRowHeight, desktopVisibleRequests, hasProjects, isMobile]);
 
   // IntersectionObserver 触底检测
   useEffect(() => {
@@ -435,71 +423,37 @@ export function RequestsPage() {
     <TableHeader className="bg-card/80 backdrop-blur-md sticky top-0 z-10 shadow-sm border-b border-border">
       <TableRow className="hover:bg-transparent border-none text-sm">
         <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
-        <TableHead className="w-[120px] pr-4 font-medium">
-          {t('requests.client')}
-        </TableHead>
-        <TableHead className="min-w-[250px] font-medium">
-          {t('requests.model')}
-        </TableHead>
+        <TableHead className="w-[120px] pr-4 font-medium">{t('requests.client')}</TableHead>
+        <TableHead className="min-w-[250px] font-medium">{t('requests.model')}</TableHead>
         {hasProjects && (
-          <TableHead className="w-[100px] font-medium">
-            {t('requests.project')}
-          </TableHead>
+          <TableHead className="w-[100px] font-medium">{t('requests.project')}</TableHead>
         )}
         {apiTokenAuthEnabled && (
-          <TableHead className="w-[100px] font-medium">
-            {t('requests.token')}
-          </TableHead>
+          <TableHead className="w-[100px] font-medium">{t('requests.token')}</TableHead>
         )}
-        <TableHead className="min-w-[100px] font-medium">
-          {t('requests.provider')}
-        </TableHead>
+        <TableHead className="min-w-[100px] font-medium">{t('requests.provider')}</TableHead>
         <TableHead className="w-[100px] font-medium">{t('common.status')}</TableHead>
-        <TableHead className="w-[60px] text-center font-medium">
-          {t('requests.code')}
-        </TableHead>
-        <TableHead
-          className="w-[60px] text-center font-medium"
-          title={t('requests.ttft')}
-        >
+        <TableHead className="w-[60px] text-center font-medium">{t('requests.code')}</TableHead>
+        <TableHead className="w-[60px] text-center font-medium" title={t('requests.ttft')}>
           TTFT
         </TableHead>
-        <TableHead className="w-[80px] text-center font-medium">
-          {t('requests.duration')}
-        </TableHead>
-        <TableHead
-          className="w-[45px] text-center font-medium"
-          title={t('requests.attempts')}
-        >
+        <TableHead className="w-[80px] text-center font-medium">{t('requests.duration')}</TableHead>
+        <TableHead className="w-[45px] text-center font-medium" title={t('requests.attempts')}>
           {t('requests.attShort')}
         </TableHead>
-        <TableHead
-          className="w-[65px] text-center font-medium"
-          title={t('requests.inputTokens')}
-        >
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.inputTokens')}>
           {t('requests.inShort')}
         </TableHead>
-        <TableHead
-          className="w-[65px] text-center font-medium"
-          title={t('requests.outputTokens')}
-        >
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.outputTokens')}>
           {t('requests.outShort')}
         </TableHead>
-        <TableHead
-          className="w-[65px] text-center font-medium"
-          title={t('requests.cacheRead')}
-        >
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheRead')}>
           {t('requests.cacheRShort')}
         </TableHead>
-        <TableHead
-          className="w-[65px] text-center font-medium"
-          title={t('requests.cacheWrite')}
-        >
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheWrite')}>
           {t('requests.cacheWShort')}
         </TableHead>
-        <TableHead className="w-[80px] text-center font-medium">
-          {t('requests.cost')}
-        </TableHead>
+        <TableHead className="w-[80px] text-center font-medium">{t('requests.cost')}</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -513,7 +467,11 @@ export function RequestsPage() {
         description={t('requests.description', { count: total })}
       >
         {/* Filter Mode + Dynamic Target Filter */}
-        <FilterModeSelect mode={filterMode} hasProjects={hasProjects} onSelect={handleFilterModeChange} />
+        <FilterModeSelect
+          mode={filterMode}
+          hasProjects={hasProjects}
+          onSelect={handleFilterModeChange}
+        />
         {filterMode === 'provider' ? (
           <ProviderFilter
             providers={providers}
@@ -597,16 +555,15 @@ export function RequestsPage() {
                 <Table>
                   {desktopTableHeader}
                   <TableBody>
-                    {shouldVirtualizeDesktop &&
-                      desktopVirtualRange.topSpacerHeight > 0 && (
-                        <tr aria-hidden="true">
-                          <td
-                            colSpan={desktopColumnCount}
-                            className="border-0 p-0"
-                            style={{ height: `${desktopVirtualRange.topSpacerHeight}px` }}
-                          />
-                        </tr>
-                      )}
+                    {shouldVirtualizeDesktop && desktopVirtualRange.topSpacerHeight > 0 && (
+                      <tr aria-hidden="true">
+                        <td
+                          colSpan={desktopColumnCount}
+                          className="border-0 p-0"
+                          style={{ height: `${desktopVirtualRange.topSpacerHeight}px` }}
+                        />
+                      </tr>
+                    )}
                     {desktopVisibleRequests.map((req) => (
                       <MemoLogRow
                         key={req.id}
@@ -621,16 +578,15 @@ export function RequestsPage() {
                         onOpenRequest={handleOpenRequest}
                       />
                     ))}
-                    {shouldVirtualizeDesktop &&
-                      desktopVirtualRange.bottomSpacerHeight > 0 && (
-                        <tr aria-hidden="true">
-                          <td
-                            colSpan={desktopColumnCount}
-                            className="border-0 p-0"
-                            style={{ height: `${desktopVirtualRange.bottomSpacerHeight}px` }}
-                          />
-                        </tr>
-                      )}
+                    {shouldVirtualizeDesktop && desktopVirtualRange.bottomSpacerHeight > 0 && (
+                      <tr aria-hidden="true">
+                        <td
+                          colSpan={desktopColumnCount}
+                          className="border-0 p-0"
+                          style={{ height: `${desktopVirtualRange.bottomSpacerHeight}px` }}
+                        />
+                      </tr>
+                    )}
                   </TableBody>
                 </Table>
                 {/* 触底加载指示器 */}
@@ -882,7 +838,11 @@ function LogRow({
 
         // Pending binding state - Amber background with left border
         isPendingBinding &&
-          cn('bg-amber-500/10 even:bg-amber-500/15', 'hover:bg-amber-500/25', 'border-l-2 border-l-amber-500'),
+          cn(
+            'bg-amber-500/10 even:bg-amber-500/15',
+            'hover:bg-amber-500/25',
+            'border-l-2 border-l-amber-500',
+          ),
 
         // 桌面端虚拟列表已经限制了 DOM 行数，这里恢复原始跑马灯样式。
         isPending && !isPendingBinding && 'animate-marquee-row',
@@ -1040,27 +1000,24 @@ function LogRow({
   );
 }
 
-const MemoLogRow = memo(
-  LogRow,
-  (prev: Readonly<LogRowProps>, next: Readonly<LogRowProps>) => {
-    if (prev.request !== next.request) return false;
-    if (prev.providerName !== next.providerName) return false;
-    if (prev.projectName !== next.projectName) return false;
-    if (prev.tokenName !== next.tokenName) return false;
-    if (prev.showProjectColumn !== next.showProjectColumn) return false;
-    if (prev.showTokenColumn !== next.showTokenColumn) return false;
-    if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
-    if (prev.onOpenRequest !== next.onOpenRequest) return false;
+const MemoLogRow = memo(LogRow, (prev: Readonly<LogRowProps>, next: Readonly<LogRowProps>) => {
+  if (prev.request !== next.request) return false;
+  if (prev.providerName !== next.providerName) return false;
+  if (prev.projectName !== next.projectName) return false;
+  if (prev.tokenName !== next.tokenName) return false;
+  if (prev.showProjectColumn !== next.showProjectColumn) return false;
+  if (prev.showTokenColumn !== next.showTokenColumn) return false;
+  if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
+  if (prev.onOpenRequest !== next.onOpenRequest) return false;
 
-    const prevPending = prev.request.status === 'PENDING' || prev.request.status === 'IN_PROGRESS';
-    const nextPending = next.request.status === 'PENDING' || next.request.status === 'IN_PROGRESS';
-    if (prevPending || nextPending) {
-      return prev.nowMs === next.nowMs;
-    }
+  const prevPending = prev.request.status === 'PENDING' || prev.request.status === 'IN_PROGRESS';
+  const nextPending = next.request.status === 'PENDING' || next.request.status === 'IN_PROGRESS';
+  if (prevPending || nextPending) {
+    return prev.nowMs === next.nowMs;
+  }
 
-    return true;
-  },
-);
+  return true;
+});
 
 // Mobile Request Card Component
 type MobileRequestCardProps = {
@@ -1173,9 +1130,7 @@ function FilterModeSelect({
       <SelectContent>
         <SelectItem value="token">{t('requests.filterByToken')}</SelectItem>
         <SelectItem value="provider">{t('requests.filterByProvider')}</SelectItem>
-        {hasProjects && (
-          <SelectItem value="project">{t('requests.filterByProject')}</SelectItem>
-        )}
+        {hasProjects && <SelectItem value="project">{t('requests.filterByProject')}</SelectItem>}
       </SelectContent>
     </Select>
   );

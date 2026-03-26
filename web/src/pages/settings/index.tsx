@@ -38,6 +38,7 @@ import {
 } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
+import { useAuth } from '@/lib/auth-context';
 import { useTransport } from '@/lib/transport/context';
 import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
 import { getDefaultThemes, getLuxuryThemes } from '@/lib/theme';
@@ -63,6 +64,8 @@ function parseRetentionInteger(value: string): number | null {
 
 export function SettingsPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -76,12 +79,16 @@ export function SettingsPage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="space-y-6">
           <GeneralSection />
-          <TimezoneSection />
-          <DataRetentionSection />
-          <ForceProjectSection />
-          <AntigravitySection />
-          <PprofSection />
-          <BackupSection />
+          {isAdmin && (
+            <>
+              <TimezoneSection />
+              <DataRetentionSection />
+              <ForceProjectSection />
+              <AntigravitySection />
+              <PprofSection />
+              <BackupSection />
+            </>
+          )}
         </div>
       </div>
     </div>

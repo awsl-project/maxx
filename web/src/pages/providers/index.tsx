@@ -21,10 +21,12 @@ import { PageHeader } from '@/components/layout/page-header';
 import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CodexQuotasProvider } from '@/contexts/codex-quotas-context';
+import { useAuth } from '@/lib/auth-context';
 
 export function ProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: providers, isLoading } = useProviders();
   const { data: providerStats = {} } = useAllProviderStats();
   const { countsByProvider } = useStreamingRequests();
@@ -34,12 +36,13 @@ export function ProvidersPage() {
   const [isRefreshingCodex, setIsRefreshingCodex] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+  const canManageProviderSettings = user?.role === 'admin';
 
   // 订阅请求更新事件，确保 providerStats 实时刷新
   useProxyRequestUpdates();
 
   // Settings for auto-sort
-  const { data: settings } = useSettings();
+  const { data: settings } = useSettings(canManageProviderSettings);
   const updateSetting = useUpdateSetting();
   const autoSortAntigravity = settings?.auto_sort_antigravity === 'true';
   const autoSortCodex = settings?.auto_sort_codex === 'true';
@@ -278,16 +281,18 @@ export function ProvidersPage() {
                           {/* Refresh Quotas Button - Only for Antigravity */}
                           {typeKey === 'antigravity' && (
                             <>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-muted-foreground">
-                                  {t('settings.autoSortAntigravity')}
-                                </span>
-                                <Switch
-                                  checked={autoSortAntigravity}
-                                  onCheckedChange={handleToggleAutoSortAntigravity}
-                                  disabled={updateSetting.isPending}
-                                />
-                              </div>
+                              {canManageProviderSettings && (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs text-muted-foreground">
+                                    {t('settings.autoSortAntigravity')}
+                                  </span>
+                                  <Switch
+                                    checked={autoSortAntigravity}
+                                    onCheckedChange={handleToggleAutoSortAntigravity}
+                                    disabled={updateSetting.isPending}
+                                  />
+                                </div>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -307,16 +312,18 @@ export function ProvidersPage() {
                           {/* Refresh Button - Only for Codex */}
                           {typeKey === 'codex' && (
                             <>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-muted-foreground">
-                                  {t('settings.autoSortCodex')}
-                                </span>
-                                <Switch
-                                  checked={autoSortCodex}
-                                  onCheckedChange={handleToggleAutoSortCodex}
-                                  disabled={updateSetting.isPending}
-                                />
-                              </div>
+                              {canManageProviderSettings && (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs text-muted-foreground">
+                                    {t('settings.autoSortCodex')}
+                                  </span>
+                                  <Switch
+                                    checked={autoSortCodex}
+                                    onCheckedChange={handleToggleAutoSortCodex}
+                                    disabled={updateSetting.isPending}
+                                  />
+                                </div>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="sm"

@@ -52,3 +52,6 @@ wailsjs/
 AGENTS.md
 
 .logs/
+
+
+.codex-run/

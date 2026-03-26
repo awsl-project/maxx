@@ -24,7 +24,7 @@ import {
 } from '@/components/ui';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
-import { useProxyStatus, useProviders, useRoutes, useSettings } from '@/hooks/queries';
+import { useProxyStatus, useProviders, usePublicSettings, useRoutes } from '@/hooks/queries';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
 
 interface CodeBlockProps {
@@ -66,7 +66,6 @@ interface QuickstartBundle {
   oneliner: string;
 }
 
-
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -93,7 +92,9 @@ function buildQuickstartBundle(params: {
 
   switch (params.client) {
     case 'claude': {
-      const settingsJson = JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: token, ANTHROPIC_BASE_URL: baseUrl } });
+      const settingsJson = JSON.stringify({
+        env: { ANTHROPIC_AUTH_TOKEN: token, ANTHROPIC_BASE_URL: baseUrl },
+      });
       return {
         primaryLabel: 'settings.json',
         primaryCode: `{
@@ -180,7 +181,7 @@ function DocumentationSection() {
   const [quickstartToken, setQuickstartToken] = useState('');
   const [quickstartProjectSlug, setQuickstartProjectSlug] = useState('');
   const { data: proxyStatus } = useProxyStatus();
-  const { data: settings } = useSettings();
+  const { data: settings } = usePublicSettings();
   const { data: providers } = useProviders();
   const { data: routes } = useRoutes();
   const baseUrl = buildProxyBaseUrl(proxyStatus);
@@ -356,7 +357,11 @@ function DocumentationSection() {
         })}
       </TabsList>
 
-      <TabsContent value="quickstart" data-testid="documentation-quickstart-content" className="mt-6">
+      <TabsContent
+        value="quickstart"
+        data-testid="documentation-quickstart-content"
+        className="mt-6"
+      >
         <Card className="border-border bg-card">
           <CardContent className="space-y-5 pt-6">
             <div className="space-y-1">
@@ -474,9 +479,7 @@ function DocumentationSection() {
                 </p>
               )}
               {quickstartClient === 'codex' && (
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.configTomlDesc')}
-                </p>
+                <p className="text-xs text-muted-foreground">{t('documentation.configTomlDesc')}</p>
               )}
               <CodeBlock
                 code={quickstartBundle.primaryCode}
@@ -493,9 +496,7 @@ function DocumentationSection() {
                   <Badge variant="outline">{quickstartBundle.secondaryLabel}</Badge>
                 </div>
                 {quickstartClient === 'codex' && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.authJsonDesc')}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
                 )}
                 <CodeBlock
                   code={quickstartBundle.secondaryCode}
@@ -563,9 +564,7 @@ function DocumentationSection() {
             <div className="pt-4 border-t border-border space-y-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">
-                  {t('documentation.tokenAuthentication')}
-                </h3>
+                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
               </div>
 
               <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
@@ -610,7 +609,11 @@ function DocumentationSection() {
         </Card>
       </TabsContent>
 
-      <TabsContent value="diagnostics" data-testid="documentation-diagnostics-content" className="mt-6">
+      <TabsContent
+        value="diagnostics"
+        data-testid="documentation-diagnostics-content"
+        className="mt-6"
+      >
         <Card className="border-border bg-card">
           <CardContent className="space-y-4 pt-6">
             <div className="space-y-1">

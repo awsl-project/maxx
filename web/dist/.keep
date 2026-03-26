@@ -1,2 +1,0 @@
-# Placeholder file to keep web/dist present for backend-only CI and tests.
-# Real frontend build artifacts are generated into this directory during web builds.

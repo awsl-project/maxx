@@ -28,7 +28,7 @@ import {
   useUsageStats,
   useProviders,
   useProjects,
-  useAPITokens,
+  useVisibleAPITokens,
   useRecalculateUsageStats,
   useRecalculateCosts,
   useResponseModels,
@@ -458,7 +458,7 @@ export function StatsPage() {
 
   const { data: providers } = useProviders();
   const { data: projects } = useProjects();
-  const { data: apiTokens } = useAPITokens();
+  const { data: apiTokens } = useVisibleAPITokens();
   const { data: responseModels } = useResponseModels();
 
   const timeConfig = useMemo(() => getTimeRangeConfig(timeRange), [timeRange]);

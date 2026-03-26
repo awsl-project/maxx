@@ -86,6 +86,7 @@ export { proxyKeys, useProxyStatus } from './use-proxy';
 // Settings hooks
 export {
   settingsKeys,
+  usePublicSettings,
   useSettings,
   useSetting,
   useUpdateSetting,
@@ -102,6 +103,7 @@ export {
 export {
   apiTokenKeys,
   useAPITokens,
+  useVisibleAPITokens,
   useAPIToken,
   useCreateAPIToken,
   useUpdateAPIToken,

@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
+import { useAuth } from '@/lib/auth-context';
 import {
   useModelPrices,
   useCreateModelPrice,
@@ -110,11 +111,13 @@ function formDataToInput(form: PriceFormData): ModelPriceInput {
 
 export function ModelPricesPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { data: prices, isLoading } = useModelPrices();
   const createPrice = useCreateModelPrice();
   const updatePrice = useUpdateModelPrice();
   const deletePrice = useDeleteModelPrice();
   const resetPrices = useResetModelPricesToDefaults();
+  const canManagePrices = user?.role === 'admin';
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPrice, setEditingPrice] = useState<ModelPrice | null>(null);
@@ -123,18 +126,21 @@ export function ModelPricesPage() {
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   const handleOpenCreate = () => {
+    if (!canManagePrices) return;
     setEditingPrice(null);
     setFormData(defaultFormData);
     setIsDialogOpen(true);
   };
 
   const handleOpenEdit = (price: ModelPrice) => {
+    if (!canManagePrices) return;
     setEditingPrice(price);
     setFormData(priceToFormData(price));
     setIsDialogOpen(true);
   };
 
   const handleSave = async () => {
+    if (!canManagePrices) return;
     if (!formData.modelId.trim()) return;
 
     const input = formDataToInput(formData);
@@ -149,12 +155,14 @@ export function ModelPricesPage() {
   };
 
   const handleDeleteConfirm = async () => {
+    if (!canManagePrices) return;
     if (deleteConfirmId === null) return;
     await deletePrice.mutateAsync(deleteConfirmId);
     setDeleteConfirmId(null);
   };
 
   const handleResetConfirm = async () => {
+    if (!canManagePrices) return;
     await resetPrices.mutateAsync();
     setResetConfirmOpen(false);
   };
@@ -177,21 +185,23 @@ export function ModelPricesPage() {
         title={t('modelPrices.title')}
         description={t('modelPrices.description', { count: prices?.length || 0 })}
         actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setResetConfirmOpen(true)}
-              disabled={isPending}
-            >
-              <RotateCcw className="h-4 w-4 mr-1" />
-              {t('modelPrices.resetToDefaults')}
-            </Button>
-            <Button variant="default" size="sm" onClick={handleOpenCreate} disabled={isPending}>
-              <Plus className="h-4 w-4 mr-1" />
-              {t('common.add')}
-            </Button>
-          </div>
+          canManagePrices ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setResetConfirmOpen(true)}
+                disabled={isPending}
+              >
+                <RotateCcw className="h-4 w-4 mr-1" />
+                {t('modelPrices.resetToDefaults')}
+              </Button>
+              <Button variant="default" size="sm" onClick={handleOpenCreate} disabled={isPending}>
+                <Plus className="h-4 w-4 mr-1" />
+                {t('common.add')}
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
@@ -239,22 +249,26 @@ export function ModelPricesPage() {
                       )}
                     </div>
                     <div className="w-20 shrink-0 flex items-center gap-1 justify-end">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleOpenEdit(price)}
-                        disabled={isPending}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteConfirmId(price.id)}
-                        disabled={isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      {canManagePrices && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenEdit(price)}
+                            disabled={isPending}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteConfirmId(price.id)}
+                            disabled={isPending}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}

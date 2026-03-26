@@ -128,7 +128,12 @@ export interface Transport {
 
   // ===== ProxyRequest API (只读) =====
   getProxyRequests(params?: CursorPaginationParams): Promise<CursorPaginationResult<ProxyRequest>>;
-  getProxyRequestsCount(providerId?: number, status?: string, apiTokenId?: number, projectId?: number): Promise<number>;
+  getProxyRequestsCount(
+    providerId?: number,
+    status?: string,
+    apiTokenId?: number,
+    projectId?: number,
+  ): Promise<number>;
   getActiveProxyRequests(): Promise<ProxyRequest[]>;
   getProxyRequest(id: number): Promise<ProxyRequest>;
   getProxyUpstreamAttempts(proxyRequestId: number): Promise<ProxyUpstreamAttempt[]>;
@@ -143,6 +148,7 @@ export interface Transport {
   getProviderStats(clientType?: string, projectId?: number): Promise<Record<number, ProviderStats>>;
 
   // ===== Settings API =====
+  getPublicSettings(): Promise<Record<string, string>>;
   getSettings(): Promise<Record<string, string>>;
   getSetting(key: string): Promise<{ key: string; value: string }>;
   updateSetting(key: string, value: string): Promise<{ key: string; value: string }>;
@@ -230,6 +236,7 @@ export interface Transport {
   // ===== API Token API =====
   getAPITokens(): Promise<APIToken[]>;
   getAPIToken(id: number): Promise<APIToken>;
+  getVisibleAPITokens(): Promise<APIToken[]>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
   deleteAPIToken(id: number): Promise<void>;

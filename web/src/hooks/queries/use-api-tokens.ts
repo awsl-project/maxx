@@ -22,6 +22,13 @@ export function useAPITokens() {
   });
 }
 
+export function useVisibleAPITokens() {
+  return useQuery({
+    queryKey: [...apiTokenKeys.list(), 'visible'],
+    queryFn: () => getTransport().getVisibleAPITokens(),
+  });
+}
+
 // 获取单个 API Token
 export function useAPIToken(id: number) {
   return useQuery({

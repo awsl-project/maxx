@@ -113,101 +113,164 @@ export class HttpTransport implements Transport {
     });
   }
 
+  private getAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
+    return headers;
+  }
+
+  private expectArray<T>(data: unknown, resource: string): T[] {
+    if (Array.isArray(data)) {
+      return data as T[];
+    }
+    console.error(`[HttpTransport] Expected array response for ${resource}, received:`, data);
+    return [];
+  }
+
+  private expectObject<T>(data: unknown, resource: string): T {
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      return data as T;
+    }
+    throw new Error(`[HttpTransport] Expected object response for ${resource}`);
+  }
+
   // ===== Provider API =====
 
   async getProviders(): Promise<Provider[]> {
-    const { data } = await this.client.get<Provider[]>('/providers');
-    return data ?? [];
+    const { data } = await axios.get<Provider[]>('/api/providers', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<Provider>(data, '/api/providers');
   }
 
   async getProvider(id: number): Promise<Provider> {
-    const { data } = await this.client.get<Provider>(`/providers/${id}`);
-    return data;
+    const { data } = await axios.get<Provider>(`/api/providers/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectObject<Provider>(data, `/api/providers/${id}`);
   }
 
   async createProvider(payload: CreateProviderData): Promise<Provider> {
-    const { data } = await this.client.post<Provider>('/providers', payload);
+    const { data } = await axios.post<Provider>('/api/providers', payload, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async updateProvider(id: number, payload: Partial<Provider>): Promise<Provider> {
-    const { data } = await this.client.put<Provider>(`/providers/${id}`, payload);
+    const { data } = await axios.put<Provider>(`/api/providers/${id}`, payload, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async deleteProvider(id: number): Promise<void> {
-    await this.client.delete(`/providers/${id}`);
+    await axios.delete(`/api/providers/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
   }
 
   async exportProviders(): Promise<Provider[]> {
-    const { data } = await this.client.get<Provider[]>('/providers/export');
-    return data ?? [];
+    const { data } = await axios.get<Provider[]>('/api/providers/export', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<Provider>(data, '/api/providers/export');
   }
 
   async importProviders(providers: Provider[]): Promise<ImportResult> {
-    const { data } = await this.client.post<ImportResult>('/providers/import', providers);
+    const { data } = await axios.post<ImportResult>('/api/providers/import', providers, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   // ===== Project API =====
 
   async getProjects(): Promise<Project[]> {
-    const { data } = await this.client.get<Project[]>('/projects');
-    return data ?? [];
+    const { data } = await axios.get<Project[]>('/api/projects', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<Project>(data, '/api/projects');
   }
 
   async getProject(id: number): Promise<Project> {
-    const { data } = await this.client.get<Project>(`/projects/${id}`);
-    return data;
+    const { data } = await axios.get<Project>(`/api/projects/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectObject<Project>(data, `/api/projects/${id}`);
   }
 
   async getProjectBySlug(slug: string): Promise<Project> {
-    const { data } = await this.client.get<Project>(`/projects/by-slug/${slug}`);
-    return data;
+    const { data } = await axios.get<Project>(`/api/projects/by-slug/${slug}`, {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectObject<Project>(data, `/api/projects/by-slug/${slug}`);
   }
 
   async createProject(payload: CreateProjectData): Promise<Project> {
-    const { data } = await this.client.post<Project>('/projects', payload);
+    const { data } = await axios.post<Project>('/api/projects', payload, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async updateProject(id: number, payload: Partial<Project>): Promise<Project> {
-    const { data } = await this.client.put<Project>(`/projects/${id}`, payload);
+    const { data } = await axios.put<Project>(`/api/projects/${id}`, payload, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async deleteProject(id: number): Promise<void> {
-    await this.client.delete(`/projects/${id}`);
+    await axios.delete(`/api/projects/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
   }
 
   // ===== Route API =====
 
   async getRoutes(): Promise<Route[]> {
-    const { data } = await this.client.get<Route[]>('/routes');
-    return data ?? [];
+    const { data } = await axios.get<Route[]>('/api/routes', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<Route>(data, '/api/routes');
   }
 
   async getRoute(id: number): Promise<Route> {
-    const { data } = await this.client.get<Route>(`/routes/${id}`);
+    const { data } = await axios.get<Route>(`/api/routes/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async createRoute(payload: CreateRouteData): Promise<Route> {
-    const { data } = await this.client.post<Route>('/routes', payload);
+    const { data } = await axios.post<Route>('/api/routes', payload, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async updateRoute(id: number, payload: Partial<Route>): Promise<Route> {
-    const { data } = await this.client.put<Route>(`/routes/${id}`, payload);
+    const { data } = await axios.put<Route>(`/api/routes/${id}`, payload, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async deleteRoute(id: number): Promise<void> {
-    await this.client.delete(`/routes/${id}`);
+    await axios.delete(`/api/routes/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
   }
 
   async batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void> {
-    await this.client.put('/routes/batch-positions', updates);
+    await axios.put('/api/routes/batch-positions', updates, {
+      headers: this.getAuthHeaders(),
+    });
   }
 
   // ===== Session API =====
@@ -238,27 +301,37 @@ export class HttpTransport implements Transport {
   // ===== RetryConfig API =====
 
   async getRetryConfigs(): Promise<RetryConfig[]> {
-    const { data } = await this.client.get<RetryConfig[]>('/retry-configs');
-    return data ?? [];
+    const { data } = await axios.get<RetryConfig[]>('/api/retry-configs', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<RetryConfig>(data, '/api/retry-configs');
   }
 
   async getRetryConfig(id: number): Promise<RetryConfig> {
-    const { data } = await this.client.get<RetryConfig>(`/retry-configs/${id}`);
+    const { data } = await axios.get<RetryConfig>(`/api/retry-configs/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async createRetryConfig(payload: CreateRetryConfigData): Promise<RetryConfig> {
-    const { data } = await this.client.post<RetryConfig>('/retry-configs', payload);
+    const { data } = await axios.post<RetryConfig>('/api/retry-configs', payload, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async updateRetryConfig(id: number, payload: Partial<RetryConfig>): Promise<RetryConfig> {
-    const { data } = await this.client.put<RetryConfig>(`/retry-configs/${id}`, payload);
+    const { data } = await axios.put<RetryConfig>(`/api/retry-configs/${id}`, payload, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async deleteRetryConfig(id: number): Promise<void> {
-    await this.client.delete(`/retry-configs/${id}`);
+    await axios.delete(`/api/retry-configs/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
   }
 
   // ===== RoutingStrategy API =====
@@ -367,13 +440,21 @@ export class HttpTransport implements Transport {
     const params: Record<string, string | number> = {};
     if (clientType) params.client_type = clientType;
     if (projectId !== undefined) params.project_id = projectId;
-    const { data } = await this.client.get<Record<number, ProviderStats>>('/provider-stats', {
+    const { data } = await axios.get<Record<number, ProviderStats>>('/api/provider-stats', {
       params: Object.keys(params).length > 0 ? params : undefined,
+      headers: this.getAuthHeaders(),
     });
     return data ?? {};
   }
 
   // ===== Settings API =====
+
+  async getPublicSettings(): Promise<Record<string, string>> {
+    const { data } = await axios.get<Record<string, string>>('/api/settings', {
+      headers: this.getAuthHeaders(),
+    });
+    return data ?? {};
+  }
 
   async getSettings(): Promise<Record<string, string>> {
     const { data } = await this.client.get<Record<string, string>>('/settings');
@@ -472,30 +553,42 @@ export class HttpTransport implements Transport {
   // ===== Model Mapping API =====
 
   async getModelMappings(): Promise<ModelMapping[]> {
-    const { data } = await this.client.get<ModelMapping[]>('/model-mappings');
-    return data ?? [];
+    const { data } = await axios.get<ModelMapping[]>('/api/model-mappings', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<ModelMapping>(data, '/api/model-mappings');
   }
 
   async createModelMapping(input: ModelMappingInput): Promise<ModelMapping> {
-    const { data } = await this.client.post<ModelMapping>('/model-mappings', input);
+    const { data } = await axios.post<ModelMapping>('/api/model-mappings', input, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async updateModelMapping(id: number, input: ModelMappingInput): Promise<ModelMapping> {
-    const { data } = await this.client.put<ModelMapping>(`/model-mappings/${id}`, input);
+    const { data } = await axios.put<ModelMapping>(`/api/model-mappings/${id}`, input, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
   async deleteModelMapping(id: number): Promise<void> {
-    await this.client.delete(`/model-mappings/${id}`);
+    await axios.delete(`/api/model-mappings/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
   }
 
   async clearAllModelMappings(): Promise<void> {
-    await this.client.delete('/model-mappings/clear-all');
+    await axios.delete('/api/model-mappings/clear-all', {
+      headers: this.getAuthHeaders(),
+    });
   }
 
   async resetModelMappingsToDefaults(): Promise<void> {
-    await this.client.post('/model-mappings/reset-defaults');
+    await axios.post('/api/model-mappings/reset-defaults', undefined, {
+      headers: this.getAuthHeaders(),
+    });
   }
 
   // ===== Kiro API =====
@@ -758,12 +851,19 @@ export class HttpTransport implements Transport {
 
   async getAPITokens(): Promise<APIToken[]> {
     const { data } = await this.client.get<APIToken[]>('/api-tokens');
-    return data ?? [];
+    return this.expectArray<APIToken>(data, '/api/admin/api-tokens');
   }
 
   async getAPIToken(id: number): Promise<APIToken> {
     const { data } = await this.client.get<APIToken>(`/api-tokens/${id}`);
-    return data;
+    return this.expectObject<APIToken>(data, `/api/admin/api-tokens/${id}`);
+  }
+
+  async getVisibleAPITokens(): Promise<APIToken[]> {
+    const { data } = await axios.get<APIToken[]>('/api/api-tokens', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<APIToken>(data, '/api/api-tokens');
   }
 
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {
@@ -859,8 +959,10 @@ export class HttpTransport implements Transport {
   // ===== Response Model API =====
 
   async getResponseModels(): Promise<string[]> {
-    const { data } = await this.client.get<string[]>('/response-models');
-    return data ?? [];
+    const { data } = await axios.get<string[]>('/api/response-models', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<string>(data, '/api/response-models');
   }
 
   // ===== Backup API =====
@@ -894,12 +996,16 @@ export class HttpTransport implements Transport {
   // ===== Model Price API =====
 
   async getModelPrices(): Promise<ModelPrice[]> {
-    const { data } = await this.client.get<ModelPrice[]>('/model-prices');
-    return data;
+    const { data } = await axios.get<ModelPrice[]>('/api/model-prices', {
+      headers: this.getAuthHeaders(),
+    });
+    return this.expectArray<ModelPrice>(data, '/api/model-prices');
   }
 
   async getModelPrice(id: number): Promise<ModelPrice> {
-    const { data } = await this.client.get<ModelPrice>(`/model-prices/${id}`);
+    const { data } = await axios.get<ModelPrice>(`/api/model-prices/${id}`, {
+      headers: this.getAuthHeaders(),
+    });
     return data;
   }
 
