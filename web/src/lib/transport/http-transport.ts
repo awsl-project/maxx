@@ -126,12 +126,24 @@ export class HttpTransport implements Transport {
     return client;
   }
 
+  private formatUnexpectedResponseData(data: unknown): string {
+    if (typeof data === 'string') {
+      return data;
+    }
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return String(data);
+    }
+  }
+
   private expectArray<T>(data: unknown, resource: string): T[] {
     if (Array.isArray(data)) {
       return data as T[];
     }
-    console.error(`[HttpTransport] Expected array response for ${resource}, received:`, data);
-    return [];
+    throw new Error(
+      `[HttpTransport] Expected array response for ${resource}, received: ${this.formatUnexpectedResponseData(data)}`,
+    );
   }
 
   private expectObject<T>(data: unknown, resource: string): T {

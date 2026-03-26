@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ComponentProps, type MouseEvent } from 'react';
 import { Plus, Layers, Download, Upload, Search, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -22,7 +22,58 @@ import { PageHeader } from '@/components/layout/page-header';
 import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CodexQuotasProvider } from '@/contexts/codex-quotas-context';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/lib/auth-context';
+import { cn } from '@/lib/utils';
+
+type ManageProvidersButtonProps = Omit<ComponentProps<typeof Button>, 'disabled'> & {
+  canManage: boolean;
+  blockedReason: string;
+};
+
+function ManageProvidersButton({
+  canManage,
+  blockedReason,
+  className,
+  onClick,
+  children,
+  ...props
+}: ManageProvidersButtonProps) {
+  if (canManage) {
+    return (
+      <Button className={className} onClick={onClick} {...props}>
+        {children}
+      </Button>
+    );
+  }
+
+  const handleBlockedClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={(triggerProps) => (
+          <Button
+            {...props}
+            {...triggerProps}
+            aria-disabled="true"
+            className={cn(
+              className,
+              triggerProps.className,
+              'aria-disabled:cursor-not-allowed aria-disabled:opacity-50',
+            )}
+            onClick={handleBlockedClick}
+          >
+            {children}
+          </Button>
+        )}
+      />
+      <TooltipContent>{blockedReason}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function ProvidersPage() {
   const { t } = useTranslation();
@@ -218,27 +269,17 @@ export function ProvidersPage() {
           accept=".json"
           className="hidden"
         />
-        {canManageProviderSettings ? (
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2"
-            title={t('providers.importProviders')}
-            variant={'outline'}
-          >
-            <Upload size={14} />
-            <span>{t('common.import')}</span>
-          </Button>
-        ) : (
-          <Button
-            className="flex items-center gap-2"
-            title={t('providers.importProvidersAdminOnly')}
-            variant={'outline'}
-            disabled
-          >
-            <Upload size={14} />
-            <span>{t('common.import')}</span>
-          </Button>
-        )}
+        <ManageProvidersButton
+          canManage={canManageProviderSettings}
+          blockedReason={t('providers.importProvidersAdminOnly')}
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-2"
+          title={canManageProviderSettings ? t('providers.importProviders') : undefined}
+          variant="outline"
+        >
+          <Upload size={14} />
+          <span>{t('common.import')}</span>
+        </ManageProvidersButton>
         <Button
           onClick={handleExport}
           className="flex items-center gap-2"
@@ -249,17 +290,15 @@ export function ProvidersPage() {
           <Download size={14} />
           <span>{t('common.export')}</span>
         </Button>
-        {canManageProviderSettings ? (
-          <Button onClick={() => navigate('/providers/create')}>
-            <Plus size={14} />
-            <span>{t('providers.addProvider')}</span>
-          </Button>
-        ) : (
-          <Button title={t('providers.addProviderAdminOnly')} disabled>
-            <Plus size={14} />
-            <span>{t('providers.addProvider')}</span>
-          </Button>
-        )}
+        <ManageProvidersButton
+          canManage={canManageProviderSettings}
+          blockedReason={t('providers.addProviderAdminOnly')}
+          onClick={() => navigate('/providers/create')}
+          title={canManageProviderSettings ? t('providers.addProvider') : undefined}
+        >
+          <Plus size={14} />
+          <span>{t('providers.addProvider')}</span>
+        </ManageProvidersButton>
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
@@ -273,19 +312,16 @@ export function ProvidersPage() {
               <Layers size={48} className="mb-4 opacity-50" />
               <p className="text-body">{t('providers.noProviders')}</p>
               <p className="text-caption mt-2">{t('providers.noProvidersHint')}</p>
-              <Button
-                onClick={() => canManageProviderSettings && navigate('/providers/create')}
-                className=" mt-6 flex items-center gap-2"
-                title={
-                  canManageProviderSettings
-                    ? t('providers.addProvider')
-                    : t('providers.addProviderAdminOnly')
-                }
-                disabled={!canManageProviderSettings}
+              <ManageProvidersButton
+                canManage={canManageProviderSettings}
+                blockedReason={t('providers.addProviderAdminOnly')}
+                onClick={() => navigate('/providers/create')}
+                className="mt-6 flex items-center gap-2"
+                title={canManageProviderSettings ? t('providers.addProvider') : undefined}
               >
                 <Plus size={14} />
                 <span>{t('providers.addProvider')}</span>
-              </Button>
+              </ManageProvidersButton>
             </div>
           ) : (
             <AntigravityQuotasProvider>

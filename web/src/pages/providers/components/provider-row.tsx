@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from 'react';
 import { Activity, Mail, Globe } from 'lucide-react';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
@@ -224,10 +225,26 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
   const codexWeekInfo = isCodex ? getCodexWeekQuotaInfo(codexQuota) : null;
 
   const isInteractive = !!onClick;
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!onClick) return;
+
+    if (event.key === 'Enter') {
+      onClick();
+      return;
+    }
+
+    if (event.key === ' ') {
+      event.preventDefault();
+      onClick();
+    }
+  };
 
   return (
     <div
       onClick={onClick}
+      onKeyDown={isInteractive ? handleKeyDown : undefined}
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
       title={title}
       className={cn(
         'group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden',

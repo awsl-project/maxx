@@ -1,23 +1,34 @@
 package handler
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestSelfServiceRoutePatterns_IncludeTrailingSlashVariants(t *testing.T) {
-	required := []string{
-		"/api/provider-stats",
-		"/api/provider-stats/",
-		"/api/response-models",
-		"/api/response-models/",
-	}
+	mux := http.NewServeMux()
+	RegisterSelfServiceRoutes(
+		mux,
+		func(h http.Handler) http.Handler { return h },
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+	)
 
-	present := make(map[string]bool, len(selfServiceRoutePatterns))
+	checked := make(map[string]bool, len(selfServiceRoutePatterns))
 	for _, pattern := range selfServiceRoutePatterns {
-		present[pattern] = true
-	}
+		basePattern := strings.TrimSuffix(pattern, "/")
+		if checked[basePattern] {
+			continue
+		}
+		checked[basePattern] = true
 
-	for _, pattern := range required {
-		if !present[pattern] {
-			t.Fatalf("missing self-service route pattern %q", pattern)
+		for _, candidate := range []string{basePattern, basePattern + "/"} {
+			_, registeredPattern := mux.Handler(httptest.NewRequest(http.MethodGet, candidate, nil))
+			if registeredPattern != candidate {
+				t.Fatalf("expected self-service route %q to be registered, got %q", candidate, registeredPattern)
+			}
 		}
 	}
 }
