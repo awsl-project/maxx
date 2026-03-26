@@ -155,6 +155,8 @@ export function ProvidersPage() {
 
   // Export providers as JSON file
   const handleExport = async () => {
+    if (!canManageProviderSettings || !providers?.length) return;
+
     try {
       const transport = getTransport();
       const data = await transport.exportProviders();
@@ -280,16 +282,29 @@ export function ProvidersPage() {
           <Upload size={14} />
           <span>{t('common.import')}</span>
         </ManageProvidersButton>
-        <Button
-          onClick={handleExport}
-          className="flex items-center gap-2"
-          disabled={!providers?.length}
-          title={t('providers.exportProviders')}
-          variant={'outline'}
-        >
-          <Download size={14} />
-          <span>{t('common.export')}</span>
-        </Button>
+        {canManageProviderSettings ? (
+          <Button
+            onClick={handleExport}
+            className="flex items-center gap-2"
+            disabled={!providers?.length}
+            title={t('providers.exportProviders')}
+            variant="outline"
+          >
+            <Download size={14} />
+            <span>{t('common.export')}</span>
+          </Button>
+        ) : (
+          <ManageProvidersButton
+            canManage={false}
+            blockedReason={providerReadOnlyHint}
+            className="flex items-center gap-2"
+            title={t('providers.exportProviders')}
+            variant="outline"
+          >
+            <Download size={14} />
+            <span>{t('common.export')}</span>
+          </ManageProvidersButton>
+        )}
         <ManageProvidersButton
           canManage={canManageProviderSettings}
           blockedReason={t('providers.addProviderAdminOnly')}
