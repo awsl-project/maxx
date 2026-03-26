@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,6 +28,24 @@ func NewSelfServiceHandler(svc *service.AdminService) *SelfServiceHandler {
 	return &SelfServiceHandler{svc: svc}
 }
 
+func writeSelfServiceInternalError(w http.ResponseWriter, context string, err error) {
+	log.Printf("[SelfServiceHandler] %s: %v", context, err)
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+}
+
+func writeSelfServiceInvalidID(w http.ResponseWriter, resource string) {
+	writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid " + resource + " id"})
+}
+
+func parseSelfServiceID(w http.ResponseWriter, resource, raw string) (uint64, bool) {
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		writeSelfServiceInvalidID(w, resource)
+		return 0, false
+	}
+	return id, true
+}
+
 // ServeHTTP routes self-service provider/project requests.
 func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSuffix(r.URL.Path, "/")
@@ -37,35 +56,132 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resource := parts[1]
-	var id uint64
-	if len(parts) > 2 && parts[2] != "" {
-		id, _ = strconv.ParseUint(parts[2], 10, 64)
-	}
 
 	switch resource {
 	case "providers":
-		h.handleProviders(w, r, id)
+		switch {
+		case len(parts) == 2:
+			h.handleProviders(w, r, 0)
+		case len(parts) == 3 && parts[2] == "export":
+			h.handleProvidersExport(w, r)
+		case len(parts) == 3 && parts[2] == "import":
+			h.handleProvidersImport(w, r)
+		case len(parts) == 3:
+			id, ok := parseSelfServiceID(w, "provider", parts[2])
+			if !ok {
+				return
+			}
+			h.handleProviders(w, r, id)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
 	case "routes":
-		if len(parts) > 2 && parts[2] == "batch-positions" {
+		switch {
+		case len(parts) == 2:
+			h.handleRoutes(w, r, 0)
+		case len(parts) == 3 && parts[2] == "batch-positions":
 			h.handleBatchUpdateRoutePositions(w, r)
+		case len(parts) == 3:
+			id, ok := parseSelfServiceID(w, "route", parts[2])
+			if !ok {
+				return
+			}
+			h.handleRoutes(w, r, id)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+	case "projects":
+		switch {
+		case len(parts) == 2:
+			h.handleProjects(w, r, 0, parts)
+		case len(parts) >= 3 && parts[2] == "by-slug":
+			if len(parts) > 4 {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+				return
+			}
+			h.handleProjectBySlug(w, r, parts)
+		case len(parts) == 3:
+			id, ok := parseSelfServiceID(w, "project", parts[2])
+			if !ok {
+				return
+			}
+			h.handleProjects(w, r, id, parts)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+	case "retry-configs":
+		switch {
+		case len(parts) == 2:
+			h.handleRetryConfigs(w, r, 0)
+		case len(parts) == 3:
+			id, ok := parseSelfServiceID(w, "retry config", parts[2])
+			if !ok {
+				return
+			}
+			h.handleRetryConfigs(w, r, id)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+	case "provider-stats":
+		if len(parts) != 2 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		h.handleRoutes(w, r, id)
-	case "projects":
-		h.handleProjects(w, r, id, parts)
-	case "retry-configs":
-		h.handleRetryConfigs(w, r, id)
-	case "provider-stats":
 		h.handleProviderStats(w, r)
 	case "model-mappings":
-		h.handleModelMappings(w, r, id)
+		switch {
+		case len(parts) == 2:
+			h.handleModelMappings(w, r, 0)
+		case len(parts) == 3 && parts[2] == "clear-all":
+			h.handleClearAllModelMappings(w, r)
+		case len(parts) == 3 && parts[2] == "reset-defaults":
+			h.handleResetModelMappingsToDefaults(w, r)
+		case len(parts) == 3:
+			id, ok := parseSelfServiceID(w, "model mapping", parts[2])
+			if !ok {
+				return
+			}
+			h.handleModelMappings(w, r, id)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
 	case "settings":
+		if len(parts) > 3 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
 		h.handleSettings(w, r, parts)
 	case "api-tokens":
-		h.handleAPITokens(w, r, id)
+		switch {
+		case len(parts) == 2:
+			h.handleAPITokens(w, r, 0)
+		case len(parts) == 3:
+			id, ok := parseSelfServiceID(w, "api token", parts[2])
+			if !ok {
+				return
+			}
+			h.handleAPITokens(w, r, id)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
 	case "model-prices":
-		h.handleModelPrices(w, r, id)
+		switch {
+		case len(parts) == 2:
+			h.handleModelPrices(w, r, 0)
+		case len(parts) == 3:
+			id, ok := parseSelfServiceID(w, "model price", parts[2])
+			if !ok {
+				return
+			}
+			h.handleModelPrices(w, r, id)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
 	case "response-models":
+		if len(parts) != 2 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
 		h.handleResponseModels(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -73,16 +189,6 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Request, id uint64) {
-	path := strings.TrimSuffix(r.URL.Path, "/")
-	if strings.HasSuffix(path, "/export") {
-		h.handleProvidersExport(w, r)
-		return
-	}
-	if strings.HasSuffix(path, "/import") {
-		h.handleProvidersImport(w, r)
-		return
-	}
-
 	tenantID := maxxctx.GetTenantID(r.Context())
 	isAdmin := h.isAdmin(r)
 
@@ -103,7 +209,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 
 		providers, err := h.svc.GetProviders(tenantID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "GetProviders failed", err)
 			return
 		}
 		if !isAdmin {
@@ -120,7 +226,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		if err := h.svc.CreateProvider(tenantID, &provider); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "CreateProvider failed", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, provider)
@@ -147,7 +253,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 		provider.TenantID = existing.TenantID
 		provider.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProvider(tenantID, &provider); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "UpdateProvider failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, provider)
@@ -160,7 +266,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		if err := h.svc.DeleteProvider(tenantID, id); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "DeleteProvider failed", err)
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -181,7 +287,7 @@ func (h *SelfServiceHandler) handleProvidersExport(w http.ResponseWriter, r *htt
 	tenantID := maxxctx.GetTenantID(r.Context())
 	providers, err := h.svc.ExportProviders(tenantID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "ExportProviders failed", err)
 		return
 	}
 
@@ -208,7 +314,7 @@ func (h *SelfServiceHandler) handleProvidersImport(w http.ResponseWriter, r *htt
 	tenantID := maxxctx.GetTenantID(r.Context())
 	result, err := h.svc.ImportProviders(tenantID, providers)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "ImportProviders failed", err)
 		return
 	}
 
@@ -216,11 +322,6 @@ func (h *SelfServiceHandler) handleProvidersImport(w http.ResponseWriter, r *htt
 }
 
 func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
-	if len(parts) > 2 && parts[2] == "by-slug" {
-		h.handleProjectBySlug(w, r, parts)
-		return
-	}
-
 	tenantID := maxxctx.GetTenantID(r.Context())
 
 	switch r.Method {
@@ -237,7 +338,7 @@ func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Reque
 
 		projects, err := h.svc.GetProjects(tenantID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "GetProjects failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, projects)
@@ -251,7 +352,7 @@ func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if err := h.svc.CreateProject(tenantID, &project); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "CreateProject failed", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, project)
@@ -286,7 +387,7 @@ func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Reque
 		project.TenantID = existing.TenantID
 		project.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProject(tenantID, &project); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "UpdateProject failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, project)
@@ -299,7 +400,7 @@ func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if err := h.svc.DeleteProject(tenantID, id); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "DeleteProject failed", err)
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -344,7 +445,7 @@ func (h *SelfServiceHandler) handleRoutes(w http.ResponseWriter, r *http.Request
 
 		routes, err := h.svc.GetRoutes(tenantID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "GetRoutes failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, routes)
@@ -358,7 +459,7 @@ func (h *SelfServiceHandler) handleRoutes(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if err := h.svc.CreateRoute(tenantID, &route); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "CreateRoute failed", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, route)
@@ -427,7 +528,7 @@ func (h *SelfServiceHandler) handleRoutes(w http.ResponseWriter, r *http.Request
 			}
 		}
 		if err := h.svc.UpdateRoute(tenantID, existing); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "UpdateRoute failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, existing)
@@ -440,7 +541,7 @@ func (h *SelfServiceHandler) handleRoutes(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if err := h.svc.DeleteRoute(tenantID, id); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "DeleteRoute failed", err)
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -466,7 +567,7 @@ func (h *SelfServiceHandler) handleBatchUpdateRoutePositions(w http.ResponseWrit
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 	if err := h.svc.BatchUpdateRoutePositions(tenantID, updates); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "BatchUpdateRoutePositions failed", err)
 		return
 	}
 
@@ -490,7 +591,7 @@ func (h *SelfServiceHandler) handleRetryConfigs(w http.ResponseWriter, r *http.R
 
 		configs, err := h.svc.GetRetryConfigs(tenantID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "GetRetryConfigs failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, configs)
@@ -504,7 +605,7 @@ func (h *SelfServiceHandler) handleRetryConfigs(w http.ResponseWriter, r *http.R
 			return
 		}
 		if err := h.svc.CreateRetryConfig(tenantID, &config); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "CreateRetryConfig failed", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, config)
@@ -532,7 +633,7 @@ func (h *SelfServiceHandler) handleRetryConfigs(w http.ResponseWriter, r *http.R
 		config.TenantID = existing.TenantID
 		config.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateRetryConfig(tenantID, &config); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "UpdateRetryConfig failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, config)
@@ -545,7 +646,7 @@ func (h *SelfServiceHandler) handleRetryConfigs(w http.ResponseWriter, r *http.R
 			return
 		}
 		if err := h.svc.DeleteRetryConfig(tenantID, id); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "DeleteRetryConfig failed", err)
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -569,23 +670,13 @@ func (h *SelfServiceHandler) handleProviderStats(w http.ResponseWriter, r *http.
 
 	stats, err := h.svc.GetProviderStats(tenantID, clientType, projectID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "GetProviderStats failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
 }
 
 func (h *SelfServiceHandler) handleModelMappings(w http.ResponseWriter, r *http.Request, id uint64) {
-	path := strings.TrimSuffix(r.URL.Path, "/")
-	if strings.HasSuffix(path, "/clear-all") {
-		h.handleClearAllModelMappings(w, r)
-		return
-	}
-	if strings.HasSuffix(path, "/reset-defaults") {
-		h.handleResetModelMappingsToDefaults(w, r)
-		return
-	}
-
 	tenantID := maxxctx.GetTenantID(r.Context())
 
 	switch r.Method {
@@ -602,7 +693,7 @@ func (h *SelfServiceHandler) handleModelMappings(w http.ResponseWriter, r *http.
 
 		mappings, err := h.svc.GetModelMappings(tenantID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "GetModelMappings failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, mappings)
@@ -624,7 +715,7 @@ func (h *SelfServiceHandler) handleModelMappings(w http.ResponseWriter, r *http.
 			return
 		}
 		if err := h.svc.CreateModelMapping(tenantID, &mapping); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "CreateModelMapping failed", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, mapping)
@@ -674,7 +765,7 @@ func (h *SelfServiceHandler) handleModelMappings(w http.ResponseWriter, r *http.
 			existing.Priority = *body.Priority
 		}
 		if err := h.svc.UpdateModelMapping(tenantID, existing); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "UpdateModelMapping failed", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, existing)
@@ -687,7 +778,7 @@ func (h *SelfServiceHandler) handleModelMappings(w http.ResponseWriter, r *http.
 			return
 		}
 		if err := h.svc.DeleteModelMapping(tenantID, id); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeSelfServiceInternalError(w, "DeleteModelMapping failed", err)
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -707,7 +798,7 @@ func (h *SelfServiceHandler) handleClearAllModelMappings(w http.ResponseWriter, 
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 	if err := h.svc.ClearAllModelMappings(tenantID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "ClearAllModelMappings failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "all mappings cleared"})
@@ -724,7 +815,7 @@ func (h *SelfServiceHandler) handleResetModelMappingsToDefaults(w http.ResponseW
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 	if err := h.svc.ResetModelMappingsToDefaults(tenantID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "ResetModelMappingsToDefaults failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "mappings reset to defaults"})
@@ -757,7 +848,7 @@ func (h *SelfServiceHandler) handleSettings(w http.ResponseWriter, r *http.Reque
 
 	settings, err := h.svc.GetSettings()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "GetSettings failed", err)
 		return
 	}
 
@@ -789,7 +880,7 @@ func (h *SelfServiceHandler) handleAPITokens(w http.ResponseWriter, r *http.Requ
 
 	tokens, err := h.svc.GetAPITokens(tenantID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "GetAPITokens failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, sanitizeAPITokens(tokens))
@@ -902,7 +993,7 @@ func (h *SelfServiceHandler) handleModelPrices(w http.ResponseWriter, r *http.Re
 
 	prices, err := h.svc.GetModelPrices()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "GetModelPrices failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, prices)
@@ -916,7 +1007,7 @@ func (h *SelfServiceHandler) handleResponseModels(w http.ResponseWriter, r *http
 
 	names, err := h.svc.GetResponseModelNames()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeSelfServiceInternalError(w, "GetResponseModelNames failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, names)

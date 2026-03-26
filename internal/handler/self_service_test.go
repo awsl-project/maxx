@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -595,7 +596,7 @@ func (r *selfServiceResponseModelRepo) ListNames() ([]string, error) {
 }
 
 type selfServiceTestDeps struct {
-	providerRepo      *selfServiceProviderRepo
+	providerRepo      repository.ProviderRepository
 	routeRepo         *selfServiceRouteRepo
 	projectRepo       *selfServiceProjectRepo
 	retryConfigRepo   *selfServiceRetryConfigRepo
@@ -605,6 +606,15 @@ type selfServiceTestDeps struct {
 	usageStatsRepo    *selfServiceUsageStatsRepo
 	responseModelRepo *selfServiceResponseModelRepo
 	modelPriceRepo    *selfServiceModelPriceRepo
+}
+
+type selfServiceProviderRepoWithListError struct {
+	*selfServiceProviderRepo
+	listErr error
+}
+
+func (r *selfServiceProviderRepoWithListError) List(tenantID uint64) ([]*domain.Provider, error) {
+	return nil, r.listErr
 }
 
 func newSelfServiceHandlerForTests(deps selfServiceTestDeps) *SelfServiceHandler {
@@ -1007,6 +1017,106 @@ func TestSelfServiceHandler_ListRoutes_MemberAllowed(t *testing.T) {
 	}
 	if len(routes) != 1 || routes[0].ProviderID != 10 {
 		t.Fatalf("routes = %+v, want only tenant route", routes)
+	}
+}
+
+func TestSelfServiceHandler_InvalidResourceIDs_ReturnBadRequest(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:      &selfServiceProviderRepo{},
+		routeRepo:         &selfServiceRouteRepo{},
+		projectRepo:       &selfServiceProjectRepo{},
+		retryConfigRepo:   &selfServiceRetryConfigRepo{},
+		modelMappingRepo:  &selfServiceModelMappingRepo{},
+		apiTokenRepo:      &selfServiceAPITokenRepo{},
+		modelPriceRepo:    &selfServiceModelPriceRepo{},
+		responseModelRepo: &selfServiceResponseModelRepo{},
+	})
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{name: "providers", path: "/providers/not-a-number"},
+		{name: "routes", path: "/routes/not-a-number"},
+		{name: "projects", path: "/projects/not-a-number"},
+		{name: "retry-configs", path: "/retry-configs/not-a-number"},
+		{name: "model-mappings", path: "/model-mappings/not-a-number"},
+		{name: "api-tokens", path: "/api-tokens/not-a-number"},
+		{name: "model-prices", path: "/model-prices/not-a-number"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, tc.path))
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestSelfServiceHandler_UnexpectedExtraSegmentsReturnNotFound(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:      &selfServiceProviderRepo{},
+		routeRepo:         &selfServiceRouteRepo{},
+		projectRepo:       &selfServiceProjectRepo{},
+		retryConfigRepo:   &selfServiceRetryConfigRepo{},
+		modelMappingRepo:  &selfServiceModelMappingRepo{},
+		settingsRepo:      &selfServiceSettingsRepo{},
+		apiTokenRepo:      &selfServiceAPITokenRepo{},
+		modelPriceRepo:    &selfServiceModelPriceRepo{},
+		responseModelRepo: &selfServiceResponseModelRepo{},
+	})
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "provider export nested under id", method: http.MethodGet, path: "/providers/1/export"},
+		{name: "project by slug extra segment", method: http.MethodGet, path: "/projects/by-slug/demo/extra"},
+		{name: "batch route positions extra segment", method: http.MethodPut, path: "/routes/batch-positions/extra"},
+		{name: "clear mappings extra segment", method: http.MethodDelete, path: "/model-mappings/clear-all/extra"},
+		{name: "settings extra segment", method: http.MethodGet, path: "/settings/api_token_auth_enabled/extra"},
+		{name: "response models extra segment", method: http.MethodGet, path: "/response-models/extra"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, newSelfServiceRequest(tc.method, tc.path))
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestSelfServiceHandler_InternalErrorsAreSanitized(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepoWithListError{
+			selfServiceProviderRepo: &selfServiceProviderRepo{},
+			listErr:                 errors.New("database credentials leaked"),
+		},
+		projectRepo: &selfServiceProjectRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/providers"))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["error"] != "internal server error" {
+		t.Fatalf("error = %q, want internal server error", body["error"])
 	}
 }
 

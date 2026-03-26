@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   useProviders,
   useAllProviderStats,
+  usePublicSettings,
   useSettings,
   useUpdateSetting,
   useProxyRequestUpdates,
@@ -42,7 +43,9 @@ export function ProvidersPage() {
   useProxyRequestUpdates();
 
   // Settings for auto-sort
-  const { data: settings } = useSettings(canManageProviderSettings);
+  const { data: adminSettings } = useSettings(canManageProviderSettings);
+  const { data: publicSettings } = usePublicSettings(!canManageProviderSettings);
+  const settings = canManageProviderSettings ? adminSettings : publicSettings;
   const updateSetting = useUpdateSetting();
   const autoSortAntigravity = settings?.auto_sort_antigravity === 'true';
   const autoSortCodex = settings?.auto_sort_codex === 'true';
