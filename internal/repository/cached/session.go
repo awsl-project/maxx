@@ -161,14 +161,15 @@ func (r *SessionRepository) List(tenantID uint64) ([]*domain.Session, error) {
 }
 
 func (r *SessionRepository) DeleteOlderThan(before time.Time) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	deleted, err := r.repo.DeleteOlderThan(before)
 	if err != nil {
 		return 0, err
 	}
 	if deleted > 0 {
-		r.mu.Lock()
 		r.cache = make(map[sessionCacheKey]*domain.Session)
-		r.mu.Unlock()
 	}
 	return deleted, nil
 }

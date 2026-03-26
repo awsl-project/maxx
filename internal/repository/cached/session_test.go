@@ -14,6 +14,13 @@ type sessionTestRepo struct {
 	lastTouchedAt time.Time
 }
 
+type blockingDeleteSessionRepo struct {
+	*sessionTestRepo
+	deleteStarted chan struct{}
+	allowDelete   chan struct{}
+	startOnce     sync.Once
+}
+
 func (r *sessionTestRepo) Create(session *domain.Session) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -81,6 +88,22 @@ func (r *sessionTestRepo) List(tenantID uint64) ([]*domain.Session, error) {
 
 func (r *sessionTestRepo) DeleteOlderThan(before time.Time) (int64, error) {
 	return 0, nil
+}
+
+func (r *blockingDeleteSessionRepo) DeleteOlderThan(before time.Time) (int64, error) {
+	r.startOnce.Do(func() {
+		close(r.deleteStarted)
+	})
+	<-r.allowDelete
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.session == nil {
+		return 0, nil
+	}
+	r.session = nil
+	return 1, nil
 }
 
 func TestSessionRepositoryTouchNormalizesZeroTimestamp(t *testing.T) {
@@ -225,4 +248,67 @@ func TestSessionRepositoryConcurrentGetAndTouch(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestSessionRepositoryDeleteOlderThanBlocksReadersUntilCacheCleared(t *testing.T) {
+	baseRepo := &blockingDeleteSessionRepo{
+		sessionTestRepo: &sessionTestRepo{},
+		deleteStarted:   make(chan struct{}),
+		allowDelete:     make(chan struct{}),
+	}
+	repo := NewSessionRepository(baseRepo)
+	session := &domain.Session{
+		TenantID:   1,
+		SessionID:  "session-delete-race",
+		ClientType: domain.ClientTypeCodex,
+		ProjectID:  42,
+	}
+
+	if err := repo.Create(session); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	deleteDone := make(chan error, 1)
+	go func() {
+		_, err := repo.DeleteOlderThan(time.Now())
+		deleteDone <- err
+	}()
+
+	select {
+	case <-baseRepo.deleteStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("DeleteOlderThan() did not start in time")
+	}
+
+	getResult := make(chan error, 1)
+	go func() {
+		_, err := repo.GetBySessionID(session.TenantID, session.SessionID)
+		getResult <- err
+	}()
+
+	select {
+	case err := <-getResult:
+		t.Fatalf("GetBySessionID() returned before cache cleanup finished: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	close(baseRepo.allowDelete)
+
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatalf("DeleteOlderThan() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("DeleteOlderThan() did not finish in time")
+	}
+
+	select {
+	case err := <-getResult:
+		if err != domain.ErrNotFound {
+			t.Fatalf("GetBySessionID() error = %v, want %v", err, domain.ErrNotFound)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("GetBySessionID() did not finish after cache cleanup")
+	}
 }
