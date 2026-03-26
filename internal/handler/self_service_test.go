@@ -965,6 +965,37 @@ func TestSelfServiceHandler_GetPublicSettings_FiltersSensitiveKeys(t *testing.T)
 	}
 }
 
+func TestSelfServiceHandler_GetProxyStatus_MemberAllowed(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{},
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	req := newSelfServiceRequest(http.MethodGet, "/proxy-status")
+	req.Host = "proxy.example.test:4321"
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var status service.ProxyStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !status.Running {
+		t.Fatalf("status.running = %v, want true", status.Running)
+	}
+	if status.Address != "proxy.example.test:4321" {
+		t.Fatalf("status.address = %q, want proxy.example.test:4321", status.Address)
+	}
+	if status.Port != 4321 {
+		t.Fatalf("status.port = %d, want 4321", status.Port)
+	}
+}
+
 func TestSelfServiceHandler_ListModelPrices_MemberAllowed(t *testing.T) {
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
 		providerRepo: &selfServiceProviderRepo{},

@@ -151,6 +151,12 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleSettings(w, r, parts)
+	case "proxy-status":
+		if len(parts) != 2 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		h.handleProxyStatus(w, r)
 	case "api-tokens":
 		switch {
 		case len(parts) == 2:
@@ -884,6 +890,15 @@ func (h *SelfServiceHandler) handleAPITokens(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, sanitizeAPITokens(tokens))
+}
+
+func (h *SelfServiceHandler) handleProxyStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, h.svc.GetProxyStatus(r))
 }
 
 func sanitizeAPIToken(token *domain.APIToken) *domain.APIToken {

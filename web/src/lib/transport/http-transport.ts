@@ -76,11 +76,15 @@ import type {
   ModelPriceInput,
 } from './types';
 
+type TransportRuntimeConfig = Required<Omit<TransportConfig, 'adminBaseURL'>> & {
+  adminBaseURL: string;
+};
+
 export class HttpTransport implements Transport {
   private client: AxiosInstance;
   private adminClient: AxiosInstance;
   private ws: WebSocket | null = null;
-  private config: Required<TransportConfig>;
+  private config: TransportRuntimeConfig;
   private eventListeners: Map<WSMessageType, Set<EventCallback>> = new Map();
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -91,13 +95,13 @@ export class HttpTransport implements Transport {
 
   constructor(config: TransportConfig = {}) {
     const requestedBaseURL = (config.baseURL ?? '/api').replace(/\/+$/, '') || '/api';
-    const publicBaseURL = requestedBaseURL.endsWith('/admin')
-      ? requestedBaseURL.slice(0, -'/admin'.length) || '/api'
-      : requestedBaseURL;
-    const adminBaseURL = `${publicBaseURL}/admin`;
+    const adminBaseURL =
+      (config.adminBaseURL ?? `${requestedBaseURL}/admin`).replace(/\/+$/, '') ||
+      `${requestedBaseURL}/admin`;
 
     this.config = {
-      baseURL: publicBaseURL,
+      baseURL: requestedBaseURL,
+      adminBaseURL,
       wsURL:
         config.wsURL ?? `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`,
       reconnectInterval: config.reconnectInterval ?? 3000,
@@ -105,7 +109,7 @@ export class HttpTransport implements Transport {
     };
 
     this.client = this.createClient(this.config.baseURL);
-    this.adminClient = this.createClient(adminBaseURL);
+    this.adminClient = this.createClient(this.config.adminBaseURL);
   }
 
   private createClient(baseURL: string): AxiosInstance {
@@ -137,20 +141,82 @@ export class HttpTransport implements Transport {
     }
   }
 
+  private isPlainObject(data: unknown): data is Record<string, unknown> {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return false;
+    }
+
+    const prototype = Object.getPrototypeOf(data);
+    return prototype === Object.prototype || prototype === null;
+  }
+
+  private describeUnexpectedResponseType(data: unknown): string {
+    if (Array.isArray(data)) {
+      return `array(length=${data.length})`;
+    }
+    if (data === null) {
+      return 'null';
+    }
+    if (typeof data === 'string') {
+      return `string(length=${data.length})`;
+    }
+    if (typeof data === 'object') {
+      return 'object';
+    }
+    return typeof data;
+  }
+
+  private shouldLogUnexpectedResponseDetails(): boolean {
+    return import.meta.env.DEV || import.meta.env.MODE === 'development';
+  }
+
+  private debugUnexpectedResponse(resource: string, expectedType: string, data: unknown): void {
+    if (!this.shouldLogUnexpectedResponseDetails()) {
+      return;
+    }
+
+    console.debug('[HttpTransport] Unexpected response payload', {
+      resource,
+      expectedType,
+      receivedType: this.describeUnexpectedResponseType(data),
+      data: this.formatUnexpectedResponseData(data),
+    });
+  }
+
   private expectArray<T>(data: unknown, resource: string): T[] {
     if (Array.isArray(data)) {
       return data as T[];
     }
+    this.debugUnexpectedResponse(resource, 'array', data);
     throw new Error(
-      `[HttpTransport] Expected array response for ${resource}, received: ${this.formatUnexpectedResponseData(data)}`,
+      `[HttpTransport] Expected array response for ${resource}, received: ${this.describeUnexpectedResponseType(data)}`,
     );
   }
 
   private expectObject<T>(data: unknown, resource: string): T {
-    if (data && typeof data === 'object' && !Array.isArray(data)) {
+    if (this.isPlainObject(data)) {
       return data as T;
     }
-    throw new Error(`[HttpTransport] Expected object response for ${resource}`);
+    this.debugUnexpectedResponse(resource, 'object', data);
+    throw new Error(
+      `[HttpTransport] Expected object response for ${resource}, received: ${this.describeUnexpectedResponseType(data)}`,
+    );
+  }
+
+  private expectStringRecord(data: unknown, resource: string): Record<string, string> {
+    const record = this.expectObject<Record<string, unknown>>(data, resource);
+    const validatedEntries = Object.entries(record).map(([key, value]) => {
+      if (typeof value !== 'string') {
+        this.debugUnexpectedResponse(`${resource}.${key}`, 'string', value);
+        throw new Error(
+          `[HttpTransport] Expected string value for ${resource}.${key}, received: ${this.describeUnexpectedResponseType(value)}`,
+        );
+      }
+
+      return [key, value] as const;
+    });
+
+    return Object.fromEntries(validatedEntries);
   }
 
   // ===== Provider API =====
@@ -392,7 +458,12 @@ export class HttpTransport implements Transport {
 
   async getProxyStatus(): Promise<ProxyStatus> {
     const { data } = await this.adminClient.get<ProxyStatus>('/proxy-status');
-    return data;
+    return this.expectObject<ProxyStatus>(data, '/admin/proxy-status');
+  }
+
+  async getPublicProxyStatus(): Promise<ProxyStatus> {
+    const { data } = await this.client.get<ProxyStatus>('/proxy-status');
+    return this.expectObject<ProxyStatus>(data, '/proxy-status');
   }
 
   // ===== System API =====
@@ -420,12 +491,12 @@ export class HttpTransport implements Transport {
 
   async getPublicSettings(): Promise<Record<string, string>> {
     const { data } = await this.client.get<Record<string, string>>('/settings');
-    return data ?? {};
+    return this.expectStringRecord(data, '/settings');
   }
 
-  async getSettings(): Promise<Record<string, string>> {
+  async getAdminSettings(): Promise<Record<string, string>> {
     const { data } = await this.adminClient.get<Record<string, string>>('/settings');
-    return data ?? {};
+    return this.expectStringRecord(data, '/admin/settings');
   }
 
   async getSetting(key: string): Promise<{ key: string; value: string }> {
@@ -812,12 +883,12 @@ export class HttpTransport implements Transport {
 
   // ===== API Token API =====
 
-  async getAPITokens(): Promise<APIToken[]> {
+  async getAdminAPITokens(): Promise<APIToken[]> {
     const { data } = await this.adminClient.get<APIToken[]>('/api-tokens');
     return this.expectArray<APIToken>(data, '/api-tokens');
   }
 
-  async getAPIToken(id: number): Promise<APIToken> {
+  async getAdminAPIToken(id: number): Promise<APIToken> {
     const { data } = await this.adminClient.get<APIToken>(`/api-tokens/${id}`);
     return this.expectObject<APIToken>(data, `/api-tokens/${id}`);
   }

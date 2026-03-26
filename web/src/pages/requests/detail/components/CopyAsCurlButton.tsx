@@ -54,10 +54,14 @@ function generateCurlCommand(requestInfo: RequestInfo, proxyPort: string): strin
 export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const { data: proxyStatus } = useProxyStatus();
-  const proxyPort = proxyStatus?.port ? String(proxyStatus.port) : '9880';
+  const { data: proxyStatus, isLoading: isProxyStatusLoading } = useProxyStatus();
+  const proxyPort = proxyStatus?.port ? String(proxyStatus.port) : null;
 
   const handleCopy = async () => {
+    if (!proxyPort) {
+      return;
+    }
+
     try {
       const curlCommand = generateCurlCommand(requestInfo, proxyPort);
       await navigator.clipboard.writeText(curlCommand);
@@ -69,7 +73,14 @@ export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleCopy} className="h-6 px-2 text-[10px] gap-1">
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleCopy}
+      disabled={!proxyPort}
+      title={!proxyPort && isProxyStatusLoading ? 'Loading proxy status' : undefined}
+      className="h-6 px-2 text-[10px] gap-1"
+    >
       {copied ? (
         <>
           <Check className="h-3 w-3" />

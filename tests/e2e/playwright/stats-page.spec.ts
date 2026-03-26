@@ -55,7 +55,7 @@ function buildUsageStats(): UsageStat[] {
 async function mockStatsPageApis(page: Page) {
   const usageStats = buildUsageStats();
 
-  await page.route('**/api/admin/**', async (route) => {
+  await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     const { pathname } = url;
 
@@ -70,15 +70,15 @@ async function mockStatsPageApis(page: Page) {
       return json({ authEnabled: false });
     }
 
-    if (pathname === '/api/admin/settings') {
+    if (pathname === '/api/admin/settings' || pathname === '/api/settings') {
       return json({});
     }
 
-    if (pathname === '/api/admin/proxy-status') {
+    if (pathname === '/api/admin/proxy-status' || pathname === '/api/proxy-status') {
       return json({ address: '127.0.0.1:9880', version: 'v0.1.1' });
     }
 
-    if (pathname === '/api/admin/providers') {
+    if (pathname === '/api/admin/providers' || pathname === '/api/providers') {
       return json([
         { id: 1, name: 'Claude Pool', type: 'claude' },
         { id: 2, name: 'Codex Pool', type: 'codex' },
@@ -86,21 +86,21 @@ async function mockStatsPageApis(page: Page) {
       ]);
     }
 
-    if (pathname === '/api/admin/projects') {
+    if (pathname === '/api/admin/projects' || pathname === '/api/projects') {
       return json([
         { id: 11, name: 'Project Alpha', slug: 'project-alpha' },
         { id: 12, name: 'Project Beta', slug: 'project-beta' },
       ]);
     }
 
-    if (pathname === '/api/admin/api-tokens') {
+    if (pathname === '/api/admin/api-tokens' || pathname === '/api/api-tokens') {
       return json([
         { id: 21, name: 'Main Token' },
         { id: 22, name: 'Fallback Token' },
       ]);
     }
 
-    if (pathname === '/api/admin/response-models') {
+    if (pathname === '/api/admin/response-models' || pathname === '/api/response-models') {
       return json(['gpt-5', 'claude-sonnet-4', 'gemini-2.5-pro']);
     }
 

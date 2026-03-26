@@ -18,7 +18,7 @@ export const apiTokenKeys = {
 export function useAPITokens() {
   return useQuery({
     queryKey: apiTokenKeys.list(),
-    queryFn: () => getTransport().getAPITokens(),
+    queryFn: () => getTransport().getAdminAPITokens(),
   });
 }
 
@@ -33,7 +33,7 @@ export function useVisibleAPITokens() {
 export function useAPIToken(id: number) {
   return useQuery({
     queryKey: apiTokenKeys.detail(id),
-    queryFn: () => getTransport().getAPIToken(id),
+    queryFn: () => getTransport().getAdminAPIToken(id),
     enabled: id > 0,
   });
 }

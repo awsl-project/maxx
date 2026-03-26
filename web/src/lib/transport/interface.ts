@@ -140,6 +140,7 @@ export interface Transport {
 
   // ===== Proxy Status API =====
   getProxyStatus(): Promise<ProxyStatus>;
+  getPublicProxyStatus(): Promise<ProxyStatus>;
 
   // ===== System API =====
   restartServer(): Promise<void>;
@@ -149,7 +150,7 @@ export interface Transport {
 
   // ===== Settings API =====
   getPublicSettings(): Promise<Record<string, string>>;
-  getSettings(): Promise<Record<string, string>>;
+  getAdminSettings(): Promise<Record<string, string>>;
   getSetting(key: string): Promise<{ key: string; value: string }>;
   updateSetting(key: string, value: string): Promise<{ key: string; value: string }>;
   deleteSetting(key: string): Promise<void>;
@@ -234,8 +235,8 @@ export interface Transport {
   approveUser(id: number): Promise<User>;
 
   // ===== API Token API =====
-  getAPITokens(): Promise<APIToken[]>;
-  getAPIToken(id: number): Promise<APIToken>;
+  getAdminAPITokens(): Promise<APIToken[]>;
+  getAdminAPIToken(id: number): Promise<APIToken>;
   getVisibleAPITokens(): Promise<APIToken[]>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
@@ -296,6 +297,7 @@ export type TransportType = 'http' | 'wails';
 export interface TransportConfig {
   /** HTTP 模式的 base URL */
   baseURL?: string;
+  adminBaseURL?: string;
   /** WebSocket URL (HTTP 模式) */
   wsURL?: string;
   /** 重连间隔 (ms) */

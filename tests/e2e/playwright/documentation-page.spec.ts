@@ -20,7 +20,7 @@ async function mockDocumentationApis(page: Page) {
       return json({ api_token_auth_enabled: 'true' });
     }
 
-    if (pathname === '/api/admin/proxy-status') {
+    if (pathname === '/api/admin/proxy-status' || pathname === '/api/proxy-status') {
       return json({ running: true, address: '127.0.0.1', port: 9880, version: 'v0.12.31' });
     }
 

@@ -24,7 +24,7 @@ export function usePublicSettings(enabled = true) {
 export function useSettings(enabled = true) {
   return useQuery({
     queryKey: settingsKeys.all,
-    queryFn: () => getTransport().getSettings(),
+    queryFn: () => getTransport().getAdminSettings(),
     enabled,
   });
 }

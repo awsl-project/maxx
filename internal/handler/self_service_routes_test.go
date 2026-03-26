@@ -32,3 +32,20 @@ func TestSelfServiceRoutePatterns_IncludeTrailingSlashVariants(t *testing.T) {
 		}
 	}
 }
+
+func TestRegisterSelfServiceRoutes_RegistersProxyStatus(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterSelfServiceRoutes(
+		mux,
+		func(h http.Handler) http.Handler { return h },
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+	)
+
+	for _, candidate := range []string{"/api/proxy-status", "/api/proxy-status/"} {
+		_, registeredPattern := mux.Handler(httptest.NewRequest(http.MethodGet, candidate, nil))
+		if registeredPattern != candidate {
+			t.Fatalf("expected self-service route %q to be registered, got %q", candidate, registeredPattern)
+		}
+	}
+}

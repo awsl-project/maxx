@@ -168,8 +168,9 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	// Admin auth endpoint (no authentication required)
 	mux.Handle("/api/admin/auth/", http.StripPrefix("/api", authHandler))
 
-	// Admin API routes with authentication middleware
-	mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
+	// Admin and self-service API routes with authentication middleware
+	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
+	handler.RegisterSelfServiceRoutes(mux, authMiddleware.Wrap, adminHandler, selfServiceHandler)
 
 	// Models endpoint (public)
 	mux.Handle("/v1/models", modelsHandler)

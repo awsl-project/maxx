@@ -19,6 +19,8 @@ var selfServiceRoutePatterns = []string{
 	"/api/model-mappings/",
 	"/api/settings",
 	"/api/settings/",
+	"/api/proxy-status",
+	"/api/proxy-status/",
 	"/api/model-prices",
 	"/api/model-prices/",
 	"/api/response-models",

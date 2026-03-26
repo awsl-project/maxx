@@ -19,3 +19,20 @@ func TestGetProxyStatus(t *testing.T) {
 		t.Fatal("Expected non-nil proxy status response")
 	}
 }
+
+func TestGetPublicProxyStatus(t *testing.T) {
+	env := NewTestEnv(t)
+
+	resp := env.AdminGet("/api/proxy-status")
+	AssertStatus(t, resp, http.StatusOK)
+
+	var status map[string]any
+	DecodeJSON(t, resp, &status)
+
+	if status == nil {
+		t.Fatal("Expected non-nil public proxy status response")
+	}
+	if status["running"] != true {
+		t.Fatalf("Expected running=true, got %v", status["running"])
+	}
+}
