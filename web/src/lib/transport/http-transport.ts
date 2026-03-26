@@ -254,7 +254,7 @@ export class HttpTransport implements Transport {
 
   async getSessions(): Promise<Session[]> {
     const { data } = await this.adminClient.get<Session[]>('/sessions');
-    return data ?? [];
+    return this.expectArray<Session>(data, '/sessions');
   }
 
   async updateSessionProject(
@@ -305,7 +305,7 @@ export class HttpTransport implements Transport {
 
   async getRoutingStrategies(): Promise<RoutingStrategy[]> {
     const { data } = await this.adminClient.get<RoutingStrategy[]>('/routing-strategies');
-    return data ?? [];
+    return this.expectArray<RoutingStrategy>(data, '/routing-strategies');
   }
 
   async getRoutingStrategy(id: number): Promise<RoutingStrategy> {
@@ -662,7 +662,7 @@ export class HttpTransport implements Transport {
 
   async getCooldowns(): Promise<Cooldown[]> {
     const { data } = await this.adminClient.get<Cooldown[]>('/cooldowns');
-    return data ?? [];
+    return this.expectArray<Cooldown>(data, '/cooldowns');
   }
 
   async clearCooldown(providerId: number): Promise<void> {
@@ -779,7 +779,7 @@ export class HttpTransport implements Transport {
 
   async getUsers(): Promise<User[]> {
     const { data } = await this.adminClient.get<User[]>('/users');
-    return data ?? [];
+    return this.expectArray<User>(data, '/users');
   }
 
   async getUser(id: number): Promise<User> {
@@ -814,12 +814,12 @@ export class HttpTransport implements Transport {
 
   async getAPITokens(): Promise<APIToken[]> {
     const { data } = await this.adminClient.get<APIToken[]>('/api-tokens');
-    return this.expectArray<APIToken>(data, '/api/admin/api-tokens');
+    return this.expectArray<APIToken>(data, '/api-tokens');
   }
 
   async getAPIToken(id: number): Promise<APIToken> {
     const { data } = await this.adminClient.get<APIToken>(`/api-tokens/${id}`);
-    return this.expectObject<APIToken>(data, `/api/admin/api-tokens/${id}`);
+    return this.expectObject<APIToken>(data, `/api-tokens/${id}`);
   }
 
   async getVisibleAPITokens(): Promise<APIToken[]> {
@@ -845,7 +845,7 @@ export class HttpTransport implements Transport {
 
   async getInviteCodes(): Promise<InviteCode[]> {
     const { data } = await this.adminClient.get<InviteCode[]>('/invite-codes');
-    return data ?? [];
+    return this.expectArray<InviteCode>(data, '/invite-codes');
   }
 
   async getInviteCode(id: number): Promise<InviteCode> {
@@ -889,7 +889,7 @@ export class HttpTransport implements Transport {
     const query = params.toString();
     const url = query ? `/usage-stats?${query}` : '/usage-stats';
     const { data } = await this.adminClient.get<UsageStats[]>(url);
-    return data ?? [];
+    return this.expectArray<UsageStats>(data, '/usage-stats');
   }
 
   async recalculateUsageStats(): Promise<void> {

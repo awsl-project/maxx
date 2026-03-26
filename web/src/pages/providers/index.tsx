@@ -206,7 +206,7 @@ export function ProvidersPage() {
 
   // Refresh Antigravity quotas
   const handleRefreshQuotas = async () => {
-    if (isRefreshingQuotas) return;
+    if (!canManageProviderSettings || isRefreshingQuotas) return;
 
     setIsRefreshingQuotas(true);
     try {
@@ -223,7 +223,7 @@ export function ProvidersPage() {
 
   // Refresh all Codex providers quotas
   const handleRefreshCodex = async () => {
-    if (isRefreshingCodex) return;
+    if (!canManageProviderSettings || isRefreshingCodex) return;
 
     setIsRefreshingCodex(true);
     try {
@@ -358,20 +358,34 @@ export function ProvidersPage() {
                                   />
                                 </div>
                               )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleRefreshQuotas}
-                                disabled={isRefreshingQuotas}
-                                className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
-                                title={t('providers.refreshQuotas')}
-                              >
-                                <RefreshCw
-                                  size={12}
-                                  className={isRefreshingQuotas ? 'animate-spin' : ''}
-                                />
-                                <span>{t('common.refresh')}</span>
-                              </Button>
+                              {canManageProviderSettings ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleRefreshQuotas}
+                                  disabled={isRefreshingQuotas}
+                                  className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                                  title={t('providers.refreshQuotas')}
+                                >
+                                  <RefreshCw
+                                    size={12}
+                                    className={isRefreshingQuotas ? 'animate-spin' : ''}
+                                  />
+                                  <span>{t('common.refresh')}</span>
+                                </Button>
+                              ) : (
+                                <ManageProvidersButton
+                                  canManage={false}
+                                  blockedReason={providerReadOnlyHint}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                                  title={t('providers.refreshQuotas')}
+                                >
+                                  <RefreshCw size={12} />
+                                  <span>{t('common.refresh')}</span>
+                                </ManageProvidersButton>
+                              )}
                             </>
                           )}
                           {/* Refresh Button - Only for Codex */}
@@ -389,20 +403,34 @@ export function ProvidersPage() {
                                   />
                                 </div>
                               )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleRefreshCodex}
-                                disabled={isRefreshingCodex}
-                                className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
-                                title={t('providers.refreshCodex')}
-                              >
-                                <RefreshCw
-                                  size={12}
-                                  className={isRefreshingCodex ? 'animate-spin' : ''}
-                                />
-                                <span>{t('common.refresh')}</span>
-                              </Button>
+                              {canManageProviderSettings ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleRefreshCodex}
+                                  disabled={isRefreshingCodex}
+                                  className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                                  title={t('providers.refreshCodex')}
+                                >
+                                  <RefreshCw
+                                    size={12}
+                                    className={isRefreshingCodex ? 'animate-spin' : ''}
+                                  />
+                                  <span>{t('common.refresh')}</span>
+                                </Button>
+                              ) : (
+                                <ManageProvidersButton
+                                  canManage={false}
+                                  blockedReason={providerReadOnlyHint}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                                  title={t('providers.refreshCodex')}
+                                >
+                                  <RefreshCw size={12} />
+                                  <span>{t('common.refresh')}</span>
+                                </ManageProvidersButton>
+                              )}
                             </>
                           )}
                         </div>
