@@ -147,6 +147,22 @@ func TestRBAC_MemberCannotGetRoutes(t *testing.T) {
 	AssertStatus(t, resp, http.StatusForbidden)
 }
 
+func TestRBAC_MemberCannotGetAPITokens(t *testing.T) {
+	env := NewTestEnv(t)
+	memberToken := getMemberToken(t, env)
+
+	resp := env.RequestWithToken(http.MethodGet, "/api/admin/api-tokens", nil, memberToken)
+	AssertStatus(t, resp, http.StatusForbidden)
+}
+
+func TestRBAC_MemberCannotGetInviteCodes(t *testing.T) {
+	env := NewTestEnv(t)
+	memberToken := getMemberToken(t, env)
+
+	resp := env.RequestWithToken(http.MethodGet, "/api/admin/invite-codes", nil, memberToken)
+	AssertStatus(t, resp, http.StatusForbidden)
+}
+
 func TestRBAC_MemberCannotPutRequests(t *testing.T) {
 	env := NewTestEnv(t)
 	memberToken := getMemberToken(t, env)
