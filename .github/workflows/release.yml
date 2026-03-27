@@ -131,4 +131,4 @@ jobs:
     with:
       tag: ${{ needs.release.outputs.resolved_version }}
     secrets:
-      SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

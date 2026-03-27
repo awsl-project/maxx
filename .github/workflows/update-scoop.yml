@@ -13,7 +13,7 @@ on:
         required: true
         type: string
     secrets:
-      SCOOP_BUCKET_TOKEN:
+      HOMEBREW_TAP_TOKEN:
         required: true
 
 jobs:
@@ -49,7 +49,7 @@ jobs:
 
       - name: Update Scoop manifest
         env:
-          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="${{ steps.validate-tag.outputs.tag }}"
@@ -91,8 +91,8 @@ jobs:
           cp maxx.json scoop-bucket/bucket/maxx.json
 
           cd scoop-bucket
-          git config user.name "awsl233777"
-          git config user.email "awsl233777@gmail.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add bucket/maxx.json
           git commit -m "Update maxx to ${VERSION}" || echo "No changes to commit"
           git push
