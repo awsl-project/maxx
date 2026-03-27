@@ -93,8 +93,8 @@ jobs:
           cp maxx.rb homebrew-awsl/Casks/maxx.rb
 
           cd homebrew-awsl
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "awsl233777"
+          git config user.email "awsl233777@gmail.com"
           git add Casks/maxx.rb
           git commit -m "Update maxx to ${VERSION}" || echo "No changes to commit"
           git push
