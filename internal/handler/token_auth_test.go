@@ -176,3 +176,28 @@ func TestTokenAuthConcurrentLimitDefaultsToFive(t *testing.T) {
 		t.Fatalf("AcquireConcurrency() after release error = %v", err)
 	}
 }
+
+func TestTokenAuthConcurrentLimitByName(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	token := &domain.APIToken{ID: 0, Token: "maxx_test_token_no_id", IsEnabled: true}
+
+	for i := 0; i < DefaultAPITokenConcurrentLimit; i++ {
+		if err := middleware.AcquireConcurrency(token); err != nil {
+			t.Fatalf("AcquireConcurrency() attempt %d error = %v", i+1, err)
+		}
+	}
+
+	if err := middleware.AcquireConcurrency(token); err != ErrTokenConcurrentLimit {
+		t.Fatalf("AcquireConcurrency() over limit error = %v, want %v", err, ErrTokenConcurrentLimit)
+	}
+
+	for i := 0; i < DefaultAPITokenConcurrentLimit; i++ {
+		middleware.ReleaseConcurrency(token)
+	}
+
+	if err := middleware.AcquireConcurrency(token); err != nil {
+		t.Fatalf("AcquireConcurrency() after release error = %v", err)
+	}
+}

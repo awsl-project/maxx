@@ -630,9 +630,9 @@ function APITokenConcurrencySection() {
       </CardHeader>
       <CardContent className="p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-          <label className="text-sm font-medium text-muted-foreground shrink-0">
+          <Label className="text-sm font-medium text-muted-foreground shrink-0">
             {t('settings.apiTokenConcurrencyLimit')}
-          </label>
+          </Label>
           <Input
             type="number"
             value={limitDraft}
