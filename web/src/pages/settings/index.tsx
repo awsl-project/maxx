@@ -84,6 +84,7 @@ export function SettingsPage() {
               <TimezoneSection />
               <DataRetentionSection />
               <ForceProjectSection />
+              <APITokenConcurrencySection />
               <AntigravitySection />
               <PprofSection />
               <BackupSection />
@@ -566,6 +567,84 @@ function ForceProjectSection() {
             <span className="text-xs text-muted-foreground">{t('settings.waitTimeoutRange')}</span>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function APITokenConcurrencySection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+
+  const currentLimit = settings?.api_token_concurrent_limit || '5';
+  const [limitDraft, setLimitDraft] = useState('');
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !initialized) {
+      setLimitDraft(currentLimit);
+      setInitialized(true);
+    }
+  }, [isLoading, initialized, currentLimit]);
+
+  useEffect(() => {
+    if (initialized) {
+      setLimitDraft(currentLimit);
+    }
+  }, [currentLimit, initialized]);
+
+  const parsedLimit = parseInt(limitDraft, 10);
+  const isValid = !isNaN(parsedLimit) && parsedLimit >= 1;
+  const hasChanges = initialized && limitDraft !== currentLimit;
+
+  const handleSaveLimit = async () => {
+    if (!isValid || !hasChanges) return;
+    await updateSetting.mutateAsync({
+      key: 'api_token_concurrent_limit',
+      value: limitDraft,
+    });
+  };
+
+  if (isLoading || !initialized) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+              {t('settings.apiTokenConcurrency')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.apiTokenConcurrencyDesc')}</p>
+          </div>
+          <Button
+            onClick={handleSaveLimit}
+            disabled={!hasChanges || !isValid || updateSetting.isPending}
+            size="sm"
+          >
+            {updateSetting.isPending ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+          <label className="text-sm font-medium text-muted-foreground shrink-0">
+            {t('settings.apiTokenConcurrencyLimit')}
+          </label>
+          <Input
+            type="number"
+            value={limitDraft}
+            onChange={(e) => setLimitDraft(e.target.value)}
+            className="w-24"
+            min={1}
+            disabled={updateSetting.isPending}
+          />
+          <span className="text-xs text-muted-foreground">{t('settings.concurrentRequestsUnit')}</span>
+          <span className="text-xs text-muted-foreground">({t('settings.defaultValue', { value: 5 })})</span>
+        </div>
+        <p className="text-xs text-muted-foreground">{t('settings.apiTokenConcurrencyHint')}</p>
       </CardContent>
     </Card>
   );

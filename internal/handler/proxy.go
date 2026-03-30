@@ -124,6 +124,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	ctx := r.Context()
+	stream := h.clientAdapter.IsStreamRequest(r, body)
 
 	clientType := h.clientAdapter.DetectClientType(r, body)
 	log.Printf("[Proxy] Detected client type: %s", clientType)
@@ -147,6 +148,17 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 			apiTokenID = apiToken.ID
 			log.Printf("[Proxy] Token authenticated: id=%d, name=%s, projectID=%d", apiToken.ID, apiToken.Name, apiToken.ProjectID)
 			c.Set(flow.KeyAPITokenDevMode, apiToken.DevMode)
+			if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
+				log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
+				if stream {
+					writeStreamRateLimitError(w, err.Error(), 1)
+				} else {
+					writeRateLimitError(w, err.Error(), 1)
+				}
+				c.Abort()
+				return
+			}
+			defer h.tokenAuth.ReleaseConcurrency(apiToken)
 		}
 	}
 
@@ -162,7 +174,6 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
-	stream := h.clientAdapter.IsStreamRequest(r, body)
 
 	c.Set(flow.KeyClientType, clientType)
 	c.Set(flow.KeySessionID, sessionID)
@@ -296,6 +307,21 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
+func writeRateLimitError(w http.ResponseWriter, message string, retryAfterSeconds int64) {
+	w.Header().Set("Content-Type", "application/json")
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	w.WriteHeader(http.StatusTooManyRequests)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "rate_limit_error",
+		},
+	})
+}
+
 func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 	w.Header().Set("Content-Type", "application/json")
 	retryAfter := err.RetryAfter
@@ -321,6 +347,32 @@ func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 			"retryable": err.Retryable,
 		},
 	})
+}
+
+func writeStreamRateLimitError(w http.ResponseWriter, message string, retryAfterSeconds int64) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	w.WriteHeader(http.StatusTooManyRequests)
+
+	errorEvent := map[string]interface{}{
+		"type": "error",
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "rate_limit_error",
+		},
+	}
+	data, _ := json.Marshal(errorEvent)
+	w.Write([]byte("data: "))
+	w.Write(data)
+	w.Write([]byte("\n\n"))
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {

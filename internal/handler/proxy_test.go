@@ -32,6 +32,26 @@ func TestWriteError(t *testing.T) {
 	}
 }
 
+func TestWriteRateLimitError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeRateLimitError(rec, "API token concurrent request limit exceeded", 1)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "1" {
+		t.Fatalf("Retry-After = %q, want 1", got)
+	}
+
+	var payload map[string]map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if payload["error"]["type"] != "rate_limit_error" {
+		t.Fatalf("payload = %v, want rate_limit_error", payload)
+	}
+}
+
 func TestWriteProxyErrorPreservesStatusAndRetryAfter(t *testing.T) {
 	rec := httptest.NewRecorder()
 	until := time.Now().Add(2 * time.Second)
@@ -56,6 +76,21 @@ func TestWriteProxyErrorPreservesStatusAndRetryAfter(t *testing.T) {
 	}
 	if sec < 1 || sec > 2 {
 		t.Fatalf("Retry-After = %d, want 1 or 2", sec)
+	}
+}
+
+func TestWriteStreamRateLimitError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeStreamRateLimitError(rec, "API token concurrent request limit exceeded", 1)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "1" {
+		t.Fatalf("Retry-After = %q, want 1", got)
+	}
+	if !strings.Contains(rec.Body.String(), `"type":"rate_limit_error"`) {
+		t.Fatalf("stream body = %q, want rate_limit_error", rec.Body.String())
 	}
 }
 

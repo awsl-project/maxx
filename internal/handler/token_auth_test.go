@@ -12,10 +12,14 @@ import (
 type tokenAuthTestSettingRepo struct{}
 
 func (tokenAuthTestSettingRepo) Get(key string) (string, error) {
-	if key == SettingKeyProxyTokenAuthEnabled {
+	switch key {
+	case SettingKeyProxyTokenAuthEnabled:
 		return "true", nil
+	case SettingKeyAPITokenConcurrentLimit:
+		return "5", nil
+	default:
+		return "", nil
 	}
-	return "", nil
 }
 
 func (tokenAuthTestSettingRepo) Set(key, value string) error              { return nil }
@@ -145,5 +149,30 @@ func TestTokenAuthValidateRequestUpdatesLastSeenWithClientIP(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for UpdateLastSeen call")
+	}
+}
+
+func TestTokenAuthConcurrentLimitDefaultsToFive(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	token := &domain.APIToken{ID: 42, Token: "maxx_test_token_456", IsEnabled: true}
+
+	for i := 0; i < DefaultAPITokenConcurrentLimit; i++ {
+		if err := middleware.AcquireConcurrency(token); err != nil {
+			t.Fatalf("AcquireConcurrency() attempt %d error = %v", i+1, err)
+		}
+	}
+
+	if err := middleware.AcquireConcurrency(token); err != ErrTokenConcurrentLimit {
+		t.Fatalf("AcquireConcurrency() over limit error = %v, want %v", err, ErrTokenConcurrentLimit)
+	}
+
+	for i := 0; i < DefaultAPITokenConcurrentLimit; i++ {
+		middleware.ReleaseConcurrency(token)
+	}
+
+	if err := middleware.AcquireConcurrency(token); err != nil {
+		t.Fatalf("AcquireConcurrency() after release error = %v", err)
 	}
 }
