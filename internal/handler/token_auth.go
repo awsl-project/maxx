@@ -145,7 +145,7 @@ func (m *TokenAuthMiddleware) ResolveToken(req *http.Request) (*domain.APIToken,
 	if !m.IsEnabled() {
 		return nil, nil
 	}
-	token := m.ExtractToken(req, "")
+	token := strings.TrimSpace(m.ExtractToken(req, ""))
 	return m.validateExtractedToken(token)
 }
 
@@ -200,6 +200,9 @@ func (m *TokenAuthMiddleware) AcquireConcurrency(apiToken *domain.APIToken) erro
 
 	limit := m.GetConcurrentLimit()
 	keyName := strings.TrimSpace(apiToken.Token)
+	if apiToken.ID == 0 && keyName == "" {
+		return ErrInvalidToken
+	}
 
 	m.concurrencyMu.Lock()
 	defer m.concurrencyMu.Unlock()

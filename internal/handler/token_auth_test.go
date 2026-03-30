@@ -201,3 +201,57 @@ func TestTokenAuthConcurrentLimitByName(t *testing.T) {
 		t.Fatalf("AcquireConcurrency() after release error = %v", err)
 	}
 }
+
+func TestTokenAuthAcquireConcurrencyRejectsEmptyNameFallback(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	token := &domain.APIToken{ID: 0, Token: "", IsEnabled: true}
+
+	if err := middleware.AcquireConcurrency(token); err != ErrInvalidToken {
+		t.Fatalf("AcquireConcurrency() error = %v, want %v", err, ErrInvalidToken)
+	}
+}
+
+func TestTokenAuthResolveToken(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	token := &domain.APIToken{
+		TenantID:    domain.DefaultTenantID,
+		Token:       "maxx_test_token_resolve",
+		TokenPrefix: "maxx_test...",
+		Name:        "resolve-token",
+		IsEnabled:   true,
+	}
+	if err := cachedRepo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+
+	t.Run("valid token", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "http://example.test/v1/messages", nil)
+		req.Header.Set("x-api-key", token.Token)
+
+		resolved, err := middleware.ResolveToken(req)
+		if err != nil {
+			t.Fatalf("ResolveToken() error = %v", err)
+		}
+		if resolved == nil || resolved.Token != token.Token {
+			t.Fatalf("ResolveToken() token = %#v, want token %q", resolved, token.Token)
+		}
+	})
+
+	t.Run("invalid token", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "http://example.test/v1/messages", nil)
+		req.Header.Set("x-api-key", "not_maxx_token")
+
+		resolved, err := middleware.ResolveToken(req)
+		if err != ErrInvalidToken {
+			t.Fatalf("ResolveToken() error = %v, want %v", err, ErrInvalidToken)
+		}
+		if resolved != nil {
+			t.Fatalf("ResolveToken() token = %#v, want nil", resolved)
+		}
+	})
+}

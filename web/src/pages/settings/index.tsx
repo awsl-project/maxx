@@ -588,15 +588,16 @@ function APITokenConcurrencySection() {
     }
   }, [isLoading, initialized, currentLimit]);
 
+  const hasChanges = initialized && limitDraft !== currentLimit;
+
   useEffect(() => {
-    if (initialized) {
+    if (initialized && !hasChanges) {
       setLimitDraft(currentLimit);
     }
-  }, [currentLimit, initialized]);
+  }, [currentLimit, initialized, hasChanges]);
 
   const parsedLimit = parseInt(limitDraft, 10);
   const isValid = !isNaN(parsedLimit) && parsedLimit >= 1;
-  const hasChanges = initialized && limitDraft !== currentLimit;
 
   const handleSaveLimit = async () => {
     if (!isValid || !hasChanges) return;
