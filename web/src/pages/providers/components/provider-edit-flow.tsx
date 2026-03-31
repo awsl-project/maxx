@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Globe,
   ChevronLeft,
@@ -285,9 +286,9 @@ type EditFormData = {
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [cloning, setCloning] = useState(false);
-  const [cloneToastMessage, setCloneToastMessage] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -401,7 +402,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   };
 
   const handleClone = async () => {
-    if (!isValid() || cloning || cloneToastMessage) return;
+    if (!isValid() || cloning) return;
 
     setCloning(true);
 
@@ -475,8 +476,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         }
       }
 
-      setCloneToastMessage(t('provider.cloneSuccess', { name: cloneName }));
-      setTimeout(() => onClose(), 800);
+      navigate(`/providers/${newProvider.id}/edit`, { replace: true });
     } catch (error) {
       console.error('Failed to clone provider:', error);
     } finally {
@@ -591,7 +591,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         </Button>
         <Button
           onClick={handleClone}
-          disabled={cloning || saving || !isValid() || !!cloneToastMessage}
+          disabled={cloning || saving || !isValid()}
           variant={'outline'}
         >
           <Copy size={14} />
@@ -757,12 +757,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           )}
         </div>
       </div>
-
-      {cloneToastMessage && (
-        <div className="fixed bottom-6 right-6 bg-card border border-border rounded-lg shadow-lg p-4 z-50">
-          <div className="text-sm font-medium text-foreground">{cloneToastMessage}</div>
-        </div>
-      )}
 
       <DeleteConfirmModal
         providerName={provider.name}
