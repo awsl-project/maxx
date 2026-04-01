@@ -1,6 +1,4 @@
 import { execSync, spawn, type ChildProcess } from 'child_process';
-import { mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
 import { join } from 'path';
 
 const MAXX_PORT = 19881;
@@ -73,10 +71,10 @@ export default async function globalSetup() {
     stdio: 'pipe',
   });
 
-  // Start maxx with temp data dir
-  const tmpDir = mkdtempSync(join(tmpdir(), 'maxx-e2e-'));
-  maxxProcess = spawn('/tmp/maxx-test', ['-addr', `:${MAXX_PORT}`, '-data', tmpDir], {
+  // Start maxx with in-memory SQLite (no temp dir needed)
+  maxxProcess = spawn('/tmp/maxx-test', ['-addr', `:${MAXX_PORT}`], {
     stdio: 'pipe',
+    env: { ...process.env, MAXX_DSN: 'sqlite://:memory:' },
   });
 
   // Wait for both servers
