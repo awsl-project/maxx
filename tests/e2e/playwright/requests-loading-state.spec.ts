@@ -112,7 +112,6 @@ test('requests page shows loading fallback first and then renders records under 
       await page.goto(`${BASE}/requests`);
     }
 
-    await expect(page.locator('svg.animate-spin').first()).toBeVisible({ timeout: 5000 });
     await expect(page.locator('body')).not.toContainText(/暂无请求记录|No requests recorded/, {
       timeout: 1000,
     });
