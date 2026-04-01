@@ -143,7 +143,7 @@ test('requests page shows loading fallback first and then renders records under 
     });
     await expect(page.locator('body')).toContainText(/total requests|个请求/i, { timeout: 10000 });
   } finally {
-    if (previousApiTokenAuthEnabled !== undefined) {
+    if (jwt && previousApiTokenAuthEnabled !== undefined) {
       await adminAPI(
         'PUT',
         '/settings/api_token_auth_enabled',
@@ -151,10 +151,10 @@ test('requests page shows loading fallback first and then renders records under 
         jwt,
       ).catch(() => undefined);
     }
-    if (routeId) {
+    if (jwt && routeId) {
       await adminAPI('DELETE', `/routes/${routeId}`, undefined, jwt).catch(() => undefined);
     }
-    if (providerId) {
+    if (jwt && providerId) {
       await adminAPI('DELETE', `/providers/${providerId}`, undefined, jwt).catch(() => undefined);
     }
     await new Promise<void>((resolve) => {
