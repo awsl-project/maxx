@@ -260,6 +260,49 @@ test.describe('Cooldown UI Screenshots', () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/07d-dialog-gemini-multi-model.png` });
   });
 
+  test('07e. Routes/Gemini: Unfreeze one model', async ({ page }) => {
+    // Freeze two models
+    await mockSet(session, P_GEMINI, {
+      status: 503,
+      headers: { 'Retry-After': '300' },
+      body: { error: { message: 'Model gemini-2.5-flash-image overloaded' } },
+    });
+    await proxyRequest(
+      '/v1beta/models/gemini-2.5-flash-image:generateContent',
+      { contents: [{ role: 'user', parts: [{ text: 'test' }] }] },
+      session,
+    );
+    await mockSet(session, P_GEMINI, {
+      status: 503,
+      headers: { 'Retry-After': '300' },
+      body: { error: { message: 'Model gemini-2.5-pro overloaded' } },
+    });
+    await proxyRequest(
+      '/v1beta/models/gemini-2.5-pro:generateContent',
+      { contents: [{ role: 'user', parts: [{ text: 'test2' }] }] },
+      session,
+    );
+
+    await navigateAndWait(page, '/routes/gemini');
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/07e-before-unfreeze.png`, fullPage: true });
+
+    // Open dialog and unfreeze one model
+    await page.click('text=Gemini Provider');
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/07f-dialog-before-unfreeze.png` });
+
+    // Click the first unfreeze button (Zap icon) for gemini-2.5-flash-image
+    const unfreezeButtons = page.locator('[title="Unfreeze"]');
+    await unfreezeButtons.first().click();
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/07g-dialog-after-unfreeze-one.png` });
+
+    // Close dialog and see the routes page
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/07h-routes-after-unfreeze-one.png`, fullPage: true });
+  });
+
   test('08. Routes/OpenAI: Per-provider cooldowns', async ({ page }) => {
     // OpenRouter: 429, Azure: 503 model overload, Gemini Provider: OK
     await mockSet(session, P_OPENROUTER, {
