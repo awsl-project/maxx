@@ -235,8 +235,8 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					if hasNextEndpoint(idx, len(baseURLs)) {
 						continue
 					}
-					proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-					proxyErr.IsNetworkError = true // Mark as network error (connection timeout, DNS failure, etc.)
+					proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+					proxyErr.Message = "failed to connect to upstream"
 					return proxyErr
 				}
 
@@ -269,8 +269,8 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						if hasNextEndpoint(idx, len(baseURLs)) {
 							continue
 						}
-						proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream after token refresh")
-						proxyErr.IsNetworkError = true // Mark as network error
+						proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+						proxyErr.Message = "failed to connect to upstream after token refresh"
 						return proxyErr
 					}
 				}
@@ -289,10 +289,12 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					}
 
 					// Check for RESOURCE_EXHAUSTED (429) and extract cooldown info
-					var rateLimitInfo *domain.RateLimitInfo
+					var cooldownScope domain.ErrorScope
+					var cooldownReason domain.CooldownReason
+					var cooldownUntil *time.Time
 					var cooldownUpdateChan chan time.Time
 					if resp.StatusCode == http.StatusTooManyRequests {
-						rateLimitInfo, cooldownUpdateChan = a.parseRateLimitInfo(ctx, body, provider)
+						cooldownScope, cooldownReason, cooldownUntil, cooldownUpdateChan = a.parseRateLimitInfo(ctx, body, provider)
 					}
 
 					// Parse retry info for 429/5xx responses (like Antigravity-Manager)
@@ -328,9 +330,12 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 					)
 
-					// Set status code and check if it's a server error (5xx)
+					// Set status code and classify error scope/reason
 					proxyErr.HTTPStatusCode = resp.StatusCode
-					proxyErr.IsServerError = resp.StatusCode >= 500 && resp.StatusCode < 600
+					if resp.StatusCode >= 500 && resp.StatusCode < 600 {
+						proxyErr.Scope = domain.ScopeProvider
+						proxyErr.Reason = domain.CooldownReasonServerError
+					}
 
 					// Set retry info on error for upstream handling
 					if retryAfter > 0 {
@@ -338,8 +343,10 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					}
 
 					// Set rate limit info for cooldown handling
-					if rateLimitInfo != nil {
-						proxyErr.RateLimitInfo = rateLimitInfo
+					if cooldownReason != "" {
+						proxyErr.Scope = cooldownScope
+						proxyErr.Reason = cooldownReason
+						proxyErr.CooldownUntil = cooldownUntil
 						proxyErr.CooldownUpdateChan = cooldownUpdateChan
 					}
 
@@ -1076,9 +1083,9 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 	return nil
 }
 
-// parseRateLimitInfo parses 429 RESOURCE_EXHAUSTED errors and extracts cooldown information
-// Returns RateLimitInfo and optional channel for async cooldown updates
-func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte, provider *domain.Provider) (*domain.RateLimitInfo, chan time.Time) {
+// parseRateLimitInfo parses 429 RESOURCE_EXHAUSTED errors and extracts cooldown information.
+// Returns (scope, reason, cooldownUntil, updateChan). An empty reason signals "not parsed".
+func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte, provider *domain.Provider) (domain.ErrorScope, domain.CooldownReason, *time.Time, chan time.Time) {
 	// Parse error response to check if it's QUOTA_EXHAUSTED with reset timestamp
 	var errResp struct {
 		Error struct {
@@ -1098,13 +1105,13 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 	}
 
 	if err := json.Unmarshal(body, &errResp); err != nil {
-		// Can't parse error, return nil
-		return nil, nil
+		// Can't parse error, return zero values
+		return "", "", nil, nil
 	}
 
 	// Check if it's RESOURCE_EXHAUSTED
 	if errResp.Error.Status != "RESOURCE_EXHAUSTED" {
-		return nil, nil
+		return "", "", nil, nil
 	}
 
 	// Look for QUOTA_EXHAUSTED with quotaResetTimeStamp in details
@@ -1121,12 +1128,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 
 	if !resetTime.IsZero() {
 		// Found quota reset timestamp, return immediately
-		return &domain.RateLimitInfo{
-			Type:             "quota_exhausted",
-			QuotaResetTime:   resetTime,
-			RetryHintMessage: errResp.Error.Message,
-			ClientType:       "", // Antigravity quota is global, affects all client types
-		}, nil
+		return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, &resetTime, nil
 	}
 
 	// No quota reset timestamp found, query quota API asynchronously
@@ -1134,12 +1136,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 	if config == nil {
 		// No config, return default 1-minute cooldown
 		oneMinuteFromNow := time.Now().Add(time.Minute)
-		return &domain.RateLimitInfo{
-			Type:             "quota_exhausted",
-			QuotaResetTime:   oneMinuteFromNow,
-			RetryHintMessage: errResp.Error.Message,
-			ClientType:       "",
-		}, nil
+		return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, &oneMinuteFromNow, nil
 	}
 
 	// Create channel for async update
@@ -1187,12 +1184,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 
 	// Return initial 1-minute cooldown with async update channel
 	oneMinuteFromNow := time.Now().Add(time.Minute)
-	return &domain.RateLimitInfo{
-		Type:             "quota_exhausted",
-		QuotaResetTime:   oneMinuteFromNow,
-		RetryHintMessage: errResp.Error.Message,
-		ClientType:       "", // Global cooldown
-	}, updateChan
+	return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, &oneMinuteFromNow, updateChan
 }
 
 // extractModelVersion extracts modelVersion from Gemini response JSON
