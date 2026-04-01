@@ -545,7 +545,7 @@ function ProviderRowContentBase({
           >
             <div className="flex flex-col items-center">
               <span className="text-[8px] font-black text-slate-500 dark:text-slate-400/60 uppercase tracking-tight">
-                {t('common.remaining')}
+                {cooldown.model ? cooldown.model : t('common.remaining')}
               </span>
               <div className="flex items-center gap-1.5">
                 <Snowflake

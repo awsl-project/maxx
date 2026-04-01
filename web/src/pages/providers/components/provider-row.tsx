@@ -533,12 +533,20 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
               <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-yellow-500 tabular-nums" />
             </div>
           )}
-          {healthLevel === 'degraded' && (
+          {healthLevel === 'degraded' && modelCooldowns.length > 0 && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-500/10 border border-orange-500/20">
-              <Snowflake size={12} className="text-orange-500" />
-              <span className="text-[11px] font-bold text-orange-500">
-                {modelCooldowns.length} model{modelCooldowns.length > 1 ? 's' : ''}
-              </span>
+              <Snowflake size={12} className="text-orange-500 shrink-0" />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {modelCooldowns.slice(0, 3).map((cd, i) => (
+                  <div key={i} className="flex items-center gap-1">
+                    <span className="text-[10px] font-mono text-orange-400 truncate max-w-[120px]">{cd.model}</span>
+                    <CooldownTimer cooldown={cd} className="text-[10px] font-mono font-bold text-orange-500 tabular-nums" />
+                  </div>
+                ))}
+                {modelCooldowns.length > 3 && (
+                  <span className="text-[10px] text-orange-400">+{modelCooldowns.length - 3}</span>
+                )}
+              </div>
             </div>
           )}
         </div>
