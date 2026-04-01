@@ -138,10 +138,9 @@ export function RequestsPage() {
     filterMode === 'token' && selectedTokenId !== undefined && !apiTokensIsSuccess;
   const waitingProjectFilterValidation =
     filterMode === 'project' && selectedProjectId !== undefined && !projectsIsSuccess;
-  const requestsQueryEnabled =
-    !waitingProviderFilterValidation &&
-    !waitingTokenFilterValidation &&
-    !waitingProjectFilterValidation;
+  const waitingFilterValidation =
+    waitingProviderFilterValidation || waitingTokenFilterValidation || waitingProjectFilterValidation;
+  const requestsQueryEnabled = !waitingFilterValidation;
 
   // 使用 Infinite Query
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isFetching, refetch } =
@@ -188,7 +187,8 @@ export function RequestsPage() {
     return data?.pages.flatMap((page) => page.items) ?? [];
   }, [data]);
   const showLoadingState =
-    (isLoading || isFetching || !requestsQueryEnabled) && allRequests.length === 0;
+    (isLoading || (isFetching && waitingFilterValidation) || waitingFilterValidation) &&
+    allRequests.length === 0;
   const hasRenderedRequests = allRequests.length > 0;
 
   const activeCount = useMemo(() => {
@@ -495,12 +495,12 @@ export function RequestsPage() {
         <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
         <button
           onClick={handleRefresh}
-          disabled={isFetching || !requestsQueryEnabled}
+          disabled={isFetching || waitingFilterValidation}
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
             'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
             'text-muted-foreground hover:text-foreground',
-            (isFetching || !requestsQueryEnabled) && 'opacity-50 cursor-not-allowed',
+            (isFetching || waitingFilterValidation) && 'opacity-50 cursor-not-allowed',
           )}
         >
           <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />

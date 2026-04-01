@@ -55,6 +55,9 @@ export function useInfiniteProxyRequests(
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastId : undefined),
     initialPageParam: undefined as number | undefined,
     enabled,
+    staleTime: 2_000,
+    refetchInterval: enabled ? 3_000 : false,
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -70,6 +73,9 @@ export function useProxyRequestsCount(
     queryKey: ['requestsCount', providerId, status, apiTokenId, projectId] as const,
     queryFn: () => getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId),
     enabled,
+    staleTime: 2_000,
+    refetchInterval: enabled ? 3_000 : false,
+    refetchIntervalInBackground: true,
   });
 }
 
