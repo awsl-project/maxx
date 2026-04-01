@@ -295,6 +295,21 @@ func (e *ProxyTestEnv) doRequest(method, path string, body any, token string) *h
 	return resp
 }
 
+// AdminGet sends an authenticated GET request to the given path.
+func (e *ProxyTestEnv) AdminGet(path string) *http.Response {
+	e.t.Helper()
+	req, err := http.NewRequest(http.MethodGet, e.URL(path), nil)
+	if err != nil {
+		e.t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+e.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatalf("Request failed: %v", err)
+	}
+	return resp
+}
+
 // ProxyPost sends a POST to a proxy endpoint with the given body and headers.
 func (e *ProxyTestEnv) ProxyPost(path string, body any, headers map[string]string) *http.Response {
 	e.t.Helper()

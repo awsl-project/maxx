@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/awsl-project/maxx/internal/testutil/mockserver"
 	"github.com/tidwall/gjson"
 )
 
@@ -749,4 +751,178 @@ func TestProxyAllProtocolsCoexist(t *testing.T) {
 			t.Errorf("Expected upstream /responses, got %s", path)
 		}
 	})
+}
+
+// ============================================================
+// Cooldown Integration Tests (using mock server)
+// ============================================================
+
+func TestCooldown_429TriggersKeyLevelCooldown(t *testing.T) {
+	env := NewProxyTestEnv(t)
+	srv := mockserver.New()
+	defer srv.Close()
+
+	providerID := createProvider(t, env, "mock-openai", srv.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	// Send request that triggers 429
+	resp := env.ProxyPost("/v1/chat/completions",
+		map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hello"}},
+		},
+		map[string]string{
+			mockserver.MockHeader: `{"status":429,"headers":{"Retry-After":"5"},"body":{"error":{"type":"rate_limit_exceeded","message":"Rate limit exceeded"}}}`,
+		},
+	)
+	defer resp.Body.Close()
+	assertStatus(t, resp, 429)
+
+	// Verify cooldown was set
+	cdResp := env.AdminGet("/api/admin/cooldowns")
+	defer cdResp.Body.Close()
+	cdBody, _ := io.ReadAll(cdResp.Body)
+	cooldowns := gjson.ParseBytes(cdBody).Array()
+	if len(cooldowns) == 0 {
+		t.Fatal("expected cooldown to be set after 429")
+	}
+
+	found := false
+	for _, cd := range cooldowns {
+		if cd.Get("providerID").Uint() == providerID {
+			found = true
+			t.Logf("Cooldown set: reason=%s, until=%s", cd.Get("reason").String(), cd.Get("until").String())
+		}
+	}
+	if !found {
+		t.Errorf("no cooldown found for provider %d in: %s", providerID, cdBody)
+	}
+}
+
+func TestCooldown_503ModelOverloadedTriggersModelCooldown(t *testing.T) {
+	env := NewProxyTestEnv(t)
+	srv := mockserver.New()
+	defer srv.Close()
+
+	providerID := createProvider(t, env, "mock-openai-2", srv.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	// Send request that triggers 503 with model overloaded message
+	resp := env.ProxyPost("/v1/chat/completions",
+		map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hello"}},
+		},
+		map[string]string{
+			mockserver.MockHeader: `{"status":503,"body":{"error":{"type":"server_error","message":"Model gpt-4o is overloaded"}}}`,
+		},
+	)
+	defer resp.Body.Close()
+	assertStatus(t, resp, 503)
+
+	// Verify cooldown was set
+	cdResp := env.AdminGet("/api/admin/cooldowns")
+	defer cdResp.Body.Close()
+	cdBody, _ := io.ReadAll(cdResp.Body)
+	cooldowns := gjson.ParseBytes(cdBody).Array()
+
+	found := false
+	for _, cd := range cooldowns {
+		if cd.Get("providerID").Uint() == providerID {
+			found = true
+			// Should be a model-level cooldown (model field should be non-empty)
+			model := cd.Get("model").String()
+			t.Logf("Cooldown: reason=%s, model=%s", cd.Get("reason").String(), model)
+		}
+	}
+	if !found {
+		t.Errorf("no cooldown found for provider %d in: %s", providerID, cdBody)
+	}
+}
+
+func TestCooldown_200ClearsCooldown(t *testing.T) {
+	env := NewProxyTestEnv(t)
+	srv := mockserver.New()
+	defer srv.Close()
+
+	providerID := createProvider(t, env, "mock-openai-3", srv.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	// First request: trigger 429 to set cooldown
+	resp1 := env.ProxyPost("/v1/chat/completions",
+		map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hello"}},
+		},
+		map[string]string{
+			mockserver.MockHeader: `{"status":429,"headers":{"Retry-After":"1"}}`,
+		},
+	)
+	resp1.Body.Close()
+
+	// Wait for cooldown to expire (1 second + buffer)
+	time.Sleep(2 * time.Second)
+
+	// Second request: success (should clear cooldown)
+	resp2 := env.ProxyPost("/v1/chat/completions",
+		map[string]any{
+			"model":    "gpt-4o",
+			"messages": []map[string]any{{"role": "user", "content": "hello again"}},
+		},
+		nil,
+	)
+	defer resp2.Body.Close()
+	assertStatus(t, resp2, 200)
+
+	// Verify cooldown is cleared
+	cdResp := env.AdminGet("/api/admin/cooldowns")
+	defer cdResp.Body.Close()
+	cdBody, _ := io.ReadAll(cdResp.Body)
+	cooldowns := gjson.ParseBytes(cdBody).Array()
+
+	for _, cd := range cooldowns {
+		if cd.Get("providerID").Uint() == providerID {
+			t.Errorf("expected cooldown to be cleared after success, but found: %s", cd.Raw)
+		}
+	}
+}
+
+func TestCooldown_GeminiProtocol(t *testing.T) {
+	env := NewProxyTestEnv(t)
+	srv := mockserver.New()
+	defer srv.Close()
+
+	providerID := createProvider(t, env, "mock-gemini", srv.URL, []string{"gemini"})
+	createRoute(t, env, "gemini", providerID)
+
+	// Send Gemini request that triggers 429
+	resp := env.ProxyPost("/v1beta/models/gemini-2.5-flash:generateContent",
+		map[string]any{
+			"contents": []map[string]any{
+				{"role": "user", "parts": []map[string]any{{"text": "hello"}}},
+			},
+		},
+		map[string]string{
+			mockserver.MockHeader: `{"status":429,"body":{"error":{"code":429,"message":"Quota exceeded","status":"RESOURCE_EXHAUSTED"}}}`,
+		},
+	)
+	defer resp.Body.Close()
+	assertStatus(t, resp, 429)
+
+	// Verify cooldown
+	cdResp := env.AdminGet("/api/admin/cooldowns")
+	defer cdResp.Body.Close()
+	cdBody, _ := io.ReadAll(cdResp.Body)
+	cooldowns := gjson.ParseBytes(cdBody).Array()
+
+	found := false
+	for _, cd := range cooldowns {
+		if cd.Get("providerID").Uint() == providerID {
+			found = true
+			t.Logf("Gemini cooldown: reason=%s", cd.Get("reason").String())
+		}
+	}
+	if !found {
+		t.Errorf("no cooldown for Gemini provider %d: %s", providerID, cdBody)
+	}
 }
