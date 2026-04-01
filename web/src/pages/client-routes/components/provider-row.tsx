@@ -6,12 +6,13 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getProviderColorVar, type ProviderType } from '@/lib/theme';
 import { cn } from '@/lib/utils';
-import type { ClientType, ProviderStats, AntigravityQuotaData } from '@/lib/transport';
+import type { ClientType, ProviderStats, AntigravityQuotaData, ProviderHealthLevel } from '@/lib/transport';
+import { CooldownTimer } from '@/components/cooldown-timer';
 import type { ProviderConfigItem } from '../types';
 import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-context';
 import { useCooldownsContext } from '@/contexts/cooldowns-context';
 import { ProviderDetailsDialog } from '@/components/provider-details-dialog';
-import { useState, useEffect, memo } from 'react';
+import { useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 // 格式化 Token 数量
@@ -276,56 +277,21 @@ function ProviderRowContentBase({
   const imageInfo = isAntigravity ? getImageQuotaInfo(quota) : null;
 
   // 获取 cooldown 状态
-  const { getCooldownsForProvider, formatRemaining, getRemainingSeconds } = useCooldownsContext();
+  const { getCooldownsForProvider } = useCooldownsContext();
   const providerCooldowns = getCooldownsForProvider(provider.id, clientType);
   const cooldown = providerCooldowns.find(
     (cd) => new Date(cd.until).getTime() > Date.now(),
   ) ?? null;
-  const isInCooldown = isInCooldownProp ?? !!cooldown;
+  const effectiveIsInCooldown = isInCooldownProp ?? providerCooldowns.length > 0;
 
-  // 实时倒计时状态
-  const [liveCountdown, setLiveCountdown] = useState<string>('');
-  // 本地过期状态，用于在倒计时结束时立即更新 UI
-  const [isLocalExpired, setIsLocalExpired] = useState(false);
-
-  // 每秒更新倒计时 (使用递归 setTimeout 而不是 setInterval)
-  useEffect(() => {
-    if (!cooldown) {
-      setLiveCountdown('');
-      setIsLocalExpired(false);
-      return;
-    }
-
-    // Reset local expired state when cooldown changes
-    setIsLocalExpired(false);
-
-    let timeoutId: ReturnType<typeof setTimeout>;
-
-    const tick = () => {
-      const remaining = getRemainingSeconds(cooldown);
-      if (remaining <= 0) {
-        // Cooldown expired, clear the countdown display and mark as locally expired
-        setLiveCountdown('');
-        setIsLocalExpired(true);
-        return;
-      }
-      setLiveCountdown(formatRemaining(cooldown));
-      // Schedule next tick
-      timeoutId = setTimeout(tick, 1000);
-    };
-
-    // Start immediately
-    tick();
-
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [cooldown, formatRemaining, getRemainingSeconds]);
-
-  // 如果本地已过期，则不显示 cooldown 状态
-  const effectiveIsInCooldown = isInCooldown && !isLocalExpired;
+  const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
+  const healthLevel: ProviderHealthLevel = providerCooldowns.length === 0
+    ? 'healthy'
+    : providerCooldowns.some((cd) => !cd.clientType && !cd.model)
+      ? 'frozen'
+      : providerCooldowns.some((cd) => cd.clientType && !cd.model)
+        ? 'limited'
+        : 'degraded';
 
   const handleContentClick = (e: React.MouseEvent) => {
     // 所有状态都打开详情弹窗
@@ -348,7 +314,11 @@ function ProviderRowContentBase({
       )}
       style={{
         borderColor:
-          !effectiveIsInCooldown && enabled && streamingCount > 0 ? `${color}40` : undefined,
+          healthLevel === 'frozen' ? 'rgb(6 182 212 / 0.3)'
+          : healthLevel === 'limited' ? 'rgb(234 179 8 / 0.3)'
+          : healthLevel === 'degraded' ? 'rgb(249 115 22 / 0.2)'
+          : !effectiveIsInCooldown && enabled && streamingCount > 0 ? `${color}40`
+          : undefined,
         boxShadow:
           !effectiveIsInCooldown && enabled && streamingCount > 0
             ? `0 0 20px ${color}15`
@@ -530,10 +500,10 @@ function ProviderRowContentBase({
         </div>
       </div>
 
-      {/* Quota & Center Countdown Area */}
-      <div className="relative z-10 flex items-center gap-4 shrink-0">
-        {/* Center-placed Countdown (when in cooldown) or Stats Grid */}
-        {effectiveIsInCooldown && cooldown ? (
+      {/* Cooldown Badge + Stats Grid */}
+      <div className="relative z-10 flex items-center gap-2 shrink-0">
+        {/* Cooldown Badge — shown when there are active cooldowns */}
+        {effectiveIsInCooldown && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -541,86 +511,91 @@ function ProviderRowContentBase({
             }}
             disabled={isClearingCooldown}
             title={t('provider.clearCooldown')}
-            className="flex items-center gap-3 bg-transparent rounded-xl border border-slate-400/50 dark:border-slate-500/40 p-1 px-3 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-700/30 hover:border-slate-500 dark:hover:border-slate-400 transition-all disabled:opacity-50"
-          >
-            <div className="flex flex-col items-center">
-              <span className="text-[8px] font-black text-slate-500 dark:text-slate-400/60 uppercase tracking-tight">
-                {cooldown.model ? cooldown.model : t('common.remaining')}
-              </span>
-              <div className="flex items-center gap-1.5">
-                <Snowflake
-                  size={12}
-                  className="text-slate-500 dark:text-slate-400 animate-spin-slow"
-                />
-                <span className="text-sm font-mono font-black text-slate-600 dark:text-slate-300">
-                  {liveCountdown}
-                </span>
-              </div>
-            </div>
-            <div className="w-px h-6 bg-slate-300/40 dark:bg-slate-600/40" />
-            <div className="flex flex-col items-center text-slate-500/70 dark:text-slate-400/50">
-              <Zap size={14} />
-              <span className="text-[8px] font-bold">{t('provider.unfreeze')}</span>
-            </div>
-          </button>
-        ) : (
-          <div
             className={cn(
-              'flex items-center gap-px bg-muted/50 rounded-xl border border-border/60 p-0.5 backdrop-blur-sm',
-              !enabled && 'opacity-40',
+              'flex items-center gap-2 px-2.5 py-1.5 rounded-xl border cursor-pointer transition-all disabled:opacity-50 shrink-0',
+              healthLevel === 'frozen' && 'bg-cyan-500/10 border-cyan-500/20 hover:bg-cyan-500/20',
+              healthLevel === 'limited' && 'bg-yellow-500/10 border-yellow-500/20 hover:bg-yellow-500/20',
+              healthLevel === 'degraded' && 'bg-orange-500/10 border-orange-500/20 hover:bg-orange-500/20',
             )}
           >
-            {stats && stats.totalRequests > 0 ? (
-              <>
-                {/* Success */}
-                <div className="flex flex-col items-center min-w-[50px] px-2 py-1">
-                  <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight">
-                    SR
-                  </span>
-                  <span
-                    className={cn(
-                      'font-mono font-black text-xs',
-                      stats.successRate >= 95
-                        ? 'text-emerald-500'
-                        : stats.successRate >= 90
-                          ? 'text-blue-400'
-                          : 'text-amber-500',
-                    )}
-                  >
-                    {Math.round(stats.successRate)}%
-                  </span>
-                </div>
-                <div className="w-[1px] h-6 bg-border/40" />
-                {/* Tokens */}
-                <div className="flex flex-col items-center min-w-[50px] px-2 py-1">
-                  <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight">
-                    {t('common.tokens')}
-                  </span>
-                  <span className="font-mono font-black text-xs text-blue-400">
-                    {formatTokens(stats.totalInputTokens + stats.totalOutputTokens)}
-                  </span>
-                </div>
-                <div className="w-[1px] h-6 bg-border/40" />
-                {/* Cost */}
-                <div className="flex flex-col items-center min-w-[60px] px-2 py-1">
-                  <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight">
-                    {t('common.cost')}
-                  </span>
-                  <span className="font-mono font-black text-xs text-purple-400">
-                    {formatCost(stats.totalCost)}
-                  </span>
-                </div>
-              </>
-            ) : (
-              <div className="px-6 py-2 flex items-center gap-2 text-muted-foreground/30">
-                <Activity size={12} />
-                <span className="text-[10px] font-bold uppercase tracking-widest">
-                  {t('common.noData')}
+            <Snowflake
+              size={12}
+              className={cn(
+                'shrink-0',
+                healthLevel === 'frozen' && 'text-cyan-500 animate-pulse',
+                healthLevel === 'limited' && 'text-yellow-500',
+                healthLevel === 'degraded' && 'text-orange-500',
+              )}
+            />
+            {healthLevel === 'degraded' ? (
+              <div className="flex flex-col items-start gap-0.5">
+                {modelCooldowns.slice(0, 2).map((cd, i) => (
+                  <div key={i} className="flex items-center gap-1">
+                    <span className="text-[9px] font-mono text-orange-400 truncate max-w-[80px]">{cd.model}</span>
+                    <CooldownTimer cooldown={cd} className="text-[9px] font-mono font-bold text-orange-500 tabular-nums" />
+                  </div>
+                ))}
+                {modelCooldowns.length > 2 && (
+                  <span className="text-[9px] text-orange-400">+{modelCooldowns.length - 2}</span>
+                )}
+              </div>
+            ) : cooldown ? (
+              <div className="flex flex-col items-center">
+                <span className="text-[8px] font-black uppercase tracking-tight text-muted-foreground/60">
+                  {cooldown.model || t('common.remaining')}
+                </span>
+                <CooldownTimer cooldown={cooldown} className="text-xs font-mono font-bold tabular-nums" />
+              </div>
+            ) : null}
+            <div className="w-px h-5 bg-current opacity-20" />
+            <Zap size={12} className="text-muted-foreground/50" />
+          </button>
+        )}
+
+        {/* Stats Grid — always visible, dimmed when frozen/limited */}
+        <div
+          className={cn(
+            'flex items-center gap-px bg-muted/50 rounded-xl border border-border/60 p-0.5 backdrop-blur-sm',
+            !enabled && 'opacity-40',
+            (healthLevel === 'frozen' || healthLevel === 'limited') && 'opacity-40',
+          )}
+        >
+          {stats && stats.totalRequests > 0 ? (
+            <>
+              {/* Success Rate */}
+              <div className="flex flex-col items-center min-w-[50px] px-2 py-1">
+                <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight">SR</span>
+                <span className={cn(
+                  'font-mono font-black text-[12px]',
+                  stats.successRate >= 95 ? 'text-emerald-500' : stats.successRate >= 90 ? 'text-blue-400' : 'text-amber-500',
+                )}>
+                  {Math.round(stats.successRate)}%
                 </span>
               </div>
-            )}
-          </div>
-        )}
+              <div className="w-[1px] h-6 bg-border/40" />
+              {/* Tokens */}
+              <div className="flex flex-col items-center min-w-[50px] px-2 py-1">
+                <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight">TKN</span>
+                <span className="font-mono font-black text-[12px] text-blue-400">
+                  {formatTokens(stats.totalInputTokens + stats.totalOutputTokens)}
+                </span>
+              </div>
+              <div className="w-[1px] h-6 bg-border/40" />
+              {/* Cost */}
+              <div className="flex flex-col items-center min-w-[55px] px-2 py-1">
+                <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight">{t('common.cost')}</span>
+                <span className="font-mono font-black text-[12px] text-purple-400">
+                  {formatCost(stats.totalCost)}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="px-6 py-2 flex items-center gap-2 text-muted-foreground/30">
+              <Activity size={12} />
+              <span className="text-[10px] font-bold uppercase tracking-widest">{t('common.noData')}</span>
+            </div>
+          )}
+        </div>
       </div>
       {/* Streaming Indicator - Inline before Switch */}
       {enabled && streamingCount > 0 && !effectiveIsInCooldown && (
