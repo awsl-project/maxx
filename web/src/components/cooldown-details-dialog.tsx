@@ -21,7 +21,7 @@ interface CooldownDetailsDialogProps {
   cooldowns: Cooldown[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onClear: (model?: string) => void;
+  onClear: (options?: { clientType?: string; model?: string }) => void;
   isClearing: boolean;
   onDisable: () => void;
   isDisabling: boolean;
@@ -206,7 +206,7 @@ function CooldownGroup({
 }: {
   label: string;
   cooldowns: Cooldown[];
-  onClear: (model?: string) => void;
+  onClear: (options?: { clientType?: string; model?: string }) => void;
   isClearing: boolean;
 }) {
   return (
@@ -218,7 +218,7 @@ function CooldownGroup({
         <CooldownEntry
           key={`${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}
           cooldown={cd}
-          onClear={() => onClear(cd.model || undefined)}
+          onClear={() => onClear({ clientType: cd.clientType || undefined, model: cd.model || undefined })}
           isClearing={isClearing}
         />
       ))}

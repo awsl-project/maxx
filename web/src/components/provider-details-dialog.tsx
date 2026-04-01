@@ -39,7 +39,7 @@ interface ProviderDetailsDialogProps {
   onToggle: () => void;
   isToggling: boolean;
   onDelete?: () => void;
-  onClearCooldown?: (model?: string) => void;
+  onClearCooldown?: (options?: { clientType?: string; model?: string }) => void;
   isClearingCooldown?: boolean;
 }
 
@@ -312,7 +312,7 @@ export function ProviderDetailsDialog({
                   </div>
                   <CooldownTimer cooldown={cd} className="text-sm font-mono font-bold tabular-nums shrink-0" />
                   <button
-                    onClick={() => onClearCooldown?.(cd.model || undefined)}
+                    onClick={() => onClearCooldown?.({ clientType: cd.clientType || undefined, model: cd.model || undefined })}
                     disabled={isClearingCooldown}
                     className="p-1.5 rounded-lg hover:bg-accent/50 transition-colors disabled:opacity-50 shrink-0"
                     title="Unfreeze"
@@ -388,7 +388,7 @@ export function ProviderDetailsDialog({
                       setCooldown(
                         provider.id,
                         until.toISOString(),
-                        clientType,
+                        freezeMode === 'provider' ? '' : clientType,
                         freezeMode === 'model' ? freezeModel.trim() : undefined,
                       );
                     }}
@@ -450,7 +450,7 @@ export function ProviderDetailsDialog({
                       setCooldown(
                         provider.id,
                         parsedTime.toISOString(),
-                        clientType,
+                        freezeMode === 'provider' ? '' : clientType,
                         freezeMode === 'model' ? freezeModel.trim() : undefined,
                       );
                       setShowCustomTime(false);

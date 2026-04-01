@@ -103,8 +103,8 @@ function SortableProviderRowBase({
     setShowDetailsDialog(true);
   };
 
-  const handleClearCooldown = (model?: string) => {
-    clearCooldown(item.provider.id, { clientType, model });
+  const handleClearCooldown = (options?: { clientType?: string; model?: string }) => {
+    clearCooldown(item.provider.id, options);
   };
 
   return (
@@ -163,7 +163,7 @@ type ProviderRowContentProps = {
   onRowClick?: (e: React.MouseEvent) => void;
   isInCooldown?: boolean;
   dragHandleListeners?: any;
-  onClearCooldown?: () => void;
+  onClearCooldown?: (options?: { clientType?: string; model?: string }) => void;
   isClearingCooldown?: boolean;
 };
 
@@ -593,7 +593,7 @@ function ProviderRowContentBase({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onClearCooldown?.(cd.model || undefined);
+                      onClearCooldown?.({ clientType: cd.clientType || undefined, model: cd.model || undefined });
                     }}
                     disabled={isClearingCooldown}
                     className="p-0.5 rounded hover:bg-accent/50 transition-colors disabled:opacity-50"

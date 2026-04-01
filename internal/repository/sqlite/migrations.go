@@ -344,7 +344,7 @@ var migrations = []Migration{
 			return nil
 		},
 		Down: func(db *gorm.DB) error {
-			return nil // Dropping columns not supported in SQLite
+			return fmt.Errorf("migration v12 cannot be rolled back: dropping columns not supported in SQLite")
 		},
 	},
 }
