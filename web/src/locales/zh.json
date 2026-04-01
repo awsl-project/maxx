@@ -1179,8 +1179,12 @@
       "concurrentLimitDesc": "并发请求数超过限制",
       "unknown": "未知原因",
       "unknownDesc": "未知错误原因",
-      "manual": "手动冷冻",
-      "manualDesc": "Provider 已被管理员手动冷冻"
+      "authFailure": "认证失败",
+      "authFailureDesc": "API Key 无效、已过期或账号被封禁",
+      "modelUnavailable": "模型不可用",
+      "modelUnavailableDesc": "模型不存在或无访问权限",
+      "manual": "手动冻结",
+      "manualDesc": "管理员手动冻结"
     },
     "manualFreeze": "冷冻 Provider",
     "freezeDuration": "冷冻时长",

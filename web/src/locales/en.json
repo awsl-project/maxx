@@ -1179,8 +1179,12 @@
       "concurrentLimitDesc": "Concurrent requests exceeded limit",
       "unknown": "Unknown Reason",
       "unknownDesc": "Unknown error cause",
+      "authFailure": "Auth Failure",
+      "authFailureDesc": "API key is invalid, expired, or account is suspended",
+      "modelUnavailable": "Model Unavailable",
+      "modelUnavailableDesc": "Model not found or access denied for this model",
       "manual": "Manual Freeze",
-      "manualDesc": "Provider was manually frozen by administrator"
+      "manualDesc": "Manually frozen by administrator"
     },
     "manualFreeze": "Freeze Provider",
     "freezeDuration": "Freeze Duration",
