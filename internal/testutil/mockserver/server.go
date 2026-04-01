@@ -14,10 +14,14 @@ type Server struct {
 	*httptest.Server
 }
 
-// New creates and starts a new mock server.
+// Handler returns the mock server HTTP handler (for use in standalone servers).
+func Handler() http.Handler {
+	return http.HandlerFunc(handle)
+}
+
+// New creates and starts a new mock server using httptest.
 func New() *Server {
-	handler := http.HandlerFunc(handle)
-	return &Server{httptest.NewServer(handler)}
+	return &Server{httptest.NewServer(Handler())}
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
