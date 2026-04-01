@@ -1093,7 +1093,7 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			if _, owned := providerNames[key.ProviderID]; !owned {
 				continue
 			}
-			info := cm.GetCooldownInfo(key.ProviderID, key.ClientType, providerNames[key.ProviderID])
+			info := cm.GetCooldownInfo(key.ProviderID, key.ClientType, key.Model, providerNames[key.ProviderID])
 			if info != nil {
 				result = append(result, info)
 			}
@@ -1114,13 +1114,14 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 		var body struct {
 			UntilTime  string `json:"untilTime"`  // RFC3339 format
 			ClientType string `json:"clientType"` // Optional, defaults to empty (global)
+			Model      string `json:"model"`      // Optional, empty = all models
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			log.Printf("[Cooldown] PUT /cooldowns/%d: failed to decode body: %v", providerID, err)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		log.Printf("[Cooldown] PUT /cooldowns/%d: received untilTime=%s, clientType=%s", providerID, body.UntilTime, body.ClientType)
+		log.Printf("[Cooldown] PUT /cooldowns/%d: received untilTime=%s, clientType=%s, model=%s", providerID, body.UntilTime, body.ClientType, body.Model)
 		until, err := time.Parse(time.RFC3339, body.UntilTime)
 		if err != nil {
 			log.Printf("[Cooldown] PUT /cooldowns/%d: failed to parse untilTime: %v", providerID, err)
@@ -1128,7 +1129,7 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			return
 		}
 		log.Printf("[Cooldown] PUT /cooldowns/%d: setting cooldown until %v", providerID, until)
-		cm.SetCooldownUntil(providerID, body.ClientType, until)
+		cm.SetCooldownUntil(providerID, body.ClientType, body.Model, until)
 		log.Printf("[Cooldown] PUT /cooldowns/%d: cooldown set successfully", providerID)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "cooldown set"})
 
@@ -1142,8 +1143,9 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 			return
 		}
-		// Clear all cooldowns for this provider (both global and client-type-specific)
-		cm.ClearCooldown(providerID, "")
+		// Clear cooldowns for this provider; optionally filter by model
+		model := r.URL.Query().Get("model")
+		cm.ClearCooldown(providerID, "", model)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "cooldown cleared"})
 
 	default:
