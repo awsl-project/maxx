@@ -35,22 +35,22 @@ func (r *CooldownRepository) GetByProvider(providerID uint64) ([]*domain.Cooldow
 	return r.toDomainList(models), nil
 }
 
-func (r *CooldownRepository) Get(providerID uint64, clientType string) (*domain.Cooldown, error) {
+func (r *CooldownRepository) Get(providerID uint64, clientType string, model string) (*domain.Cooldown, error) {
 	now := time.Now().UnixMilli()
-	var model Cooldown
-	err := r.db.gorm.Where("provider_id = ? AND client_type = ? AND until_time > ?", providerID, clientType, now).First(&model).Error
+	var m Cooldown
+	err := r.db.gorm.Where("provider_id = ? AND client_type = ? AND model = ? AND until_time > ?", providerID, clientType, model, now).First(&m).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return r.toDomain(&model), nil
+	return r.toDomain(&m), nil
 }
 
 func (r *CooldownRepository) Upsert(cooldown *domain.Cooldown) error {
 	now := time.Now()
-	model := &Cooldown{
+	m := &Cooldown{
 		BaseModel: BaseModel{
 			CreatedAt: toTimestamp(now),
 			UpdatedAt: toTimestamp(now),
@@ -58,18 +58,19 @@ func (r *CooldownRepository) Upsert(cooldown *domain.Cooldown) error {
 		TenantID:   cooldown.TenantID,
 		ProviderID: cooldown.ProviderID,
 		ClientType: cooldown.ClientType,
+		Model:      cooldown.Model,
 		UntilTime:  toTimestamp(cooldown.UntilTime),
 		Reason:     string(cooldown.Reason),
 	}
 
 	err := r.db.gorm.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "provider_id"}, {Name: "client_type"}},
+		Columns: []clause.Column{{Name: "provider_id"}, {Name: "client_type"}, {Name: "model"}},
 		DoUpdates: clause.Assignments(map[string]any{
-			"until_time": model.UntilTime,
-			"reason":     model.Reason,
-			"updated_at": model.UpdatedAt,
+			"until_time": m.UntilTime,
+			"reason":     m.Reason,
+			"updated_at": m.UpdatedAt,
 		}),
-	}).Create(model).Error
+	}).Create(m).Error
 
 	if err != nil {
 		return err
@@ -80,8 +81,8 @@ func (r *CooldownRepository) Upsert(cooldown *domain.Cooldown) error {
 	return nil
 }
 
-func (r *CooldownRepository) Delete(providerID uint64, clientType string) error {
-	return r.db.gorm.Where("provider_id = ? AND client_type = ?", providerID, clientType).Delete(&Cooldown{}).Error
+func (r *CooldownRepository) Delete(providerID uint64, clientType string, model string) error {
+	return r.db.gorm.Where("provider_id = ? AND client_type = ? AND model = ?", providerID, clientType, model).Delete(&Cooldown{}).Error
 }
 
 func (r *CooldownRepository) DeleteAll(providerID uint64) error {
@@ -101,6 +102,7 @@ func (r *CooldownRepository) toDomain(m *Cooldown) *domain.Cooldown {
 		TenantID:   m.TenantID,
 		ProviderID: m.ProviderID,
 		ClientType: m.ClientType,
+		Model:      m.Model,
 		UntilTime:  fromTimestamp(m.UntilTime),
 		Reason:     domain.CooldownReason(m.Reason),
 	}

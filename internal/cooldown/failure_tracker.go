@@ -46,6 +46,7 @@ func (ft *FailureTracker) LoadFromDatabase() error {
 			ProviderID: fc.ProviderID,
 			ClientType: fc.ClientType,
 			Reason:     CooldownReason(fc.Reason),
+			Model:      fc.Model,
 		}
 		ft.failureCounts[key] = fc.Count
 	}
@@ -73,6 +74,7 @@ func (ft *FailureTracker) IncrementFailure(providerID uint64, clientType string,
 			TenantID:      domain.TenantIDAll, // cooldown is cross-tenant
 			ProviderID:    providerID,
 			ClientType:    clientType,
+			Model:         model,
 			Reason:        string(reason),
 			Count:         newCount,
 			LastFailureAt: time.Now().UTC(),
@@ -116,7 +118,7 @@ func (ft *FailureTracker) ResetFailures(providerID uint64, clientType string, mo
 
 		// Delete from database
 		if ft.repository != nil {
-			if err := ft.repository.DeleteAll(domain.TenantIDAll, providerID, clientType); err != nil {
+			if err := ft.repository.DeleteAll(domain.TenantIDAll, providerID, clientType, model); err != nil {
 				log.Printf("[FailureTracker] Failed to delete failure counts from database: %v", err)
 			}
 		}

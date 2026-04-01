@@ -70,7 +70,7 @@ func (m *Manager) LoadFromDatabase() error {
 			key := CooldownKey{
 				ProviderID: cd.ProviderID,
 				ClientType: cd.ClientType,
-				// TODO(task5): set Model from cd.Model once domain.Cooldown has the field and DB migration is done
+				Model:      cd.Model,
 			}
 			m.cooldowns[key] = cd.UntilTime
 			m.reasons[key] = CooldownReason(cd.Reason)
@@ -186,8 +186,8 @@ func (m *Manager) RecordSuccess(providerID uint64, clientType string, model stri
 
 	// Delete from database
 	if m.repository != nil {
-		if err := m.repository.Delete(providerID, clientType); err != nil {
-			log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s from database: %v", providerID, clientType, err)
+		if err := m.repository.Delete(providerID, clientType, model); err != nil {
+			log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s, model %s from database: %v", providerID, clientType, model, err)
 		}
 	}
 
@@ -208,9 +208,9 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 		cd := &domain.Cooldown{
 			ProviderID: providerID,
 			ClientType: clientType,
-			// TODO(task5): set Model field once domain.Cooldown has it and DB migration is done
-			UntilTime: until,
-			Reason:    domain.CooldownReason(reason),
+			Model:      model,
+			UntilTime:  until,
+			Reason:     domain.CooldownReason(reason),
 		}
 		if err := m.repository.Upsert(cd); err != nil {
 			log.Printf("[Cooldown] Failed to persist cooldown for provider %d: %v", providerID, err)
@@ -275,8 +275,8 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string, model stri
 
 		// Delete from database
 		if m.repository != nil {
-			if err := m.repository.Delete(providerID, clientType); err != nil {
-				log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s from database: %v", providerID, clientType, err)
+			if err := m.repository.Delete(providerID, clientType, model); err != nil {
+				log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s, model %s from database: %v", providerID, clientType, model, err)
 			}
 		}
 

@@ -308,6 +308,45 @@ var migrations = []Migration{
 			}
 		},
 	},
+	{
+		Version:     12,
+		Description: "Add model column to cooldowns and failure_counts for model-level cooldown granularity",
+		Up: func(db *gorm.DB) error {
+			// Drop old unique indexes and recreate with model column
+			// GORM AutoMigrate will add the column, migration handles index changes
+			switch db.Dialector.Name() {
+			case "mysql":
+				// Drop old indexes
+				if err := db.Exec("DROP INDEX idx_cooldowns_provider_client ON cooldowns").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				if err := db.Exec("DROP INDEX idx_failure_counts_tenant_provider_client_reason ON failure_counts").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				// Add model column with default
+				db.Exec("ALTER TABLE cooldowns ADD COLUMN model VARCHAR(255) NOT NULL DEFAULT ''")
+				db.Exec("ALTER TABLE failure_counts ADD COLUMN model VARCHAR(255) NOT NULL DEFAULT ''")
+				// Create new indexes
+				if err := db.Exec("CREATE UNIQUE INDEX idx_cooldowns_provider_client_model ON cooldowns(provider_id, client_type, model)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX idx_failure_counts_tenant_provider_client_reason_model ON failure_counts(tenant_id, provider_id, client_type, reason, model)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+			default:
+				// SQLite
+				db.Exec("DROP INDEX IF EXISTS idx_cooldowns_provider_client")
+				db.Exec("DROP INDEX IF EXISTS idx_failure_counts_tenant_provider_client_reason")
+				// SQLite: columns added by AutoMigrate, just create new indexes
+				db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cooldowns_provider_client_model ON cooldowns(provider_id, client_type, model)")
+				db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_failure_counts_tenant_provider_client_reason_model ON failure_counts(tenant_id, provider_id, client_type, reason, model)")
+			}
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			return nil // Dropping columns not supported in SQLite
+		},
+	},
 }
 
 func applyCodexQuotaIdentityMigration(db *gorm.DB) error {

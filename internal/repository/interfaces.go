@@ -329,7 +329,7 @@ type CooldownRepository interface {
 	Upsert(cooldown *domain.Cooldown) error
 
 	// Delete removes a cooldown
-	Delete(providerID uint64, clientType string) error
+	Delete(providerID uint64, clientType string, model string) error
 
 	// DeleteAll removes all cooldowns for a provider
 	DeleteAll(providerID uint64) error
@@ -338,22 +338,13 @@ type CooldownRepository interface {
 	DeleteExpired() error
 
 	// Get retrieves a specific cooldown
-	Get(providerID uint64, clientType string) (*domain.Cooldown, error)
-}
-
-// CooldownInfo is a helper structure for returning cooldown information
-type CooldownInfo struct {
-	ProviderID   uint64    `json:"providerID"`
-	ProviderName string    `json:"providerName"`
-	ClientType   string    `json:"clientType"`
-	Until        time.Time `json:"until"`
-	Remaining    string    `json:"remaining"`
+	Get(providerID uint64, clientType string, model string) (*domain.Cooldown, error)
 }
 
 // FailureCountRepository manages failure count persistence
 type FailureCountRepository interface {
-	// Get retrieves a failure count by tenant, provider, client type, and reason
-	Get(tenantID uint64, providerID uint64, clientType string, reason string) (*domain.FailureCount, error)
+	// Get retrieves a failure count by tenant, provider, client type, model, and reason
+	Get(tenantID uint64, providerID uint64, clientType string, model string, reason string) (*domain.FailureCount, error)
 
 	// GetAll retrieves all failure counts for a tenant (use TenantIDAll for all)
 	GetAll(tenantID uint64) ([]*domain.FailureCount, error)
@@ -362,10 +353,11 @@ type FailureCountRepository interface {
 	Upsert(fc *domain.FailureCount) error
 
 	// Delete deletes a failure count
-	Delete(tenantID uint64, providerID uint64, clientType string, reason string) error
+	Delete(tenantID uint64, providerID uint64, clientType string, model string, reason string) error
 
-	// DeleteAll deletes all failure counts for a provider+clientType
-	DeleteAll(tenantID uint64, providerID uint64, clientType string) error
+	// DeleteAll deletes all failure counts for a provider+clientType+model
+	// When model is empty, delete all for that provider+clientType (existing behavior)
+	DeleteAll(tenantID uint64, providerID uint64, clientType string, model string) error
 
 	// DeleteExpired deletes failure counts where last failure was too long ago
 	DeleteExpired(olderThan int64) error
