@@ -566,17 +566,20 @@ export function OverviewPage() {
                           <AlertTriangle className="h-3 w-3" />
                           <span>{t('dashboard.cooldownActive')}</span>
                         </div>
-                        {activeCooldowns.slice(0, 2).map((cd) => {
-                          const provider = providers?.find((p) => p.id === cd.providerID);
+                        {activeCooldowns.slice(0, 4).map((cd) => {
+                          const providerName = cd.providerName || providers?.find((p) => p.id === cd.providerID)?.name || `Provider #${cd.providerID}`;
                           return (
                             <div
-                              key={cd.id}
+                              key={`${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}
                               className="flex items-center justify-between text-xs mt-1"
                             >
-                              <span className="text-muted-foreground">
-                                {provider?.name || `Provider #${cd.providerID}`}
+                              <span className="text-muted-foreground truncate">
+                                {providerName}
+                                {cd.model && (
+                                  <span className="text-muted-foreground/60"> / {cd.model}</span>
+                                )}
                               </span>
-                              <span className="font-mono text-amber-600 dark:text-amber-400">
+                              <span className="font-mono text-amber-600 dark:text-amber-400 shrink-0 ml-2">
                                 <CooldownTimer cooldown={cd} />
                               </span>
                             </div>
