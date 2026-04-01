@@ -45,7 +45,7 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 
 	// Clear global cooldown state from previous tests (singleton is shared across tests)
 	for i := uint64(1); i <= 10; i++ {
-		cooldown.Default().ClearCooldown(i, "")
+		cooldown.Default().ClearCooldown(i, "", "")
 	}
 
 	dsn := fmt.Sprintf("file:proxytest_%d?mode=memory&cache=shared&_pragma=journal_mode(WAL)&_pragma=busy_timeout(30000)", time.Now().UnixNano())
