@@ -149,8 +149,8 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-		proxyErr.IsNetworkError = true
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to upstream"
 		return proxyErr
 	}
 	defer resp.Body.Close()
@@ -174,25 +174,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			})
 		}
 
-		proxyErr := domain.NewProxyErrorWithMessage(
-			fmt.Errorf("upstream error: %s", string(body)),
-			isRetryableStatusCode(resp.StatusCode),
-			fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-		)
-
-		// Set status code and check if it's a server error (5xx)
-		proxyErr.HTTPStatusCode = resp.StatusCode
-		proxyErr.IsServerError = resp.StatusCode >= 500 && resp.StatusCode < 600
-
-		// Parse rate limit info for 429 errors
-		if resp.StatusCode == http.StatusTooManyRequests {
-			rateLimitInfo := parseRateLimitInfo(resp, body, clientType)
-			if rateLimitInfo != nil {
-				proxyErr.RateLimitInfo = rateLimitInfo
-				applyRateLimitRetryHints(proxyErr, resp, rateLimitInfo)
-			}
-		}
-
+		proxyErr := classifyHTTPError(resp.StatusCode, body, resp.Header, clientType, flow.GetMappedModel(c))
 		return proxyErr
 	}
 
@@ -430,7 +412,10 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					isRetryableSSEError(code, errType, msg),
 					msg,
 				)
-				proxyErr.IsServerError = errType == "internal_error" || errType == "server_error"
+				if errType == "internal_error" || errType == "server_error" {
+					proxyErr.Scope = domain.ScopeProvider
+					proxyErr.Reason = domain.CooldownReasonServerError
+				}
 				return proxyErr
 			}
 		}
@@ -775,36 +760,106 @@ func copyResponseHeaders(dst, src http.Header) {
 	}
 }
 
-// parseRateLimitInfo parses rate limit information from 429 responses
-// Supports multiple API formats: OpenAI, Anthropic, Gemini, etc.
-func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.ClientType) *domain.RateLimitInfo {
-	var resetTime time.Time
-	var rateLimitType = "rate_limit_exceeded"
-
-	// Method 1: Parse Retry-After header
-	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-		// Try as seconds
-		if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
-			resetTime = time.Now().Add(time.Duration(seconds) * time.Second)
-		} else if t, err := http.ParseTime(retryAfter); err == nil {
-			resetTime = t
-		}
-	}
-
-	// Method 2: Parse response body
+// classifyHTTPError creates a structured ProxyError from an HTTP error response.
+// It determines Scope (what's broken) and Reason (why) from status code and body.
+func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientType domain.ClientType, model string) *domain.ProxyError {
 	bodyStr := string(body)
 	bodyLower := strings.ToLower(bodyStr)
 
-	// Detect rate limit type from message
-	if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "exceeded your") {
-		rateLimitType = "quota_exhausted"
-	} else if strings.Contains(bodyLower, "per minute") || strings.Contains(bodyLower, "rpm") || strings.Contains(bodyLower, "tpm") {
-		rateLimitType = "rate_limit_exceeded"
-	} else if strings.Contains(bodyLower, "concurrent") {
-		rateLimitType = "concurrent_limit"
+	proxyErr := &domain.ProxyError{
+		Err:            fmt.Errorf("upstream error: %s", bodyStr),
+		Message:        fmt.Sprintf("upstream returned status %d", statusCode),
+		HTTPStatusCode: statusCode,
+		Retryable:      isRetryableStatusCode(statusCode),
 	}
 
-	// Try to parse structured error response
+	// Parse Retry-After header (used by several branches)
+	if retryAfter, until := parseRetryAfterHeader(headers.Get("Retry-After")); retryAfter > 0 {
+		proxyErr.RetryAfter = retryAfter
+		proxyErr.CooldownUntil = until
+	}
+
+	switch {
+	// 401 — invalid key / expired token
+	case statusCode == 401:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	// 403 — check if model-specific or account-level
+	case statusCode == 403:
+		if containsAny(bodyLower, "model", "access denied for model", "permission denied for model") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonAuthFailure
+		}
+		proxyErr.Retryable = false
+
+	// 404 — model not found
+	case statusCode == 404:
+		if containsAny(bodyLower, "model", "not found") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+			proxyErr.Retryable = false
+		} else {
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	// 400, 408, 413, 422 — request-level errors
+	case statusCode == 400 || statusCode == 408 || statusCode == 413 || statusCode == 422:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+
+	// 429 — rate limit (need to disambiguate)
+	case statusCode == 429:
+		proxyErr.Retryable = true
+		proxyErr.ClientType = string(clientType)
+		classify429Error(proxyErr, body, bodyLower, headers, model)
+
+	// 503 — check if model overloaded or full outage
+	case statusCode == 503:
+		if containsAny(bodyLower, "model", "overloaded", "capacity") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonServerError
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	// 500, 502, 504 — provider-level server errors
+	case statusCode >= 500:
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+
+	// Other 4xx — request-level
+	default:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+	}
+
+	return proxyErr
+}
+
+// classify429Error determines the scope and reason for 429 rate limit errors.
+func classify429Error(proxyErr *domain.ProxyError, body []byte, bodyLower string, headers http.Header, model string) {
+	// Default to key-level rate limit
+	proxyErr.Scope = domain.ScopeKey
+	proxyErr.Reason = domain.CooldownReasonRateLimitExceeded
+
+	// Check for quota exhaustion
+	if containsAny(bodyLower, "quota", "exceeded your", "insufficient_quota") {
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+	} else if containsAny(bodyLower, "concurrent") {
+		proxyErr.Reason = domain.CooldownReasonConcurrentLimit
+	}
+
+	// Try to parse structured error for more detail
 	var errResp struct {
 		Error struct {
 			Message string `json:"message"`
@@ -812,72 +867,40 @@ func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.Clie
 			Code    string `json:"code"`
 		} `json:"error"`
 	}
-
 	if json.Unmarshal(body, &errResp) == nil {
-		// OpenAI/Anthropic style
-		if errResp.Error.Type == "rate_limit_error" || errResp.Error.Code == "rate_limit_exceeded" {
-			// Try to extract time from message
+		if errResp.Error.Type == "insufficient_quota" || errResp.Error.Code == "insufficient_quota" {
+			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		}
+		// Extract time from message if no Retry-After header
+		if proxyErr.CooldownUntil == nil {
 			if t := extractTimeFromMessage(errResp.Error.Message); !t.IsZero() {
-				resetTime = t
+				proxyErr.CooldownUntil = &t
 			}
 		}
-		if errResp.Error.Type == "insufficient_quota" || errResp.Error.Code == "insufficient_quota" {
-			rateLimitType = "quota_exhausted"
-		}
 	}
 
-	if resetTime.IsZero() {
+	// Try structured reset time fields
+	if proxyErr.CooldownUntil == nil {
 		if t := extractStructuredResetTime(body); !t.IsZero() {
-			resetTime = t
+			proxyErr.CooldownUntil = &t
 		}
 	}
 
-	// If no reset time found, use default based on type
-	if resetTime.IsZero() {
-		switch rateLimitType {
-		case "quota_exhausted":
-			// Default to 1 hour for quota exhaustion
-			resetTime = time.Now().Add(1 * time.Hour)
-		case "concurrent_limit":
-			// Short cooldown for concurrent limits
-			resetTime = time.Now().Add(10 * time.Second)
-		default:
-			// Default to 1 minute for rate limits
-			resetTime = time.Now().Add(1 * time.Minute)
-		}
-	}
-
-	return &domain.RateLimitInfo{
-		Type:             rateLimitType,
-		QuotaResetTime:   resetTime,
-		RetryHintMessage: bodyStr,
-		ClientType:       string(clientType), // Cooldown applies to specific client type
+	// Per-model rate limit detection (if body mentions specific model)
+	if containsAny(bodyLower, "model", "tokens per minute", "tpm") {
+		proxyErr.Scope = domain.ScopeModel
+		proxyErr.Model = model
 	}
 }
 
-func applyRateLimitRetryHints(proxyErr *domain.ProxyError, resp *http.Response, rateLimitInfo *domain.RateLimitInfo) {
-	if proxyErr == nil || resp == nil {
-		return
-	}
-
-	if retryAfter, until := parseRetryAfterHeader(resp.Header.Get("Retry-After")); retryAfter > 0 {
-		proxyErr.RetryAfter = retryAfter
-		if until != nil {
-			proxyErr.CooldownUntil = until
+// containsAny returns true if s contains any of the substrings.
+func containsAny(s string, substrs ...string) bool {
+	for _, sub := range substrs {
+		if strings.Contains(s, sub) {
+			return true
 		}
 	}
-
-	if rateLimitInfo != nil && !rateLimitInfo.QuotaResetTime.IsZero() {
-		until := rateLimitInfo.QuotaResetTime
-		if proxyErr.CooldownUntil == nil {
-			proxyErr.CooldownUntil = &until
-		}
-		if proxyErr.RetryAfter <= 0 {
-			if retryAfter := time.Until(until); retryAfter > 0 {
-				proxyErr.RetryAfter = retryAfter
-			}
-		}
-	}
+	return false
 }
 
 func parseRetryAfterHeader(value string) (time.Duration, *time.Time) {
