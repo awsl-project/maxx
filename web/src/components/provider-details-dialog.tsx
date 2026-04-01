@@ -219,7 +219,7 @@ export function ProviderDetailsDialog({
   onOpenChange,
   stats,
   cooldowns = [],
-  streamingCount,
+  streamingCount: _streamingCount,
   onToggle,
   isToggling,
   onDelete,

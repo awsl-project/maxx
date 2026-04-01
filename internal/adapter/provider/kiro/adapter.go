@@ -719,7 +719,7 @@ func classifyKiroHTTPError(statusCode int, body []byte, headers http.Header, mod
 		proxyErr.Retryable = false
 
 	case statusCode == 404:
-		if strings.Contains(bodyLower, "model") {
+		if model != "" && strings.Contains(bodyLower, "model") {
 			proxyErr.Scope = domain.ScopeModel
 			proxyErr.Reason = domain.CooldownReasonModelUnavailable
 			proxyErr.Model = model
@@ -747,7 +747,7 @@ func classifyKiroHTTPError(statusCode int, body []byte, headers http.Header, mod
 		}
 
 	case statusCode == 503:
-		if strings.Contains(bodyLower, "overloaded") || strings.Contains(bodyLower, "model") {
+		if model != "" && (strings.Contains(bodyLower, "overloaded") || strings.Contains(bodyLower, "model")) {
 			proxyErr.Scope = domain.ScopeModel
 			proxyErr.Reason = domain.CooldownReasonServerError
 			proxyErr.Model = model

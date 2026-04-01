@@ -679,7 +679,7 @@ func classifyClaudeHTTPError(statusCode int, body []byte, headers http.Header, m
 		proxyErr.Retryable = false
 
 	case statusCode == 404:
-		if strings.Contains(bodyLower, "model") {
+		if model != "" && strings.Contains(bodyLower, "model") {
 			proxyErr.Scope = domain.ScopeModel
 			proxyErr.Reason = domain.CooldownReasonModelUnavailable
 			proxyErr.Model = model
@@ -710,7 +710,7 @@ func classifyClaudeHTTPError(statusCode int, body []byte, headers http.Header, m
 		}
 
 	case statusCode == 503:
-		if strings.Contains(bodyLower, "overloaded") {
+		if model != "" && strings.Contains(bodyLower, "overloaded") {
 			proxyErr.Scope = domain.ScopeModel
 			proxyErr.Reason = domain.CooldownReasonServerError
 			proxyErr.Model = model

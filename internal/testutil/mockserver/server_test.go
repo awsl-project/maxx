@@ -76,7 +76,10 @@ func TestServer_SetDirective_PerProvider(t *testing.T) {
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req1.Header.Set("Content-Type", "application/json")
 	req1.Header.Set(SessionHeader, session)
-	resp1, _ := http.DefaultClient.Do(req1)
+	resp1, err := http.DefaultClient.Do(req1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp1.Body.Close()
 	if resp1.StatusCode != 429 {
 		t.Fatalf("provider 1: expected 429, got %d", resp1.StatusCode)
@@ -87,7 +90,10 @@ func TestServer_SetDirective_PerProvider(t *testing.T) {
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req2.Header.Set("Content-Type", "application/json")
 	req2.Header.Set(SessionHeader, session)
-	resp2, _ := http.DefaultClient.Do(req2)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp2.Body.Close()
 	if resp2.StatusCode != 200 {
 		t.Fatalf("provider 2: expected 200, got %d", resp2.StatusCode)
@@ -104,7 +110,10 @@ func TestServer_Wildcard(t *testing.T) {
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(SessionHeader, session)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 503 {
@@ -119,8 +128,11 @@ func TestServer_NoSession_Returns200(t *testing.T) {
 	srv.Set("", "1", MockDirective{Status: 500})
 
 	// No session header → default 200
-	resp, _ := http.Post(srv.URL+"/p/1/v1/chat/completions", "application/json",
+	resp, err := http.Post(srv.URL+"/p/1/v1/chat/completions", "application/json",
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
@@ -132,8 +144,11 @@ func TestServer_SetViaHTTP(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	setResp, _ := http.Post(srv.URL+"/__mock/set", "application/json",
+	setResp, err := http.Post(srv.URL+"/__mock/set", "application/json",
 		strings.NewReader(`{"providerID":"5","directive":{"status":503}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer setResp.Body.Close()
 
 	var setResult SetResponse
@@ -146,7 +161,10 @@ func TestServer_SetViaHTTP(t *testing.T) {
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(SessionHeader, setResult.Session)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 503 {
@@ -165,7 +183,10 @@ func TestServer_Clear(t *testing.T) {
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(SessionHeader, session)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
@@ -181,7 +202,10 @@ func TestServer_LegacyMockHeader(t *testing.T) {
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(MockHeader, `{"status":429,"headers":{"Retry-After":"5"}}`)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 429 {

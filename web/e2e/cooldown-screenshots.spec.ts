@@ -14,7 +14,6 @@ const SCREENSHOT_DIR = 'e2e/screenshots';
 // Provider IDs (created in globalSetup, sequential from 1)
 const P_GEMINI = '1';
 const P_OPENROUTER = '2';
-const P_CLAUDE = '3';
 const P_AZURE = '4';
 
 /** Set a mock directive for a specific provider (by ID). Returns session ID. */
@@ -54,7 +53,7 @@ async function proxyRequest(
   body: object,
   session: string,
 ) {
-  const resp = await fetch(`${BASE}${path}`, {
+  await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -13,7 +13,9 @@ async function waitForServer(url: string, timeoutMs = 30000): Promise<void> {
     try {
       const resp = await fetch(url);
       if (resp.ok) return;
-    } catch {}
+    } catch {
+      // Expected: server not ready yet, will retry
+    }
     await new Promise((r) => setTimeout(r, 300));
   }
   throw new Error(`Server at ${url} not ready after ${timeoutMs}ms`);

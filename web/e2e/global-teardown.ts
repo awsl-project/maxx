@@ -5,11 +5,11 @@ export default async function globalTeardown() {
   if (maxxPid) {
     try {
       process.kill(Number(maxxPid));
-    } catch {}
+    } catch { /* process already exited */ }
   }
   if (mockPid) {
     try {
       process.kill(Number(mockPid));
-    } catch {}
+    } catch { /* process already exited */ }
   }
 }

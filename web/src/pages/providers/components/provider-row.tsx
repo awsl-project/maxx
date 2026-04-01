@@ -2,7 +2,7 @@ import type { KeyboardEvent } from 'react';
 import { Activity, Mail, Globe, Snowflake } from 'lucide-react';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import { useCooldowns } from '@/hooks/use-cooldowns';
-import type { ProviderHealthLevel } from '@/lib/transport';
+
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { MarqueeBackground } from '@/components/ui/marquee-background';

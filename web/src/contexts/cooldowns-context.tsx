@@ -241,5 +241,5 @@ export function useCooldownFromContext(
   clientType?: string,
 ): Cooldown[] {
   const context = useContext(CooldownsContext);
-  return context?.getCooldownsForProvider(providerId) ?? [];
+  return context?.getCooldownsForProvider(providerId, clientType) ?? [];
 }

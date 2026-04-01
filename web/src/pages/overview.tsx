@@ -346,7 +346,7 @@ export function OverviewPage() {
               <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-amber-600 dark:text-amber-400 mb-1">
-                  {activeCooldowns.length} active cooldown{activeCooldowns.length > 1 ? 's' : ''}
+                  {t('dashboard.activeCooldowns', { count: activeCooldowns.length })}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {activeCooldowns.slice(0, 6).map((cd) => {

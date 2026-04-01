@@ -149,6 +149,8 @@
     "topModels": "Top Models",
     "providerStatus": "Provider Status",
     "cooldownActive": "Cooldown Active",
+    "activeCooldowns": "{{count}} active cooldown",
+    "activeCooldowns_other": "{{count}} active cooldowns",
     "viewAll": "View All",
     "activeSessions": "Active Sessions",
     "requests": "Requests",

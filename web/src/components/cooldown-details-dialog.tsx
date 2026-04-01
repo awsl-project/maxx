@@ -216,7 +216,7 @@ function CooldownGroup({
       </div>
       {cooldowns.map((cd, i) => (
         <CooldownEntry
-          key={i}
+          key={`${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}
           cooldown={cd}
           onClear={() => onClear(cd.model || undefined)}
           isClearing={isClearing}
