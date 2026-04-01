@@ -158,7 +158,20 @@ test('requests page shows loading fallback first and then renders records under 
       await adminAPI('DELETE', `/providers/${providerId}`, undefined, jwt).catch(() => undefined);
     }
     await new Promise<void>((resolve) => {
-      mock.server.close(() => resolve());
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        mock.server.closeAllConnections?.();
+        finish();
+      }, 2000);
+      mock.server.close(() => {
+        finish();
+      });
     });
   }
 });
