@@ -736,12 +736,13 @@ export class HttpTransport implements Transport {
     return this.expectArray<Cooldown>(data, '/cooldowns');
   }
 
-  async clearCooldown(providerId: number): Promise<void> {
-    await this.adminClient.delete(`/cooldowns/${providerId}`);
+  async clearCooldown(providerId: number, model?: string): Promise<void> {
+    const params = model ? `?model=${encodeURIComponent(model)}` : '';
+    await this.adminClient.delete(`/cooldowns/${providerId}${params}`);
   }
 
-  async setCooldown(providerId: number, untilTime: string, clientType?: string): Promise<void> {
-    await this.adminClient.put(`/cooldowns/${providerId}`, { untilTime, clientType });
+  async setCooldown(providerId: number, untilTime: string, clientType?: string, model?: string): Promise<void> {
+    await this.adminClient.put(`/cooldowns/${providerId}`, { untilTime, clientType, model });
   }
 
   // ===== Auth API =====
