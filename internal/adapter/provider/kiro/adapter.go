@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -133,8 +134,8 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Execute request
 	resp, err := a.httpClient.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-		proxyErr.IsNetworkError = true
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to upstream"
 		return proxyErr
 	}
 	defer resp.Body.Close()
@@ -167,8 +168,8 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 		resp, err = a.httpClient.Do(upstreamReq)
 		if err != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream after token refresh")
-			proxyErr.IsNetworkError = true
+			proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+			proxyErr.Message = "failed to connect to upstream after token refresh"
 			return proxyErr
 		}
 		defer resp.Body.Close()
@@ -185,15 +186,7 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			Body:    string(body),
 		})
 
-		proxyErr := domain.NewProxyErrorWithMessage(
-			fmt.Errorf("upstream error: %s", string(body)),
-			isRetryableStatusCode(resp.StatusCode),
-			fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-		)
-		proxyErr.HTTPStatusCode = resp.StatusCode
-		proxyErr.IsServerError = resp.StatusCode >= 500 && resp.StatusCode < 600
-
-		return proxyErr
+		return classifyKiroHTTPError(resp.StatusCode, body, resp.Header, flow.GetMappedModel(c))
 	}
 
 	// Handle response (CodeWhisperer always returns streaming EventStream)
@@ -697,6 +690,82 @@ func calculateInputTokens(requestBody []byte) int {
 
 	estimator := NewTokenEstimator()
 	return estimator.EstimateInputTokens(&claudeReq)
+}
+
+func classifyKiroHTTPError(statusCode int, body []byte, headers http.Header, model string) *domain.ProxyError {
+	bodyLower := strings.ToLower(string(body))
+
+	proxyErr := &domain.ProxyError{
+		Err:            fmt.Errorf("upstream error: %s", string(body)),
+		Message:        fmt.Sprintf("upstream returned status %d", statusCode),
+		HTTPStatusCode: statusCode,
+		Retryable:      isRetryableStatusCode(statusCode),
+		ClientType:     string(domain.ClientTypeClaude),
+	}
+
+	switch {
+	case statusCode == 400 || statusCode == 413 || statusCode == 422:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+
+	case statusCode == 401:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	case statusCode == 403:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	case statusCode == 404:
+		if strings.Contains(bodyLower, "model") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+		proxyErr.Retryable = false
+
+	case statusCode == 429:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonRateLimitExceeded
+		proxyErr.Retryable = true
+		// Parse Retry-After
+		if retryAfter := headers.Get("Retry-After"); retryAfter != "" {
+			if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
+				proxyErr.RetryAfter = time.Duration(seconds) * time.Second
+				until := time.Now().Add(proxyErr.RetryAfter)
+				proxyErr.CooldownUntil = &until
+			}
+		}
+		if proxyErr.CooldownUntil == nil {
+			until := time.Now().Add(time.Minute)
+			proxyErr.CooldownUntil = &until
+		}
+
+	case statusCode == 503:
+		if strings.Contains(bodyLower, "overloaded") || strings.Contains(bodyLower, "model") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonServerError
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	case statusCode >= 500:
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+
+	default:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+	}
+
+	return proxyErr
 }
 
 // isRetryableStatusCode checks if the status code is retryable
