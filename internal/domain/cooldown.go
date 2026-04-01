@@ -11,6 +11,8 @@ const (
 	CooldownReasonQuotaExhausted     CooldownReason = "quota_exhausted"
 	CooldownReasonRateLimitExceeded  CooldownReason = "rate_limit_exceeded"
 	CooldownReasonConcurrentLimit    CooldownReason = "concurrent_limit"
+	CooldownReasonAuthFailure        CooldownReason = "auth_failure"
+	CooldownReasonModelUnavailable   CooldownReason = "model_unavailable"
 	CooldownReasonUnknown            CooldownReason = "unknown"
 )
 

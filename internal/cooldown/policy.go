@@ -67,8 +67,10 @@ const (
 	ReasonQuotaExhausted  CooldownReason = "quota_exhausted"       // API quota exhausted (fallback when no explicit time)
 	ReasonRateLimit       CooldownReason = "rate_limit_exceeded"   // Rate limit (fallback when no explicit time)
 	ReasonConcurrentLimit CooldownReason = "concurrent_limit"      // Concurrent request limit (fallback when no explicit time)
-	ReasonUnknown         CooldownReason = "unknown"               // Unknown error
-	ReasonManual          CooldownReason = "manual"                // Manually frozen by admin
+	ReasonUnknown          CooldownReason = "unknown"               // Unknown error
+	ReasonAuthFailure      CooldownReason = "auth_failure"          // API key invalid, expired, or account suspended
+	ReasonModelUnavailable CooldownReason = "model_unavailable"     // Model not found or access denied
+	ReasonManual           CooldownReason = "manual"                // Manually frozen by admin
 )
 
 // DefaultPolicies returns the default policy configuration
@@ -102,6 +104,14 @@ func DefaultPolicies() map[CooldownReason]CooldownPolicy {
 		ReasonUnknown: &LinearIncrementalPolicy{
 			BaseSeconds: 5,
 			MaxSeconds:  300, // 5 minutes
+		},
+		// Auth failure: fixed 1 hour (needs human intervention or key rotation)
+		ReasonAuthFailure: &FixedDurationPolicy{
+			Duration: 1 * time.Hour,
+		},
+		// Model unavailable: fixed 5 minutes (model might come back)
+		ReasonModelUnavailable: &FixedDurationPolicy{
+			Duration: 5 * time.Minute,
 		},
 	}
 }
