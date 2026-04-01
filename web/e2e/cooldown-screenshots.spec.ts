@@ -220,6 +220,11 @@ test.describe('Cooldown UI Screenshots', () => {
 
     await navigateAndWait(page, '/routes/gemini');
     await page.screenshot({ path: `${SCREENSHOT_DIR}/07-routes-gemini.png`, fullPage: true });
+
+    // Click the provider row to open details dialog
+    await page.click('text=Gemini Provider');
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/07b-dialog-gemini.png` });
   });
 
   test('08. Routes/OpenAI: Per-provider cooldowns', async ({ page }) => {
@@ -243,5 +248,10 @@ test.describe('Cooldown UI Screenshots', () => {
 
     await navigateAndWait(page, '/routes/openai');
     await page.screenshot({ path: `${SCREENSHOT_DIR}/08-routes-openai.png`, fullPage: true });
+
+    // Click OpenRouter to open dialog
+    await page.click('text=OpenRouter');
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/08b-dialog-openrouter.png` });
   });
 });
