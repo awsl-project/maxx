@@ -103,7 +103,7 @@ function SortableProviderRowBase({
   };
 
   const handleClearCooldown = (model?: string) => {
-    clearCooldown(item.provider.id, model);
+    clearCooldown(item.provider.id, { clientType, model });
   };
 
   return (

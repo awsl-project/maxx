@@ -58,8 +58,8 @@ export function useCooldowns() {
 
   // Mutation for clearing cooldown
   const clearCooldownMutation = useMutation({
-    mutationFn: ({ providerId, model }: { providerId: number; model?: string }) =>
-      getTransport().clearCooldown(providerId, model),
+    mutationFn: ({ providerId, options }: { providerId: number; options?: { clientType?: string; model?: string } }) =>
+      getTransport().clearCooldown(providerId, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
     },
@@ -149,8 +149,8 @@ export function useCooldowns() {
 
   // Clear cooldown (with optional model)
   const clearCooldown = useCallback(
-    (providerId: number, model?: string) => {
-      clearCooldownMutation.mutate({ providerId, model });
+    (providerId: number, options?: { clientType?: string; model?: string }) => {
+      clearCooldownMutation.mutate({ providerId, options });
     },
     [clearCooldownMutation],
   );

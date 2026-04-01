@@ -736,9 +736,12 @@ export class HttpTransport implements Transport {
     return this.expectArray<Cooldown>(data, '/cooldowns');
   }
 
-  async clearCooldown(providerId: number, model?: string): Promise<void> {
-    const params = model ? `?model=${encodeURIComponent(model)}` : '';
-    await this.adminClient.delete(`/cooldowns/${providerId}${params}`);
+  async clearCooldown(providerId: number, options?: { clientType?: string; model?: string }): Promise<void> {
+    const searchParams = new URLSearchParams();
+    if (options?.clientType) searchParams.set('clientType', options.clientType);
+    if (options?.model) searchParams.set('model', options.model);
+    const qs = searchParams.toString();
+    await this.adminClient.delete(`/cooldowns/${providerId}${qs ? `?${qs}` : ''}`);
   }
 
   async setCooldown(providerId: number, untilTime: string, clientType?: string, model?: string): Promise<void> {

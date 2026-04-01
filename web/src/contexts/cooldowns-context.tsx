@@ -50,7 +50,7 @@ interface CooldownsContextValue {
   isProviderInCooldown: (providerId: number, clientType?: string, model?: string) => boolean;
   getRemainingSeconds: (cooldown: Cooldown) => number;
   formatRemaining: (cooldown: Cooldown) => string;
-  clearCooldown: (providerId: number, model?: string) => void;
+  clearCooldown: (providerId: number, options?: { clientType?: string; model?: string }) => void;
   isClearingCooldown: boolean;
   setCooldown: (providerId: number, untilTime: string, clientType?: string, model?: string) => void;
   isSettingCooldown: boolean;
@@ -78,8 +78,8 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
 
   // Mutation for clearing cooldown
   const clearCooldownMutation = useMutation({
-    mutationFn: ({ providerId, model }: { providerId: number; model?: string }) =>
-      getTransport().clearCooldown(providerId, model),
+    mutationFn: ({ providerId, options }: { providerId: number; options?: { clientType?: string; model?: string } }) =>
+      getTransport().clearCooldown(providerId, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
     },
@@ -193,8 +193,8 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
   );
 
   const clearCooldown = useCallback(
-    (providerId: number, model?: string) => {
-      clearCooldownMutation.mutate({ providerId, model });
+    (providerId: number, options?: { clientType?: string; model?: string }) => {
+      clearCooldownMutation.mutate({ providerId, options });
     },
     [clearCooldownMutation],
   );

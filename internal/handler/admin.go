@@ -1143,9 +1143,10 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 			return
 		}
-		// Clear cooldowns for this provider; optionally filter by model
+		// Clear cooldowns for this provider; optionally filter by clientType and model
+		clientType := r.URL.Query().Get("clientType")
 		model := r.URL.Query().Get("model")
-		cm.ClearCooldown(providerID, "", model)
+		cm.ClearCooldown(providerID, clientType, model)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "cooldown cleared"})
 
 	default:
