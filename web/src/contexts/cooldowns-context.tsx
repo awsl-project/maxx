@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Cooldowns Context
  * 提供共享的 Cooldowns 数据，减少重复请求
  */
@@ -6,19 +6,53 @@
 import { createContext, useContext, useEffect, useCallback, type ReactNode } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { getTransport } from '@/lib/transport';
-import type { Cooldown } from '@/lib/transport';
+import type { Cooldown, ProviderHealthLevel } from '@/lib/transport';
 import { subscribeCooldownUpdates } from '@/lib/cooldown-update-subscription';
+
+/** Get provider health level from its cooldowns */
+function computeHealthLevel(cooldowns: Cooldown[]): ProviderHealthLevel {
+  if (cooldowns.length === 0) return 'healthy';
+  const hasProviderLevel = cooldowns.some((cd) => !cd.clientType && !cd.model);
+  if (hasProviderLevel) return 'frozen';
+  const hasKeyLevel = cooldowns.some((cd) => cd.clientType && !cd.model);
+  if (hasKeyLevel) return 'limited';
+  return 'degraded';
+}
+
+/** Hierarchical cooldown check */
+function checkInCooldown(
+  cooldowns: Cooldown[],
+  providerId: number,
+  clientType?: string,
+  model?: string,
+): boolean {
+  const now = Date.now();
+  return cooldowns.some((cd) => {
+    if (cd.providerID !== providerId) return false;
+    if (new Date(cd.until).getTime() <= now) return false;
+    // Provider-level: blocks everything
+    if (!cd.clientType && !cd.model) return true;
+    // ClientType-level: blocks all models for that client type
+    if (clientType && cd.clientType === clientType && !cd.model) return true;
+    // Model-level (all client types)
+    if (model && !cd.clientType && cd.model === model) return true;
+    // Model+ClientType level
+    if (clientType && model && cd.clientType === clientType && cd.model === model) return true;
+    return false;
+  });
+}
 
 interface CooldownsContextValue {
   cooldowns: Cooldown[];
   isLoading: boolean;
-  getCooldownForProvider: (providerId: number, clientType?: string) => Cooldown | undefined;
-  isProviderInCooldown: (providerId: number, clientType?: string) => boolean;
+  getCooldownsForProvider: (providerId: number) => Cooldown[];
+  getProviderHealthLevel: (providerId: number) => ProviderHealthLevel;
+  isProviderInCooldown: (providerId: number, clientType?: string, model?: string) => boolean;
   getRemainingSeconds: (cooldown: Cooldown) => number;
   formatRemaining: (cooldown: Cooldown) => string;
-  clearCooldown: (providerId: number) => void;
+  clearCooldown: (providerId: number, model?: string) => void;
   isClearingCooldown: boolean;
-  setCooldown: (providerId: number, untilTime: string, clientType?: string) => void;
+  setCooldown: (providerId: number, untilTime: string, clientType?: string, model?: string) => void;
   isSettingCooldown: boolean;
 }
 
@@ -44,7 +78,8 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
 
   // Mutation for clearing cooldown
   const clearCooldownMutation = useMutation({
-    mutationFn: (providerId: number) => getTransport().clearCooldown(providerId),
+    mutationFn: ({ providerId, model }: { providerId: number; model?: string }) =>
+      getTransport().clearCooldown(providerId, model),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
     },
@@ -56,16 +91,16 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
       providerId,
       untilTime,
       clientType,
+      model,
     }: {
       providerId: number;
       untilTime: string;
       clientType?: string;
+      model?: string;
     }) => {
-      console.log('Mutation executing:', { providerId, untilTime, clientType });
-      return getTransport().setCooldown(providerId, untilTime, clientType);
+      return getTransport().setCooldown(providerId, untilTime, clientType, model);
     },
     onSuccess: () => {
-      console.log('Cooldown set successfully');
       queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
     },
     onError: (error) => {
@@ -99,43 +134,36 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
     };
   }, [cooldowns, queryClient]);
 
-  const getCooldownForProvider = useCallback(
-    (providerId: number, clientType?: string) => {
-      return cooldowns.find((cd: Cooldown) => {
-        const matchesProvider = cd.providerID === providerId;
-        const matchesClientType =
-          cd.clientType === '' ||
-          cd.clientType === 'all' ||
-          (clientType && cd.clientType === clientType);
-
-        if (!matchesProvider || !matchesClientType) {
-          return false;
-        }
-
-        if (!cd.until) {
-          return false;
-        }
-        const until = new Date(cd.until).getTime();
-        const now = Date.now();
-        return until > now;
-      });
+  // Get all active cooldowns for a provider
+  const getCooldownsForProvider = useCallback(
+    (providerId: number): Cooldown[] => {
+      const now = Date.now();
+      return cooldowns.filter(
+        (cd) => cd.providerID === providerId && new Date(cd.until).getTime() > now,
+      );
     },
     [cooldowns],
   );
 
-  const isProviderInCooldown = useCallback(
-    (providerId: number, clientType?: string) => {
-      return !!getCooldownForProvider(providerId, clientType);
+  // Get health level for a provider
+  const getProviderHealthLevel = useCallback(
+    (providerId: number): ProviderHealthLevel => {
+      return computeHealthLevel(getCooldownsForProvider(providerId));
     },
-    [getCooldownForProvider],
+    [getCooldownsForProvider],
+  );
+
+  // Hierarchical check: is a specific (provider, clientType, model) combo frozen?
+  const isProviderInCooldown = useCallback(
+    (providerId: number, clientType?: string, model?: string): boolean => {
+      return checkInCooldown(cooldowns, providerId, clientType, model);
+    },
+    [cooldowns],
   );
 
   const getRemainingSeconds = useCallback((cooldown: Cooldown) => {
     if (!cooldown.until) return 0;
-
-    const until = new Date(cooldown.until);
-    const now = new Date();
-    const diff = until.getTime() - now.getTime();
+    const diff = new Date(cooldown.until).getTime() - Date.now();
     return Math.max(0, Math.floor(diff / 1000));
   }, []);
 
@@ -161,15 +189,15 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
   );
 
   const clearCooldown = useCallback(
-    (providerId: number) => {
-      clearCooldownMutation.mutate(providerId);
+    (providerId: number, model?: string) => {
+      clearCooldownMutation.mutate({ providerId, model });
     },
     [clearCooldownMutation],
   );
 
   const setCooldown = useCallback(
-    (providerId: number, untilTime: string, clientType?: string) => {
-      setCooldownMutation.mutate({ providerId, untilTime, clientType });
+    (providerId: number, untilTime: string, clientType?: string, model?: string) => {
+      setCooldownMutation.mutate({ providerId, untilTime, clientType, model });
     },
     [setCooldownMutation],
   );
@@ -179,7 +207,8 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
       value={{
         cooldowns,
         isLoading,
-        getCooldownForProvider,
+        getCooldownsForProvider,
+        getProviderHealthLevel,
         isProviderInCooldown,
         getRemainingSeconds,
         formatRemaining,
@@ -206,7 +235,7 @@ export function useCooldownsContext() {
 export function useCooldownFromContext(
   providerId: number,
   clientType?: string,
-): Cooldown | undefined {
+): Cooldown[] {
   const context = useContext(CooldownsContext);
-  return context?.getCooldownForProvider(providerId, clientType);
+  return context?.getCooldownsForProvider(providerId) ?? [];
 }
