@@ -7,6 +7,8 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
+const fallbackCodexTokenPrefix = "maxx-local-"
+
 func ensureCodexConfig(p *domain.Provider) *domain.ProviderConfigCodex {
 	if p.Config == nil {
 		p.Config = &domain.ProviderConfig{}
@@ -22,5 +24,9 @@ func buildFallbackCodexAccessToken(p *domain.Provider) string {
 	if p != nil && strings.TrimSpace(p.Name) != "" {
 		name = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(p.Name), " ", "-"))
 	}
-	return fmt.Sprintf("maxx-local-%s", name)
+	return fmt.Sprintf("%s%s", fallbackCodexTokenPrefix, name)
+}
+
+func isFallbackCodexAccessToken(token string) bool {
+	return strings.HasPrefix(strings.TrimSpace(token), fallbackCodexTokenPrefix)
 }

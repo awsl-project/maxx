@@ -261,7 +261,7 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
 	// Check cache
 	a.tokenMu.RLock()
 	if a.tokenCache.AccessToken != "" {
-		if a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt) {
+		if !isFallbackCodexAccessToken(a.tokenCache.AccessToken) && (a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt)) {
 			token := a.tokenCache.AccessToken
 			a.tokenMu.RUnlock()
 			return token, nil
@@ -271,7 +271,7 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
 
 	// Use persisted access token if present (even if expiry is unknown)
 	config := ensureCodexConfig(a.provider)
-	if strings.TrimSpace(config.AccessToken) != "" {
+	if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
 		var expiresAt time.Time
 		if strings.TrimSpace(config.ExpiresAt) != "" {
 			if parsed, err := time.Parse(time.RFC3339, config.ExpiresAt); err == nil {
@@ -302,7 +302,7 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
 		a.tokenCache = &TokenCache{AccessToken: fallbackToken}
 		a.tokenMu.Unlock()
 		config.AccessToken = fallbackToken
-		config.ExpiresAt = ""
+		config.ExpiresAt = time.Now().Add(5 * time.Second).Format(time.RFC3339)
 		if a.providerUpdate != nil {
 			if err := a.providerUpdate(a.provider); err != nil {
 				log.Printf("[Codex] failed to persist fallback token: %v", err)
@@ -313,7 +313,7 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
 
 	tokenResp, err := RefreshAccessToken(ctx, config.RefreshToken)
 	if err != nil {
-		if strings.TrimSpace(config.AccessToken) != "" {
+		if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
 			return config.AccessToken, nil
 		}
 		return "", err

@@ -107,7 +107,7 @@ func (a *CLIProxyAPICodexAdapter) getAccessToken(ctx context.Context) (string, e
 	// 检查缓存
 	a.tokenMu.RLock()
 	if a.tokenCache.AccessToken != "" {
-		if a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt) {
+		if !isFallbackCodexAccessToken(a.tokenCache.AccessToken) && (a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt)) {
 			token := a.tokenCache.AccessToken
 			a.tokenMu.RUnlock()
 			return token, nil
@@ -123,7 +123,7 @@ func (a *CLIProxyAPICodexAdapter) getAccessToken(ctx context.Context) (string, e
 	cfgRefreshToken := cfg.RefreshToken
 	a.tokenMu.RUnlock()
 
-	if cfgAccessToken != "" {
+	if cfgAccessToken != "" && !isFallbackCodexAccessToken(cfgAccessToken) {
 		var expiresAt time.Time
 		if cfgExpiresAt != "" {
 			if parsed, err := time.Parse(time.RFC3339, cfgExpiresAt); err == nil {
@@ -154,7 +154,7 @@ func (a *CLIProxyAPICodexAdapter) getAccessToken(ctx context.Context) (string, e
 		a.tokenCache = &TokenCache{AccessToken: fallbackToken}
 		a.tokenMu.Unlock()
 		cfg.AccessToken = fallbackToken
-		cfg.ExpiresAt = ""
+		cfg.ExpiresAt = time.Now().Add(5 * time.Second).Format(time.RFC3339)
 		if a.authObj.Metadata == nil {
 			a.authObj.Metadata = make(map[string]any)
 		}
@@ -170,7 +170,7 @@ func (a *CLIProxyAPICodexAdapter) getAccessToken(ctx context.Context) (string, e
 	tokenResp, err := refreshAccessToken(ctx, cfgRefreshToken)
 	if err != nil {
 		// 刷新失败时，如果有旧 token 就兜底使用
-		if cfgAccessToken != "" {
+		if cfgAccessToken != "" && !isFallbackCodexAccessToken(cfgAccessToken) {
 			return cfgAccessToken, nil
 		}
 		return "", err
@@ -452,9 +452,10 @@ type tokenResponse struct {
 }
 
 const (
-	openAITokenURL = "https://auth.openai.com/oauth/token"
-	oauthClientID  = "app_EMoamEEZ73f0CkXaXp7hrann"
+	oauthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 )
+
+var openAITokenURL = "https://auth.openai.com/oauth/token"
 
 // refreshAccessToken refreshes the access token using a refresh token
 func refreshAccessToken(ctx context.Context, refreshToken string) (*tokenResponse, error) {
