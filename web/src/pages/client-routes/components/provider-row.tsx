@@ -75,8 +75,11 @@ function SortableProviderRowBase({
   onDelete,
 }: SortableProviderRowProps) {
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
-  const { getCooldownForProvider, clearCooldown, isClearingCooldown } = useCooldownsContext();
-  const cooldown = getCooldownForProvider(item.provider.id, clientType);
+  const { getCooldownsForProvider, clearCooldown, isClearingCooldown } = useCooldownsContext();
+  const cooldowns = getCooldownsForProvider(item.provider.id);
+  const activeCooldowns = cooldowns.filter(
+    (cd) => new Date(cd.until).getTime() > Date.now(),
+  );
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
@@ -99,8 +102,8 @@ function SortableProviderRowBase({
     setShowDetailsDialog(true);
   };
 
-  const handleClearCooldown = () => {
-    clearCooldown(item.provider.id);
+  const handleClearCooldown = (model?: string) => {
+    clearCooldown(item.provider.id, model);
   };
 
   return (
@@ -115,7 +118,7 @@ function SortableProviderRowBase({
           isToggling={isToggling}
           onToggle={onToggle}
           onRowClick={handleRowClick}
-          isInCooldown={!!cooldown}
+          isInCooldown={activeCooldowns.length > 0}
           dragHandleListeners={listeners}
           onClearCooldown={handleClearCooldown}
           isClearingCooldown={isClearingCooldown}
@@ -130,7 +133,7 @@ function SortableProviderRowBase({
           open={showDetailsDialog}
           onOpenChange={setShowDetailsDialog}
           stats={stats}
-          cooldown={cooldown || null}
+          cooldowns={activeCooldowns}
           streamingCount={streamingCount}
           onToggle={onToggle}
           isToggling={isToggling}
@@ -273,8 +276,11 @@ function ProviderRowContentBase({
   const imageInfo = isAntigravity ? getImageQuotaInfo(quota) : null;
 
   // 获取 cooldown 状态
-  const { getCooldownForProvider, formatRemaining, getRemainingSeconds } = useCooldownsContext();
-  const cooldown = getCooldownForProvider(provider.id, clientType);
+  const { getCooldownsForProvider, formatRemaining, getRemainingSeconds } = useCooldownsContext();
+  const providerCooldowns = getCooldownsForProvider(provider.id);
+  const cooldown = providerCooldowns.find(
+    (cd) => new Date(cd.until).getTime() > Date.now(),
+  ) ?? null;
   const isInCooldown = isInCooldownProp ?? !!cooldown;
 
   // 实时倒计时状态

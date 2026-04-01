@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
@@ -21,6 +21,7 @@ import {
   XCircle,
   Trash2,
   Hand,
+  Lock,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
@@ -33,6 +34,7 @@ import { Button, Switch } from '@/components/ui';
 import { getProviderColor, type ProviderType } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { CooldownTimer } from '@/components/cooldown-timer';
 
 interface ProviderDetailsDialogProps {
   item: ProviderConfigItem | null;
@@ -40,12 +42,12 @@ interface ProviderDetailsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   stats?: ProviderStats;
-  cooldown?: Cooldown | null;
+  cooldowns?: Cooldown[];
   streamingCount: number;
   onToggle: () => void;
   isToggling: boolean;
   onDelete?: () => void;
-  onClearCooldown?: () => void;
+  onClearCooldown?: (model?: string) => void;
   isClearingCooldown?: boolean;
 }
 
@@ -93,6 +95,20 @@ const getReasonInfo = (t: TFunction) => ({
     color: 'text-orange-600 dark:text-orange-400',
     bgColor:
       'bg-orange-500/10 dark:bg-orange-500/15 border-orange-500/30 dark:border-orange-500/25',
+  },
+  auth_failure: {
+    label: t('provider.reasons.authFailure', 'Auth Failure'),
+    description: t('provider.reasons.authFailureDesc', 'API 认证失败，请检查密钥配置'),
+    icon: Lock,
+    color: 'text-rose-600 dark:text-rose-400',
+    bgColor: 'bg-rose-500/10 dark:bg-rose-500/15 border-rose-500/30 dark:border-rose-500/25',
+  },
+  model_unavailable: {
+    label: t('provider.reasons.modelUnavailable', 'Model Unavailable'),
+    description: t('provider.reasons.modelUnavailableDesc', '请求的模型当前不可用'),
+    icon: Ban,
+    color: 'text-slate-600 dark:text-slate-400',
+    bgColor: 'bg-slate-500/10 dark:bg-slate-500/15 border-slate-500/30 dark:border-slate-500/25',
   },
   unknown: {
     label: t('provider.reasons.unknown'),
@@ -218,7 +234,7 @@ export function ProviderDetailsDialog({
   open,
   onOpenChange,
   stats,
-  cooldown,
+  cooldowns = [],
   streamingCount,
   onToggle,
   isToggling,
@@ -226,50 +242,26 @@ export function ProviderDetailsDialog({
   onClearCooldown,
   isClearingCooldown,
 }: ProviderDetailsDialogProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const REASON_INFO = getReasonInfo(t);
-  const { formatRemaining, setCooldown, isSettingCooldown } = useCooldownsContext();
+  const { setCooldown, isSettingCooldown } = useCooldownsContext();
   const [showCustomTime, setShowCustomTime] = useState(false);
   const [customTimeInput, setCustomTimeInput] = useState('');
+  const [freezeMode, setFreezeMode] = useState<'provider' | 'model'>('provider');
+  const [freezeModel, setFreezeModel] = useState('');
 
   // 实时解析输入的时间
   const parsedTime = useMemo(() => parseTimeInput(customTimeInput), [customTimeInput]);
-
-  // 计算初始倒计时值
-  const getInitialCountdown = useCallback(() => {
-    return cooldown ? formatRemaining(cooldown) : '';
-  }, [cooldown, formatRemaining]);
-
-  const [liveCountdown, setLiveCountdown] = useState<string>(getInitialCountdown);
-
-  // 每秒更新倒计时
-  useEffect(() => {
-    if (!cooldown) return;
-
-    const interval = setInterval(() => {
-      setLiveCountdown(formatRemaining(cooldown));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [cooldown, formatRemaining]);
 
   if (!item) return null;
 
   const { provider, enabled, route, isNative } = item;
   const color = getProviderColor(provider.type as ProviderType);
-  const isInCooldown = !!cooldown;
 
-  const formatUntilTime = (until: string) => {
-    const date = new Date(until);
-    return date.toLocaleString(i18n.resolvedLanguage ?? i18n.language, {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-  };
+  const activeCooldowns = cooldowns.filter(
+    (cd) => new Date(cd.until).getTime() > Date.now(),
+  );
+  const isInCooldown = activeCooldowns.length > 0;
 
   const endpoint =
     provider.config?.custom?.clientBaseURL?.[clientType] ||
@@ -414,26 +406,37 @@ export function ProviderDetailsDialog({
               <div className="space-y-3">
                 {/* Cooldown Actions (if in cooldown) */}
                 {isInCooldown && (
-                  <Button
-                    onClick={onClearCooldown}
-                    disabled={isClearingCooldown || isToggling}
-                    className="w-full relative overflow-hidden rounded-xl p-px group disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-[1.01] active:scale-[0.99] shadow-lg shadow-teal-500/20 dark:shadow-teal-500/30 hover:shadow-teal-500/40 dark:hover:shadow-teal-500/50"
-                  >
-                    <span className="absolute inset-0 bg-linear-to-r from-teal-500 via-cyan-500 to-blue-500 rounded-xl" />
-                    <div className="relative flex items-center justify-center gap-2 rounded-lg px-4 py-3 transition-colors">
-                      {isClearingCooldown ? (
-                        <>
-                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-teal-400/30 border-t-teal-400" />
-                          <span className="text-sm font-bold ">{t('provider.thawing')}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Zap size={16} />
-                          {t('provider.forceThaw')}
-                        </>
-                      )}
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-cyan-400 flex items-center gap-1.5">
+                      <Snowflake size={12} />
+                      Active Cooldowns ({activeCooldowns.length})
                     </div>
-                  </Button>
+                    {activeCooldowns.map((cd, i) => {
+                      const reasonInfo = REASON_INFO[cd.reason] || REASON_INFO.unknown;
+                      const Icon = reasonInfo.icon;
+                      return (
+                        <div key={i} className={`flex items-center gap-2 p-2 rounded-lg border ${reasonInfo.bgColor}`}>
+                          <Icon size={14} className={`shrink-0 ${reasonInfo.color}`} />
+                          <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+                            <span className={`text-xs font-medium ${reasonInfo.color}`}>{reasonInfo.label}</span>
+                            {cd.model && (
+                              <span className="px-1 py-0.5 rounded text-[10px] font-mono bg-accent text-muted-foreground truncate max-w-[150px]">
+                                {cd.model}
+                              </span>
+                            )}
+                          </div>
+                          <CooldownTimer cooldown={cd} className="text-xs font-mono tabular-nums shrink-0" />
+                          <button
+                            onClick={() => onClearCooldown?.(cd.model || undefined)}
+                            disabled={isClearingCooldown || isToggling}
+                            className="p-1 rounded hover:bg-accent shrink-0 disabled:opacity-50"
+                          >
+                            <X size={12} className="text-muted-foreground" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
 
                 {/* Manual Freeze Button (if not in cooldown) */}
@@ -443,6 +446,43 @@ export function ProviderDetailsDialog({
                       <Snowflake size={12} />
                       {t('provider.manualFreeze')}
                     </div>
+
+                    {/* Freeze mode selector */}
+                    <div className="flex gap-1.5 mb-1">
+                      <button
+                        onClick={() => { setFreezeMode('provider'); setFreezeModel(''); }}
+                        className={`px-2.5 py-1 text-[11px] rounded-lg border transition-colors ${
+                          freezeMode === 'provider'
+                            ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                            : 'border-border text-muted-foreground hover:bg-accent'
+                        }`}
+                      >
+                        Entire Provider
+                      </button>
+                      <button
+                        onClick={() => setFreezeMode('model')}
+                        className={`px-2.5 py-1 text-[11px] rounded-lg border transition-colors ${
+                          freezeMode === 'model'
+                            ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                            : 'border-border text-muted-foreground hover:bg-accent'
+                        }`}
+                      >
+                        Specific Model
+                      </button>
+                    </div>
+
+                    {/* Model input */}
+                    {freezeMode === 'model' && (
+                      <input
+                        type="text"
+                        value={freezeModel}
+                        onChange={(e) => setFreezeModel(e.target.value)}
+                        placeholder="e.g. gemini-2.5-flash-image"
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono"
+                      />
+                    )}
+
+                    {/* Quick freeze buttons */}
                     <div className="flex flex-wrap gap-1.5">
                       {[
                         { label: '5m', minutes: 5 },
@@ -454,16 +494,15 @@ export function ProviderDetailsDialog({
                       ].map(({ label, minutes }) => (
                         <Button
                           key={label}
-                          disabled={isSettingCooldown || isToggling}
+                          disabled={isSettingCooldown || isToggling || (freezeMode === 'model' && !freezeModel.trim())}
                           onClick={() => {
                             const until = new Date(Date.now() + minutes * 60 * 1000);
-                            console.log(
-                              'Setting cooldown:',
+                            setCooldown(
                               provider.id,
                               until.toISOString(),
                               clientType,
+                              freezeMode === 'model' ? freezeModel.trim() : undefined,
                             );
-                            setCooldown(provider.id, until.toISOString(), clientType);
                           }}
                           className="px-3 py-1.5 text-xs rounded-lg border border-indigo-500/30 dark:border-indigo-500/25 bg-indigo-500/5 dark:bg-indigo-500/10 hover:bg-indigo-500/15 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 disabled:opacity-50"
                         >
@@ -522,7 +561,12 @@ export function ProviderDetailsDialog({
                       <Button
                         onClick={() => {
                           if (parsedTime) {
-                            setCooldown(provider.id, parsedTime.toISOString(), clientType);
+                            setCooldown(
+                              provider.id,
+                              parsedTime.toISOString(),
+                              clientType,
+                              freezeMode === 'model' ? freezeModel.trim() : undefined,
+                            );
                             setShowCustomTime(false);
                             setCustomTimeInput('');
                           }
@@ -560,7 +604,7 @@ export function ProviderDetailsDialog({
             {/* 右侧：Cooldown + Statistics */}
             <div className="lg:col-span-7 xl:col-span-8 space-y-4">
               {/* Cooldown Warning (if in cooldown) */}
-              {isInCooldown && cooldown && (
+              {isInCooldown && activeCooldowns[0] && (
                 <div className="rounded-xl border p-4 space-y-3">
                   <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400">
                     <Snowflake size={16} className="animate-spin-slow" />
@@ -570,26 +614,26 @@ export function ProviderDetailsDialog({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {/* Reason Section */}
                     <div
-                      className={`rounded-xl border p-3 backdrop-blur-sm ${REASON_INFO[cooldown.reason]?.bgColor || REASON_INFO.unknown.bgColor}`}
+                      className={`rounded-xl border p-3 backdrop-blur-sm ${REASON_INFO[activeCooldowns[0].reason]?.bgColor || REASON_INFO.unknown.bgColor}`}
                     >
                       <div className="flex gap-3">
                         <div
-                          className={`mt-0.5 shrink-0 ${REASON_INFO[cooldown.reason]?.color || REASON_INFO.unknown.color}`}
+                          className={`mt-0.5 shrink-0 ${REASON_INFO[activeCooldowns[0].reason]?.color || REASON_INFO.unknown.color}`}
                         >
                           {(() => {
                             const Icon =
-                              REASON_INFO[cooldown.reason]?.icon || REASON_INFO.unknown.icon;
+                              REASON_INFO[activeCooldowns[0].reason]?.icon || REASON_INFO.unknown.icon;
                             return <Icon size={18} />;
                           })()}
                         </div>
                         <div>
                           <h3
-                            className={`text-sm font-bold ${REASON_INFO[cooldown.reason]?.color || REASON_INFO.unknown.color} mb-1`}
+                            className={`text-sm font-bold ${REASON_INFO[activeCooldowns[0].reason]?.color || REASON_INFO.unknown.color} mb-1`}
                           >
-                            {REASON_INFO[cooldown.reason]?.label || REASON_INFO.unknown.label}
+                            {REASON_INFO[activeCooldowns[0].reason]?.label || REASON_INFO.unknown.label}
                           </h3>
                           <p className="text-xs text-muted-foreground leading-relaxed">
-                            {REASON_INFO[cooldown.reason]?.description ||
+                            {REASON_INFO[activeCooldowns[0].reason]?.description ||
                               REASON_INFO.unknown.description}
                           </p>
                         </div>
@@ -605,18 +649,21 @@ export function ProviderDetailsDialog({
                           Remaining
                         </span>
                       </div>
-                      <div className="relative font-mono text-2xl lg:text-3xl font-bold text-teal-600 dark:text-teal-400 tracking-widest tabular-nums drop-shadow-[0_0_12px_rgba(20,184,166,0.4)]">
-                        {liveCountdown}
+                      <CooldownTimer
+                        cooldown={activeCooldowns[0]}
+                        className="relative font-mono text-2xl lg:text-3xl font-bold text-teal-600 dark:text-teal-400 tracking-widest tabular-nums drop-shadow-[0_0_12px_rgba(20,184,166,0.4)]"
+                      />
+                      <div className="relative mt-2 text-[10px] text-teal-600/70 dark:text-teal-400/70 font-mono flex items-center gap-2">
+                        <Clock size={10} />
+                        {new Date(activeCooldowns[0].until).toLocaleString(undefined, {
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                          hour12: false,
+                        })}
                       </div>
-                      {(() => {
-                        const untilDateStr = formatUntilTime(cooldown.until);
-                        return (
-                          <div className="relative mt-2 text-[10px] text-teal-600/70 dark:text-teal-400/70 font-mono flex items-center gap-2">
-                            <Clock size={10} />
-                            {untilDateStr}
-                          </div>
-                        );
-                      })()}
                     </div>
                   </div>
                 </div>
