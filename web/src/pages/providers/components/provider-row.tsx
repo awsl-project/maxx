@@ -1,5 +1,8 @@
 import type { KeyboardEvent } from 'react';
-import { Activity, Mail, Globe } from 'lucide-react';
+import { Activity, Mail, Globe, Snowflake } from 'lucide-react';
+import { CooldownTimer } from '@/components/cooldown-timer';
+import { useCooldowns } from '@/hooks/use-cooldowns';
+import type { ProviderHealthLevel } from '@/lib/transport';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { MarqueeBackground } from '@/components/ui/marquee-background';
@@ -224,6 +227,12 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
   const codex5HInfo = isCodex ? getCodex5HQuotaInfo(codexQuota) : null;
   const codexWeekInfo = isCodex ? getCodexWeekQuotaInfo(codexQuota) : null;
 
+  const { getCooldownsForProvider, getProviderHealthLevel } = useCooldowns();
+  const providerCooldowns = getCooldownsForProvider(provider.id);
+  const healthLevel = getProviderHealthLevel(provider.id);
+  const worstCooldown = providerCooldowns[0];
+  const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
+
   const isInteractive = !!onClick;
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!onClick) return;
@@ -249,6 +258,8 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
       className={cn(
         'group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden',
         isInteractive ? 'cursor-pointer' : 'cursor-default opacity-90',
+        healthLevel === 'frozen' && 'opacity-50',
+        healthLevel === 'limited' && 'opacity-75',
         streamingCount > 0
           ? 'bg-card ring-1 ring-black/5 dark:ring-white/10'
           : isInteractive
@@ -256,7 +267,7 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
             : 'bg-card/60 border-border shadow-sm',
       )}
       style={{
-        borderColor: streamingCount > 0 ? `${color}60` : undefined,
+        borderColor: streamingCount > 0 ? `${color}60` : healthLevel === 'frozen' ? 'rgb(6 182 212 / 0.3)' : healthLevel === 'limited' ? 'rgb(234 179 8 / 0.3)' : healthLevel === 'degraded' ? 'rgb(249 115 22 / 0.2)' : undefined,
         boxShadow: streamingCount > 0 ? `0 0 20px ${color}15` : undefined,
       }}
     >
@@ -503,6 +514,32 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
             )
           ) : (
             <div className="h-1.5 bg-muted rounded-full" />
+          )}
+        </div>
+      )}
+
+      {/* Cooldown Status */}
+      {healthLevel !== 'healthy' && (
+        <div className="relative z-10 flex items-center gap-1.5 shrink-0">
+          {healthLevel === 'frozen' && worstCooldown && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+              <Snowflake size={12} className="text-cyan-500 animate-pulse" />
+              <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-cyan-500 tabular-nums" />
+            </div>
+          )}
+          {healthLevel === 'limited' && worstCooldown && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+              <Snowflake size={12} className="text-yellow-500" />
+              <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-yellow-500 tabular-nums" />
+            </div>
+          )}
+          {healthLevel === 'degraded' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-500/10 border border-orange-500/20">
+              <Snowflake size={12} className="text-orange-500" />
+              <span className="text-[11px] font-bold text-orange-500">
+                {modelCooldowns.length} model{modelCooldowns.length > 1 ? 's' : ''}
+              </span>
+            </div>
           )}
         </div>
       )}
