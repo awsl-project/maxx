@@ -117,7 +117,21 @@ test('requests page shows loading fallback first and then renders records under 
       timeout: 1000,
     });
 
-    await expect.poll(async () => page.locator('tbody tr[data-request-row="true"]').count(), { timeout: 15000 }).toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () => {
+          const response = await adminAPI('GET', `/requests?limit=20&providerId=${providerId}`, undefined, jwt);
+          return response.items?.length ?? 0;
+        },
+        { timeout: 15000 },
+      )
+      .toBeGreaterThan(0);
+
+    await expect(page.locator('svg.animate-spin').first()).toBeHidden({ timeout: 10000 });
+    await expect(page.locator('body')).not.toContainText(/暂无请求记录|No requests recorded/, {
+      timeout: 10000,
+    });
+    await expect(page.locator('body')).toContainText(/total requests|个请求/i, { timeout: 10000 });
   } finally {
     if (routeId) {
       await adminAPI('DELETE', `/routes/${routeId}`, undefined, jwt).catch(() => undefined);
