@@ -321,7 +321,7 @@ func (r *Router) GetCooldowns() ([]*domain.Cooldown, error) {
 // ClearCooldown clears cooldown for a specific provider
 // Clears all cooldowns (global + per-client-type) for the provider
 func (r *Router) ClearCooldown(providerID uint64) error {
-	r.cooldownManager.ClearCooldown(providerID, "")
+	r.cooldownManager.ClearCooldown(providerID, "", "")
 	return nil
 }
 
