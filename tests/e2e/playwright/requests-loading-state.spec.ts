@@ -116,9 +116,11 @@ test('requests page shows loading fallback first and then renders records under 
     });
 
     await page.goto(`${BASE}/requests`);
+    await page.waitForLoadState('networkidle');
     if (await page.locator('input[type="password"]').count()) {
       await loginToAdminUI(page);
       await page.goto(`${BASE}/requests`);
+      await page.waitForLoadState('networkidle');
     }
 
     await expect(page.locator('body')).not.toContainText(/暂无请求记录|No requests recorded/, {
@@ -155,11 +157,8 @@ test('requests page shows loading fallback first and then renders records under 
     if (providerId) {
       await adminAPI('DELETE', `/providers/${providerId}`, undefined, jwt).catch(() => undefined);
     }
-    await new Promise<void>((resolve, reject) => {
-      mock.server.close((error) => {
-        if (error) reject(error);
-        else resolve();
-      });
+    await new Promise<void>((resolve) => {
+      mock.server.close(() => resolve());
     });
   }
 });
