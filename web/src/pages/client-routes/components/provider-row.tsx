@@ -304,7 +304,7 @@ function ProviderRowContentBase({
       onClick={handleContentClick}
       className={cn(
         'group relative flex flex-wrap items-center gap-x-4 gap-y-0 p-3 rounded-xl border transition-all duration-300 overflow-hidden w-full h-auto cursor-pointer active:cursor-grab',
-        effectiveIsInCooldown
+        (healthLevel === 'frozen' || healthLevel === 'limited')
           ? 'bg-transparent border-slate-400/50 dark:border-slate-500/40 hover:bg-slate-200/50 dark:hover:bg-slate-700/30 hover:border-slate-500 dark:hover:border-slate-400 hover:shadow-md'
           : enabled
             ? streamingCount > 0
@@ -332,10 +332,9 @@ function ProviderRowContentBase({
         opacity={0.4}
       />
 
-      {/* Cooldown 冰冻效果 - 落雪 */}
-      {effectiveIsInCooldown && (
+      {/* Cooldown 冰冻效果 - 落雪 (only for frozen/limited, NOT degraded) */}
+      {(healthLevel === 'frozen' || healthLevel === 'limited') && (
         <>
-          {/* 雪花动画 (CSS Background) - z-0 置于所有元素后面 */}
           <div className="absolute inset-0 z-0 animate-snowing pointer-events-none opacity-80" />
           <div className="absolute inset-0 z-0 animate-snowing-secondary pointer-events-none opacity-80" />
         </>
@@ -363,27 +362,27 @@ function ProviderRowContentBase({
         <div
           className={cn(
             'relative w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-all duration-500 overflow-hidden',
-            effectiveIsInCooldown
+            (healthLevel === 'frozen' || healthLevel === 'limited')
               ? 'bg-slate-200 dark:bg-slate-800 border border-slate-400/30 dark:border-slate-600/30'
               : 'bg-muted border border-border shadow-inner',
           )}
-          style={!effectiveIsInCooldown && enabled ? { color } : {}}
+          style={(healthLevel === 'healthy' || healthLevel === 'degraded') && enabled ? { color } : {}}
         >
           <span
             className={cn(
               'text-xl font-black transition-all',
-              effectiveIsInCooldown ? 'opacity-0' : enabled ? 'scale-100' : 'opacity-30 grayscale',
+              (healthLevel === 'frozen' || healthLevel === 'limited') ? 'opacity-0' : enabled ? 'scale-100' : 'opacity-30 grayscale',
             )}
           >
             {provider.name.charAt(0).toUpperCase()}
           </span>
-          {effectiveIsInCooldown && (
+          {(healthLevel === 'frozen' || healthLevel === 'limited') && (
             <Snowflake
               size={22}
               className="absolute text-slate-500/70 dark:text-white/70 animate-pulse drop-shadow-[0_0_8px_rgba(100,116,139,0.4)] dark:drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]"
             />
           )}
-          {enabled && streamingCount > 0 && !effectiveIsInCooldown && (
+          {enabled && streamingCount > 0 && healthLevel === 'healthy' && (
             <div className="absolute inset-0 bg-black/5 dark:bg-white/5 animate-pulse" />
           )}
         </div>
