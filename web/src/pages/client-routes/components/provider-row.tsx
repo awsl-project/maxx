@@ -76,7 +76,7 @@ function SortableProviderRowBase({
 }: SortableProviderRowProps) {
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const { getCooldownsForProvider, clearCooldown, isClearingCooldown } = useCooldownsContext();
-  const cooldowns = getCooldownsForProvider(item.provider.id);
+  const cooldowns = getCooldownsForProvider(item.provider.id, clientType);
   const activeCooldowns = cooldowns.filter(
     (cd) => new Date(cd.until).getTime() > Date.now(),
   );
@@ -277,7 +277,7 @@ function ProviderRowContentBase({
 
   // 获取 cooldown 状态
   const { getCooldownsForProvider, formatRemaining, getRemainingSeconds } = useCooldownsContext();
-  const providerCooldowns = getCooldownsForProvider(provider.id);
+  const providerCooldowns = getCooldownsForProvider(provider.id, clientType);
   const cooldown = providerCooldowns.find(
     (cd) => new Date(cd.until).getTime() > Date.now(),
   ) ?? null;

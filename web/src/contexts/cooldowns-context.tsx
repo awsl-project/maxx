@@ -45,8 +45,8 @@ function checkInCooldown(
 interface CooldownsContextValue {
   cooldowns: Cooldown[];
   isLoading: boolean;
-  getCooldownsForProvider: (providerId: number) => Cooldown[];
-  getProviderHealthLevel: (providerId: number) => ProviderHealthLevel;
+  getCooldownsForProvider: (providerId: number, clientType?: string) => Cooldown[];
+  getProviderHealthLevel: (providerId: number, clientType?: string) => ProviderHealthLevel;
   isProviderInCooldown: (providerId: number, clientType?: string, model?: string) => boolean;
   getRemainingSeconds: (cooldown: Cooldown) => number;
   formatRemaining: (cooldown: Cooldown) => string;
@@ -136,19 +136,23 @@ export function CooldownsProvider({ children }: CooldownsProviderProps) {
 
   // Get all active cooldowns for a provider
   const getCooldownsForProvider = useCallback(
-    (providerId: number): Cooldown[] => {
+    (providerId: number, clientType?: string): Cooldown[] => {
       const now = Date.now();
-      return cooldowns.filter(
-        (cd) => cd.providerID === providerId && new Date(cd.until).getTime() > now,
-      );
+      return cooldowns.filter((cd) => {
+        if (cd.providerID !== providerId) return false;
+        if (new Date(cd.until).getTime() <= now) return false;
+        if (!clientType) return true;
+        if (!cd.clientType) return true; // provider-level affects all
+        return cd.clientType === clientType;
+      });
     },
     [cooldowns],
   );
 
-  // Get health level for a provider
+  // Get health level for a provider (optionally scoped to a clientType)
   const getProviderHealthLevel = useCallback(
-    (providerId: number): ProviderHealthLevel => {
-      return computeHealthLevel(getCooldownsForProvider(providerId));
+    (providerId: number, clientType?: string): ProviderHealthLevel => {
+      return computeHealthLevel(getCooldownsForProvider(providerId, clientType));
     },
     [getCooldownsForProvider],
   );
