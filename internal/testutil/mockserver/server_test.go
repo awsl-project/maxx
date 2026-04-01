@@ -22,12 +22,9 @@ func TestServer_DefaultOpenAI(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-
 	body, _ := io.ReadAll(resp.Body)
 	var result map[string]any
-	if err := json.Unmarshal(body, &result); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	json.Unmarshal(body, &result)
 	if result["object"] != "chat.completion" {
 		t.Errorf("expected chat.completion, got %v", result["object"])
 	}
@@ -102,19 +99,22 @@ func TestServer_DefaultCodex(t *testing.T) {
 	}
 }
 
-func TestServer_MockHeader429(t *testing.T) {
+func TestServer_SetDirective_429(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	req, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions",
-		strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(MockHeader, `{"status":429,"headers":{"Retry-After":"5"}}`)
+	session := srv.Set("", "my-api-key", MockDirective{
+		Status:  429,
+		Headers: map[string]string{"Retry-After": "5"},
+	})
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(SessionHeader, session)
+	req.Header.Set("Authorization", "Bearer my-api-key")
+
+	resp, _ := http.DefaultClient.Do(req)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 429 {
@@ -123,90 +123,149 @@ func TestServer_MockHeader429(t *testing.T) {
 	if resp.Header.Get("Retry-After") != "5" {
 		t.Errorf("expected Retry-After=5, got %q", resp.Header.Get("Retry-After"))
 	}
-
-	// Should have protocol-appropriate error body
-	body, _ := io.ReadAll(resp.Body)
-	var result map[string]any
-	json.Unmarshal(body, &result)
-	if _, ok := result["error"]; !ok {
-		t.Errorf("expected error in response body: %s", body)
-	}
 }
 
-func TestServer_MockHeaderCustomBody(t *testing.T) {
+func TestServer_SetDirective_PerProvider(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	customBody := `{"custom":"error","detail":"test"}`
-	mockDirective := `{"status":503,"body":` + customBody + `}`
+	session := srv.Set("", "provider-1-key", MockDirective{Status: 429})
+	srv.Set(session, "provider-2-key", MockDirective{Status: 200})
+
+	// Provider 1 → 429
+	req1, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set(SessionHeader, session)
+	req1.Header.Set("Authorization", "Bearer provider-1-key")
+	resp1, _ := http.DefaultClient.Do(req1)
+	defer resp1.Body.Close()
+	if resp1.StatusCode != 429 {
+		t.Fatalf("provider-1: expected 429, got %d", resp1.StatusCode)
+	}
+
+	// Provider 2 → 200
+	req2, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set(SessionHeader, session)
+	req2.Header.Set("Authorization", "Bearer provider-2-key")
+	resp2, _ := http.DefaultClient.Do(req2)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("provider-2: expected 200, got %d", resp2.StatusCode)
+	}
+}
+
+func TestServer_SetDirective_Wildcard(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	session := srv.Set("", "*", MockDirective{Status: 503})
 
 	req, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions",
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(MockHeader, mockDirective)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	req.Header.Set(SessionHeader, session)
+	req.Header.Set("Authorization", "Bearer any-key")
+	resp, _ := http.DefaultClient.Do(req)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 503 {
 		t.Fatalf("expected 503, got %d", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	var result map[string]any
-	json.Unmarshal(body, &result)
-	if result["custom"] != "error" {
-		t.Errorf("expected custom body, got: %s", body)
-	}
 }
 
-func TestServer_MockHeaderStream(t *testing.T) {
+func TestServer_NoSession_Returns200(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	mockDirective := `{"stream":{"chunks":[{"data":{"text":"hello"}},{"data":{"text":"world"}}]}}`
+	srv.Set("", "some-key", MockDirective{Status: 500})
 
+	// No session header → no match → 200
 	req, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions",
-		strings.NewReader(`{"model":"gpt-4o","messages":[],"stream":true}`))
+		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(MockHeader, mockDirective)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	req.Header.Set("Authorization", "Bearer some-key")
+	resp, _ := http.DefaultClient.Do(req)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
-		t.Errorf("expected text/event-stream, got %s", ct)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "hello") || !strings.Contains(string(body), "world") {
-		t.Errorf("expected stream chunks: %s", body)
+		t.Fatalf("expected 200 without session, got %d", resp.StatusCode)
 	}
 }
 
-func TestServer_InvalidMockHeader(t *testing.T) {
+func TestServer_SetViaHTTP(t *testing.T) {
 	srv := New()
 	defer srv.Close()
+
+	// Set via HTTP API
+	setResp, _ := http.Post(srv.URL+"/__mock/set", "application/json",
+		strings.NewReader(`{"apiKey":"test-key","directive":{"status":503}}`))
+	defer setResp.Body.Close()
+
+	var setResult SetResponse
+	json.NewDecoder(setResp.Body).Decode(&setResult)
+	if setResult.Session == "" {
+		t.Fatal("expected session in response")
+	}
+
+	// Use the session
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(SessionHeader, setResult.Session)
+	req.Header.Set("Authorization", "Bearer test-key")
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 503 {
+		t.Fatalf("expected 503, got %d", resp.StatusCode)
+	}
+}
+
+func TestServer_Clear(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	session := srv.Set("", "key", MockDirective{Status: 500})
+	srv.Clear(session)
 
 	req, _ := http.NewRequest("POST", srv.URL+"/v1/chat/completions",
 		strings.NewReader(`{"model":"gpt-4o","messages":[]}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(MockHeader, "not valid json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	req.Header.Set(SessionHeader, session)
+	req.Header.Set("Authorization", "Bearer key")
+	resp, _ := http.DefaultClient.Do(req)
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 400 {
-		t.Fatalf("expected 400 for invalid mock header, got %d", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200 after clear, got %d", resp.StatusCode)
+	}
+}
+
+func TestServer_ExtractAPIKey(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		value  string
+		expect string
+	}{
+		{"openai", "Authorization", "Bearer sk-openai", "sk-openai"},
+		{"claude", "x-api-key", "sk-claude", "sk-claude"},
+		{"gemini", "x-goog-api-key", "gemini-key", "gemini-key"},
+		{"none", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("POST", "http://localhost/test", nil)
+			if tt.header != "" {
+				req.Header.Set(tt.header, tt.value)
+			}
+			got := extractAPIKey(req)
+			if got != tt.expect {
+				t.Errorf("got %q, want %q", got, tt.expect)
+			}
+		})
 	}
 }

@@ -2,44 +2,32 @@ package mockserver
 
 import "encoding/json"
 
-// MockHeader is the HTTP header name used to control mock server behavior.
+// SessionHeader is sent in proxy requests so the mock server
+// can look up per-(session, apiKey) directives.
+const SessionHeader = "X-Mock-Session"
+
+// MockHeader is the legacy header for single-request directive control.
+// If set, overrides any session-based directive lookup.
 const MockHeader = "X-Mock-Response"
 
 // MockDirective controls how the mock server responds to a request.
-// Sent as JSON in the X-Mock-Response request header.
 type MockDirective struct {
-	// Status is the HTTP status code to return. Default: 200.
-	Status int `json:"status,omitempty"`
-
-	// Delay delays the response by this duration (e.g. "2s", "500ms").
-	Delay string `json:"delay,omitempty"`
-
-	// Headers are additional response headers to set (e.g. {"Retry-After": "5"}).
+	Status  int               `json:"status,omitempty"`
+	Delay   string            `json:"delay,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
-
-	// Body overrides the entire response body. If set, returned as-is.
-	// If nil, the mock server generates a protocol-appropriate response.
-	Body json.RawMessage `json:"body,omitempty"`
-
-	// Stream controls SSE streaming behavior. If non-nil, response is streamed.
-	Stream *MockStreamDirective `json:"stream,omitempty"`
+	Body    json.RawMessage   `json:"body,omitempty"`
+	Stream  *MockStreamDirective `json:"stream,omitempty"`
 }
 
 // MockStreamDirective controls SSE streaming responses.
 type MockStreamDirective struct {
-	// Chunks is a list of SSE chunks to send sequentially.
 	Chunks []MockStreamChunk `json:"chunks"`
 }
 
 // MockStreamChunk is a single chunk in a streaming response.
 type MockStreamChunk struct {
-	// Data is the JSON object to send as an SSE data event.
-	Data json.RawMessage `json:"data,omitempty"`
-
-	// Delay pauses before sending this chunk (e.g. "200ms").
-	Delay string `json:"delay,omitempty"`
-
-	// Error terminates the stream with an error at this point.
+	Data  json.RawMessage  `json:"data,omitempty"`
+	Delay string           `json:"delay,omitempty"`
 	Error *MockStreamError `json:"error,omitempty"`
 }
 
@@ -47,6 +35,18 @@ type MockStreamChunk struct {
 type MockStreamError struct {
 	Status int             `json:"status"`
 	Body   json.RawMessage `json:"body,omitempty"`
+}
+
+// SetRequest is the body for POST /__mock/set.
+type SetRequest struct {
+	Session   string        `json:"session,omitempty"` // empty = auto-generate
+	APIKey    string        `json:"apiKey"`            // which provider; "*" = wildcard
+	Directive MockDirective `json:"directive"`
+}
+
+// SetResponse is returned from POST /__mock/set.
+type SetResponse struct {
+	Session string `json:"session"`
 }
 
 // Protocol represents the detected API protocol.
