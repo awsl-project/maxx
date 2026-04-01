@@ -202,8 +202,8 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 			continue
 		}
 
-		// Skip providers in cooldown
-		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType)) {
+		// Skip providers in cooldown (checks provider, key, and model-level cooldowns)
+		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType), requestModel) {
 			continue
 		}
 
