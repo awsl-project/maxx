@@ -85,10 +85,6 @@ func (e *ProxyError) Unwrap() error {
 	return e.Err
 }
 
-func NewProxyError(err error, retryable bool) *ProxyError {
-	return &ProxyError{Err: err, Retryable: retryable}
-}
-
 func NewProxyErrorWithMessage(err error, retryable bool, msg string) *ProxyError {
 	return &ProxyError{Err: err, Retryable: retryable, Message: msg}
 }
