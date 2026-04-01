@@ -21,7 +21,9 @@ test('requests page shows loading fallback first and then renders records under 
         let parsed: any = {};
         try {
           parsed = JSON.parse(body);
-        } catch {}
+        } catch (error) {
+          console.warn('Mock server: failed to parse request body', { error, body });
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
@@ -45,8 +47,12 @@ test('requests page shows loading fallback first and then renders records under 
 
   let providerId: number | null = null;
   let routeId: number | null = null;
+  let previousApiTokenAuthEnabled: string | undefined;
   try {
     jwt = await loginToAdminAPI();
+    const settings = await adminAPI('GET', '/settings', undefined, jwt);
+    previousApiTokenAuthEnabled = settings.api_token_auth_enabled;
+    await adminAPI('PUT', '/settings/api_token_auth_enabled', { value: 'false' }, jwt);
     const provider = await adminAPI(
       'POST',
       '/providers',
@@ -80,7 +86,7 @@ test('requests page shows loading fallback first and then renders records under 
     );
     routeId = route.id;
 
-    await fetch(`${BASE}/v1/messages`, {
+    const proxyResponse = await fetch(`${BASE}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -92,6 +98,9 @@ test('requests page shows loading fallback first and then renders records under 
         messages: [{ role: 'user', content: 'hi' }],
       }),
     });
+    if (!proxyResponse.ok) {
+      throw new Error(`proxy request failed (${proxyResponse.status}): ${await proxyResponse.text()}`);
+    }
 
     await page.addInitScript(
       ({ providerId }) => {
@@ -132,6 +141,14 @@ test('requests page shows loading fallback first and then renders records under 
     });
     await expect(page.locator('body')).toContainText(/total requests|个请求/i, { timeout: 10000 });
   } finally {
+    if (previousApiTokenAuthEnabled !== undefined) {
+      await adminAPI(
+        'PUT',
+        '/settings/api_token_auth_enabled',
+        { value: previousApiTokenAuthEnabled },
+        jwt,
+      ).catch(() => undefined);
+    }
     if (routeId) {
       await adminAPI('DELETE', `/routes/${routeId}`, undefined, jwt).catch(() => undefined);
     }
