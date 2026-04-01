@@ -1,5 +1,5 @@
 import { execSync, spawn } from 'child_process';
-import { resolve } from 'path';
+import { resolve, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const MAXX_PORT = 19881;
@@ -19,7 +19,10 @@ async function waitForServer(url: string, timeoutMs = 30000): Promise<void> {
   throw new Error(`Server at ${url} not ready after ${timeoutMs}ms`);
 }
 
-async function createProvider(name: string, types: string[], apiKey: string) {
+async function createProvider(name: string, types: string[], id?: number) {
+  // Use /p/{id} path prefix so mock server can identify which provider is calling
+  // ID is predicted (sequential from 1) — we pass it to construct the baseURL
+  const baseURL = id ? `${MOCK_URL}/p/${id}` : MOCK_URL;
   const resp = await fetch(`${MAXX_URL}/api/admin/providers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -27,14 +30,14 @@ async function createProvider(name: string, types: string[], apiKey: string) {
       type: 'custom',
       name,
       supportedClientTypes: types,
-      config: { custom: { baseURL: MOCK_URL, apiKey } },
+      config: { custom: { baseURL, apiKey: 'mock-key' } },
     }),
   });
   const data = await resp.json();
   return data.id as number;
 }
 
-async function createRoute(providerID: number, clientType: string) {
+async function createRoute(providerID: number, clientType: string, position = 1) {
   await fetch(`${MAXX_URL}/api/admin/routes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -43,7 +46,7 @@ async function createRoute(providerID: number, clientType: string) {
       clientType,
       isEnabled: true,
       isNative: true,
-      position: 1,
+      position,
       weight: 1,
     }),
   });
@@ -60,6 +63,12 @@ export default async function globalSetup() {
     stdio: 'pipe',
   });
 
+  console.log('[Setup] Building frontend...');
+  execSync('pnpm exec vite build --outDir dist', {
+    cwd: join(projectRoot, 'web'),
+    stdio: 'pipe',
+  });
+
   console.log('[Setup] Building maxx...');
   execSync('go build -o /tmp/maxx-test ./cmd/maxx', {
     cwd: projectRoot,
@@ -73,11 +82,12 @@ export default async function globalSetup() {
   });
   mockProcess.unref();
 
-  console.log('[Setup] Starting maxx on :' + MAXX_PORT + ' (in-memory SQLite)');
+  console.log('[Setup] Starting maxx on :' + MAXX_PORT + ' (in-memory SQLite, mock mode)');
   const maxxProcess = spawn('/tmp/maxx-test', ['-addr', `:${MAXX_PORT}`], {
     stdio: 'pipe',
     detached: true,
-    env: { ...process.env, MAXX_DSN: 'sqlite://:memory:' },
+    cwd: projectRoot,
+    env: { ...process.env, MAXX_DSN: 'sqlite://:memory:', MAXX_MOCK_MODE: '1' },
   });
   maxxProcess.unref();
 
@@ -87,19 +97,19 @@ export default async function globalSetup() {
   await waitForServer(`${MAXX_URL}/health`);
   console.log('[Setup] Servers ready');
 
-  // Create test providers with distinct API keys
-  const p1 = await createProvider('Gemini Provider', ['gemini', 'openai'], 'key-gemini');
-  const p2 = await createProvider('OpenRouter', ['openai', 'claude'], 'key-openrouter');
-  const p3 = await createProvider('Claude Direct', ['claude'], 'key-claude');
-  const p4 = await createProvider('Azure OpenAI', ['openai'], 'key-azure');
+  // Create test providers with /p/{id} baseURL prefix for mock server identification
+  const p1 = await createProvider('Gemini Provider', ['gemini', 'openai'], 1);
+  const p2 = await createProvider('OpenRouter', ['openai', 'claude'], 2);
+  const p3 = await createProvider('Claude Direct', ['claude'], 3);
+  const p4 = await createProvider('Azure OpenAI', ['openai'], 4);
 
-  // Create routes
-  await createRoute(p1, 'gemini');
-  await createRoute(p1, 'openai');
-  await createRoute(p2, 'openai');
-  await createRoute(p2, 'claude');
-  await createRoute(p3, 'claude');
-  await createRoute(p4, 'openai');
+  // Create routes (position determines priority — lower number = tried first)
+  await createRoute(p1, 'gemini', 1);
+  await createRoute(p2, 'openai', 1);   // OpenRouter first for openai
+  await createRoute(p1, 'openai', 2);   // Gemini Provider second
+  await createRoute(p4, 'openai', 3);   // Azure third
+  await createRoute(p3, 'claude', 1);   // Claude Direct first for claude
+  await createRoute(p2, 'claude', 2);   // OpenRouter second for claude
 
   // Store PIDs for teardown
   process.env.MOCK_PID = String(mockProcess.pid);

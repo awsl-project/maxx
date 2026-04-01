@@ -14,16 +14,20 @@ import (
 
 // directiveKey is the lookup key for stored directives.
 type directiveKey struct {
-	Session string
-	APIKey  string
+	Session    string
+	ProviderID string
 }
 
 // Server is a mock upstream server that supports OpenAI, Claude, Gemini, and Codex protocols.
 //
+// Provider identification is done via URL path prefix: /p/{providerID}/...
+// Each provider's baseURL should be set to "http://mock:port/p/{id}".
+// The mock server strips the prefix before protocol detection.
+//
 // Two modes of operation:
-//  1. Control API: POST /__mock/set to pre-register (session, apiKey) → directive pairs.
-//     Proxy requests include X-Mock-Session header; the server matches by (session, apiKey).
-//  2. No session: returns default 200 success for the detected protocol.
+//  1. Control API: POST /__mock/set to pre-register (session, providerID) → directive pairs.
+//  2. Legacy: X-Mock-Response header for single-request control.
+//  3. No session/header: returns default 200 success for the detected protocol.
 type Server struct {
 	*httptest.Server
 	directives sync.Map // map[directiveKey]MockDirective
@@ -44,11 +48,11 @@ func New() *Server {
 
 // Set programmatically registers a directive (for use in Go tests).
 // Returns the session ID.
-func (s *Server) Set(session, apiKey string, directive MockDirective) string {
+func (s *Server) Set(session, providerID string, directive MockDirective) string {
 	if session == "" {
 		session = uuid.New().String()
 	}
-	s.directives.Store(directiveKey{Session: session, APIKey: apiKey}, directive)
+	s.directives.Store(directiveKey{Session: session, ProviderID: providerID}, directive)
 	return session
 }
 
@@ -62,6 +66,11 @@ func (s *Server) Clear(session string) {
 	})
 }
 
+// ProviderURL returns the base URL for a provider, e.g. "http://host:port/p/3".
+func (s *Server) ProviderURL(providerID string) string {
+	return s.URL + ProviderPathPrefix + providerID
+}
+
 func (s *Server) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/__mock/set", s.handleSet)
@@ -70,7 +79,7 @@ func (s *Server) handler() http.Handler {
 	return mux
 }
 
-// POST /__mock/set — register a directive
+// POST /__mock/set
 func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -81,12 +90,12 @@ func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	session := s.Set(req.Session, req.APIKey, req.Directive)
+	session := s.Set(req.Session, req.ProviderID, req.Directive)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(SetResponse{Session: session})
 }
 
-// POST /__mock/clear — clear all directives for a session
+// POST /__mock/clear
 func (s *Server) handleClear(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -102,14 +111,18 @@ func (s *Server) handleClear(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleProxy handles actual API requests (OpenAI, Claude, Gemini, Codex).
+// handleProxy handles actual API requests.
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
+	// Extract provider ID from path prefix: /p/{id}/...
+	providerID, realPath := extractProviderFromPath(r.URL.Path)
+	r.URL.Path = realPath
+
 	body, _ := io.ReadAll(r.Body)
 	protocol := DetectProtocol(r)
 	model := ExtractModel(protocol, body, r.URL.Path)
 
-	// Resolve directive: X-Mock-Response header (legacy) > session-based lookup > empty (200 OK)
-	directive := s.resolveDirective(r)
+	// Resolve directive
+	directive := s.resolveDirective(r, providerID)
 
 	// Apply delay
 	if directive.Delay != "" {
@@ -135,7 +148,6 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 
-	// Write response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
@@ -148,9 +160,22 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// extractProviderFromPath extracts provider ID from /p/{id}/... prefix.
+// Returns ("", originalPath) if no prefix found.
+func extractProviderFromPath(path string) (string, string) {
+	if !strings.HasPrefix(path, ProviderPathPrefix) {
+		return "", path
+	}
+	rest := path[len(ProviderPathPrefix):]
+	slash := strings.Index(rest, "/")
+	if slash < 0 {
+		return rest, "/"
+	}
+	return rest[:slash], rest[slash:]
+}
+
 // resolveDirective determines the MockDirective for a request.
-// Priority: X-Mock-Response header (legacy) → exact (session, apiKey) → wildcard (session, "*") → empty (200 OK).
-func (s *Server) resolveDirective(r *http.Request) MockDirective {
+func (s *Server) resolveDirective(r *http.Request, providerID string) MockDirective {
 	// Legacy: X-Mock-Response header takes precedence
 	if mockHeader := r.Header.Get(MockHeader); mockHeader != "" {
 		var d MockDirective
@@ -158,43 +183,22 @@ func (s *Server) resolveDirective(r *http.Request) MockDirective {
 			return d
 		}
 	}
-	return s.lookupDirective(r)
-}
 
-// lookupDirective finds the matching session-based directive for a request.
-func (s *Server) lookupDirective(r *http.Request) MockDirective {
 	session := r.Header.Get(SessionHeader)
 	if session == "" {
 		return MockDirective{}
 	}
 
-	apiKey := extractAPIKey(r)
-
-	// Exact match
-	if d, ok := s.directives.Load(directiveKey{Session: session, APIKey: apiKey}); ok {
-		return d.(MockDirective)
+	// Exact match by (session, providerID)
+	if providerID != "" {
+		if d, ok := s.directives.Load(directiveKey{Session: session, ProviderID: providerID}); ok {
+			return d.(MockDirective)
+		}
 	}
-	// Wildcard match
-	if d, ok := s.directives.Load(directiveKey{Session: session, APIKey: "*"}); ok {
+	// Wildcard
+	if d, ok := s.directives.Load(directiveKey{Session: session, ProviderID: "*"}); ok {
 		return d.(MockDirective)
 	}
 
 	return MockDirective{}
-}
-
-// extractAPIKey extracts the API key from request headers across all protocols.
-func extractAPIKey(r *http.Request) string {
-	// Claude: x-api-key
-	if key := r.Header.Get("x-api-key"); key != "" {
-		return key
-	}
-	// Gemini: x-goog-api-key
-	if key := r.Header.Get("x-goog-api-key"); key != "" {
-		return key
-	}
-	// OpenAI/Codex: Authorization: Bearer xxx
-	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer ")
-	}
-	return ""
 }

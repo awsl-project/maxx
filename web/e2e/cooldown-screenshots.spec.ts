@@ -11,22 +11,22 @@ const BASE = 'http://localhost:19881';
 const MOCK = 'http://localhost:19999';
 const SCREENSHOT_DIR = 'e2e/screenshots';
 
-// Provider API keys (must match what was set in provider config)
-const KEY_GEMINI = 'key-gemini';
-const KEY_OPENROUTER = 'key-openrouter';
-const KEY_CLAUDE = 'key-claude';
-const KEY_AZURE = 'key-azure';
+// Provider IDs (created in globalSetup, sequential from 1)
+const P_GEMINI = '1';
+const P_OPENROUTER = '2';
+const P_CLAUDE = '3';
+const P_AZURE = '4';
 
-/** Set a mock directive for a specific provider (by API key). Returns session ID. */
+/** Set a mock directive for a specific provider (by ID). Returns session ID. */
 async function mockSet(
   session: string | undefined,
-  apiKey: string,
+  providerID: string,
   directive: object,
 ): Promise<string> {
   const resp = await fetch(`${MOCK}/__mock/set`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session, apiKey, directive }),
+    body: JSON.stringify({ session, providerID, directive }),
   });
   const data = await resp.json();
   return data.session;
@@ -54,7 +54,7 @@ async function proxyRequest(
   body: object,
   session: string,
 ) {
-  await fetch(`${BASE}${path}`, {
+  const resp = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -62,6 +62,8 @@ async function proxyRequest(
     },
     body: JSON.stringify(body),
   });
+  // Brief wait for cooldown to be persisted
+  await new Promise((r) => setTimeout(r, 200));
 }
 
 async function navigateAndWait(page: Page, path: string) {
@@ -94,7 +96,7 @@ test.describe('Cooldown UI Screenshots', () => {
 
   test('02. Providers: Provider frozen (502 from OpenRouter)', async ({ page }) => {
     // OpenRouter returns 502 → provider-level freeze
-    await mockSet(session, KEY_OPENROUTER, { status: 502 });
+    await mockSet(session, P_OPENROUTER, { status: 502, headers: { 'Retry-After': '300' } });
 
     await proxyRequest(
       '/v1/chat/completions',
@@ -108,8 +110,9 @@ test.describe('Cooldown UI Screenshots', () => {
 
   test('03. Providers: Model-level 503 (gemini-2.5-flash-image overloaded)', async ({ page }) => {
     // Gemini provider returns 503 with model overloaded message
-    await mockSet(session, KEY_GEMINI, {
+    await mockSet(session, P_GEMINI, {
       status: 503,
+      headers: { 'Retry-After': '300' },
       body: { error: { message: 'Model gemini-2.5-flash-image is overloaded' } },
     });
 
@@ -124,9 +127,9 @@ test.describe('Cooldown UI Screenshots', () => {
   });
 
   test('04. Providers: Key-level 429 rate limit (Azure)', async ({ page }) => {
-    await mockSet(session, KEY_AZURE, {
+    await mockSet(session, P_AZURE, {
       status: 429,
-      headers: { 'Retry-After': '30' },
+      headers: { 'Retry-After': '300' },
     });
 
     await proxyRequest(
@@ -141,16 +144,17 @@ test.describe('Cooldown UI Screenshots', () => {
 
   test('05. Providers: Multi-provider different states', async ({ page }) => {
     // Gemini: 503 model overload
-    await mockSet(session, KEY_GEMINI, {
+    await mockSet(session, P_GEMINI, {
       status: 503,
+      headers: { 'Retry-After': '300' },
       body: { error: { message: 'Model gemini-2.5-flash-image is overloaded' } },
     });
     // OpenRouter: 502 provider down
-    await mockSet(session, KEY_OPENROUTER, { status: 502 });
+    await mockSet(session, P_OPENROUTER, { status: 502, headers: { 'Retry-After': '300' } });
     // Azure: 429 rate limit
-    await mockSet(session, KEY_AZURE, {
+    await mockSet(session, P_AZURE, {
       status: 429,
-      headers: { 'Retry-After': '60' },
+      headers: { 'Retry-After': '300' },
     });
     // Claude Direct: 200 OK (default from wildcard)
 
@@ -173,14 +177,15 @@ test.describe('Cooldown UI Screenshots', () => {
   // ===== Dashboard =====
 
   test('06. Dashboard: Cooldown alert banner', async ({ page }) => {
-    await mockSet(session, KEY_OPENROUTER, { status: 502 });
-    await mockSet(session, KEY_GEMINI, {
+    await mockSet(session, P_OPENROUTER, { status: 502, headers: { 'Retry-After': '300' } });
+    await mockSet(session, P_GEMINI, {
       status: 503,
+      headers: { 'Retry-After': '300' },
       body: { error: { message: 'Model gemini-2.5-flash overloaded' } },
     });
-    await mockSet(session, KEY_AZURE, {
+    await mockSet(session, P_AZURE, {
       status: 429,
-      headers: { 'Retry-After': '120' },
+      headers: { 'Retry-After': '300' },
     });
 
     await proxyRequest(
@@ -201,8 +206,9 @@ test.describe('Cooldown UI Screenshots', () => {
   // ===== Routes Page =====
 
   test('07. Routes/Gemini: Model cooldown', async ({ page }) => {
-    await mockSet(session, KEY_GEMINI, {
+    await mockSet(session, P_GEMINI, {
       status: 503,
+      headers: { 'Retry-After': '300' },
       body: { error: { message: 'Model gemini-2.5-flash-image overloaded' } },
     });
 
@@ -218,12 +224,13 @@ test.describe('Cooldown UI Screenshots', () => {
 
   test('08. Routes/OpenAI: Per-provider cooldowns', async ({ page }) => {
     // OpenRouter: 429, Azure: 503 model overload, Gemini Provider: OK
-    await mockSet(session, KEY_OPENROUTER, {
+    await mockSet(session, P_OPENROUTER, {
       status: 429,
-      headers: { 'Retry-After': '30' },
+      headers: { 'Retry-After': '300' },
     });
-    await mockSet(session, KEY_AZURE, {
+    await mockSet(session, P_AZURE, {
       status: 503,
+      headers: { 'Retry-After': '300' },
       body: { error: { message: 'Model gpt-4o is overloaded' } },
     });
 

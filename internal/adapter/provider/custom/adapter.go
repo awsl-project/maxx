@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,6 +19,11 @@ import (
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
 )
+
+// mockMode enables forwarding X-Mock-* headers to upstream (for testing).
+// Activated by setting MAXX_MOCK_MODE=1 environment variable.
+var mockMode = os.Getenv("MAXX_MOCK_MODE") == "1"
+
 
 func init() {
 	provider.RegisterAdapterFactory("custom", NewAdapter)
@@ -130,6 +136,17 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			originalClientType := flow.GetOriginalClientType(c)
 			isConversion := originalClientType != "" && originalClientType != clientType
 			setAuthHeader(upstreamReq, clientType, a.provider.Config.Custom.APIKey, isConversion)
+		}
+	}
+
+	// Forward X-Mock-* headers from client request to upstream (test mode only)
+	if mockMode && request != nil {
+		for key, values := range request.Header {
+			if strings.HasPrefix(strings.ToLower(key), "x-mock-") {
+				for _, v := range values {
+					upstreamReq.Header.Set(key, v)
+				}
+			}
 		}
 	}
 
