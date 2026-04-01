@@ -630,21 +630,26 @@ export type CooldownReason =
   | 'quota_exhausted'
   | 'rate_limit_exceeded'
   | 'concurrent_limit'
+  | 'auth_failure'
+  | 'model_unavailable'
+  | 'manual'
   | 'unknown';
 
 /**
- * Cooldown 类型 - 与 Go domain.Cooldown 同步
- * 注意：providerName 和 remaining 需要在前端计算
+ * Cooldown info — matches Go cooldown.CooldownInfo JSON response
  */
 export interface Cooldown {
-  id: number;
-  createdAt: string;
-  updatedAt: string;
   providerID: number;
-  clientType: string; // 'all' for global cooldown, or specific client type
-  until: string; // ISO 8601 timestamp (Go time.Time)
+  providerName?: string;
+  clientType: string;
+  model?: string;
+  until: string;
+  remaining?: string;
   reason: CooldownReason;
 }
+
+/** Provider health level — derived from active cooldowns */
+export type ProviderHealthLevel = 'healthy' | 'degraded' | 'limited' | 'frozen';
 
 // ===== User 相关 =====
 
