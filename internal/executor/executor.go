@@ -172,67 +172,45 @@ func flattenHeaders(h http.Header) map[string]string {
 }
 
 // handleCooldown processes cooldown information from ProxyError and sets provider cooldown
-// Priority: 1) Explicit time from API, 2) Policy-based calculation based on failure reason
-func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.Provider, clientType domain.ClientType, originalClientType domain.ClientType) {
-	selectedClientType := proxyErr.CooldownClientType
-	if proxyErr.RateLimitInfo != nil && proxyErr.RateLimitInfo.ClientType != "" {
-		selectedClientType = proxyErr.RateLimitInfo.ClientType
+func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.Provider, clientType domain.ClientType, model string) {
+	if proxyErr.Scope == domain.ScopeRequest {
+		return // no cooldown for request-level errors
 	}
+
+	selectedClientType := proxyErr.ClientType
 	if selectedClientType == "" {
-		if originalClientType != "" {
-			selectedClientType = string(originalClientType)
-		} else {
-			selectedClientType = string(clientType)
-		}
+		selectedClientType = string(clientType)
 	}
 
-	// Determine cooldown reason and explicit time
-	var reason cooldown.CooldownReason
+	// Map domain CooldownReason to cooldown package CooldownReason
+	reason := cooldown.CooldownReason(proxyErr.Reason)
+
+	// Use explicit cooldown time if provided, otherwise let policy decide
 	var explicitUntil *time.Time
-
-	// Priority 1: Check for explicit cooldown time from API
 	if proxyErr.CooldownUntil != nil {
-		// Has explicit time from API (e.g., from CooldownUntil field)
 		explicitUntil = proxyErr.CooldownUntil
-		reason = cooldown.ReasonQuotaExhausted // Default, may be overridden below
-		if proxyErr.RateLimitInfo != nil {
-			reason = mapRateLimitTypeToReason(proxyErr.RateLimitInfo.Type)
-		}
-	} else if proxyErr.RateLimitInfo != nil && !proxyErr.RateLimitInfo.QuotaResetTime.IsZero() {
-		// Has explicit quota reset time from API
-		explicitUntil = &proxyErr.RateLimitInfo.QuotaResetTime
-		reason = mapRateLimitTypeToReason(proxyErr.RateLimitInfo.Type)
 	} else if proxyErr.RetryAfter > 0 {
-		// Has Retry-After duration from API
-		untilTime := time.Now().Add(proxyErr.RetryAfter)
-		explicitUntil = &untilTime
-		reason = cooldown.ReasonRateLimit
-	} else if proxyErr.IsServerError {
-		// Server error (5xx) - no explicit time, use policy
-		reason = cooldown.ReasonServerError
-		explicitUntil = nil
-	} else if proxyErr.IsNetworkError {
-		// Network error - no explicit time, use policy
-		reason = cooldown.ReasonNetworkError
-		explicitUntil = nil
-	} else {
-		// Unknown error type - use policy
-		reason = cooldown.ReasonUnknown
-		explicitUntil = nil
+		t := time.Now().Add(proxyErr.RetryAfter)
+		explicitUntil = &t
 	}
 
-	// Record failure and apply cooldown
-	// If explicitUntil is not nil, it will be used directly
-	// Otherwise, cooldown duration is calculated based on policy and failure count
-	cooldown.Default().RecordFailure(provider.ID, selectedClientType, reason, explicitUntil)
+	// Determine model for cooldown key
+	cooldownModel := ""
+	if proxyErr.Scope == domain.ScopeModel {
+		cooldownModel = proxyErr.Model
+		if cooldownModel == "" {
+			cooldownModel = model // fallback to the request's mapped model
+		}
+	}
+
+	cooldown.Default().RecordFailure(provider.ID, selectedClientType, cooldownModel, reason, proxyErr.Scope, explicitUntil)
 
 	// If there's an async update channel, listen for updates (bounded by semaphore)
 	if proxyErr.CooldownUpdateChan != nil {
 		select {
 		case e.cooldownSem <- struct{}{}:
-			go e.handleAsyncCooldownUpdate(proxyErr.CooldownUpdateChan, provider, selectedClientType)
+			go e.handleAsyncCooldownUpdate(proxyErr.CooldownUpdateChan, provider, selectedClientType, cooldownModel)
 		default:
-			// Semaphore full, skip async cooldown update to prevent goroutine leak
 		}
 	}
 }
@@ -241,30 +219,15 @@ func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown
 }
 
-// mapRateLimitTypeToReason maps RateLimitInfo.Type to CooldownReason
-func mapRateLimitTypeToReason(rateLimitType string) cooldown.CooldownReason {
-	switch rateLimitType {
-	case "quota_exhausted":
-		return cooldown.ReasonQuotaExhausted
-	case "rate_limit_exceeded":
-		return cooldown.ReasonRateLimit
-	case "concurrent_limit":
-		return cooldown.ReasonConcurrentLimit
-	default:
-		return cooldown.ReasonRateLimit // Default to rate limit
-	}
-}
-
 // handleAsyncCooldownUpdate listens for async cooldown updates from providers
-func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider *domain.Provider, clientType string) {
+func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider *domain.Provider, clientType string, model string) {
 	defer func() { <-e.cooldownSem }()
 	select {
 	case newCooldownTime := <-updateChan:
 		if !newCooldownTime.IsZero() {
-			cooldown.Default().UpdateCooldown(provider.ID, clientType, newCooldownTime)
+			cooldown.Default().UpdateCooldown(provider.ID, clientType, model, newCooldownTime)
 		}
 	case <-time.After(15 * time.Second):
-		// Timeout waiting for update
 	}
 }
 
