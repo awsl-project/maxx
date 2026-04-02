@@ -131,7 +131,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 		// Get access token
 		accessToken, err := a.getAccessToken(ctx)
 		if err != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
 			proxyErr.Scope = domain.ScopeKey
 			proxyErr.Reason = domain.CooldownReasonAuthFailure
 			return proxyErr
@@ -154,7 +154,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 			)
 			geminiBody, effectiveMappedModel, hasThinking, err = TransformClaudeToGemini(requestBody, mappedModel, actualStream, sessionID, GlobalSignatureCache())
 			if err != nil {
-				proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to transform Claude request: %v", err))
+				proxyErr := domain.NewProxyErrorWithMessage(err, false, fmt.Sprintf("failed to transform Claude request: %v", err))
 				proxyErr.Scope = domain.ScopeRequest
 				return proxyErr
 			}
@@ -200,7 +200,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 			}
 			upstreamBody, err = wrapV1InternalRequest(geminiBody, projectID, requestModel, mappedModel, sessionID, toolsForConfig)
 			if err != nil {
-				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "failed to wrap request for v1internal")
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to wrap request for v1internal")
 				proxyErr.Scope = domain.ScopeRequest
 				return proxyErr
 			}
@@ -259,7 +259,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					// Get new token
 					accessToken, err = a.getAccessToken(ctx)
 					if err != nil {
-						proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+						proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to refresh access token")
 						proxyErr.Scope = domain.ScopeKey
 						proxyErr.Reason = domain.CooldownReasonAuthFailure
 						return proxyErr
@@ -269,7 +269,8 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					upstreamReq, reqErr = http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(upstreamBody))
 					if reqErr != nil {
 						proxyErr := domain.NewProxyErrorWithMessage(reqErr, false, "failed to create upstream request after token refresh")
-						proxyErr.Scope = domain.ScopeRequest
+						proxyErr.Scope = domain.ScopeEndpoint
+						proxyErr.Reason = domain.CooldownReasonServerError
 						return proxyErr
 					}
 					upstreamReq.Header.Set("Content-Type", "application/json")
@@ -344,11 +345,16 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 
 					// Set status code and classify error scope/reason
 					proxyErr.HTTPStatusCode = resp.StatusCode
-					if resp.StatusCode >= 500 && resp.StatusCode < 600 {
+					if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+						proxyErr.Scope = domain.ScopeKey
+						proxyErr.Reason = domain.CooldownReasonAuthFailure
+						proxyErr.Retryable = false
+					} else if resp.StatusCode >= 500 && resp.StatusCode < 600 {
 						proxyErr.Scope = domain.ScopeProvider
 						proxyErr.Reason = domain.CooldownReasonServerError
 					} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 						proxyErr.Scope = domain.ScopeRequest
+						proxyErr.Retryable = false
 					}
 
 					// Set retry info on error for upstream handling

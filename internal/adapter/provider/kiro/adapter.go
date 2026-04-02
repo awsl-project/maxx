@@ -86,7 +86,7 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Get access token
 	accessToken, err := a.getAccessToken(ctx)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
 		return proxyErr
@@ -95,7 +95,7 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Convert Claude request to CodeWhisperer format (传入 req 用于生成稳定会话ID)
 	cwBody, mappedModel, err := ConvertClaudeToCodeWhisperer(requestBody, config.ModelMapping, request)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to convert request: %v", err))
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, fmt.Sprintf("failed to convert request: %v", err))
 		proxyErr.Scope = domain.ScopeRequest
 		return proxyErr
 	}
@@ -114,8 +114,9 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(cwBody))
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to create upstream request")
-		proxyErr.Scope = domain.ScopeRequest
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
 		return proxyErr
 	}
 
@@ -159,7 +160,7 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Get new token
 		accessToken, err = a.getAccessToken(ctx)
 		if err != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to refresh access token")
 			proxyErr.Scope = domain.ScopeKey
 			proxyErr.Reason = domain.CooldownReasonAuthFailure
 			return proxyErr

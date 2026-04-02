@@ -115,7 +115,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Get access token
 	accessToken, err := a.getAccessToken(ctx)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
 		return proxyErr
@@ -158,8 +158,9 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to create upstream request")
-		proxyErr.Scope = domain.ScopeRequest
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
 		return proxyErr
 	}
 
@@ -197,7 +198,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Get new token
 		accessToken, err = a.getAccessToken(ctx)
 		if err != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to refresh access token")
 			proxyErr.Scope = domain.ScopeKey
 			proxyErr.Reason = domain.CooldownReasonAuthFailure
 			return proxyErr
@@ -207,7 +208,8 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		upstreamReq, reqErr := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 		if reqErr != nil {
 			proxyErr := domain.NewProxyErrorWithMessage(reqErr, false, fmt.Sprintf("failed to create retry request: %v", reqErr))
-			proxyErr.Scope = domain.ScopeRequest
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
 			return proxyErr
 		}
 		a.applyCodexHeaders(upstreamReq, request, accessToken, config.AccountID, upstreamStream, cacheID)
