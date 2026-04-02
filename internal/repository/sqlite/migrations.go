@@ -316,12 +316,6 @@ var migrations = []Migration{
 			// Keep indexed string columns short enough for MySQL utf8mb4 composite-key limits.
 			switch db.Dialector.Name() {
 			case "mysql":
-				if err := db.Exec("DROP INDEX idx_cooldowns_provider_client ON cooldowns").Error; err != nil && !isMySQLMissingIndexError(err) {
-					return err
-				}
-				if err := db.Exec("DROP INDEX idx_failure_counts_tenant_provider_client_reason ON failure_counts").Error; err != nil && !isMySQLMissingIndexError(err) {
-					return err
-				}
 				if err := db.Exec("ALTER TABLE cooldowns ADD COLUMN model VARCHAR(191) NOT NULL DEFAULT ''").Error; err != nil {
 					if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 						return err
@@ -351,6 +345,12 @@ var migrations = []Migration{
 					return err
 				}
 				if err := db.Exec("CREATE UNIQUE INDEX idx_failure_counts_tenant_provider_client_reason_model ON failure_counts(tenant_id, provider_id, client_type, reason, model)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+				if err := db.Exec("DROP INDEX idx_cooldowns_provider_client ON cooldowns").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				if err := db.Exec("DROP INDEX idx_failure_counts_tenant_provider_client_reason ON failure_counts").Error; err != nil && !isMySQLMissingIndexError(err) {
 					return err
 				}
 			default:
