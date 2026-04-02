@@ -176,6 +176,12 @@ func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.
 	if proxyErr.Scope == domain.ScopeRequest {
 		return // no cooldown for request-level errors
 	}
+	// Skip cooldown for unclassified errors (Scope not set).
+	// These come from internal failures (token refresh, body read, etc.)
+	// that should not freeze a provider.
+	if proxyErr.Scope == "" {
+		return
+	}
 
 	selectedClientType := proxyErr.ClientType
 	if selectedClientType == "" {
