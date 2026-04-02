@@ -13,7 +13,7 @@ import {
 } from '@/lib/transport';
 import { prioritizeActiveRequests } from '@/lib/request-order';
 
-// Query Keys
+/** Query key factory for proxy request related queries. */
 export const requestKeys = {
   all: ['requests'] as const,
   lists: () => [...requestKeys.all, 'list'] as const,
@@ -25,7 +25,7 @@ export const requestKeys = {
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
 };
 
-// 获取 ProxyRequests (游标分页)
+/** Fetches proxy requests with cursor-based pagination. */
 export function useProxyRequests(params?: CursorPaginationParams) {
   return useQuery({
     queryKey: requestKeys.list(params),
@@ -33,7 +33,10 @@ export function useProxyRequests(params?: CursorPaginationParams) {
   });
 }
 
-// 获取 ProxyRequests (无限滚动)
+/**
+ * Fetches proxy requests using infinite scroll pagination.
+ * Uses staleTime to avoid redundant refetches within a short window.
+ */
 export function useInfiniteProxyRequests(
   providerId?: number,
   status?: string,
@@ -59,7 +62,10 @@ export function useInfiniteProxyRequests(
   });
 }
 
-// 获取 ProxyRequests 总数
+/**
+ * Fetches the total count of proxy requests matching the given filters.
+ * Polls every 10s as a safety net for missed WebSocket events.
+ */
 export function useProxyRequestsCount(
   providerId?: number,
   status?: string,
@@ -77,7 +83,7 @@ export function useProxyRequestsCount(
   });
 }
 
-// 获取单个 ProxyRequest
+/** Fetches a single proxy request by ID. */
 export function useProxyRequest(id: number) {
   return useQuery({
     queryKey: requestKeys.detail(id),
@@ -86,7 +92,7 @@ export function useProxyRequest(id: number) {
   });
 }
 
-// 获取 ProxyRequest 的 Attempts
+/** Fetches upstream attempts for a given proxy request. */
 export function useProxyUpstreamAttempts(proxyRequestId: number) {
   return useQuery({
     queryKey: requestKeys.attempts(proxyRequestId),

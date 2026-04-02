@@ -14,6 +14,7 @@ import { expect, test } from 'playwright/test';
 
 import { BASE, adminAPI, loginToAdminAPI, loginToAdminUI } from './helpers';
 
+/** Starts a minimal mock Claude API server that returns a canned response for /v1/messages. */
 function startMockClaudeServer(): Promise<{ server: http.Server; port: number }> {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -55,6 +56,7 @@ function startMockClaudeServer(): Promise<{ server: http.Server; port: number }>
   });
 }
 
+/** Gracefully closes the mock server with a 2s timeout fallback. */
 function closeMockServer(server: http.Server): Promise<void> {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {

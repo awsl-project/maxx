@@ -61,6 +61,7 @@ const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
 
+/** Reads a positive numeric value from localStorage, returning undefined if absent or invalid. */
 function readStoredNumber(key: string): number | undefined {
   if (typeof window === 'undefined') {
     return undefined;
@@ -76,6 +77,7 @@ function readStoredNumber(key: string): number | undefined {
   return parsed;
 }
 
+/** Maps each proxy request status to its corresponding badge variant. */
 export const statusVariant: Record<
   ProxyRequestStatus,
   'default' | 'success' | 'warning' | 'danger' | 'info'
@@ -88,6 +90,7 @@ export const statusVariant: Record<
   REJECTED: 'danger',
 };
 
+/** Main requests monitoring page with filtering, infinite scroll, and real-time updates. */
 export function RequestsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
