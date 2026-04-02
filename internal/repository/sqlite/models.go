@@ -357,8 +357,8 @@ type Cooldown struct {
 	BaseModel
 	TenantID   uint64 `gorm:"index"`
 	ProviderID uint64 `gorm:"uniqueIndex:idx_cooldowns_provider_client_model"`
-	ClientType string `gorm:"size:255;uniqueIndex:idx_cooldowns_provider_client_model"`
-	Model      string `gorm:"size:255;uniqueIndex:idx_cooldowns_provider_client_model;default:''"`
+	ClientType string `gorm:"size:64;uniqueIndex:idx_cooldowns_provider_client_model"`
+	Model      string `gorm:"size:191;uniqueIndex:idx_cooldowns_provider_client_model;default:''"`
 	UntilTime  int64  `gorm:"index"`
 	Reason     string `gorm:"size:64;default:'unknown'"`
 }
@@ -370,9 +370,9 @@ type FailureCount struct {
 	BaseModel
 	TenantID      uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
 	ProviderID    uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
-	ClientType    string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
-	Reason        string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
-	Model         string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model;default:''"`
+	ClientType    string `gorm:"size:64;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	Reason        string `gorm:"size:64;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	Model         string `gorm:"size:191;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model;default:''"`
 	Count         int
 	LastFailureAt int64 `gorm:"index"`
 }
