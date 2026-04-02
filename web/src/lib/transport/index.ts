@@ -69,6 +69,7 @@ export type {
   ImportResult,
   // Cooldown
   Cooldown,
+  ProviderHealthLevel,
   // User
   User,
   UserRole,

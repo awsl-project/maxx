@@ -77,10 +77,7 @@ function SortableProviderRowBase({
 }: SortableProviderRowProps) {
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const { getCooldownsForProvider, clearCooldown, isClearingCooldown } = useCooldownsContext();
-  const cooldowns = getCooldownsForProvider(item.provider.id, clientType);
-  const activeCooldowns = cooldowns.filter(
-    (cd) => new Date(cd.until).getTime() > Date.now(),
-  );
+  const activeCooldowns = getCooldownsForProvider(item.provider.id, clientType);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
@@ -279,12 +276,8 @@ function ProviderRowContentBase({
   // 获取 cooldown 状态
   const { getCooldownsForProvider } = useCooldownsContext();
   const providerCooldowns = getCooldownsForProvider(provider.id, clientType);
-  const cooldown = providerCooldowns.find(
-    (cd) => new Date(cd.until).getTime() > Date.now(),
-  ) ?? null;
   const effectiveIsInCooldown = isInCooldownProp ?? providerCooldowns.length > 0;
 
-  const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
   const healthLevel: ProviderHealthLevel = providerCooldowns.length === 0
     ? 'healthy'
     : providerCooldowns.some((cd) => !cd.clientType && !cd.model)

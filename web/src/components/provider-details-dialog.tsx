@@ -219,7 +219,8 @@ export function ProviderDetailsDialog({
   onOpenChange,
   stats,
   cooldowns = [],
-  streamingCount: _streamingCount,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  streamingCount,
   onToggle,
   isToggling,
   onDelete,
@@ -242,9 +243,7 @@ export function ProviderDetailsDialog({
   const { provider, enabled, route, isNative } = item;
   const color = getProviderColor(provider.type as ProviderType);
 
-  const activeCooldowns = cooldowns.filter(
-    (cd) => new Date(cd.until).getTime() > Date.now(),
-  );
+  const activeCooldowns = cooldowns; // already filtered by hook
   const isInCooldown = activeCooldowns.length > 0;
 
   return (

@@ -214,7 +214,7 @@ function CooldownGroup({
       <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
         {label}
       </div>
-      {cooldowns.map((cd, i) => (
+      {cooldowns.map((cd) => (
         <CooldownEntry
           key={`${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}
           cooldown={cd}
