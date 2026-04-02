@@ -84,7 +84,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 // ExecuteWith runs the executor middleware chain using an existing flow context.
 func (e *Executor) ExecuteWith(c *flow.Ctx) error {
 	if c == nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "flow context missing")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "flow context missing")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 	ctx := context.Background()
 	if v, ok := c.Get(flow.KeyProxyContext); ok {
@@ -175,12 +177,6 @@ func flattenHeaders(h http.Header) map[string]string {
 func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.Provider, clientType domain.ClientType, model string) {
 	if proxyErr.Scope == domain.ScopeRequest {
 		return // no cooldown for request-level errors
-	}
-	// Skip cooldown for unclassified errors (Scope not set).
-	// These come from internal failures (token refresh, body read, etc.)
-	// that should not freeze a provider.
-	if proxyErr.Scope == "" {
-		return
 	}
 
 	selectedClientType := proxyErr.ClientType

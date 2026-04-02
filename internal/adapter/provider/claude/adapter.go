@@ -93,7 +93,10 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Get access token
 	accessToken, err := a.getAccessToken(ctx, false)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		return proxyErr
 	}
 
 	// Extract beta headers from request body before sending
@@ -113,7 +116,9 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to create upstream request")
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Apply headers
@@ -150,13 +155,18 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Get new token (force refresh to skip persisted token)
 		accessToken, err = a.getAccessToken(ctx, true)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonAuthFailure
+			return proxyErr
 		}
 
 		// Retry request
 		upstreamReq, reqErr := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 		if reqErr != nil {
-			return domain.NewProxyErrorWithMessage(reqErr, false, fmt.Sprintf("failed to create retry request: %v", reqErr))
+			proxyErr := domain.NewProxyErrorWithMessage(reqErr, false, fmt.Sprintf("failed to create retry request: %v", reqErr))
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 		a.applyClaudeHeaders(upstreamReq, request, accessToken, clientWantsStream, extraBetas)
 
@@ -289,7 +299,10 @@ func (a *ClaudeAdapter) getAccessToken(ctx context.Context, forceRefresh bool) (
 func (a *ClaudeAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response) error {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 
 	// Send events via EventChannel
@@ -342,7 +355,9 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
@@ -363,7 +378,9 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 			if responseCompleted {
 				return nil
 			}
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		default:
 		}
 
@@ -384,7 +401,9 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 				if responseCompleted {
 					return nil
 				}
-				return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 			flusher.Flush()
 
@@ -403,9 +422,14 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 				return nil
 			}
 			if ctx.Err() != nil {
-				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
-			return domain.NewProxyErrorWithMessage(err, true, "stream read error")
+			proxyErr := domain.NewProxyErrorWithMessage(err, true, "stream read error")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 	}
 }

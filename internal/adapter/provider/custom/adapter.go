@@ -77,7 +77,9 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// For other types, update model in request body
 		requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to update model in body")
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to update model in body")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 	}
 
@@ -91,7 +93,9 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to create upstream request")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Set headers based on client type
@@ -177,7 +181,9 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Decompress error response if needed (Claude requests use Accept-Encoding)
 		reader, decompErr := decompressResponse(resp)
 		if decompErr != nil {
-			return domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
+			proxyErr := domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 		defer reader.Close()
 
@@ -225,13 +231,18 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 	defer reader.Close()
 
 	body, err := io.ReadAll(reader)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 	// Claude API sometimes returns gzip without Content-Encoding header
 	if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
@@ -293,7 +304,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 	defer reader.Close()
 
@@ -326,7 +339,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
@@ -399,11 +414,14 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 				if t, ok := errObj["type"].(string); ok {
 					errType = t
 				}
-				return domain.NewProxyErrorWithMessage(
+				proxyErr := domain.NewProxyErrorWithMessage(
 					fmt.Errorf("SSE error (code=%d): %s", code, msg),
 					isRetryableSSEError(code, errType, msg),
 					msg,
 				)
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonServerError
+				return proxyErr
 			}
 		}
 
@@ -429,10 +447,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					isRetryableSSEError(code, errType, msg),
 					msg,
 				)
-				if errType == "internal_error" || errType == "server_error" {
-					proxyErr.Scope = domain.ScopeProvider
-					proxyErr.Reason = domain.CooldownReasonServerError
-				}
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonServerError
 				return proxyErr
 			}
 		}
@@ -450,7 +466,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 		select {
 		case <-ctx.Done():
 			sendFinalEvents() // Try to extract tokens before returning
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		default:
 		}
 
@@ -503,7 +521,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					if writeErr != nil {
 						// Client disconnected
 						sendFinalEvents()
-						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+						proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+						proxyErr.Scope = domain.ScopeRequest
+						return proxyErr
 					}
 					flusher.Flush()
 
@@ -528,7 +548,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			// Upstream connection closed - check if client is still connected
 			if ctx.Err() != nil {
 				sendFinalEvents()
-				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 			sendFinalEvents()
 			// Return SSE error if one was detected during streaming

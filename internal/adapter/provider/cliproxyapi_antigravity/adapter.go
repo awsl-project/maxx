@@ -70,7 +70,9 @@ func (a *CLIProxyAPIAntigravityAdapter) Execute(c *flow.Ctx, p *domain.Provider)
 	// 替换 body 中的 model 字段为映射后的模型名
 	requestBody, err := updateModelInBody(requestBody, model)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, false, fmt.Sprintf("failed to update model in body: %v", err))
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, fmt.Sprintf("failed to update model in body: %v", err))
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// 发送事件
@@ -90,7 +92,9 @@ func (a *CLIProxyAPIAntigravityAdapter) Execute(c *flow.Ctx, p *domain.Provider)
 	case domain.ClientTypeGemini:
 		sourceFormat = translator.FormatGemini
 	default:
-		return domain.NewProxyErrorWithMessage(nil, false, fmt.Sprintf("unsupported client type: %s", clientType))
+		proxyErr := domain.NewProxyErrorWithMessage(nil, false, fmt.Sprintf("unsupported client type: %s", clientType))
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// 直接透传原始请求给 executor，executor 内部处理格式转换
@@ -131,7 +135,10 @@ func (a *CLIProxyAPIAntigravityAdapter) executeNonStream(c *flow.Ctx, w http.Res
 	resp, err := a.executor.Execute(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
 		log.Printf("[CLIProxyAPI-Antigravity] executeNonStream error: model=%s, err=%v", execReq.Model, err)
-		return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor request failed: %v", err))
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor request failed: %v", err))
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return proxyErr
 	}
 
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
@@ -180,7 +187,10 @@ func (a *CLIProxyAPIAntigravityAdapter) executeStream(c *flow.Ctx, w http.Respon
 	stream, err := a.executor.ExecuteStream(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
 		log.Printf("[CLIProxyAPI-Antigravity] executeStream error: model=%s, err=%v", execReq.Model, err)
-		return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor stream request failed: %v", err))
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor stream request failed: %v", err))
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return proxyErr
 	}
 
 	// 设置 SSE 响应头
@@ -244,7 +254,10 @@ func (a *CLIProxyAPIAntigravityAdapter) executeStream(c *flow.Ctx, w http.Respon
 
 	// If error occurred before any data was sent, return error to caller
 	if streamErr != nil && sseBuffer.Len() == 0 {
-		return domain.NewProxyErrorWithMessage(streamErr, true, fmt.Sprintf("stream chunk error: %v", streamErr))
+		proxyErr := domain.NewProxyErrorWithMessage(streamErr, true, fmt.Sprintf("stream chunk error: %v", streamErr))
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 
 	return nil

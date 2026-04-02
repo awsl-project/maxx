@@ -18,8 +18,9 @@ import (
 func (e *Executor) dispatch(c *flow.Ctx) {
 	state, ok := getExecState(c)
 	if !ok {
-		err := domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "executor state missing")
-		c.Err = err
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "executor state missing")
+		proxyErr.Scope = domain.ScopeRequest
+		c.Err = proxyErr
 		c.Abort()
 		return
 	}
@@ -417,7 +418,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	}
 
 	if state.lastErr == nil {
-		state.lastErr = domain.NewProxyErrorWithMessage(domain.ErrAllRoutesFailed, false, "all routes exhausted")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrAllRoutesFailed, false, "all routes exhausted")
+		proxyErr.Scope = domain.ScopeRequest
+		state.lastErr = proxyErr
 	}
 	state.ctx = ctx
 	c.Err = state.lastErr

@@ -265,7 +265,10 @@ func (a *CLIProxyAPICodexAdapter) Execute(c *flow.Ctx, p *domain.Provider) error
 		ctx = c.Request.Context()
 	}
 	if err := a.updateAuthToken(ctx); err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to get access token: %v", err))
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to get access token: %v", err))
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		return proxyErr
 	}
 
 	// 构建 executor 请求
@@ -295,7 +298,10 @@ func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseW
 
 	resp, err := a.executor.Execute(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor request failed: %v", err))
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor request failed: %v", err))
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return proxyErr
 	}
 
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
@@ -341,7 +347,10 @@ func (a *CLIProxyAPICodexAdapter) executeStream(c *flow.Ctx, w http.ResponseWrit
 
 	stream, err := a.executor.ExecuteStream(ctx, a.authObj, execReq, execOpts)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor stream request failed: %v", err))
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("executor stream request failed: %v", err))
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return proxyErr
 	}
 
 	// 设置 SSE 响应头
@@ -403,7 +412,10 @@ func (a *CLIProxyAPICodexAdapter) executeStream(c *flow.Ctx, w http.ResponseWrit
 
 	// If error occurred before any data was sent, return error to caller
 	if streamErr != nil && sseBuffer.Len() == 0 {
-		return domain.NewProxyErrorWithMessage(streamErr, true, fmt.Sprintf("stream chunk error: %v", streamErr))
+		proxyErr := domain.NewProxyErrorWithMessage(streamErr, true, fmt.Sprintf("stream chunk error: %v", streamErr))
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 
 	return nil

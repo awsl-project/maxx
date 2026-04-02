@@ -86,13 +86,18 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Get access token
 	accessToken, err := a.getAccessToken(ctx)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		return proxyErr
 	}
 
 	// Convert Claude request to CodeWhisperer format (传入 req 用于生成稳定会话ID)
 	cwBody, mappedModel, err := ConvertClaudeToCodeWhisperer(requestBody, config.ModelMapping, request)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to convert request: %v", err))
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to convert request: %v", err))
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Update attempt record with the mapped model (kiro-specific internal mapping)
@@ -109,7 +114,9 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(cwBody))
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to create upstream request")
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Set headers (matching kiro2api/server/common.go:168-177)
@@ -152,7 +159,10 @@ func (a *KiroAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Get new token
 		accessToken, err = a.getAccessToken(ctx)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonAuthFailure
+			return proxyErr
 		}
 
 		// Retry request (matching kiro2api headers)
@@ -366,13 +376,17 @@ func (a *KiroAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, req
 
 	streamCtx, err := newStreamProcessorContext(w, requestModel, inputTokens, tee)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	if err := streamCtx.sendInitialEvents(); err != nil {
 		inTok, outTok := streamCtx.GetTokenCounts()
 		a.sendFinalEvents(eventChan, sseBuffer.String(), inTok, outTok, requestModel, streamCtx.GetFirstTokenTimeMs())
-		return domain.NewProxyErrorWithMessage(err, false, "failed to send initial events")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to send initial events")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	err = streamCtx.processEventStream(ctx, resp.Body)
@@ -380,7 +394,9 @@ func (a *KiroAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, req
 		if ctx.Err() != nil {
 			inTok, outTok := streamCtx.GetTokenCounts()
 			a.sendFinalEvents(eventChan, sseBuffer.String(), inTok, outTok, requestModel, streamCtx.GetFirstTokenTimeMs())
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 
 		_ = streamCtx.sendFinalEvents()
@@ -392,7 +408,9 @@ func (a *KiroAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, req
 	if err := streamCtx.sendFinalEvents(); err != nil {
 		inTok, outTok := streamCtx.GetTokenCounts()
 		a.sendFinalEvents(eventChan, sseBuffer.String(), inTok, outTok, requestModel, streamCtx.GetFirstTokenTimeMs())
-		return domain.NewProxyErrorWithMessage(err, false, "failed to send final events")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to send final events")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	inTok, outTok := streamCtx.GetTokenCounts()
@@ -453,13 +471,18 @@ func (a *KiroAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *http.Resp
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream stream")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream stream")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 
 	parser := NewCompliantEventStreamParser()
 	result, parseErr := parser.ParseResponse(body)
 	if parseErr != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to parse upstream stream")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to parse upstream stream")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Send response info with body
@@ -541,7 +564,9 @@ func (a *KiroAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *http.Resp
 
 	responseBody, err := FastMarshal(anthropicResp)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to encode response")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to encode response")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	w.Header().Set("Content-Type", "application/json")
