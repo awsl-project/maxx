@@ -219,8 +219,6 @@ export function ProviderDetailsDialog({
   onOpenChange,
   stats,
   cooldowns = [],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  streamingCount,
   onToggle,
   isToggling,
   onDelete,
