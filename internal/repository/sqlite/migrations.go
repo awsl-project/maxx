@@ -316,29 +316,29 @@ var migrations = []Migration{
 			// Keep indexed string columns short enough for MySQL utf8mb4 composite-key limits.
 			switch db.Dialector.Name() {
 			case "mysql":
-				if err := db.Exec("ALTER TABLE cooldowns ADD COLUMN model VARCHAR(191) NOT NULL DEFAULT ''").Error; err != nil {
+				if err := db.Exec("ALTER TABLE cooldowns ADD COLUMN model VARCHAR(191) DEFAULT ''").Error; err != nil {
 					if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 						return err
 					}
 				}
-				if err := db.Exec("ALTER TABLE failure_counts ADD COLUMN model VARCHAR(191) NOT NULL DEFAULT ''").Error; err != nil {
+				if err := db.Exec("ALTER TABLE failure_counts ADD COLUMN model VARCHAR(191) DEFAULT ''").Error; err != nil {
 					if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 						return err
 					}
 				}
-				if err := db.Exec("ALTER TABLE cooldowns MODIFY COLUMN client_type VARCHAR(64) NOT NULL").Error; err != nil {
+				if err := db.Exec("ALTER TABLE cooldowns MODIFY COLUMN client_type VARCHAR(64)").Error; err != nil {
 					return err
 				}
-				if err := db.Exec("ALTER TABLE cooldowns MODIFY COLUMN model VARCHAR(191) NOT NULL DEFAULT ''").Error; err != nil {
+				if err := db.Exec("ALTER TABLE cooldowns MODIFY COLUMN model VARCHAR(191) DEFAULT ''").Error; err != nil {
 					return err
 				}
-				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN client_type VARCHAR(64) NOT NULL").Error; err != nil {
+				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN client_type VARCHAR(64)").Error; err != nil {
 					return err
 				}
-				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN reason VARCHAR(64) NOT NULL").Error; err != nil {
+				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN reason VARCHAR(64)").Error; err != nil {
 					return err
 				}
-				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN model VARCHAR(191) NOT NULL DEFAULT ''").Error; err != nil {
+				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN model VARCHAR(191) DEFAULT ''").Error; err != nil {
 					return err
 				}
 				if err := db.Exec("CREATE UNIQUE INDEX idx_cooldowns_provider_client_model ON cooldowns(provider_id, client_type, model)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
