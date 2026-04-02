@@ -143,8 +143,11 @@ test('requests page shows loading fallback when filter dependency is delayed', a
       )
       .toBeGreaterThan(0);
 
-    // Pre-set localStorage to use provider filter (simulates returning user)
-    await page.addInitScript(
+    // Login first (unconditionally — avoids flaky SPA auth detection)
+    await loginToAdminUI(page);
+
+    // Set localStorage to use provider filter (simulates returning user)
+    await page.evaluate(
       ({ pid }) => {
         localStorage.setItem('maxx-requests-filter-mode', 'provider');
         localStorage.setItem('maxx-requests-provider-filter', String(pid));
@@ -158,14 +161,8 @@ test('requests page shows loading fallback when filter dependency is delayed', a
       await route.continue();
     });
 
-    // Navigate to requests page, handle potential auth redirect
+    // Navigate to requests page (already authenticated)
     await page.goto(`${BASE}/requests`);
-    await page.waitForLoadState('domcontentloaded');
-    if (await page.locator('input[type="password"]').count()) {
-      await loginToAdminUI(page);
-      await page.goto(`${BASE}/requests`);
-      await page.waitForLoadState('domcontentloaded');
-    }
 
     // KEY ASSERTION: during the providers API delay, must NOT show "no records"
     // (should show a loading spinner instead)
