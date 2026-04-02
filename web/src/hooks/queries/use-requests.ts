@@ -56,8 +56,6 @@ export function useInfiniteProxyRequests(
     initialPageParam: undefined as number | undefined,
     enabled,
     staleTime: 5_000,
-    refetchInterval: enabled ? 10_000 : false,
-    refetchIntervalInBackground: false,
   });
 }
 

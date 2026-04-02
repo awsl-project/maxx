@@ -186,11 +186,11 @@ export function RequestsPage() {
   const allRequests = useMemo(() => {
     return data?.pages.flatMap((page) => page.items) ?? [];
   }, [data]);
-  // Show spinner only on cold start (no cached data).
-  // When switching filters with existing cache, stale-while-revalidate keeps old
-  // data visible until the new filter resolves, avoiding a jarring flash.
+  // Show spinner on initial load, manual refresh with empty list, or while
+  // waiting for filter dependencies. When switching filters with existing cache,
+  // stale-while-revalidate keeps old data visible, avoiding a jarring flash.
   const showLoadingState =
-    (isLoading || waitingFilterValidation) && allRequests.length === 0;
+    (isLoading || isFetching || waitingFilterValidation) && allRequests.length === 0;
   const hasRenderedRequests = allRequests.length > 0;
 
   const activeCount = useMemo(() => {

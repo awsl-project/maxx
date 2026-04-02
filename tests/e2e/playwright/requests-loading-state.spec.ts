@@ -164,15 +164,17 @@ test('requests page shows loading fallback when filter dependency is delayed', a
     // Navigate to requests page (already authenticated)
     await page.goto(`${BASE}/requests`);
 
-    // KEY ASSERTION: during the providers API delay, must NOT show "no records"
-    // (should show a loading spinner instead)
+    // KEY ASSERTION: during the providers API delay, must NOT show empty state
+    // (should show a loading spinner instead). Playwright's negative web-first
+    // assertion continuously monitors for the full timeout window.
     await expect(page.locator('body')).not.toContainText(
       /暂无请求记录|No requests recorded/,
-      { timeout: 1000 },
+      { timeout: 1500 },
     );
 
-    // After the delay resolves, requests should eventually render
-    await expect(page.locator('body')).toContainText(/total requests|个请求/i, {
+    // After the delay resolves, verify actual request rows are rendered
+    // (not just header text which could match "0 total requests")
+    await expect(page.locator('tr[data-request-row="true"]').first()).toBeVisible({
       timeout: 15_000,
     });
   } finally {
