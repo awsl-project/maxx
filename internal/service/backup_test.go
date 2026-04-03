@@ -374,3 +374,40 @@ func TestBackupService_Import_LegacyTokenBackupGeneratesReplacementToken(t *test
 		t.Fatalf("expected replacement-token warning, got warnings=%v", result.Warnings)
 	}
 }
+
+func TestBackupService_Import_RedactedProviderBackupWarnsToReenterCredentials(t *testing.T) {
+	db := newBackupServiceTestDB(t, "redacted-provider-import.db")
+	svc := newBackupServiceForTest(t, db)
+
+	backup := &domain.BackupFile{
+		Version: domain.BackupVersion,
+		Data: domain.BackupData{
+			Providers: []domain.BackupProvider{{
+				Name: "redacted-custom",
+				Type: "custom",
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{BaseURL: "https://api.example.com/v1"},
+				},
+			}},
+		},
+	}
+
+	result, err := svc.Import(domain.DefaultTenantID, backup, domain.ImportOptions{ConflictStrategy: "skip"})
+	if err != nil {
+		t.Fatalf("import backup: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("import result success=false, errors=%v", result.Errors)
+	}
+
+	found := false
+	for _, warning := range result.Warnings {
+		if warning == "Provider 'redacted-custom' imported without API key; re-enter credentials before use" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected provider credential warning, got warnings=%v", result.Warnings)
+	}
+}

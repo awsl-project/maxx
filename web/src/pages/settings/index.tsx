@@ -1121,6 +1121,9 @@ function BackupSection() {
           <div className="flex-1 min-w-[200px]">
             <p className="text-sm font-medium mb-2">{t('settings.importBackup')}</p>
             <p className="text-xs text-muted-foreground mb-3">{t('settings.importBackupDesc')}</p>
+            <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+              {t('settings.importBackupRequiresSecrets')}
+            </p>
             <input
               ref={fileInputRef}
               type="file"

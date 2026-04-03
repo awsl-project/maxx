@@ -978,6 +978,7 @@
     "exportBackupDesc": "Download a redacted JSON backup file without secrets, tokens, passwords, or API keys",
     "importBackup": "Import Backup",
     "importBackupDesc": "Restore configurations from a backup file",
+    "importBackupRequiresSecrets": "If the backup was exported in redacted form, re-enter provider API keys, refresh tokens, and other credentials after import.",
     "selectBackupFile": "Select backup file",
     "exporting": "Exporting...",
     "importing": "Importing...",

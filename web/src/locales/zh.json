@@ -978,6 +978,7 @@
     "exportBackupDesc": "下载脱敏后的 JSON 备份文件（不会导出密钥、Token、密码等敏感值）",
     "importBackup": "导入备份",
     "importBackupDesc": "从备份文件恢复配置",
+    "importBackupRequiresSecrets": "若备份来自脱敏导出，导入成功后仍需重新填写提供商密钥、刷新令牌等凭据。",
     "selectBackupFile": "选择备份文件",
     "exporting": "导出中...",
     "importing": "导入中...",

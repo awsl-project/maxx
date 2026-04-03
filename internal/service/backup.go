@@ -360,6 +360,50 @@ func isSensitiveSystemSettingKey(key string) bool {
 	return false
 }
 
+func describeMissingProviderCredentials(bp domain.BackupProvider) string {
+	if bp.Config == nil {
+		return ""
+	}
+
+	missing := make([]string, 0, 2)
+	if cfg := bp.Config.Custom; cfg != nil && strings.TrimSpace(cfg.APIKey) == "" {
+		missing = append(missing, "API key")
+	}
+	if cfg := bp.Config.Antigravity; cfg != nil && strings.TrimSpace(cfg.RefreshToken) == "" {
+		missing = append(missing, "refresh token")
+	}
+	if cfg := bp.Config.Kiro; cfg != nil {
+		if strings.TrimSpace(cfg.RefreshToken) == "" {
+			missing = append(missing, "refresh token")
+		}
+		if cfg.AuthMethod == "idc" && strings.TrimSpace(cfg.ClientSecret) == "" {
+			missing = append(missing, "client secret")
+		}
+	}
+	if cfg := bp.Config.Codex; cfg != nil && strings.TrimSpace(cfg.RefreshToken) == "" {
+		missing = append(missing, "refresh token")
+	}
+	if cfg := bp.Config.Claude; cfg != nil && strings.TrimSpace(cfg.RefreshToken) == "" {
+		missing = append(missing, "refresh token")
+	}
+
+	if len(missing) == 0 {
+		return ""
+	}
+
+	seen := make(map[string]struct{}, len(missing))
+	uniq := make([]string, 0, len(missing))
+	for _, item := range missing {
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		uniq = append(uniq, item)
+	}
+
+	return strings.Join(uniq, ", ")
+}
+
 // Import imports configuration data from a backup file
 func (s *BackupService) Import(tenantID uint64, backup *domain.BackupFile, opts domain.ImportOptions) (*domain.ImportResult, error) {
 	// Version check
@@ -606,6 +650,9 @@ func (s *BackupService) importProviders(tenantID uint64, providers []domain.Back
 				continue
 			}
 			ctx.providerNameToID[bp.Name] = p.ID
+			if missing := describeMissingProviderCredentials(bp); missing != "" {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("Provider '%s' imported without %s; re-enter credentials before use", bp.Name, missing))
+			}
 			// Refresh adapter
 			if s.adapterRefresher != nil {
 				s.adapterRefresher.RefreshAdapter(p)
