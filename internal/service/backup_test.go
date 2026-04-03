@@ -215,8 +215,8 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	if len(roundtrip.Data.APITokens) != 1 {
 		t.Fatalf("apiTokens count = %d, want 1", len(roundtrip.Data.APITokens))
 	}
-	if roundtrip.Data.APITokens[0].Token != "maxx_test_token_abc" {
-		t.Fatalf("api token not restored, got %q", roundtrip.Data.APITokens[0].Token)
+	if roundtrip.Data.APITokens[0].Token != "" {
+		t.Fatalf("api token plaintext should be omitted from exported backup, got %q", roundtrip.Data.APITokens[0].Token)
 	}
 
 	foundCustomMapping := 0
@@ -281,5 +281,96 @@ func TestBuildModelMappingKey_NoSeparatorCollision(t *testing.T) {
 	}
 	if leftKey == rightKey {
 		t.Fatalf("mapping keys should differ, left=%q right=%q", leftKey, rightKey)
+	}
+}
+
+func TestBackupService_Export_RedactsSensitiveProviderConfigAndTokens(t *testing.T) {
+	db := newBackupServiceTestDB(t, "redaction.db")
+	seedBackupRoundtripData(t, db)
+
+	settingRepo := sqlite.NewSystemSettingRepository(db)
+	if err := settingRepo.Set("jwt_secret", "super-secret-jwt"); err != nil {
+		t.Fatalf("seed jwt secret: %v", err)
+	}
+
+	svc := newBackupServiceForTest(t, db)
+	backup, err := svc.Export(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("export backup: %v", err)
+	}
+
+	if len(backup.Data.Providers) != 1 {
+		t.Fatalf("providers count = %d, want 1", len(backup.Data.Providers))
+	}
+	provider := backup.Data.Providers[0]
+	if provider.Config == nil || provider.Config.Custom == nil {
+		t.Fatalf("expected custom provider config in backup: %+v", provider.Config)
+	}
+	if provider.Config.Custom.APIKey != "" {
+		t.Fatalf("expected provider API key to be redacted, got %q", provider.Config.Custom.APIKey)
+	}
+
+	if len(backup.Data.APITokens) != 1 {
+		t.Fatalf("apiTokens count = %d, want 1", len(backup.Data.APITokens))
+	}
+	if backup.Data.APITokens[0].Token != "" {
+		t.Fatalf("expected backup api token plaintext to be omitted, got %q", backup.Data.APITokens[0].Token)
+	}
+
+	for _, setting := range backup.Data.SystemSettings {
+		if setting.Key == "jwt_secret" {
+			t.Fatalf("expected sensitive setting jwt_secret to be excluded from backup")
+		}
+	}
+}
+
+func TestBackupService_Import_LegacyTokenBackupGeneratesReplacementToken(t *testing.T) {
+	db := newBackupServiceTestDB(t, "legacy-token-import.db")
+	svc := newBackupServiceForTest(t, db)
+
+	backup := &domain.BackupFile{
+		Version: domain.BackupVersion,
+		Data: domain.BackupData{
+			APITokens: []domain.BackupAPIToken{{
+				Name:        "legacy-token",
+				TokenPrefix: "maxx_old...",
+				Description: "legacy backup without plaintext token",
+				IsEnabled:   true,
+			}},
+		},
+	}
+
+	result, err := svc.Import(domain.DefaultTenantID, backup, domain.ImportOptions{ConflictStrategy: "skip"})
+	if err != nil {
+		t.Fatalf("import backup: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("import result success=false, errors=%v", result.Errors)
+	}
+
+	apiTokenRepo := sqlite.NewAPITokenRepository(db)
+	items, err := apiTokenRepo.List(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("list api tokens: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("api token count = %d, want 1", len(items))
+	}
+	if items[0].Token == "" {
+		t.Fatal("expected generated replacement token for legacy backup import")
+	}
+	if items[0].Token == "maxx_old..." {
+		t.Fatal("stored token should not use token prefix as plaintext token")
+	}
+
+	found := false
+	for _, warning := range result.Warnings {
+		if warning == "APIToken 'legacy-token' created with new token" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected replacement-token warning, got warnings=%v", result.Warnings)
 	}
 }

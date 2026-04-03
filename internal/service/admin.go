@@ -171,7 +171,9 @@ func (s *AdminService) ExportProviders(tenantID uint64) ([]*domain.Provider, err
 		if provider.ExcludeFromExport {
 			continue
 		}
-		filtered = append(filtered, provider)
+		clone := *provider
+		clone.Config = sanitizeProviderConfigForExport(provider.Config)
+		filtered = append(filtered, &clone)
 	}
 	return filtered, nil
 }

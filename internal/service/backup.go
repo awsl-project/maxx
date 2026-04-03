@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -96,6 +97,9 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export settings: %w", err)
 	}
 	for _, setting := range settings {
+		if isSensitiveSystemSettingKey(setting.Key) {
+			continue
+		}
 		backup.Data.SystemSettings = append(backup.Data.SystemSettings, domain.BackupSystemSetting{
 			Key:   setting.Key,
 			Value: setting.Value,
@@ -116,7 +120,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 			Name:                 p.Name,
 			Type:                 p.Type,
 			Logo:                 p.Logo,
-			Config:               p.Config,
+			Config:               sanitizeProviderConfigForExport(p.Config),
 			SupportedClientTypes: p.SupportedClientTypes,
 			SupportModels:        p.SupportModels,
 		})
@@ -184,7 +188,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		})
 	}
 
-	// 7. Export APITokens (including token value for seamless restore)
+	// 7. Export APITokens metadata only (plaintext token is intentionally excluded)
 	tokens, err := s.apiTokenRepo.List(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export api tokens: %w", err)
@@ -193,7 +197,6 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		apiTokenIDToName[t.ID] = t.Name
 		backup.Data.APITokens = append(backup.Data.APITokens, domain.BackupAPIToken{
 			Name:        t.Name,
-			Token:       t.Token,
 			TokenPrefix: t.TokenPrefix,
 			Description: t.Description,
 			ProjectSlug: projectIDToSlug[t.ProjectID],
@@ -266,6 +269,95 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 	}
 
 	return backup, nil
+}
+
+func sanitizeProviderConfigForExport(cfg *domain.ProviderConfig) *domain.ProviderConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	clone := *cfg
+
+	if cfg.Custom != nil {
+		custom := *cfg.Custom
+		custom.APIKey = ""
+		clone.Custom = &custom
+	}
+
+	if cfg.Antigravity != nil {
+		ag := *cfg.Antigravity
+		ag.RefreshToken = ""
+		clone.Antigravity = &ag
+	}
+
+	if cfg.Kiro != nil {
+		kiro := *cfg.Kiro
+		kiro.RefreshToken = ""
+		kiro.ClientSecret = ""
+		clone.Kiro = &kiro
+	}
+
+	if cfg.Codex != nil {
+		codex := *cfg.Codex
+		codex.RefreshToken = ""
+		codex.AccessToken = ""
+		clone.Codex = &codex
+	}
+
+	if cfg.Claude != nil {
+		claude := *cfg.Claude
+		claude.RefreshToken = ""
+		claude.AccessToken = ""
+		clone.Claude = &claude
+	}
+
+	return &clone
+}
+
+func isSensitiveSystemSettingKey(key string) bool {
+	key = strings.ToLower(strings.TrimSpace(key))
+	if key == "" {
+		return false
+	}
+
+	sensitiveExact := map[string]struct{}{
+		"jwt_secret":      {},
+		"pprof_password":  {},
+		"admin_password":  {},
+		"session_secret":  {},
+		"encryption_key":  {},
+		"signing_key":     {},
+		"signing_secret":  {},
+		"webhook_secret":  {},
+		"api_key":         {},
+		"access_token":    {},
+		"refresh_token":   {},
+		"client_secret":   {},
+	}
+	if _, ok := sensitiveExact[key]; ok {
+		return true
+	}
+
+	sensitiveParts := []string{
+		"secret",
+		"token",
+		"password",
+		"apikey",
+		"api_key",
+		"accesskey",
+		"access_key",
+		"refreshkey",
+		"refresh_key",
+		"privatekey",
+		"private_key",
+	}
+	for _, part := range sensitiveParts {
+		if strings.Contains(key, part) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Import imports configuration data from a backup file
@@ -768,7 +860,7 @@ func (s *BackupService) importAPITokens(tenantID uint64, tokens []domain.BackupA
 			if tokenRestored {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("APIToken '%s' restored with original token", bt.Name))
 			} else {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("APIToken '%s' created with new token: %s", bt.Name, plain))
+				result.Warnings = append(result.Warnings, fmt.Sprintf("APIToken '%s' created with new token", bt.Name))
 			}
 		}
 		summary.Imported++
