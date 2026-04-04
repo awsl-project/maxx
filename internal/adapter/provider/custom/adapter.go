@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
+	"github.com/awsl-project/maxx/internal/adapter/provider/custom/error_fixer"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -189,6 +191,12 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		defer reader.Close()
 
 		body, _ := io.ReadAll(reader)
+
+		// Try error fixers: if a fixer matches, fix the request and retry once
+		if retryErr := a.retryWithFixer(c, ctx, resp, body, clientType, upstreamReq, requestBody, isOAuthToken, client); retryErr == nil {
+			return nil
+		}
+
 		// Send error response info via EventChannel
 		if eventChan := flow.GetEventChan(c); eventChan != nil {
 			eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -205,10 +213,25 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Handle response
 	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
 	// Adapters simply pass through the upstream response
+	var handleErr error
 	if stream {
-		return a.handleStreamResponse(c, resp, clientType, isOAuthToken)
+		handleErr = a.handleStreamResponse(c, resp, clientType, isOAuthToken)
+	} else {
+		handleErr = a.handleNonStreamResponse(c, resp, clientType, isOAuthToken)
 	}
-	return a.handleNonStreamResponse(c, resp, clientType, isOAuthToken)
+	if handleErr == nil {
+		return nil
+	}
+
+	// For SSE errors detected before any data was sent to client,
+	// try error fixers (e.g. upstream rejects cache_control via SSE error event)
+	if proxyErr, ok := handleErr.(*domain.ProxyError); ok && proxyErr.Message != "" {
+		if retryErr := a.retryWithFixer(c, ctx, nil, []byte(proxyErr.Message), clientType, upstreamReq, requestBody, isOAuthToken, client); retryErr == nil {
+			return nil
+		}
+	}
+
+	return handleErr
 }
 
 func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
@@ -218,6 +241,116 @@ func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
 		}
 	}
 	return false
+}
+
+// maxFixerRounds is an absolute safety limit for fixer retry rounds.
+const maxFixerRounds = 10
+
+// retryWithFixer tries to find matching error fixers and retries the request.
+// If the retry produces a NEW error (different fixers match), it continues retrying.
+// If the same set of fixers matches again (no progress), it stops immediately.
+// Returns nil if retry succeeded, non-nil error otherwise (including no fixer found).
+// resp may be nil for SSE errors.
+func (a *CustomAdapter) retryWithFixer(
+	c *flow.Ctx,
+	ctx context.Context,
+	resp *http.Response,
+	errBody []byte,
+	clientType domain.ClientType,
+	origReq *http.Request,
+	origBody []byte,
+	isOAuthToken bool,
+	client *http.Client,
+) error {
+	currentResp := resp
+	currentErrBody := errBody
+	currentReq := origReq
+	currentBody := origBody
+	appliedFixers := make(map[string]bool)
+
+	for round := 0; round < maxFixerRounds; round++ {
+		fixers := error_fixer.FindFixers(currentResp, currentErrBody, clientType)
+		if len(fixers) == 0 {
+			if round == 0 {
+				return fmt.Errorf("no fixer matched")
+			}
+			return fmt.Errorf("retry failed with status %d (no fixer for new error)", currentResp.StatusCode)
+		}
+
+		// Check if any fixer is new (not yet applied)
+		hasNew := false
+		for _, fixer := range fixers {
+			if !appliedFixers[fixer.Name()] {
+				hasNew = true
+				break
+			}
+		}
+		if !hasNew {
+			// All matched fixers have already been applied — no progress, stop
+			return fmt.Errorf("retry failed: fixers %v already applied but error persists", fixerNames(fixers))
+		}
+
+		// Apply all matching fixers and record them
+		retryReq := currentReq.Clone(ctx)
+		fixedBody := currentBody
+		for _, fixer := range fixers {
+			log.Printf("[custom] error fixer %q matched (round %d)", fixer.Name(), round+1)
+			retryReq, fixedBody = fixer.FixRequest(retryReq, fixedBody)
+			appliedFixers[fixer.Name()] = true
+		}
+
+		// Set the fixed body on the request
+		retryReq.Body = io.NopCloser(bytes.NewReader(fixedBody))
+		retryReq.ContentLength = int64(len(fixedBody))
+
+		if eventChan := flow.GetEventChan(c); eventChan != nil {
+			eventChan.SendRequestInfo(&domain.RequestInfo{
+				Method:  retryReq.Method,
+				URL:     retryReq.URL.String(),
+				Headers: flattenHeaders(retryReq.Header),
+				Body:    string(fixedBody),
+			})
+		}
+
+		retryResp, err := client.Do(retryReq)
+		if err != nil {
+			return err
+		}
+
+		if retryResp.StatusCode < 400 {
+			// Success — handle the response
+			defer retryResp.Body.Close()
+			if isStreamRequest(fixedBody) {
+				return a.handleStreamResponse(c, retryResp, clientType, isOAuthToken)
+			}
+			return a.handleNonStreamResponse(c, retryResp, clientType, isOAuthToken)
+		}
+
+		// Still failing — read the new error body for next round
+		reader, decompErr := decompressResponse(retryResp)
+		if decompErr != nil {
+			retryResp.Body.Close()
+			return fmt.Errorf("retry failed with status %d", retryResp.StatusCode)
+		}
+		newErrBody, _ := io.ReadAll(reader)
+		reader.Close()
+		retryResp.Body.Close()
+
+		currentResp = retryResp
+		currentErrBody = newErrBody
+		currentReq = retryReq
+		currentBody = fixedBody
+	}
+
+	return fmt.Errorf("retry exhausted after %d rounds", maxFixerRounds)
+}
+
+func fixerNames(fixers []error_fixer.ErrorFixer) []string {
+	names := make([]string, len(fixers))
+	for i, f := range fixers {
+		names[i] = f.Name()
+	}
+	return names
 }
 
 func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
