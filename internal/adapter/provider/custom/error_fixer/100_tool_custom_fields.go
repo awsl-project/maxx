@@ -38,7 +38,15 @@ func (f *toolCustomFieldsFixer) Name() string    { return "tool_custom_fields" }
 func (f *toolCustomFieldsFixer) Priority() int { return 100 }
 
 func (f *toolCustomFieldsFixer) MatchResponse(resp *http.Response, body []byte, clientType domain.ClientType) bool {
-	if resp == nil || resp.StatusCode != 400 || clientType != domain.ClientTypeClaude {
+	if clientType != domain.ClientTypeClaude {
+		return false
+	}
+	if resp != nil && resp.StatusCode != 400 {
+		return false
+	}
+	// Require "Extra inputs are not permitted" to avoid false positives.
+	// Also match ".custom." for generic tool custom field errors.
+	if !bytes.Contains(body, []byte("Extra inputs are not permitted")) {
 		return false
 	}
 	for _, kw := range toolCustomKeywords {
@@ -46,7 +54,8 @@ func (f *toolCustomFieldsFixer) MatchResponse(resp *http.Response, body []byte, 
 			return true
 		}
 	}
-	return false
+	// Generic match: any custom sub-field error (e.g. new fields added by Anthropic)
+	return bytes.Contains(body, []byte(".custom."))
 }
 
 func (f *toolCustomFieldsFixer) FixRequest(req *http.Request, body []byte) (*http.Request, []byte) {

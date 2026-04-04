@@ -36,7 +36,15 @@ func (f *extraBodyFieldsFixer) Name() string    { return "extra_body_fields" }
 func (f *extraBodyFieldsFixer) Priority() int { return 100 }
 
 func (f *extraBodyFieldsFixer) MatchResponse(resp *http.Response, body []byte, clientType domain.ClientType) bool {
-	if resp == nil || resp.StatusCode != 400 || clientType != domain.ClientTypeClaude {
+	if clientType != domain.ClientTypeClaude {
+		return false
+	}
+	if resp != nil && resp.StatusCode != 400 {
+		return false
+	}
+	// Require "Extra inputs are not permitted" to avoid false positives
+	// on errors that coincidentally contain words like "reasoning".
+	if !bytes.Contains(body, []byte("Extra inputs are not permitted")) {
 		return false
 	}
 	for _, field := range extraBodyFields {

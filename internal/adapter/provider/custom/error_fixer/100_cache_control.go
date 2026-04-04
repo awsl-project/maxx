@@ -28,10 +28,13 @@ func (f *cacheControlFixer) Name() string    { return "cache_control" }
 func (f *cacheControlFixer) Priority() int { return 100 }
 
 func (f *cacheControlFixer) MatchResponse(resp *http.Response, body []byte, clientType domain.ClientType) bool {
-	return resp != nil &&
-		resp.StatusCode == 400 &&
-		clientType == domain.ClientTypeClaude &&
-		bytes.Contains(body, []byte("cache_control"))
+	if clientType != domain.ClientTypeClaude {
+		return false
+	}
+	if resp != nil && resp.StatusCode != 400 {
+		return false
+	}
+	return bytes.Contains(body, []byte("cache_control"))
 }
 
 func (f *cacheControlFixer) FixRequest(req *http.Request, body []byte) (*http.Request, []byte) {

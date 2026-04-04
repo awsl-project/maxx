@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -274,7 +275,7 @@ func TestErrorFixer_BetaHeader(t *testing.T) {
 		if beta != "" {
 			// Ensure the rejected value is not present
 			for _, rejected := range []string{"prompt-caching-scope-2026-01-05"} {
-				if containsSubstring(beta, rejected) {
+				if strings.Contains(beta, rejected) {
 					t.Errorf("rejected beta %q still present in retry header: %s", rejected, beta)
 				}
 			}
@@ -499,15 +500,3 @@ func TestErrorFixer_BedrockStripAll(t *testing.T) {
 	}
 }
 
-func containsSubstring(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

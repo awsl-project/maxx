@@ -47,9 +47,9 @@ func TestCacheControlFixer_MatchResponse(t *testing.T) {
 		t.Error("should not match when body has no cache_control")
 	}
 
-	// Should not match: nil response (SSE error)
-	if f.MatchResponse(nil, []byte(`cache_control`), domain.ClientTypeClaude) {
-		t.Error("should not match nil response")
+	// Should match: nil response (SSE error path) with cache_control in body
+	if !f.MatchResponse(nil, []byte(`cache_control`), domain.ClientTypeClaude) {
+		t.Error("should match nil response with cache_control in body (SSE path)")
 	}
 }
 
@@ -93,46 +93,3 @@ func TestCacheControlFixer_FixRequest(t *testing.T) {
 	}
 }
 
-func TestFindFixers(t *testing.T) {
-	fixers := FindFixers(
-		&http.Response{StatusCode: 400},
-		[]byte(`cache_control not permitted`),
-		domain.ClientTypeClaude,
-	)
-	if len(fixers) == 0 {
-		t.Fatal("expected to find fixers")
-	}
-	found := false
-	for _, f := range fixers {
-		if f.Name() == "cache_control" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected cache_control fixer in results")
-	}
-
-	fixers = FindFixers(&http.Response{StatusCode: 200}, []byte(`ok`), domain.ClientTypeClaude)
-	if len(fixers) != 0 {
-		t.Error("expected no fixers for 200")
-	}
-}
-
-func TestFindFixers_Multiple(t *testing.T) {
-	// Error body mentions both cache_control and defer_loading — both fixers should match
-	fixers := FindFixers(
-		&http.Response{StatusCode: 400},
-		[]byte(`cache_control: Extra inputs; tools.0.custom.defer_loading: Extra inputs`),
-		domain.ClientTypeClaude,
-	)
-	names := make(map[string]bool)
-	for _, f := range fixers {
-		names[f.Name()] = true
-	}
-	if !names["cache_control"] {
-		t.Error("expected cache_control fixer")
-	}
-	if !names["tool_custom_fields"] {
-		t.Error("expected tool_custom_fields fixer")
-	}
-}

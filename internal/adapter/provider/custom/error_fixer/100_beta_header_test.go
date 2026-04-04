@@ -39,11 +39,11 @@ func TestBetaHeaderFixer_MatchResponse(t *testing.T) {
 			want:       false,
 		},
 		{
-			name:       "nil response",
+			name:       "nil response SSE path",
 			resp:       nil,
-			body:       `anthropic-beta`,
+			body:       `anthropic-beta header rejected`,
 			clientType: domain.ClientTypeClaude,
-			want:       false,
+			want:       true,
 		},
 		{
 			name:       "wrong client type",
@@ -82,7 +82,7 @@ func TestBetaHeaderFixer_FixRequest(t *testing.T) {
 		{
 			name:       "keep supported, strip rejected",
 			betaValue:  "max-tokens-3-5-sonnet-2024-07-15,prompt-caching-scope-2026-01-05,output-128k-2025-02-19",
-			wantHeader: "max-tokens-3-5-sonnet-2024-07-15,output-128k-2025-02-19",
+			wantHeader: "max-tokens-3-5-sonnet-2024-07-15, output-128k-2025-02-19",
 		},
 		{
 			name:       "strip multiple rejected betas",
@@ -92,8 +92,8 @@ func TestBetaHeaderFixer_FixRequest(t *testing.T) {
 		},
 		{
 			name:       "keep all if none rejected",
-			betaValue:  "max-tokens-3-5-sonnet-2024-07-15,output-128k-2025-02-19",
-			wantHeader: "max-tokens-3-5-sonnet-2024-07-15,output-128k-2025-02-19",
+			betaValue:  "max-tokens-3-5-sonnet-2024-07-15, output-128k-2025-02-19",
+			wantHeader: "max-tokens-3-5-sonnet-2024-07-15, output-128k-2025-02-19",
 		},
 		{
 			name:       "no header at all",

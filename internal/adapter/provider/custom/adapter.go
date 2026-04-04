@@ -244,7 +244,7 @@ func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
 }
 
 // maxFixerRounds is an absolute safety limit for fixer retry rounds.
-const maxFixerRounds = 10
+const maxFixerRounds = 5
 
 // retryWithFixer tries to find matching error fixers and retries the request.
 // If the retry produces a NEW error (different fixers match), it continues retrying.

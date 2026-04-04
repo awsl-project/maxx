@@ -47,11 +47,18 @@ func TestToolCustomFieldsFixer_MatchResponse(t *testing.T) {
 			want:       false,
 		},
 		{
-			name:       "nil response",
-			resp:       nil,
-			body:       `defer_loading`,
+			name:       "generic .custom. field error",
+			resp:       &http.Response{StatusCode: 400},
+			body:       `{"error":{"message":"tools.0.custom.new_future_field: Extra inputs are not permitted"}}`,
 			clientType: domain.ClientTypeClaude,
-			want:       false,
+			want:       true,
+		},
+		{
+			name:       "nil response SSE path",
+			resp:       nil,
+			body:       `tools.0.custom.defer_loading: Extra inputs are not permitted`,
+			clientType: domain.ClientTypeClaude,
+			want:       true,
 		},
 	}
 

@@ -30,7 +30,10 @@ func (f *betaHeaderFixer) Name() string    { return "beta_header" }
 func (f *betaHeaderFixer) Priority() int { return 100 }
 
 func (f *betaHeaderFixer) MatchResponse(resp *http.Response, body []byte, clientType domain.ClientType) bool {
-	if resp == nil || resp.StatusCode != 400 || clientType != domain.ClientTypeClaude {
+	if clientType != domain.ClientTypeClaude {
+		return false
+	}
+	if resp != nil && resp.StatusCode != 400 {
 		return false
 	}
 	return bytes.Contains(body, []byte("anthropic-beta")) ||
@@ -62,6 +65,6 @@ func filterRejectedBetas(req *http.Request) {
 	if len(kept) == 0 {
 		req.Header.Del("anthropic-beta")
 	} else {
-		req.Header.Set("anthropic-beta", strings.Join(kept, ","))
+		req.Header.Set("anthropic-beta", strings.Join(kept, ", "))
 	}
 }
