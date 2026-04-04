@@ -96,7 +96,13 @@ brew install --cask awsl-project/awsl/maxx
 brew upgrade --cask awsl-project/awsl/maxx
 ```
 
-> **Troubleshooting: "App is damaged" on macOS**
+> **Gatekeeper note:** maxx is not notarized. On first launch, macOS Gatekeeper may block it.
+> To allow it, run:
+> `xattr -d com.apple.quarantine /Applications/maxx.app`
+>
+> Or go to **System Settings > Privacy & Security** and click **Open Anyway**.
+>
+> **If macOS says the app is damaged:**
 > 1. Remove quarantine attributes:
 >    `sudo xattr -rd com.apple.quarantine /Applications/maxx.app`
 > 2. Right-click `maxx.app` in Finder and choose **Open** once.

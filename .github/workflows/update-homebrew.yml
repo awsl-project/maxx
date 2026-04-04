@@ -86,6 +86,16 @@ jobs:
             homepage "https://github.com/awsl-project/maxx"
 
             app "maxx.app"
+
+            caveats do
+              <<~EOS
+                maxx is not notarized. On first launch, macOS Gatekeeper may block it.
+                To allow it, run:
+                  xattr -d com.apple.quarantine /Applications/maxx.app
+
+                Or go to System Settings > Privacy & Security > click "Open Anyway".
+              EOS
+            end
           end
           CASK_EOF
 

@@ -96,7 +96,13 @@ brew install --cask awsl-project/awsl/maxx
 brew upgrade --cask awsl-project/awsl/maxx
 ```
 
-> **故障排查：macOS 提示“应用已损坏”**
+> **Gatekeeper 提示：** `maxx` 尚未经过 notarization，首次启动时 macOS Gatekeeper 可能会阻止打开。
+> 可执行：
+> `xattr -d com.apple.quarantine /Applications/maxx.app`
+>
+> 或前往 **系统设置 > 隐私与安全性**，点击 **仍要打开**。
+>
+> **如果 macOS 提示“应用已损坏”：**
 > 1. 清理隔离属性：
 >    `sudo xattr -rd com.apple.quarantine /Applications/maxx.app`
 > 2. 在访达中右键 `maxx.app`，选择一次**打开**。
