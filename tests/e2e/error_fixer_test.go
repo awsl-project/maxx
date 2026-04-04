@@ -370,7 +370,7 @@ func TestErrorFixer_NoRetryOnUnknownError(t *testing.T) {
 func TestErrorFixer_MaxRetriesExhausted(t *testing.T) {
 	// Upstream always returns the same cache_control error no matter what.
 	// The fixer matches every time, but the error never goes away.
-	// Must stop after maxFixerRetries (3) rounds, not loop forever.
+	// Must detect no progress and stop immediately, not loop forever.
 	var callCount atomic.Int32
 
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
