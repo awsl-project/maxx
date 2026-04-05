@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -28,15 +29,18 @@ func init() {
 type BedrockAdapter struct {
 	provider   *domain.Provider
 	httpClient *http.Client
+	creds      credentials.StaticCredentialsProvider
 }
 
 func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 	if p.Config == nil || p.Config.Bedrock == nil {
 		return nil, fmt.Errorf("provider %s missing bedrock config", p.Name)
 	}
+	config := p.Config.Bedrock
 	return &BedrockAdapter{
 		provider:   p,
 		httpClient: newHTTPClient(),
+		creds:      credentials.NewStaticCredentialsProvider(config.AccessKeyID, config.SecretAccessKey, ""),
 	}, nil
 }
 
@@ -101,7 +105,7 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 
 	// Sign request with SigV4
-	if err := signRequest(ctx, upstreamReq, requestBody, config.AccessKeyID, config.SecretAccessKey, region); err != nil {
+	if err := signRequest(ctx, upstreamReq, requestBody, a.creds, region); err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to sign request")
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
@@ -258,8 +262,12 @@ func (a *BedrockAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) 
 		// Filter amazon-bedrock-invocationMetrics from message_stop
 		payload = filterBedrockMetrics(payload)
 
-		// Format as SSE line
-		sseLine := "event: message\ndata: " + string(payload) + "\n\n"
+		// Format as SSE line (Anthropic API format: "event: " + type from payload)
+		eventType := gjson.GetBytes(payload, "type").String()
+		if eventType == "" {
+			eventType = "message"
+		}
+		sseLine := "event: " + eventType + "\ndata: " + string(payload) + "\n\n"
 
 		// Process for metrics collection
 		collector.ProcessSSELine("data: " + string(payload))
@@ -353,8 +361,14 @@ func classifyBedrockHTTPError(statusCode int, body []byte, headers http.Header, 
 	bodyStr := string(body)
 	bodyLower := strings.ToLower(bodyStr)
 
+	// Truncate error body to avoid leaking internal AWS details
+	errMsg := bodyStr
+	if len(errMsg) > 500 {
+		errMsg = errMsg[:500] + "..."
+	}
+
 	proxyErr := &domain.ProxyError{
-		Err:            fmt.Errorf("bedrock error: %s", bodyStr),
+		Err:            fmt.Errorf("bedrock error: %s", errMsg),
 		Message:        fmt.Sprintf("bedrock returned status %d", statusCode),
 		HTTPStatusCode: statusCode,
 		Retryable:      isRetryableStatusCode(statusCode),

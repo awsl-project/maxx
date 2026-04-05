@@ -14,8 +14,7 @@ import (
 const bedrockService = "bedrock"
 
 // signRequest signs an HTTP request with AWS SigV4.
-func signRequest(ctx context.Context, req *http.Request, body []byte, accessKeyID, secretAccessKey, region string) error {
-	creds := credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")
+func signRequest(ctx context.Context, req *http.Request, body []byte, creds credentials.StaticCredentialsProvider, region string) error {
 	awsCreds, err := creds.Retrieve(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve AWS credentials: %w", err)

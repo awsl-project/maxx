@@ -1378,7 +1378,11 @@
       "name": "AWS Bedrock",
       "description": "Direct access to Claude on AWS Bedrock",
       "credentials": "AWS Credentials",
+      "accessKeyId": "Access Key ID",
+      "secretAccessKey": "Secret Access Key",
       "secretPlaceholder": "Enter your Secret Access Key",
+      "region": "Region",
+      "modelPrefix": "Model Prefix",
       "regionHint": "Select the region where you enabled Bedrock model access",
       "modelPrefixHint": "Cross-region inference prefix (default: us). Set to 'none' to disable"
     },

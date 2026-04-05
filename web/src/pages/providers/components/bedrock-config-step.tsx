@@ -128,7 +128,7 @@ export function BedrockConfigStep() {
                 <label className="text-sm font-medium text-foreground block mb-2">
                   <div className="flex items-center gap-2">
                     <Key size={14} />
-                    <span>Access Key ID</span>
+                    <span>{t('addProvider.bedrock.accessKeyId', 'Access Key ID')}</span>
                   </div>
                 </label>
                 <Input
@@ -144,7 +144,7 @@ export function BedrockConfigStep() {
                 <label className="text-sm font-medium text-foreground block mb-2">
                   <div className="flex items-center gap-2">
                     <Key size={14} />
-                    <span>Secret Access Key</span>
+                    <span>{t('addProvider.bedrock.secretAccessKey', 'Secret Access Key')}</span>
                   </div>
                 </label>
                 <div className="relative">
@@ -171,7 +171,7 @@ export function BedrockConfigStep() {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Globe size={14} />
-                      <span>Region</span>
+                      <span>{t('addProvider.bedrock.region', 'Region')}</span>
                     </div>
                   </label>
                   <select
@@ -190,7 +190,7 @@ export function BedrockConfigStep() {
 
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
-                    Model Prefix
+                    {t('addProvider.bedrock.modelPrefix', 'Model Prefix')}
                   </label>
                   <Input
                     type="text"

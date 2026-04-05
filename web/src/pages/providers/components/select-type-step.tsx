@@ -10,7 +10,6 @@ import {
   Sparkles,
   ChevronLeft,
 } from 'lucide-react';
-// Cloud is already imported from lucide-react
 import { quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
 import { Button } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';

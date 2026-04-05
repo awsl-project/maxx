@@ -36,6 +36,12 @@ func (d *eventStreamDecoder) Decode() ([]byte, error) {
 	headersLen := binary.BigEndian.Uint32(prelude[4:8])
 	preludeCRC := binary.BigEndian.Uint32(prelude[8:12])
 
+	// Guard against unreasonably large messages (max 16 MB)
+	const maxMessageSize = 16 * 1024 * 1024
+	if totalLen > maxMessageSize {
+		return nil, fmt.Errorf("event stream message too large: %d bytes", totalLen)
+	}
+
 	// Validate prelude CRC
 	crc := crc32.NewIEEE()
 	crc.Write(prelude[0:8])
@@ -97,9 +103,6 @@ func parseHeaders(data []byte) map[string]string {
 	headers := make(map[string]string)
 	offset := 0
 	for offset < len(data) {
-		if offset >= len(data) {
-			break
-		}
 		// Header name length (1 byte)
 		nameLen := int(data[offset])
 		offset++

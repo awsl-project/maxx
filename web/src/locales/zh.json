@@ -1376,7 +1376,11 @@
       "name": "AWS Bedrock",
       "description": "直连 AWS Bedrock 上的 Claude",
       "credentials": "AWS 凭证",
+      "accessKeyId": "Access Key ID",
+      "secretAccessKey": "Secret Access Key",
       "secretPlaceholder": "输入 Secret Access Key",
+      "region": "区域",
+      "modelPrefix": "模型前缀",
       "regionHint": "选择你开通了 Bedrock 模型访问权限的区域",
       "modelPrefixHint": "跨区域推理前缀（默认: us）。设为 'none' 可禁用"
     },
