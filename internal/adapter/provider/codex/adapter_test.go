@@ -101,7 +101,7 @@ func TestIsCodexResponseCompletedLine(t *testing.T) {
 	}
 }
 
-func TestApplyCodexHeadersUsesDefaultUAForNonCLI(t *testing.T) {
+func TestApplyCodexHeadersPreservesProvidedUA(t *testing.T) {
 	a := &CodexAdapter{}
 	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
 	clientReq, _ := http.NewRequest("POST", "http://localhost/responses", nil)
@@ -110,8 +110,8 @@ func TestApplyCodexHeadersUsesDefaultUAForNonCLI(t *testing.T) {
 
 	a.applyCodexHeaders(upstreamReq, clientReq, "token-1", "acct-1", true, "")
 
-	if got := upstreamReq.Header.Get("User-Agent"); got != CodexUserAgent {
-		t.Fatalf("expected default Codex User-Agent for non-CLI client, got %q", got)
+	if got := upstreamReq.Header.Get("User-Agent"); got != "Mozilla/5.0" {
+		t.Fatalf("expected provided User-Agent passthrough, got %q", got)
 	}
 	if got := upstreamReq.Header.Get("X-Custom"); got != "ok" {
 		t.Fatalf("expected X-Custom passthrough, got %q", got)
@@ -126,5 +126,18 @@ func TestApplyCodexHeadersUsesDefaultUAWhenClientReqNil(t *testing.T) {
 
 	if got := upstreamReq.Header.Get("User-Agent"); got != CodexUserAgent {
 		t.Fatalf("expected default Codex User-Agent when client request is nil, got %q", got)
+	}
+}
+
+func TestApplyCodexHeadersUsesDefaultUAWhenClientUAIsBlank(t *testing.T) {
+	a := &CodexAdapter{}
+	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
+	clientReq, _ := http.NewRequest("POST", "http://localhost/responses", nil)
+	clientReq.Header.Set("User-Agent", "   ")
+
+	a.applyCodexHeaders(upstreamReq, clientReq, "token-1", "acct-1", true, "")
+
+	if got := upstreamReq.Header.Get("User-Agent"); got != CodexUserAgent {
+		t.Fatalf("expected default Codex User-Agent when client UA is blank, got %q", got)
 	}
 }

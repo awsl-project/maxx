@@ -83,9 +83,9 @@ func applyClaudeHeaders(req *http.Request, clientReq *http.Request, apiKey strin
 
 	clientUA := ""
 	if clientHeaders != nil {
-		clientUA = strings.TrimSpace(clientHeaders.Get("User-Agent"))
+		clientUA = clientHeaders.Get("User-Agent")
 	}
-	if isClaudeCodeClient(clientUA) {
+	if strings.TrimSpace(clientUA) != "" {
 		req.Header.Set("User-Agent", clientUA)
 	} else {
 		req.Header.Set("User-Agent", defaultClaudeUserAgent)

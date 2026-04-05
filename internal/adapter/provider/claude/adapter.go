@@ -575,7 +575,7 @@ func ensureHeader(dst http.Header, clientReq *http.Request, key, defaultValue st
 
 func resolveClaudeUserAgent(clientReq *http.Request) string {
 	if clientReq != nil {
-		if ua := strings.TrimSpace(clientReq.Header.Get("User-Agent")); isClaudeCLIUserAgent(ua) {
+		if ua := clientReq.Header.Get("User-Agent"); strings.TrimSpace(ua) != "" {
 			return ua
 		}
 	}

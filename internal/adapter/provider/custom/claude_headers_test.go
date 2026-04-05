@@ -99,7 +99,7 @@ func TestApplyClaudeHeadersDefaults(t *testing.T) {
 	}
 }
 
-func TestApplyClaudeHeadersUserAgentPassthroughOnlyForCLI(t *testing.T) {
+func TestApplyClaudeHeadersUserAgentPassthroughWhenProvided(t *testing.T) {
 	cliReq, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
 	cliClientReq, _ := http.NewRequest("POST", "https://example.com", nil)
 	cliClientReq.Header.Set("User-Agent", "claude-cli/2.1.23 (external, cli)")
@@ -114,8 +114,8 @@ func TestApplyClaudeHeadersUserAgentPassthroughOnlyForCLI(t *testing.T) {
 	nonCLIClientReq.Header.Set("User-Agent", "Mozilla/5.0")
 
 	applyClaudeHeaders(nonCLIReq, nonCLIClientReq, "sk-test", true, nil, true)
-	if got := nonCLIReq.Header.Get("User-Agent"); got != defaultClaudeUserAgent {
-		t.Fatalf("expected default User-Agent for non-CLI client, got %q", got)
+	if got := nonCLIReq.Header.Get("User-Agent"); got != "Mozilla/5.0" {
+		t.Fatalf("expected non-CLI User-Agent passthrough, got %q", got)
 	}
 
 	nonOfficialReq, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
@@ -123,8 +123,25 @@ func TestApplyClaudeHeadersUserAgentPassthroughOnlyForCLI(t *testing.T) {
 	nonOfficialClientReq.Header.Set("User-Agent", "claude-cli/dev")
 
 	applyClaudeHeaders(nonOfficialReq, nonOfficialClientReq, "sk-test", true, nil, true)
-	if got := nonOfficialReq.Header.Get("User-Agent"); got != defaultClaudeUserAgent {
-		t.Fatalf("expected default User-Agent for non-official CLI UA, got %q", got)
+	if got := nonOfficialReq.Header.Get("User-Agent"); got != "claude-cli/dev" {
+		t.Fatalf("expected arbitrary User-Agent passthrough, got %q", got)
+	}
+}
+
+func TestApplyClaudeHeadersUserAgentFallsBackWhenMissing(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	clientReq, _ := http.NewRequest("POST", "https://example.com", nil)
+	clientReq.Header.Set("User-Agent", "   ")
+
+	applyClaudeHeaders(req, clientReq, "sk-test", true, nil, true)
+	if got := req.Header.Get("User-Agent"); got != defaultClaudeUserAgent {
+		t.Fatalf("expected default User-Agent when client UA is blank, got %q", got)
+	}
+
+	req2, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	applyClaudeHeaders(req2, nil, "sk-test", true, nil, true)
+	if got := req2.Header.Get("User-Agent"); got != defaultClaudeUserAgent {
+		t.Fatalf("expected default User-Agent when client request is nil, got %q", got)
 	}
 }
 
@@ -138,9 +155,8 @@ func TestCloakingBuildsSub2apiCompatibleClaudeShape(t *testing.T) {
 	upstreamReq, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
 	applyClaudeHeaders(upstreamReq, clientReq, "sk-test", true, extraBetas, true)
 
-	uaPattern := regexp.MustCompile(`(?i)^claude-cli/\d+\.\d+\.\d+`)
-	if got := upstreamReq.Header.Get("User-Agent"); !uaPattern.MatchString(got) {
-		t.Fatalf("expected sub2api-compatible User-Agent, got %q", got)
+	if got := upstreamReq.Header.Get("User-Agent"); got != "curl/8.0.0" {
+		t.Fatalf("expected original User-Agent passthrough, got %q", got)
 	}
 
 	for _, key := range []string{"X-App", "Anthropic-Beta", "Anthropic-Version"} {
