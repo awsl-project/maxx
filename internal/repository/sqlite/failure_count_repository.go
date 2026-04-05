@@ -17,16 +17,16 @@ func NewFailureCountRepository(db *DB) repository.FailureCountRepository {
 	return &FailureCountRepository{db: db}
 }
 
-func (r *FailureCountRepository) Get(tenantID uint64, providerID uint64, clientType string, reason string) (*domain.FailureCount, error) {
-	var model FailureCount
-	err := tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ? AND reason = ?", providerID, clientType, reason).First(&model).Error
+func (r *FailureCountRepository) Get(tenantID uint64, providerID uint64, clientType string, model string, reason string) (*domain.FailureCount, error) {
+	var m FailureCount
+	err := tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ? AND model = ? AND reason = ?", providerID, clientType, model, reason).First(&m).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return r.toDomain(&model), nil
+	return r.toDomain(&m), nil
 }
 
 func (r *FailureCountRepository) GetAll(tenantID uint64) ([]*domain.FailureCount, error) {
@@ -39,7 +39,7 @@ func (r *FailureCountRepository) GetAll(tenantID uint64) ([]*domain.FailureCount
 
 func (r *FailureCountRepository) Upsert(fc *domain.FailureCount) error {
 	now := time.Now()
-	model := &FailureCount{
+	m := &FailureCount{
 		BaseModel: BaseModel{
 			CreatedAt: toTimestamp(now),
 			UpdatedAt: toTimestamp(now),
@@ -47,43 +47,48 @@ func (r *FailureCountRepository) Upsert(fc *domain.FailureCount) error {
 		TenantID:      fc.TenantID,
 		ProviderID:    fc.ProviderID,
 		ClientType:    fc.ClientType,
+		Model:         fc.Model,
 		Reason:        fc.Reason,
 		Count:         fc.Count,
 		LastFailureAt: toTimestamp(fc.LastFailureAt),
 	}
 
 	err := r.db.gorm.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "tenant_id"}, {Name: "provider_id"}, {Name: "client_type"}, {Name: "reason"}},
+		Columns: []clause.Column{{Name: "tenant_id"}, {Name: "provider_id"}, {Name: "client_type"}, {Name: "model"}, {Name: "reason"}},
 		DoUpdates: clause.Assignments(map[string]any{
 			"count":           fc.Count,
 			"last_failure_at": toTimestamp(fc.LastFailureAt),
 			"updated_at":      toTimestamp(now),
 		}),
-	}).Create(model).Error
+	}).Create(m).Error
 
 	if err != nil {
 		return err
 	}
 
 	if fc.ID == 0 {
-		fc.ID = model.ID
+		fc.ID = m.ID
 		fc.CreatedAt = now
 	}
 	fc.UpdatedAt = now
 	return nil
 }
 
-func (r *FailureCountRepository) Delete(tenantID uint64, providerID uint64, clientType string, reason string) error {
-	return tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ? AND reason = ?", providerID, clientType, reason).Delete(&FailureCount{}).Error
+func (r *FailureCountRepository) Delete(tenantID uint64, providerID uint64, clientType string, model string, reason string) error {
+	return tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ? AND model = ? AND reason = ?", providerID, clientType, model, reason).Delete(&FailureCount{}).Error
 }
 
-func (r *FailureCountRepository) DeleteAll(tenantID uint64, providerID uint64, clientType string) error {
+func (r *FailureCountRepository) DeleteAll(tenantID uint64, providerID uint64, clientType string, model string) error {
 	// If clientType is empty, delete ALL failure counts for this provider
 	if clientType == "" {
 		return tenantScope(r.db.gorm, tenantID).Where("provider_id = ?", providerID).Delete(&FailureCount{}).Error
 	}
-	// Otherwise, delete only for the specific clientType
-	return tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ?", providerID, clientType).Delete(&FailureCount{}).Error
+	// If model is empty, delete all for this provider+clientType (all models)
+	if model == "" {
+		return tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ?", providerID, clientType).Delete(&FailureCount{}).Error
+	}
+	// Otherwise, delete only for the specific provider+clientType+model
+	return tenantScope(r.db.gorm, tenantID).Where("provider_id = ? AND client_type = ? AND model = ?", providerID, clientType, model).Delete(&FailureCount{}).Error
 }
 
 func (r *FailureCountRepository) DeleteExpired(olderThanSeconds int64) error {
@@ -99,6 +104,7 @@ func (r *FailureCountRepository) toDomain(m *FailureCount) *domain.FailureCount 
 		TenantID:      m.TenantID,
 		ProviderID:    m.ProviderID,
 		ClientType:    m.ClientType,
+		Model:         m.Model,
 		Reason:        m.Reason,
 		Count:         m.Count,
 		LastFailureAt: fromTimestamp(m.LastFailureAt),

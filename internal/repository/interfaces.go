@@ -29,6 +29,24 @@ type UserRepository interface {
 	CountActive() (int64, error)
 }
 
+type InviteCodeRepository interface {
+	Create(code *domain.InviteCode) error
+	Update(tenantID uint64, code *domain.InviteCode) error
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.InviteCode, error)
+	GetByCodeHash(tenantID uint64, codeHash string) (*domain.InviteCode, error)
+	List(tenantID uint64) ([]*domain.InviteCode, error)
+	Consume(tenantID uint64, codeHash string, now time.Time) (*domain.InviteCode, error)
+	RollbackConsume(tenantID uint64, usageID uint64) error
+	GetByCodeHashAny(codeHash string) (*domain.InviteCode, error)
+}
+
+type InviteCodeUsageRepository interface {
+	Create(usage *domain.InviteCodeUsage) error
+	ListByCodeID(tenantID uint64, codeID uint64) ([]*domain.InviteCodeUsage, error)
+	ListByUserID(tenantID uint64, userID uint64) ([]*domain.InviteCodeUsage, error)
+}
+
 type ProviderRepository interface {
 	Create(provider *domain.Provider) error
 	Update(provider *domain.Provider) error
@@ -78,8 +96,10 @@ type ProjectRepository interface {
 type SessionRepository interface {
 	Create(session *domain.Session) error
 	Update(session *domain.Session) error
+	Touch(tenantID uint64, sessionID string, touchedAt time.Time) error
 	GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error)
 	List(tenantID uint64) ([]*domain.Session, error)
+	DeleteOlderThan(before time.Time) (int64, error)
 }
 
 // ProxyRequestFilter 请求列表过滤条件
@@ -173,8 +193,10 @@ type AntigravityQuotaRepository interface {
 }
 
 type CodexQuotaRepository interface {
-	// Upsert 更新或插入配额（基于邮箱）
+	// Upsert 更新或插入配额（优先基于 identityKey，其次回退邮箱）
 	Upsert(quota *domain.CodexQuota) error
+	// GetByIdentityKey 根据身份键获取配额
+	GetByIdentityKey(tenantID uint64, identityKey string) (*domain.CodexQuota, error)
 	// GetByEmail 根据邮箱获取配额
 	GetByEmail(tenantID uint64, email string) (*domain.CodexQuota, error)
 	// List 获取所有配额
@@ -241,7 +263,7 @@ type APITokenRepository interface {
 	GetByID(tenantID uint64, id uint64) (*domain.APIToken, error)
 	GetByToken(tenantID uint64, token string) (*domain.APIToken, error)
 	List(tenantID uint64) ([]*domain.APIToken, error)
-	IncrementUseCount(tenantID uint64, id uint64) error
+	UpdateLastSeen(tenantID uint64, id uint64, lastIP string, lastSeenAt time.Time) error
 }
 
 type ModelMappingRepository interface {
@@ -307,7 +329,7 @@ type CooldownRepository interface {
 	Upsert(cooldown *domain.Cooldown) error
 
 	// Delete removes a cooldown
-	Delete(providerID uint64, clientType string) error
+	Delete(providerID uint64, clientType string, model string) error
 
 	// DeleteAll removes all cooldowns for a provider
 	DeleteAll(providerID uint64) error
@@ -316,22 +338,13 @@ type CooldownRepository interface {
 	DeleteExpired() error
 
 	// Get retrieves a specific cooldown
-	Get(providerID uint64, clientType string) (*domain.Cooldown, error)
-}
-
-// CooldownInfo is a helper structure for returning cooldown information
-type CooldownInfo struct {
-	ProviderID   uint64    `json:"providerID"`
-	ProviderName string    `json:"providerName"`
-	ClientType   string    `json:"clientType"`
-	Until        time.Time `json:"until"`
-	Remaining    string    `json:"remaining"`
+	Get(providerID uint64, clientType string, model string) (*domain.Cooldown, error)
 }
 
 // FailureCountRepository manages failure count persistence
 type FailureCountRepository interface {
-	// Get retrieves a failure count by tenant, provider, client type, and reason
-	Get(tenantID uint64, providerID uint64, clientType string, reason string) (*domain.FailureCount, error)
+	// Get retrieves a failure count by tenant, provider, client type, model, and reason
+	Get(tenantID uint64, providerID uint64, clientType string, model string, reason string) (*domain.FailureCount, error)
 
 	// GetAll retrieves all failure counts for a tenant (use TenantIDAll for all)
 	GetAll(tenantID uint64) ([]*domain.FailureCount, error)
@@ -340,10 +353,11 @@ type FailureCountRepository interface {
 	Upsert(fc *domain.FailureCount) error
 
 	// Delete deletes a failure count
-	Delete(tenantID uint64, providerID uint64, clientType string, reason string) error
+	Delete(tenantID uint64, providerID uint64, clientType string, model string, reason string) error
 
-	// DeleteAll deletes all failure counts for a provider+clientType
-	DeleteAll(tenantID uint64, providerID uint64, clientType string) error
+	// DeleteAll deletes all failure counts for a provider+clientType+model
+	// When model is empty, delete all for that provider+clientType (existing behavior)
+	DeleteAll(tenantID uint64, providerID uint64, clientType string, model string) error
 
 	// DeleteExpired deletes failure counts where last failure was too long ago
 	DeleteExpired(olderThan int64) error

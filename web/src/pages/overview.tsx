@@ -340,6 +340,37 @@ export function OverviewPage() {
             />
           </div>
 
+          {/* Cooldown Alert Banner — shown at top when any provider has active cooldowns */}
+          {activeCooldowns.length > 0 && (
+            <div className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
+              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-amber-600 dark:text-amber-400 mb-1">
+                  {t('dashboard.activeCooldowns', { count: activeCooldowns.length })}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {activeCooldowns.slice(0, 6).map((cd) => {
+                    const name = cd.providerName || providers?.find((p) => p.id === cd.providerID)?.name || `#${cd.providerID}`;
+                    return (
+                      <div
+                        key={`banner-${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}
+                        className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                      >
+                        <span className="truncate max-w-[140px]">
+                          {name}
+                          {cd.model && <span className="text-muted-foreground/60"> / {cd.model}</span>}
+                        </span>
+                        <span className="font-mono text-amber-600 dark:text-amber-400 shrink-0">
+                          <CooldownTimer cooldown={cd} />
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 第二行：趋势图 + 使用统计 */}
           <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
             {/* 24小时趋势 */}
@@ -566,17 +597,20 @@ export function OverviewPage() {
                           <AlertTriangle className="h-3 w-3" />
                           <span>{t('dashboard.cooldownActive')}</span>
                         </div>
-                        {activeCooldowns.slice(0, 2).map((cd) => {
-                          const provider = providers?.find((p) => p.id === cd.providerID);
+                        {activeCooldowns.slice(0, 4).map((cd) => {
+                          const providerName = cd.providerName || providers?.find((p) => p.id === cd.providerID)?.name || `Provider #${cd.providerID}`;
                           return (
                             <div
-                              key={cd.id}
+                              key={`${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}
                               className="flex items-center justify-between text-xs mt-1"
                             >
-                              <span className="text-muted-foreground">
-                                {provider?.name || `Provider #${cd.providerID}`}
+                              <span className="text-muted-foreground truncate">
+                                {providerName}
+                                {cd.model && (
+                                  <span className="text-muted-foreground/60"> / {cd.model}</span>
+                                )}
                               </span>
-                              <span className="font-mono text-amber-600 dark:text-amber-400">
+                              <span className="font-mono text-amber-600 dark:text-amber-400 shrink-0 ml-2">
                                 <CooldownTimer cooldown={cd} />
                               </span>
                             </div>

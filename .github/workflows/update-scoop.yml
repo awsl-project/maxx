@@ -1,0 +1,98 @@
+name: Update Scoop Bucket
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "版本号 (例如: v1.0.0)"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
+
+jobs:
+  update-scoop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag input
+        id: validate-tag
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.tag }}"
+          VERSION="$(printf '%s' "$VERSION" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+
+          if [[ -z "$VERSION" ]]; then
+            echo "Error: tag input is empty"
+            exit 1
+          fi
+
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: invalid tag format: $VERSION"
+            exit 1
+          fi
+
+          echo "Using tag: $VERSION"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download Windows checksum
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.validate-tag.outputs.tag }}"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
+          curl -fsSL "${BASE_URL}/maxx.exe.sha256" -o maxx.exe.sha256
+
+      - name: Update Scoop manifest
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.validate-tag.outputs.tag }}"
+          VERSION_NUM="${VERSION#v}"
+          WIN_SHA=$(awk '{print $1}' maxx.exe.sha256 | tr -d '\n\r')
+
+          if [[ ! "$WIN_SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Error: invalid windows checksum: $WIN_SHA"
+            exit 1
+          fi
+
+          cat > maxx.json <<EOF
+          {
+            "version": "${VERSION_NUM}",
+            "description": "maxx",
+            "homepage": "https://github.com/awsl-project/maxx",
+            "license": "MIT",
+            "architecture": {
+              "64bit": {
+                "url": "https://github.com/awsl-project/maxx/releases/download/${VERSION}/maxx.exe",
+                "hash": "${WIN_SHA}"
+              }
+            },
+            "bin": "maxx.exe",
+            "checkver": {
+              "github": "https://github.com/awsl-project/maxx"
+            },
+            "autoupdate": {
+              "architecture": {
+                "64bit": {
+                  "url": "https://github.com/awsl-project/maxx/releases/download/v\$version/maxx.exe"
+                }
+              }
+            }
+          }
+          EOF
+
+          git clone https://git:${GH_TOKEN}@github.com/awsl-project/scoop-bucket.git
+          cp maxx.json scoop-bucket/bucket/maxx.json
+
+          cd scoop-bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/maxx.json
+          git commit -m "Update maxx to ${VERSION}" || echo "No changes to commit"
+          git push

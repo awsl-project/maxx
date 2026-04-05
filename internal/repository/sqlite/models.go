@@ -76,6 +76,7 @@ type User struct {
 	Username           string `gorm:"size:255;uniqueIndex"`
 	PasswordHash       string `gorm:"size:255"`
 	PasskeyCredentials LongText
+	InviteCodeID       uint64 `gorm:"index"`
 	Role               string `gorm:"size:64;default:'admin'"`
 	Status             string `gorm:"size:64;default:'pending'"`
 	IsDefault          int
@@ -94,6 +95,7 @@ type Provider struct {
 	Config               LongText
 	SupportedClientTypes LongText
 	SupportModels        LongText
+	ExcludeFromExport    int `gorm:"default:0"`
 }
 
 func (Provider) TableName() string { return "providers" }
@@ -131,6 +133,7 @@ type Route struct {
 	ClientType    string `gorm:"size:64"`
 	ProviderID    uint64
 	Position      int
+	Weight        int `gorm:"default:1"`
 	RetryConfigID uint64
 }
 
@@ -174,10 +177,45 @@ type APIToken struct {
 	DevMode     int `gorm:"default:0"`
 	ExpiresAt   int64
 	LastUsedAt  int64
+	LastIP      string `gorm:"size:64"`
+	LastIPAt    int64
 	UseCount    uint64
 }
 
 func (APIToken) TableName() string { return "api_tokens" }
+
+// InviteCode model
+type InviteCode struct {
+	SoftDeleteModel
+	TenantID        uint64 `gorm:"index;uniqueIndex:idx_invite_codes_tenant_hash"`
+	CodeHash        string `gorm:"size:128;uniqueIndex:idx_invite_codes_tenant_hash"`
+	CodePrefix      string `gorm:"size:32"`
+	Status          string `gorm:"size:32;default:'active'"`
+	MaxUses         uint64
+	UsedCount       uint64
+	ExpiresAt       int64
+	CreatedByUserID uint64 `gorm:"index"`
+	Note            LongText
+}
+
+func (InviteCode) TableName() string { return "invite_codes" }
+
+// InviteCodeUsage model
+type InviteCodeUsage struct {
+	BaseModel
+	TenantID     uint64 `gorm:"index"`
+	InviteCodeID uint64 `gorm:"index"`
+	UserID       uint64 `gorm:"index"`
+	Username     string `gorm:"size:255"`
+	UsedAt       int64  `gorm:"index"`
+	IP           string `gorm:"size:64"`
+	UserAgent    string `gorm:"size:512"`
+	Result       string `gorm:"size:32"`
+	Reason       string `gorm:"size:255"`
+	RolledBack   int    `gorm:"default:0"`
+}
+
+func (InviteCodeUsage) TableName() string { return "invite_code_usages" }
 
 // ModelMapping model
 type ModelMapping struct {
@@ -213,10 +251,14 @@ type AntigravityQuota struct {
 func (AntigravityQuota) TableName() string { return "antigravity_quotas" }
 
 // CodexQuota model
+// NOTE: identity/email indexes are intentionally managed by explicit migrations,
+// not by GORM AutoMigrate. Creating the new unique identity index during
+// AutoMigrate can fail on historical data before the dedupe migration runs.
 type CodexQuota struct {
 	SoftDeleteModel
-	TenantID         uint64 `gorm:"uniqueIndex:idx_codex_quotas_tenant_email"`
-	Email            string `gorm:"size:255;uniqueIndex:idx_codex_quotas_tenant_email"`
+	TenantID         uint64
+	IdentityKey      string `gorm:"size:255;column:identity_key"`
+	Email            string `gorm:"size:255"`
 	AccountID        string `gorm:"size:128;column:account_id"`
 	PlanType         string `gorm:"size:64"`
 	IsForbidden      int
@@ -314,8 +356,9 @@ func (SystemSetting) TableName() string { return "system_settings" }
 type Cooldown struct {
 	BaseModel
 	TenantID   uint64 `gorm:"index"`
-	ProviderID uint64 `gorm:"uniqueIndex:idx_cooldowns_provider_client"`
-	ClientType string `gorm:"size:255;uniqueIndex:idx_cooldowns_provider_client"`
+	ProviderID uint64 `gorm:"uniqueIndex:idx_cooldowns_provider_client_model"`
+	ClientType string `gorm:"size:64;uniqueIndex:idx_cooldowns_provider_client_model"`
+	Model      string `gorm:"size:191;uniqueIndex:idx_cooldowns_provider_client_model;default:''"`
 	UntilTime  int64  `gorm:"index"`
 	Reason     string `gorm:"size:64;default:'unknown'"`
 }
@@ -325,10 +368,11 @@ func (Cooldown) TableName() string { return "cooldowns" }
 // FailureCount model
 type FailureCount struct {
 	BaseModel
-	TenantID      uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
-	ProviderID    uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
-	ClientType    string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
-	Reason        string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
+	TenantID      uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	ProviderID    uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	ClientType    string `gorm:"size:64;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	Reason        string `gorm:"size:64;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	Model         string `gorm:"size:191;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model;default:''"`
 	Count         int
 	LastFailureAt int64 `gorm:"index"`
 }
@@ -417,6 +461,8 @@ func AllModels() []any {
 		&RetryConfig{},
 		&RoutingStrategy{},
 		&APIToken{},
+		&InviteCode{},
+		&InviteCodeUsage{},
 		&ModelMapping{},
 		&AntigravityQuota{},
 		&CodexQuota{},

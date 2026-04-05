@@ -17,19 +17,27 @@ func NewCodexQuotaRepository(d *DB) *CodexQuotaRepository {
 
 func (r *CodexQuotaRepository) Upsert(quota *domain.CodexQuota) error {
 	now := time.Now()
+	identityKey := domain.CodexQuotaIdentityKey(quota.Email, quota.AccountID)
+	quota.IdentityKey = identityKey
 
-	// Try to update first
-	result := tenantScope(r.db.gorm.Model(&CodexQuota{}), quota.TenantID).
-		Where("email = ? AND deleted_at = 0", quota.Email).
-		Updates(map[string]any{
-			"updated_at":          toTimestamp(now),
-			"account_id":          quota.AccountID,
-			"plan_type":           quota.PlanType,
-			"is_forbidden":        quota.IsForbidden,
-			"primary_window":      toJSON(quota.PrimaryWindow),
-			"secondary_window":    toJSON(quota.SecondaryWindow),
-			"code_review_window":  toJSON(quota.CodeReviewWindow),
-		})
+	query := tenantScope(r.db.gorm.Model(&CodexQuota{}), quota.TenantID)
+	if identityKey != "" {
+		query = query.Where("identity_key = ? AND deleted_at = 0", identityKey)
+	} else {
+		query = query.Where("email = ? AND deleted_at = 0", quota.Email)
+	}
+
+	result := query.Updates(map[string]any{
+		"updated_at":         toTimestamp(now),
+		"identity_key":       identityKey,
+		"email":              quota.Email,
+		"account_id":         quota.AccountID,
+		"plan_type":          quota.PlanType,
+		"is_forbidden":       quota.IsForbidden,
+		"primary_window":     toJSON(quota.PrimaryWindow),
+		"secondary_window":   toJSON(quota.SecondaryWindow),
+		"code_review_window": toJSON(quota.CodeReviewWindow),
+	})
 
 	if result.Error != nil {
 		return result.Error
@@ -51,6 +59,21 @@ func (r *CodexQuotaRepository) Upsert(quota *domain.CodexQuota) error {
 	quota.UpdatedAt = now
 
 	return nil
+}
+
+func (r *CodexQuotaRepository) GetByIdentityKey(tenantID uint64, identityKey string) (*domain.CodexQuota, error) {
+	if identityKey == "" {
+		return nil, nil
+	}
+	var model CodexQuota
+	err := tenantScope(r.db.gorm, tenantID).Where("identity_key = ? AND deleted_at = 0", identityKey).First(&model).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
 }
 
 func (r *CodexQuotaRepository) GetByEmail(tenantID uint64, email string) (*domain.CodexQuota, error) {
@@ -94,6 +117,7 @@ func (r *CodexQuotaRepository) toModel(q *domain.CodexQuota) *CodexQuota {
 			DeletedAt: toTimestampPtr(q.DeletedAt),
 		},
 		TenantID:         q.TenantID,
+		IdentityKey:      q.IdentityKey,
 		Email:            q.Email,
 		AccountID:        q.AccountID,
 		PlanType:         q.PlanType,
@@ -111,6 +135,7 @@ func (r *CodexQuotaRepository) toDomain(m *CodexQuota) *domain.CodexQuota {
 		UpdatedAt:        fromTimestamp(m.UpdatedAt),
 		DeletedAt:        fromTimestampPtr(m.DeletedAt),
 		TenantID:         m.TenantID,
+		IdentityKey:      m.IdentityKey,
 		Email:            m.Email,
 		AccountID:        m.AccountID,
 		PlanType:         m.PlanType,

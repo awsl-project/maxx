@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -89,15 +90,26 @@ func (r *APITokenRepository) List(tenantID uint64) ([]*domain.APIToken, error) {
 	return tokens, nil
 }
 
-func (r *APITokenRepository) IncrementUseCount(tenantID uint64, id uint64) error {
-	now := time.Now().UnixMilli()
+func (r *APITokenRepository) UpdateLastSeen(tenantID uint64, id uint64, lastIP string, lastSeenAt time.Time) error {
+	if lastSeenAt.IsZero() {
+		lastSeenAt = time.Now()
+	}
+
+	now := lastSeenAt.UnixMilli()
+	updates := map[string]any{
+		"use_count":    gorm.Expr("use_count + 1"),
+		"last_used_at": now,
+		"updated_at":   now,
+	}
+
+	if trimmedIP := strings.TrimSpace(lastIP); trimmedIP != "" {
+		updates["last_ip"] = trimmedIP
+		updates["last_ip_at"] = now
+	}
+
 	return tenantScope(r.db.gorm.Model(&APIToken{}), tenantID).
 		Where("id = ?", id).
-		Updates(map[string]any{
-			"use_count":    gorm.Expr("use_count + 1"),
-			"last_used_at": now,
-			"updated_at":   now,
-		}).Error
+		Updates(updates).Error
 }
 
 func (r *APITokenRepository) toModel(t *domain.APIToken) *APIToken {
@@ -120,6 +132,8 @@ func (r *APITokenRepository) toModel(t *domain.APIToken) *APIToken {
 		DevMode:     boolToInt(t.DevMode),
 		ExpiresAt:   toTimestampPtr(t.ExpiresAt),
 		LastUsedAt:  toTimestampPtr(t.LastUsedAt),
+		LastIP:      t.LastIP,
+		LastIPAt:    toTimestampPtr(t.LastIPAt),
 		UseCount:    t.UseCount,
 	}
 }
@@ -140,6 +154,8 @@ func (r *APITokenRepository) toDomain(m *APIToken) *domain.APIToken {
 		DevMode:     m.DevMode == 1,
 		ExpiresAt:   fromTimestampPtr(m.ExpiresAt),
 		LastUsedAt:  fromTimestampPtr(m.LastUsedAt),
+		LastIP:      m.LastIP,
+		LastIPAt:    fromTimestampPtr(m.LastIPAt),
 		UseCount:    m.UseCount,
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
@@ -123,6 +124,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	ctx := r.Context()
+	stream := h.clientAdapter.IsStreamRequest(r, body)
 
 	clientType := h.clientAdapter.DetectClientType(r, body)
 	log.Printf("[Proxy] Detected client type: %s", clientType)
@@ -146,6 +148,17 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 			apiTokenID = apiToken.ID
 			log.Printf("[Proxy] Token authenticated: id=%d, name=%s, projectID=%d", apiToken.ID, apiToken.Name, apiToken.ProjectID)
 			c.Set(flow.KeyAPITokenDevMode, apiToken.DevMode)
+			if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
+				log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
+				if stream {
+					writeStreamRateLimitError(w, err.Error(), 1)
+				} else {
+					writeRateLimitError(w, err.Error(), 1)
+				}
+				c.Abort()
+				return
+			}
+			defer h.tokenAuth.ReleaseConcurrency(apiToken)
 		}
 	}
 
@@ -161,7 +174,6 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
-	stream := h.clientAdapter.IsStreamRequest(r, body)
 
 	c.Set(flow.KeyClientType, clientType)
 	c.Set(flow.KeySessionID, sessionID)
@@ -175,6 +187,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	c.Set(flow.KeyAPITokenID, apiTokenID)
 
 	var projectID uint64
+	now := time.Now()
 	if pidStr := r.Header.Get("X-Maxx-Project-ID"); pidStr != "" {
 		if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
 			projectID = pid
@@ -193,6 +206,9 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		} else if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
 			projectID = apiToken.ProjectID
 			log.Printf("[Proxy] Using project ID from token: %d", projectID)
+		}
+		if touchErr := h.sessionRepo.Touch(tenantID, sessionID, now); touchErr != nil {
+			log.Printf("[Proxy] Failed to touch session %s: %v", sessionID, touchErr)
 		}
 	} else {
 		if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
@@ -291,16 +307,39 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
+func writeRateLimitError(w http.ResponseWriter, message string, retryAfterSeconds int64) {
+	w.Header().Set("Content-Type", "application/json")
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	w.WriteHeader(http.StatusTooManyRequests)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "rate_limit_error",
+		},
+	})
+}
+
 func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 	w.Header().Set("Content-Type", "application/json")
-	if err.RetryAfter > 0 {
-		sec := int64(err.RetryAfter.Seconds())
+	retryAfter := err.RetryAfter
+	if retryAfter <= 0 && err.CooldownUntil != nil {
+		retryAfter = time.Until(*err.CooldownUntil)
+	}
+	if retryAfter > 0 {
+		sec := int64(retryAfter.Seconds())
 		if sec <= 0 {
 			sec = 1
 		}
 		w.Header().Set("Retry-After", strconv.FormatInt(sec, 10))
 	}
-	w.WriteHeader(http.StatusBadGateway)
+	statusCode := http.StatusBadGateway
+	if err.HTTPStatusCode >= 400 && err.HTTPStatusCode < 600 {
+		statusCode = err.HTTPStatusCode
+	}
+	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"error": map[string]interface{}{
 			"message":   err.Error(),
@@ -310,17 +349,51 @@ func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 	})
 }
 
+func writeStreamRateLimitError(w http.ResponseWriter, message string, retryAfterSeconds int64) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	w.WriteHeader(http.StatusTooManyRequests)
+
+	errorEvent := map[string]interface{}{
+		"type": "error",
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "rate_limit_error",
+		},
+	}
+	data, _ := json.Marshal(errorEvent)
+	w.Write([]byte("data: "))
+	w.Write(data)
+	w.Write([]byte("\n\n"))
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	if err.RetryAfter > 0 {
-		sec := int64(err.RetryAfter.Seconds())
+	retryAfter := err.RetryAfter
+	if retryAfter <= 0 && err.CooldownUntil != nil {
+		retryAfter = time.Until(*err.CooldownUntil)
+	}
+	if retryAfter > 0 {
+		sec := int64(retryAfter.Seconds())
 		if sec <= 0 {
 			sec = 1
 		}
 		w.Header().Set("Retry-After", strconv.FormatInt(sec, 10))
 	}
-	w.WriteHeader(http.StatusOK)
+	statusCode := http.StatusOK
+	if err.HTTPStatusCode >= 400 && err.HTTPStatusCode < 600 {
+		statusCode = err.HTTPStatusCode
+	}
+	w.WriteHeader(statusCode)
 
 	errorEvent := map[string]interface{}{
 		"type": "error",

@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"syscall"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
@@ -113,6 +113,8 @@ func main() {
 	modelPriceRepo := sqlite.NewModelPriceRepository(db)
 	tenantRepo := sqlite.NewTenantRepository(db)
 	userRepo := sqlite.NewUserRepository(db)
+	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
+	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
@@ -256,6 +258,7 @@ func main() {
 		UsageStats:         usageStatsRepo,
 		ProxyRequest:       proxyRequestRepo,
 		AttemptRepo:        attemptRepo,
+		SessionRepo:        cachedSessionRepo,
 		Settings:           settingRepo,
 		AntigravityTaskSvc: antigravityTaskSvc,
 		CodexTaskSvc:       codexTaskSvc,
@@ -295,6 +298,8 @@ func main() {
 		attemptRepo,
 		settingRepo,
 		cachedAPITokenRepo,
+		inviteCodeRepo,
+		inviteCodeUsageRepo,
 		cachedModelMappingRepo,
 		usageStatsRepo,
 		responseModelRepo,
@@ -352,8 +357,17 @@ func main() {
 	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, tokenAuthMiddleware)
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
+	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
 	adminHandler.SetUserRepo(userRepo)
-	authHandler := handler.NewAuthHandler(authMiddleware, userRepo, tenantRepo, authEnabled)
+	adminHandler.SetAuthEnabled(authEnabled)
+	authHandler := handler.NewAuthHandler(
+		authMiddleware,
+		userRepo,
+		tenantRepo,
+		inviteCodeRepo,
+		inviteCodeUsageRepo,
+		authEnabled,
+	)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, antigravityQuotaRepo, wsHub)
 	antigravityHandler.SetTaskService(antigravityTaskSvc)
 	kiroHandler := handler.NewKiroHandler(adminService)
@@ -364,6 +378,7 @@ func main() {
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, modelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -373,9 +388,9 @@ func main() {
 
 	// Admin API routes with authentication middleware
 	if authMiddleware != nil {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
+		handler.RegisterSelfServiceRoutes(mux, authMiddleware.Wrap, adminHandler, selfServiceHandler)
 	} else {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", handler.NoAuthMiddleware(adminHandler)))
+		handler.RegisterSelfServiceRoutes(mux, handler.NoAuthMiddleware, adminHandler, selfServiceHandler)
 	}
 
 	// Other API routes (no authentication required)
@@ -397,6 +412,8 @@ func main() {
 	mux.Handle("/v1/responses/", proxyHandler)
 	// Gemini API (Google AI Studio style)
 	mux.Handle("/v1beta/models/", proxyHandler)
+	// Provider-scoped proxy routes
+	mux.Handle("/provider/", providerProxyHandler)
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

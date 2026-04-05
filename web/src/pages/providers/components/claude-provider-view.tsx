@@ -13,6 +13,8 @@ import {
   AlertCircle,
   Copy,
   Check,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,6 +31,7 @@ import {
 import { Button, Switch } from '@/components/ui';
 import { ModelInput } from '@/components/ui/model-input';
 import { CLAUDE_COLOR } from '../types';
+import { ProviderProxyURLCard } from './provider-proxy-url-card';
 
 interface ClaudeProviderViewProps {
   provider: Provider;
@@ -218,6 +221,7 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   const config = provider.config?.claude;
   const updateProvider = useUpdateProvider();
@@ -296,6 +300,8 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-7xl space-y-8">
+          <ProviderProxyURLCard provider={provider} />
+
           {/* Info Card */}
           <div className="bg-muted rounded-xl p-6 border border-border">
             <div className="flex items-start justify-between gap-6">
@@ -329,8 +335,15 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-mono text-sm text-foreground bg-card px-2 py-1 rounded border border-border/50 flex-1 truncate">
-                      {config.refreshToken.slice(0, 30)}...
+                      {showToken ? config.refreshToken : `${config.refreshToken.slice(0, 30)}...`}
                     </div>
+                    <button
+                      onClick={() => setShowToken(!showToken)}
+                      className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                      title={showToken ? t('common.hide') : t('common.show')}
+                    >
+                      {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                     <button
                       onClick={handleCopyToken}
                       className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"

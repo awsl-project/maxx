@@ -18,8 +18,9 @@ import (
 func (e *Executor) dispatch(c *flow.Ctx) {
 	state, ok := getExecState(c)
 	if !ok {
-		err := domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "executor state missing")
-		c.Err = err
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "executor state missing")
+		proxyErr.Scope = domain.ScopeRequest
+		c.Err = proxyErr
 		c.Abort()
 		return
 	}
@@ -215,7 +216,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				}
 				state.currentAttempt = nil
 
-				cooldown.Default().RecordSuccess(matchedRoute.Provider.ID, string(currentClientType))
+				cooldown.Default().RecordSuccess(matchedRoute.Provider.ID, string(currentClientType), mappedModel)
 
 				proxyReq.Status = "COMPLETED"
 				proxyReq.EndTime = time.Now()
@@ -353,10 +354,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			}
 
 			if ok && ctx.Err() != context.Canceled {
-				log.Printf("[Executor] ProxyError - IsNetworkError: %v, IsServerError: %v, Retryable: %v, Provider: %d",
-					proxyErr.IsNetworkError, proxyErr.IsServerError, proxyErr.Retryable, matchedRoute.Provider.ID)
+				log.Printf("[Executor] ProxyError - Scope: %s, Reason: %s, Retryable: %v, Provider: %d",
+					proxyErr.Scope, proxyErr.Reason, proxyErr.Retryable, matchedRoute.Provider.ID)
 				if !shouldSkipErrorCooldown(matchedRoute.Provider) {
-					e.handleCooldown(proxyErr, matchedRoute.Provider, currentClientType, originalClientType)
+					e.handleCooldown(proxyErr, matchedRoute.Provider, currentClientType, mappedModel)
 					if e.broadcaster != nil {
 						e.broadcaster.BroadcastMessage("cooldown_update", map[string]interface{}{
 							"providerID": matchedRoute.Provider.ID,
@@ -417,7 +418,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	}
 
 	if state.lastErr == nil {
-		state.lastErr = domain.NewProxyErrorWithMessage(domain.ErrAllRoutesFailed, false, "all routes exhausted")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrAllRoutesFailed, false, "all routes exhausted")
+		proxyErr.Scope = domain.ScopeRequest
+		state.lastErr = proxyErr
 	}
 	state.ctx = ctx
 	c.Err = state.lastErr

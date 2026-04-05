@@ -90,13 +90,24 @@ volumes:
 
 ```bash
 # 安装
-brew install --no-quarantine awsl-project/awsl/maxx
+brew install --cask awsl-project/awsl/maxx
 
 # 升级
-brew upgrade --no-quarantine awsl-project/awsl/maxx
+brew upgrade --cask awsl-project/awsl/maxx
 ```
 
-> **提示：** 如果提示"应用已损坏"，请运行：`sudo xattr -d com.apple.quarantine /Applications/maxx.app`
+> **Gatekeeper 提示：** `maxx` 尚未经过 notarization，首次启动时 macOS Gatekeeper 可能会阻止打开。
+> 可执行：
+> `xattr -d com.apple.quarantine /Applications/maxx.app`
+>
+> 或前往 **系统设置 > 隐私与安全性**，点击 **仍要打开**。
+>
+> **如果 macOS 提示“应用已损坏”：**
+> 1. 清理隔离属性：
+>    `sudo xattr -rd com.apple.quarantine /Applications/maxx.app`
+> 2. 在访达中右键 `maxx.app`，选择一次**打开**。
+> 3. 如果仍失败，重装后再重试：
+>    `brew uninstall --cask awsl-project/awsl/maxx && brew install --cask awsl-project/awsl/maxx`
 
 </details>
 
@@ -113,6 +124,8 @@ MAXX_ADMIN_PASSWORD=your-password go run cmd/maxx/main.go
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
+
+**前端开发环境要求：** Node.js 22.11.0（见 `.node-version` / `.nvmrc`）以及 pnpm 10.7.0（在 `web/package.json` 中锁定）。
 
 ## 配置 AI 编程工具
 

@@ -28,5 +28,11 @@ export function ProviderEditPage() {
     );
   }
 
-  return <ProviderEditFlow provider={provider} onClose={() => navigate('/providers')} />;
+  return (
+    <ProviderEditFlow
+      key={provider.id}
+      provider={provider}
+      onClose={() => navigate('/providers')}
+    />
+  );
 }

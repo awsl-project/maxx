@@ -19,19 +19,21 @@ import (
 // AdminHandler handles admin API requests over HTTP
 // Delegates business logic to AdminService
 type AdminHandler struct {
-	svc       *service.AdminService
-	backupSvc *service.BackupService
-	userRepo  repository.UserRepository
-	logPath   string
-	restartFn func() error
+	svc         *service.AdminService
+	backupSvc   *service.BackupService
+	userRepo    repository.UserRepository
+	logPath     string
+	restartFn   func() error
+	authEnabled bool
 }
 
 // NewAdminHandler creates a new admin handler
 func NewAdminHandler(svc *service.AdminService, backupSvc *service.BackupService, logPath string) *AdminHandler {
 	return &AdminHandler{
-		svc:       svc,
-		backupSvc: backupSvc,
-		logPath:   logPath,
+		svc:         svc,
+		backupSvc:   backupSvc,
+		logPath:     logPath,
+		authEnabled: true,
 	}
 }
 
@@ -43,6 +45,11 @@ func (h *AdminHandler) SetUserRepo(repo repository.UserRepository) {
 // SetRestartFunc sets the restart callback for admin restart endpoint.
 func (h *AdminHandler) SetRestartFunc(fn func() error) {
 	h.restartFn = fn
+}
+
+// SetAuthEnabled sets whether auth is enabled for this handler.
+func (h *AdminHandler) SetAuthEnabled(enabled bool) {
+	h.authEnabled = enabled
 }
 
 // ServeHTTP routes admin requests
@@ -102,6 +109,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleLogs(w, r)
 	case "api-tokens":
 		h.handleAPITokens(w, r, id)
+	case "invite-codes":
+		h.handleInviteCodes(w, r, id, parts)
 	case "model-mappings":
 		h.handleModelMappings(w, r, id)
 	case "usage-stats":
@@ -205,8 +214,9 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		// Preserve ID and timestamps
+		// Preserve ID, TenantID and timestamps
 		provider.ID = existing.ID
+		provider.TenantID = existing.TenantID
 		provider.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProvider(tenantID, &provider); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -351,6 +361,15 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 				existing.Position = int(f)
 			}
 		}
+		if v, ok := updates["weight"]; ok {
+			if f, ok := v.(float64); ok {
+				w := int(f)
+				if w <= 0 {
+					w = 1
+				}
+				existing.Weight = w
+			}
+		}
 		if v, ok := updates["retryConfigID"]; ok {
 			if f, ok := v.(float64); ok {
 				existing.RetryConfigID = uint64(f)
@@ -462,6 +481,7 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 			return
 		}
 		project.ID = existing.ID
+		project.TenantID = existing.TenantID
 		project.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProject(tenantID, &project); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -636,6 +656,7 @@ func (h *AdminHandler) handleRetryConfigs(w http.ResponseWriter, r *http.Request
 			return
 		}
 		config.ID = existing.ID
+		config.TenantID = existing.TenantID
 		config.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateRetryConfig(tenantID, &config); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -706,6 +727,7 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 			return
 		}
 		strategy.ID = existing.ID
+		strategy.TenantID = existing.TenantID
 		strategy.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateRoutingStrategy(tenantID, &strategy); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -1071,7 +1093,7 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			if _, owned := providerNames[key.ProviderID]; !owned {
 				continue
 			}
-			info := cm.GetCooldownInfo(key.ProviderID, key.ClientType, providerNames[key.ProviderID])
+			info := cm.GetCooldownInfo(key.ProviderID, key.ClientType, key.Model, providerNames[key.ProviderID])
 			if info != nil {
 				result = append(result, info)
 			}
@@ -1092,13 +1114,14 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 		var body struct {
 			UntilTime  string `json:"untilTime"`  // RFC3339 format
 			ClientType string `json:"clientType"` // Optional, defaults to empty (global)
+			Model      string `json:"model"`      // Optional, empty = all models
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			log.Printf("[Cooldown] PUT /cooldowns/%d: failed to decode body: %v", providerID, err)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		log.Printf("[Cooldown] PUT /cooldowns/%d: received untilTime=%s, clientType=%s", providerID, body.UntilTime, body.ClientType)
+		log.Printf("[Cooldown] PUT /cooldowns/%d: received untilTime=%s, clientType=%s, model=%s", providerID, body.UntilTime, body.ClientType, body.Model)
 		until, err := time.Parse(time.RFC3339, body.UntilTime)
 		if err != nil {
 			log.Printf("[Cooldown] PUT /cooldowns/%d: failed to parse untilTime: %v", providerID, err)
@@ -1106,7 +1129,7 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			return
 		}
 		log.Printf("[Cooldown] PUT /cooldowns/%d: setting cooldown until %v", providerID, until)
-		cm.SetCooldownUntil(providerID, body.ClientType, until)
+		cm.SetCooldownUntil(providerID, body.ClientType, body.Model, until)
 		log.Printf("[Cooldown] PUT /cooldowns/%d: cooldown set successfully", providerID)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "cooldown set"})
 
@@ -1120,8 +1143,10 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 			return
 		}
-		// Clear all cooldowns for this provider (both global and client-type-specific)
-		cm.ClearCooldown(providerID, "")
+		// Clear cooldowns for this provider; optionally filter by clientType and model
+		clientType := r.URL.Query().Get("clientType")
+		model := r.URL.Query().Get("model")
+		cm.ClearCooldown(providerID, clientType, model)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "cooldown cleared"})
 
 	default:

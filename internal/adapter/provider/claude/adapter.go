@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -92,7 +93,10 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Get access token
 	accessToken, err := a.getAccessToken(ctx, false)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		return proxyErr
 	}
 
 	// Extract beta headers from request body before sending
@@ -112,7 +116,10 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to create upstream request")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return proxyErr
 	}
 
 	// Apply headers
@@ -131,8 +138,8 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Execute request
 	resp, err := a.httpClient.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-		proxyErr.IsNetworkError = true
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to upstream"
 		return proxyErr
 	}
 	defer resp.Body.Close()
@@ -149,20 +156,26 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Get new token (force refresh to skip persisted token)
 		accessToken, err = a.getAccessToken(ctx, true)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to refresh access token")
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonAuthFailure
+			return proxyErr
 		}
 
 		// Retry request
 		upstreamReq, reqErr := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 		if reqErr != nil {
-			return domain.NewProxyErrorWithMessage(reqErr, false, fmt.Sprintf("failed to create retry request: %v", reqErr))
+			proxyErr := domain.NewProxyErrorWithMessage(reqErr, false, fmt.Sprintf("failed to create retry request: %v", reqErr))
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
+			return proxyErr
 		}
 		a.applyClaudeHeaders(upstreamReq, request, accessToken, clientWantsStream, extraBetas)
 
 		resp, err = a.httpClient.Do(upstreamReq)
 		if err != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream after token refresh")
-			proxyErr.IsNetworkError = true
+			proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+			proxyErr.Message = "failed to connect to upstream after token refresh"
 			return proxyErr
 		}
 		defer resp.Body.Close()
@@ -181,24 +194,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			})
 		}
 
-		proxyErr := domain.NewProxyErrorWithMessage(
-			fmt.Errorf("upstream error: %s", string(body)),
-			isRetryableStatusCode(resp.StatusCode),
-			fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-		)
-		proxyErr.HTTPStatusCode = resp.StatusCode
-		proxyErr.IsServerError = resp.StatusCode >= 500 && resp.StatusCode < 600
-
-		// Handle rate limiting
-		if resp.StatusCode == http.StatusTooManyRequests {
-			proxyErr.RateLimitInfo = &domain.RateLimitInfo{
-				Type:             "rate_limit",
-				QuotaResetTime:   time.Now().Add(time.Minute),
-				RetryHintMessage: "Rate limited by Claude API",
-				ClientType:       string(domain.ClientTypeClaude),
-			}
-		}
-
+		proxyErr := classifyClaudeHTTPError(resp.StatusCode, body, resp.Header, flow.GetMappedModel(c))
 		return proxyErr
 	}
 
@@ -305,7 +301,10 @@ func (a *ClaudeAdapter) getAccessToken(ctx context.Context, forceRefresh bool) (
 func (a *ClaudeAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response) error {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 
 	// Send events via EventChannel
@@ -358,11 +357,14 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
-	// Collect SSE for token extraction
-	var sseBuffer strings.Builder
+	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
+	var collector usage.StreamCollector
+	var model string
 	reader := bufio.NewReader(resp.Body)
 	firstChunkSent := false
 	responseCompleted := false
@@ -374,17 +376,21 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 	for {
 		select {
 		case <-ctx.Done():
-			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 			if responseCompleted {
 				return nil
 			}
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		default:
 		}
 
 		line, err := reader.ReadString('\n')
 		if line != "" {
-			sseBuffer.WriteString(line)
+			// Extract metrics and model incrementally per line
+			collector.ProcessSSELine(line)
+			extractModelFromSSELine(line, &model)
 
 			if isClaudeResponseCompletedLine(line) {
 				responseCompleted = true
@@ -393,11 +399,13 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 			// Write to client
 			_, writeErr := c.Writer.Write([]byte(line))
 			if writeErr != nil {
-				a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+				a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 				if responseCompleted {
 					return nil
 				}
-				return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 			flusher.Flush()
 
@@ -411,14 +419,19 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 		}
 
 		if err != nil {
-			a.sendFinalStreamEvents(eventChan, &sseBuffer, resp)
+			a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
 			if err == io.EOF || responseCompleted {
 				return nil
 			}
 			if ctx.Err() != nil {
-				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
-			return domain.NewProxyErrorWithMessage(err, true, "stream read error")
+			proxyErr := domain.NewProxyErrorWithMessage(err, true, "stream read error")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 	}
 }
@@ -439,33 +452,55 @@ func isClaudeResponseCompletedLine(line string) bool {
 	return gjson.Get(data, "type").String() == "message_stop"
 }
 
-func (a *ClaudeAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, sseBuffer *strings.Builder, resp *http.Response) {
+func (a *ClaudeAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, collector *usage.StreamCollector, model *string, resp *http.Response) {
 	if eventChan == nil {
 		return
 	}
-	if sseBuffer.Len() > 0 {
-		// Update response body with collected SSE
-		eventChan.SendResponseInfo(&domain.ResponseInfo{
-			Status:  resp.StatusCode,
-			Headers: flattenHeaders(resp.Header),
-			Body:    sseBuffer.String(),
+
+	// Send response info (body not accumulated to avoid unbounded memory growth)
+	eventChan.SendResponseInfo(&domain.ResponseInfo{
+		Status:  resp.StatusCode,
+		Headers: flattenHeaders(resp.Header),
+		Body:    "[streaming]",
+	})
+
+	// Send token usage collected incrementally
+	if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
+		eventChan.SendMetrics(&domain.AdapterMetrics{
+			InputTokens:          collector.Metrics.InputTokens,
+			OutputTokens:         collector.Metrics.OutputTokens,
+			CacheReadCount:       collector.Metrics.CacheReadCount,
+			CacheCreationCount:   collector.Metrics.CacheCreationCount,
+			Cache5mCreationCount: collector.Metrics.Cache5mCreationCount,
+			Cache1hCreationCount: collector.Metrics.Cache1hCreationCount,
 		})
+	}
 
-		// Extract token usage from stream
-		if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
-			eventChan.SendMetrics(&domain.AdapterMetrics{
-				InputTokens:          metrics.InputTokens,
-				OutputTokens:         metrics.OutputTokens,
-				CacheReadCount:       metrics.CacheReadCount,
-				CacheCreationCount:   metrics.CacheCreationCount,
-				Cache5mCreationCount: metrics.Cache5mCreationCount,
-				Cache1hCreationCount: metrics.Cache1hCreationCount,
-			})
-		}
+	// Send model collected incrementally
+	if *model != "" {
+		eventChan.SendResponseModel(*model)
+	}
+}
 
-		// Extract model from stream
-		if model := extractModelFromSSE(sseBuffer.String()); model != "" {
-			eventChan.SendResponseModel(model)
+// extractModelFromSSELine extracts model from a single SSE line, updating the model pointer if found.
+func extractModelFromSSELine(line string, model *string) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return
+	}
+	data := strings.TrimPrefix(line, "data: ")
+	data = strings.TrimPrefix(data, "data:")
+	data = strings.TrimSpace(data)
+	if data == "[DONE]" || data == "" {
+		return
+	}
+	// Claude puts model in message_start event
+	if gjson.Valid(data) {
+		eventType := gjson.Get(data, "type").String()
+		if eventType == "message_start" {
+			if m := gjson.Get(data, "message.model").String(); m != "" {
+				*model = m
+			}
 		}
 	}
 }
@@ -643,6 +678,85 @@ func copyResponseHeaders(dst, src http.Header) {
 	}
 }
 
+func classifyClaudeHTTPError(statusCode int, body []byte, headers http.Header, model string) *domain.ProxyError {
+	bodyLower := strings.ToLower(string(body))
+
+	proxyErr := &domain.ProxyError{
+		Err:            fmt.Errorf("upstream error: %s", string(body)),
+		Message:        fmt.Sprintf("upstream returned status %d", statusCode),
+		HTTPStatusCode: statusCode,
+		Retryable:      isRetryableStatusCode(statusCode),
+		ClientType:     string(domain.ClientTypeClaude),
+	}
+
+	switch {
+	case statusCode == 400 || statusCode == 413 || statusCode == 422:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+
+	case statusCode == 401:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	case statusCode == 403:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	case statusCode == 404:
+		if model != "" && strings.Contains(bodyLower, "model") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+		proxyErr.Retryable = false
+
+	case statusCode == 429:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonRateLimitExceeded
+		proxyErr.Retryable = true
+		// Parse Retry-After
+		if retryAfter := headers.Get("Retry-After"); retryAfter != "" {
+			if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
+				proxyErr.RetryAfter = time.Duration(seconds) * time.Second
+				until := time.Now().Add(proxyErr.RetryAfter)
+				proxyErr.CooldownUntil = &until
+			}
+		}
+		if proxyErr.CooldownUntil == nil {
+			until := time.Now().Add(time.Minute)
+			proxyErr.CooldownUntil = &until
+		}
+		if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "insufficient") {
+			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		}
+
+	case statusCode == 503:
+		if model != "" && strings.Contains(bodyLower, "overloaded") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonServerError
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	case statusCode >= 500:
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+
+	default:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+	}
+
+	return proxyErr
+}
+
 func isRetryableStatusCode(status int) bool {
 	switch status {
 	case http.StatusTooManyRequests,
@@ -666,31 +780,6 @@ func extractModelFromResponse(body []byte) string {
 	return ""
 }
 
-func extractModelFromSSE(sseContent string) string {
-	var lastModel string
-	for _, line := range strings.Split(sseContent, "\n") {
-		if !strings.HasPrefix(line, "data: ") && !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		data = strings.TrimPrefix(data, "data:")
-		data = strings.TrimSpace(data)
-		if data == "[DONE]" || data == "" {
-			continue
-		}
-
-		// Claude puts model in message_start event
-		if gjson.Valid(data) {
-			eventType := gjson.Get(data, "type").String()
-			if eventType == "message_start" {
-				if model := gjson.Get(data, "message.model").String(); model != "" {
-					lastModel = model
-				}
-			}
-		}
-	}
-	return lastModel
-}
 
 var claudeFilteredHeaders = map[string]bool{
 	// Hop-by-hop headers

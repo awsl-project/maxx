@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ComponentProps, type MouseEvent } from 'react';
 import { Plus, Layers, Download, Upload, Search, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   useProviders,
   useAllProviderStats,
+  usePublicSettings,
   useSettings,
   useUpdateSetting,
   useProxyRequestUpdates,
@@ -21,10 +22,63 @@ import { PageHeader } from '@/components/layout/page-header';
 import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CodexQuotasProvider } from '@/contexts/codex-quotas-context';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useAuth } from '@/lib/auth-context';
+import { cn } from '@/lib/utils';
+
+type ManageProvidersButtonProps = Omit<ComponentProps<typeof Button>, 'disabled'> & {
+  canManage: boolean;
+  blockedReason: string;
+};
+
+function ManageProvidersButton({
+  canManage,
+  blockedReason,
+  className,
+  onClick,
+  children,
+  ...props
+}: ManageProvidersButtonProps) {
+  if (canManage) {
+    return (
+      <Button className={className} onClick={onClick} {...props}>
+        {children}
+      </Button>
+    );
+  }
+
+  const handleBlockedClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={(triggerProps) => (
+          <Button
+            {...props}
+            {...triggerProps}
+            aria-disabled="true"
+            className={cn(
+              className,
+              triggerProps.className,
+              'aria-disabled:cursor-not-allowed aria-disabled:opacity-50',
+            )}
+            onClick={handleBlockedClick}
+          >
+            {children}
+          </Button>
+        )}
+      />
+      <TooltipContent>{blockedReason}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function ProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: providers, isLoading } = useProviders();
   const { data: providerStats = {} } = useAllProviderStats();
   const { countsByProvider } = useStreamingRequests();
@@ -34,12 +88,16 @@ export function ProvidersPage() {
   const [isRefreshingCodex, setIsRefreshingCodex] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+  const canManageProviderSettings = user?.role === 'admin';
+  const providerReadOnlyHint = t('providers.readOnlyHint');
 
   // 订阅请求更新事件，确保 providerStats 实时刷新
   useProxyRequestUpdates();
 
   // Settings for auto-sort
-  const { data: settings } = useSettings();
+  const { data: adminSettings } = useSettings(canManageProviderSettings);
+  const { data: publicSettings } = usePublicSettings(!canManageProviderSettings);
+  const settings = canManageProviderSettings ? adminSettings : publicSettings;
   const updateSetting = useUpdateSetting();
   const autoSortAntigravity = settings?.auto_sort_antigravity === 'true';
   const autoSortCodex = settings?.auto_sort_codex === 'true';
@@ -97,6 +155,8 @@ export function ProvidersPage() {
 
   // Export providers as JSON file
   const handleExport = async () => {
+    if (!canManageProviderSettings || !providers?.length) return;
+
     try {
       const transport = getTransport();
       const data = await transport.exportProviders();
@@ -148,7 +208,7 @@ export function ProvidersPage() {
 
   // Refresh Antigravity quotas
   const handleRefreshQuotas = async () => {
-    if (isRefreshingQuotas) return;
+    if (!canManageProviderSettings || isRefreshingQuotas) return;
 
     setIsRefreshingQuotas(true);
     try {
@@ -165,7 +225,7 @@ export function ProvidersPage() {
 
   // Refresh all Codex providers quotas
   const handleRefreshCodex = async () => {
-    if (isRefreshingCodex) return;
+    if (!canManageProviderSettings || isRefreshingCodex) return;
 
     setIsRefreshingCodex(true);
     try {
@@ -211,29 +271,49 @@ export function ProvidersPage() {
           accept=".json"
           className="hidden"
         />
-        <Button
+        <ManageProvidersButton
+          canManage={canManageProviderSettings}
+          blockedReason={t('providers.importProvidersAdminOnly')}
           onClick={() => fileInputRef.current?.click()}
           className="flex items-center gap-2"
-          title={t('providers.importProviders')}
-          variant={'outline'}
+          title={canManageProviderSettings ? t('providers.importProviders') : undefined}
+          variant="outline"
         >
           <Upload size={14} />
           <span>{t('common.import')}</span>
-        </Button>
-        <Button
-          onClick={handleExport}
-          className="flex items-center gap-2"
-          disabled={!providers?.length}
-          title={t('providers.exportProviders')}
-          variant={'outline'}
+        </ManageProvidersButton>
+        {canManageProviderSettings ? (
+          <Button
+            onClick={handleExport}
+            className="flex items-center gap-2"
+            disabled={!providers?.length}
+            title={t('providers.exportProviders')}
+            variant="outline"
+          >
+            <Download size={14} />
+            <span>{t('common.export')}</span>
+          </Button>
+        ) : (
+          <ManageProvidersButton
+            canManage={false}
+            blockedReason={providerReadOnlyHint}
+            className="flex items-center gap-2"
+            title={t('providers.exportProviders')}
+            variant="outline"
+          >
+            <Download size={14} />
+            <span>{t('common.export')}</span>
+          </ManageProvidersButton>
+        )}
+        <ManageProvidersButton
+          canManage={canManageProviderSettings}
+          blockedReason={t('providers.addProviderAdminOnly')}
+          onClick={() => navigate('/providers/create')}
+          title={canManageProviderSettings ? t('providers.addProvider') : undefined}
         >
-          <Download size={14} />
-          <span>{t('common.export')}</span>
-        </Button>
-        <Button onClick={() => navigate('/providers/create')}>
           <Plus size={14} />
           <span>{t('providers.addProvider')}</span>
-        </Button>
+        </ManageProvidersButton>
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
@@ -247,13 +327,16 @@ export function ProvidersPage() {
               <Layers size={48} className="mb-4 opacity-50" />
               <p className="text-body">{t('providers.noProviders')}</p>
               <p className="text-caption mt-2">{t('providers.noProvidersHint')}</p>
-              <Button
+              <ManageProvidersButton
+                canManage={canManageProviderSettings}
+                blockedReason={t('providers.addProviderAdminOnly')}
                 onClick={() => navigate('/providers/create')}
-                className=" mt-6 flex items-center gap-2"
+                className="mt-6 flex items-center gap-2"
+                title={canManageProviderSettings ? t('providers.addProvider') : undefined}
               >
                 <Plus size={14} />
                 <span>{t('providers.addProvider')}</span>
-              </Button>
+              </ManageProvidersButton>
             </div>
           ) : (
             <AntigravityQuotasProvider>
@@ -278,59 +361,91 @@ export function ProvidersPage() {
                           {/* Refresh Quotas Button - Only for Antigravity */}
                           {typeKey === 'antigravity' && (
                             <>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-muted-foreground">
-                                  {t('settings.autoSortAntigravity')}
-                                </span>
-                                <Switch
-                                  checked={autoSortAntigravity}
-                                  onCheckedChange={handleToggleAutoSortAntigravity}
-                                  disabled={updateSetting.isPending}
-                                />
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleRefreshQuotas}
-                                disabled={isRefreshingQuotas}
-                                className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
-                                title={t('providers.refreshQuotas')}
-                              >
-                                <RefreshCw
-                                  size={12}
-                                  className={isRefreshingQuotas ? 'animate-spin' : ''}
-                                />
-                                <span>{t('common.refresh')}</span>
-                              </Button>
+                              {canManageProviderSettings && (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs text-muted-foreground">
+                                    {t('settings.autoSortAntigravity')}
+                                  </span>
+                                  <Switch
+                                    checked={autoSortAntigravity}
+                                    onCheckedChange={handleToggleAutoSortAntigravity}
+                                    disabled={updateSetting.isPending}
+                                  />
+                                </div>
+                              )}
+                              {canManageProviderSettings ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleRefreshQuotas}
+                                  disabled={isRefreshingQuotas}
+                                  className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                                  title={t('providers.refreshQuotas')}
+                                >
+                                  <RefreshCw
+                                    size={12}
+                                    className={isRefreshingQuotas ? 'animate-spin' : ''}
+                                  />
+                                  <span>{t('common.refresh')}</span>
+                                </Button>
+                              ) : (
+                                <ManageProvidersButton
+                                  canManage={false}
+                                  blockedReason={providerReadOnlyHint}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                                  title={t('providers.refreshQuotas')}
+                                >
+                                  <RefreshCw size={12} />
+                                  <span>{t('common.refresh')}</span>
+                                </ManageProvidersButton>
+                              )}
                             </>
                           )}
                           {/* Refresh Button - Only for Codex */}
                           {typeKey === 'codex' && (
                             <>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-muted-foreground">
-                                  {t('settings.autoSortCodex')}
-                                </span>
-                                <Switch
-                                  checked={autoSortCodex}
-                                  onCheckedChange={handleToggleAutoSortCodex}
-                                  disabled={updateSetting.isPending}
-                                />
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleRefreshCodex}
-                                disabled={isRefreshingCodex}
-                                className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
-                                title={t('providers.refreshCodex')}
-                              >
-                                <RefreshCw
-                                  size={12}
-                                  className={isRefreshingCodex ? 'animate-spin' : ''}
-                                />
-                                <span>{t('common.refresh')}</span>
-                              </Button>
+                              {canManageProviderSettings && (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs text-muted-foreground">
+                                    {t('settings.autoSortCodex')}
+                                  </span>
+                                  <Switch
+                                    checked={autoSortCodex}
+                                    onCheckedChange={handleToggleAutoSortCodex}
+                                    disabled={updateSetting.isPending}
+                                  />
+                                </div>
+                              )}
+                              {canManageProviderSettings ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleRefreshCodex}
+                                  disabled={isRefreshingCodex}
+                                  className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                                  title={t('providers.refreshCodex')}
+                                >
+                                  <RefreshCw
+                                    size={12}
+                                    className={isRefreshingCodex ? 'animate-spin' : ''}
+                                  />
+                                  <span>{t('common.refresh')}</span>
+                                </Button>
+                              ) : (
+                                <ManageProvidersButton
+                                  canManage={false}
+                                  blockedReason={providerReadOnlyHint}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                                  title={t('providers.refreshCodex')}
+                                >
+                                  <RefreshCw size={12} />
+                                  <span>{t('common.refresh')}</span>
+                                </ManageProvidersButton>
+                              )}
                             </>
                           )}
                         </div>
@@ -341,7 +456,12 @@ export function ProvidersPage() {
                               provider={provider}
                               stats={providerStats[provider.id]}
                               streamingCount={countsByProvider.get(provider.id) || 0}
-                              onClick={() => navigate(`/providers/${provider.id}/edit`)}
+                              onClick={
+                                canManageProviderSettings
+                                  ? () => navigate(`/providers/${provider.id}/edit`)
+                                  : undefined
+                              }
+                              title={!canManageProviderSettings ? providerReadOnlyHint : undefined}
                             />
                           ))}
                         </div>

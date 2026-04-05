@@ -69,7 +69,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (savedToken) {
           try {
-            await transport.getProxyStatus();
+            await transport.getPublicProxyStatus();
             if (shouldSkip()) {
               return;
             }
@@ -148,14 +148,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, [transport]);
 
-  const login = useCallback((token: string, userInfo?: AuthUser) => {
-    localStorage.setItem(AUTH_TOKEN_KEY, token);
-    transport.setAuthToken(token);
-    if (userInfo) {
-      setUser(userInfo);
-    }
-    setIsAuthenticated(true);
-  }, [transport]);
+  const login = useCallback(
+    (token: string, userInfo?: AuthUser) => {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      transport.setAuthToken(token);
+      if (userInfo) {
+        setUser(userInfo);
+      }
+      setIsAuthenticated(true);
+    },
+    [transport],
+  );
 
   const logout = useCallback(() => {
     localStorage.removeItem(AUTH_TOKEN_KEY);

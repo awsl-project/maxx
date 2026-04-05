@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -119,7 +120,7 @@ var migrations = []Migration{
 
 			// 2. Update all existing rows to belong to default tenant
 			for _, table := range tenantScopedTables {
-				result := db.Exec("UPDATE "+table+" SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
+				result := db.Exec("UPDATE " + table + " SET tenant_id = 1 WHERE tenant_id = 0 OR tenant_id IS NULL")
 				if result.Error != nil {
 					log.Printf("[Migration] Warning: Failed to update tenant_id for %s: %v", table, result.Error)
 					// Continue with other tables
@@ -183,6 +184,362 @@ var migrations = []Migration{
 			return errors.New("migration v5 is irreversible: hard-deleted users cannot be restored")
 		},
 	},
+	{
+		Version:     6,
+		Description: "Repair tenant_id zeroed by PUT handler bug (providers, projects, retry_configs, routing_strategies)",
+		Up: func(db *gorm.DB) error {
+			var defaultTenantID uint64
+			err := db.Raw("SELECT id FROM tenants WHERE is_default = 1 LIMIT 1").Scan(&defaultTenantID).Error
+			if err != nil || defaultTenantID == 0 {
+				defaultTenantID = 1
+			}
+
+			tables := []string{"providers", "projects", "retry_configs", "routing_strategies"}
+			for _, table := range tables {
+				result := db.Exec("UPDATE "+table+" SET tenant_id = ? WHERE tenant_id = 0", defaultTenantID)
+				if result.Error != nil {
+					log.Printf("[Migration] Warning: failed to repair tenant_id for %s: %v", table, result.Error)
+				} else if result.RowsAffected > 0 {
+					log.Printf("[Migration] Repaired %d rows in %s with tenant_id=%d", result.RowsAffected, table, defaultTenantID)
+				}
+			}
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			return nil
+		},
+	}, {
+		Version:     7,
+		Description: "Backfill providers.exclude_from_export defaults to 0",
+		Up: func(db *gorm.DB) error {
+			if !db.Migrator().HasColumn(&Provider{}, "exclude_from_export") {
+				return nil
+			}
+			return db.Exec("UPDATE providers SET exclude_from_export = 0 WHERE exclude_from_export IS NULL").Error
+		},
+		Down: func(db *gorm.DB) error {
+			return nil
+		},
+	},
+	{
+		Version:     8,
+		Description: "Make Codex quota identity account-aware to avoid same-email quota collisions",
+		Up: func(db *gorm.DB) error {
+			return applyCodexQuotaIdentityMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			return revertCodexQuotaIdentityMigration(db)
+		},
+	},
+	{
+		Version:     9,
+		Description: "Dedupe codex quota identities and harden index migration ordering",
+		Up: func(db *gorm.DB) error {
+			return applyCodexQuotaIdentityMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			return revertCodexQuotaIdentityMigration(db)
+		},
+	},
+	{
+		Version:     10,
+		Description: "Add sessions cleanup index on deleted_at and updated_at",
+		Up: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				err := db.Exec("CREATE INDEX idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)").Error
+			}
+		},
+		Down: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_sessions_deleted_updated_at ON sessions").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				return nil
+			default:
+				return db.Exec("DROP INDEX IF EXISTS idx_sessions_deleted_updated_at").Error
+			}
+		},
+	},
+	{
+		Version:     11,
+		Description: "Reorder sessions cleanup index to lead with updated_at",
+		Up: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_sessions_deleted_updated_at ON sessions").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				err := db.Exec("CREATE INDEX idx_sessions_updated_deleted_at ON sessions(updated_at, deleted_at)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				if err := db.Exec("DROP INDEX IF EXISTS idx_sessions_deleted_updated_at").Error; err != nil {
+					return err
+				}
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_updated_deleted_at ON sessions(updated_at, deleted_at)").Error
+			}
+		},
+		Down: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_sessions_updated_deleted_at ON sessions").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				err := db.Exec("CREATE INDEX idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				if err := db.Exec("DROP INDEX IF EXISTS idx_sessions_updated_deleted_at").Error; err != nil {
+					return err
+				}
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_deleted_updated_at ON sessions(deleted_at, updated_at)").Error
+			}
+		},
+	},
+	{
+		Version:     12,
+		Description: "Add model column to cooldowns and failure_counts for model-level cooldown granularity",
+		Up: func(db *gorm.DB) error {
+			// Drop old unique indexes and recreate with model column.
+			// Keep indexed string columns short enough for MySQL utf8mb4 composite-key limits.
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("ALTER TABLE cooldowns ADD COLUMN model VARCHAR(191) DEFAULT ''").Error; err != nil {
+					if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+						return err
+					}
+				}
+				if err := db.Exec("ALTER TABLE failure_counts ADD COLUMN model VARCHAR(191) DEFAULT ''").Error; err != nil {
+					if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+						return err
+					}
+				}
+				if err := db.Exec("ALTER TABLE cooldowns MODIFY COLUMN client_type VARCHAR(64)").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("ALTER TABLE cooldowns MODIFY COLUMN model VARCHAR(191) DEFAULT ''").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN client_type VARCHAR(64)").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN reason VARCHAR(64)").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("ALTER TABLE failure_counts MODIFY COLUMN model VARCHAR(191) DEFAULT ''").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX idx_cooldowns_provider_client_model ON cooldowns(provider_id, client_type, model)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX idx_failure_counts_tenant_provider_client_reason_model ON failure_counts(tenant_id, provider_id, client_type, reason, model)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+				if err := db.Exec("DROP INDEX idx_cooldowns_provider_client ON cooldowns").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+				if err := db.Exec("DROP INDEX idx_failure_counts_tenant_provider_client_reason ON failure_counts").Error; err != nil && !isMySQLMissingIndexError(err) {
+					return err
+				}
+			default:
+				if err := db.Exec("DROP INDEX IF EXISTS idx_cooldowns_provider_client").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("DROP INDEX IF EXISTS idx_failure_counts_tenant_provider_client_reason").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cooldowns_provider_client_model ON cooldowns(provider_id, client_type, model)").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_failure_counts_tenant_provider_client_reason_model ON failure_counts(tenant_id, provider_id, client_type, reason, model)").Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Down: func(db *gorm.DB) error {
+			return fmt.Errorf("migration v12 cannot be rolled back: dropping columns not supported in SQLite")
+		},
+	},
+}
+
+func applyCodexQuotaIdentityMigration(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&CodexQuota{}, "identity_key") {
+		return nil
+	}
+	if err := dropCodexQuotaIdentityIndexesBeforeBackfill(db); err != nil {
+		return err
+	}
+	if err := db.Exec(codexQuotaIdentityBackfillSQL(db.Dialector.Name())).Error; err != nil {
+		return err
+	}
+	if err := dedupeCodexQuotaIdentityRows(db); err != nil {
+		return err
+	}
+	return ensureCodexQuotaIdentityIndexes(db)
+}
+
+func revertCodexQuotaIdentityMigration(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&CodexQuota{}, "identity_key") {
+		return nil
+	}
+	return fmt.Errorf("reverting codex quota identity migration is irreversible: cannot safely recreate idx_codex_quotas_tenant_email because CodexQuota rows may now contain duplicate (tenant_id, email) values after identity/email migration")
+}
+
+func dedupeCodexQuotaIdentityRows(db *gorm.DB) error {
+	return db.Exec(codexQuotaIdentityDedupeSQL(db.Dialector.Name())).Error
+}
+
+func codexQuotaIdentityBackfillSQL(dialector string) string {
+	switch dialector {
+	case "mysql":
+		return `
+			UPDATE codex_quotas
+			SET identity_key = CASE
+				WHEN account_id IS NOT NULL AND TRIM(account_id) != '' THEN CONCAT('account:', TRIM(account_id))
+				WHEN email IS NOT NULL AND TRIM(email) != '' THEN CONCAT('email:', TRIM(email))
+				ELSE NULL
+			END
+			WHERE identity_key IS NULL OR TRIM(identity_key) = ''
+		`
+	default:
+		return `
+			UPDATE codex_quotas
+			SET identity_key = CASE
+				WHEN account_id IS NOT NULL AND TRIM(account_id) != '' THEN 'account:' || TRIM(account_id)
+				WHEN email IS NOT NULL AND TRIM(email) != '' THEN 'email:' || TRIM(email)
+				ELSE NULL
+			END
+			WHERE identity_key IS NULL OR TRIM(identity_key) = ''
+		`
+	}
+}
+
+func codexQuotaIdentityDedupeSQL(dialector string) string {
+	switch dialector {
+	case "mysql":
+		return `
+			DELETE doomed
+			FROM codex_quotas AS doomed
+			JOIN codex_quotas AS keeper
+			  ON doomed.tenant_id = keeper.tenant_id
+			 AND doomed.identity_key = keeper.identity_key
+			 AND COALESCE(doomed.deleted_at, 0) = COALESCE(keeper.deleted_at, 0)
+			 AND (
+				COALESCE(keeper.updated_at, 0) > COALESCE(doomed.updated_at, 0)
+				OR (
+					COALESCE(keeper.updated_at, 0) = COALESCE(doomed.updated_at, 0)
+					AND keeper.id < doomed.id
+				)
+			 )
+			WHERE doomed.identity_key IS NOT NULL
+			  AND TRIM(doomed.identity_key) != ''
+		`
+	default:
+		return `
+			DELETE FROM codex_quotas
+			WHERE id IN (
+				SELECT doomed.id
+				FROM codex_quotas AS doomed
+				JOIN codex_quotas AS keeper
+				  ON doomed.tenant_id = keeper.tenant_id
+				 AND doomed.identity_key = keeper.identity_key
+				 AND COALESCE(doomed.deleted_at, 0) = COALESCE(keeper.deleted_at, 0)
+				 AND (
+					COALESCE(keeper.updated_at, 0) > COALESCE(doomed.updated_at, 0)
+					OR (
+						COALESCE(keeper.updated_at, 0) = COALESCE(doomed.updated_at, 0)
+						AND keeper.id < doomed.id
+					)
+				 )
+				WHERE doomed.identity_key IS NOT NULL
+				  AND TRIM(doomed.identity_key) != ''
+			)
+		`
+	}
+}
+
+func ensureCodexQuotaIdentityIndexes(db *gorm.DB) error {
+	switch db.Dialector.Name() {
+	case "mysql":
+		if err := db.Exec("CREATE UNIQUE INDEX idx_codex_quotas_tenant_identity ON codex_quotas(tenant_id, identity_key, deleted_at)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+			return err
+		}
+		if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_email ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
+			return err
+		}
+		if err := db.Exec("DROP INDEX idx_codex_quotas_email ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
+			return err
+		}
+		if err := db.Exec("CREATE INDEX idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+			return err
+		}
+	case "postgres":
+		if err := db.Exec(`
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_quotas_tenant_identity
+			ON codex_quotas(tenant_id, identity_key)
+			WHERE deleted_at = 0 AND identity_key IS NOT NULL AND TRIM(identity_key) != ''
+		`).Error; err != nil {
+			return err
+		}
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_email").Error; err != nil {
+			return err
+		}
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_email").Error; err != nil {
+			return err
+		}
+		if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil {
+			return err
+		}
+	default:
+		if err := db.Exec(`
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_quotas_tenant_identity
+			ON codex_quotas(tenant_id, identity_key)
+			WHERE deleted_at = 0 AND identity_key IS NOT NULL AND TRIM(identity_key) != ''
+		`).Error; err != nil {
+			return err
+		}
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_email").Error; err != nil {
+			return err
+		}
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_email").Error; err != nil {
+			return err
+		}
+		if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_codex_quotas_email ON codex_quotas(email)").Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func dropCodexQuotaIdentityIndexesBeforeBackfill(db *gorm.DB) error {
+	switch db.Dialector.Name() {
+	case "mysql":
+		if err := db.Exec("DROP INDEX idx_codex_quotas_tenant_identity ON codex_quotas").Error; err != nil && !isMySQLMissingIndexError(err) {
+			return err
+		}
+	case "postgres":
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_identity").Error; err != nil {
+			return err
+		}
+	default:
+		if err := db.Exec("DROP INDEX IF EXISTS idx_codex_quotas_tenant_identity").Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func isMySQLDuplicateIndexError(err error) bool {
@@ -196,6 +553,18 @@ func isMySQLDuplicateIndexError(err error) bool {
 	// 兜底：错误可能被包装成字符串，避免使用过宽的 "duplicate" 匹配导致吞掉其它错误。
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "duplicate key name") || strings.Contains(lower, "error 1061")
+}
+
+func isMySQLMissingIndexError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1091 // ER_CANT_DROP_FIELD_OR_KEY
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "can't drop") && strings.Contains(lower, "check that column/key exists")
 }
 
 // RunMigrations 运行所有待执行的迁移

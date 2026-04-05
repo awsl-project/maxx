@@ -13,6 +13,7 @@ type CodexRequest struct {
 	Tools              []CodexTool            `json:"tools,omitempty"`
 	ToolChoice         interface{}            `json:"tool_choice,omitempty"`
 	Reasoning          *CodexReasoning        `json:"reasoning,omitempty"`
+	ServiceTier        string                 `json:"service_tier,omitempty"`
 	ParallelToolCalls  *bool                  `json:"parallel_tool_calls,omitempty"`
 	Include            []string               `json:"include,omitempty"`
 	Metadata           map[string]interface{} `json:"metadata,omitempty"`

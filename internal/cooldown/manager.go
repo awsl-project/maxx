@@ -70,6 +70,7 @@ func (m *Manager) LoadFromDatabase() error {
 			key := CooldownKey{
 				ProviderID: cd.ProviderID,
 				ClientType: cd.ClientType,
+				Model:      cd.Model,
 			}
 			m.cooldowns[key] = cd.UntilTime
 			m.reasons[key] = CooldownReason(cd.Reason)
@@ -86,25 +87,51 @@ func (m *Manager) LoadFromDatabase() error {
 	return nil
 }
 
-// RecordFailure records a failure and applies cooldown based on the reason and policy
-// If explicitUntil is provided, it will be used directly (e.g., from Retry-After header)
-// Otherwise, the cooldown duration is calculated using the policy for the given reason
-// Returns the calculated cooldown end time
-func (m *Manager) RecordFailure(providerID uint64, clientType string, reason CooldownReason, explicitUntil *time.Time) time.Time {
+// RecordFailure records a failure and applies cooldown based on the reason, scope, and policy.
+// If explicitUntil is provided, it will be used directly (e.g., from Retry-After header).
+// Otherwise, the cooldown duration is calculated using the policy for the given reason.
+// The scope determines which cooldown key dimensions are used:
+//   - ScopeRequest: no cooldown recorded (returns zero time)
+//   - ScopeModel: key uses (providerID, clientType, model)
+//   - ScopeKey/ScopeEndpoint: key uses (providerID, clientType, "")
+//   - ScopeProvider: key uses (providerID, "", "")
+//
+// Returns the calculated cooldown end time.
+func (m *Manager) RecordFailure(providerID uint64, clientType string, model string, reason CooldownReason, scope domain.ErrorScope, explicitUntil *time.Time) time.Time {
+	// ScopeRequest: only this request is bad, no cooldown needed
+	if scope == domain.ScopeRequest {
+		return time.Time{}
+	}
+
+	// Determine the effective key dimensions based on scope
+	effectiveClientType := clientType
+	effectiveModel := model
+	switch scope {
+	case domain.ScopeModel:
+		// key uses (providerID, clientType, model) — keep all dimensions
+	case domain.ScopeKey, domain.ScopeEndpoint:
+		// key uses (providerID, clientType, "") — clear model
+		effectiveModel = ""
+	case domain.ScopeProvider:
+		// key uses (providerID, "", "") — clear both
+		effectiveClientType = ""
+		effectiveModel = ""
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// If explicit until time is provided (e.g., from 429 Retry-After), use it directly
 	if explicitUntil != nil {
-		m.setCooldownLocked(providerID, clientType, *explicitUntil, reason)
-		log.Printf("[Cooldown] Provider %d (clientType=%s): Set explicit cooldown until %s (reason=%s)",
-			providerID, clientType, explicitUntil.Format("2006-01-02 15:04:05"), reason)
+		m.setCooldownLocked(providerID, effectiveClientType, effectiveModel, *explicitUntil, reason)
+		log.Printf("[Cooldown] Provider %d (clientType=%s, model=%s): Set explicit cooldown until %s (reason=%s, scope=%s)",
+			providerID, clientType, model, explicitUntil.Format("2006-01-02 15:04:05"), reason, scope)
 		return *explicitUntil
 	}
 
 	// Otherwise, calculate cooldown based on policy and failure count
-	// Increment failure count
-	failureCount := m.failureTracker.IncrementFailure(providerID, clientType, reason)
+	// Increment failure count (always track at the model level for accurate counting)
+	failureCount := m.failureTracker.IncrementFailure(providerID, effectiveClientType, effectiveModel, reason)
 
 	// Get policy for this reason
 	policy, ok := m.policies[reason]
@@ -118,10 +145,10 @@ func (m *Manager) RecordFailure(providerID uint64, clientType string, reason Coo
 	duration := policy.CalculateCooldown(failureCount)
 	until := time.Now().Add(duration)
 
-	m.setCooldownLocked(providerID, clientType, until, reason)
+	m.setCooldownLocked(providerID, effectiveClientType, effectiveModel, until, reason)
 
-	log.Printf("[Cooldown] Provider %d (clientType=%s): Set cooldown for %v until %s (reason=%s, failureCount=%d)",
-		providerID, clientType, duration, until.Format("2006-01-02 15:04:05"), reason, failureCount)
+	log.Printf("[Cooldown] Provider %d (clientType=%s, model=%s): Set cooldown for %v until %s (reason=%s, scope=%s, failureCount=%d)",
+		providerID, clientType, model, duration, until.Format("2006-01-02 15:04:05"), reason, scope, failureCount)
 
 	return until
 }
@@ -129,49 +156,50 @@ func (m *Manager) RecordFailure(providerID uint64, clientType string, reason Coo
 // UpdateCooldown updates cooldown time without incrementing failure count
 // This is used for async updates (e.g., when quota reset time is fetched asynchronously)
 // Keeps the existing reason
-func (m *Manager) UpdateCooldown(providerID uint64, clientType string, until time.Time) {
+func (m *Manager) UpdateCooldown(providerID uint64, clientType string, model string, until time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Get existing reason or use Unknown
-	key := CooldownKey{ProviderID: providerID, ClientType: clientType}
+	key := CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}
 	reason, ok := m.reasons[key]
 	if !ok {
 		reason = ReasonUnknown
 	}
 
-	m.setCooldownLocked(providerID, clientType, until, reason)
-	log.Printf("[Cooldown] Provider %d (clientType=%s): Updated cooldown to %s (async update, no count increment)",
-		providerID, clientType, until.Format("2006-01-02 15:04:05"))
+	m.setCooldownLocked(providerID, clientType, model, until, reason)
+	log.Printf("[Cooldown] Provider %d (clientType=%s, model=%s): Updated cooldown to %s (async update, no count increment)",
+		providerID, clientType, model, until.Format("2006-01-02 15:04:05"))
 }
 
-// RecordSuccess records a successful request and clears cooldown + resets failure counts
-// This ensures the provider is immediately available after a successful request
-func (m *Manager) RecordSuccess(providerID uint64, clientType string) {
+// RecordSuccess records a successful request and clears the model-level cooldown.
+// Only clears the specific (providerID, clientType, model) cooldown entry.
+// Key/provider level cooldowns are NOT auto-cleared — they have their own expiry.
+func (m *Manager) RecordSuccess(providerID uint64, clientType string, model string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Clear cooldown from memory
-	key := CooldownKey{ProviderID: providerID, ClientType: clientType}
+	// Clear only the model-level cooldown from memory
+	key := CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}
 	delete(m.cooldowns, key)
 	delete(m.reasons, key)
 
 	// Delete from database
 	if m.repository != nil {
-		if err := m.repository.Delete(providerID, clientType); err != nil {
-			log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s from database: %v", providerID, clientType, err)
+		if err := m.repository.Delete(providerID, clientType, model); err != nil {
+			log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s, model %s from database: %v", providerID, clientType, model, err)
 		}
 	}
 
-	// Reset failure counts
-	m.failureTracker.ResetFailures(providerID, clientType)
+	// Reset failure counts for this specific model
+	m.failureTracker.ResetFailures(providerID, clientType, model)
 
-	log.Printf("[Cooldown] Provider %d (clientType=%s): Cleared cooldown after successful request", providerID, clientType)
+	log.Printf("[Cooldown] Provider %d (clientType=%s, model=%s): Cleared model-level cooldown after successful request", providerID, clientType, model)
 }
 
 // setCooldownLocked sets cooldown without acquiring lock (internal use only)
-func (m *Manager) setCooldownLocked(providerID uint64, clientType string, until time.Time, reason CooldownReason) {
-	key := CooldownKey{ProviderID: providerID, ClientType: clientType}
+func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model string, until time.Time, reason CooldownReason) {
+	key := CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}
 	m.cooldowns[key] = until
 	m.reasons[key] = reason
 
@@ -180,6 +208,7 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, until 
 		cd := &domain.Cooldown{
 			ProviderID: providerID,
 			ClientType: clientType,
+			Model:      model,
 			UntilTime:  until,
 			Reason:     domain.CooldownReason(reason),
 		}
@@ -191,32 +220,32 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, until 
 
 // SetCooldownDuration sets a cooldown for a provider with a duration from now
 // clientType is optional - empty string means cooldown applies to all client types
-func (m *Manager) SetCooldownDuration(providerID uint64, clientType string, duration time.Duration) {
+func (m *Manager) SetCooldownDuration(providerID uint64, clientType string, model string, duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	until := time.Now().Add(duration)
-	m.setCooldownLocked(providerID, clientType, until, ReasonUnknown)
+	m.setCooldownLocked(providerID, clientType, model, until, ReasonUnknown)
 }
 
 // SetCooldownUntil sets a cooldown for a provider until a specific time
 // This is used for manual freezing by admin
-func (m *Manager) SetCooldownUntil(providerID uint64, clientType string, until time.Time) {
-	log.Printf("[Cooldown] SetCooldownUntil: providerID=%d, clientType=%q, until=%v", providerID, clientType, until)
+func (m *Manager) SetCooldownUntil(providerID uint64, clientType string, model string, until time.Time) {
+	log.Printf("[Cooldown] SetCooldownUntil: providerID=%d, clientType=%q, model=%q, until=%v", providerID, clientType, model, until)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.setCooldownLocked(providerID, clientType, until, ReasonManual)
+	m.setCooldownLocked(providerID, clientType, model, until, ReasonManual)
 	log.Printf("[Cooldown] SetCooldownUntil: done, current cooldowns count=%d", len(m.cooldowns))
 }
 
-// ClearCooldown removes the cooldown for a provider
-// If clientType is empty, clears ALL cooldowns for the provider (both global and specific)
-// If clientType is specified, only clears that specific cooldown
-func (m *Manager) ClearCooldown(providerID uint64, clientType string) {
+// ClearCooldown removes the cooldown for a provider.
+// If clientType and model are both empty, clears ALL cooldowns for the provider.
+// If model is specified, only clears that specific key.
+func (m *Manager) ClearCooldown(providerID uint64, clientType string, model string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if clientType == "" {
+	if clientType == "" && model == "" {
 		// Clear all cooldowns for this provider
 		keysToDelete := []CooldownKey{}
 		for key := range m.cooldowns {
@@ -237,45 +266,59 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string) {
 		}
 
 		// Also reset all failure counts for this provider
-		m.failureTracker.ResetFailures(providerID, "")
+		m.failureTracker.ResetFailures(providerID, "", "")
 	} else {
 		// Clear specific cooldown
-		key := CooldownKey{ProviderID: providerID, ClientType: clientType}
+		key := CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}
 		delete(m.cooldowns, key)
 		delete(m.reasons, key)
 
 		// Delete from database
 		if m.repository != nil {
-			if err := m.repository.Delete(providerID, clientType); err != nil {
-				log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s from database: %v", providerID, clientType, err)
+			if err := m.repository.Delete(providerID, clientType, model); err != nil {
+				log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s, model %s from database: %v", providerID, clientType, model, err)
 			}
 		}
 
-		// Also reset failure counts for this provider+clientType
-		m.failureTracker.ResetFailures(providerID, clientType)
+		// Also reset failure counts for this provider+clientType+model
+		m.failureTracker.ResetFailures(providerID, clientType, model)
 	}
 }
 
-// IsInCooldown checks if a provider is currently in cooldown for a specific client type
-// Checks both:
-// 1. Global cooldown (clientType = "")
-// 2. Client-type-specific cooldown
-func (m *Manager) IsInCooldown(providerID uint64, clientType string) bool {
+// IsInCooldown checks if a provider is currently in cooldown for a specific client type and model.
+// Checks 4 hierarchical levels (any match = frozen):
+//  1. (providerID, "", "")            — provider-level
+//  2. (providerID, clientType, "")    — key/endpoint-level
+//  3. (providerID, "", model)         — model-level (all client types)
+//  4. (providerID, clientType, model) — model+clientType-level
+func (m *Manager) IsInCooldown(providerID uint64, clientType string, model string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	now := time.Now()
 
-	// Check global cooldown (applies to all client types)
-	globalKey := CooldownKey{ProviderID: providerID, ClientType: ""}
-	if until, ok := m.cooldowns[globalKey]; ok && now.Before(until) {
+	// 1. Provider-level cooldown (applies to all client types and models)
+	if until, ok := m.cooldowns[CooldownKey{ProviderID: providerID}]; ok && now.Before(until) {
 		return true
 	}
 
-	// Check client-type-specific cooldown
+	// 2. Key/endpoint-level cooldown (applies to all models for this client type)
 	if clientType != "" {
-		specificKey := CooldownKey{ProviderID: providerID, ClientType: clientType}
-		if until, ok := m.cooldowns[specificKey]; ok && now.Before(until) {
+		if until, ok := m.cooldowns[CooldownKey{ProviderID: providerID, ClientType: clientType}]; ok && now.Before(until) {
+			return true
+		}
+	}
+
+	// 3. Model-level cooldown (applies to all client types for this model)
+	if model != "" {
+		if until, ok := m.cooldowns[CooldownKey{ProviderID: providerID, Model: model}]; ok && now.Before(until) {
+			return true
+		}
+	}
+
+	// 4. Model+clientType-level cooldown
+	if clientType != "" && model != "" {
+		if until, ok := m.cooldowns[CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}]; ok && now.Before(until) {
 			return true
 		}
 	}
@@ -283,33 +326,14 @@ func (m *Manager) IsInCooldown(providerID uint64, clientType string) bool {
 	return false
 }
 
-// GetCooldownUntil returns the cooldown end time for a provider and client type
-// Returns the later of global cooldown or client-type-specific cooldown
-// Returns zero time if not in cooldown
-func (m *Manager) GetCooldownUntil(providerID uint64, clientType string) time.Time {
+// GetCooldownUntil returns the cooldown end time for a provider, client type, and model.
+// Checks 4 hierarchical levels and returns the latest (most restrictive) time.
+// Returns zero time if not in cooldown.
+func (m *Manager) GetCooldownUntil(providerID uint64, clientType string, model string) time.Time {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	now := time.Now()
-	var latestCooldown time.Time
-
-	// Check global cooldown
-	globalKey := CooldownKey{ProviderID: providerID, ClientType: ""}
-	if until, ok := m.cooldowns[globalKey]; ok && now.Before(until) {
-		latestCooldown = until
-	}
-
-	// Check client-type-specific cooldown
-	if clientType != "" {
-		specificKey := CooldownKey{ProviderID: providerID, ClientType: clientType}
-		if until, ok := m.cooldowns[specificKey]; ok && now.Before(until) {
-			if until.After(latestCooldown) {
-				latestCooldown = until
-			}
-		}
-	}
-
-	return latestCooldown
+	return m.getCooldownUntilLocked(providerID, clientType, model)
 }
 
 // GetAllCooldowns returns all active cooldowns
@@ -349,7 +373,7 @@ func (m *Manager) CleanupExpired() {
 
 	// Reset failure counts for expired cooldowns
 	for _, key := range expiredKeys {
-		m.failureTracker.ResetFailures(key.ProviderID, key.ClientType)
+		m.failureTracker.ResetFailures(key.ProviderID, key.ClientType, key.Model)
 	}
 
 	// Delete expired cooldowns from database
@@ -367,12 +391,12 @@ func (m *Manager) CleanupExpired() {
 	}
 }
 
-// GetCooldownInfo returns cooldown info for a specific provider and client type
-func (m *Manager) GetCooldownInfo(providerID uint64, clientType string, providerName string) *CooldownInfo {
+// GetCooldownInfo returns cooldown info for a specific provider, client type, and model.
+func (m *Manager) GetCooldownInfo(providerID uint64, clientType string, model string, providerName string) *CooldownInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	until := m.getCooldownUntilLocked(providerID, clientType)
+	until := m.getCooldownUntilLocked(providerID, clientType, model)
 	if until.IsZero() {
 		return nil
 	}
@@ -382,45 +406,50 @@ func (m *Manager) GetCooldownInfo(providerID uint64, clientType string, provider
 		return nil
 	}
 
-	// Get reason
+	// Get reason — check from most specific to least specific
 	var reason CooldownReason
-	globalKey := CooldownKey{ProviderID: providerID, ClientType: ""}
-	specificKey := CooldownKey{ProviderID: providerID, ClientType: clientType}
 
-	// Check which key has the cooldown and get its reason
-	if r, ok := m.reasons[specificKey]; ok && clientType != "" {
-		reason = r
-	} else if r, ok := m.reasons[globalKey]; ok {
-		reason = r
-	} else {
-		reason = ReasonUnknown
+	keys := []CooldownKey{
+		{ProviderID: providerID, ClientType: clientType, Model: model},
+		{ProviderID: providerID, Model: model},
+		{ProviderID: providerID, ClientType: clientType},
+		{ProviderID: providerID},
+	}
+	reason = ReasonUnknown
+	for _, k := range keys {
+		if r, ok := m.reasons[k]; ok {
+			reason = r
+			break
+		}
 	}
 
 	return &CooldownInfo{
 		ProviderID:   providerID,
 		ProviderName: providerName,
 		ClientType:   clientType,
+		Model:        model,
 		Until:        until,
 		Remaining:    formatDuration(remaining),
 		Reason:       reason,
 	}
 }
 
-// getCooldownUntilLocked is internal version without lock
-func (m *Manager) getCooldownUntilLocked(providerID uint64, clientType string) time.Time {
+// getCooldownUntilLocked is internal version without lock.
+// Checks 4 hierarchical levels and returns the latest (most restrictive) time.
+func (m *Manager) getCooldownUntilLocked(providerID uint64, clientType string, model string) time.Time {
 	now := time.Now()
 	var latestCooldown time.Time
 
-	// Check global cooldown
-	globalKey := CooldownKey{ProviderID: providerID, ClientType: ""}
-	if until, ok := m.cooldowns[globalKey]; ok && now.Before(until) {
-		latestCooldown = until
+	// Check all 4 hierarchical levels
+	keys := []CooldownKey{
+		{ProviderID: providerID},                                          // 1. provider-level
+		{ProviderID: providerID, ClientType: clientType},                  // 2. key/endpoint-level
+		{ProviderID: providerID, Model: model},                            // 3. model-level (all client types)
+		{ProviderID: providerID, ClientType: clientType, Model: model},    // 4. model+clientType-level
 	}
 
-	// Check client-type-specific cooldown
-	if clientType != "" {
-		specificKey := CooldownKey{ProviderID: providerID, ClientType: clientType}
-		if until, ok := m.cooldowns[specificKey]; ok && now.Before(until) {
+	for _, key := range keys {
+		if until, ok := m.cooldowns[key]; ok && now.Before(until) {
 			if until.After(latestCooldown) {
 				latestCooldown = until
 			}
@@ -476,10 +505,10 @@ func formatInt(i int) string {
 func (m *Manager) GetAllCooldownsFromDB() ([]*domain.Cooldown, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if m.repository == nil {
 		return nil, nil
 	}
-	
+
 	return m.repository.GetAll()
 }

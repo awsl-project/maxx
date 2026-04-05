@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment, useId } from 'react';
 import {
   Settings,
   Monitor,
@@ -24,6 +24,7 @@ import {
   CardTitle,
   Button,
   Input,
+  Label,
   Switch,
   Select,
   SelectContent,
@@ -37,13 +38,34 @@ import {
 } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
+import { useAuth } from '@/lib/auth-context';
 import { useTransport } from '@/lib/transport/context';
 import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
 import { getDefaultThemes, getLuxuryThemes } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
+function parseRetentionInteger(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  if (!/^-?\d+$/.test(trimmed)) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    return null;
+  }
+
+  return parsed;
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -57,12 +79,17 @@ export function SettingsPage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="space-y-6">
           <GeneralSection />
-          <TimezoneSection />
-          <DataRetentionSection />
-          <ForceProjectSection />
-          <AntigravitySection />
-          <PprofSection />
-          <BackupSection />
+          {isAdmin && (
+            <>
+              <TimezoneSection />
+              <DataRetentionSection />
+              <ForceProjectSection />
+              <APITokenConcurrencySection />
+              <AntigravitySection />
+              <PprofSection />
+              <BackupSection />
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -222,12 +249,23 @@ const COMMON_TIMEZONES = [
   'Pacific/Auckland',
 ];
 
+const getBrowserTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+const getTimezoneOptions = (currentTimezone: string) => {
+  if (COMMON_TIMEZONES.includes(currentTimezone)) {
+    return COMMON_TIMEZONES;
+  }
+
+  return [currentTimezone, ...COMMON_TIMEZONES];
+};
+
 function TimezoneSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
 
-  const currentTimezone = settings?.timezone || 'Asia/Shanghai';
+  const currentTimezone = settings?.timezone || getBrowserTimezone();
+  const timezoneOptions = getTimezoneOptions(currentTimezone);
 
   const handleTimezoneChange = async (value: string) => {
     await updateSetting.mutateAsync({
@@ -259,7 +297,7 @@ function TimezoneSection() {
             <SelectValue>{currentTimezone}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {COMMON_TIMEZONES.map((tz) => (
+            {timezoneOptions.map((tz) => (
               <SelectItem key={tz} value={tz}>
                 {tz}
               </SelectItem>
@@ -275,49 +313,93 @@ function DataRetentionSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
+  const requestRetentionInputId = useId();
+  const sessionRetentionInputId = useId();
+  const requestDetailRetentionInputId = useId();
 
   const requestRetentionHours = settings?.request_retention_hours ?? '168';
+  const sessionRetentionHours = settings?.session_retention_hours ?? '168';
   const requestDetailRetentionSeconds = settings?.request_detail_retention_seconds ?? '-1';
 
   const [requestDraft, setRequestDraft] = useState('');
+  const [sessionDraft, setSessionDraft] = useState('');
   const [detailDraft, setDetailDraft] = useState('');
+  const [validationError, setValidationError] = useState('');
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
       setRequestDraft(requestRetentionHours);
+      setSessionDraft(sessionRetentionHours);
       setDetailDraft(requestDetailRetentionSeconds);
       setInitialized(true);
     }
-  }, [isLoading, initialized, requestRetentionHours, requestDetailRetentionSeconds]);
-
-  useEffect(() => {
-    if (initialized) {
-      setRequestDraft(requestRetentionHours);
-      setDetailDraft(requestDetailRetentionSeconds);
-    }
-  }, [requestRetentionHours, requestDetailRetentionSeconds, initialized]);
+  }, [
+    isLoading,
+    initialized,
+    requestRetentionHours,
+    sessionRetentionHours,
+    requestDetailRetentionSeconds,
+  ]);
 
   const hasChanges =
     initialized &&
-    (requestDraft !== requestRetentionHours || detailDraft !== requestDetailRetentionSeconds);
+    (requestDraft !== requestRetentionHours ||
+      sessionDraft !== sessionRetentionHours ||
+      detailDraft !== requestDetailRetentionSeconds);
+
+  useEffect(() => {
+    // 仅在本地没有未保存修改时，才用服务端最新值回填表单
+    if (initialized && !hasChanges) {
+      setRequestDraft(requestRetentionHours);
+      setSessionDraft(sessionRetentionHours);
+      setDetailDraft(requestDetailRetentionSeconds);
+    }
+  }, [
+    requestRetentionHours,
+    sessionRetentionHours,
+    requestDetailRetentionSeconds,
+    initialized,
+    hasChanges,
+  ]);
+
+  useEffect(() => {
+    setValidationError((current) => (current ? '' : current));
+  }, [requestDraft, sessionDraft, detailDraft]);
 
   const handleSave = async () => {
-    const requestNum = parseInt(requestDraft, 10);
-    const detailNum = parseInt(detailDraft, 10);
+    const requestNum = parseRetentionInteger(requestDraft);
+    const sessionNum = parseRetentionInteger(sessionDraft);
+    const detailNum = parseRetentionInteger(detailDraft);
+    const updates: Array<{ key: string; value: string }> = [];
 
-    if (!isNaN(requestNum) && requestNum >= 0 && requestDraft !== requestRetentionHours) {
-      await updateSetting.mutateAsync({
-        key: 'request_retention_hours',
-        value: requestDraft,
-      });
+    if (requestDraft !== requestRetentionHours) {
+      if (requestNum === null || requestNum < 0) {
+        setValidationError(t('settings.retentionValidationError'));
+        return;
+      }
+      updates.push({ key: 'request_retention_hours', value: String(requestNum) });
     }
 
-    if (!isNaN(detailNum) && detailNum >= -1 && detailDraft !== requestDetailRetentionSeconds) {
-      await updateSetting.mutateAsync({
-        key: 'request_detail_retention_seconds',
-        value: detailDraft,
-      });
+    if (sessionDraft !== sessionRetentionHours) {
+      if (sessionNum === null || sessionNum < 0) {
+        setValidationError(t('settings.retentionValidationError'));
+        return;
+      }
+      updates.push({ key: 'session_retention_hours', value: String(sessionNum) });
+    }
+
+    if (detailDraft !== requestDetailRetentionSeconds) {
+      if (detailNum === null || detailNum < -1) {
+        setValidationError(t('settings.retentionValidationError'));
+        return;
+      }
+      updates.push({ key: 'request_detail_retention_seconds', value: String(detailNum) });
+    }
+
+    setValidationError('');
+    for (const update of updates) {
+      await updateSetting.mutateAsync(update);
     }
   };
 
@@ -340,36 +422,77 @@ function DataRetentionSection() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-          <div className="text-sm font-medium text-muted-foreground shrink-0">
-            {t('settings.requestRetentionHours')}
+        {validationError && <p className="text-xs text-destructive">{validationError}</p>}
+        <div className="space-y-1.5">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <Label
+              htmlFor={requestRetentionInputId}
+              className="text-sm font-medium text-muted-foreground shrink-0"
+            >
+              {t('settings.requestRetentionHours')}
+            </Label>
+            <Input
+              id={requestRetentionInputId}
+              type="number"
+              value={requestDraft}
+              onChange={(e) => setRequestDraft(e.target.value)}
+              className="w-24"
+              min={0}
+              step={1}
+              disabled={updateSetting.isPending}
+            />
+            <span className="text-xs text-muted-foreground">{t('common.hours')}</span>
           </div>
-          <Input
-            type="number"
-            value={requestDraft}
-            onChange={(e) => setRequestDraft(e.target.value)}
-            className="w-24"
-            min={0}
-            disabled={updateSetting.isPending}
-          />
-          <span className="text-xs text-muted-foreground">{t('common.hours')}</span>
+          <p className="text-xs text-muted-foreground">{t('settings.requestRetentionHoursDesc')}</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-4 border-t border-border">
-          <div className="text-sm font-medium text-muted-foreground shrink-0">
-            {t('settings.requestDetailRetention')}
+        <div className="space-y-1.5 pt-4 border-t border-border">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <Label
+              htmlFor={sessionRetentionInputId}
+              className="text-sm font-medium text-muted-foreground shrink-0"
+            >
+              {t('settings.sessionRetentionHours')}
+            </Label>
+            <Input
+              id={sessionRetentionInputId}
+              type="number"
+              value={sessionDraft}
+              onChange={(e) => setSessionDraft(e.target.value)}
+              className="w-24"
+              min={0}
+              step={1}
+              disabled={updateSetting.isPending}
+            />
+            <span className="text-xs text-muted-foreground">{t('common.hours')}</span>
           </div>
-          <Input
-            type="number"
-            value={detailDraft}
-            onChange={(e) => setDetailDraft(e.target.value)}
-            className="w-24"
-            min={-1}
-            disabled={updateSetting.isPending}
-          />
-          <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+          <p className="text-xs text-muted-foreground">{t('settings.sessionRetentionHoursDesc')}</p>
         </div>
-        <p className="text-xs text-muted-foreground">{t('settings.requestDetailRetentionDesc')}</p>
+
+        <div className="space-y-1.5 pt-4 border-t border-border">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <Label
+              htmlFor={requestDetailRetentionInputId}
+              className="text-sm font-medium text-muted-foreground shrink-0"
+            >
+              {t('settings.requestDetailRetention')}
+            </Label>
+            <Input
+              id={requestDetailRetentionInputId}
+              type="number"
+              value={detailDraft}
+              onChange={(e) => setDetailDraft(e.target.value)}
+              className="w-24"
+              min={-1}
+              step={1}
+              disabled={updateSetting.isPending}
+            />
+            <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.requestDetailRetentionDesc')}
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -444,6 +567,85 @@ function ForceProjectSection() {
             <span className="text-xs text-muted-foreground">{t('settings.waitTimeoutRange')}</span>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function APITokenConcurrencySection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+
+  const currentLimit = settings?.api_token_concurrent_limit || '5';
+  const [limitDraft, setLimitDraft] = useState('');
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !initialized) {
+      setLimitDraft(currentLimit);
+      setInitialized(true);
+    }
+  }, [isLoading, initialized, currentLimit]);
+
+  const hasChanges = initialized && limitDraft !== currentLimit;
+
+  useEffect(() => {
+    if (initialized && !hasChanges) {
+      setLimitDraft(currentLimit);
+    }
+  }, [currentLimit, initialized, hasChanges]);
+
+  const parsedLimit = parseInt(limitDraft, 10);
+  const isValid = !isNaN(parsedLimit) && parsedLimit >= 1;
+
+  const handleSaveLimit = async () => {
+    if (!isValid || !hasChanges) return;
+    await updateSetting.mutateAsync({
+      key: 'api_token_concurrent_limit',
+      value: limitDraft,
+    });
+  };
+
+  if (isLoading || !initialized) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+              {t('settings.apiTokenConcurrency')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.apiTokenConcurrencyDesc')}</p>
+          </div>
+          <Button
+            onClick={handleSaveLimit}
+            disabled={!hasChanges || !isValid || updateSetting.isPending}
+            size="sm"
+          >
+            {updateSetting.isPending ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+          <Label className="text-sm font-medium text-muted-foreground shrink-0">
+            {t('settings.apiTokenConcurrencyLimit')}
+          </Label>
+          <Input
+            type="number"
+            value={limitDraft}
+            onChange={(e) => setLimitDraft(e.target.value)}
+            className="w-24"
+            min={1}
+            disabled={updateSetting.isPending}
+          />
+          <span className="text-xs text-muted-foreground">{t('settings.concurrentRequestsUnit')}</span>
+          <span className="text-xs text-muted-foreground">({t('settings.defaultValue', { value: 5 })})</span>
+        </div>
+        <p className="text-xs text-muted-foreground">{t('settings.apiTokenConcurrencyHint')}</p>
       </CardContent>
     </Card>
   );

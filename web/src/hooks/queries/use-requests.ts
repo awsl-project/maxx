@@ -11,8 +11,9 @@ import {
   type CursorPaginationParams,
   type CursorPaginationResult,
 } from '@/lib/transport';
+import { prioritizeActiveRequests } from '@/lib/request-order';
 
-// Query Keys
+/** Query key factory for proxy request related queries. */
 export const requestKeys = {
   all: ['requests'] as const,
   lists: () => [...requestKeys.all, 'list'] as const,
@@ -24,7 +25,7 @@ export const requestKeys = {
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
 };
 
-// 获取 ProxyRequests (游标分页)
+/** Fetches proxy requests with cursor-based pagination. */
 export function useProxyRequests(params?: CursorPaginationParams) {
   return useQuery({
     queryKey: requestKeys.list(params),
@@ -32,7 +33,10 @@ export function useProxyRequests(params?: CursorPaginationParams) {
   });
 }
 
-// 获取 ProxyRequests (无限滚动)
+/**
+ * Fetches proxy requests using infinite scroll pagination.
+ * Uses staleTime to avoid redundant refetches within a short window.
+ */
 export function useInfiniteProxyRequests(
   providerId?: number,
   status?: string,
@@ -54,10 +58,14 @@ export function useInfiniteProxyRequests(
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastId : undefined),
     initialPageParam: undefined as number | undefined,
     enabled,
+    staleTime: 5_000,
   });
 }
 
-// 获取 ProxyRequests 总数
+/**
+ * Fetches the total count of proxy requests matching the given filters.
+ * Polls every 10s as a safety net for missed WebSocket events.
+ */
 export function useProxyRequestsCount(
   providerId?: number,
   status?: string,
@@ -69,10 +77,13 @@ export function useProxyRequestsCount(
     queryKey: ['requestsCount', providerId, status, apiTokenId, projectId] as const,
     queryFn: () => getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId),
     enabled,
+    staleTime: 5_000,
+    refetchInterval: enabled ? 10_000 : false,
+    refetchIntervalInBackground: false,
   });
 }
 
-// 获取单个 ProxyRequest
+/** Fetches a single proxy request by ID. */
 export function useProxyRequest(id: number) {
   return useQuery({
     queryKey: requestKeys.detail(id),
@@ -81,7 +92,7 @@ export function useProxyRequest(id: number) {
   });
 }
 
-// 获取 ProxyRequest 的 Attempts
+/** Fetches upstream attempts for a given proxy request. */
 export function useProxyUpstreamAttempts(proxyRequestId: number) {
   return useQuery({
     queryKey: requestKeys.attempts(proxyRequestId),
@@ -90,7 +101,10 @@ export function useProxyUpstreamAttempts(proxyRequestId: number) {
   });
 }
 
-// 订阅 ProxyRequest 实时更新
+/**
+ * Subscribes to live request events and reconciles React Query caches after
+ * request updates or WebSocket reconnects.
+ */
 export function useProxyRequestUpdates() {
   const queryClient = useQueryClient();
 
@@ -221,7 +235,9 @@ export function useProxyRequestUpdates() {
             const limit = typeof params?.limit === 'number' ? params.limit : undefined;
 
             const normalizePage = (items: ProxyRequest[]) => {
-              let nextItems = items;
+              // 首屏列表和 WS 增量更新都统一走这里，避免同一页里出现
+              // “已完成/失败”仍停留在活跃请求前面的短暂错序。
+              let nextItems = prioritizeActiveRequests(items);
               let hasMore = old.hasMore;
 
               if (typeof limit === 'number' && limit > 0 && nextItems.length > limit) {
@@ -307,12 +323,12 @@ export function useProxyRequestUpdates() {
 
               if (!matchesFilter(updatedRequest)) {
                 const newItems = page.items.filter((r) => r.id !== requestId);
-                return { ...page, items: newItems };
+                return { ...page, items: prioritizeActiveRequests(newItems) };
               }
 
               const newItems = [...page.items];
               newItems[index] = updatedRequest;
-              return { ...page, items: newItems };
+              return { ...page, items: prioritizeActiveRequests(newItems) };
             });
 
             if (hasExisting) {
@@ -332,7 +348,13 @@ export function useProxyRequestUpdates() {
 
             return {
               ...old,
-              pages: [{ ...firstPage, items: [updatedRequest, ...firstPage.items] }, ...updatedPages.slice(1)],
+              pages: [
+                {
+                  ...firstPage,
+                  items: prioritizeActiveRequests([updatedRequest, ...firstPage.items]),
+                },
+                ...updatedPages.slice(1),
+              ],
             };
           });
         }
@@ -426,6 +448,26 @@ export function useProxyRequestUpdates() {
       },
     );
 
+    const unsubscribeReconnect = transport.subscribe('_ws_reconnected', () => {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+
+      // 断线窗口里的 WS 事件已经不可信，重连后统一走 Query 补偿同步。
+      pendingRequests.clear();
+      pendingAttemptsByRequest.clear();
+      knownRequestIds.clear();
+
+      void queryClient.refetchQueries({ queryKey: requestKeys.lists(), type: 'active' });
+      void queryClient.refetchQueries({ queryKey: [...requestKeys.all, 'infinite'], type: 'active' });
+      void queryClient.refetchQueries({ queryKey: requestKeys.details(), type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['requestsCount'], type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['providers', 'stats'], type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['cooldowns'], type: 'active' });
+    });
+
     return () => {
       if (flushTimer) {
         clearTimeout(flushTimer);
@@ -435,6 +477,7 @@ export function useProxyRequestUpdates() {
       pendingAttemptsByRequest.clear();
       unsubscribeRequest();
       unsubscribeAttempt();
+      unsubscribeReconnect();
     };
   }, [queryClient]);
 }

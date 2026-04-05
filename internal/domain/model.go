@@ -148,6 +148,17 @@ type ProviderConfigCodex struct {
 
 	// 使用 CLIProxyAPI 转发
 	UseCLIProxyAPI bool `json:"useCLIProxyAPI,omitempty"`
+
+	// 自定义 Codex API Base URL（默认使用官方地址）
+	BaseURL string `json:"baseURL,omitempty"`
+
+	// 强制 reasoning effort（覆盖请求中的值）
+	// 可选值: "low", "medium", "high"
+	Reasoning string `json:"reasoning,omitempty"`
+
+	// 强制 service_tier（覆盖请求中的值）
+	// 可选值: "auto", "default", "flex", "priority"
+	ServiceTier string `json:"serviceTier,omitempty"`
 }
 
 // ProviderConfigCLIProxyAPIAntigravity CLIProxyAPI Antigravity 内部配置
@@ -227,6 +238,9 @@ type Provider struct {
 	// 如果配置了，在 Route 匹配时会检查前置映射后的模型是否在支持列表中
 	// 空数组表示支持所有模型
 	SupportModels []string `json:"supportModels,omitempty"`
+
+	// 为 true 时，该 provider 不参与导出/备份
+	ExcludeFromExport bool `json:"excludeFromExport,omitempty"`
 }
 
 type Project struct {
@@ -293,6 +307,9 @@ type Route struct {
 
 	// 位置，数字越小越优先
 	Position int `json:"position"`
+
+	// 权重，用于加权随机路由策略，值越大被选中概率越高，默认 1
+	Weight int `json:"weight"`
 
 	// 重试配置，0 表示使用系统默认
 	RetryConfigID uint64 `json:"retryConfigID"`
@@ -550,6 +567,7 @@ type SystemSetting struct {
 const (
 	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeySessionRetentionHours         = "session_retention_hours"          // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
 	SettingKeyRequestDetailRetentionSeconds = "request_detail_retention_seconds" // 请求详情保留秒数，-1=永久保存(默认)，0=不保存，>0=保留秒数
 	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
@@ -640,7 +658,7 @@ type CodexRateLimitInfo struct {
 	SecondaryWindow *CodexQuotaWindow `json:"secondaryWindow,omitempty"`
 }
 
-// Codex 账户配额（基于邮箱存储）
+// Codex 账户配额（优先按 account_id 区分，回退到 email）
 type CodexQuota struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -652,7 +670,10 @@ type CodexQuota struct {
 	// 所属租户
 	TenantID uint64 `json:"tenantID"`
 
-	// 邮箱作为唯一标识
+	// 配额身份键：优先 account:<account_id>，否则 email:<email>
+	IdentityKey string `json:"identityKey"`
+
+	// 邮箱（展示和回退匹配用）
 	Email string `json:"email"`
 
 	// 账户 ID
@@ -672,6 +693,18 @@ type CodexQuota struct {
 
 	// 代码审查限流
 	CodeReviewWindow *CodexQuotaWindow `json:"codeReviewWindow,omitempty"`
+}
+
+func CodexQuotaIdentityKey(email, accountID string) string {
+	accountID = strings.TrimSpace(accountID)
+	if accountID != "" {
+		return "account:" + accountID
+	}
+	email = strings.TrimSpace(email)
+	if email != "" {
+		return "email:" + email
+	}
+	return ""
 }
 
 // Provider 统计信息
@@ -790,6 +823,12 @@ type APIToken struct {
 
 	// 最后使用时间
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+
+	// 最近一次使用的来源 IP
+	LastIP string `json:"lastIP,omitempty"`
+
+	// 最近一次来源 IP 的记录时间
+	LastIPAt *time.Time `json:"lastIPAt,omitempty"`
 
 	// 使用次数
 	UseCount uint64 `json:"useCount"`

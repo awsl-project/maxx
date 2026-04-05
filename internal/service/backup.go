@@ -108,6 +108,9 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export providers: %w", err)
 	}
 	for _, p := range providers {
+		if p.ExcludeFromExport {
+			continue
+		}
 		providerIDToName[p.ID] = p.Name
 		backup.Data.Providers = append(backup.Data.Providers, domain.BackupProvider{
 			Name:                 p.Name,
@@ -176,6 +179,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 			ClientType:      r.ClientType,
 			ProviderName:    providerIDToName[r.ProviderID],
 			Position:        r.Position,
+			Weight:          r.Weight,
 			RetryConfigName: retryConfigIDToName[r.RetryConfigID],
 		})
 	}
@@ -664,6 +668,10 @@ func (s *BackupService) importRoutes(tenantID uint64, routes []domain.BackupRout
 			}
 		}
 
+		weight := br.Weight
+		if weight <= 0 {
+			weight = 1
+		}
 		r := &domain.Route{
 			TenantID:      tenantID,
 			IsEnabled:     br.IsEnabled,
@@ -672,6 +680,7 @@ func (s *BackupService) importRoutes(tenantID uint64, routes []domain.BackupRout
 			ClientType:    br.ClientType,
 			ProviderID:    providerID,
 			Position:      br.Position,
+			Weight:        weight,
 			RetryConfigID: retryConfigID,
 		}
 

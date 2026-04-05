@@ -81,6 +81,27 @@ func TestDeleteSetting(t *testing.T) {
 	AssertStatus(t, resp, http.StatusNoContent)
 }
 
+func TestSetSessionRetentionSetting(t *testing.T) {
+	env := NewTestEnv(t)
+
+	body := map[string]any{
+		"value": "72",
+	}
+
+	resp := env.AdminPut("/api/admin/settings/session_retention_hours", body)
+	AssertStatus(t, resp, http.StatusOK)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+
+	if result["key"] != "session_retention_hours" {
+		t.Fatalf("Expected key 'session_retention_hours', got %v", result["key"])
+	}
+	if result["value"] != "72" {
+		t.Fatalf("Expected value '72', got %v", result["value"])
+	}
+}
+
 func TestSetSetting_InvalidJSON(t *testing.T) {
 	env := NewTestEnv(t)
 

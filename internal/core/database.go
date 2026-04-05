@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	"golang.org/x/crypto/bcrypt"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
@@ -26,6 +25,7 @@ import (
 	"github.com/awsl-project/maxx/internal/service"
 	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // DatabaseConfig 数据库配置
@@ -67,31 +67,35 @@ type DatabaseRepos struct {
 	ModelPriceRepo            repository.ModelPriceRepository
 	TenantRepo                repository.TenantRepository
 	UserRepo                  repository.UserRepository
+	InviteCodeRepo            repository.InviteCodeRepository
+	InviteCodeUsageRepo       repository.InviteCodeUsageRepository
 }
 
 // ServerComponents 包含服务器运行所需的所有组件
 type ServerComponents struct {
-	Router              *router.Router
-	WebSocketHub        *handler.WebSocketHub
-	WailsBroadcaster    *event.WailsBroadcaster
-	Executor            *executor.Executor
-	ClientAdapter       *client.Adapter
-	AdminService        *service.AdminService
-	ProxyHandler        *handler.ProxyHandler
-	ModelsHandler       *handler.ModelsHandler
-	AdminHandler        *handler.AdminHandler
-	AntigravityHandler  *handler.AntigravityHandler
-	KiroHandler         *handler.KiroHandler
-	CodexHandler        *handler.CodexHandler
-	CodexOAuthServer    *CodexOAuthServer
-	ClaudeHandler       *handler.ClaudeHandler
-	ClaudeOAuthServer   *ClaudeOAuthServer
-	ProjectProxyHandler *handler.ProjectProxyHandler
-	RequestTracker      *RequestTracker
-	PprofManager        *PprofManager
-	AuthMiddleware      *handler.AuthMiddleware
-	AuthHandler         *handler.AuthHandler
-	BackupService       *service.BackupService
+	Router               *router.Router
+	WebSocketHub         *handler.WebSocketHub
+	WailsBroadcaster     *event.WailsBroadcaster
+	Executor             *executor.Executor
+	ClientAdapter        *client.Adapter
+	AdminService         *service.AdminService
+	ProxyHandler         *handler.ProxyHandler
+	ModelsHandler        *handler.ModelsHandler
+	AdminHandler         *handler.AdminHandler
+	SelfServiceHandler   *handler.SelfServiceHandler
+	AntigravityHandler   *handler.AntigravityHandler
+	KiroHandler          *handler.KiroHandler
+	CodexHandler         *handler.CodexHandler
+	CodexOAuthServer     *CodexOAuthServer
+	ClaudeHandler        *handler.ClaudeHandler
+	ClaudeOAuthServer    *ClaudeOAuthServer
+	ProjectProxyHandler  *handler.ProjectProxyHandler
+	ProviderProxyHandler *handler.ProviderProxyHandler
+	RequestTracker       *RequestTracker
+	PprofManager         *PprofManager
+	AuthMiddleware       *handler.AuthMiddleware
+	AuthHandler          *handler.AuthHandler
+	BackupService        *service.BackupService
 }
 
 // InitializeDatabase 初始化数据库和所有仓库
@@ -131,6 +135,8 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	modelPriceRepo := sqlite.NewModelPriceRepository(db)
 	tenantRepo := sqlite.NewTenantRepository(db)
 	userRepo := sqlite.NewUserRepository(db)
+	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
+	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
 
 	log.Printf("[Core] Creating cached repositories")
 
@@ -173,6 +179,8 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		ModelPriceRepo:            modelPriceRepo,
 		TenantRepo:                tenantRepo,
 		UserRepo:                  userRepo,
+		InviteCodeRepo:            inviteCodeRepo,
+		InviteCodeUsageRepo:       inviteCodeUsageRepo,
 	}
 
 	log.Printf("[Core] Database initialized successfully")
@@ -336,6 +344,8 @@ func InitializeServerComponents(
 		repos.AttemptRepo,
 		repos.SettingRepo,
 		repos.CachedAPITokenRepo,
+		repos.InviteCodeRepo,
+		repos.InviteCodeUsageRepo,
 		repos.CachedModelMappingRepo,
 		repos.UsageStatsRepo,
 		repos.ResponseModelRepo,
@@ -372,7 +382,14 @@ func InitializeServerComponents(
 	} else {
 		log.Println("Admin API authentication is disabled (no MAXX_ADMIN_PASSWORD set)")
 	}
-	authHandler := handler.NewAuthHandler(authMiddleware, repos.UserRepo, repos.TenantRepo, authEnabled)
+	authHandler := handler.NewAuthHandler(
+		authMiddleware,
+		repos.UserRepo,
+		repos.TenantRepo,
+		repos.InviteCodeRepo,
+		repos.InviteCodeUsageRepo,
+		authEnabled,
+	)
 
 	log.Printf("[Core] Creating handlers")
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(repos.CachedAPITokenRepo, repos.SettingRepo)
@@ -383,7 +400,9 @@ func InitializeServerComponents(
 		repos.CachedModelMappingRepo,
 	)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
+	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
 	adminHandler.SetUserRepo(repos.UserRepo)
+	adminHandler.SetAuthEnabled(authEnabled)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
 	kiroHandler := handler.NewKiroHandler(adminService)
 	codexHandler := handler.NewCodexHandler(adminService, repos.CodexQuotaRepo, wailsBroadcaster)
@@ -399,27 +418,29 @@ func InitializeServerComponents(
 	proxyHandler.SetRequestTracker(requestTracker)
 
 	components := &ServerComponents{
-		Router:              r,
-		WebSocketHub:        wsHub,
-		WailsBroadcaster:    wailsBroadcaster,
-		Executor:            exec,
-		ClientAdapter:       clientAdapter,
-		AdminService:        adminService,
-		ProxyHandler:        proxyHandler,
-		ModelsHandler:       modelsHandler,
-		AdminHandler:        adminHandler,
-		AntigravityHandler:  antigravityHandler,
-		KiroHandler:         kiroHandler,
-		CodexHandler:        codexHandler,
-		CodexOAuthServer:    codexOAuthServer,
-		ClaudeHandler:       claudeHandler,
-		ClaudeOAuthServer:   claudeOAuthServer,
-		ProjectProxyHandler: projectProxyHandler,
-		RequestTracker:      requestTracker,
-		PprofManager:        pprofMgr,
-		AuthMiddleware:      authMiddleware,
-		AuthHandler:         authHandler,
-		BackupService:       backupService,
+		Router:               r,
+		WebSocketHub:         wsHub,
+		WailsBroadcaster:     wailsBroadcaster,
+		Executor:             exec,
+		ClientAdapter:        clientAdapter,
+		AdminService:         adminService,
+		ProxyHandler:         proxyHandler,
+		ModelsHandler:        modelsHandler,
+		AdminHandler:         adminHandler,
+		SelfServiceHandler:   selfServiceHandler,
+		AntigravityHandler:   antigravityHandler,
+		KiroHandler:          kiroHandler,
+		CodexHandler:         codexHandler,
+		CodexOAuthServer:     codexOAuthServer,
+		ClaudeHandler:        claudeHandler,
+		ClaudeOAuthServer:    claudeOAuthServer,
+		ProjectProxyHandler:  projectProxyHandler,
+		ProviderProxyHandler: handler.NewProviderProxyHandler(proxyHandler, modelsHandler, repos.CachedProviderRepo, repos.CachedRouteRepo, repos.ProxyRequestRepo),
+		RequestTracker:       requestTracker,
+		PprofManager:         pprofMgr,
+		AuthMiddleware:       authMiddleware,
+		AuthHandler:          authHandler,
+		BackupService:        backupService,
 	}
 
 	log.Printf("[Core] Server components initialized successfully")

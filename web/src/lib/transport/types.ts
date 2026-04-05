@@ -67,6 +67,9 @@ export interface ProviderConfigCodex {
   subscriptionEnd?: string;
   modelMapping?: Record<string, string>;
   useCLIProxyAPI?: boolean;
+  baseURL?: string;
+  reasoning?: string; // "low", "medium", "high"
+  serviceTier?: string; // "auto", "default", "flex", "priority"
 }
 
 export interface ProviderConfigClaude {
@@ -97,6 +100,7 @@ export interface Provider {
   config: ProviderConfig | null;
   supportedClientTypes: ClientType[];
   supportModels?: string[]; // 支持的模型列表（通配符模式），空数组表示支持所有模型
+  excludeFromExport?: boolean; // 为 true 时不参与导出/备份
 }
 
 // supportedClientTypes 可选，后端会根据 provider type 自动设置
@@ -626,21 +630,26 @@ export type CooldownReason =
   | 'quota_exhausted'
   | 'rate_limit_exceeded'
   | 'concurrent_limit'
+  | 'auth_failure'
+  | 'model_unavailable'
+  | 'manual'
   | 'unknown';
 
 /**
- * Cooldown 类型 - 与 Go domain.Cooldown 同步
- * 注意：providerName 和 remaining 需要在前端计算
+ * Cooldown info — matches Go cooldown.CooldownInfo JSON response
  */
 export interface Cooldown {
-  id: number;
-  createdAt: string;
-  updatedAt: string;
   providerID: number;
-  clientType: string; // 'all' for global cooldown, or specific client type
-  until: string; // ISO 8601 timestamp (Go time.Time)
+  providerName?: string;
+  clientType: string;
+  model?: string;
+  until: string;
+  remaining?: string;
   reason: CooldownReason;
 }
+
+/** Provider health level — derived from active cooldowns */
+export type ProviderHealthLevel = 'healthy' | 'degraded' | 'limited' | 'frozen';
 
 // ===== User 相关 =====
 
@@ -753,6 +762,61 @@ export interface AuthRegisterResult {
   error?: string;
 }
 
+// ===== Invite Codes =====
+
+export type InviteCodeStatus = 'active' | 'disabled';
+
+export interface InviteCode {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  tenantID: number;
+  codePrefix: string;
+  status: InviteCodeStatus;
+  maxUses: number;
+  usedCount: number;
+  expiresAt?: string;
+  createdByUserID: number;
+  note?: string;
+}
+
+export interface InviteCodeUsage {
+  id: number;
+  createdAt: string;
+  tenantID: number;
+  inviteCodeID: number;
+  userID: number;
+  username: string;
+  usedAt: string;
+  ip: string;
+  userAgent: string;
+  result: string;
+  reason?: string;
+}
+
+export interface CreateInviteCodeData {
+  count?: number;
+  maxUses?: number;
+  expiresAt?: string;
+  note?: string;
+}
+
+export interface UpdateInviteCodeData {
+  status?: InviteCodeStatus;
+  maxUses?: number;
+  expiresAt?: string;
+  note?: string;
+}
+
+export interface InviteCodeCreateItem {
+  code: string;
+  inviteCode: InviteCode;
+}
+
+export interface InviteCodeCreateResult {
+  items: InviteCodeCreateItem[];
+}
+
 // ===== API Token =====
 
 export interface APIToken {
@@ -768,6 +832,8 @@ export interface APIToken {
   devMode: boolean;
   expiresAt?: string;
   lastUsedAt?: string;
+  lastIP?: string;
+  lastIPAt?: string;
   useCount: number;
 }
 

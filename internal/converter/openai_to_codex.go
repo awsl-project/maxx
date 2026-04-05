@@ -36,6 +36,9 @@ func (c *openaiToCodexRequest) Transform(body []byte, model string, stream bool)
 	} else {
 		out, _ = sjson.Set(out, "reasoning.effort", "medium")
 	}
+	if v := gjson.GetBytes(rawJSON, "service_tier"); v.Exists() && v.String() != "" {
+		out, _ = sjson.Set(out, "service_tier", v.Value())
+	}
 	out, _ = sjson.Set(out, "parallel_tool_calls", true)
 	out, _ = sjson.Set(out, "reasoning.summary", "auto")
 	out, _ = sjson.Set(out, "include", []string{"reasoning.encrypted_content"})
@@ -901,6 +904,7 @@ func applyRequestEchoToResponse(responseJSON string, prefix string, requestRaw [
 		"previous_response_id",
 		"text",
 		"truncation",
+		"service_tier",
 	}
 	for _, path := range paths {
 		val := req.Get(path)

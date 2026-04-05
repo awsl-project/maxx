@@ -2,7 +2,11 @@ package e2e_test
 
 import (
 	"net/http"
+	"os"
 	"testing"
+	"time"
+
+	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
 
 func TestGetDashboard_Empty(t *testing.T) {
@@ -15,7 +19,7 @@ func TestGetDashboard_Empty(t *testing.T) {
 	DecodeJSON(t, resp, &dashboard)
 
 	// Verify dashboard contains expected top-level keys
-	expectedKeys := []string{"today", "yesterday", "allTime", "heatmap", "topModels", "trend24h"}
+	expectedKeys := []string{"today", "yesterday", "allTime", "heatmap", "topModels", "trend24h", "timezone"}
 	for _, key := range expectedKeys {
 		if _, exists := dashboard[key]; !exists {
 			t.Fatalf("Expected dashboard to contain '%s' key", key)
@@ -42,7 +46,7 @@ func TestGetDashboard_ResponseStructure(t *testing.T) {
 	DecodeJSON(t, resp, &dashboard)
 
 	// Verify all expected top-level keys exist
-	expectedKeys := []string{"today", "yesterday", "allTime", "heatmap", "topModels", "trend24h"}
+	expectedKeys := []string{"today", "yesterday", "allTime", "heatmap", "topModels", "trend24h", "timezone"}
 	for _, key := range expectedKeys {
 		if _, exists := dashboard[key]; !exists {
 			t.Fatalf("Expected dashboard to contain '%s' key", key)
@@ -96,5 +100,77 @@ func TestGetDashboard_ResponseStructure(t *testing.T) {
 	// Verify trend24h is an array
 	if _, ok := dashboard["trend24h"].([]any); !ok {
 		t.Fatal("Expected 'trend24h' to be an array")
+	}
+}
+
+func TestGetDashboard_UsesConfiguredTimezone(t *testing.T) {
+	env := NewTestEnv(t)
+	settingRepo := sqlite.NewSystemSettingRepository(env.DB)
+	if err := settingRepo.Set("timezone", "Asia/Tokyo"); err != nil {
+		t.Fatalf("Failed to set timezone: %v", err)
+	}
+
+	resp := env.AdminGet("/api/admin/dashboard")
+	AssertStatus(t, resp, http.StatusOK)
+
+	var dashboard map[string]any
+	DecodeJSON(t, resp, &dashboard)
+
+	if dashboard["timezone"] != "Asia/Tokyo" {
+		t.Fatalf("Expected dashboard timezone Asia/Tokyo, got %v", dashboard["timezone"])
+	}
+}
+
+func TestGetDashboard_DefaultsToSystemTimezoneWhenUnset(t *testing.T) {
+	originalTZ, hadTZ := os.LookupEnv("TZ")
+	originalLocal := time.Local
+	t.Cleanup(func() {
+		if hadTZ {
+			_ = os.Setenv("TZ", originalTZ)
+		} else {
+			_ = os.Unsetenv("TZ")
+		}
+		time.Local = originalLocal
+	})
+
+	_ = os.Unsetenv("TZ")
+	time.Local = time.UTC
+
+	env := NewTestEnv(t)
+	resp := env.AdminGet("/api/admin/dashboard")
+	AssertStatus(t, resp, http.StatusOK)
+
+	var dashboard map[string]any
+	DecodeJSON(t, resp, &dashboard)
+
+	if dashboard["timezone"] != "UTC" {
+		t.Fatalf("Expected dashboard timezone UTC in test env, got %v", dashboard["timezone"])
+	}
+}
+
+func TestGetDashboard_DoesNotEchoInvalidTZEnv(t *testing.T) {
+	originalTZ, hadTZ := os.LookupEnv("TZ")
+	originalLocal := time.Local
+	t.Cleanup(func() {
+		if hadTZ {
+			_ = os.Setenv("TZ", originalTZ)
+		} else {
+			_ = os.Unsetenv("TZ")
+		}
+		time.Local = originalLocal
+	})
+
+	_ = os.Setenv("TZ", "Mars/Phobos")
+	time.Local = time.UTC
+
+	env := NewTestEnv(t)
+	resp := env.AdminGet("/api/admin/dashboard")
+	AssertStatus(t, resp, http.StatusOK)
+
+	var dashboard map[string]any
+	DecodeJSON(t, resp, &dashboard)
+
+	if dashboard["timezone"] != "UTC" {
+		t.Fatalf("Expected invalid TZ env to fall back to UTC, got %v", dashboard["timezone"])
 	}
 }

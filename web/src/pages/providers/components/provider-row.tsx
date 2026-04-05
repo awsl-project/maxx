@@ -1,4 +1,8 @@
-import { Activity, Mail, Globe } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
+import { Activity, Mail, Globe, Snowflake } from 'lucide-react';
+import { CooldownTimer } from '@/components/cooldown-timer';
+import { useCooldowns } from '@/hooks/use-cooldowns';
+
 import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { MarqueeBackground } from '@/components/ui/marquee-background';
@@ -44,7 +48,8 @@ interface ProviderRowProps {
   provider: Provider;
   stats?: ProviderStats;
   streamingCount: number;
-  onClick: () => void;
+  onClick?: () => void;
+  title?: string;
 }
 
 // 获取 Claude 模型额度百分比和重置时间
@@ -197,7 +202,7 @@ function getCodexWeekQuotaInfo(
   };
 }
 
-export function ProviderRow({ provider, stats, streamingCount, onClick }: ProviderRowProps) {
+export function ProviderRow({ provider, stats, streamingCount, onClick, title }: ProviderRowProps) {
   const { t } = useTranslation();
   // 使用通用配置系统
   const typeConfig = getProviderTypeConfig(provider.type);
@@ -222,17 +227,47 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
   const codex5HInfo = isCodex ? getCodex5HQuotaInfo(codexQuota) : null;
   const codexWeekInfo = isCodex ? getCodexWeekQuotaInfo(codexQuota) : null;
 
+  const { getCooldownsForProvider, getProviderHealthLevel } = useCooldowns();
+  const providerCooldowns = getCooldownsForProvider(provider.id);
+  const healthLevel = getProviderHealthLevel(provider.id);
+  const worstCooldown = providerCooldowns[0];
+  const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
+
+  const isInteractive = !!onClick;
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!onClick) return;
+
+    if (event.key === 'Enter') {
+      onClick();
+      return;
+    }
+
+    if (event.key === ' ') {
+      event.preventDefault();
+      onClick();
+    }
+  };
+
   return (
     <div
       onClick={onClick}
+      onKeyDown={isInteractive ? handleKeyDown : undefined}
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      title={title}
       className={cn(
-        'group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden cursor-pointer',
+        'group relative flex items-center gap-4 p-3 rounded-xl border transition-all duration-300 overflow-hidden',
+        isInteractive ? 'cursor-pointer' : 'cursor-default opacity-90',
+        healthLevel === 'frozen' && 'opacity-50',
+        healthLevel === 'limited' && 'opacity-75',
         streamingCount > 0
           ? 'bg-card ring-1 ring-black/5 dark:ring-white/10'
-          : 'bg-card/60 border-border hover:bg-card hover:border-primary/40 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)] hover:scale-[1.01] shadow-sm',
+          : isInteractive
+            ? 'bg-card/60 border-border hover:bg-card hover:border-primary/40 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)] hover:scale-[1.01] shadow-sm'
+            : 'bg-card/60 border-border shadow-sm',
       )}
       style={{
-        borderColor: streamingCount > 0 ? `${color}60` : undefined,
+        borderColor: streamingCount > 0 ? `${color}60` : healthLevel === 'frozen' ? 'rgb(6 182 212 / 0.3)' : healthLevel === 'limited' ? 'rgb(234 179 8 / 0.3)' : healthLevel === 'degraded' ? 'rgb(249 115 22 / 0.2)' : undefined,
         boxShadow: streamingCount > 0 ? `0 0 20px ${color}15` : undefined,
       }}
     >
@@ -479,6 +514,40 @@ export function ProviderRow({ provider, stats, streamingCount, onClick }: Provid
             )
           ) : (
             <div className="h-1.5 bg-muted rounded-full" />
+          )}
+        </div>
+      )}
+
+      {/* Cooldown Status */}
+      {healthLevel !== 'healthy' && (
+        <div className="relative z-10 flex items-center gap-1.5 shrink-0">
+          {healthLevel === 'frozen' && worstCooldown && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+              <Snowflake size={12} className="text-cyan-500 animate-pulse" />
+              <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-cyan-500 tabular-nums" />
+            </div>
+          )}
+          {healthLevel === 'limited' && worstCooldown && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+              <Snowflake size={12} className="text-yellow-500" />
+              <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-yellow-500 tabular-nums" />
+            </div>
+          )}
+          {healthLevel === 'degraded' && modelCooldowns.length > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-500/10 border border-orange-500/20">
+              <Snowflake size={12} className="text-orange-500 shrink-0" />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {modelCooldowns.slice(0, 3).map((cd, i) => (
+                  <div key={i} className="flex items-center gap-1">
+                    <span className="text-[10px] font-mono text-orange-400 truncate max-w-[120px]">{cd.model}</span>
+                    <CooldownTimer cooldown={cd} className="text-[10px] font-mono font-bold text-orange-500 tabular-nums" />
+                  </div>
+                ))}
+                {modelCooldowns.length > 3 && (
+                  <span className="text-[10px] text-orange-400">+{modelCooldowns.length - 3}</span>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}

@@ -23,11 +23,13 @@ import { StatsPage } from '@/pages/stats';
 import { ModelMappingsPage } from '@/pages/model-mappings';
 import { ModelPricesPage } from '@/pages/model-prices';
 import { UsersPage } from '@/pages/users';
+import { AdminRoute } from '@/components/auth/admin-route';
+import { InviteCodesPage } from '@/pages/invite-codes';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 
 function AppRoutes() {
   const { t } = useTranslation();
-  const { isAuthenticated, isLoading, authEnabled, login, user } = useAuth();
+  const { isAuthenticated, isLoading, login } = useAuth();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -53,8 +55,6 @@ function AppRoutes() {
     return <LoginPage onSuccess={login} />;
   }
 
-  const isAdmin = !user || user.role === 'admin';
-
   return (
     <BrowserRouter>
       <Routes>
@@ -71,14 +71,36 @@ function AppRoutes() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="sessions" element={<SessionsPage />} />
-          <Route path="api-tokens" element={<APITokensPage />} />
+          <Route
+            path="api-tokens"
+            element={
+              <AdminRoute>
+                <APITokensPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="invite-codes"
+            element={
+              <AdminRoute>
+                <InviteCodesPage />
+              </AdminRoute>
+            }
+          />
           <Route path="model-mappings" element={<ModelMappingsPage />} />
           <Route path="model-prices" element={<ModelPricesPage />} />
           <Route path="retry-configs" element={<RetryConfigsPage />} />
           <Route path="routing-strategies" element={<RoutingStrategiesPage />} />
           <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
-          {isAdmin && authEnabled && <Route path="users" element={<UsersPage />} />}
+          <Route
+            path="users"
+            element={
+              <AdminRoute>
+                <UsersPage />
+              </AdminRoute>
+            }
+          />
         </Route>
       </Routes>
     </BrowserRouter>

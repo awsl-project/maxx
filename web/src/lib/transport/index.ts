@@ -69,6 +69,7 @@ export type {
   ImportResult,
   // Cooldown
   Cooldown,
+  ProviderHealthLevel,
   // User
   User,
   UserRole,
@@ -80,6 +81,13 @@ export type {
   AuthLoginResult,
   AuthRegisterResult,
   PasskeyCredential,
+  InviteCode,
+  InviteCodeUsage,
+  InviteCodeStatus,
+  CreateInviteCodeData,
+  UpdateInviteCodeData,
+  InviteCodeCreateItem,
+  InviteCodeCreateResult,
   // API Token
   APIToken,
   APITokenCreateResult,

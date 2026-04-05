@@ -12,9 +12,9 @@ import {
   useProjects,
   useSessions,
   useRoutes,
-  useAPITokens,
+  useVisibleAPITokens,
   useUpdateSessionProject,
-  useSettings,
+  usePublicSettings,
   requestKeys,
 } from '@/hooks/queries';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui';
@@ -54,8 +54,8 @@ export function RequestDetailPage() {
   const { data: projects } = useProjects();
   const { data: sessions } = useSessions();
   const { data: routes } = useRoutes();
-  const { data: apiTokens } = useAPITokens();
-  const { data: settings } = useSettings();
+  const { data: apiTokens } = useVisibleAPITokens();
+  const { data: settings } = usePublicSettings();
   const updateSessionProject = useUpdateSessionProject();
   const [selection, setSelection] = useState<SelectionType>({
     type: 'request',
@@ -88,12 +88,15 @@ export function RequestDetailPage() {
     recalculateMutation.mutate();
   }, [recalculateMutation]);
 
-  const handleSelectionChange = useCallback((sel: SelectionType) => {
-    setSelection(sel);
-    if (isNarrow) {
-      setMobileTab('detail');
-    }
-  }, [isNarrow]);
+  const handleSelectionChange = useCallback(
+    (sel: SelectionType) => {
+      setSelection(sel);
+      if (isNarrow) {
+        setMobileTab('detail');
+      }
+    },
+    [isNarrow],
+  );
 
   // Handle project binding - directly bind when project is selected
   const handleBindProject = useCallback(
@@ -270,7 +273,11 @@ export function RequestDetailPage() {
       {/* Main Content */}
       <div className="flex-1 overflow-hidden">
         {isNarrow ? (
-          <Tabs value={mobileTab} onValueChange={(v) => setMobileTab(v as 'attempts' | 'detail')} className="flex flex-col h-full">
+          <Tabs
+            value={mobileTab}
+            onValueChange={(v) => setMobileTab(v as 'attempts' | 'detail')}
+            className="flex flex-col h-full"
+          >
             <TabsList className="shrink-0 mx-4 mt-2">
               <TabsTrigger value="attempts">{t('requests.tabs.attempts', 'Attempts')}</TabsTrigger>
               <TabsTrigger value="detail">{t('requests.tabs.detail', 'Detail')}</TabsTrigger>

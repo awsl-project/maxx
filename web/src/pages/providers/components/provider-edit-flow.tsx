@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Globe,
   ChevronLeft,
@@ -10,6 +11,8 @@ import {
   ArrowRight,
   Zap,
   Filter,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -47,6 +50,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
+import { ProviderProxyURLCard } from './provider-proxy-url-card';
 
 // Provider Model Mappings Section for Custom Providers
 function ProviderModelMappings({ provider }: { provider: Provider }) {
@@ -282,9 +286,9 @@ type EditFormData = {
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [cloning, setCloning] = useState(false);
-  const [cloneToastMessage, setCloneToastMessage] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -304,6 +308,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     });
   };
 
+  const [showApiKey, setShowApiKey] = useState(false);
   const [formData, setFormData] = useState<EditFormData>({
     name: provider.name,
     baseURL: provider.config?.custom?.baseURL || '',
@@ -382,6 +387,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        excludeFromExport: !!provider.excludeFromExport,
       };
 
       await updateProvider.mutateAsync({ id: Number(provider.id), data });
@@ -396,7 +402,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   };
 
   const handleClone = async () => {
-    if (!isValid() || cloning || cloneToastMessage) return;
+    if (!isValid() || cloning) return;
 
     setCloning(true);
 
@@ -443,6 +449,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
+        excludeFromExport: !!provider.excludeFromExport,
       };
 
       const newProvider = await createProvider.mutateAsync(data);
@@ -469,8 +476,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         }
       }
 
-      setCloneToastMessage(t('provider.cloneSuccess', { name: cloneName }));
-      setTimeout(() => onClose(), 800);
+      navigate(`/providers/${newProvider.id}/edit`, { replace: true });
     } catch (error) {
       console.error('Failed to clone provider:', error);
     } finally {
@@ -585,7 +591,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         </Button>
         <Button
           onClick={handleClone}
-          disabled={cloning || saving || !isValid() || !!cloneToastMessage}
+          disabled={cloning || saving || !isValid()}
           variant={'outline'}
         >
           <Copy size={14} />
@@ -609,6 +615,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-7xl space-y-8">
+          <ProviderProxyURLCard provider={provider} />
+
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
               {t('provider.basicInfo')}
@@ -660,13 +668,28 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       <span>{t('provider.apiKeyEdit')}</span>
                     </div>
                   </label>
-                  <Input
-                    type="password"
-                    value={formData.apiKey}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
-                    placeholder={t('provider.keyPlaceholder')}
-                    className="w-full"
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={formData.apiKey}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
+                      placeholder={t('provider.keyPlaceholder')}
+                      className="w-full pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label={showApiKey ? t('common.hide') : t('common.show')}
+                    >
+                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {provider.excludeFromExport && (
+                    <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
+                      {t('provider.apiKeyExcludedHint')}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -734,12 +757,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           )}
         </div>
       </div>
-
-      {cloneToastMessage && (
-        <div className="fixed bottom-6 right-6 bg-card border border-border rounded-lg shadow-lg p-4 z-50">
-          <div className="text-sm font-medium text-foreground">{cloneToastMessage}</div>
-        </div>
-      )}
 
       <DeleteConfirmModal
         providerName={provider.name}

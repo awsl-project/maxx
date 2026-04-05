@@ -108,7 +108,7 @@ func TestConcurrentRegisterSameUsername(t *testing.T) {
 			defer wg.Done()
 			body := map[string]any{
 				"username": "concurrent-user",
-				"password": "test-password-123",
+				"password": "Test123!",
 			}
 			resp := env.RequestWithToken(http.MethodPost, "/api/admin/auth/register", body, env.Token)
 			switch resp.StatusCode {

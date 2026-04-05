@@ -77,9 +77,19 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 
 	// API routes under /api prefix (Go 1.22+ enhanced routing)
 	if s.config.AuthMiddleware != nil {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", s.config.AuthMiddleware.Wrap(components.AdminHandler)))
+		handler.RegisterSelfServiceRoutes(
+			mux,
+			s.config.AuthMiddleware.Wrap,
+			components.AdminHandler,
+			components.SelfServiceHandler,
+		)
 	} else {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", handler.NoAuthMiddleware(components.AdminHandler)))
+		handler.RegisterSelfServiceRoutes(
+			mux,
+			handler.NoAuthMiddleware,
+			components.AdminHandler,
+			components.SelfServiceHandler,
+		)
 	}
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", components.AntigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))
@@ -103,6 +113,7 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	})
 
 	mux.HandleFunc("/ws", components.WebSocketHub.HandleWebSocket)
+	mux.Handle("/provider/", components.ProviderProxyHandler)
 
 	if s.config.ServeStatic {
 		staticHandler := handler.NewStaticHandler()

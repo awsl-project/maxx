@@ -295,6 +295,58 @@ func ExtractFromStreamContent(content string) *Metrics {
 	return extractFromSSE(content)
 }
 
+// StreamCollector collects metrics and model incrementally from SSE lines,
+// avoiding the need to buffer the entire SSE stream in memory.
+type StreamCollector struct {
+	Metrics *Metrics
+}
+
+// ProcessSSELine processes a single SSE line (e.g. "data: {...}\n") and
+// updates the collected metrics and model if usage/model info is found.
+func (sc *StreamCollector) ProcessSSELine(line string) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return
+	}
+
+	jsonStr := strings.TrimPrefix(line, "data:")
+	jsonStr = strings.TrimSpace(jsonStr)
+	if jsonStr == "" || jsonStr == "[DONE]" {
+		return
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		return
+	}
+
+	// Extract metrics
+	if metrics := extractUsageFromMap(data); metrics != nil && !metrics.IsEmpty() {
+		sc.Metrics = metrics
+	}
+
+	// Claude SSE: message_delta contains final usage
+	if eventType, ok := data["type"].(string); ok {
+		if eventType == "message_delta" {
+			if usage, ok := data["usage"].(map[string]interface{}); ok {
+				if m := extractClaudeUsage(usage); m != nil && !m.IsEmpty() {
+					sc.Metrics = m
+				}
+			}
+		}
+		// Codex SSE: response.completed contains final usage
+		if eventType == "response.completed" {
+			if response, ok := data["response"].(map[string]interface{}); ok {
+				if usage, ok := response["usage"].(map[string]interface{}); ok {
+					if m := extractOpenAIUsage(usage); m != nil && !m.IsEmpty() {
+						sc.Metrics = m
+					}
+				}
+			}
+		}
+	}
+}
+
 // AdjustForClientType adjusts metrics based on client type specific quirks.
 // For Codex: input_tokens includes cached_tokens, so we subtract to avoid double counting.
 // For other clients: returns metrics unchanged.

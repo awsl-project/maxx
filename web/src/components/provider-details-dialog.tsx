@@ -1,9 +1,8 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
   Snowflake,
-  Clock,
   AlertCircle,
   Server,
   Wifi,
@@ -11,16 +10,10 @@ import {
   Ban,
   HelpCircle,
   X,
-  Thermometer,
-  Activity,
   Info,
-  TrendingUp,
-  DollarSign,
-  Hash,
-  CheckCircle2,
-  XCircle,
   Trash2,
   Hand,
+  Lock,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
@@ -33,6 +26,7 @@ import { Button, Switch } from '@/components/ui';
 import { getProviderColor, type ProviderType } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { CooldownTimer } from '@/components/cooldown-timer';
 
 interface ProviderDetailsDialogProps {
   item: ProviderConfigItem | null;
@@ -40,12 +34,12 @@ interface ProviderDetailsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   stats?: ProviderStats;
-  cooldown?: Cooldown | null;
+  cooldowns?: Cooldown[];
   streamingCount: number;
   onToggle: () => void;
   isToggling: boolean;
   onDelete?: () => void;
-  onClearCooldown?: () => void;
+  onClearCooldown?: (options?: { clientType?: string; model?: string }) => void;
   isClearingCooldown?: boolean;
 }
 
@@ -94,6 +88,20 @@ const getReasonInfo = (t: TFunction) => ({
     bgColor:
       'bg-orange-500/10 dark:bg-orange-500/15 border-orange-500/30 dark:border-orange-500/25',
   },
+  auth_failure: {
+    label: t('provider.reasons.authFailure', 'Auth Failure'),
+    description: t('provider.reasons.authFailureDesc', 'API 认证失败，请检查密钥配置'),
+    icon: Lock,
+    color: 'text-rose-600 dark:text-rose-400',
+    bgColor: 'bg-rose-500/10 dark:bg-rose-500/15 border-rose-500/30 dark:border-rose-500/25',
+  },
+  model_unavailable: {
+    label: t('provider.reasons.modelUnavailable', 'Model Unavailable'),
+    description: t('provider.reasons.modelUnavailableDesc', '请求的模型当前不可用'),
+    icon: Ban,
+    color: 'text-slate-600 dark:text-slate-400',
+    bgColor: 'bg-slate-500/10 dark:bg-slate-500/15 border-slate-500/30 dark:border-slate-500/25',
+  },
   unknown: {
     label: t('provider.reasons.unknown'),
     description: t('provider.reasons.unknownDesc', '因未知原因进入冷却状态'),
@@ -133,14 +141,6 @@ function formatCost(nanoUsd: number): string {
     return `$${usd.toFixed(3)}`;
   }
   return `$${usd.toFixed(6).replace(/\.?0+$/, '')}`;
-}
-
-// 计算缓存利用率
-function calcCacheRate(stats: ProviderStats): number {
-  const cacheTotal = stats.totalCacheRead + stats.totalCacheWrite;
-  const total = stats.totalInputTokens + stats.totalOutputTokens + cacheTotal;
-  if (total === 0) return 0;
-  return (cacheTotal / total) * 100;
 }
 
 // 解析用户输入的时间字符串
@@ -218,537 +218,289 @@ export function ProviderDetailsDialog({
   open,
   onOpenChange,
   stats,
-  cooldown,
-  streamingCount,
+  cooldowns = [],
   onToggle,
   isToggling,
   onDelete,
   onClearCooldown,
   isClearingCooldown,
 }: ProviderDetailsDialogProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const REASON_INFO = getReasonInfo(t);
-  const { formatRemaining, setCooldown, isSettingCooldown } = useCooldownsContext();
+  const { setCooldown, isSettingCooldown } = useCooldownsContext();
   const [showCustomTime, setShowCustomTime] = useState(false);
   const [customTimeInput, setCustomTimeInput] = useState('');
+  const [freezeMode, setFreezeMode] = useState<'provider' | 'model'>('provider');
+  const [freezeModel, setFreezeModel] = useState('');
 
   // 实时解析输入的时间
   const parsedTime = useMemo(() => parseTimeInput(customTimeInput), [customTimeInput]);
-
-  // 计算初始倒计时值
-  const getInitialCountdown = useCallback(() => {
-    return cooldown ? formatRemaining(cooldown) : '';
-  }, [cooldown, formatRemaining]);
-
-  const [liveCountdown, setLiveCountdown] = useState<string>(getInitialCountdown);
-
-  // 每秒更新倒计时
-  useEffect(() => {
-    if (!cooldown) return;
-
-    const interval = setInterval(() => {
-      setLiveCountdown(formatRemaining(cooldown));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [cooldown, formatRemaining]);
 
   if (!item) return null;
 
   const { provider, enabled, route, isNative } = item;
   const color = getProviderColor(provider.type as ProviderType);
-  const isInCooldown = !!cooldown;
 
-  const formatUntilTime = (until: string) => {
-    const date = new Date(until);
-    return date.toLocaleString(i18n.resolvedLanguage ?? i18n.language, {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-  };
-
-  const endpoint =
-    provider.config?.custom?.clientBaseURL?.[clientType] ||
-    provider.config?.custom?.baseURL ||
-    provider.config?.antigravity?.endpoint ||
-    t('provider.defaultEndpoint');
+  const activeCooldowns = cooldowns; // already filtered by hook
+  const isInCooldown = activeCooldowns.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="overflow-hidden w-full max-w-[95vw] md:max-w-4xl lg:max-w-5xl xl:max-w-6xl p-0"
-        showCloseButton={false}
-      >
-        {/* Header with Provider Color Gradient */}
-        <div
-          className="relative p-4 lg:p-6"
-          style={{
-            background: `linear-gradient(to bottom, ${color}15, transparent)`,
-          }}
-        >
-          {/* 右上角：开关 + 关闭按钮 */}
-          <div className="absolute top-3 right-3 lg:top-4 lg:right-4 flex items-center gap-3">
-            {/* Toggle Switch */}
+      <DialogContent showCloseButton={false} className="overflow-hidden p-0 w-full max-w-lg bg-card">
+        {/* Header */}
+        <div className="flex items-center gap-3 p-4 border-b border-border">
+          <div className={cn(
+            'w-10 h-10 rounded-xl flex items-center justify-center shrink-0',
+            isInCooldown ? 'bg-slate-200 dark:bg-slate-800' : 'bg-muted',
+          )}>
+            {isInCooldown ? (
+              <Snowflake size={20} className="text-slate-500 dark:text-slate-400 animate-pulse" />
+            ) : (
+              <span className="text-lg font-black" style={{ color }}>{provider.name.charAt(0)}</span>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span
-                className={cn(
-                  'text-xs font-bold',
-                  enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
-                )}
-              >
-                {enabled ? t('provider.status.on') : t('provider.status.off')}
-              </span>
-              <Switch checked={enabled} onCheckedChange={onToggle} disabled={isToggling} />
+              <h2 className="text-base font-bold truncate">{provider.name}</h2>
+              {isNative ? (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">NATIVE</span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">CONV</span>
+              )}
+              <span className="text-[10px] text-muted-foreground">{provider.type}</span>
             </div>
-            <div className="w-px h-6 bg-border" />
-            <Button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              variant={'ghost'}
-              className={'border-none rounded-full'}
-            >
-              <X size={18} />
-            </Button>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Switch checked={enabled} onCheckedChange={onToggle} disabled={isToggling} />
+            <button onClick={() => onOpenChange(false)} className="p-1.5 rounded-lg hover:bg-accent">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Provider Info */}
+        <div className="px-4 py-3 text-xs text-muted-foreground flex items-center gap-4 border-b border-border/50">
+          <span className="flex items-center gap-1.5">
+            <Info size={11} />
+            {provider.config?.custom?.baseURL || provider.config?.custom?.clientBaseURL?.[clientType] || '\u2014'}
+          </span>
+          <span>{clientType}</span>
+          <span>Priority #{route?.position || '\u2014'}</span>
+        </div>
+
+        {/* Cooldowns Section */}
+        {activeCooldowns.length > 0 && (
+          <div className="px-4 py-3 space-y-2">
+            <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+              Cooldowns ({activeCooldowns.length})
+            </div>
+            {activeCooldowns.map((cd, i) => {
+              const reasonInfo = REASON_INFO[cd.reason] || REASON_INFO.unknown;
+              const Icon = reasonInfo.icon;
+              const isFrozen = !cd.clientType && !cd.model;
+              return (
+                <div key={i} className={cn('flex items-center gap-3 p-3 rounded-xl border', reasonInfo.bgColor)}>
+                  <Icon size={16} className={cn('shrink-0', reasonInfo.color)} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold">
+                      {cd.model || (isFrozen ? 'Provider' : cd.clientType || 'All')}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">{reasonInfo.label}</div>
+                  </div>
+                  <CooldownTimer cooldown={cd} className="text-sm font-mono font-bold tabular-nums shrink-0" />
+                  <button
+                    onClick={() => onClearCooldown?.({ clientType: cd.clientType || undefined, model: cd.model || undefined })}
+                    disabled={isClearingCooldown}
+                    className="p-1.5 rounded-lg hover:bg-accent/50 transition-colors disabled:opacity-50 shrink-0"
+                    title="Unfreeze"
+                  >
+                    <Zap size={14} className="text-muted-foreground" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Freeze Section */}
+        <div className="px-4 py-3 border-t border-border/50">
+          <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
+            {t('provider.manualFreeze')}
           </div>
 
-          <div className="flex items-center gap-4 pr-32 lg:pr-40">
-            {/* Provider Icon */}
-            <div
-              className={cn(
-                'relative w-14 h-14 lg:w-16 lg:h-16 rounded-2xl flex items-center justify-center border shadow-lg',
-                isInCooldown
-                  ? 'bg-cyan-500/10 dark:bg-cyan-950/40 border-cyan-500/40 dark:border-cyan-500/30'
-                  : 'bg-muted border-border',
-              )}
-              style={!isInCooldown ? { color } : {}}
-            >
-              <span
-                className={cn(
-                  'text-2xl lg:text-3xl font-black',
-                  isInCooldown
-                    ? 'text-cyan-400 dark:text-cyan-300 opacity-20 scale-150 blur-[1px]'
-                    : '',
-                )}
-              >
-                {provider.name.charAt(0).toUpperCase()}
-              </span>
-              {isInCooldown && (
-                <Snowflake
-                  size={24}
-                  className="absolute text-cyan-400 dark:text-cyan-300 animate-pulse drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]"
+          {!showCustomTime ? (
+            <div className="space-y-2">
+              {/* Freeze mode selector */}
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => { setFreezeMode('provider'); setFreezeModel(''); }}
+                  className={cn(
+                    'px-2.5 py-1 text-[11px] rounded-lg border transition-colors',
+                    freezeMode === 'provider'
+                      ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                      : 'border-border text-muted-foreground hover:bg-accent',
+                  )}
+                >
+                  Entire Provider
+                </button>
+                <button
+                  onClick={() => setFreezeMode('model')}
+                  className={cn(
+                    'px-2.5 py-1 text-[11px] rounded-lg border transition-colors',
+                    freezeMode === 'model'
+                      ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                      : 'border-border text-muted-foreground hover:bg-accent',
+                  )}
+                >
+                  Specific Model
+                </button>
+              </div>
+
+              {/* Model input */}
+              {freezeMode === 'model' && (
+                <input
+                  type="text"
+                  value={freezeModel}
+                  onChange={(e) => setFreezeModel(e.target.value)}
+                  placeholder="e.g. gemini-2.5-flash-image"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono"
                 />
               )}
-            </div>
 
-            {/* Provider Info */}
-            <div className="flex-1 min-w-0">
-              <h2 className="text-lg lg:text-xl font-bold text-foreground truncate mb-1">
-                {provider.name}
-              </h2>
-              <div className="flex flex-wrap items-center gap-2">
-                {isNative ? (
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 dark:border-emerald-500/25">
-                    <Zap size={10} className="fill-emerald-500/20" /> NATIVE
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 dark:border-amber-500/25">
-                    <Activity size={10} /> CONVERTED
-                  </span>
-                )}
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-accent text-muted-foreground">
-                  {provider.type}
-                </span>
-                {streamingCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 dark:bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30 dark:border-blue-500/25 animate-pulse">
-                    {streamingCount} Streaming
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-        {/* Body Content - 双栏布局 */}
-        <div className="px-4 pb-4 lg:px-6 lg:pb-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
-            {/* 左侧：Provider 信息 + 操作 */}
-            <div className="lg:col-span-5 xl:col-span-4 space-y-4">
-              {/* Provider Basic Info Card */}
-              <div className="rounded-xl border border-border bg-muted-background p-4 space-y-3">
-                <div className="flex items-start gap-2">
-                  <Info size={14} className="text-muted-foreground mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                      Endpoint
-                    </div>
-                    <div className="text-xs text-muted-foreground font-mono break-all">
-                      {endpoint}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                      Client Type
-                    </div>
-                    <div className="text-xs text-foreground font-semibold">{clientType}</div>
-                  </div>
-                  {route && (
-                    <div>
-                      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                        Priority
-                      </div>
-                      <div className="text-xs text-foreground font-semibold">
-                        #{route.position + 1}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions Section */}
-              <div className="space-y-3">
-                {/* Cooldown Actions (if in cooldown) */}
-                {isInCooldown && (
+              {/* Quick freeze buttons */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: '5m', minutes: 5 },
+                  { label: '15m', minutes: 15 },
+                  { label: '30m', minutes: 30 },
+                  { label: '1h', minutes: 60 },
+                  { label: '2h', minutes: 120 },
+                  { label: '6h', minutes: 360 },
+                ].map(({ label, minutes }) => (
                   <Button
-                    onClick={onClearCooldown}
-                    disabled={isClearingCooldown || isToggling}
-                    className="w-full relative overflow-hidden rounded-xl p-px group disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-[1.01] active:scale-[0.99] shadow-lg shadow-teal-500/20 dark:shadow-teal-500/30 hover:shadow-teal-500/40 dark:hover:shadow-teal-500/50"
+                    key={label}
+                    disabled={isSettingCooldown || isToggling || (freezeMode === 'model' && !freezeModel.trim())}
+                    onClick={() => {
+                      const until = new Date(Date.now() + minutes * 60 * 1000);
+                      setCooldown(
+                        provider.id,
+                        until.toISOString(),
+                        freezeMode === 'provider' ? '' : clientType,
+                        freezeMode === 'model' ? freezeModel.trim() : undefined,
+                      );
+                    }}
+                    className="px-3 py-1.5 text-xs rounded-lg border border-indigo-500/30 dark:border-indigo-500/25 bg-indigo-500/5 dark:bg-indigo-500/10 hover:bg-indigo-500/15 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 disabled:opacity-50"
                   >
-                    <span className="absolute inset-0 bg-linear-to-r from-teal-500 via-cyan-500 to-blue-500 rounded-xl" />
-                    <div className="relative flex items-center justify-center gap-2 rounded-lg px-4 py-3 transition-colors">
-                      {isClearingCooldown ? (
-                        <>
-                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-teal-400/30 border-t-teal-400" />
-                          <span className="text-sm font-bold ">{t('provider.thawing')}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Zap size={16} />
-                          {t('provider.forceThaw')}
-                        </>
-                      )}
-                    </div>
+                    {label}
                   </Button>
-                )}
-
-                {/* Manual Freeze Button (if not in cooldown) */}
-                {!isInCooldown && !showCustomTime && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                      <Snowflake size={12} />
-                      {t('provider.manualFreeze')}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {[
-                        { label: '5m', minutes: 5 },
-                        { label: '15m', minutes: 15 },
-                        { label: '30m', minutes: 30 },
-                        { label: '1h', minutes: 60 },
-                        { label: '2h', minutes: 120 },
-                        { label: '6h', minutes: 360 },
-                      ].map(({ label, minutes }) => (
-                        <Button
-                          key={label}
-                          disabled={isSettingCooldown || isToggling}
-                          onClick={() => {
-                            const until = new Date(Date.now() + minutes * 60 * 1000);
-                            console.log(
-                              'Setting cooldown:',
-                              provider.id,
-                              until.toISOString(),
-                              clientType,
-                            );
-                            setCooldown(provider.id, until.toISOString(), clientType);
-                          }}
-                          className="px-3 py-1.5 text-xs rounded-lg border border-indigo-500/30 dark:border-indigo-500/25 bg-indigo-500/5 dark:bg-indigo-500/10 hover:bg-indigo-500/15 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 disabled:opacity-50"
-                        >
-                          {label}
-                        </Button>
-                      ))}
-                      <Button
-                        disabled={isSettingCooldown || isToggling}
-                        onClick={() => setShowCustomTime(true)}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-dashed border-indigo-500/30 dark:border-indigo-500/25 bg-transparent hover:bg-indigo-500/5 dark:hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 disabled:opacity-50"
-                      >
-                        {t('provider.customTime')}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Custom Time Input Dialog */}
-                {showCustomTime && (
-                  <div className="rounded-xl border border-indigo-500/30 dark:border-indigo-500/25 bg-indigo-500/5 dark:bg-indigo-500/10 p-3 space-y-2">
-                    <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                      {t('provider.freezeUntil')}
-                    </div>
-                    <input
-                      type="text"
-                      value={customTimeInput}
-                      onChange={(e) => setCustomTimeInput(e.target.value)}
-                      placeholder="e.g. 30m, 2h, 14:30, 12:00:30, 2025-01-25 18:00"
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono"
-                      autoFocus
-                    />
-                    {/* 实时解析预览 */}
-                    <div className="text-xs text-muted-foreground">
-                      {customTimeInput ? (
-                        parsedTime ? (
-                          <span className="text-emerald-600 dark:text-emerald-400">
-                            → {parsedTime.format('YYYY-MM-DD HH:mm:ss')}
-                          </span>
-                        ) : (
-                          <span className="text-rose-500">{t('provider.invalidTimeFormat')}</span>
-                        )
-                      ) : (
-                        <span>{t('provider.timeFormatHint')}</span>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => {
-                          setShowCustomTime(false);
-                          setCustomTimeInput('');
-                        }}
-                        className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs"
-                      >
-                        {t('common.cancel')}
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          if (parsedTime) {
-                            setCooldown(provider.id, parsedTime.toISOString(), clientType);
-                            setShowCustomTime(false);
-                            setCustomTimeInput('');
-                          }
-                        }}
-                        disabled={!parsedTime}
-                        className="flex-1 rounded-lg bg-indigo-500 text-white px-3 py-1.5 text-xs hover:bg-indigo-600 disabled:opacity-50"
-                      >
-                        {t('provider.freezeConfirm')}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Delete Button */}
-                {onDelete && (
-                  <Button
-                    onClick={onDelete}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl border border-rose-500/30 dark:border-rose-500/25 bg-rose-500/5 dark:bg-rose-500/10 hover:bg-rose-500/10 dark:hover:bg-rose-500/15 px-4 py-2.5 text-sm font-medium text-rose-600 dark:text-rose-400 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                    {t('provider.deleteRoute')}
-                  </Button>
-                )}
-
-                {/* Warning Note */}
-                {isInCooldown && (
-                  <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-2.5 text-[11px] text-muted-foreground">
-                    <Activity size={12} className="mt-0.5 shrink-0" />
-                    <p>{t('provider.forceThawWarning')}</p>
-                  </div>
-                )}
+                ))}
+                <Button
+                  disabled={isSettingCooldown || isToggling}
+                  onClick={() => setShowCustomTime(true)}
+                  className="px-3 py-1.5 text-xs rounded-lg border border-dashed border-indigo-500/30 dark:border-indigo-500/25 bg-transparent hover:bg-indigo-500/5 dark:hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 disabled:opacity-50"
+                >
+                  {t('provider.customTime')}
+                </Button>
               </div>
             </div>
-
-            {/* 右侧：Cooldown + Statistics */}
-            <div className="lg:col-span-7 xl:col-span-8 space-y-4">
-              {/* Cooldown Warning (if in cooldown) */}
-              {isInCooldown && cooldown && (
-                <div className="rounded-xl border p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400">
-                    <Snowflake size={16} className="animate-spin-slow" />
-                    <span className="text-sm font-bold">{t('provider.cooldownActive')}</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {/* Reason Section */}
-                    <div
-                      className={`rounded-xl border p-3 backdrop-blur-sm ${REASON_INFO[cooldown.reason]?.bgColor || REASON_INFO.unknown.bgColor}`}
-                    >
-                      <div className="flex gap-3">
-                        <div
-                          className={`mt-0.5 shrink-0 ${REASON_INFO[cooldown.reason]?.color || REASON_INFO.unknown.color}`}
-                        >
-                          {(() => {
-                            const Icon =
-                              REASON_INFO[cooldown.reason]?.icon || REASON_INFO.unknown.icon;
-                            return <Icon size={18} />;
-                          })()}
-                        </div>
-                        <div>
-                          <h3
-                            className={`text-sm font-bold ${REASON_INFO[cooldown.reason]?.color || REASON_INFO.unknown.color} mb-1`}
-                          >
-                            {REASON_INFO[cooldown.reason]?.label || REASON_INFO.unknown.label}
-                          </h3>
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            {REASON_INFO[cooldown.reason]?.description ||
-                              REASON_INFO.unknown.description}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Timer Section */}
-                    <div className="relative overflow-hidden rounded-xl bg-linear-to-br from-teal-500/10 via-cyan-500/5 to-transparent dark:from-teal-950/40 dark:via-cyan-950/20 dark:to-transparent border border-teal-400/30 dark:border-teal-500/20 p-4 flex flex-col items-center justify-center group shadow-inner">
-                      <div className="absolute inset-0 bg-linear-to-br from-teal-400/5 to-cyan-400/5 dark:from-teal-400/5 dark:to-cyan-400/5 opacity-50 group-hover:opacity-100 transition-opacity" />
-                      <div className="relative flex items-center gap-1.5 text-teal-600 dark:text-teal-400 mb-1">
-                        <Thermometer size={12} />
-                        <span className="text-[9px] font-bold uppercase tracking-widest">
-                          Remaining
-                        </span>
-                      </div>
-                      <div className="relative font-mono text-2xl lg:text-3xl font-bold text-teal-600 dark:text-teal-400 tracking-widest tabular-nums drop-shadow-[0_0_12px_rgba(20,184,166,0.4)]">
-                        {liveCountdown}
-                      </div>
-                      {(() => {
-                        const untilDateStr = formatUntilTime(cooldown.until);
-                        return (
-                          <div className="relative mt-2 text-[10px] text-teal-600/70 dark:text-teal-400/70 font-mono flex items-center gap-2">
-                            <Clock size={10} />
-                            {untilDateStr}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Statistics Section */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <TrendingUp size={14} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Statistics</span>
-                </div>
-
-                {stats && stats.totalRequests > 0 ? (
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
-                    {/* Requests */}
-                    <div className="p-3 rounded-lg bg-linear-to-br from-slate-50 to-slate-100/50 dark:from-slate-900/50 dark:to-slate-800/30 border border-slate-200 dark:border-slate-700/50 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Hash size={12} className="text-slate-500 dark:text-slate-400" />
-                        <span className="text-[9px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
-                          Requests
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-600 dark:text-slate-400">Total</span>
-                          <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                            {stats.totalRequests}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                            <CheckCircle2 size={10} /> OK
-                          </span>
-                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                            {stats.successfulRequests}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                            <XCircle size={10} /> Fail
-                          </span>
-                          <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
-                            {stats.failedRequests}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Success Rate */}
-                    <div className="p-3 rounded-lg bg-linear-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Activity size={12} className="text-emerald-600 dark:text-emerald-400" />
-                        <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
-                          Success Rate
-                        </span>
-                      </div>
-                      <div className="flex flex-col items-center justify-center h-[52px]">
-                        <div
-                          className={cn(
-                            'text-2xl lg:text-3xl font-black font-mono drop-shadow-sm',
-                            stats.successRate >= 95
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : stats.successRate >= 90
-                                ? 'text-blue-600 dark:text-blue-400'
-                                : 'text-amber-600 dark:text-amber-400',
-                          )}
-                        >
-                          {Math.round(stats.successRate)}%
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Tokens */}
-                    <div className="p-3 rounded-lg bg-linear-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border border-blue-200 dark:border-blue-800/50 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Zap size={12} className="text-blue-600 dark:text-blue-400" />
-                        <span className="text-[9px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
-                          Tokens
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-blue-600 dark:text-blue-400">In</span>
-                          <span className="font-mono font-bold text-blue-700 dark:text-blue-300">
-                            {formatTokens(stats.totalInputTokens)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-purple-600 dark:text-purple-400">Out</span>
-                          <span className="font-mono font-bold text-purple-700 dark:text-purple-300">
-                            {formatTokens(stats.totalOutputTokens)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-cyan-600 dark:text-cyan-400">Cache</span>
-                          <span className="font-mono font-bold text-cyan-700 dark:text-cyan-300">
-                            {formatTokens(stats.totalCacheRead + stats.totalCacheWrite)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Cost */}
-                    <div className="p-3 rounded-lg bg-linear-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border border-purple-200 dark:border-purple-800/50 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <DollarSign size={12} className="text-purple-600 dark:text-purple-400" />
-                        <span className="text-[9px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">
-                          Cost
-                        </span>
-                      </div>
-                      <div className="flex flex-col items-center justify-center h-[52px]">
-                        <div className="text-xl lg:text-2xl font-black font-mono text-purple-700 dark:text-purple-300 drop-shadow-sm">
-                          {formatCost(stats.totalCost)}
-                        </div>
-                        <div className="text-[9px] text-purple-600/70 dark:text-purple-400/70 mt-0.5 font-medium">
-                          Cache: {calcCacheRate(stats).toFixed(1)}%
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-6 lg:p-8 flex flex-col items-center gap-2 text-slate-400 dark:text-slate-500 rounded-lg bg-linear-to-br from-slate-50 to-slate-100/50 dark:from-slate-900/30 dark:to-slate-800/20 border border-slate-200 dark:border-slate-700/50">
-                    <Activity size={24} />
-                    <span className="text-xs font-bold uppercase tracking-widest">
-                      No Statistics Available
+          ) : (
+            /* Custom Time Input */
+            <div className="rounded-xl border border-indigo-500/30 dark:border-indigo-500/25 bg-indigo-500/5 dark:bg-indigo-500/10 p-3 space-y-2">
+              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                {t('provider.freezeUntil')}
+              </div>
+              <input
+                type="text"
+                value={customTimeInput}
+                onChange={(e) => setCustomTimeInput(e.target.value)}
+                placeholder="e.g. 30m, 2h, 14:30, 12:00:30, 2025-01-25 18:00"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono"
+                autoFocus
+              />
+              {/* 实时解析预览 */}
+              <div className="text-xs text-muted-foreground">
+                {customTimeInput ? (
+                  parsedTime ? (
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      &rarr; {parsedTime.format('YYYY-MM-DD HH:mm:ss')}
                     </span>
-                  </div>
+                  ) : (
+                    <span className="text-rose-500">{t('provider.invalidTimeFormat')}</span>
+                  )
+                ) : (
+                  <span>{t('provider.timeFormatHint')}</span>
                 )}
               </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => {
+                    setShowCustomTime(false);
+                    setCustomTimeInput('');
+                  }}
+                  className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs"
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (parsedTime) {
+                      setCooldown(
+                        provider.id,
+                        parsedTime.toISOString(),
+                        freezeMode === 'provider' ? '' : clientType,
+                        freezeMode === 'model' ? freezeModel.trim() : undefined,
+                      );
+                      setShowCustomTime(false);
+                      setCustomTimeInput('');
+                    }
+                  }}
+                  disabled={!parsedTime}
+                  className="flex-1 rounded-lg bg-indigo-500 text-white px-3 py-1.5 text-xs hover:bg-indigo-600 disabled:opacity-50"
+                >
+                  {t('provider.freezeConfirm')}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
+
+        {/* Statistics Section */}
+        <div className="px-4 py-3 border-t border-border/50">
+          <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Statistics</div>
+          {stats && stats.totalRequests > 0 ? (
+            <div className="grid grid-cols-4 gap-2">
+              <div className="p-2 rounded-lg bg-muted/50 text-center">
+                <div className="text-[10px] text-muted-foreground">Requests</div>
+                <div className="text-sm font-bold">{stats.totalRequests}</div>
+              </div>
+              <div className="p-2 rounded-lg bg-muted/50 text-center">
+                <div className="text-[10px] text-muted-foreground">Success</div>
+                <div className={cn('text-sm font-bold', stats.successRate >= 95 ? 'text-emerald-500' : 'text-amber-500')}>
+                  {Math.round(stats.successRate)}%
+                </div>
+              </div>
+              <div className="p-2 rounded-lg bg-muted/50 text-center">
+                <div className="text-[10px] text-muted-foreground">Tokens</div>
+                <div className="text-sm font-bold text-blue-500">{formatTokens(stats.totalInputTokens + stats.totalOutputTokens)}</div>
+              </div>
+              <div className="p-2 rounded-lg bg-muted/50 text-center">
+                <div className="text-[10px] text-muted-foreground">Cost</div>
+                <div className="text-sm font-bold text-purple-500">{formatCost(stats.totalCost)}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="py-4 text-center text-sm text-muted-foreground">No statistics available</div>
+          )}
+        </div>
+
+        {/* Delete Section */}
+        {onDelete && (
+          <div className="px-4 py-3 border-t border-border/50">
+            <Button onClick={onDelete} variant="destructive" className="w-full" size="sm">
+              <Trash2 size={14} /> {t('provider.deleteRoute')}
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

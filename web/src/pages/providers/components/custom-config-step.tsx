@@ -1,4 +1,5 @@
-import { Globe, ChevronLeft, Key, Check, Plus, Trash2, ArrowRight } from 'lucide-react';
+import { useState } from 'react';
+import { Globe, ChevronLeft, Key, Check, Plus, Trash2, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCreateProvider, useCreateModelMapping } from '@/hooks/queries';
 import type { ClientType, CreateProviderData } from '@/lib/transport';
@@ -12,6 +13,7 @@ import { useProviderForm } from '../context/provider-form-context';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 
 export function CustomConfigStep() {
+  const [showApiKey, setShowApiKey] = useState(false);
   const { t } = useTranslation();
   const {
     formData,
@@ -78,6 +80,7 @@ export function CustomConfigStep() {
           },
         },
         supportedClientTypes,
+        excludeFromExport: !!formData.excludeFromExport,
       };
 
       const provider = await createProvider.mutateAsync(data);
@@ -174,13 +177,23 @@ export function CustomConfigStep() {
                       <span>{t('provider.apiKey')}</span>
                     </div>
                   </label>
-                  <Input
-                    type="password"
-                    value={formData.apiKey}
-                    onChange={(e) => updateFormData({ apiKey: e.target.value })}
-                    placeholder={t('provider.keyPlaceholder')}
-                    className="w-full"
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={formData.apiKey}
+                      onChange={(e) => updateFormData({ apiKey: e.target.value })}
+                      placeholder={t('provider.keyPlaceholder')}
+                      className="w-full pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -224,6 +237,23 @@ export function CustomConfigStep() {
               <Switch
                 checked={!!formData.disableErrorCooldown}
                 onCheckedChange={(checked) => updateFormData({ disableErrorCooldown: checked })}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+              {t('provider.excludeFromExport')}
+            </h3>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.excludeFromExportDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={!!formData.excludeFromExport}
+                onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
               />
             </div>
           </div>

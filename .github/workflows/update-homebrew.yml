@@ -20,22 +20,54 @@ jobs:
   update-homebrew:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate tag input
+        id: validate-tag
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.tag }}"
+          VERSION="$(printf '%s' "$VERSION" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+
+          if [[ -z "$VERSION" ]]; then
+            echo "Error: tag input is empty"
+            exit 1
+          fi
+
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: invalid tag format: $VERSION"
+            exit 1
+          fi
+
+          echo "Using tag: $VERSION"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Download macOS checksums
         run: |
-          VERSION="${{ inputs.tag }}"
+          set -euo pipefail
+          VERSION="${{ steps.validate-tag.outputs.tag }}"
           BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
-          curl -sL "${BASE_URL}/maxx-macOS-arm64.dmg.sha256" -o arm64.sha256
-          curl -sL "${BASE_URL}/maxx-macOS-amd64.dmg.sha256" -o amd64.sha256
+          curl -fsSL "${BASE_URL}/maxx-macOS-arm64.dmg.sha256" -o arm64.sha256
+          curl -fsSL "${BASE_URL}/maxx-macOS-amd64.dmg.sha256" -o amd64.sha256
 
       - name: Update Homebrew Cask
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          VERSION="${{ inputs.tag }}"
+          set -euo pipefail
+          VERSION="${{ steps.validate-tag.outputs.tag }}"
           VERSION_NUM="${VERSION#v}"
 
-          ARM64_SHA=$(cat arm64.sha256)
-          AMD64_SHA=$(cat amd64.sha256)
+          ARM64_SHA=$(tr -d '\n\r' < arm64.sha256)
+          AMD64_SHA=$(tr -d '\n\r' < amd64.sha256)
+
+          if [[ ! "$ARM64_SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Error: invalid arm64 checksum: $ARM64_SHA"
+            exit 1
+          fi
+
+          if [[ ! "$AMD64_SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Error: invalid amd64 checksum: $AMD64_SHA"
+            exit 1
+          fi
 
           cat > maxx.rb << CASK_EOF
           cask "maxx" do
@@ -54,6 +86,16 @@ jobs:
             homepage "https://github.com/awsl-project/maxx"
 
             app "maxx.app"
+
+            caveats do
+              <<~EOS
+                maxx is not notarized. On first launch, macOS Gatekeeper may block it.
+                To allow it, run:
+                  xattr -d com.apple.quarantine /Applications/maxx.app
+
+                Or go to System Settings > Privacy & Security > click "Open Anyway".
+              EOS
+            end
           end
           CASK_EOF
 

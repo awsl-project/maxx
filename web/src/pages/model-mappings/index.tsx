@@ -39,6 +39,7 @@ import {
 } from '@/hooks/queries';
 import type { ModelMapping, ModelMappingInput } from '@/lib/transport/types';
 import { Zap, Plus, Trash2, ArrowRight, RotateCcw, GripVertical } from 'lucide-react';
+import { useDialog } from '@/contexts/dialog-context';
 
 interface SortableRuleItemProps {
   id: string;
@@ -129,6 +130,7 @@ function SortableRuleItem({
 
 export function ModelMappingsPage() {
   const { t } = useTranslation();
+  const { confirm } = useDialog();
   const { data: mappings, isLoading } = useModelMappings();
   const createMapping = useCreateModelMapping();
   const updateMapping = useUpdateModelMapping();
@@ -222,12 +224,26 @@ export function ModelMappingsPage() {
   };
 
   const handleReset = async () => {
-    if (!window.confirm(t('modelMappings.confirmReset'))) return;
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('modelMappings.confirmReset'),
+      confirmText: t('common.reset'),
+      confirmVariant: 'destructive',
+    });
+    if (!confirmed) return;
+
     await resetToDefaults.mutateAsync();
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm(t('modelMappings.confirmClearAll'))) return;
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('modelMappings.confirmClearAll'),
+      confirmText: t('modelMappings.clearAll'),
+      confirmVariant: 'destructive',
+    });
+    if (!confirmed) return;
+
     await clearAllMappings.mutateAsync();
   };
 

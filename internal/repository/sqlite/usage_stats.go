@@ -3,6 +3,7 @@ package sqlite
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,23 +23,57 @@ func NewUsageStatsRepository(db *DB) *UsageStatsRepository {
 	return &UsageStatsRepository{db: db}
 }
 
-// getConfiguredTimezone 获取配置的时区，默认 Asia/Shanghai
+// getConfiguredTimezone 获取配置的时区。
+// 未配置时默认跟随部署环境时区；若无法解析，再退回 UTC。
 func (r *UsageStatsRepository) getConfiguredTimezone() *time.Location {
 	var value string
 	err := r.db.gorm.Table("system_settings").
-		Where("key = ?", domain.SettingKeyTimezone).
+		Where("setting_key = ?", domain.SettingKeyTimezone).
 		Pluck("value", &value).Error
-	if err != nil || value == "" {
-		value = "Asia/Shanghai" // 默认时区
+	if err != nil {
+		log.Printf("[UsageStats] Failed to load timezone setting, falling back to system timezone: %v", err)
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return getSystemTimezoneLocation()
 	}
 
 	loc, err := time.LoadLocation(value)
 	if err != nil {
-		log.Printf("[UsageStats] Invalid timezone %q, falling back to UTC+8: %v", value, err)
-		// 手动创建 UTC+8 时区作为 fallback（避免 Docker 容器无 tzdata 导致 panic）
-		loc = time.FixedZone("UTC+8", 8*60*60)
+		log.Printf("[UsageStats] Invalid timezone %q, falling back to system timezone: %v", value, err)
+		return getSystemTimezoneLocation()
 	}
 	return loc
+}
+
+func getSystemTimezoneLocation() *time.Location {
+	if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
+		log.Printf("[UsageStats] Invalid TZ environment value %q, falling back to time.Local", tz)
+	}
+
+	return time.Local
+}
+
+func getConfiguredTimezoneName(loc *time.Location) string {
+	if loc == nil {
+		return "UTC"
+	}
+
+	name := strings.TrimSpace(loc.String())
+	if name != "" && name != "Local" {
+		return name
+	}
+
+	return "UTC"
+}
+
+func truncateToHourInLocation(t time.Time, loc *time.Location) time.Time {
+	wallClock := t.In(loc)
+	return time.Date(wallClock.Year(), wallClock.Month(), wallClock.Day(), wallClock.Hour(), 0, 0, 0, loc)
 }
 
 // Upsert 更新或插入统计记录
@@ -159,7 +194,7 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 	currentBucket := stats.TruncateToGranularity(now, filter.Granularity, loc)
 	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
 	currentDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	currentHour := now.Truncate(time.Hour)
+	currentHour := truncateToHourInLocation(now, loc)
 	currentMinute := now.Truncate(time.Minute)
 	twoMinutesAgo := currentMinute.Add(-time.Minute)
 
@@ -821,7 +856,7 @@ func (r *UsageStatsRepository) queryAllWithRealtime(tenantID uint64, filter repo
 	now := time.Now().In(loc)
 	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
 	currentDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	currentHour := now.Truncate(time.Hour)
+	currentHour := truncateToHourInLocation(now, loc)
 	currentMinute := now.Truncate(time.Minute)
 	twoMinutesAgo := currentMinute.Add(-time.Minute)
 
@@ -1143,7 +1178,7 @@ func (r *UsageStatsRepository) rollUp(tenantID uint64, from, to domain.Granulari
 		case domain.GranularityDay:
 			startTime = now.Add(-90 * 24 * time.Hour)
 		default:
-			startTime = now.Add(-30 * 24 * time.Hour)
+			startTime = now.AddDate(0, 0, -30)
 		}
 	} else {
 		startTime = *latestBucket
@@ -1529,9 +1564,9 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 
 	// 使用配置的时区计算今日、昨日等
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	yesterdayStart := todayStart.Add(-24 * time.Hour)
-	days30Ago := todayStart.Add(-30 * 24 * time.Hour)
-	days371Ago := todayStart.Add(-371 * 24 * time.Hour) // 53周
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+	days30Ago := todayStart.AddDate(0, 0, -30)
+	days371Ago := todayStart.AddDate(0, 0, -371) // 53周
 
 	hours24Ago := now.Add(-24 * time.Hour)
 
@@ -1539,7 +1574,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		mu     sync.Mutex
 		result = &domain.DashboardData{
 			ProviderStats: make(map[uint64]domain.DashboardProviderStats),
-			Timezone:      loc.String(),
+			Timezone:      getConfiguredTimezoneName(loc),
 		}
 		g errgroup.Group
 	)
@@ -1666,7 +1701,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		// 初始化 24 小时趋势（使用配置的时区）
 		hourMap := make(map[string]uint64, 24)
 		for i := 0; i < 24; i++ {
-			hour := hours24Ago.Add(time.Duration(i) * time.Hour).In(loc).Truncate(time.Hour)
+			hour := truncateToHourInLocation(hours24Ago.Add(time.Duration(i)*time.Hour), loc)
 			hourMap[hour.Format("15:04")] = 0
 		}
 
@@ -1727,7 +1762,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		// 构建24h趋势数组（使用配置的时区）
 		trend := make([]domain.DashboardTrendPoint, 0, 24)
 		for i := 0; i < 24; i++ {
-			hour := hours24Ago.Add(time.Duration(i) * time.Hour).In(loc).Truncate(time.Hour)
+			hour := truncateToHourInLocation(hours24Ago.Add(time.Duration(i)*time.Hour), loc)
 			hourStr := hour.Format("15:04")
 			trend = append(trend, domain.DashboardTrendPoint{
 				Hour:     hourStr,

@@ -11,7 +11,7 @@ func getMemberToken(t *testing.T, env *TestEnv) string {
 	// Admin registers a new member user
 	resp := env.AdminPost("/api/admin/auth/register", map[string]string{
 		"username": "member-user",
-		"password": "member-password",
+		"password": "Member1!",
 	})
 	AssertStatus(t, resp, http.StatusCreated)
 
@@ -144,6 +144,22 @@ func TestRBAC_MemberCannotGetRoutes(t *testing.T) {
 	memberToken := getMemberToken(t, env)
 
 	resp := env.RequestWithToken(http.MethodGet, "/api/admin/routes", nil, memberToken)
+	AssertStatus(t, resp, http.StatusForbidden)
+}
+
+func TestRBAC_MemberCannotGetAPITokens(t *testing.T) {
+	env := NewTestEnv(t)
+	memberToken := getMemberToken(t, env)
+
+	resp := env.RequestWithToken(http.MethodGet, "/api/admin/api-tokens", nil, memberToken)
+	AssertStatus(t, resp, http.StatusForbidden)
+}
+
+func TestRBAC_MemberCannotGetInviteCodes(t *testing.T) {
+	env := NewTestEnv(t)
+	memberToken := getMemberToken(t, env)
+
+	resp := env.RequestWithToken(http.MethodGet, "/api/admin/invite-codes", nil, memberToken)
 	AssertStatus(t, resp, http.StatusForbidden)
 }
 

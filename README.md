@@ -90,13 +90,24 @@ Download from [GitHub Releases](https://github.com/awsl-project/maxx/releases):
 
 ```bash
 # Install
-brew install --no-quarantine awsl-project/awsl/maxx
+brew install --cask awsl-project/awsl/maxx
 
 # Upgrade
-brew upgrade --no-quarantine awsl-project/awsl/maxx
+brew upgrade --cask awsl-project/awsl/maxx
 ```
 
-> **Note:** If you see "App is damaged" error, run: `sudo xattr -d com.apple.quarantine /Applications/maxx.app`
+> **Gatekeeper note:** maxx is not notarized. On first launch, macOS Gatekeeper may block it.
+> To allow it, run:
+> `xattr -d com.apple.quarantine /Applications/maxx.app`
+>
+> Or go to **System Settings > Privacy & Security** and click **Open Anyway**.
+>
+> **If macOS says the app is damaged:**
+> 1. Remove quarantine attributes:
+>    `sudo xattr -rd com.apple.quarantine /Applications/maxx.app`
+> 2. Right-click `maxx.app` in Finder and choose **Open** once.
+> 3. If it still fails, reinstall and retry:
+>    `brew uninstall --cask awsl-project/awsl/maxx && brew install --cask awsl-project/awsl/maxx`
 
 </details>
 
@@ -113,6 +124,8 @@ MAXX_ADMIN_PASSWORD=your-password go run cmd/maxx/main.go
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
+
+**Frontend requirements:** Node.js 22.11.0 (see `.node-version` / `.nvmrc`) and pnpm 10.7.0 (locked via `web/package.json`).
 
 ## Configure AI Coding Tools
 

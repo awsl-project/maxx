@@ -101,6 +101,10 @@ func (h *AdminHandler) handleCreateUser(w http.ResponseWriter, r *http.Request, 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
 		return
 	}
+	if !isValidRegistrationPassword(body.Password) {
+		writeRegistrationPasswordValidationError(w)
+		return
+	}
 
 	if body.Role == "" {
 		body.Role = domain.UserRoleMember
@@ -219,6 +223,10 @@ func (h *AdminHandler) handleUpdateUserPassword(w http.ResponseWriter, r *http.R
 
 	if body.Password == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password is required"})
+		return
+	}
+	if !isValidRegistrationPassword(body.Password) {
+		writeRegistrationPasswordValidationError(w)
 		return
 	}
 

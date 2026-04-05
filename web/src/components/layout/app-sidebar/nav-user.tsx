@@ -16,9 +16,13 @@ import {
   Plus,
   ShieldAlert,
   Trash2,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
+import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
+import { FieldError } from '@/components/field-error';
+import { PasswordInput } from '@/components/password-input';
 import { useTransport } from '@/lib/transport/context';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -36,9 +40,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Label,
 } from '@/components/ui';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {
+  getManagedPasswordError,
+  getManagedPasswordRuleState,
+  isPasswordPolicyViolationResponse,
+} from '@/lib/managed-password';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -57,10 +66,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SidebarMenu, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
+import { useDialog } from '@/contexts/dialog-context';
+
+type PasswordField = 'oldPassword' | 'newPassword' | 'confirmPassword';
 
 export function NavUser() {
   const { isMobile, state } = useSidebar();
   const { t, i18n } = useTranslation();
+  const { alert, confirm } = useDialog();
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
   const { user, authEnabled, logout } = useAuth();
@@ -78,7 +91,13 @@ export function NavUser() {
   });
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordFieldErrors, setPasswordFieldErrors] = useState<
+    Partial<Record<PasswordField, string>>
+  >({});
+  const [showPasswordRules, setShowPasswordRules] = useState(false);
+  const [newPasswordsVisible, setNewPasswordsVisible] = useState(false);
   const passwordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const passwordRequestIdRef = useRef(0);
   const [passkeySuccess, setPasskeySuccess] = useState('');
   const passkeyCredentials = usePasskeyCredentials(showPasskeyDialog && authEnabled);
   const deletePasskeyCredential = useDeletePasskeyCredential();
@@ -105,13 +124,50 @@ export function NavUser() {
         go?: { desktop?: { LauncherApp?: { RestartServer?: () => unknown } } };
       }
     ).go?.desktop?.LauncherApp?.RestartServer;
+  const passwordRuleState = getManagedPasswordRuleState(passwordForm.newPassword);
+  const passwordInvalidMessage = t('login.passwordFormatInvalid');
+  const passwordFormatError = getManagedPasswordError(
+    passwordForm.newPassword,
+    passwordInvalidMessage,
+  );
+  const passwordFieldError =
+    passwordFieldErrors.newPassword === passwordFormatError
+      ? undefined
+      : passwordFieldErrors.newPassword;
+  const isChangePasswordDisabled =
+    !passwordForm.oldPassword.trim() ||
+    !passwordForm.newPassword.trim() ||
+    !passwordForm.confirmPassword.trim() ||
+    !!passwordFormatError ||
+    passwordForm.newPassword !== passwordForm.confirmPassword ||
+    changePassword.isPending;
+
+  const resetPasswordDialogState = () => {
+    passwordRequestIdRef.current += 1;
+    setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+    setPasswordFieldErrors({});
+    setPasswordError('');
+    setPasswordSuccess('');
+    setShowPasswordRules(false);
+    setNewPasswordsVisible(false);
+    if (passwordTimeoutRef.current) {
+      clearTimeout(passwordTimeoutRef.current);
+      passwordTimeoutRef.current = null;
+    }
+  };
 
   const handleToggleLanguage = () => {
     i18n.changeLanguage(currentLanguage === 'zh' ? 'en' : 'zh');
   };
 
   const handleRestartServer = async () => {
-    if (!window.confirm(t('nav.restartServerConfirm'))) return;
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('nav.restartServerConfirm'),
+      confirmText: t('nav.restartServer'),
+    });
+    if (!confirmed) return;
+
     try {
       if (desktopRestartAvailable) {
         const launcher = (
@@ -128,40 +184,94 @@ export function NavUser() {
       await transport.restartServer();
     } catch (error) {
       console.error('Restart server failed:', error);
-      if (typeof window !== 'undefined') {
-        window.alert(t('nav.restartServerFailed'));
-      }
+      await alert({
+        title: t('nav.notifications'),
+        description: t('nav.restartServerFailed'),
+      });
     }
   };
 
   const handleChangePassword = async () => {
+    setPasswordFieldErrors({});
     setPasswordError('');
     setPasswordSuccess('');
 
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError(t('users.passwordMismatch'));
+    const nextErrors: Partial<Record<PasswordField, string>> = {};
+    if (!passwordForm.oldPassword.trim()) {
+      nextErrors.oldPassword = t('users.oldPassword');
+    }
+    if (!passwordForm.newPassword.trim()) {
+      nextErrors.newPassword = t('login.passwordRequired');
+    }
+    if (passwordFormatError) {
+      setShowPasswordRules(true);
+    }
+    if (!passwordForm.confirmPassword.trim()) {
+      nextErrors.confirmPassword = t('login.confirmPasswordRequired');
+    }
+    if (
+      passwordForm.confirmPassword.trim() &&
+      passwordForm.newPassword !== passwordForm.confirmPassword
+    ) {
+      nextErrors.confirmPassword = t('users.passwordMismatch');
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setPasswordFieldErrors(nextErrors);
+      if (nextErrors.newPassword) {
+        setShowPasswordRules(true);
+      }
       return;
     }
+
+    const requestId = passwordRequestIdRef.current + 1;
+    passwordRequestIdRef.current = requestId;
 
     try {
       await changePassword.mutateAsync({
         oldPassword: passwordForm.oldPassword,
         newPassword: passwordForm.newPassword,
       });
+      if (requestId !== passwordRequestIdRef.current) {
+        return;
+      }
       setPasswordSuccess(t('users.changePasswordSuccess'));
       setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordFieldErrors({});
+      setShowPasswordRules(false);
       if (passwordTimeoutRef.current) {
         clearTimeout(passwordTimeoutRef.current);
       }
-      passwordTimeoutRef.current = setTimeout(() => setShowPasswordDialog(false), 1500);
+      passwordTimeoutRef.current = setTimeout(() => {
+        if (requestId !== passwordRequestIdRef.current) {
+          return;
+        }
+        setShowPasswordDialog(false);
+        resetPasswordDialogState();
+      }, 1500);
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string } } };
-      setPasswordError(axiosError?.response?.data?.error || t('users.changePasswordFailed'));
+      if (requestId !== passwordRequestIdRef.current) {
+        return;
+      }
+      const axiosError = err as { response?: { data?: { error?: string; code?: string } } };
+      const errorData = axiosError?.response?.data;
+      const errorMsg = errorData?.error;
+      if (isPasswordPolicyViolationResponse(errorData)) {
+        setShowPasswordRules(true);
+        return;
+      }
+      setPasswordError(errorMsg || t('users.changePasswordFailed'));
     }
   };
 
   const handleDeletePasskey = async (credentialID: string) => {
-    if (!window.confirm(t('users.passkeyDeleteConfirm'))) return;
+    const confirmed = await confirm({
+      title: t('common.confirm'),
+      description: t('users.passkeyDeleteConfirm'),
+      confirmText: t('common.delete'),
+      confirmVariant: 'destructive',
+    });
+    if (!confirmed) return;
 
     setPasskeyError('');
     setDeletingPasskeyID(credentialID);
@@ -192,16 +302,45 @@ export function NavUser() {
     }
   };
 
+  const maskNumericIdentity = (value?: number) => {
+    if (!value || value <= 0) return '••';
+    const raw = String(value);
+    if (raw.length <= 2) return `••${raw}`;
+    return `${'•'.repeat(Math.max(2, raw.length - 2))}${raw.slice(-2)}`;
+  };
+
   const username = user?.username?.trim() || '';
-  const hasUsername = username.length > 0;
+  const roleLabel = user
+    ? user.role === 'admin'
+      ? t('users.roleAdmin')
+      : t('users.roleMember')
+    : t('nav.accountFallback');
+  const tenantLabel = user?.tenantName?.trim()
+    ? user.tenantName.trim()
+    : user?.tenantID && user.tenantID > 0
+      ? t('nav.tenantFallback', { id: user.tenantID })
+      : t('nav.tenantUnknown');
+  const accountName = username || t('nav.accountFallback');
+  const accountStatusLabel = authEnabled
+    ? t('nav.accountStatusProtected')
+    : t('nav.accountStatusLocal');
+  const accountSubtitle = user
+    ? [roleLabel, tenantLabel].filter(Boolean).join(' · ')
+    : t('nav.accountIdentityUnknown');
+  const accountIdentity = user
+    ? `${t('nav.identityMaskUser', { value: maskNumericIdentity(user.id) })} · ${t('nav.identityMaskTenant', { value: maskNumericIdentity(user.tenantID) })}`
+    : t('nav.accountIdentityUnknown');
   const displayUser = {
-    name: username,
+    name: accountName,
+    subtitle: accountSubtitle,
+    identity: accountIdentity,
+    status: accountStatusLabel,
     avatar: '/logo.png',
   };
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
   const menuDisplayName = displayUser.name || 'Maxx';
   const menuDisplayFallback = menuDisplayName.slice(0, 2).toUpperCase();
-  const accountTitle = hasUsername ? displayUser.name : undefined;
+  const accountTitle = displayUser.name || undefined;
 
   return (
     <SidebarMenu>
@@ -263,48 +402,47 @@ export function NavUser() {
             )}
           </button>
 
-          {hasUsername &&
-            (isCollapsed ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={(props) => (
-                    <button
-                      {...props}
-                      type="button"
-                      className={cn(
-                        'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-                        props.className,
-                      )}
-                    >
-                      <Avatar className="h-6 w-6 rounded-lg">
-                        <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                        <AvatarFallback className="rounded-lg text-[10px]">
-                          {displayUserFallback}
-                        </AvatarFallback>
-                      </Avatar>
-                    </button>
-                  )}
-                />
-                <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
-                  <span className="text-xs font-medium">{displayUser.name}</span>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <div
-                className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
-                title={accountTitle}
-              >
-                <Avatar className="h-6 w-6 rounded-lg">
-                  <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                  <AvatarFallback className="rounded-lg text-[10px]">
-                    {displayUserFallback}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <span className="block truncate text-xs font-medium">{displayUser.name}</span>
-                </div>
+          {isCollapsed ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={(props) => (
+                  <button
+                    {...props}
+                    type="button"
+                    className={cn(
+                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                      props.className,
+                    )}
+                  >
+                    <Avatar className="h-6 w-6 rounded-lg">
+                      <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                      <AvatarFallback className="rounded-lg text-[10px]">
+                        {displayUserFallback}
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                )}
+              />
+              <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
+                <span className="text-xs font-medium">{displayUser.name}</span>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div
+              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
+              title={accountTitle}
+            >
+              <Avatar className="h-6 w-6 rounded-lg">
+                <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                <AvatarFallback className="rounded-lg text-[10px]">
+                  {displayUserFallback}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <span className="block truncate text-xs font-medium">{displayUser.name}</span>
               </div>
-            ))}
+            </div>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -323,33 +461,85 @@ export function NavUser() {
               )}
             />
             <DropdownMenuContent
-              className="!w-32 rounded-lg max-w-xs !min-w-0"
-              style={{ width: '8rem' }}
+              className="!w-72 rounded-lg max-w-sm !min-w-0"
+              style={{ width: '18rem' }}
               side={isMobile ? 'bottom' : 'right'}
               align="end"
               sideOffset={4}
             >
               <DropdownMenuGroup>
                 <DropdownMenuLabel>
-                  <div className="flex items-center gap-2 w-full">
+                  <div className="flex items-start gap-2 w-full">
                     <Avatar className="h-8 w-8 rounded-lg">
                       <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
                       <AvatarFallback className="rounded-lg">{menuDisplayFallback}</AvatarFallback>
                     </Avatar>
-                    <div className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-medium">{menuDisplayName}</span>
-                      {user && (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {user.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember')}
-                          {user.tenantName && ` · ${user.tenantName}`}
+                    <div className="grid flex-1 text-left text-sm leading-tight gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium">{menuDisplayName}</span>
+                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {displayUser.status}
                         </span>
-                      )}
+                      </div>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {displayUser.subtitle}
+                      </span>
+                      <span className="truncate text-[10px] text-muted-foreground/80">
+                        {displayUser.identity}
+                      </span>
                     </div>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
               </DropdownMenuGroup>
+
+              {authEnabled && (
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                    {t('nav.account')}
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem onClick={logout}>
+                    <ArrowLeftRight />
+                    <span>{t('nav.switchAccount')}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              )}
+
+              {authEnabled && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      {t('nav.security')}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setPasskeyError('');
+                        setPasskeySuccess('');
+                        setShowPasskeyDialog(true);
+                      }}
+                    >
+                      <ShieldAlert />
+                      <span>{t('nav.managePasskeys')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        resetPasswordDialogState();
+                        setShowPasswordDialog(true);
+                      }}
+                    >
+                      <KeyRound />
+                      <span>{t('nav.changePassword')}</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </>
+              )}
+
+              <DropdownMenuSeparator />
               <DropdownMenuGroup>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('nav.system')}
+                </DropdownMenuLabel>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     {theme === 'light' ? (
@@ -400,45 +590,12 @@ export function NavUser() {
                     </DropdownMenuSubContent>
                   </DropdownMenuPortal>
                 </DropdownMenuSub>
-              </DropdownMenuGroup>
-              <>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleRestartServer}>
                   <RefreshCw />
                   <span>{t('nav.restartServer')}</span>
                 </DropdownMenuItem>
-              </>
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setPasskeyError('');
-                      setPasskeySuccess('');
-                      setShowPasskeyDialog(true);
-                    }}
-                  >
-                    <ShieldAlert />
-                    <span>{t('nav.managePasskeys')}</span>
-                  </DropdownMenuItem>
-                </>
-              )}
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
-                      setPasswordError('');
-                      setPasswordSuccess('');
-                      setShowPasswordDialog(true);
-                    }}
-                  >
-                    <KeyRound />
-                    <span>{t('nav.changePassword')}</span>
-                  </DropdownMenuItem>
-                </>
-              )}
+              </DropdownMenuGroup>
+
               {authEnabled && (
                 <>
                   <DropdownMenuSeparator />
@@ -454,7 +611,15 @@ export function NavUser() {
       </SidebarMenuItem>
 
       {/* Change Password Dialog */}
-      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+      <Dialog
+        open={showPasswordDialog}
+        onOpenChange={(open) => {
+          setShowPasswordDialog(open);
+          if (!open) {
+            resetPasswordDialogState();
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('users.changePassword')}</DialogTitle>
@@ -462,42 +627,90 @@ export function NavUser() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label htmlFor="old-password" className="text-sm font-medium">
-                {t('users.oldPassword')}
-              </label>
-              <Input
+              <Label htmlFor="old-password">{t('users.oldPassword')}</Label>
+              <PasswordInput
                 id="old-password"
-                type="password"
                 value={passwordForm.oldPassword}
-                onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
+                aria-invalid={passwordFieldErrors.oldPassword ? 'true' : undefined}
+                onChange={(e) => {
+                  setPasswordForm({ ...passwordForm, oldPassword: e.target.value });
+                  setPasswordFieldErrors((current) => ({ ...current, oldPassword: undefined }));
+                  setPasswordError('');
+                }}
                 placeholder={t('users.oldPassword')}
               />
+              <FieldError message={passwordFieldErrors.oldPassword} />
             </div>
             <div className="space-y-2">
-              <label htmlFor="new-password" className="text-sm font-medium">
-                {t('users.newPassword')}
-              </label>
-              <Input
-                id="new-password"
-                type="password"
-                value={passwordForm.newPassword}
-                onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                placeholder={t('users.newPassword')}
-              />
+              <Label htmlFor="new-password">{t('users.newPassword')}</Label>
+              <div className="relative">
+                <PasswordInput
+                  id="new-password"
+                  value={passwordForm.newPassword}
+                  aria-invalid={passwordFieldErrors.newPassword ? 'true' : undefined}
+                  onFocus={() => setShowPasswordRules(true)}
+                  onBlur={() => setShowPasswordRules(false)}
+                  onChange={(e) => {
+                    const nextPassword = e.target.value;
+                    const nextPasswordError = getManagedPasswordError(
+                      nextPassword,
+                      passwordInvalidMessage,
+                    );
+                    setPasswordForm({ ...passwordForm, newPassword: nextPassword });
+                    setShowPasswordRules(true);
+                    setPasswordFieldErrors((current) => ({
+                      ...current,
+                      newPassword: nextPasswordError,
+                      confirmPassword:
+                        passwordForm.confirmPassword &&
+                        nextPassword !== passwordForm.confirmPassword
+                          ? t('users.passwordMismatch')
+                          : undefined,
+                    }));
+                    setPasswordError('');
+                  }}
+                  placeholder={t('users.newPassword')}
+                  visible={newPasswordsVisible}
+                  onVisibleChange={setNewPasswordsVisible}
+                />
+                <PasswordRulesPopover
+                  open={showPasswordRules}
+                  ruleState={passwordRuleState}
+                  title={t('login.passwordChecklistTitle')}
+                  progressLabel={t('login.passwordCategoryProgress', {
+                    count: passwordRuleState.categoryCount,
+                  })}
+                  minLengthLabel={t('login.passwordRuleMinLength')}
+                  numberLabel={t('login.passwordRuleNumber')}
+                  letterLabel={t('login.passwordRuleLetter')}
+                  punctuationLabel={t('login.passwordRulePunctuation')}
+                />
+              </div>
+              <FieldError message={passwordFieldError} />
             </div>
             <div className="space-y-2">
-              <label htmlFor="confirm-new-password" className="text-sm font-medium">
-                {t('users.confirmNewPassword')}
-              </label>
-              <Input
+              <Label htmlFor="confirm-new-password">{t('users.confirmNewPassword')}</Label>
+              <PasswordInput
                 id="confirm-new-password"
-                type="password"
                 value={passwordForm.confirmPassword}
-                onChange={(e) =>
-                  setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })
-                }
+                aria-invalid={passwordFieldErrors.confirmPassword ? 'true' : undefined}
+                onChange={(e) => {
+                  const nextConfirmPassword = e.target.value;
+                  setPasswordForm({ ...passwordForm, confirmPassword: nextConfirmPassword });
+                  setPasswordFieldErrors((current) => ({
+                    ...current,
+                    confirmPassword:
+                      nextConfirmPassword.trim() && passwordForm.newPassword !== nextConfirmPassword
+                        ? t('users.passwordMismatch')
+                        : undefined,
+                  }));
+                  setPasswordError('');
+                }}
                 placeholder={t('users.confirmNewPassword')}
+                visible={newPasswordsVisible}
+                onVisibleChange={setNewPasswordsVisible}
               />
+              <FieldError message={passwordFieldErrors.confirmPassword} />
             </div>
             {passwordError && <p className="text-destructive text-sm">{passwordError}</p>}
             {passwordSuccess && (
@@ -505,18 +718,16 @@ export function NavUser() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPasswordDialog(false);
+                resetPasswordDialogState();
+              }}
+            >
               {t('common.cancel')}
             </Button>
-            <Button
-              onClick={handleChangePassword}
-              disabled={
-                !passwordForm.oldPassword ||
-                !passwordForm.newPassword ||
-                !passwordForm.confirmPassword ||
-                changePassword.isPending
-              }
-            >
+            <Button onClick={handleChangePassword} disabled={isChangePasswordDisabled}>
               {changePassword.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('common.confirm')}
             </Button>

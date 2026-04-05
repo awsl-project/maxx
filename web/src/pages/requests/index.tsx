@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+﻿import { useState, useMemo, useRef, useEffect, type UIEvent } from 'react';
 import { useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -7,12 +7,18 @@ import {
   useProxyRequestUpdates,
   useProxyRequestsCount,
   useProviders,
+  usePublicSettings,
   useProjects,
-  useAPITokens,
-  useSettings,
+  useVisibleAPITokens,
 } from '@/hooks/queries';
 import { Activity, RefreshCw, Loader2, CheckCircle, AlertTriangle, Ban } from 'lucide-react';
-import type { APIToken, Project, ProxyRequest, ProxyRequestStatus, Provider } from '@/lib/transport';
+import type {
+  APIToken,
+  Project,
+  ProxyRequest,
+  ProxyRequestStatus,
+  Provider,
+} from '@/lib/transport';
 import { ClientIcon } from '@/components/icons/client-icons';
 import {
   Table,
@@ -33,6 +39,7 @@ import {
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { calculateVirtualRange } from './virtual-range';
 
 type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
 
@@ -51,7 +58,10 @@ const REQUEST_FILTER_MODE_STORAGE_KEY = 'maxx-requests-filter-mode';
 const REQUEST_PROVIDER_FILTER_STORAGE_KEY = 'maxx-requests-provider-filter';
 const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
+const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
+const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
 
+/** Reads a positive numeric value from localStorage, returning undefined if absent or invalid. */
 function readStoredNumber(key: string): number | undefined {
   if (typeof window === 'undefined') {
     return undefined;
@@ -67,6 +77,7 @@ function readStoredNumber(key: string): number | undefined {
   return parsed;
 }
 
+/** Maps each proxy request status to its corresponding badge variant. */
 export const statusVariant: Record<
   ProxyRequestStatus,
   'default' | 'success' | 'warning' | 'danger' | 'info'
@@ -79,6 +90,7 @@ export const statusVariant: Record<
   REJECTED: 'danger',
 };
 
+/** Main requests monitoring page with filtering, infinite scroll, and real-time updates. */
 export function RequestsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -110,6 +122,9 @@ export function RequestsPage() {
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [desktopRowHeight, setDesktopRowHeight] = useState(DEFAULT_DESKTOP_ROW_HEIGHT);
 
   const activeProviderId = filterMode === 'provider' ? selectedProviderId : undefined;
   const activeTokenId = filterMode === 'token' ? selectedTokenId : undefined;
@@ -117,8 +132,8 @@ export function RequestsPage() {
 
   const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
   const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
-  const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useAPITokens();
-  const { data: settings } = useSettings();
+  const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useVisibleAPITokens();
+  const { data: settings } = usePublicSettings();
 
   const waitingProviderFilterValidation =
     filterMode === 'provider' && selectedProviderId !== undefined && !providersIsSuccess;
@@ -126,18 +141,19 @@ export function RequestsPage() {
     filterMode === 'token' && selectedTokenId !== undefined && !apiTokensIsSuccess;
   const waitingProjectFilterValidation =
     filterMode === 'project' && selectedProjectId !== undefined && !projectsIsSuccess;
-  const requestsQueryEnabled = !waitingProviderFilterValidation && !waitingTokenFilterValidation && !waitingProjectFilterValidation;
+  const waitingFilterValidation =
+    waitingProviderFilterValidation || waitingTokenFilterValidation || waitingProjectFilterValidation;
+  const requestsQueryEnabled = !waitingFilterValidation;
 
   // 使用 Infinite Query
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-    isFetching,
-    refetch,
-  } = useInfiniteProxyRequests(activeProviderId, selectedStatus, activeTokenId, activeProjectId, requestsQueryEnabled);
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isFetching, refetch } =
+    useInfiniteProxyRequests(
+      activeProviderId,
+      selectedStatus,
+      activeTokenId,
+      activeProjectId,
+      requestsQueryEnabled,
+    );
 
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(
     activeProviderId,
@@ -173,7 +189,12 @@ export function RequestsPage() {
   const allRequests = useMemo(() => {
     return data?.pages.flatMap((page) => page.items) ?? [];
   }, [data]);
-  const showLoadingState = (isLoading || isFetching || !requestsQueryEnabled) && allRequests.length === 0;
+  // Show spinner on initial load, manual refresh with empty list, or while
+  // waiting for filter dependencies. When switching filters with existing cache,
+  // stale-while-revalidate keeps old data visible, avoiding a jarring flash.
+  const showLoadingState =
+    (isLoading || isFetching || waitingFilterValidation) && allRequests.length === 0;
+  const hasRenderedRequests = allRequests.length > 0;
 
   const activeCount = useMemo(() => {
     return allRequests.reduce((count, req) => {
@@ -181,9 +202,31 @@ export function RequestsPage() {
     }, 0);
   }, [allRequests]);
   const hasActiveRequests = activeCount > 0;
-  const enableMarquee = activeCount <= 10;
 
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // 高频实时更新时，仅保留可视区域附近的桌面行，减少表格重排和重绘成本。
+  const shouldVirtualizeDesktop =
+    !isMobile && allRequests.length >= REQUESTS_VIRTUALIZE_THRESHOLD && viewportHeight > 0;
+  const desktopColumnCount = 14 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
+  const desktopVirtualRange = useMemo(() => {
+    if (!shouldVirtualizeDesktop) {
+      return {
+        startIndex: 0,
+        endIndex: allRequests.length,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: 0,
+      };
+    }
+
+    return calculateVirtualRange(allRequests.length, scrollTop, viewportHeight, desktopRowHeight);
+  }, [allRequests.length, desktopRowHeight, scrollTop, shouldVirtualizeDesktop, viewportHeight]);
+  const desktopVisibleRequests = useMemo(() => {
+    if (!shouldVirtualizeDesktop) {
+      return allRequests;
+    }
+
+    return allRequests.slice(desktopVirtualRange.startIndex, desktopVirtualRange.endIndex);
+  }, [allRequests, desktopVirtualRange, shouldVirtualizeDesktop]);
 
   // 全局 tick：仅在有“传输中”请求时更新，避免每行一个定时器导致重渲染风暴
   useEffect(() => {
@@ -195,6 +238,49 @@ export function RequestsPage() {
     const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [hasActiveRequests]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    // 列表容器在首屏 loading 阶段尚未挂载，等真实列表出现后再初始化虚拟化尺寸。
+    if (!container || !hasRenderedRequests) {
+      return;
+    }
+
+    const syncViewport = () => {
+      setViewportHeight(container.clientHeight);
+      setScrollTop(container.scrollTop);
+    };
+
+    syncViewport();
+
+    const resizeObserver = new ResizeObserver(() => {
+      syncViewport();
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [hasRenderedRequests, isMobile]);
+
+  useEffect(() => {
+    if (isMobile) {
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    const firstRenderedRow = container?.querySelector<HTMLTableRowElement>(
+      'tbody tr[data-request-row="true"]',
+    );
+    if (!firstRenderedRow) {
+      return;
+    }
+
+    const nextHeight = Math.ceil(firstRenderedRow.getBoundingClientRect().height);
+    if (nextHeight > 0 && Math.abs(nextHeight - desktopRowHeight) > 1) {
+      setDesktopRowHeight(nextHeight);
+    }
+  }, [apiTokenAuthEnabled, desktopRowHeight, desktopVisibleRequests, hasProjects, isMobile]);
 
   // IntersectionObserver 触底检测
   useEffect(() => {
@@ -334,6 +420,48 @@ export function RequestsPage() {
     },
     [navigate],
   );
+  const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    setScrollTop(event.currentTarget.scrollTop);
+  }, []);
+
+  const desktopTableHeader = (
+    <TableHeader className="bg-card/80 backdrop-blur-md sticky top-0 z-10 shadow-sm border-b border-border">
+      <TableRow className="hover:bg-transparent border-none text-sm">
+        <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
+        <TableHead className="w-[120px] pr-4 font-medium">{t('requests.client')}</TableHead>
+        <TableHead className="min-w-[250px] font-medium">{t('requests.model')}</TableHead>
+        {hasProjects && (
+          <TableHead className="w-[100px] font-medium">{t('requests.project')}</TableHead>
+        )}
+        {apiTokenAuthEnabled && (
+          <TableHead className="w-[100px] font-medium">{t('requests.token')}</TableHead>
+        )}
+        <TableHead className="min-w-[100px] font-medium">{t('requests.provider')}</TableHead>
+        <TableHead className="w-[100px] font-medium">{t('common.status')}</TableHead>
+        <TableHead className="w-[60px] text-center font-medium">{t('requests.code')}</TableHead>
+        <TableHead className="w-[60px] text-center font-medium" title={t('requests.ttft')}>
+          TTFT
+        </TableHead>
+        <TableHead className="w-[80px] text-center font-medium">{t('requests.duration')}</TableHead>
+        <TableHead className="w-[45px] text-center font-medium" title={t('requests.attempts')}>
+          {t('requests.attShort')}
+        </TableHead>
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.inputTokens')}>
+          {t('requests.inShort')}
+        </TableHead>
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.outputTokens')}>
+          {t('requests.outShort')}
+        </TableHead>
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheRead')}>
+          {t('requests.cacheRShort')}
+        </TableHead>
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheWrite')}>
+          {t('requests.cacheWShort')}
+        </TableHead>
+        <TableHead className="w-[80px] text-center font-medium">{t('requests.cost')}</TableHead>
+      </TableRow>
+    </TableHeader>
+  );
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -344,7 +472,11 @@ export function RequestsPage() {
         description={t('requests.description', { count: total })}
       >
         {/* Filter Mode + Dynamic Target Filter */}
-        <FilterModeSelect mode={filterMode} hasProjects={hasProjects} onSelect={handleFilterModeChange} />
+        <FilterModeSelect
+          mode={filterMode}
+          hasProjects={hasProjects}
+          onSelect={handleFilterModeChange}
+        />
         {filterMode === 'provider' ? (
           <ProviderFilter
             providers={providers}
@@ -368,12 +500,12 @@ export function RequestsPage() {
         <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
         <button
           onClick={handleRefresh}
-          disabled={isFetching || !requestsQueryEnabled}
+          disabled={isFetching || waitingFilterValidation}
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
             'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
             'text-muted-foreground hover:text-foreground',
-            (isFetching || !requestsQueryEnabled) && 'opacity-50 cursor-not-allowed',
+            (isFetching || waitingFilterValidation) && 'opacity-50 cursor-not-allowed',
           )}
         >
           <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
@@ -396,7 +528,11 @@ export function RequestsPage() {
             <p className="text-caption mt-1">{t('requests.noRequestsHint')}</p>
           </div>
         ) : (
-          <div className="flex-1 min-h-0 overflow-auto" ref={scrollContainerRef}>
+          <div
+            className="flex-1 min-h-0 overflow-auto"
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+          >
             {isMobile ? (
               <div>
                 {allRequests.map((req) => (
@@ -422,78 +558,18 @@ export function RequestsPage() {
             ) : (
               <>
                 <Table>
-                  <TableHeader className="bg-card/80 backdrop-blur-md sticky top-0 z-10 shadow-sm border-b border-border">
-                    <TableRow className="hover:bg-transparent border-none text-sm">
-                      <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
-                      <TableHead className="w-[120px] pr-4 font-medium">
-                        {t('requests.client')}
-                      </TableHead>
-                      <TableHead className="min-w-[250px] font-medium">
-                        {t('requests.model')}
-                      </TableHead>
-                      {hasProjects && (
-                        <TableHead className="w-[100px] font-medium">
-                          {t('requests.project')}
-                        </TableHead>
-                      )}
-                      {apiTokenAuthEnabled && (
-                        <TableHead className="w-[100px] font-medium">
-                          {t('requests.token')}
-                        </TableHead>
-                      )}
-                      <TableHead className="min-w-[100px] font-medium">
-                        {t('requests.provider')}
-                      </TableHead>
-                      <TableHead className="w-[100px] font-medium">{t('common.status')}</TableHead>
-                      <TableHead className="w-[60px] text-center font-medium">
-                        {t('requests.code')}
-                      </TableHead>
-                      <TableHead
-                        className="w-[60px] text-center font-medium"
-                        title={t('requests.ttft')}
-                      >
-                        TTFT
-                      </TableHead>
-                      <TableHead className="w-[80px] text-center font-medium">
-                        {t('requests.duration')}
-                      </TableHead>
-                      <TableHead
-                        className="w-[45px] text-center font-medium"
-                        title={t('requests.attempts')}
-                      >
-                        {t('requests.attShort')}
-                      </TableHead>
-                      <TableHead
-                        className="w-[65px] text-center font-medium"
-                        title={t('requests.inputTokens')}
-                      >
-                        {t('requests.inShort')}
-                      </TableHead>
-                      <TableHead
-                        className="w-[65px] text-center font-medium"
-                        title={t('requests.outputTokens')}
-                      >
-                        {t('requests.outShort')}
-                      </TableHead>
-                      <TableHead
-                        className="w-[65px] text-center font-medium"
-                        title={t('requests.cacheRead')}
-                      >
-                        {t('requests.cacheRShort')}
-                      </TableHead>
-                      <TableHead
-                        className="w-[65px] text-center font-medium"
-                        title={t('requests.cacheWrite')}
-                      >
-                        {t('requests.cacheWShort')}
-                      </TableHead>
-                      <TableHead className="w-[80px] text-center font-medium">
-                        {t('requests.cost')}
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
+                  {desktopTableHeader}
                   <TableBody>
-                    {allRequests.map((req) => (
+                    {shouldVirtualizeDesktop && desktopVirtualRange.topSpacerHeight > 0 && (
+                      <tr aria-hidden="true">
+                        <td
+                          colSpan={desktopColumnCount}
+                          className="border-0 p-0"
+                          style={{ height: `${desktopVirtualRange.topSpacerHeight}px` }}
+                        />
+                      </tr>
+                    )}
+                    {desktopVisibleRequests.map((req) => (
                       <MemoLogRow
                         key={req.id}
                         request={req}
@@ -504,10 +580,18 @@ export function RequestsPage() {
                         showTokenColumn={apiTokenAuthEnabled}
                         forceProjectBinding={forceProjectBinding}
                         nowMs={nowMs}
-                        enableMarquee={enableMarquee}
                         onOpenRequest={handleOpenRequest}
                       />
                     ))}
+                    {shouldVirtualizeDesktop && desktopVirtualRange.bottomSpacerHeight > 0 && (
+                      <tr aria-hidden="true">
+                        <td
+                          colSpan={desktopColumnCount}
+                          className="border-0 p-0"
+                          style={{ height: `${desktopVirtualRange.bottomSpacerHeight}px` }}
+                        />
+                      </tr>
+                    )}
                   </TableBody>
                 </Table>
                 {/* 触底加载指示器 */}
@@ -669,7 +753,6 @@ type LogRowProps = {
   showTokenColumn?: boolean;
   forceProjectBinding?: boolean;
   nowMs: number;
-  enableMarquee: boolean;
   onOpenRequest: (id: number) => void;
 };
 
@@ -682,7 +765,6 @@ function LogRow({
   showTokenColumn,
   forceProjectBinding,
   nowMs,
-  enableMarquee,
   onOpenRequest,
 }: LogRowProps) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
@@ -747,10 +829,11 @@ function LogRow({
 
   return (
     <TableRow
+      data-request-row="true"
       onClick={handleClick}
       className={cn(
         'cursor-pointer group transition-colors',
-        // Zebra striping - use CSS selector to avoid passing index (inserts won't invalidate memo)
+        // 保持原有的行样式与动画 class，虚拟列表只负责裁剪渲染数量。
         'even:bg-foreground/[0.03]',
         // Base hover effect (stronger background change)
         !isRecent && !isFailed && !isPending && !isPendingBinding && 'hover:bg-accent/50',
@@ -766,15 +849,8 @@ function LogRow({
             'border-l-2 border-l-amber-500',
           ),
 
-        // Active/Pending state - Blue left border + (optional) Marquee animation
-        isPending &&
-          !isPendingBinding &&
-          (enableMarquee
-            ? 'animate-marquee-row'
-            : cn(
-                'bg-blue-500/5 even:bg-blue-500/10',
-                'border-l-2 border-l-blue-500/50',
-              )),
+        // 桌面端虚拟列表已经限制了 DOM 行数，这里恢复原始跑马灯样式。
+        isPending && !isPendingBinding && 'animate-marquee-row',
 
         // New Item Flash Animation
         isRecent && !isPending && !isPendingBinding && 'bg-accent/20',
@@ -929,28 +1005,24 @@ function LogRow({
   );
 }
 
-const MemoLogRow = memo(
-  LogRow,
-  (prev: Readonly<LogRowProps>, next: Readonly<LogRowProps>) => {
-    if (prev.request !== next.request) return false;
-    if (prev.providerName !== next.providerName) return false;
-    if (prev.projectName !== next.projectName) return false;
-    if (prev.tokenName !== next.tokenName) return false;
-    if (prev.showProjectColumn !== next.showProjectColumn) return false;
-    if (prev.showTokenColumn !== next.showTokenColumn) return false;
-    if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
-    if (prev.enableMarquee !== next.enableMarquee) return false;
-    if (prev.onOpenRequest !== next.onOpenRequest) return false;
+const MemoLogRow = memo(LogRow, (prev: Readonly<LogRowProps>, next: Readonly<LogRowProps>) => {
+  if (prev.request !== next.request) return false;
+  if (prev.providerName !== next.providerName) return false;
+  if (prev.projectName !== next.projectName) return false;
+  if (prev.tokenName !== next.tokenName) return false;
+  if (prev.showProjectColumn !== next.showProjectColumn) return false;
+  if (prev.showTokenColumn !== next.showTokenColumn) return false;
+  if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
+  if (prev.onOpenRequest !== next.onOpenRequest) return false;
 
-    const prevPending = prev.request.status === 'PENDING' || prev.request.status === 'IN_PROGRESS';
-    const nextPending = next.request.status === 'PENDING' || next.request.status === 'IN_PROGRESS';
-    if (prevPending || nextPending) {
-      return prev.nowMs === next.nowMs;
-    }
+  const prevPending = prev.request.status === 'PENDING' || prev.request.status === 'IN_PROGRESS';
+  const nextPending = next.request.status === 'PENDING' || next.request.status === 'IN_PROGRESS';
+  if (prevPending || nextPending) {
+    return prev.nowMs === next.nowMs;
+  }
 
-    return true;
-  },
-);
+  return true;
+});
 
 // Mobile Request Card Component
 type MobileRequestCardProps = {
@@ -1063,9 +1135,7 @@ function FilterModeSelect({
       <SelectContent>
         <SelectItem value="token">{t('requests.filterByToken')}</SelectItem>
         <SelectItem value="provider">{t('requests.filterByProvider')}</SelectItem>
-        {hasProjects && (
-          <SelectItem value="project">{t('requests.filterByProject')}</SelectItem>
-        )}
+        {hasProjects && <SelectItem value="project">{t('requests.filterByProject')}</SelectItem>}
       </SelectContent>
     </Select>
   );

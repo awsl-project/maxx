@@ -17,6 +17,8 @@ type ProxyRequestRepository struct {
 	count int64 // 缓存的请求总数，使用原子操作
 }
 
+var activeProxyRequestStatuses = []string{"PENDING", "IN_PROGRESS"}
+
 func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
 	r := &ProxyRequestRepository{db: db}
 	// 初始化时从数据库加载计数
@@ -81,43 +83,39 @@ func (r *ProxyRequestRepository) List(tenantID uint64, limit, offset int) ([]*do
 // 注意：列表查询不返回 request_info 和 response_info 大字段
 func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, after uint64, filter *repository.ProxyRequestFilter) ([]*domain.ProxyRequest, error) {
 	// 使用 Select 排除大字段
-	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+	baseQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
 		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, ttft_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id")
 
 	if after > 0 {
-		query = query.Where("id > ?", after)
+		baseQuery = baseQuery.Where("id > ?", after)
 	} else if before > 0 {
-		query = query.Where("id < ?", before)
+		baseQuery = baseQuery.Where("id < ?", before)
 	}
 
 	// 应用过滤条件
 	if filter != nil {
 		if filter.ProviderID != nil {
-			query = query.Where("provider_id = ?", *filter.ProviderID)
+			baseQuery = baseQuery.Where("provider_id = ?", *filter.ProviderID)
 		}
 		if filter.Status != nil {
-			query = query.Where("status = ?", *filter.Status)
+			baseQuery = baseQuery.Where("status = ?", *filter.Status)
 		}
 		if filter.APITokenID != nil {
-			query = query.Where("api_token_id = ?", *filter.APITokenID)
+			baseQuery = baseQuery.Where("api_token_id = ?", *filter.APITokenID)
 		}
 		if filter.ProjectID != nil {
-			query = query.Where("project_id = ?", *filter.ProjectID)
+			baseQuery = baseQuery.Where("project_id = ?", *filter.ProjectID)
 		}
 	}
 
-	var models []ProxyRequest
-	// 注意：这里使用基于主键 id 的稳定排序（与 before/after 游标保持一致），避免复杂 ORDER BY
-	// 导致 SQLite 无法利用索引、在大数据量下触发全表排序，从而出现“limit=100 仍需数分钟”的性能问题。
-	//
-	// 约定：
-	// - 默认/向后翻页(before)：按 id DESC（最新在前）
-	// - 向前翻页/获取新数据(after)：按 id ASC（较旧的新数据在前，便于按时间顺序追加）
 	orderBy := "id DESC"
 	if after > 0 {
 		orderBy = "id ASC"
 	}
-	if err := query.Order(orderBy).Limit(limit).Find(&models).Error; err != nil {
+
+	// 游标分页必须保持全局单调 ID 顺序，活跃优先排序交给前端展示层处理。
+	var models []ProxyRequest
+	if err := baseQuery.Order(orderBy).Limit(limit).Find(&models).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomainList(models), nil
@@ -128,7 +126,7 @@ func (r *ProxyRequestRepository) ListActive(tenantID uint64) ([]*domain.ProxyReq
 	var models []ProxyRequest
 	if err := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
 		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id").
-		Where("status IN ?", []string{"PENDING", "IN_PROGRESS"}).
+		Where("status IN ?", activeProxyRequestStatuses).
 		Order("id DESC").
 		Find(&models).Error; err != nil {
 		return nil, err
@@ -464,39 +462,39 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 			CreatedAt: toTimestamp(p.CreatedAt),
 			UpdatedAt: toTimestamp(p.UpdatedAt),
 		},
-		TenantID:                   p.TenantID,
-		InstanceID:                 p.InstanceID,
-		RequestID:                  p.RequestID,
-		SessionID:                  p.SessionID,
-		ClientType:                 string(p.ClientType),
-		RequestModel:               p.RequestModel,
-		ResponseModel:              p.ResponseModel,
-		StartTime:                  toTimestamp(p.StartTime),
-		EndTime:                    toTimestamp(p.EndTime),
-		DurationMs:                 p.Duration.Milliseconds(),
-		TTFTMs:                     p.TTFT.Milliseconds(),
-		IsStream:                   boolToInt(p.IsStream),
-		Status:                     p.Status,
-		StatusCode:                 p.StatusCode,
-		RequestInfo:                LongText(toJSON(p.RequestInfo)),
-		ResponseInfo:               LongText(toJSON(p.ResponseInfo)),
-		Error:                      LongText(p.Error),
-		ProxyUpstreamAttemptCount:  p.ProxyUpstreamAttemptCount,
+		TenantID:                    p.TenantID,
+		InstanceID:                  p.InstanceID,
+		RequestID:                   p.RequestID,
+		SessionID:                   p.SessionID,
+		ClientType:                  string(p.ClientType),
+		RequestModel:                p.RequestModel,
+		ResponseModel:               p.ResponseModel,
+		StartTime:                   toTimestamp(p.StartTime),
+		EndTime:                     toTimestamp(p.EndTime),
+		DurationMs:                  p.Duration.Milliseconds(),
+		TTFTMs:                      p.TTFT.Milliseconds(),
+		IsStream:                    boolToInt(p.IsStream),
+		Status:                      p.Status,
+		StatusCode:                  p.StatusCode,
+		RequestInfo:                 LongText(toJSON(p.RequestInfo)),
+		ResponseInfo:                LongText(toJSON(p.ResponseInfo)),
+		Error:                       LongText(p.Error),
+		ProxyUpstreamAttemptCount:   p.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,
-		RouteID:                    p.RouteID,
-		ProviderID:                 p.ProviderID,
-		ProjectID:                  p.ProjectID,
-		InputTokenCount:            p.InputTokenCount,
-		OutputTokenCount:           p.OutputTokenCount,
-		CacheReadCount:             p.CacheReadCount,
-		CacheWriteCount:            p.CacheWriteCount,
-		Cache5mWriteCount:          p.Cache5mWriteCount,
-		Cache1hWriteCount:          p.Cache1hWriteCount,
-		ModelPriceID:               p.ModelPriceID,
-		Multiplier:                 p.Multiplier,
-		Cost:                       p.Cost,
-		APITokenID:                 p.APITokenID,
-		DevMode:                    boolToInt(p.DevMode),
+		RouteID:                     p.RouteID,
+		ProviderID:                  p.ProviderID,
+		ProjectID:                   p.ProjectID,
+		InputTokenCount:             p.InputTokenCount,
+		OutputTokenCount:            p.OutputTokenCount,
+		CacheReadCount:              p.CacheReadCount,
+		CacheWriteCount:             p.CacheWriteCount,
+		Cache5mWriteCount:           p.Cache5mWriteCount,
+		Cache1hWriteCount:           p.Cache1hWriteCount,
+		ModelPriceID:                p.ModelPriceID,
+		Multiplier:                  p.Multiplier,
+		Cost:                        p.Cost,
+		APITokenID:                  p.APITokenID,
+		DevMode:                     boolToInt(p.DevMode),
 	}
 }
 

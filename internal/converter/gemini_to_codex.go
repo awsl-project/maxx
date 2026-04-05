@@ -9,7 +9,9 @@ import (
 )
 
 func init() {
-	RegisterConverter(domain.ClientTypeGemini, domain.ClientTypeCodex, &geminiToCodexRequest{}, &geminiToCodexResponse{})
+	// Response transformer is codexToGeminiResponse (reads Gemini body → outputs Codex body)
+	// because responses[from][to] must convert FROM from-format TO to-format
+	RegisterConverter(domain.ClientTypeGemini, domain.ClientTypeCodex, &geminiToCodexRequest{}, &codexToGeminiResponse{})
 }
 
 type geminiToCodexRequest struct{}

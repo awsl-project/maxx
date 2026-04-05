@@ -244,6 +244,26 @@ func TestCreateUser_DuplicateUsername(t *testing.T) {
 	}
 }
 
+func TestCreateUser_InvalidPassword(t *testing.T) {
+	env := NewTestEnv(t)
+
+	body := map[string]any{
+		"username": "weak-user",
+		"password": "weakpass",
+		"role":     "member",
+	}
+
+	resp := env.AdminPost("/api/admin/users", body)
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
+	}
+}
+
 func TestCreateUser_InvalidJSON(t *testing.T) {
 	env := NewTestEnv(t)
 
@@ -347,6 +367,35 @@ func TestUpdateUserPassword_EmptyPassword(t *testing.T) {
 	}
 }
 
+func TestUpdateUserPassword_InvalidPassword(t *testing.T) {
+	env := NewTestEnv(t)
+
+	body := map[string]any{
+		"username": "pwdinvalid",
+		"password": "Oldpass1!",
+		"role":     "member",
+	}
+	resp := env.AdminPost("/api/admin/users", body)
+	AssertStatus(t, resp, http.StatusCreated)
+
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	id := created["id"].(float64)
+
+	pwdBody := map[string]any{
+		"password": "weakpass",
+	}
+	resp = env.AdminPut(fmt.Sprintf("/api/admin/users/%d/password", int(id)), pwdBody)
+	AssertStatus(t, resp, http.StatusBadRequest)
+
+	var result map[string]any
+	DecodeJSON(t, resp, &result)
+
+	if result["code"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("Expected PASSWORD_POLICY_VIOLATION code, got %v", result["code"])
+	}
+}
+
 func TestUpdateUserPassword_NotFound(t *testing.T) {
 	env := NewTestEnv(t)
 
@@ -368,7 +417,7 @@ func TestApproveUser_Success(t *testing.T) {
 	env := NewTestEnv(t)
 
 	// Create a pending user via the apply endpoint
-	env.CreatePendingUser("pendinguser", "pending-password-123")
+	env.CreatePendingUser("pendinguser", "Pending1!")
 
 	// Find the pending user in the list
 	resp := env.AdminGet("/api/admin/users")

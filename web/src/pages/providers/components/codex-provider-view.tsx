@@ -16,6 +16,8 @@ import {
   Gauge,
   Copy,
   Check,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -40,6 +42,7 @@ import { ModelInput } from '@/components/ui/model-input';
 import { CODEX_COLOR } from '../types';
 import { useCodexBatchQuotas } from '@/hooks/queries';
 import { CLIProxyAPISwitch } from './cliproxyapi-switch';
+import { ProviderProxyURLCard } from './provider-proxy-url-card';
 
 interface CodexProviderViewProps {
   provider: Provider;
@@ -347,6 +350,7 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [showToken, setShowToken] = useState(false);
 
   const config = provider.config?.codex;
   const updateProvider = useUpdateProvider();
@@ -357,6 +361,8 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     () => provider.config?.disableErrorCooldown ?? false,
   );
+  const [reasoning, setReasoning] = useState(() => config?.reasoning ?? '');
+  const [serviceTier, setServiceTier] = useState(() => config?.serviceTier ?? '');
 
   useEffect(() => {
     setUseCLIProxyAPI(config?.useCLIProxyAPI ?? false);
@@ -364,6 +370,12 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
   useEffect(() => {
     setDisableErrorCooldown(provider.config?.disableErrorCooldown ?? false);
   }, [provider.config?.disableErrorCooldown]);
+  useEffect(() => {
+    setReasoning(config?.reasoning ?? '');
+  }, [config?.reasoning]);
+  useEffect(() => {
+    setServiceTier(config?.serviceTier ?? '');
+  }, [config?.serviceTier]);
 
   const handleToggleCLIProxyAPI = async (checked: boolean) => {
     if (!config) return;
@@ -409,6 +421,52 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
       });
     } catch {
       setDisableErrorCooldown(prev);
+    }
+  };
+
+  const handleChangeReasoning = async (value: string) => {
+    if (!config) return;
+    const prev = reasoning;
+    setReasoning(value);
+    try {
+      await updateProvider.mutateAsync({
+        id: provider.id,
+        data: {
+          ...provider,
+          config: {
+            ...provider.config,
+            codex: {
+              ...config,
+              reasoning: value || undefined,
+            },
+          },
+        },
+      });
+    } catch {
+      setReasoning(prev);
+    }
+  };
+
+  const handleChangeServiceTier = async (value: string) => {
+    if (!config) return;
+    const prev = serviceTier;
+    setServiceTier(value);
+    try {
+      await updateProvider.mutateAsync({
+        id: provider.id,
+        data: {
+          ...provider,
+          config: {
+            ...provider.config,
+            codex: {
+              ...config,
+              serviceTier: value || undefined,
+            },
+          },
+        },
+      });
+    } catch {
+      setServiceTier(prev);
     }
   };
 
@@ -500,6 +558,8 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-7xl space-y-8">
+          <ProviderProxyURLCard provider={provider} />
+
           {/* Info Card */}
           <div className="bg-muted rounded-xl p-6 border border-border">
             <div className="flex items-start justify-between gap-6">
@@ -548,8 +608,15 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-mono text-sm text-foreground bg-card px-2 py-1 rounded border border-border/50 flex-1 truncate">
-                      {config.refreshToken.slice(0, 30)}...
+                      {showToken ? config.refreshToken : `${config.refreshToken.slice(0, 30)}...`}
                     </div>
+                    <button
+                      onClick={() => setShowToken(!showToken)}
+                      className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                      title={showToken ? t('common.hide') : t('common.show')}
+                    >
+                      {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                     <button
                       onClick={handleCopyToken}
                       className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
@@ -576,7 +643,7 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
               </div>
             )}
 
-            <div className="mt-4">
+            <div className="mt-4 space-y-3">
               <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
                 <div className="pr-4">
                   <div className="text-sm font-medium text-foreground">
@@ -591,6 +658,51 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
                   onCheckedChange={handleToggleDisableErrorCooldown}
                   disabled={updateProvider.isPending}
                 />
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('providers.codex.reasoning')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('providers.codex.reasoningDesc')}
+                  </p>
+                </div>
+                <select
+                  value={reasoning}
+                  onChange={(e) => handleChangeReasoning(e.target.value)}
+                  disabled={updateProvider.isPending}
+                  className="h-8 px-2 text-sm rounded-md border border-border bg-card text-foreground min-w-[120px]"
+                >
+                  <option value="">{t('providers.codex.followRequest')}</option>
+                  <option value="low">{t('providers.codex.reasoningLow')}</option>
+                  <option value="medium">{t('providers.codex.reasoningMedium')}</option>
+                  <option value="high">{t('providers.codex.reasoningHigh')}</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('providers.codex.serviceTier')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('providers.codex.serviceTierDesc')}
+                  </p>
+                </div>
+                <select
+                  value={serviceTier}
+                  onChange={(e) => handleChangeServiceTier(e.target.value)}
+                  disabled={updateProvider.isPending}
+                  className="h-8 px-2 text-sm rounded-md border border-border bg-card text-foreground min-w-[120px]"
+                >
+                  <option value="">{t('providers.codex.followRequest')}</option>
+                  <option value="auto">{t('providers.codex.serviceTierAuto')}</option>
+                  <option value="default">{t('providers.codex.serviceTierDefault')}</option>
+                  <option value="flex">{t('providers.codex.serviceTierFlex')}</option>
+                  <option value="priority">{t('providers.codex.serviceTierPriority')}</option>
+                </select>
               </div>
             </div>
           </div>

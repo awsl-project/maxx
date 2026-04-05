@@ -7,17 +7,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
+	"github.com/awsl-project/maxx/internal/adapter/provider/custom/error_fixer"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
 )
+
+// mockMode enables forwarding X-Mock-* headers to upstream (for testing).
+// Activated by setting MAXX_MOCK_MODE=1 environment variable.
+var mockMode = os.Getenv("MAXX_MOCK_MODE") == "1"
+
 
 func init() {
 	provider.RegisterAdapterFactory("custom", NewAdapter)
@@ -71,7 +79,9 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// For other types, update model in request body
 		requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to update model in body")
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in body")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 	}
 
@@ -85,7 +95,10 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to create upstream request")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return proxyErr
 	}
 
 	// Set headers based on client type
@@ -133,6 +146,17 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		}
 	}
 
+	// Forward X-Mock-* headers from client request to upstream (test mode only)
+	if mockMode && request != nil {
+		for key, values := range request.Header {
+			if strings.HasPrefix(strings.ToLower(key), "x-mock-") {
+				for _, v := range values {
+					upstreamReq.Header.Set(key, v)
+				}
+			}
+		}
+	}
+
 	// Send request info via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
@@ -149,8 +173,8 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-		proxyErr.IsNetworkError = true
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to upstream"
 		return proxyErr
 	}
 	defer resp.Body.Close()
@@ -160,11 +184,19 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Decompress error response if needed (Claude requests use Accept-Encoding)
 		reader, decompErr := decompressResponse(resp)
 		if decompErr != nil {
-			return domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
+			proxyErr := domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 		defer reader.Close()
 
 		body, _ := io.ReadAll(reader)
+
+		// Try error fixers: if a fixer matches, fix the request and retry once
+		if retryErr := a.retryWithFixer(c, ctx, resp, body, clientType, upstreamReq, requestBody, isOAuthToken, client); retryErr == nil {
+			return nil
+		}
+
 		// Send error response info via EventChannel
 		if eventChan := flow.GetEventChan(c); eventChan != nil {
 			eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -174,34 +206,32 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			})
 		}
 
-		proxyErr := domain.NewProxyErrorWithMessage(
-			fmt.Errorf("upstream error: %s", string(body)),
-			isRetryableStatusCode(resp.StatusCode),
-			fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-		)
-
-		// Set status code and check if it's a server error (5xx)
-		proxyErr.HTTPStatusCode = resp.StatusCode
-		proxyErr.IsServerError = resp.StatusCode >= 500 && resp.StatusCode < 600
-
-		// Parse rate limit info for 429 errors
-		if resp.StatusCode == http.StatusTooManyRequests {
-			rateLimitInfo := parseRateLimitInfo(resp, body, clientType)
-			if rateLimitInfo != nil {
-				proxyErr.RateLimitInfo = rateLimitInfo
-			}
-		}
-
+		proxyErr := classifyHTTPError(resp.StatusCode, body, resp.Header, clientType, flow.GetMappedModel(c))
 		return proxyErr
 	}
 
 	// Handle response
 	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
 	// Adapters simply pass through the upstream response
+	var handleErr error
 	if stream {
-		return a.handleStreamResponse(c, resp, clientType, isOAuthToken)
+		handleErr = a.handleStreamResponse(c, resp, clientType, isOAuthToken)
+	} else {
+		handleErr = a.handleNonStreamResponse(c, resp, clientType, isOAuthToken)
 	}
-	return a.handleNonStreamResponse(c, resp, clientType, isOAuthToken)
+	if handleErr == nil {
+		return nil
+	}
+
+	// For SSE errors detected before any data was sent to client,
+	// try error fixers (e.g. upstream rejects cache_control via SSE error event)
+	if proxyErr, ok := handleErr.(*domain.ProxyError); ok && proxyErr.Message != "" {
+		if retryErr := a.retryWithFixer(c, ctx, nil, []byte(proxyErr.Message), clientType, upstreamReq, requestBody, isOAuthToken, client); retryErr == nil {
+			return nil
+		}
+	}
+
+	return handleErr
 }
 
 func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
@@ -211,6 +241,116 @@ func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
 		}
 	}
 	return false
+}
+
+// maxFixerRounds is an absolute safety limit for fixer retry rounds.
+const maxFixerRounds = 5
+
+// retryWithFixer tries to find matching error fixers and retries the request.
+// If the retry produces a NEW error (different fixers match), it continues retrying.
+// If the same set of fixers matches again (no progress), it stops immediately.
+// Returns nil if retry succeeded, non-nil error otherwise (including no fixer found).
+// resp may be nil for SSE errors.
+func (a *CustomAdapter) retryWithFixer(
+	c *flow.Ctx,
+	ctx context.Context,
+	resp *http.Response,
+	errBody []byte,
+	clientType domain.ClientType,
+	origReq *http.Request,
+	origBody []byte,
+	isOAuthToken bool,
+	client *http.Client,
+) error {
+	currentResp := resp
+	currentErrBody := errBody
+	currentReq := origReq
+	currentBody := origBody
+	appliedFixers := make(map[string]bool)
+
+	for round := 0; round < maxFixerRounds; round++ {
+		fixers := error_fixer.FindFixers(currentResp, currentErrBody, clientType)
+		if len(fixers) == 0 {
+			if round == 0 {
+				return fmt.Errorf("no fixer matched")
+			}
+			return fmt.Errorf("retry failed with status %d (no fixer for new error)", currentResp.StatusCode)
+		}
+
+		// Check if any fixer is new (not yet applied)
+		hasNew := false
+		for _, fixer := range fixers {
+			if !appliedFixers[fixer.Name()] {
+				hasNew = true
+				break
+			}
+		}
+		if !hasNew {
+			// All matched fixers have already been applied — no progress, stop
+			return fmt.Errorf("retry failed: fixers %v already applied but error persists", fixerNames(fixers))
+		}
+
+		// Apply all matching fixers and record them
+		retryReq := currentReq.Clone(ctx)
+		fixedBody := currentBody
+		for _, fixer := range fixers {
+			log.Printf("[custom] error fixer %q matched (round %d)", fixer.Name(), round+1)
+			retryReq, fixedBody = fixer.FixRequest(retryReq, fixedBody)
+			appliedFixers[fixer.Name()] = true
+		}
+
+		// Set the fixed body on the request
+		retryReq.Body = io.NopCloser(bytes.NewReader(fixedBody))
+		retryReq.ContentLength = int64(len(fixedBody))
+
+		if eventChan := flow.GetEventChan(c); eventChan != nil {
+			eventChan.SendRequestInfo(&domain.RequestInfo{
+				Method:  retryReq.Method,
+				URL:     retryReq.URL.String(),
+				Headers: flattenHeaders(retryReq.Header),
+				Body:    string(fixedBody),
+			})
+		}
+
+		retryResp, err := client.Do(retryReq)
+		if err != nil {
+			return err
+		}
+
+		if retryResp.StatusCode < 400 {
+			// Success — handle the response
+			defer retryResp.Body.Close()
+			if isStreamRequest(fixedBody) {
+				return a.handleStreamResponse(c, retryResp, clientType, isOAuthToken)
+			}
+			return a.handleNonStreamResponse(c, retryResp, clientType, isOAuthToken)
+		}
+
+		// Still failing — read the new error body for next round
+		reader, decompErr := decompressResponse(retryResp)
+		if decompErr != nil {
+			retryResp.Body.Close()
+			return fmt.Errorf("retry failed with status %d", retryResp.StatusCode)
+		}
+		newErrBody, _ := io.ReadAll(reader)
+		reader.Close()
+		retryResp.Body.Close()
+
+		currentResp = retryResp
+		currentErrBody = newErrBody
+		currentReq = retryReq
+		currentBody = fixedBody
+	}
+
+	return fmt.Errorf("retry exhausted after %d rounds", maxFixerRounds)
+}
+
+func fixerNames(fixers []error_fixer.ErrorFixer) []string {
+	names := make([]string, len(fixers))
+	for i, f := range fixers {
+		names[i] = f.Name()
+	}
+	return names
 }
 
 func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
@@ -225,13 +365,18 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 	defer reader.Close()
 
 	body, err := io.ReadAll(reader)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 	// Claude API sometimes returns gzip without Content-Encoding header
 	if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
@@ -293,7 +438,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 	defer reader.Close()
 
@@ -326,14 +473,17 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
 	// Adapter simply passes through the upstream SSE data
 
-	// Collect all SSE events for response body and token extraction
-	var sseBuffer strings.Builder
+	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
+	var collector usage.StreamCollector
+	var responseModel string
 	var sseError error // Track any SSE error event
 	ctx := context.Background()
 	if c.Request != nil {
@@ -342,32 +492,30 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 
 	// Helper to send final events via EventChannel
 	sendFinalEvents := func() {
-		if sseBuffer.Len() > 0 {
-			// Send updated response body
-			eventChan.SendResponseInfo(&domain.ResponseInfo{
-				Status:  resp.StatusCode,
-				Headers: flattenHeaders(resp.Header),
-				Body:    sseBuffer.String(),
+		// Send response info (body not accumulated to avoid unbounded memory growth)
+		eventChan.SendResponseInfo(&domain.ResponseInfo{
+			Status:  resp.StatusCode,
+			Headers: flattenHeaders(resp.Header),
+			Body:    "[streaming]",
+		})
+
+		// Send token usage collected incrementally
+		if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
+			// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
+			metrics := usage.AdjustForClientType(collector.Metrics, clientType)
+			eventChan.SendMetrics(&domain.AdapterMetrics{
+				InputTokens:          metrics.InputTokens,
+				OutputTokens:         metrics.OutputTokens,
+				CacheReadCount:       metrics.CacheReadCount,
+				CacheCreationCount:   metrics.CacheCreationCount,
+				Cache5mCreationCount: metrics.Cache5mCreationCount,
+				Cache1hCreationCount: metrics.Cache1hCreationCount,
 			})
+		}
 
-			// Extract and send token usage
-			if metrics := usage.ExtractFromStreamContent(sseBuffer.String()); metrics != nil {
-				// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
-				metrics = usage.AdjustForClientType(metrics, clientType)
-				eventChan.SendMetrics(&domain.AdapterMetrics{
-					InputTokens:          metrics.InputTokens,
-					OutputTokens:         metrics.OutputTokens,
-					CacheReadCount:       metrics.CacheReadCount,
-					CacheCreationCount:   metrics.CacheCreationCount,
-					Cache5mCreationCount: metrics.Cache5mCreationCount,
-					Cache1hCreationCount: metrics.Cache1hCreationCount,
-				})
-			}
-
-			// Extract and send responseModel
-			if responseModel := extractResponseModelFromSSE(sseBuffer.String(), clientType); responseModel != "" {
-				eventChan.SendResponseModel(responseModel)
-			}
+		// Send model collected incrementally
+		if responseModel != "" {
+			eventChan.SendResponseModel(responseModel)
 		}
 	}
 
@@ -400,11 +548,14 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 				if t, ok := errObj["type"].(string); ok {
 					errType = t
 				}
-				return domain.NewProxyErrorWithMessage(
+				proxyErr := domain.NewProxyErrorWithMessage(
 					fmt.Errorf("SSE error (code=%d): %s", code, msg),
 					isRetryableSSEError(code, errType, msg),
 					msg,
 				)
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonServerError
+				return proxyErr
 			}
 		}
 
@@ -430,7 +581,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					isRetryableSSEError(code, errType, msg),
 					msg,
 				)
-				proxyErr.IsServerError = errType == "internal_error" || errType == "server_error"
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonServerError
 				return proxyErr
 			}
 		}
@@ -448,7 +600,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 		select {
 		case <-ctx.Done():
 			sendFinalEvents() // Try to extract tokens before returning
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		default:
 		}
 
@@ -475,8 +629,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					}
 				}
 
-				// Collect all SSE content (preserve complete format including newlines)
-				sseBuffer.WriteString(processedLine)
+				// Extract metrics and model incrementally per line
+				collector.ProcessSSELine(processedLine)
+				extractResponseModelFromSSELine(processedLine, clientType, &responseModel)
 
 				// Check for SSE error events in data lines BEFORE writing to client
 				lineStr := processedLine
@@ -500,7 +655,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					if writeErr != nil {
 						// Client disconnected
 						sendFinalEvents()
-						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+						proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+						proxyErr.Scope = domain.ScopeRequest
+						return proxyErr
 					}
 					flusher.Flush()
 
@@ -525,7 +682,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			// Upstream connection closed - check if client is still connected
 			if ctx.Err() != nil {
 				sendFinalEvents()
-				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 			sendFinalEvents()
 			// Return SSE error if one was detected during streaming
@@ -774,36 +933,106 @@ func copyResponseHeaders(dst, src http.Header) {
 	}
 }
 
-// parseRateLimitInfo parses rate limit information from 429 responses
-// Supports multiple API formats: OpenAI, Anthropic, Gemini, etc.
-func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.ClientType) *domain.RateLimitInfo {
-	var resetTime time.Time
-	var rateLimitType = "rate_limit_exceeded"
-
-	// Method 1: Parse Retry-After header
-	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-		// Try as seconds
-		if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
-			resetTime = time.Now().Add(time.Duration(seconds) * time.Second)
-		} else if t, err := http.ParseTime(retryAfter); err == nil {
-			resetTime = t
-		}
-	}
-
-	// Method 2: Parse response body
+// classifyHTTPError creates a structured ProxyError from an HTTP error response.
+// It determines Scope (what's broken) and Reason (why) from status code and body.
+func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientType domain.ClientType, model string) *domain.ProxyError {
 	bodyStr := string(body)
 	bodyLower := strings.ToLower(bodyStr)
 
-	// Detect rate limit type from message
-	if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "exceeded your") {
-		rateLimitType = "quota_exhausted"
-	} else if strings.Contains(bodyLower, "per minute") || strings.Contains(bodyLower, "rpm") || strings.Contains(bodyLower, "tpm") {
-		rateLimitType = "rate_limit_exceeded"
-	} else if strings.Contains(bodyLower, "concurrent") {
-		rateLimitType = "concurrent_limit"
+	proxyErr := &domain.ProxyError{
+		Err:            fmt.Errorf("upstream error: %s", bodyStr),
+		Message:        fmt.Sprintf("upstream returned status %d", statusCode),
+		HTTPStatusCode: statusCode,
+		Retryable:      isRetryableStatusCode(statusCode),
 	}
 
-	// Try to parse structured error response
+	// Parse Retry-After header (used by several branches)
+	if retryAfter, until := parseRetryAfterHeader(headers.Get("Retry-After")); retryAfter > 0 {
+		proxyErr.RetryAfter = retryAfter
+		proxyErr.CooldownUntil = until
+	}
+
+	switch {
+	// 401 — invalid key / expired token
+	case statusCode == 401:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	// 403 — check if model-specific or account-level
+	case statusCode == 403:
+		if containsAny(bodyLower, "model", "access denied for model", "permission denied for model") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonAuthFailure
+		}
+		proxyErr.Retryable = false
+
+	// 404 — model not found
+	case statusCode == 404:
+		if containsAny(bodyLower, "model", "not found") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+			proxyErr.Retryable = false
+		} else {
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	// 400, 408, 413, 422 — request-level errors
+	case statusCode == 400 || statusCode == 408 || statusCode == 413 || statusCode == 422:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+
+	// 429 — rate limit (need to disambiguate)
+	case statusCode == 429:
+		proxyErr.Retryable = true
+		proxyErr.ClientType = string(clientType)
+		classify429Error(proxyErr, body, bodyLower, headers, model)
+
+	// 503 — check if model overloaded or full outage
+	case statusCode == 503:
+		if containsAny(bodyLower, "model", "overloaded", "capacity") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonServerError
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	// 500, 502, 504 — provider-level server errors
+	case statusCode >= 500:
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+
+	// Other 4xx — request-level
+	default:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+	}
+
+	return proxyErr
+}
+
+// classify429Error determines the scope and reason for 429 rate limit errors.
+func classify429Error(proxyErr *domain.ProxyError, body []byte, bodyLower string, headers http.Header, model string) {
+	// Default to key-level rate limit
+	proxyErr.Scope = domain.ScopeKey
+	proxyErr.Reason = domain.CooldownReasonRateLimitExceeded
+
+	// Check for quota exhaustion
+	if containsAny(bodyLower, "quota", "exceeded your", "insufficient_quota") {
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+	} else if containsAny(bodyLower, "concurrent") {
+		proxyErr.Reason = domain.CooldownReasonConcurrentLimit
+	}
+
+	// Try to parse structured error for more detail
 	var errResp struct {
 		Error struct {
 			Message string `json:"message"`
@@ -811,41 +1040,93 @@ func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.Clie
 			Code    string `json:"code"`
 		} `json:"error"`
 	}
-
 	if json.Unmarshal(body, &errResp) == nil {
-		// OpenAI/Anthropic style
-		if errResp.Error.Type == "rate_limit_error" || errResp.Error.Code == "rate_limit_exceeded" {
-			// Try to extract time from message
+		if errResp.Error.Type == "insufficient_quota" || errResp.Error.Code == "insufficient_quota" {
+			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		}
+		// Extract time from message if no Retry-After header
+		if proxyErr.CooldownUntil == nil {
 			if t := extractTimeFromMessage(errResp.Error.Message); !t.IsZero() {
-				resetTime = t
+				proxyErr.CooldownUntil = &t
 			}
 		}
-		if errResp.Error.Type == "insufficient_quota" || errResp.Error.Code == "insufficient_quota" {
-			rateLimitType = "quota_exhausted"
+	}
+
+	// Try structured reset time fields
+	if proxyErr.CooldownUntil == nil {
+		if t := extractStructuredResetTime(body); !t.IsZero() {
+			proxyErr.CooldownUntil = &t
 		}
 	}
 
-	// If no reset time found, use default based on type
-	if resetTime.IsZero() {
-		switch rateLimitType {
-		case "quota_exhausted":
-			// Default to 1 hour for quota exhaustion
-			resetTime = time.Now().Add(1 * time.Hour)
-		case "concurrent_limit":
-			// Short cooldown for concurrent limits
-			resetTime = time.Now().Add(10 * time.Second)
-		default:
-			// Default to 1 minute for rate limits
-			resetTime = time.Now().Add(1 * time.Minute)
+	// Per-model rate limit detection (if body mentions specific model)
+	if containsAny(bodyLower, "model", "tokens per minute", "tpm") {
+		proxyErr.Scope = domain.ScopeModel
+		proxyErr.Model = model
+	}
+}
+
+// containsAny returns true if s contains any of the substrings.
+func containsAny(s string, substrs ...string) bool {
+	for _, sub := range substrs {
+		if strings.Contains(s, sub) {
+			return true
 		}
 	}
+	return false
+}
 
-	return &domain.RateLimitInfo{
-		Type:             rateLimitType,
-		QuotaResetTime:   resetTime,
-		RetryHintMessage: bodyStr,
-		ClientType:       string(clientType), // Cooldown applies to specific client type
+func parseRetryAfterHeader(value string) (time.Duration, *time.Time) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
 	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		until := time.Now().Add(time.Duration(seconds) * time.Second)
+		return time.Duration(seconds) * time.Second, &until
+	}
+	if t, err := http.ParseTime(value); err == nil {
+		delay := time.Until(t)
+		if delay > 0 {
+			return delay, &t
+		}
+		return 0, nil
+	}
+	return 0, nil
+}
+
+func extractStructuredResetTime(body []byte) time.Time {
+	var payload interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return time.Time{}
+	}
+	return findResetTime(payload)
+}
+
+func findResetTime(v interface{}) time.Time {
+	switch value := v.(type) {
+	case map[string]interface{}:
+		for key, raw := range value {
+			switch key {
+			case "QuotaResetTime", "quotaResetTime", "quota_reset_time", "quotaResetTimeStamp", "cooldownUntil", "CooldownUntil":
+				if s, ok := raw.(string); ok {
+					if parsed, err := time.Parse(time.RFC3339, s); err == nil {
+						return parsed
+					}
+				}
+			}
+			if parsed := findResetTime(raw); !parsed.IsZero() {
+				return parsed
+			}
+		}
+	case []interface{}:
+		for _, item := range value {
+			if parsed := findResetTime(item); !parsed.IsZero() {
+				return parsed
+			}
+		}
+	}
+	return time.Time{}
 }
 
 // extractTimeFromMessage tries to extract time duration from error message
@@ -897,44 +1178,40 @@ func extractResponseModel(body []byte, targetType domain.ClientType) string {
 	return ""
 }
 
-// extractResponseModelFromSSE extracts the model name from SSE content based on target type
-func extractResponseModelFromSSE(sseContent string, targetType domain.ClientType) string {
-	var lastModel string
-	lines := strings.Split(sseContent, "\n")
-
-	for _, line := range lines {
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if dataStr == "" || dataStr == "[DONE]" {
-			continue
-		}
-
-		var payload map[string]interface{}
-		if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
-			continue
-		}
-
-		switch targetType {
-		case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
-			// Claude/OpenAI: check for "model" in various places
-			if model, ok := payload["model"].(string); ok && model != "" {
-				lastModel = model
-			}
-			// Claude SSE: check message_start event
-			if msg, ok := payload["message"].(map[string]interface{}); ok {
-				if model, ok := msg["model"].(string); ok && model != "" {
-					lastModel = model
-				}
-			}
-		case domain.ClientTypeGemini:
-			// Gemini: check for "modelVersion"
-			if model, ok := payload["modelVersion"].(string); ok && model != "" {
-				lastModel = model
-			}
-		}
+// extractResponseModelFromSSELine extracts the model name from a single SSE line based on target type.
+func extractResponseModelFromSSELine(line string, targetType domain.ClientType, model *string) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "data:") {
+		return
+	}
+	dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if dataStr == "" || dataStr == "[DONE]" {
+		return
 	}
 
-	return lastModel
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
+		return
+	}
+
+	switch targetType {
+	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
+		// Claude/OpenAI: check for "model" in various places
+		if m, ok := payload["model"].(string); ok && m != "" {
+			*model = m
+		}
+		// Claude SSE: check message_start event for model in message object
+		if eventType, ok := payload["type"].(string); ok && eventType == "message_start" {
+			if msg, ok := payload["message"].(map[string]interface{}); ok {
+				if m, ok := msg["model"].(string); ok && m != "" {
+					*model = m
+				}
+			}
+		}
+	case domain.ClientTypeGemini:
+		// Gemini: check for "modelVersion"
+		if m, ok := payload["modelVersion"].(string); ok && m != "" {
+			*model = m
+		}
+	}
 }

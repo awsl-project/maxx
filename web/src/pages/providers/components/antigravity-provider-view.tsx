@@ -12,6 +12,8 @@ import {
   Zap,
   Copy,
   Check,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ClientIcon } from '@/components/icons/client-icons';
@@ -34,6 +36,7 @@ import { Button, Switch } from '@/components/ui';
 import { ModelInput } from '@/components/ui/model-input';
 import { ANTIGRAVITY_COLOR } from '../types';
 import { CLIProxyAPISwitch } from './cliproxyapi-switch';
+import { ProviderProxyURLCard } from './provider-proxy-url-card';
 
 interface AntigravityProviderViewProps {
   provider: Provider;
@@ -276,6 +279,7 @@ export function AntigravityProviderView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [showToken, setShowToken] = useState(false);
   const updateProvider = useUpdateProvider();
 
   const [useCLIProxyAPI, setUseCLIProxyAPI] = useState(
@@ -393,6 +397,8 @@ export function AntigravityProviderView({
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-7xl space-y-8">
+          <ProviderProxyURLCard provider={provider} />
+
           {/* Info Card */}
           <div className="bg-muted rounded-xl p-6 border border-border">
             <div className="flex items-start justify-between gap-6">
@@ -441,8 +447,15 @@ export function AntigravityProviderView({
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="font-mono text-sm text-foreground bg-card px-2 py-1 rounded border border-border/50 flex-1 truncate">
-                      {provider.config.antigravity.refreshToken.slice(0, 20)}...
+                      {showToken ? provider.config.antigravity.refreshToken : `${provider.config.antigravity.refreshToken.slice(0, 20)}...`}
                     </div>
+                    <button
+                      onClick={() => setShowToken(!showToken)}
+                      className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                      title={showToken ? t('common.hide') : t('common.show')}
+                    >
+                      {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                     <button
                       onClick={handleCopyToken}
                       className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"

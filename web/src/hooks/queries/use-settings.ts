@@ -8,14 +8,24 @@ import type { ModelMappingInput } from '@/lib/transport';
 
 export const settingsKeys = {
   all: ['settings'] as const,
+  public: ['public-settings'] as const,
   detail: (key: string) => ['settings', key] as const,
   modelMappings: ['model-mappings'] as const,
 };
 
-export function useSettings() {
+export function usePublicSettings(enabled = true) {
+  return useQuery({
+    queryKey: settingsKeys.public,
+    queryFn: () => getTransport().getPublicSettings(),
+    enabled,
+  });
+}
+
+export function useSettings(enabled = true) {
   return useQuery({
     queryKey: settingsKeys.all,
-    queryFn: () => getTransport().getSettings(),
+    queryFn: () => getTransport().getAdminSettings(),
+    enabled,
   });
 }
 
@@ -58,6 +68,7 @@ export function useUpdateSetting() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+      queryClient.invalidateQueries({ queryKey: settingsKeys.public });
     },
   });
 }
@@ -69,6 +80,7 @@ export function useDeleteSetting() {
     mutationFn: (key: string) => getTransport().deleteSetting(key),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+      queryClient.invalidateQueries({ queryKey: settingsKeys.public });
     },
   });
 }

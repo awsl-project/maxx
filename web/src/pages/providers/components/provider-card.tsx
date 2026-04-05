@@ -16,8 +16,13 @@ interface ProviderCardProps {
 export function AntigravityProviderCard({ provider, onClick, streamingCount }: ProviderCardProps) {
   const { t } = useTranslation();
   const email = provider.config?.antigravity?.email || t('provider.unknown');
-  const { getCooldownForProvider, clearCooldown, isClearingCooldown } = useCooldowns();
-  const cooldown = getCooldownForProvider(provider.id);
+  const { getCooldownsForProvider, getProviderHealthLevel, clearCooldown, isClearingCooldown } =
+    useCooldowns();
+  const providerCooldowns = getCooldownsForProvider(provider.id);
+  const healthLevel = getProviderHealthLevel(provider.id);
+  const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
+  const worstCooldown = providerCooldowns[0];
+  const isFrozenOrLimited = healthLevel === 'frozen' || healthLevel === 'limited';
 
   const handleClearCooldown = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent triggering card onClick
@@ -28,13 +33,35 @@ export function AntigravityProviderCard({ provider, onClick, streamingCount }: P
     <div
       onClick={onClick}
       className={`bg-muted border border-border rounded-xl p-4 hover:border-accent/30 hover:bg-accent cursor-pointer transition-all relative group overflow-hidden ${
-        cooldown ? 'opacity-60' : ''
+        healthLevel === 'frozen' ? 'opacity-60' : healthLevel === 'limited' ? 'opacity-80' : ''
       }`}
     >
-      {cooldown && (
+      {healthLevel === 'degraded' && (
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-orange-500/20 border border-orange-500/30">
+          <Snowflake size={14} className="text-orange-400" />
+          <span className="text-xs font-medium text-orange-300">
+            {modelCooldowns.length} model{modelCooldowns.length > 1 ? 's' : ''} frozen
+          </span>
+        </div>
+      )}
+      {healthLevel === 'limited' && worstCooldown && (
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-yellow-500/20 border border-yellow-500/30">
+          <Snowflake size={14} className="text-yellow-400" />
+          <CooldownTimer cooldown={worstCooldown} className="text-xs font-medium text-yellow-300" />
+          <button
+            onClick={handleClearCooldown}
+            disabled={isClearingCooldown}
+            className="ml-1 p-0.5 rounded hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
+            title={t('provider.clearCooldown')}
+          >
+            <X size={12} className="text-yellow-300" />
+          </button>
+        </div>
+      )}
+      {healthLevel === 'frozen' && worstCooldown && (
         <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-500/20 border border-cyan-500/30">
           <Snowflake size={14} className="text-cyan-400 animate-pulse" />
-          <CooldownTimer cooldown={cooldown} className="text-xs font-medium text-cyan-300" />
+          <CooldownTimer cooldown={worstCooldown} className="text-xs font-medium text-cyan-300" />
           <button
             onClick={handleClearCooldown}
             disabled={isClearingCooldown}
@@ -46,7 +73,7 @@ export function AntigravityProviderCard({ provider, onClick, streamingCount }: P
         </div>
       )}
 
-      {!cooldown && streamingCount > 0 && (
+      {(healthLevel === 'healthy' || healthLevel === 'degraded') && streamingCount > 0 && (
         <div className="absolute top-0 right-0 z-20">
           <StreamingBadge
             count={streamingCount}
@@ -60,10 +87,10 @@ export function AntigravityProviderCard({ provider, onClick, streamingCount }: P
       <div className="flex items-start gap-3">
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-            cooldown ? 'bg-cyan-500/10' : 'bg-muted'
+            isFrozenOrLimited ? 'bg-cyan-500/10' : 'bg-muted'
           }`}
         >
-          {cooldown ? (
+          {isFrozenOrLimited ? (
             <Snowflake size={20} className="text-cyan-400" />
           ) : (
             <Wand2 size={20} style={{ color: ANTIGRAVITY_COLOR }} />
@@ -99,7 +126,7 @@ export function AntigravityProviderCard({ provider, onClick, streamingCount }: P
         </div>
       </div>
 
-      {!cooldown && streamingCount === 0 && (
+      {healthLevel === 'healthy' && streamingCount === 0 && (
         <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-emerald-400" />
       )}
     </div>
@@ -108,8 +135,13 @@ export function AntigravityProviderCard({ provider, onClick, streamingCount }: P
 
 export function CustomProviderCard({ provider, onClick, streamingCount }: ProviderCardProps) {
   const { t } = useTranslation();
-  const { getCooldownForProvider, clearCooldown, isClearingCooldown } = useCooldowns();
-  const cooldown = getCooldownForProvider(provider.id);
+  const { getCooldownsForProvider, getProviderHealthLevel, clearCooldown, isClearingCooldown } =
+    useCooldowns();
+  const providerCooldowns = getCooldownsForProvider(provider.id);
+  const healthLevel = getProviderHealthLevel(provider.id);
+  const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
+  const worstCooldown = providerCooldowns[0];
+  const isFrozenOrLimited = healthLevel === 'frozen' || healthLevel === 'limited';
 
   const getDisplayUrl = () => {
     if (provider.config?.custom?.baseURL) return provider.config.custom.baseURL;
@@ -129,13 +161,35 @@ export function CustomProviderCard({ provider, onClick, streamingCount }: Provid
     <div
       onClick={onClick}
       className={`bg-muted border border-border rounded-xl p-4 hover:border-accent/30 hover:bg-accent cursor-pointer transition-all relative group overflow-hidden ${
-        cooldown ? 'opacity-60' : ''
+        healthLevel === 'frozen' ? 'opacity-60' : healthLevel === 'limited' ? 'opacity-80' : ''
       }`}
     >
-      {cooldown && (
+      {healthLevel === 'degraded' && (
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-orange-500/20 border border-orange-500/30">
+          <Snowflake size={14} className="text-orange-400" />
+          <span className="text-xs font-medium text-orange-300">
+            {modelCooldowns.length} model{modelCooldowns.length > 1 ? 's' : ''} frozen
+          </span>
+        </div>
+      )}
+      {healthLevel === 'limited' && worstCooldown && (
+        <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-yellow-500/20 border border-yellow-500/30">
+          <Snowflake size={14} className="text-yellow-400" />
+          <CooldownTimer cooldown={worstCooldown} className="text-xs font-medium text-yellow-300" />
+          <button
+            onClick={handleClearCooldown}
+            disabled={isClearingCooldown}
+            className="ml-1 p-0.5 rounded hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
+            title={t('provider.clearCooldown')}
+          >
+            <X size={12} className="text-yellow-300" />
+          </button>
+        </div>
+      )}
+      {healthLevel === 'frozen' && worstCooldown && (
         <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-500/20 border border-cyan-500/30">
           <Snowflake size={14} className="text-cyan-400 animate-pulse" />
-          <CooldownTimer cooldown={cooldown} className="text-xs font-medium text-cyan-300" />
+          <CooldownTimer cooldown={worstCooldown} className="text-xs font-medium text-cyan-300" />
           <button
             onClick={handleClearCooldown}
             disabled={isClearingCooldown}
@@ -147,7 +201,7 @@ export function CustomProviderCard({ provider, onClick, streamingCount }: Provid
         </div>
       )}
 
-      {!cooldown && streamingCount > 0 && (
+      {(healthLevel === 'healthy' || healthLevel === 'degraded') && streamingCount > 0 && (
         <div className="absolute top-0 right-0 z-20">
           <StreamingBadge
             count={streamingCount}
@@ -161,10 +215,10 @@ export function CustomProviderCard({ provider, onClick, streamingCount }: Provid
       <div className="flex items-start gap-3">
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-            cooldown ? 'bg-cyan-500/10' : 'bg-muted'
+            isFrozenOrLimited ? 'bg-cyan-500/10' : 'bg-muted'
           }`}
         >
-          {cooldown ? (
+          {isFrozenOrLimited ? (
             <Snowflake size={20} className="text-cyan-400" />
           ) : (
             <Server size={20} className="text-muted-foreground" />
@@ -200,7 +254,7 @@ export function CustomProviderCard({ provider, onClick, streamingCount }: Provid
         </div>
       </div>
 
-      {!cooldown && streamingCount === 0 && (
+      {healthLevel === 'healthy' && streamingCount === 0 && (
         <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-emerald-400" />
       )}
     </div>

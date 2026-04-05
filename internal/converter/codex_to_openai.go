@@ -51,6 +51,9 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 	if req.Reasoning != nil && req.Reasoning.Effort != "" {
 		openaiReq.ReasoningEffort = req.Reasoning.Effort
 	}
+	if req.ServiceTier != "" {
+		openaiReq.ServiceTier = req.ServiceTier
+	}
 
 	// Convert instructions to system message
 	if req.Instructions != "" {

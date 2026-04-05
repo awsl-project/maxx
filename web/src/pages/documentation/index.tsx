@@ -1,7 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
-  Code,
   Copy,
   Check,
   AlertTriangle,
@@ -21,10 +20,11 @@ import {
   TabsContent,
   Input,
   Badge,
+  Button,
 } from '@/components/ui';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
-import { useProxyStatus, useProviders, useRoutes, useSettings } from '@/hooks/queries';
+import { useProxyStatus, useProviders, usePublicSettings, useRoutes } from '@/hooks/queries';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
 
 interface CodeBlockProps {
@@ -55,6 +55,7 @@ function CodeBlock({ code, id, copiedCode, onCopy }: CodeBlockProps) {
 }
 
 type QuickstartClient = 'claude' | 'openai' | 'codex' | 'gemini';
+type DocumentationPageTab = 'quickstart' | 'diagnostics';
 
 interface QuickstartBundle {
   primaryLabel: string;
@@ -62,9 +63,20 @@ interface QuickstartBundle {
   secondaryLabel?: string;
   secondaryCode?: string;
   verifyCode: string;
+  oneliner: string;
 }
 
-const MAXX_TOKEN_PATTERN = /^maxx_[A-Za-z0-9_-]{8,}$/;
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function isQuickstartClient(value: string): value is QuickstartClient {
+  return value === 'claude' || value === 'openai' || value === 'codex' || value === 'gemini';
+}
+
+function isDocumentationPageTab(value: string): value is DocumentationPageTab {
+  return value === 'quickstart' || value === 'diagnostics';
+}
 
 function buildQuickstartBundle(params: {
   client: QuickstartClient;
@@ -76,52 +88,60 @@ function buildQuickstartBundle(params: {
   const projectSlug = params.projectSlug.trim();
   const projectPrefix = projectSlug ? `/project/${projectSlug}` : '';
 
+  const baseUrl = params.baseUrl;
+
   switch (params.client) {
-    case 'claude':
+    case 'claude': {
+      const settingsJson = JSON.stringify({
+        env: { ANTHROPIC_AUTH_TOKEN: token, ANTHROPIC_BASE_URL: baseUrl },
+      });
       return {
         primaryLabel: 'settings.json',
         primaryCode: `{
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "${token}",
-    "ANTHROPIC_BASE_URL": "${params.baseUrl}"
+    "ANTHROPIC_BASE_URL": "${baseUrl}"
   }
 }`,
-        verifyCode: `ANTHROPIC_BASE_URL="${params.baseUrl}" ANTHROPIC_AUTH_TOKEN="${token}" claude`,
+        verifyCode: `ANTHROPIC_BASE_URL=${shellQuote(baseUrl)} ANTHROPIC_AUTH_TOKEN=${shellQuote(token)} claude`,
+        oneliner: `mkdir -p ~/.claude && printf '%s\\n' ${shellQuote(settingsJson)} > ~/.claude/settings.json`,
       };
+    }
     case 'openai':
       return {
         primaryLabel: '.env',
-        primaryCode: `OPENAI_BASE_URL=${params.baseUrl}${projectPrefix}/v1
+        primaryCode: `OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1
 OPENAI_API_KEY=${token}`,
-        verifyCode: `curl -X POST ${params.baseUrl}${projectPrefix}/v1/chat/completions \\
+        verifyCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1/chat/completions`)} \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${token}" \\
+  -H ${shellQuote(`Authorization: Bearer ${token}`)} \\
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}'`,
+        oneliner: `printf '%s\\n' ${shellQuote(`OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1\nOPENAI_API_KEY=${token}`)} > .env`,
       };
     case 'codex': {
-      const bundle = buildCodexConfigBundle({
-        token,
-        baseUrl: `${params.baseUrl}${projectPrefix || ''}`,
-      });
+      const codexBaseUrl = `${baseUrl}${projectPrefix || ''}`;
+      const bundle = buildCodexConfigBundle({ token, baseUrl: codexBaseUrl });
       return {
         primaryLabel: 'config.toml',
         primaryCode: bundle.configToml,
         secondaryLabel: 'auth.json',
         secondaryCode: bundle.authJson,
         verifyCode: 'codex',
+        oneliner: `mkdir -p ~/.codex && printf '%s\\n' ${shellQuote(bundle.configToml)} > ~/.codex/config.toml && printf '%s\\n' ${shellQuote(bundle.authJson)} > ~/.codex/auth.json`,
       };
     }
     case 'gemini':
       return {
         primaryLabel: 'curl',
-        primaryCode: `curl -X POST ${params.baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
+        primaryCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} \\
   -H "Content-Type: application/json" \\
-  -H "x-goog-api-key: ${token}" \\
+  -H ${shellQuote(`x-goog-api-key: ${token}`)} \\
   -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
-        verifyCode: `curl -X POST ${params.baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
+        verifyCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} \\
   -H "Content-Type: application/json" \\
-  -H "x-goog-api-key: ${token}" \\
+  -H ${shellQuote(`x-goog-api-key: ${token}`)} \\
   -d '{"contents":[{"parts":[{"text":"diagnose"}]}]}'`,
+        oneliner: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} -H "Content-Type: application/json" -H ${shellQuote(`x-goog-api-key: ${token}`)} -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
       };
   }
 }
@@ -150,30 +170,37 @@ export function DocumentationPage() {
 function DocumentationSection() {
   const { t } = useTranslation();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+  const [activeTab, setActiveTab] = useState<DocumentationPageTab>('quickstart');
   const [quickstartClient, setQuickstartClient] = useState<QuickstartClient>('claude');
   const [quickstartToken, setQuickstartToken] = useState('');
   const [quickstartProjectSlug, setQuickstartProjectSlug] = useState('');
   const { data: proxyStatus } = useProxyStatus();
-  const { data: settings } = useSettings();
+  const { data: settings } = usePublicSettings();
   const { data: providers } = useProviders();
   const { data: routes } = useRoutes();
   const baseUrl = buildProxyBaseUrl(proxyStatus);
-  const codexTemplate = useMemo(
-    () => buildCodexConfigBundle({ token: 'maxx_your_token_here', baseUrl }),
-    [baseUrl],
-  );
+  const tokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
+
   const quickstartBundle = useMemo(
     () =>
       buildQuickstartBundle({
         client: quickstartClient,
-        token: quickstartToken,
+        token: quickstartToken.trim(),
         baseUrl,
         projectSlug: quickstartProjectSlug,
       }),
     [quickstartClient, quickstartToken, baseUrl, quickstartProjectSlug],
   );
-  const tokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
-  const tokenFormatOk = !tokenAuthEnabled || MAXX_TOKEN_PATTERN.test(quickstartToken.trim());
+
+  const tokenFormatOk =
+    !tokenAuthEnabled || /^maxx_[A-Za-z0-9_-]{8,}$/.test(quickstartToken.trim());
+
   const diagnostics = useMemo(
     () => [
       {
@@ -218,12 +245,11 @@ function DocumentationSection() {
         label: t('documentation.diagnosticTokenFormat'),
         ok: tokenFormatOk,
         hint: t('documentation.diagnosticTokenFormatHint'),
-        detail:
-          tokenAuthEnabled
-            ? quickstartToken.trim() === ''
-              ? t('documentation.diagnosticTokenRequired')
-              : t('documentation.diagnosticTokenProvided')
-            : t('documentation.diagnosticTokenOptional'),
+        detail: tokenAuthEnabled
+          ? quickstartToken.trim()
+            ? t('documentation.diagnosticTokenProvided')
+            : t('documentation.diagnosticTokenRequired')
+          : t('documentation.diagnosticTokenOptional'),
       },
     ],
     [
@@ -240,243 +266,301 @@ function DocumentationSection() {
     ],
   );
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedCode(id);
-    setTimeout(() => setCopiedCode(null), 2000);
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      let copied = false;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        } catch {
+          copied = false;
+        }
+      }
+      if (!copied) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        try {
+          textarea.select();
+          copied = document.execCommand('copy');
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+      if (!copied) throw new Error('Clipboard copy failed');
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      setCopiedCode(id);
+      copyTimerRef.current = setTimeout(() => setCopiedCode(null), 2000);
+    } catch {
+      console.error('Failed to copy to clipboard.');
+    }
+  };
+
+  const handleDocumentationTabChange = (value: string) => {
+    if (isDocumentationPageTab(value)) {
+      setActiveTab(value);
+    }
   };
 
   const handleQuickstartClientChange = (value: string) => {
-    if (value === 'claude' || value === 'openai' || value === 'codex' || value === 'gemini') {
+    if (isQuickstartClient(value)) {
       setQuickstartClient(value);
     }
   };
 
+  const documentationTabs = [
+    {
+      value: 'quickstart' as const,
+      icon: Rocket,
+      iconClassName: 'text-emerald-500',
+      label: t('documentation.pageTabQuickStart'),
+      description: t('documentation.pageTabQuickStartDesc'),
+    },
+    {
+      value: 'diagnostics' as const,
+      icon: Stethoscope,
+      iconClassName: 'text-cyan-500',
+      label: t('documentation.pageTabDiagnostics'),
+      description: t('documentation.pageTabDiagnosticsDesc'),
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      <Card className="border-border bg-card">
-        <CardContent className="space-y-5 pt-6">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Rocket className="h-4 w-4 text-emerald-500" />
-              <h2 className="text-base font-semibold">{t('documentation.quickStartTitle')}</h2>
-            </div>
-            <p className="text-xs text-muted-foreground">{t('documentation.quickStartDesc')}</p>
-          </div>
+    <Tabs value={activeTab} onValueChange={handleDocumentationTabChange} className="w-full">
+      <TabsList
+        variant="line"
+        data-testid="documentation-page-tabs"
+        className="grid w-full grid-cols-2 gap-3 bg-transparent p-0 group-data-horizontal/tabs:!h-auto"
+      >
+        {documentationTabs.map((tab) => {
+          const Icon = tab.icon;
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-md border border-border/70 bg-muted/20 p-3">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase">
-                {t('documentation.quickStartStepClient')}
-              </p>
-            </div>
-            <div className="rounded-md border border-border/70 bg-muted/20 p-3">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase">
-                {t('documentation.quickStartStepToken')}
-              </p>
-            </div>
-            <div className="rounded-md border border-border/70 bg-muted/20 p-3">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase">
-                {t('documentation.quickStartStepCopy')}
-              </p>
-            </div>
-          </div>
+          return (
+            <TabsTrigger
+              key={tab.value}
+              value={tab.value}
+              data-testid={`documentation-page-tab-${tab.value}`}
+              className="!h-auto min-h-[96px] min-w-0 whitespace-normal flex-col items-start justify-start gap-3 rounded-xl border border-border/70 bg-card px-4 py-4 text-left shadow-none after:hidden data-active:border-primary/30 data-active:bg-primary/5 data-active:shadow-none"
+            >
+              <Icon className={`h-4 w-4 ${tab.iconClassName}`} />
+              <div className="min-w-0 w-full space-y-1">
+                <p className="text-sm font-semibold text-foreground break-words">{tab.label}</p>
+                <p className="text-xs leading-5 text-muted-foreground whitespace-normal break-words">
+                  {tab.description}
+                </p>
+              </div>
+            </TabsTrigger>
+          );
+        })}
+      </TabsList>
 
-          <Tabs
-            value={quickstartClient}
-            onValueChange={handleQuickstartClientChange}
-            className="w-full"
-          >
-            <TabsList className="grid w-full grid-cols-4 h-10 p-1 bg-muted">
-              <TabsTrigger value="claude">Claude</TabsTrigger>
-              <TabsTrigger value="openai">OpenAI</TabsTrigger>
-              <TabsTrigger value="codex">Codex</TabsTrigger>
-              <TabsTrigger value="gemini">Gemini</TabsTrigger>
-            </TabsList>
-          </Tabs>
+      <TabsContent
+        value="quickstart"
+        data-testid="documentation-quickstart-content"
+        className="mt-6"
+      >
+        <Card className="border-border bg-card">
+          <CardContent className="space-y-5 pt-6">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Rocket className="h-4 w-4 text-emerald-500" />
+                <h2 className="text-base font-semibold">{t('documentation.quickStartTitle')}</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('documentation.quickStartDesc')}</p>
+            </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-xs font-semibold">{t('documentation.tokenInputLabel')}</label>
-              <Input
-                value={quickstartToken}
-                onChange={(event) => setQuickstartToken(event.target.value)}
-                placeholder={t('documentation.tokenInputPlaceholder')}
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border border-border/70 bg-muted/20 p-3">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase">
+                  {t('documentation.quickStartStepClient')}
+                </p>
+              </div>
+              <div className="rounded-md border border-border/70 bg-muted/20 p-3">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase">
+                  {t('documentation.quickStartStepToken')}
+                </p>
+              </div>
+              <div className="rounded-md border border-border/70 bg-muted/20 p-3">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase">
+                  {t('documentation.quickStartStepCopy')}
+                </p>
+              </div>
+            </div>
+
+            <Tabs
+              value={quickstartClient}
+              onValueChange={handleQuickstartClientChange}
+              data-testid="documentation-quickstart-client-tabs"
+              className="w-full"
+            >
+              <TabsList className="grid w-full grid-cols-4 h-12 p-1 bg-muted">
+                <TabsTrigger value="claude">
+                  <div className="flex items-center justify-center gap-2">
+                    <ClientIcon type="claude" size={16} className="shrink-0" />
+                    <span className="leading-none">Claude</span>
+                  </div>
+                </TabsTrigger>
+                <TabsTrigger value="openai">
+                  <div className="flex items-center justify-center gap-2">
+                    <ClientIcon type="openai" size={16} className="shrink-0" />
+                    <span className="leading-none">OpenAI</span>
+                  </div>
+                </TabsTrigger>
+                <TabsTrigger value="codex">
+                  <div className="flex items-center justify-center gap-2">
+                    <ClientIcon type="codex" size={16} className="shrink-0" />
+                    <span className="leading-none">Codex</span>
+                  </div>
+                </TabsTrigger>
+                <TabsTrigger value="gemini">
+                  <div className="flex items-center justify-center gap-2">
+                    <ClientIcon type="gemini" size={16} className="shrink-0" />
+                    <span className="leading-none">Gemini</span>
+                  </div>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold">
+                  {t('documentation.tokenInputLabel')}
+                </label>
+                <Input
+                  data-testid="documentation-quickstart-token-input"
+                  value={quickstartToken}
+                  onChange={(event) => setQuickstartToken(event.target.value)}
+                  placeholder={t('documentation.tokenInputPlaceholder')}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold">
+                  {t('documentation.projectSlugLabel')}
+                </label>
+                <Input
+                  data-testid="documentation-quickstart-project-slug-input"
+                  value={quickstartProjectSlug}
+                  onChange={(event) => setQuickstartProjectSlug(event.target.value.trim())}
+                  placeholder={t('documentation.projectSlugPlaceholder')}
+                />
+              </div>
+            </div>
+
+            {quickstartProjectSlug && (
+              <p className="text-xs text-muted-foreground">
+                {t('documentation.wizardProjectHint', { slug: quickstartProjectSlug })}
+              </p>
+            )}
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-4 w-4 text-emerald-500" />
+                <h3 className="text-sm font-semibold">{t('documentation.onelinerTitle')}</h3>
+              </div>
+              <CodeBlock
+                code={quickstartBundle.oneliner}
+                id={`quickstart-${quickstartClient}-oneliner`}
+                copiedCode={copiedCode}
+                onCopy={copyToClipboard}
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold">
-                {t('documentation.projectSlugLabel')}
-              </label>
-              <Input
-                value={quickstartProjectSlug}
-                onChange={(event) => setQuickstartProjectSlug(event.target.value.trim())}
-                placeholder={t('documentation.projectSlugPlaceholder')}
-              />
-            </div>
-          </div>
 
-          {quickstartProjectSlug && (
-            <p className="text-xs text-muted-foreground">
-              {t('documentation.wizardProjectHint', { slug: quickstartProjectSlug })}
-            </p>
-          )}
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">{t('documentation.wizardGenerated')}</h3>
-              <Badge variant="outline">{quickstartBundle.primaryLabel}</Badge>
-            </div>
-            <CodeBlock
-              code={quickstartBundle.primaryCode}
-              id={`quickstart-${quickstartClient}-primary`}
-              copiedCode={copiedCode}
-              onCopy={copyToClipboard}
-            />
-          </div>
-
-          {quickstartBundle.secondaryCode && quickstartBundle.secondaryLabel && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">{t('documentation.wizardGenerated')}</h3>
-                <Badge variant="outline">{quickstartBundle.secondaryLabel}</Badge>
+                <Badge variant="outline">{quickstartBundle.primaryLabel}</Badge>
               </div>
+              {quickstartClient === 'claude' && (
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.settingsJsonDesc')}
+                </p>
+              )}
+              {quickstartClient === 'codex' && (
+                <p className="text-xs text-muted-foreground">{t('documentation.configTomlDesc')}</p>
+              )}
               <CodeBlock
-                code={quickstartBundle.secondaryCode}
-                id={`quickstart-${quickstartClient}-secondary`}
+                code={quickstartBundle.primaryCode}
+                id={`quickstart-${quickstartClient}-primary`}
                 copiedCode={copiedCode}
                 onCopy={copyToClipboard}
               />
             </div>
-          )}
 
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">{t('documentation.wizardVerify')}</h3>
-            <CodeBlock
-              code={quickstartBundle.verifyCode}
-              id={`quickstart-${quickstartClient}-verify`}
-              copiedCode={copiedCode}
-              onCopy={copyToClipboard}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-border bg-card">
-        <CardContent className="space-y-4 pt-6">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Stethoscope className="h-4 w-4 text-cyan-500" />
-              <h2 className="text-base font-semibold">{t('documentation.diagnosticsTitle')}</h2>
-            </div>
-            <p className="text-xs text-muted-foreground">{t('documentation.diagnosticsDesc')}</p>
-          </div>
-
-          <div className="space-y-2">
-            {diagnostics.map((item) => (
-              <div
-                key={item.key}
-                className="flex items-start justify-between gap-4 rounded-md border border-border/70 p-3"
-              >
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{item.label}</p>
-                  <p className="text-xs text-muted-foreground">{item.ok ? item.detail : item.hint}</p>
+            {quickstartBundle.secondaryCode && quickstartBundle.secondaryLabel && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">{t('documentation.wizardGenerated')}</h3>
+                  <Badge variant="outline">{quickstartBundle.secondaryLabel}</Badge>
                 </div>
-                <Badge
-                  variant="outline"
-                  className={
-                    item.ok
-                      ? 'text-emerald-600 border-emerald-500/30 bg-emerald-500/5'
-                      : 'text-amber-600 border-amber-500/30 bg-amber-500/5'
-                  }
-                >
-                  {item.ok ? (
-                    <CircleCheck className="h-3 w-3 mr-1" />
-                  ) : (
-                    <CircleAlert className="h-3 w-3 mr-1" />
-                  )}
-                  {item.ok ? t('documentation.statusPass') : t('documentation.statusFail')}
-                </Badge>
+                {quickstartClient === 'codex' && (
+                  <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
+                )}
+                <CodeBlock
+                  code={quickstartBundle.secondaryCode}
+                  id={`quickstart-${quickstartClient}-secondary`}
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            )}
 
-      <Card className="border-border bg-card">
-        <CardContent className="space-y-6 pt-6">
-          <Tabs defaultValue="claude" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 h-12 p-1 bg-muted">
-            <TabsTrigger value="claude">
-              <div className="flex items-center justify-center gap-2">
-                <ClientIcon type="claude" size={16} className="shrink-0" />
-                <span className="leading-none">Claude Code</span>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger value="openai">
-              <div className="flex items-center justify-center gap-2">
-                <ClientIcon type="openai" size={16} className="shrink-0" />
-                <span className="leading-none">OpenAI</span>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger value="codex">
-              <div className="flex items-center justify-center gap-2">
-                <ClientIcon type="codex" size={16} className="shrink-0" />
-                <span className="leading-none">Codex CLI</span>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger value="gemini">
-              <div className="flex items-center justify-center gap-2">
-                <ClientIcon type="gemini" size={16} className="shrink-0" />
-                <span className="leading-none">Gemini</span>
-              </div>
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Claude Code CLI */}
-          <TabsContent value="claude" className="space-y-4 mt-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{t('documentation.claudeConfig')}</h3>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('documentation.claudeConfigDesc')}</p>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.settingsJson')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.settingsJsonDesc')}</p>
-              <CodeBlock
-                code={`{
-  "env": {
-    "ANTHROPIC_AUTH_TOKEN": "your-api-key-here",
-    "ANTHROPIC_BASE_URL": "${baseUrl}"
-  }
-}`}
-                id="claude-settings"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.shellFunction')}</h3>
-              <p className="text-xs text-muted-foreground">
-                {t('documentation.shellFunctionDesc')}
-              </p>
-              <CodeBlock
-                code={`claude_maxx() {
-    export ANTHROPIC_BASE_URL="${baseUrl}"
-    export ANTHROPIC_AUTH_TOKEN="your-api-key-here"
+            {/* Claude: shell function alternative */}
+            {quickstartClient === 'claude' && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">{t('documentation.shellFunction')}</h3>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.shellFunctionDesc')}
+                </p>
+                <CodeBlock
+                  code={`claude_maxx() {
+    export ANTHROPIC_BASE_URL=${shellQuote(baseUrl)}
+    export ANTHROPIC_AUTH_TOKEN=${shellQuote(quickstartToken.trim() || 'maxx_your_token_here')}
     claude "$@"
 }`}
-                id="claude-shell"
+                  id="quickstart-claude-shell"
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+            )}
+
+            {/* OpenAI / Gemini: project proxy endpoint */}
+            {(quickstartClient === 'openai' || quickstartClient === 'gemini') && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentation.projectProxyDesc')}
+                </p>
+                <CodeBlock
+                  code={
+                    quickstartClient === 'openai'
+                      ? `POST ${baseUrl}/project/{project-slug}/v1/chat/completions`
+                      : `POST ${baseUrl}/project/{project-slug}/v1beta/models/{model}:generateContent`
+                  }
+                  id={`quickstart-${quickstartClient}-project-proxy`}
+                  copiedCode={copiedCode}
+                  onCopy={copyToClipboard}
+                />
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">{t('documentation.wizardVerify')}</h3>
+              <CodeBlock
+                code={quickstartBundle.verifyCode}
+                id={`quickstart-${quickstartClient}-verify`}
                 copiedCode={copiedCode}
                 onCopy={copyToClipboard}
               />
             </div>
 
-            {/* Token Authentication for Claude Code */}
+            {/* Token Authentication (shared) */}
             <div className="pt-4 border-t border-border space-y-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -488,95 +572,6 @@ function DocumentationSection() {
                 <p className="text-xs text-muted-foreground">
                   {t('documentation.tokenEnabledDesc')}
                 </p>
-                <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                  <p>{t('documentation.claudeTokenEnabledNote')}</p>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.claudeTokenDisabledNote')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledNote')}
-                </p>
-              </div>
-
-              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                  <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                  <p>{t('documentation.tokenManagementDesc')}</p>
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* OpenAI API */}
-          <TabsContent value="openai" className="space-y-4 mt-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Code className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{t('documentation.apiEndpoint')}</h3>
-              </div>
-              <CodeBlock
-                code={`POST ${baseUrl}/v1/chat/completions`}
-                id="openai-endpoint"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.requestExample')}</h3>
-              <CodeBlock
-                code={`curl -X POST ${baseUrl}/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer maxx_your_token_here" \\
-  -d '{
-    "model": "gpt-4",
-    "messages": [
-      {"role": "user", "content": "Hello, GPT!"}
-    ]
-  }'`}
-                id="openai-example"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.projectProxyDesc')}</p>
-              <CodeBlock
-                code={`POST ${baseUrl}/project/{project-slug}/v1/chat/completions`}
-                id="openai-project"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            {/* Token Authentication */}
-            <div className="pt-4 border-t border-border space-y-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
-              </div>
-
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenEnabledDesc')}
-                </p>
-                <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                  <p>
-                    <strong>{t('documentation.requestHeader')}:</strong>{' '}
-                    <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                      Authorization: Bearer maxx_your_token_here
-                    </code>
-                  </p>
-                </div>
               </div>
 
               <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
@@ -597,176 +592,73 @@ function DocumentationSection() {
                 </div>
               </div>
             </div>
-          </TabsContent>
 
-          {/* Codex CLI */}
-          <TabsContent value="codex" className="space-y-4 mt-6">
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-4 md:flex-row md:items-center md:justify-between">
+              <p className="text-xs leading-5 text-cyan-700 dark:text-cyan-300">
+                {t('documentation.quickStartDiagnosticHint')}
+              </p>
+              <Button
+                variant="outline"
+                data-testid="documentation-open-diagnostics-button"
+                onClick={() => setActiveTab('diagnostics')}
+              >
+                {t('documentation.quickStartDiagnosticAction')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent
+        value="diagnostics"
+        data-testid="documentation-diagnostics-content"
+        className="mt-6"
+      >
+        <Card className="border-border bg-card">
+          <CardContent className="space-y-4 pt-6">
+            <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{t('documentation.codexConfig')}</h3>
+                <Stethoscope className="h-4 w-4 text-cyan-500" />
+                <h2 className="text-base font-semibold">{t('documentation.diagnosticsTitle')}</h2>
               </div>
-              <p className="text-xs text-muted-foreground">{t('documentation.codexConfigDesc')}</p>
+              <p className="text-xs text-muted-foreground">{t('documentation.diagnosticsDesc')}</p>
             </div>
 
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.configToml')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.configTomlDesc')}</p>
-              <CodeBlock
-                code={codexTemplate.configToml}
-                id="codex-config"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.authJson')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
-              <CodeBlock
-                code={codexTemplate.authJson}
-                id="codex-auth"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.usage')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.codexUsageDesc')}</p>
-              <CodeBlock
-                code={`codex`}
-                id="codex-usage"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            {/* Token Authentication for Codex CLI */}
-            <div className="pt-4 border-t border-border space-y-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
-              </div>
-
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenEnabledDesc')}
-                </p>
-                <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                  <p>{t('documentation.codexTokenEnabledNote')}</p>
+            <div data-testid="documentation-diagnostics-list" className="space-y-2">
+              {diagnostics.map((item) => (
+                <div
+                  key={item.key}
+                  data-testid={`documentation-diagnostic-${item.key}`}
+                  className="flex items-start justify-between gap-4 rounded-md border border-border/70 p-3"
+                >
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{item.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {item.ok ? item.detail : item.hint}
+                    </p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={
+                      item.ok
+                        ? 'text-emerald-600 border-emerald-500/30 bg-emerald-500/5'
+                        : 'text-amber-600 border-amber-500/30 bg-amber-500/5'
+                    }
+                  >
+                    {item.ok ? (
+                      <CircleCheck className="h-3 w-3 mr-1" />
+                    ) : (
+                      <CircleAlert className="h-3 w-3 mr-1" />
+                    )}
+                    {item.ok ? t('documentation.statusPass') : t('documentation.statusFail')}
+                  </Badge>
                 </div>
-              </div>
-
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.codexTokenDisabledNote')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledNote')}
-                </p>
-              </div>
-
-              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                  <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                  <p>{t('documentation.tokenManagementDesc')}</p>
-                </div>
-              </div>
+              ))}
             </div>
-          </TabsContent>
-
-          {/* Gemini API */}
-          <TabsContent value="gemini" className="space-y-4 mt-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Code className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">{t('documentation.apiEndpoint')}</h3>
-              </div>
-              <CodeBlock
-                code={`POST ${baseUrl}/v1beta/models/{model}:generateContent`}
-                id="gemini-endpoint"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.requestExample')}</h3>
-              <CodeBlock
-                code={`curl -X POST ${baseUrl}/v1beta/models/gemini-pro:generateContent \\
-  -H "Content-Type: application/json" \\
-  -H "x-goog-api-key: maxx_your_token_here" \\
-  -d '{
-    "contents": [{
-      "parts": [{"text": "Hello, Gemini!"}]
-    }]
-  }'`}
-                id="gemini-example"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
-              <p className="text-xs text-muted-foreground">{t('documentation.projectProxyDesc')}</p>
-              <CodeBlock
-                code={`POST ${baseUrl}/{project-slug}/v1beta/models/{model}:generateContent`}
-                id="gemini-project"
-                copiedCode={copiedCode}
-                onCopy={copyToClipboard}
-              />
-            </div>
-
-            {/* Token Authentication */}
-            <div className="pt-4 border-t border-border space-y-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
-              </div>
-
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenEnabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenEnabledDesc')}
-                </p>
-                <div className="text-xs text-muted-foreground space-y-1 pl-2">
-                  <p>
-                    <strong>{t('documentation.requestHeader')}:</strong>{' '}
-                    <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                      x-goog-api-key: maxx_your_token_here
-                    </code>
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
-                <p className="text-sm font-medium">{t('documentation.tokenDisabled')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledDesc')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.tokenDisabledNote')}
-                </p>
-              </div>
-
-              <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
-                <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-                  <p className="font-medium">{t('documentation.tokenManagement')}</p>
-                  <p>{t('documentation.tokenManagementDesc')}</p>
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
-    </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+    </Tabs>
   );
 }
 
