@@ -15,6 +15,10 @@ function getGitCommit(): string {
 
 // https://vite.dev/config/
 export default defineConfig({
+	test: {
+		include: ["src/**/*.test.{ts,tsx}"],
+		exclude: ["e2e/**", "node_modules/**", "dist/**"],
+	},
 	plugins: [react(), tailwindcss()],
 	define: {
 		__APP_VERSION__: JSON.stringify(process.env.npm_package_version || "dev"),

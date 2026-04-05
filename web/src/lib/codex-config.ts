@@ -49,6 +49,23 @@ export function buildProxyBaseUrl(proxyStatus?: ProxyStatusLike | null): string 
   return ensureBaseUrlPort(address, fallbackPort);
 }
 
+function ensureCodexBasePath(address: string): string {
+  const normalized = normalizeBaseUrl(address);
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.pathname === '/v1' || parsed.pathname.startsWith('/v1/')) {
+      return parsed.toString().replace(/\/+$/, '');
+    }
+
+    const nextPath = `${parsed.pathname.replace(/\/+$/, '')}/v1`.replace(/\/+/g, '/');
+    parsed.pathname = nextPath;
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return normalized.replace(/\/+$/, '') + '/v1';
+  }
+}
+
 export function buildCodexConfigBundle(params: {
   token: string;
   baseUrl: string;
@@ -56,7 +73,7 @@ export function buildCodexConfigBundle(params: {
 }): CodexConfigBundle {
   const providerName = params.providerName || 'maxx';
   const token = params.token.trim();
-  const baseUrl = normalizeBaseUrl(params.baseUrl);
+  const baseUrl = ensureCodexBasePath(params.baseUrl);
 
   const configToml = `# Optional: set as default provider
 model_provider = "${providerName}"
@@ -85,3 +102,7 @@ ${authJson}
     combined,
   };
 }
+
+export const __codexConfigTestUtils = {
+  ensureCodexBasePath,
+};
