@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/bedrock" // Register bedrock adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
 	"github.com/awsl-project/maxx/internal/converter"

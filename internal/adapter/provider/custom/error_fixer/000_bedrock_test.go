@@ -85,15 +85,15 @@ func TestBedrockFixer_FixRequest_StripsAll(t *testing.T) {
 	input := []byte(`{
 		"model": "claude-haiku-4-5-20251001",
 		"max_tokens": 1024,
-		"system": [{"type":"text","text":"hello","cache_control":{"type":"ephemeral"}}],
+		"system": [{"type":"text","text":"hello","cache_control":{"type":"ephemeral","scope":"turn"}}],
 		"output_config": {"effort": "high"},
 		"context_management": {"truncation": "auto"},
 		"reasoning": {"budget_tokens": 5000},
 		"tools": [
-			{"name":"bash","description":"run","custom":{"defer_loading":true},"input_schema":{"type":"object"}},
+			{"name":"bash","description":"run","custom":{"defer_loading":true},"cache_control":{"type":"ephemeral","scope":"turn"},"input_schema":{"type":"object"}},
 			{"name":"read","description":"read","custom":{"eager_input_streaming":true}}
 		],
-		"messages": [{"role":"user","content":"hi"}]
+		"messages": [{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","scope":"turn"}}]}]
 	}`)
 
 	req, _ := http.NewRequest("POST", "https://example.com", nil)
@@ -101,9 +101,24 @@ func TestBedrockFixer_FixRequest_StripsAll(t *testing.T) {
 
 	retReq, result := f.FixRequest(req, input)
 
-	// All extra fields stripped
-	if gjson.GetBytes(result, "system.0.cache_control").Exists() {
-		t.Error("cache_control not stripped from system")
+	// cache_control.type preserved but scope stripped
+	if !gjson.GetBytes(result, "system.0.cache_control").Exists() {
+		t.Error("cache_control should be preserved in system")
+	}
+	if gjson.GetBytes(result, "system.0.cache_control.type").String() != "ephemeral" {
+		t.Error("cache_control.type should be preserved")
+	}
+	if gjson.GetBytes(result, "system.0.cache_control.scope").Exists() {
+		t.Error("cache_control.scope should be stripped from system")
+	}
+	if gjson.GetBytes(result, "tools.0.cache_control.scope").Exists() {
+		t.Error("cache_control.scope should be stripped from tools")
+	}
+	if gjson.GetBytes(result, "messages.0.content.0.cache_control.scope").Exists() {
+		t.Error("cache_control.scope should be stripped from messages")
+	}
+	if gjson.GetBytes(result, "messages.0.content.0.cache_control.type").String() != "ephemeral" {
+		t.Error("cache_control.type should be preserved in messages")
 	}
 	if gjson.GetBytes(result, "output_config").Exists() {
 		t.Error("output_config not stripped")
@@ -137,7 +152,7 @@ func TestBedrockFixer_FixRequest_StripsAll(t *testing.T) {
 	if gjson.GetBytes(result, "tools.1.name").String() != "read" {
 		t.Error("tools[1].name corrupted")
 	}
-	if gjson.GetBytes(result, "messages.0.content").String() != "hi" {
+	if gjson.GetBytes(result, "messages.0.content.0.text").String() != "hi" {
 		t.Error("messages corrupted")
 	}
 

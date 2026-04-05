@@ -23,6 +23,9 @@ web/package.json.md5
 .gotmp/
 .tmp/
 
+# Environment variables
+.env
+
 # Claude Code local settings
 .claude/settings.local.json
 

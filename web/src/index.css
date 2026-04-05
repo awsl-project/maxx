@@ -90,6 +90,7 @@ input[type='password']::-webkit-credentials-auto-fill-button {
   --provider-aws: oklch(0.7456 0.189 45.6789); /* #FF9900 橙色 */
   --provider-cohere: oklch(0.6345 0.1678 45.6789); /* #D97706 橙色 */
   --provider-mistral: oklch(0.689 0.1789 34.5678); /* #F97316 橙红 */
+  --provider-bedrock: var(--provider-aws); /* AWS Bedrock 复用 AWS 橙色 */
   --provider-custom: oklch(0.5789 0.0234 95.6789); /* #8C8C8C 灰色 */
   --provider-antigravity: oklch(0.7123 0.2345 345.6789); /* #EC4899 粉色 */
   --provider-kiro: oklch(0.689 0.1456 195.6789); /* #00BCD4 青色 */
@@ -374,6 +375,7 @@ input[type='password']::-webkit-credentials-auto-fill-button {
   --color-provider-aws: var(--provider-aws);
   --color-provider-cohere: var(--provider-cohere);
   --color-provider-mistral: var(--provider-mistral);
+  --color-provider-bedrock: var(--provider-bedrock);
   --color-provider-custom: var(--provider-custom);
   --color-provider-antigravity: var(--provider-antigravity);
   --color-provider-kiro: var(--provider-kiro);

@@ -6,6 +6,7 @@ import { KiroTokenImport } from './components/kiro-token-import';
 import { CodexTokenImport } from './components/codex-token-import';
 import { ClaudeTokenImport } from './components/claude-token-import';
 import { CustomConfigStep } from './components/custom-config-step';
+import { BedrockConfigStep } from './components/bedrock-config-step';
 
 export function ProviderCreateLayout() {
   return (
@@ -13,6 +14,7 @@ export function ProviderCreateLayout() {
       <Routes>
         <Route index element={<SelectTypeStep />} />
         <Route path="custom" element={<CustomConfigStep />} />
+        <Route path="bedrock" element={<BedrockConfigStep />} />
         <Route path="antigravity" element={<AntigravityTokenImport />} />
         <Route path="kiro" element={<KiroTokenImport />} />
         <Route path="codex" element={<CodexTokenImport />} />

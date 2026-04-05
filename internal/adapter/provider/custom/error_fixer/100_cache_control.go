@@ -38,7 +38,53 @@ func (f *cacheControlFixer) MatchResponse(resp *http.Response, body []byte, clie
 }
 
 func (f *cacheControlFixer) FixRequest(req *http.Request, body []byte) (*http.Request, []byte) {
+	// First try stripping only scope sub-field (preserves caching for Bedrock-like upstreams)
+	// If the error is about cache_control itself (not scope), strip everything
 	return req, stripAllCacheControl(body)
+}
+
+// stripCacheControlScope removes only the "scope" sub-field from cache_control objects.
+// Bedrock and similar upstreams accept cache_control.type but reject extra sub-fields like "scope".
+func stripCacheControlScope(payload []byte) []byte {
+	// Strip from system array
+	system := gjson.GetBytes(payload, "system")
+	if system.IsArray() {
+		for i := int(system.Get("#").Int()) - 1; i >= 0; i-- {
+			path := fmt.Sprintf("system.%d.cache_control.scope", i)
+			if gjson.GetBytes(payload, path).Exists() {
+				payload, _ = sjson.DeleteBytes(payload, path)
+			}
+		}
+	}
+
+	// Strip from tools array
+	tools := gjson.GetBytes(payload, "tools")
+	if tools.IsArray() {
+		for i := int(tools.Get("#").Int()) - 1; i >= 0; i-- {
+			path := fmt.Sprintf("tools.%d.cache_control.scope", i)
+			if gjson.GetBytes(payload, path).Exists() {
+				payload, _ = sjson.DeleteBytes(payload, path)
+			}
+		}
+	}
+
+	// Strip from messages content blocks
+	messages := gjson.GetBytes(payload, "messages")
+	if messages.IsArray() {
+		for i := int(messages.Get("#").Int()) - 1; i >= 0; i-- {
+			content := gjson.GetBytes(payload, fmt.Sprintf("messages.%d.content", i))
+			if content.IsArray() {
+				for j := int(content.Get("#").Int()) - 1; j >= 0; j-- {
+					path := fmt.Sprintf("messages.%d.content.%d.cache_control.scope", i, j)
+					if gjson.GetBytes(payload, path).Exists() {
+						payload, _ = sjson.DeleteBytes(payload, path)
+					}
+				}
+			}
+		}
+	}
+
+	return payload
 }
 
 // stripAllCacheControl removes all cache_control fields from the payload.

@@ -42,6 +42,7 @@ import type {
 import { defaultClients, type ClientConfig } from '../types';
 import { ClientsConfigSection } from './clients-config-section';
 import { AntigravityProviderView } from './antigravity-provider-view';
+import { BedrockProviderView } from './bedrock-provider-view';
 import { KiroProviderView } from './kiro-provider-view';
 import { CodexProviderView } from './codex-provider-view';
 import { ClaudeProviderView } from './claude-provider-view';
@@ -496,6 +497,26 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       setShowDeleteConfirm(false);
     }
   };
+
+  // Bedrock provider
+  if (provider.type === 'bedrock') {
+    return (
+      <>
+        <BedrockProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
 
   // Antigravity provider (read-only for now)
   if (provider.type === 'antigravity') {

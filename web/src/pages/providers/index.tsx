@@ -120,6 +120,7 @@ export function ProvidersPage() {
     // 按类型分组，使用配置系统中定义的类型
     const groups: Record<ProviderTypeKey, Provider[]> = {
       antigravity: [],
+      bedrock: [],
       kiro: [],
       codex: [],
       claude: [],

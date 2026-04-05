@@ -70,6 +70,24 @@ type ProviderConfigAntigravity struct {
 	UseCLIProxyAPI bool `json:"useCLIProxyAPI,omitempty"`
 }
 
+type ProviderConfigBedrock struct {
+	// AWS Access Key ID
+	AccessKeyID string `json:"accessKeyId"`
+
+	// AWS Secret Access Key
+	SecretAccessKey string `json:"secretAccessKey"`
+
+	// AWS Region (默认 us-east-1)
+	Region string `json:"region,omitempty"`
+
+	// Model ID 前缀 (默认 "us"，用于跨区域推理配置)
+	// 设为 "none" 可禁用前缀
+	ModelPrefix string `json:"modelPrefix,omitempty"`
+
+	// Model 映射: RequestModel → BedrockModelID
+	ModelMapping map[string]string `json:"modelMapping,omitempty"`
+}
+
 type ProviderConfigKiro struct {
 	// 认证方式: "social" 或 "idc"
 	AuthMethod string `json:"authMethod"`
@@ -198,6 +216,7 @@ type ProviderConfig struct {
 	DisableErrorCooldown bool                       `json:"disableErrorCooldown,omitempty"`
 	Custom               *ProviderConfigCustom      `json:"custom,omitempty"`
 	Antigravity          *ProviderConfigAntigravity `json:"antigravity,omitempty"`
+	Bedrock              *ProviderConfigBedrock     `json:"bedrock,omitempty"`
 	Kiro                 *ProviderConfigKiro        `json:"kiro,omitempty"`
 	Codex                *ProviderConfigCodex       `json:"codex,omitempty"`
 	Claude               *ProviderConfigClaude      `json:"claude,omitempty"`

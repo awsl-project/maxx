@@ -81,10 +81,19 @@ export interface ProviderConfigClaude {
   modelMapping?: Record<string, string>;
 }
 
+export interface ProviderConfigBedrock {
+  accessKeyId: string;
+  secretAccessKey: string;
+  region?: string;
+  modelPrefix?: string;
+  modelMapping?: Record<string, string>;
+}
+
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;
+  bedrock?: ProviderConfigBedrock;
   kiro?: ProviderConfigKiro;
   codex?: ProviderConfigCodex;
   claude?: ProviderConfigClaude;

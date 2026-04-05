@@ -46,8 +46,12 @@ func (f *bedrockFixer) MatchResponse(resp *http.Response, body []byte, clientTyp
 }
 
 func (f *bedrockFixer) FixRequest(req *http.Request, body []byte) (*http.Request, []byte) {
-	// 1. Strip cache_control from system, tools, messages
-	body = stripAllCacheControl(body)
+	// 1. Handle cache_control:
+	// Modern Bedrock supports cache_control.type but rejects sub-fields like "scope".
+	// Only strip scope first; if cache_control itself is rejected (older regions/configs),
+	// the error will contain "cache_control" without "scope" and the cache_control fixer
+	// will handle it in a subsequent round.
+	body = stripCacheControlScope(body)
 
 	// 2. Strip known unsupported top-level fields
 	for _, field := range []string{"output_config", "context_management", "reasoning"} {

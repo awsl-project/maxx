@@ -81,6 +81,11 @@ tasks:
     cmds:
       - go test -v -count=1 -timeout 600s ./...
 
+  test:integration:
+    desc: Run Docker integration tests (requires .env with AWS credentials)
+    cmds:
+      - bash tests/integration/run.sh
+
   clean:
     desc: Clean build artifacts
     cmds:

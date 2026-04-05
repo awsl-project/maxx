@@ -1374,6 +1374,14 @@
       "name": "Claude",
       "description": "Anthropic Claude with OAuth authentication"
     },
+    "bedrock": {
+      "name": "AWS Bedrock",
+      "description": "Direct access to Claude on AWS Bedrock",
+      "credentials": "AWS Credentials",
+      "secretPlaceholder": "Enter your Secret Access Key",
+      "regionHint": "Select the region where you enabled Bedrock model access",
+      "modelPrefixHint": "Cross-region inference prefix (default: us). Set to 'none' to disable"
+    },
     "custom": {
       "name": "Custom Provider",
       "description": "Configure your own API endpoint"
