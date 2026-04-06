@@ -24,9 +24,7 @@ describe('codex-config', () => {
 
     it('keeps project-scoped trailing /v1 stable', () => {
       expect(
-        __codexConfigTestUtils.ensureCodexBasePath(
-          'https://maxx.example.com/project/demo/v1',
-        ),
+        __codexConfigTestUtils.ensureCodexBasePath('https://maxx.example.com/project/demo/v1'),
       ).toBe('https://maxx.example.com/project/demo/v1');
     });
   });
