@@ -54,7 +54,11 @@ function ensureCodexBasePath(address: string): string {
 
   try {
     const parsed = new URL(normalized);
-    if (parsed.pathname === '/v1' || parsed.pathname.startsWith('/v1/')) {
+    if (
+      parsed.pathname === '/v1' ||
+      parsed.pathname.startsWith('/v1/') ||
+      /(?:^|\/)v1\/?$/.test(parsed.pathname)
+    ) {
       return parsed.toString().replace(/\/+$/, '');
     }
 

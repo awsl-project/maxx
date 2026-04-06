@@ -21,6 +21,14 @@ describe('codex-config', () => {
         'https://maxx.example.com/v1',
       );
     });
+
+    it('keeps project-scoped trailing /v1 stable', () => {
+      expect(
+        __codexConfigTestUtils.ensureCodexBasePath(
+          'https://maxx.example.com/project/demo/v1',
+        ),
+      ).toBe('https://maxx.example.com/project/demo/v1');
+    });
   });
 
   it('buildProxyBaseUrl preserves host fallback behavior', () => {
