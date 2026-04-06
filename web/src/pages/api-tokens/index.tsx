@@ -259,7 +259,8 @@ export function APITokensPage() {
 
   const getCodexCheckHint = (checkKey: string) => {
     if (checkKey === 'proxy') return t('apiTokens.codexConfigDialog.checksHint.proxy');
-    if (checkKey === 'tokenEnabled') return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
+    if (checkKey === 'tokenEnabled')
+      return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
     return t('apiTokens.codexConfigDialog.checksHint.tokenExpiry');
   };
 
@@ -700,11 +701,7 @@ export function APITokensPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={closeEditDialog}
-              >
+              <Button type="button" variant="outline" onClick={closeEditDialog}>
                 {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={updateToken.isPending || !name}>
@@ -876,8 +873,10 @@ export function APITokensPage() {
                       ? t('common.copied')
                       : t('apiTokens.codexConfigDialog.copyToClipboard')}
                   </Button>
-                  <pre className="max-h-64 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-muted/40 p-3 pr-24 text-xs font-mono">
-                    <code className="block min-w-full whitespace-pre">{codexBundle.configToml}</code>
+                  <pre className="max-h-64 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-background p-3 pr-24 text-xs font-mono text-foreground">
+                    <code className="block min-w-full whitespace-pre">
+                      {codexBundle.configToml}
+                    </code>
                   </pre>
                 </div>
               </div>
@@ -903,7 +902,7 @@ export function APITokensPage() {
                       ? t('common.copied')
                       : t('apiTokens.codexConfigDialog.copyToClipboard')}
                   </Button>
-                  <pre className="max-h-56 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-muted/40 p-3 pr-24 text-xs font-mono">
+                  <pre className="max-h-56 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-background p-3 pr-24 text-xs font-mono text-foreground">
                     <code className="block min-w-full whitespace-pre">{codexBundle.authJson}</code>
                   </pre>
                 </div>
