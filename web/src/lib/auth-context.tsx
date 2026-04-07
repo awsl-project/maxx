@@ -68,30 +68,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         if (savedToken) {
-          try {
-            await transport.getPublicProxyStatus();
+          if (!status.user) {
             if (shouldSkip()) {
               return;
             }
-            setIsAuthenticated(true);
-            // Restore user info from auth status
-            if (status.user) {
-              setUser({
-                id: status.user.id,
-                username: status.user.username ?? '',
-                tenantID: status.user.tenantID,
-                tenantName: status.user.tenantName,
-                role: status.user.role,
-              });
-            }
-          } catch (error) {
-            if (shouldSkip()) {
-              return;
-            }
-            console.error('[AuthProvider] Saved token verification failed:', error);
+            console.error(
+              '[AuthProvider] Saved token verification failed: auth status returned no user',
+            );
             localStorage.removeItem(AUTH_TOKEN_KEY);
             transport.clearAuthToken();
+            return;
           }
+
+          setIsAuthenticated(true);
+          setUser({
+            id: status.user.id,
+            username: status.user.username ?? '',
+            tenantID: status.user.tenantID,
+            tenantName: status.user.tenantName,
+            role: status.user.role,
+          });
         }
       } catch (error) {
         if (shouldSkip()) {
