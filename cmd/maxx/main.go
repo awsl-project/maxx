@@ -280,7 +280,10 @@ func main() {
 
 	converter.SetGlobalSettingsGetter(func() (*converter.GlobalSettings, error) {
 		val, err := settingRepo.Get(domain.SettingKeyCodexInstructionsEnabled)
-		if err != nil || val == "" {
+		if err != nil {
+			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyCodexInstructionsEnabled, err)
+		}
+		if val == "" {
 			return &converter.GlobalSettings{}, nil
 		}
 		enabled := strings.EqualFold(strings.TrimSpace(val), "true")
@@ -289,7 +292,10 @@ func main() {
 
 	payloadoverride.SetGlobalSettingsGetter(func() (*payloadoverride.GlobalSettings, error) {
 		val, err := settingRepo.Get(domain.SettingKeyPayloadOverrideRules)
-		if err != nil || strings.TrimSpace(val) == "" {
+		if err != nil {
+			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyPayloadOverrideRules, err)
+		}
+		if strings.TrimSpace(val) == "" {
 			return &payloadoverride.GlobalSettings{}, nil
 		}
 		if err := payloadoverride.ValidateRulesJSON(val); err != nil {

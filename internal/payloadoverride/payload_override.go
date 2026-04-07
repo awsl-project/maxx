@@ -60,6 +60,7 @@ func GetGlobalSettings() *GlobalSettings {
 
 	settings, err := ReloadGlobalSettings()
 	if err != nil {
+		log.Printf("[PayloadOverride] Failed to reload global settings: %v; payload override rules will be skipped until reload succeeds", err)
 		return nil
 	}
 	return settings

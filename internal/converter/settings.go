@@ -1,6 +1,9 @@
 package converter
 
-import "sync"
+import (
+	"log"
+	"sync"
+)
 
 // GlobalSettings holds converter-related global configuration.
 type GlobalSettings struct {
@@ -28,6 +31,7 @@ func GetGlobalSettings() *GlobalSettings {
 	}
 	settings, err := settingsGetterFunc()
 	if err != nil {
+		log.Printf("[Converter] Failed to load global settings: %v; codex instructions processing will use default behavior", err)
 		return nil
 	}
 	return settings
