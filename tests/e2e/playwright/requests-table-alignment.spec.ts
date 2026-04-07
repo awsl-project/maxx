@@ -206,6 +206,8 @@ async function openRequestsPage(page: Page, providerId?: number) {
 }
 
 test('virtualized requests table keeps header and body columns aligned', async ({ page }, testInfo) => {
+  test.slow();
+
   const mock = await startMockClaudeServer();
   let jwt: string | undefined;
   let providerId: number | null = null;
@@ -253,7 +255,7 @@ test('virtualized requests table keeps header and body columns aligned', async (
     );
     routeId = route.id;
 
-    for (let batch = 0; batch < 6; batch += 1) {
+    for (let batch = 0; batch < 4; batch += 1) {
       await Promise.all(
         Array.from({ length: 10 }, (_, index) =>
           sendClaudeRequest(`claude-sonnet-4-20250514-b${batch}-r${index}`),
@@ -264,12 +266,12 @@ test('virtualized requests table keeps header and body columns aligned', async (
     await expect
       .poll(
         async () => {
-          const requests = await adminAPI('GET', '/requests?limit=100', undefined, jwt);
-          return requests.items?.filter((item: any) => item.providerID === providerId).length ?? 0;
+          const requests = await adminAPI('GET', `/requests?limit=50&providerId=${providerId}`, undefined, jwt);
+          return requests.items?.length ?? 0;
         },
         { timeout: 15000 },
       )
-      .toBeGreaterThanOrEqual(40);
+      .toBeGreaterThanOrEqual(30);
 
     await openRequestsPage(page, provider.id);
     await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 30_000 });

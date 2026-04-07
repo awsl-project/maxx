@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -19,10 +20,13 @@ import (
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"  // Register custom adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"    // Register kiro adapter
+	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/core"
+	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
+	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
@@ -273,6 +277,35 @@ func main() {
 	// Setup log output to broadcast via WebSocket
 	logWriter := handler.NewWebSocketLogWriter(wsHub, os.Stdout, logPath)
 	log.SetOutput(logWriter)
+
+	converter.SetGlobalSettingsGetter(func() (*converter.GlobalSettings, error) {
+		val, err := settingRepo.Get(domain.SettingKeyCodexInstructionsEnabled)
+		if err != nil || val == "" {
+			return &converter.GlobalSettings{}, nil
+		}
+		enabled := strings.EqualFold(strings.TrimSpace(val), "true")
+		return &converter.GlobalSettings{CodexInstructionsEnabled: enabled}, nil
+	})
+
+	payloadoverride.SetGlobalSettingsGetter(func() (*payloadoverride.GlobalSettings, error) {
+		val, err := settingRepo.Get(domain.SettingKeyPayloadOverrideRules)
+		if err != nil || strings.TrimSpace(val) == "" {
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		if err := payloadoverride.ValidateRulesJSON(val); err != nil {
+			log.Printf("Warning: Ignoring invalid payload override rules: %v", err)
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		rules, err := payloadoverride.ParseRules(val)
+		if err != nil {
+			log.Printf("Warning: Failed to parse payload override rules: %v", err)
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		return &payloadoverride.GlobalSettings{Rules: rules}, nil
+	})
+	if _, err := payloadoverride.ReloadGlobalSettings(); err != nil {
+		log.Printf("Warning: Failed to warm payload override cache: %v", err)
+	}
 
 	// Create project waiter for force project binding
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)

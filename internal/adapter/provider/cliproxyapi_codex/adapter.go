@@ -64,9 +64,15 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 		metadata["account_id"] = cfg.AccountID
 	}
 
+	attributes := map[string]string{}
+	if baseURL := strings.TrimSpace(cfg.BaseURL); baseURL != "" {
+		attributes["base_url"] = baseURL
+	}
+
 	authObj := &auth.Auth{
-		Provider: "codex",
-		Metadata: metadata,
+		Provider:   "codex",
+		Attributes: attributes,
+		Metadata:   metadata,
 	}
 
 	adapter := &CLIProxyAPICodexAdapter{
