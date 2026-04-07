@@ -1034,6 +1034,7 @@
       "precedenceHint": "命中规则后，设置页规则会在 provider 级 reasoning / service_tier 之后生效，并最终覆盖请求中的同名字段。",
       "empty": "暂无覆盖规则。添加规则后，可按最终映射模型强制改写请求 payload。",
       "addRule": "添加规则",
+      "removeRule": "删除规则 #{{index}}",
       "ruleLabel": "规则 #{{index}}",
       "modelPattern": "模型匹配",
       "modelPlaceholder": "例如：gpt-5.4 或 gpt-5.*",

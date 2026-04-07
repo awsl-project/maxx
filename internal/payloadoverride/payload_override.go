@@ -21,8 +21,8 @@ type ModelSelector struct {
 
 // Rule describes a single payload override rule.
 type Rule struct {
-	Models []ModelSelector `json:"models"`
-	Params map[string]any  `json:"params"`
+	Models []ModelSelector            `json:"models"`
+	Params map[string]json.RawMessage `json:"params"`
 }
 
 // GlobalSettings holds runtime payload override configuration.
@@ -33,6 +33,7 @@ type GlobalSettings struct {
 var (
 	cachedSettings     *GlobalSettings
 	cacheLoaded        bool
+	cacheGeneration    uint64
 	globalSettingsMu   sync.RWMutex
 	settingsGetterFunc func() (*GlobalSettings, error)
 )
@@ -44,6 +45,7 @@ func SetGlobalSettingsGetter(getter func() (*GlobalSettings, error)) {
 	settingsGetterFunc = getter
 	cachedSettings = nil
 	cacheLoaded = false
+	cacheGeneration++
 }
 
 // GetGlobalSettings retrieves the current runtime settings.
@@ -69,30 +71,44 @@ func InvalidateGlobalSettingsCache() {
 	defer globalSettingsMu.Unlock()
 	cachedSettings = nil
 	cacheLoaded = false
+	cacheGeneration++
 }
 
 // ReloadGlobalSettings reloads settings through the configured getter and refreshes the cache.
 func ReloadGlobalSettings() (*GlobalSettings, error) {
-	globalSettingsMu.RLock()
-	getter := settingsGetterFunc
-	globalSettingsMu.RUnlock()
-	if getter == nil {
-		return nil, nil
-	}
+	for {
+		globalSettingsMu.RLock()
+		getter := settingsGetterFunc
+		generation := cacheGeneration
+		globalSettingsMu.RUnlock()
+		if getter == nil {
+			return nil, nil
+		}
 
-	settings, err := getter()
-	if err != nil {
-		return nil, err
-	}
-	if settings == nil {
-		settings = &GlobalSettings{}
-	}
+		settings, err := getter()
+		if err != nil {
+			return nil, err
+		}
+		if settings == nil {
+			settings = &GlobalSettings{}
+		}
 
-	globalSettingsMu.Lock()
-	defer globalSettingsMu.Unlock()
-	cachedSettings = settings
-	cacheLoaded = true
-	return cachedSettings, nil
+		globalSettingsMu.Lock()
+		if cacheGeneration == generation {
+			cachedSettings = settings
+			cacheLoaded = true
+			ret := cachedSettings
+			globalSettingsMu.Unlock()
+			return ret, nil
+		}
+		currentSettings := cachedSettings
+		currentLoaded := cacheLoaded
+		globalSettingsMu.Unlock()
+
+		if currentLoaded {
+			return currentSettings, nil
+		}
+	}
 }
 
 // ValidateRulesJSON validates a payload override setting before it is persisted.
@@ -145,7 +161,7 @@ func ParseRules(jsonStr string) ([]Rule, error) {
 	for _, rule := range rules {
 		next := Rule{
 			Models: make([]ModelSelector, 0, len(rule.Models)),
-			Params: make(map[string]any, len(rule.Params)),
+			Params: make(map[string]json.RawMessage, len(rule.Params)),
 		}
 		for _, selector := range rule.Models {
 			name := strings.TrimSpace(selector.Name)
@@ -216,7 +232,7 @@ func ApplyRules(raw []byte, rules []Rule, protocol, model string) []byte {
 
 func ruleMatches(rule Rule, protocol, model string) bool {
 	for _, selector := range rule.Models {
-		if selector.Protocol != "" && selector.Protocol != protocol {
+		if effectiveSelectorProtocol(selector) != protocol {
 			continue
 		}
 		if domain.MatchWildcard(selector.Name, model) {
@@ -226,7 +242,7 @@ func ruleMatches(rule Rule, protocol, model string) bool {
 	return false
 }
 
-func applyRuleParams(body []byte, protocol, model string, params map[string]any) []byte {
+func applyRuleParams(body []byte, protocol, model string, params map[string]json.RawMessage) []byte {
 	if len(params) == 0 {
 		return body
 	}
@@ -256,7 +272,7 @@ func applyRuleParams(body []byte, protocol, model string, params map[string]any)
 			log.Printf("[PayloadOverride] ignoring reserved path=%q protocol=%s model=%s", path, protocol, model)
 			continue
 		}
-		updated, err := sjson.SetBytes(out, path, params[path])
+		updated, err := sjson.SetRawBytes(out, path, params[path])
 		if err != nil {
 			log.Printf("[PayloadOverride] failed to apply path=%q protocol=%s model=%s: %v", path, protocol, model, err)
 			continue

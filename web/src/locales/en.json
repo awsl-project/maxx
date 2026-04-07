@@ -1035,6 +1035,7 @@
       "precedenceHint": "When a rule matches, settings-level overrides run after provider-level reasoning / service_tier overrides and win for the same payload paths.",
       "empty": "No override rules configured. Add a rule to force payload changes by final mapped model.",
       "addRule": "Add Rule",
+      "removeRule": "Remove rule #{{index}}",
       "ruleLabel": "Rule #{{index}}",
       "modelPattern": "Model Pattern",
       "modelPlaceholder": "e.g. gpt-5.4 or gpt-5.*",

@@ -1,12 +1,19 @@
 package payloadoverride
 
 import (
+	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/tidwall/gjson"
 )
+
+func rawJSON(value string) json.RawMessage {
+	return json.RawMessage(value)
+}
 
 func TestParseRules(t *testing.T) {
 	rules, err := ParseRules(`[
@@ -60,7 +67,7 @@ func TestParseRulesSkipsReservedPaths(t *testing.T) {
 	if _, ok := rules[0].Params["stream"]; ok {
 		t.Fatalf("expected stream path to be filtered out")
 	}
-	if got := rules[0].Params["instructions"]; got != "hello" {
+	if got := string(rules[0].Params["instructions"]); got != `"hello"` {
 		t.Fatalf("expected instructions to remain, got %#v", got)
 	}
 }
@@ -162,14 +169,14 @@ func TestApplyRules(t *testing.T) {
 	rules := []Rule{
 		{
 			Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "codex"}},
-			Params: map[string]any{
-				"instructions":      "overridden",
-				"reasoning.effort":  "high",
-				"metadata.enabled":  true,
-				"metadata.count":    2,
-				"metadata.flags":    []string{"after"},
-				"metadata.extra.x":  "y",
-				"metadata.settings": map[string]any{"mode": "strict"},
+			Params: map[string]json.RawMessage{
+				"instructions":      rawJSON(`"overridden"`),
+				"reasoning.effort":  rawJSON(`"high"`),
+				"metadata.enabled":  rawJSON(`true`),
+				"metadata.count":    rawJSON(`2`),
+				"metadata.flags":    rawJSON(`["after"]`),
+				"metadata.extra.x":  rawJSON(`"y"`),
+				"metadata.settings": rawJSON(`{"mode":"strict"}`),
 			},
 		},
 	}
@@ -203,10 +210,10 @@ func TestApplyRulesSkipsReservedPaths(t *testing.T) {
 	rules := []Rule{
 		{
 			Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "codex"}},
-			Params: map[string]any{
-				"model":        "gpt-5.5",
-				"stream":       false,
-				"instructions": "overridden",
+			Params: map[string]json.RawMessage{
+				"model":        rawJSON(`"gpt-5.5"`),
+				"stream":       rawJSON(`false`),
+				"instructions": rawJSON(`"overridden"`),
 			},
 		},
 	}
@@ -228,11 +235,11 @@ func TestApplyRulesUsesLastMatchingRule(t *testing.T) {
 	rules := []Rule{
 		{
 			Models: []ModelSelector{{Name: "gpt-5.*", Protocol: "codex"}},
-			Params: map[string]any{"instructions": "first"},
+			Params: map[string]json.RawMessage{"instructions": rawJSON(`"first"`)},
 		},
 		{
 			Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "codex"}},
-			Params: map[string]any{"instructions": "second"},
+			Params: map[string]json.RawMessage{"instructions": rawJSON(`"second"`)},
 		},
 	}
 
@@ -247,7 +254,7 @@ func TestApplyRulesSkipsProtocolMismatch(t *testing.T) {
 	rules := []Rule{
 		{
 			Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "openai"}},
-			Params: map[string]any{"instructions": "overridden"},
+			Params: map[string]json.RawMessage{"instructions": rawJSON(`"overridden"`)},
 		},
 	}
 
@@ -262,7 +269,7 @@ func TestApplyRulesFallsBackToBodyModel(t *testing.T) {
 	rules := []Rule{
 		{
 			Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "codex"}},
-			Params: map[string]any{"instructions": "overridden"},
+			Params: map[string]json.RawMessage{"instructions": rawJSON(`"overridden"`)},
 		},
 	}
 
@@ -285,7 +292,7 @@ func TestGetGlobalSettingsCachesUntilInvalidated(t *testing.T) {
 			Rules: []Rule{
 				{
 					Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "codex"}},
-					Params: map[string]any{"instructions": "hello"},
+					Params: map[string]json.RawMessage{"instructions": rawJSON(`"hello"`)},
 				},
 			},
 		}, nil
@@ -307,5 +314,117 @@ func TestGetGlobalSettingsCachesUntilInvalidated(t *testing.T) {
 	}
 	if loadCount != 2 {
 		t.Fatalf("expected getter to be called again after invalidation, got %d", loadCount)
+	}
+}
+
+func TestApplyRulesPreservesLargeJSONNumbers(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.4","metadata":{"large":0}}`)
+	rules := []Rule{
+		{
+			Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "codex"}},
+			Params: map[string]json.RawMessage{
+				"metadata.large": rawJSON(`9007199254740993`),
+			},
+		},
+	}
+
+	got := ApplyRules(body, rules, "codex", "gpt-5.4")
+	if v := gjson.GetBytes(got, "metadata.large").Raw; v != "9007199254740993" {
+		t.Fatalf("expected large integer precision to be preserved, got %q", v)
+	}
+}
+
+func TestApplyRulesTreatsOmittedProtocolAsCodex(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.4","instructions":"original"}`)
+	rules := []Rule{
+		{
+			Models: []ModelSelector{{Name: "gpt-5.4"}},
+			Params: map[string]json.RawMessage{"instructions": rawJSON(`"overridden"`)},
+		},
+	}
+
+	got := ApplyRules(body, rules, "openai", "gpt-5.4")
+	if v := gjson.GetBytes(got, "instructions").String(); v != "original" {
+		t.Fatalf("expected omitted protocol to default to codex only, got %q", v)
+	}
+
+	got = ApplyRules(body, rules, "codex", "gpt-5.4")
+	if v := gjson.GetBytes(got, "instructions").String(); v != "overridden" {
+		t.Fatalf("expected codex protocol to match omitted protocol, got %q", v)
+	}
+}
+
+func TestReloadGlobalSettingsDoesNotOverwriteInvalidatedCache(t *testing.T) {
+	t.Cleanup(func() {
+		SetGlobalSettingsGetter(nil)
+		InvalidateGlobalSettingsCache()
+	})
+
+	var oldGetterCalls int32
+	oldStarted := make(chan struct{})
+	releaseOld := make(chan struct{})
+	SetGlobalSettingsGetter(func() (*GlobalSettings, error) {
+		atomic.AddInt32(&oldGetterCalls, 1)
+		close(oldStarted)
+		<-releaseOld
+		return &GlobalSettings{
+			Rules: []Rule{
+				{
+					Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "codex"}},
+					Params: map[string]json.RawMessage{"instructions": rawJSON(`"old"`)},
+				},
+			},
+		}, nil
+	})
+
+	done := make(chan *GlobalSettings, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		settings, err := ReloadGlobalSettings()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		done <- settings
+	}()
+
+	select {
+	case <-oldStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for old getter to start")
+	}
+
+	SetGlobalSettingsGetter(func() (*GlobalSettings, error) {
+		return &GlobalSettings{
+			Rules: []Rule{
+				{
+					Models: []ModelSelector{{Name: "gpt-5.4", Protocol: "codex"}},
+					Params: map[string]json.RawMessage{"instructions": rawJSON(`"new"`)},
+				},
+			},
+		}, nil
+	})
+	close(releaseOld)
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("ReloadGlobalSettings returned error: %v", err)
+	case settings := <-done:
+		if settings == nil {
+			t.Fatalf("expected settings to be returned")
+		}
+		if got := string(settings.Rules[0].Params["instructions"]); got != `"new"` {
+			t.Fatalf("expected reloaded settings to use the latest getter, got %s", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ReloadGlobalSettings")
+	}
+
+	cached := GetGlobalSettings()
+	if cached == nil {
+		t.Fatalf("expected cached settings after reload")
+	}
+	if got := string(cached.Rules[0].Params["instructions"]); got != `"new"` {
+		t.Fatalf("expected cache to keep new settings, got %s", got)
 	}
 }

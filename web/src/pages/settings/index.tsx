@@ -39,7 +39,6 @@ import {
   TabsTrigger,
   TabsContent,
 } from '@/components/ui';
-import { ModelInput } from '@/components/ui/model-input';
 import { Textarea } from '@/components/ui/textarea';
 import { PageHeader } from '@/components/layout/page-header';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
@@ -789,22 +788,23 @@ function PayloadOverrideSection() {
 
   const [rules, setRules] = useState<PayloadOverrideFormRule[]>([]);
   const [initialized, setInitialized] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
       setRules(parsedSetting.rules);
       setInitialized(true);
+      setIsDirty(false);
     }
   }, [initialized, isLoading, parsedSetting.rules]);
 
-  const draftSnapshot = getPayloadOverrideRuleSnapshot(rules);
-  const hasChanges = initialized && draftSnapshot !== serverSnapshot;
+  const hasChanges = initialized && isDirty;
 
   useEffect(() => {
-    if (initialized && !hasChanges) {
+    if (initialized && !isDirty) {
       setRules(parsedSetting.rules);
     }
-  }, [hasChanges, initialized, parsedSetting.rules]);
+  }, [initialized, isDirty, parsedSetting.rules, serverSnapshot]);
 
   const validationError = (() => {
     const seen = new Set<string>();
@@ -862,14 +862,17 @@ function PayloadOverrideSection() {
 
   const updateRule = (id: string, updates: Partial<PayloadOverrideFormRule>) => {
     setRules((prev) => prev.map((rule) => (rule.id === id ? { ...rule, ...updates } : rule)));
+    setIsDirty(true);
   };
 
   const handleAddRule = () => {
     setRules((prev) => [...prev, createPayloadOverrideFormRule()]);
+    setIsDirty(true);
   };
 
   const handleRemoveRule = (id: string) => {
     setRules((prev) => prev.filter((rule) => rule.id !== id));
+    setIsDirty(true);
   };
 
   const handleSave = async () => {
@@ -881,6 +884,7 @@ function PayloadOverrideSection() {
       if (rawSetting.trim()) {
         await deleteSetting.mutateAsync(PAYLOAD_OVERRIDE_SETTING_KEY);
       }
+      setIsDirty(false);
       return;
     }
 
@@ -893,6 +897,7 @@ function PayloadOverrideSection() {
       key: PAYLOAD_OVERRIDE_SETTING_KEY,
       value: JSON.stringify(payload),
     });
+    setIsDirty(false);
   };
 
   if (isLoading || !initialized) return null;
@@ -957,6 +962,7 @@ function PayloadOverrideSection() {
                     size="icon"
                     onClick={() => handleRemoveRule(rule.id)}
                     disabled={isPending}
+                    aria-label={t('settings.payloadOverrides.removeRule', { index: index + 1 })}
                     className="shrink-0 text-muted-foreground hover:text-error"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -968,9 +974,9 @@ function PayloadOverrideSection() {
                     <Label className="text-sm font-medium text-muted-foreground">
                       {t('settings.payloadOverrides.modelPattern')}
                     </Label>
-                    <ModelInput
+                    <Input
                       value={rule.model}
-                      onChange={(value) => updateRule(rule.id, { model: value })}
+                      onChange={(e) => updateRule(rule.id, { model: e.target.value })}
                       placeholder={t('settings.payloadOverrides.modelPlaceholder')}
                       disabled={isPending}
                       className="w-full"

@@ -78,6 +78,24 @@ export function useDeleteSetting() {
 
   return useMutation({
     mutationFn: (key: string) => getTransport().deleteSetting(key),
+    onMutate: async (key) => {
+      await queryClient.cancelQueries({ queryKey: settingsKeys.all });
+
+      const previousSettings = queryClient.getQueryData<Record<string, string>>(settingsKeys.all);
+
+      if (previousSettings) {
+        const nextSettings = { ...previousSettings };
+        delete nextSettings[key];
+        queryClient.setQueryData(settingsKeys.all, nextSettings);
+      }
+
+      return { previousSettings };
+    },
+    onError: (_err, _key, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(settingsKeys.all, context.previousSettings);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: settingsKeys.all });
       queryClient.invalidateQueries({ queryKey: settingsKeys.public });
