@@ -233,6 +233,40 @@ func TestBackupService_ExportImportRoundtrip_PreservesCoreConfig(t *testing.T) {
 	}
 }
 
+func TestBackupService_Export_SkipsPayloadOverrideRules(t *testing.T) {
+	db := newBackupServiceTestDB(t, "export-skip-payload-override.db")
+	settingRepo := sqlite.NewSystemSettingRepository(db)
+
+	if err := settingRepo.Set("timezone", "UTC"); err != nil {
+		t.Fatalf("seed timezone: %v", err)
+	}
+	if err := settingRepo.Set(
+		domain.SettingKeyPayloadOverrideRules,
+		`[{"models":[{"name":"gpt-5.4","protocol":"codex"}],"params":{"instructions":"override"}}]`,
+	); err != nil {
+		t.Fatalf("seed payload override rules: %v", err)
+	}
+
+	svc := newBackupServiceForTest(t, db)
+	backup, err := svc.Export(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("export backup: %v", err)
+	}
+
+	foundTimezone := false
+	for _, setting := range backup.Data.SystemSettings {
+		if setting.Key == domain.SettingKeyPayloadOverrideRules {
+			t.Fatalf("payload override rules should not be exported")
+		}
+		if setting.Key == "timezone" && setting.Value == "UTC" {
+			foundTimezone = true
+		}
+	}
+	if !foundTimezone {
+		t.Fatalf("expected normal system setting to remain in backup export: %+v", backup.Data.SystemSettings)
+	}
+}
+
 func TestBackupService_Import_ModelMappingsSkipDuplicates(t *testing.T) {
 	db := newBackupServiceTestDB(t, "dupe.db")
 	seedBackupRoundtripData(t, db)
@@ -254,6 +288,68 @@ func TestBackupService_Import_ModelMappingsSkipDuplicates(t *testing.T) {
 	}
 	if mappingSummary.Skipped == 0 {
 		t.Fatalf("expected duplicate model mapping skip, got summary=%+v", mappingSummary)
+	}
+}
+
+func TestBackupService_Import_IgnoresPayloadOverrideRules(t *testing.T) {
+	db := newBackupServiceTestDB(t, "ignore-payload-override.db")
+	svc := newBackupServiceForTest(t, db)
+
+	backup := &domain.BackupFile{
+		Version: domain.BackupVersion,
+		Data: domain.BackupData{
+			SystemSettings: []domain.BackupSystemSetting{
+				{
+					Key:   domain.SettingKeyPayloadOverrideRules,
+					Value: `null`,
+				},
+			},
+			Providers: []domain.BackupProvider{
+				{
+					Name: "should-not-import-provider",
+					Type: "custom",
+					Config: &domain.ProviderConfig{
+						Custom: &domain.ProviderConfigCustom{
+							BaseURL: "https://api.example.com/v1",
+							APIKey:  "secret-key",
+						},
+					},
+					SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+				},
+			},
+		},
+	}
+
+	result, err := svc.Import(domain.DefaultTenantID, backup, domain.ImportOptions{ConflictStrategy: "skip"})
+	if err != nil {
+		t.Fatalf("import backup: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected import result success=true, got %+v", result)
+	}
+
+	systemSettingsSummary, ok := result.Summary["systemSettings"]
+	if !ok {
+		t.Fatalf("missing systemSettings summary: %+v", result.Summary)
+	}
+	if systemSettingsSummary.Skipped != 1 {
+		t.Fatalf("expected payload override rules to be skipped, got summary=%+v", systemSettingsSummary)
+	}
+
+	providers, err := sqlite.NewProviderRepository(db).List(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("list providers: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("expected provider import to continue after payload override skip, got %d providers", len(providers))
+	}
+
+	gotValue, err := sqlite.NewSystemSettingRepository(db).Get(domain.SettingKeyPayloadOverrideRules)
+	if err != nil {
+		t.Fatalf("get payload override rules: %v", err)
+	}
+	if gotValue != "" {
+		t.Fatalf("expected payload override rules not to be imported, got %q", gotValue)
 	}
 }
 

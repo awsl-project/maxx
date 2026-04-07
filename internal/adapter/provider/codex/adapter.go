@@ -20,6 +20,7 @@ import (
 	"github.com/awsl-project/maxx/internal/codexutil"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
@@ -137,6 +138,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			requestBody = updated
 		}
 	}
+	requestBody = payloadoverride.ApplyGlobal(requestBody, "codex", flow.GetMappedModel(c))
 
 	// Build upstream URL and stream mode
 	baseURL := CodexBaseURL

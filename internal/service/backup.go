@@ -96,6 +96,9 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export settings: %w", err)
 	}
 	for _, setting := range settings {
+		if shouldSkipSystemSettingInBackup(setting.Key) {
+			continue
+		}
 		backup.Data.SystemSettings = append(backup.Data.SystemSettings, domain.BackupSystemSetting{
 			Key:   setting.Key,
 			Value: setting.Value,
@@ -404,17 +407,38 @@ func (s *BackupService) loadExistingMappings(tenantID uint64, ctx *importContext
 
 func (s *BackupService) importSystemSettings(settings []domain.BackupSystemSetting, opts domain.ImportOptions, result *domain.ImportResult) {
 	summary := domain.ImportSummary{}
+	defer func() {
+		result.Summary["systemSettings"] = summary
+	}()
 
 	for _, bs := range settings {
-		existing, _ := s.settingRepo.Get(bs.Key)
+		if shouldSkipSystemSettingInBackup(bs.Key) {
+			summary.Skipped++
+			continue
+		}
+		existing, err := s.settingRepo.Get(bs.Key)
+		if err != nil {
+			result.Success = false
+			result.Errors = append(result.Errors, fmt.Sprintf("SystemSetting read failed for key '%s': %v", bs.Key, err))
+			return
+		}
 		if existing != "" {
 			switch opts.ConflictStrategy {
 			case "skip", "":
 				summary.Skipped++
 				continue
 			case "overwrite":
+				if err := validateSystemSettingValue(bs.Key, bs.Value); err != nil {
+					result.Success = false
+					result.Errors = append(result.Errors, fmt.Sprintf("SystemSetting '%s' invalid: %v", bs.Key, err))
+					return
+				}
 				if !opts.DryRun {
-					s.settingRepo.Set(bs.Key, bs.Value)
+					if err := s.settingRepo.Set(bs.Key, bs.Value); err != nil {
+						result.Success = false
+						result.Errors = append(result.Errors, fmt.Sprintf("SystemSetting write failed for key '%s': %v", bs.Key, err))
+						return
+					}
 				}
 				summary.Updated++
 			case "error":
@@ -423,14 +447,25 @@ func (s *BackupService) importSystemSettings(settings []domain.BackupSystemSetti
 				return
 			}
 		} else {
+			if err := validateSystemSettingValue(bs.Key, bs.Value); err != nil {
+				result.Success = false
+				result.Errors = append(result.Errors, fmt.Sprintf("SystemSetting '%s' invalid: %v", bs.Key, err))
+				return
+			}
 			if !opts.DryRun {
-				s.settingRepo.Set(bs.Key, bs.Value)
+				if err := s.settingRepo.Set(bs.Key, bs.Value); err != nil {
+					result.Success = false
+					result.Errors = append(result.Errors, fmt.Sprintf("SystemSetting write failed for key '%s': %v", bs.Key, err))
+					return
+				}
 			}
 			summary.Imported++
 		}
 	}
+}
 
-	result.Summary["systemSettings"] = summary
+func shouldSkipSystemSettingInBackup(key string) bool {
+	return key == domain.SettingKeyPayloadOverrideRules
 }
 
 func (s *BackupService) importRetryConfigs(tenantID uint64, configs []domain.BackupRetryConfig, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {

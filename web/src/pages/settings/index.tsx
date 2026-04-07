@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, Fragment, useId } from 'react';
+import { useState, useEffect, useRef, Fragment, useId, useMemo } from 'react';
 import {
   Settings,
   Monitor,
   FolderOpen,
   Database,
+  Braces,
   Globe,
   Archive,
   Download,
@@ -14,6 +15,8 @@ import {
   Activity,
   Eye,
   EyeOff,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
@@ -36,6 +39,8 @@ import {
   TabsTrigger,
   TabsContent,
 } from '@/components/ui';
+import { ModelInput } from '@/components/ui/model-input';
+import { Textarea } from '@/components/ui/textarea';
 import { PageHeader } from '@/components/layout/page-header';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
@@ -62,6 +67,203 @@ function parseRetentionInteger(value: string): number | null {
   return parsed;
 }
 
+const PAYLOAD_OVERRIDE_SETTING_KEY = 'payload_override_rules';
+const PAYLOAD_OVERRIDE_RESERVED_ROOTS = new Set(['model', 'stream']);
+
+type PayloadOverrideProtocol = 'codex';
+
+interface PayloadOverrideFormRule {
+  id: string;
+  model: string;
+  protocol: PayloadOverrideProtocol;
+  paramsText: string;
+}
+
+interface StoredPayloadOverrideSelector {
+  name?: string;
+  protocol?: string;
+}
+
+interface StoredPayloadOverrideRule {
+  models?: StoredPayloadOverrideSelector[];
+  params?: Record<string, unknown>;
+}
+
+interface ParsedPayloadOverrideSetting {
+  rules: PayloadOverrideFormRule[];
+  parseError: string;
+}
+
+function createPayloadOverrideFormRule(
+  overrides: Partial<PayloadOverrideFormRule> = {},
+): PayloadOverrideFormRule {
+  return {
+    id: overrides.id ?? `payload-override-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    model: overrides.model ?? '',
+    protocol: overrides.protocol ?? 'codex',
+    paramsText: overrides.paramsText ?? '{}',
+  };
+}
+
+function stringifyPayloadOverrideParams(value: Record<string, unknown> | undefined): string {
+  if (!value || Object.keys(value).length === 0) {
+    return '{}';
+  }
+  return JSON.stringify(value, null, 2);
+}
+
+function getPayloadOverridePathRoot(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const match = /^[^.[\]]+/.exec(trimmed);
+  return match ? match[0].toLowerCase() : trimmed.toLowerCase();
+}
+
+function getReservedPayloadOverridePath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) {
+    return '';
+  }
+  return PAYLOAD_OVERRIDE_RESERVED_ROOTS.has(getPayloadOverridePathRoot(trimmed)) ? trimmed : '';
+}
+
+function normalizePayloadOverrideParamsText(paramsText: string): string {
+  const trimmed = paramsText.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return trimmed;
+    }
+    return JSON.stringify(parsed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function getPayloadOverrideRuleSnapshot(rules: PayloadOverrideFormRule[]): string {
+  return JSON.stringify(
+    rules.map((rule) => ({
+      model: rule.model.trim(),
+      protocol: rule.protocol,
+      paramsText: normalizePayloadOverrideParamsText(rule.paramsText),
+    })),
+  );
+}
+
+function parsePayloadOverrideRulesSetting(raw: string): ParsedPayloadOverrideSetting {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { rules: [], parseError: '' };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return {
+      rules: [],
+      parseError: 'settings.payloadOverrides.errors.loadInvalidJson',
+    };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return {
+      rules: [],
+      parseError: 'settings.payloadOverrides.errors.loadInvalidArray',
+    };
+  }
+
+  const rules: PayloadOverrideFormRule[] = [];
+  for (const [ruleIndex, entry] of parsed.entries()) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return {
+        rules: [],
+        parseError: 'settings.payloadOverrides.errors.loadInvalidRule',
+      };
+    }
+
+    const typedEntry = entry as StoredPayloadOverrideRule;
+    if (
+      !typedEntry.params ||
+      typeof typedEntry.params !== 'object' ||
+      Array.isArray(typedEntry.params)
+    ) {
+      return {
+        rules: [],
+        parseError: 'settings.payloadOverrides.errors.loadInvalidParams',
+      };
+    }
+    const paramPaths = Object.keys(typedEntry.params);
+    if (paramPaths.length === 0) {
+      return {
+        rules: [],
+        parseError: 'settings.payloadOverrides.errors.loadEmptyParams',
+      };
+    }
+    for (const path of paramPaths) {
+      if (!path.trim()) {
+        return {
+          rules: [],
+          parseError: 'settings.payloadOverrides.errors.loadInvalidParamsPath',
+        };
+      }
+      if (getReservedPayloadOverridePath(path)) {
+        return {
+          rules: [],
+          parseError: 'settings.payloadOverrides.errors.loadReservedPath',
+        };
+      }
+    }
+
+    if (!Array.isArray(typedEntry.models) || typedEntry.models.length === 0) {
+      return {
+        rules: [],
+        parseError: 'settings.payloadOverrides.errors.loadInvalidModels',
+      };
+    }
+
+    for (const [selectorIndex, selector] of typedEntry.models.entries()) {
+      const model = typeof selector?.name === 'string' ? selector.name.trim() : '';
+      const protocol =
+        typeof selector?.protocol === 'string' && selector.protocol.trim()
+          ? selector.protocol.trim().toLowerCase()
+          : 'codex';
+
+      if (!model) {
+        return {
+          rules: [],
+          parseError: 'settings.payloadOverrides.errors.loadInvalidModels',
+        };
+      }
+
+      if (protocol !== 'codex') {
+        return {
+          rules: [],
+          parseError: 'settings.payloadOverrides.errors.loadUnsupportedProtocol',
+        };
+      }
+
+      rules.push(
+        createPayloadOverrideFormRule({
+          id: `payload-override-${ruleIndex}-${selectorIndex}`,
+          model,
+          protocol: 'codex',
+          paramsText: stringifyPayloadOverrideParams(typedEntry.params),
+        }),
+      );
+    }
+  }
+
+  return { rules, parseError: '' };
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -84,6 +286,7 @@ export function SettingsPage() {
               <TimezoneSection />
               <DataRetentionSection />
               <ForceProjectSection />
+              <PayloadOverrideSection />
               <APITokenConcurrencySection />
               <AntigravitySection />
               <PprofSection />
@@ -572,6 +775,271 @@ function ForceProjectSection() {
   );
 }
 
+function PayloadOverrideSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const deleteSetting = useDeleteSetting();
+  const { t } = useTranslation();
+
+  const rawSetting = settings?.[PAYLOAD_OVERRIDE_SETTING_KEY] ?? '';
+  const parsedSetting = useMemo(() => parsePayloadOverrideRulesSetting(rawSetting), [rawSetting]);
+  const serverSnapshot = parsedSetting.parseError
+    ? '__invalid_payload_override_rules__'
+    : getPayloadOverrideRuleSnapshot(parsedSetting.rules);
+
+  const [rules, setRules] = useState<PayloadOverrideFormRule[]>([]);
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !initialized) {
+      setRules(parsedSetting.rules);
+      setInitialized(true);
+    }
+  }, [initialized, isLoading, parsedSetting.rules]);
+
+  const draftSnapshot = getPayloadOverrideRuleSnapshot(rules);
+  const hasChanges = initialized && draftSnapshot !== serverSnapshot;
+
+  useEffect(() => {
+    if (initialized && !hasChanges) {
+      setRules(parsedSetting.rules);
+    }
+  }, [hasChanges, initialized, parsedSetting.rules]);
+
+  const validationError = (() => {
+    const seen = new Set<string>();
+
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      const model = rule.model.trim();
+      if (!model) {
+        return t('settings.payloadOverrides.errors.modelRequired', { index: i + 1 });
+      }
+
+      const dedupeKey = `${rule.protocol}:${model.toLowerCase()}`;
+      if (seen.has(dedupeKey)) {
+        return t('settings.payloadOverrides.errors.duplicateRule', { index: i + 1 });
+      }
+      seen.add(dedupeKey);
+
+      if (!rule.paramsText.trim()) {
+        return t('settings.payloadOverrides.errors.paramsRequired', { index: i + 1 });
+      }
+
+      let parsedParams: unknown;
+      try {
+        parsedParams = JSON.parse(rule.paramsText);
+      } catch {
+        return t('settings.payloadOverrides.errors.paramsInvalidJson', { index: i + 1 });
+      }
+
+      if (!parsedParams || typeof parsedParams !== 'object' || Array.isArray(parsedParams)) {
+        return t('settings.payloadOverrides.errors.paramsObjectRequired', { index: i + 1 });
+      }
+      const paramPaths = Object.keys(parsedParams as Record<string, unknown>);
+      if (paramPaths.length === 0) {
+        return t('settings.payloadOverrides.errors.paramsPathsRequired', { index: i + 1 });
+      }
+
+      for (const path of paramPaths) {
+        if (!path.trim()) {
+          return t('settings.payloadOverrides.errors.paramsPathRequired', { index: i + 1 });
+        }
+        const reservedPath = getReservedPayloadOverridePath(path);
+        if (reservedPath) {
+          return t('settings.payloadOverrides.errors.reservedPath', {
+            index: i + 1,
+            path: reservedPath,
+          });
+        }
+      }
+    }
+
+    return '';
+  })();
+
+  const isPending = updateSetting.isPending || deleteSetting.isPending;
+
+  const updateRule = (id: string, updates: Partial<PayloadOverrideFormRule>) => {
+    setRules((prev) => prev.map((rule) => (rule.id === id ? { ...rule, ...updates } : rule)));
+  };
+
+  const handleAddRule = () => {
+    setRules((prev) => [...prev, createPayloadOverrideFormRule()]);
+  };
+
+  const handleRemoveRule = (id: string) => {
+    setRules((prev) => prev.filter((rule) => rule.id !== id));
+  };
+
+  const handleSave = async () => {
+    if (validationError) {
+      return;
+    }
+
+    if (rules.length === 0) {
+      if (rawSetting.trim()) {
+        await deleteSetting.mutateAsync(PAYLOAD_OVERRIDE_SETTING_KEY);
+      }
+      return;
+    }
+
+    const payload = rules.map((rule) => ({
+      models: [{ name: rule.model.trim(), protocol: rule.protocol }],
+      params: JSON.parse(rule.paramsText) as Record<string, unknown>,
+    }));
+
+    await updateSetting.mutateAsync({
+      key: PAYLOAD_OVERRIDE_SETTING_KEY,
+      value: JSON.stringify(payload),
+    });
+  };
+
+  if (isLoading || !initialized) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Braces className="h-4 w-4 text-muted-foreground" />
+              {t('settings.payloadOverrides.title')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.payloadOverrides.desc')}
+            </p>
+          </div>
+          <Button
+            onClick={handleSave}
+            disabled={!hasChanges || !!validationError || isPending}
+            size="sm"
+          >
+            {isPending ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+          <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            {t('settings.payloadOverrides.precedenceHint')}
+          </p>
+        </div>
+
+        {parsedSetting.parseError && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {t(parsedSetting.parseError)}
+          </div>
+        )}
+
+        {validationError && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {validationError}
+          </div>
+        )}
+
+        {rules.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            {t('settings.payloadOverrides.empty')}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {rules.map((rule, index) => (
+              <div key={rule.id} className="rounded-lg border border-border p-4 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('settings.payloadOverrides.ruleLabel', { index: index + 1 })}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleRemoveRule(rule.id)}
+                    disabled={isPending}
+                    className="shrink-0 text-muted-foreground hover:text-error"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr),140px]">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">
+                      {t('settings.payloadOverrides.modelPattern')}
+                    </Label>
+                    <ModelInput
+                      value={rule.model}
+                      onChange={(value) => updateRule(rule.id, { model: value })}
+                      placeholder={t('settings.payloadOverrides.modelPlaceholder')}
+                      disabled={isPending}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">
+                      {t('settings.payloadOverrides.protocol')}
+                    </Label>
+                    <Select
+                      value={rule.protocol}
+                      onValueChange={(value) => {
+                        if (value === 'codex') {
+                          updateRule(rule.id, { protocol: value });
+                        }
+                      }}
+                      disabled={isPending}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="codex">
+                          {t('settings.payloadOverrides.protocolCodex')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium text-muted-foreground">
+                    {t('settings.payloadOverrides.paramsJson')}
+                  </Label>
+                  <Textarea
+                    value={rule.paramsText}
+                    onChange={(e) => updateRule(rule.id, { paramsText: e.target.value })}
+                    placeholder={t('settings.payloadOverrides.paramsPlaceholder')}
+                    rows={6}
+                    disabled={isPending}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            {t('settings.payloadOverrides.paramsHint')}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleAddRule}
+            disabled={isPending}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            {t('settings.payloadOverrides.addRule')}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function APITokenConcurrencySection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
@@ -618,7 +1086,9 @@ function APITokenConcurrencySection() {
               <Activity className="h-4 w-4 text-muted-foreground" />
               {t('settings.apiTokenConcurrency')}
             </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">{t('settings.apiTokenConcurrencyDesc')}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.apiTokenConcurrencyDesc')}
+            </p>
           </div>
           <Button
             onClick={handleSaveLimit}
@@ -642,8 +1112,12 @@ function APITokenConcurrencySection() {
             min={1}
             disabled={updateSetting.isPending}
           />
-          <span className="text-xs text-muted-foreground">{t('settings.concurrentRequestsUnit')}</span>
-          <span className="text-xs text-muted-foreground">({t('settings.defaultValue', { value: 5 })})</span>
+          <span className="text-xs text-muted-foreground">
+            {t('settings.concurrentRequestsUnit')}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({t('settings.defaultValue', { value: 5 })})
+          </span>
         </div>
         <p className="text-xs text-muted-foreground">{t('settings.apiTokenConcurrencyHint')}</p>
       </CardContent>

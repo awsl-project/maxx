@@ -18,6 +18,7 @@ import (
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
+	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
@@ -311,6 +312,25 @@ func InitializeServerComponents(
 		enabled := strings.EqualFold(strings.TrimSpace(val), "true")
 		return &converter.GlobalSettings{CodexInstructionsEnabled: enabled}, nil
 	})
+	payloadoverride.SetGlobalSettingsGetter(func() (*payloadoverride.GlobalSettings, error) {
+		val, err := repos.SettingRepo.Get(domain.SettingKeyPayloadOverrideRules)
+		if err != nil || strings.TrimSpace(val) == "" {
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		if err := payloadoverride.ValidateRulesJSON(val); err != nil {
+			log.Printf("[Core] Warning: Ignoring invalid payload override rules: %v", err)
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		rules, err := payloadoverride.ParseRules(val)
+		if err != nil {
+			log.Printf("[Core] Warning: Failed to parse payload override rules: %v", err)
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		return &payloadoverride.GlobalSettings{Rules: rules}, nil
+	})
+	if _, err := payloadoverride.ReloadGlobalSettings(); err != nil {
+		log.Printf("[Core] Warning: Failed to warm payload override cache: %v", err)
+	}
 
 	log.Printf("[Core] Creating executor")
 	exec := executor.NewExecutor(

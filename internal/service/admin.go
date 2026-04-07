@@ -14,6 +14,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
+	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -464,8 +465,14 @@ func (s *AdminService) GetSetting(key string) (string, error) {
 }
 
 func (s *AdminService) UpdateSetting(key, value string) error {
+	if err := validateSystemSettingValue(key, value); err != nil {
+		return err
+	}
 	if err := s.settingRepo.Set(key, value); err != nil {
 		return err
+	}
+	if key == domain.SettingKeyPayloadOverrideRules {
+		payloadoverride.InvalidateGlobalSettingsCache()
 	}
 
 	// 如果更新的是 pprof 相关设置，触发重载
@@ -484,6 +491,9 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 func (s *AdminService) DeleteSetting(key string) error {
 	if err := s.settingRepo.Delete(key); err != nil {
 		return err
+	}
+	if key == domain.SettingKeyPayloadOverrideRules {
+		payloadoverride.InvalidateGlobalSettingsCache()
 	}
 
 	// 如果删除的是 pprof 相关设置，触发重载
