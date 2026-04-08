@@ -61,6 +61,10 @@ const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
 
+function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'>): boolean {
+  return request.status === 'FAILED' && request.error.trim() === 'Server restarted';
+}
+
 /** Reads a positive numeric value from localStorage, returning undefined if absent or invalid. */
 function readStoredNumber(key: string): number | undefined {
   if (typeof window === 'undefined') {
@@ -769,6 +773,7 @@ function LogRow({
 }: LogRowProps) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
   const isFailed = request.status === 'FAILED';
+  const isServerRestarted = isServerRestartedFailure(request);
   const isPendingBinding =
     request.status === 'PENDING' &&
     forceProjectBinding &&
@@ -829,12 +834,14 @@ function LogRow({
 
   return (
     <TableRow
+      data-server-restarted-request={isServerRestarted ? 'true' : undefined}
       data-request-row="true"
       onClick={handleClick}
       className={cn(
         'cursor-pointer group transition-colors',
         // 保持原有的行样式与动画 class，虚拟列表只负责裁剪渲染数量。
         'even:bg-foreground/[0.03]',
+        isServerRestarted && 'line-through decoration-red-300/80 decoration-2 opacity-70',
         // Base hover effect (stronger background change)
         !isRecent && !isFailed && !isPending && !isPendingBinding && 'hover:bg-accent/50',
 
@@ -1034,6 +1041,7 @@ type MobileRequestCardProps = {
 function MobileRequestCard({ request, providerName, onOpenRequest }: MobileRequestCardProps) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
   const isFailed = request.status === 'FAILED';
+  const isServerRestarted = isServerRestartedFailure(request);
   const handleClick = useCallback(() => onOpenRequest(request.id), [onOpenRequest, request.id]);
 
   const formatTime = (dateStr: string) => {
@@ -1063,11 +1071,13 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
 
   return (
     <div
+      data-server-restarted-request={isServerRestarted ? 'true' : undefined}
       onClick={handleClick}
       className={cn(
         'px-4 py-2.5 border-b border-border cursor-pointer active:bg-accent/50 transition-colors',
         isFailed && 'bg-red-500/10',
         isPending && 'bg-blue-500/5',
+        isServerRestarted && 'line-through decoration-red-300/80 decoration-2 opacity-70',
       )}
     >
       {/* Row 1: Client + Model + Status */}
