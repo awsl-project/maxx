@@ -148,18 +148,49 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 			apiTokenID = apiToken.ID
 			log.Printf("[Proxy] Token authenticated: id=%d, name=%s, projectID=%d", apiToken.ID, apiToken.Name, apiToken.ProjectID)
 			c.Set(flow.KeyAPITokenDevMode, apiToken.DevMode)
-			if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
-				log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
-				if stream {
-					writeStreamRateLimitError(w, err.Error(), 1)
-				} else {
-					writeRateLimitError(w, err.Error(), 1)
-				}
-				c.Abort()
-				return
-			}
-			defer h.tokenAuth.ReleaseConcurrency(apiToken)
 		}
+	}
+
+	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
+	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
+	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
+	originalBody := bytes.Clone(body)
+
+	c.Set(flow.KeyClientType, clientType)
+	c.Set(flow.KeySessionID, sessionID)
+	c.Set(flow.KeyRequestModel, requestModel)
+	c.Set(flow.KeyRequestBody, body)
+	c.Set(flow.KeyOriginalRequestBody, originalBody)
+	c.Set(flow.KeyRequestHeaders, r.Header)
+	c.Set(flow.KeyRequestURI, r.URL.RequestURI())
+	c.Set(flow.KeyIsStream, stream)
+	c.Set(flow.KeyAPITokenID, apiTokenID)
+
+	var projectID uint64
+	if pidStr := r.Header.Get("X-Maxx-Project-ID"); pidStr != "" {
+		if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
+			projectID = pid
+			log.Printf("[Proxy] Using project ID from header: %d", projectID)
+		}
+	}
+	c.Set(flow.KeyProjectID, projectID)
+
+	if apiToken != nil {
+		if apiToken.ProjectID > 0 && projectID == 0 {
+			c.Set(flow.KeyProjectID, apiToken.ProjectID)
+		}
+		if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
+			log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
+			h.executor.RecordRejectedProxyRequest(c, apiToken, http.StatusTooManyRequests, err.Error())
+			if stream {
+				writeStreamRateLimitError(w, err.Error(), 1)
+			} else {
+				writeRateLimitError(w, err.Error(), 1)
+			}
+			c.Abort()
+			return
+		}
+		defer h.tokenAuth.ReleaseConcurrency(apiToken)
 	}
 
 	// Determine tenantID from API token or use default
@@ -171,29 +202,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	}
 	ctx = maxxctx.WithTenantID(ctx, tenantID)
 
-	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
-	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
-	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
-
-	c.Set(flow.KeyClientType, clientType)
-	c.Set(flow.KeySessionID, sessionID)
-	c.Set(flow.KeyRequestModel, requestModel)
-	originalBody := bytes.Clone(body)
-	c.Set(flow.KeyRequestBody, body)
-	c.Set(flow.KeyOriginalRequestBody, originalBody)
-	c.Set(flow.KeyRequestHeaders, r.Header)
-	c.Set(flow.KeyRequestURI, r.URL.RequestURI())
-	c.Set(flow.KeyIsStream, stream)
-	c.Set(flow.KeyAPITokenID, apiTokenID)
-
-	var projectID uint64
 	now := time.Now()
-	if pidStr := r.Header.Get("X-Maxx-Project-ID"); pidStr != "" {
-		if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
-			projectID = pid
-			log.Printf("[Proxy] Using project ID from header: %d", projectID)
-		}
-	}
 
 	session, sessionErr := h.sessionRepo.GetBySessionID(tenantID, sessionID)
 	if sessionErr != nil {

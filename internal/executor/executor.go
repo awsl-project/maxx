@@ -1,7 +1,8 @@
-﻿package executor
+package executor
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -171,6 +172,76 @@ func flattenHeaders(h http.Header) map[string]string {
 		}
 	}
 	return result
+}
+
+// RecordRejectedProxyRequest persists an early-rejected request so the requests page
+// can explain why the token saw an immediate 429 before dispatching upstream.
+func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIToken, statusCode int, errMsg string) {
+	if e == nil || c == nil {
+		return
+	}
+
+	tenantID := domain.DefaultTenantID
+	apiTokenID := uint64(0)
+	projectID := flow.GetProjectID(c)
+	devMode := false
+	if apiToken != nil {
+		if apiToken.TenantID > 0 {
+			tenantID = apiToken.TenantID
+		}
+		apiTokenID = apiToken.ID
+		devMode = apiToken.DevMode
+		if projectID == 0 {
+			projectID = apiToken.ProjectID
+		}
+	}
+
+	now := time.Now()
+	proxyReq := &domain.ProxyRequest{
+		TenantID:     tenantID,
+		InstanceID:   e.instanceID,
+		RequestID:    generateRequestID(),
+		SessionID:    flow.GetSessionID(c),
+		ClientType:   flow.GetClientType(c),
+		ProjectID:    projectID,
+		RequestModel: flow.GetRequestModel(c),
+		StartTime:    now,
+		EndTime:      now,
+		Duration:     0,
+		IsStream:     flow.GetIsStream(c),
+		Status:       "REJECTED",
+		StatusCode:   statusCode,
+		Error:        errMsg,
+		APITokenID:   apiTokenID,
+		DevMode:      devMode,
+	}
+
+	requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
+	requestURI := flow.GetRequestURI(c)
+	requestBody := flow.GetRequestBody(c)
+	if c.Request != nil {
+		if c.Request.Host != "" {
+			if requestHeaders == nil {
+				requestHeaders = make(map[string]string)
+			}
+			requestHeaders["Host"] = c.Request.Host
+		}
+		proxyReq.RequestInfo = &domain.RequestInfo{
+			Method:  c.Request.Method,
+			URL:     requestURI,
+			Headers: requestHeaders,
+			Body:    string(requestBody),
+		}
+	}
+	proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}
+
+	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
+		log.Printf("[Executor] Failed to create rejected proxy request: %v", err)
+		return
+	}
+	if e.broadcaster != nil {
+		e.broadcaster.BroadcastProxyRequest(proxyReq)
+	}
 }
 
 // handleCooldown processes cooldown information from ProxyError and sets provider cooldown

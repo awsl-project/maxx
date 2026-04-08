@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -233,7 +234,7 @@ func openaiRequest(model string) map[string]any {
 
 func codexRequest(model string) map[string]any {
 	return map[string]any{
-		"model":            model,
+		"model":             model,
 		"max_output_tokens": 1024,
 		"input": []map[string]any{
 			{"type": "message", "role": "user", "content": "Hello"},
@@ -372,14 +373,14 @@ func TestProxyGeminiPassthrough(t *testing.T) {
 type conversionTestCase struct {
 	name string
 	// Client side
-	clientType  string // route clientType
-	clientPath  string // URL path to send request to
-	clientReq   map[string]any
+	clientType string // route clientType
+	clientPath string // URL path to send request to
+	clientReq  map[string]any
 	// Upstream side
-	upstreamType      string // provider supportedClientTypes
-	upstreamMock      func(t *testing.T, captured *capturedRequest) *httptest.Server
-	expectedUpPath    string // expected upstream path prefix
-	expectedUpField   string // field that should exist in upstream request body
+	upstreamType    string // provider supportedClientTypes
+	upstreamMock    func(t *testing.T, captured *capturedRequest) *httptest.Server
+	expectedUpPath  string // expected upstream path prefix
+	expectedUpField string // field that should exist in upstream request body
 	// Response verification
 	respAssert func(t *testing.T, respBody []byte)
 }
@@ -756,6 +757,140 @@ func TestProxyAllProtocolsCoexist(t *testing.T) {
 // ============================================================
 // Cooldown Integration Tests (using mock server)
 // ============================================================
+
+func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
+	blocked := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-blocked
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":      "chatcmpl-mock-001",
+			"object":  "chat.completion",
+			"model":   "gpt-4o",
+			"created": 1700000000,
+			"choices": []map[string]any{{
+				"index": 0,
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "ok",
+				},
+				"finish_reason": "stop",
+			}},
+		})
+	}))
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai", mock.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = env.AdminPut("/api/admin/settings/api_token_concurrent_limit", map[string]any{"value": "1"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = env.AdminPost("/api/admin/api-tokens", map[string]any{
+		"name":        "concurrency-token",
+		"description": "Token for concurrency limit test",
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	tokenStr, ok := created["token"].(string)
+	if !ok || tokenStr == "" {
+		t.Fatalf("Expected token string, got %v", created["token"])
+	}
+	apiToken, ok := created["apiToken"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected apiToken object, got %v", created["apiToken"])
+	}
+	apiTokenID := int(apiToken["id"].(float64))
+
+	firstDone := make(chan error, 1)
+	go func() {
+		resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), map[string]string{
+			"Authorization": "Bearer " + tokenStr,
+		})
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			firstDone <- fmt.Errorf("first request status=%d body=%s", resp.StatusCode, body)
+			return
+		}
+		firstDone <- nil
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first request to reach upstream")
+	}
+
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), map[string]string{
+		"Authorization": "Bearer " + tokenStr,
+	})
+	AssertStatus(t, resp, http.StatusTooManyRequests)
+	var rateLimited map[string]map[string]any
+	DecodeJSON(t, resp, &rateLimited)
+	if got := rateLimited["error"]["type"]; got != "rate_limit_error" {
+		t.Fatalf("error.type = %v, want rate_limit_error", got)
+	}
+	if got := resp.Header.Get("Retry-After"); got != "1" {
+		t.Fatalf("Retry-After = %q, want 1", got)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	foundRejected := false
+	foundActive := false
+	for {
+		resp = env.AdminGet(fmt.Sprintf("/api/admin/requests?limit=20&apiTokenId=%d", apiTokenID))
+		AssertStatus(t, resp, http.StatusOK)
+		var result map[string]any
+		DecodeJSON(t, resp, &result)
+		items, ok := result["items"].([]any)
+		if !ok {
+			t.Fatalf("Expected items array, got %T", result["items"])
+		}
+
+		foundRejected = false
+		foundActive = false
+		for _, item := range items {
+			request, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			status, _ := request["status"].(string)
+			statusCode, _ := request["statusCode"].(float64)
+			errorMsg, _ := request["error"].(string)
+			if status == "REJECTED" && int(statusCode) == http.StatusTooManyRequests && strings.Contains(errorMsg, "concurrent request limit") {
+				foundRejected = true
+			}
+			if status == "PENDING" || status == "IN_PROGRESS" || status == "COMPLETED" {
+				foundActive = true
+			}
+		}
+		if foundRejected && foundActive {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected rejected+active requests, got items=%v", items)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	close(blocked)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestCooldown_429TriggersKeyLevelCooldown(t *testing.T) {
 	env := NewProxyTestEnv(t)
