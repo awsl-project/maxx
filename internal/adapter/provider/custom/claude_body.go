@@ -36,9 +36,12 @@ var claudeBillingCCHPattern = regexp.MustCompile(`(?i)\bcch=[^;]*;\s*`)
 
 // processClaudeRequestBody processes Claude request body before sending to upstream.
 // The Disguise field on the custom config selects the body transformation mode:
-//   - nil / Type=="" / Type=="none" — pass through (with structural fixes only)
-//   - Type=="claude-code"           — applyCloaking (inject Claude Code system prompt etc.)
-//   - Type=="bedrock"               — strip Claude Code identity (bedrock.SanitizeForBedrockCompat)
+//   - nil / Type=="" / Type=="claude-code" — applyCloaking (legacy default; auto-detects
+//     Claude Code clients via UA and injects system prompt + fake user_id when needed)
+//   - Type=="none"                         — no disguise body transform (structural
+//     fixes for cache_control / tool_results / etc still run)
+//   - Type=="bedrock"                      — strip Claude Code identity via
+//     bedrock.SanitizeForBedrockCompat so relays whose backend is AWS Bedrock accept the body
 //
 // Following CLIProxyAPI order:
 //  1. strip volatile billing cch fields from system text
@@ -58,17 +61,13 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 	body = stripVolatileClaudeBillingCCH(body)
 
 	// 2. Apply disguise transformation.
-	// Dispatch table:
-	//   nil / Type=="" / Type=="claude-code" → applyCloaking (legacy default)
-	//   Type=="none"                         → no body transform
-	//   Type=="bedrock"                      → strip Claude Code identity for Bedrock backend
 	disguise := disguiseFromCustomConfig(customCfg)
 	switch strings.ToLower(strings.TrimSpace(disguiseType(disguise))) {
-	case "bedrock":
+	case domain.DisguiseTypeBedrock:
 		// Strip Claude Code identifying fields so the upstream relay's Bedrock
 		// backend won't reject the request with "invalid beta flag" etc.
 		body = bedrock.SanitizeForBedrockCompat(body)
-	case "none":
+	case domain.DisguiseTypeNone:
 		// Explicit opt-out: no body transformation.
 	default:
 		// "" / "claude-code" / unknown / nil — keep legacy claude-code cloak default.

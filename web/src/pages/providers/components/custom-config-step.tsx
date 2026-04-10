@@ -11,6 +11,7 @@ import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderForm } from '../context/provider-form-context';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
+import { buildDisguisePayload } from '../utils/disguise';
 
 export function CustomConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
@@ -28,13 +29,6 @@ export function CustomConfigStep() {
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
   const createModelMapping = useCreateModelMapping();
-
-  const parseSensitiveWords = (value: string): string[] => {
-    return value
-      .split(/[\n,]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  };
 
   const handleSave = async () => {
     if (!isValid()) return;
@@ -55,22 +49,12 @@ export function CustomConfigStep() {
         }
       });
 
-      const disguiseType = formData.disguiseType ?? 'claude-code';
-      const ccMode = formData.cloakMode ?? 'auto';
-      const ccStrict = !!formData.cloakStrictMode;
-      const ccWords = parseSensitiveWords(formData.cloakSensitiveWords || '');
-      // Only emit the disguise field when it deviates from the legacy default
-      // (claude-code with all sub-options at their defaults).
-      const isLegacyDefault =
-        disguiseType === 'claude-code' && ccMode === 'auto' && !ccStrict && ccWords.length === 0;
-      const disguise = isLegacyDefault
-        ? undefined
-        : disguiseType === 'claude-code'
-          ? {
-              type: 'claude-code' as const,
-              claudeCode: { mode: ccMode, strictMode: ccStrict, sensitiveWords: ccWords },
-            }
-          : { type: disguiseType };
+      const disguise = buildDisguisePayload(
+        formData.disguiseType,
+        formData.cloakMode,
+        !!formData.cloakStrictMode,
+        formData.cloakSensitiveWords || '',
+      );
 
       const data: CreateProviderData = {
         type: 'custom',

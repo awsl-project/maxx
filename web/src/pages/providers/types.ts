@@ -1,4 +1,4 @@
-import type { ClientType, Provider } from '@/lib/transport';
+import type { ClientType, DisguiseType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
 import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles, Cloud } from 'lucide-react';
@@ -241,10 +241,9 @@ export type ProviderFormData = {
   apiKey: string;
   clients: ClientConfig[];
   // Disguise: which client identity to present to the upstream relay.
-  // 'none'        — no disguise, raw forwarding
-  // 'claude-code' — inject Claude Code system prompt + claude-cli headers (legacy default)
-  // 'bedrock'     — strip Claude Code identity, look like an AWS Bedrock SDK client
-  disguiseType?: 'none' | 'claude-code' | 'bedrock';
+  // Re-uses the canonical DisguiseType enum from the transport layer so the
+  // form types stay in sync if the protocol enum is extended.
+  disguiseType?: DisguiseType;
   cloakMode?: 'auto' | 'always' | 'never';
   cloakStrictMode?: boolean;
   cloakSensitiveWords?: string;

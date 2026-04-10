@@ -122,11 +122,30 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		}
 
 		// 2. Set headers — pick variant based on Disguise.Type.
-		// "bedrock" strips Claude Code identity entirely; "claude-code" / "" / "none"
-		// uses the standard Claude Code header set.
-		if customCfg.Disguise != nil && strings.EqualFold(strings.TrimSpace(customCfg.Disguise.Type), "bedrock") {
+		//   bedrock      — strip Claude Code identity entirely (applyBedrockCompatHeaders)
+		//   none         — raw forwarding: copy client headers, override auth only
+		//   claude-code  — inject Claude Code identity headers (legacy default)
+		//   "" / nil     — same as claude-code (backward compatibility)
+		disguiseType := ""
+		if customCfg.Disguise != nil {
+			disguiseType = strings.ToLower(strings.TrimSpace(customCfg.Disguise.Type))
+		}
+		switch disguiseType {
+		case domain.DisguiseTypeBedrock:
 			applyBedrockCompatHeaders(upstreamReq, request, apiKey, stream)
-		} else {
+		case domain.DisguiseTypeNone:
+			// Raw forwarding: copy client headers, then override auth with the
+			// provider's key. This preserves whatever the inbound client sent
+			// without injecting any Claude Code fingerprints.
+			originalHeaders := flow.GetRequestHeaders(c)
+			upstreamReq.Header = make(http.Header)
+			copyHeadersFiltered(upstreamReq.Header, originalHeaders)
+			if apiKey != "" {
+				originalClientType := flow.GetOriginalClientType(c)
+				isConversion := originalClientType != "" && originalClientType != clientType
+				setAuthHeader(upstreamReq, clientType, apiKey, isConversion)
+			}
+		default:
 			applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)
 		}
 

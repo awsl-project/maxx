@@ -36,12 +36,22 @@ type ProviderConfigCustom struct {
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
+// Disguise type constants. Use these instead of magic strings when dispatching
+// on ProviderConfigCustomDisguise.Type so typos and renames are caught at compile time.
+const (
+	// DisguiseTypeNone — 不伪装，按客户端原始 header 透传，仅覆盖鉴权头
+	DisguiseTypeNone = "none"
+	// DisguiseTypeClaudeCode — 装成 Claude Code CLI（注入 system prompt / 伪 user_id / x-stainless 等）
+	DisguiseTypeClaudeCode = "claude-code"
+	// DisguiseTypeBedrock — 洗掉 Claude Code 标识，让后端为 AWS Bedrock 的中转站不报 invalid beta flag
+	DisguiseTypeBedrock = "bedrock"
+)
+
 // ProviderConfigCustomDisguise 描述对外伪装的目标客户端类型与对应子选项。
-// Type 为单选枚举，互斥地决定走哪一种伪装逻辑。
+// Type 为单选枚举，互斥地决定走哪一种伪装逻辑。空值或 nil 等同于
+// DisguiseTypeClaudeCode（保留旧的 cloak 默认行为）。
 type ProviderConfigCustomDisguise struct {
-	// "" / "none"   — 不伪装，原样转发
-	// "claude-code" — 装成 Claude Code CLI（注入 system prompt、伪 user_id、x-stainless 等）
-	// "bedrock"     — 洗掉 Claude Code 标识，让 Bedrock 后端的中转站不报 invalid beta flag 等错
+	// 必须是 DisguiseType* 常量之一（或空字符串，等同于 claude-code）
 	Type string `json:"type,omitempty"`
 
 	// claude-code 类型的子选项

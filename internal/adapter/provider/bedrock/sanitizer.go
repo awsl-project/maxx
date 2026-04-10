@@ -62,7 +62,11 @@ func SanitizeForBedrockCompat(body []byte) []byte {
 		}
 	}
 
-	// Bedrock requires max_tokens > thinking.budget_tokens
+	// Bedrock requires max_tokens > thinking.budget_tokens.
+	// We treat max_tokens == 0 (or unset) as "caller didn't pin a ceiling" and
+	// leave it alone — Bedrock will reject unset max_tokens earlier in its own
+	// validation if the model requires it, and we don't want to silently invent
+	// a ceiling that wasn't there.
 	if gjson.GetBytes(body, "thinking.type").String() == "enabled" {
 		budgetTokens := gjson.GetBytes(body, "thinking.budget_tokens").Int()
 		maxTokens := gjson.GetBytes(body, "max_tokens").Int()

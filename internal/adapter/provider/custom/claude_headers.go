@@ -133,35 +133,35 @@ func applyClaudeHeaders(req *http.Request, clientReq *http.Request, apiKey strin
 // neutral AWS SDK string. Used when forwarding to a relay station whose backend
 // is AWS Bedrock — such relays reject requests carrying claude-code-* beta flags
 // and x-stainless-* SDK markers.
-func applyBedrockCompatHeaders(req *http.Request, clientReq *http.Request, apiKey string, stream bool) {
-	// 1. Authentication — relay stations behind Bedrock typically still take a
-	// Bearer token even though direct AWS Bedrock would require SigV4. The relay
-	// re-signs internally.
+//
+// The clientReq parameter is unused (the dispatch builds upstreamReq from
+// scratch in adapter.go) but is kept for signature symmetry with
+// applyClaudeHeaders / applyCodexHeaders / applyGeminiHeaders.
+func applyBedrockCompatHeaders(req *http.Request, _ *http.Request, apiKey string, stream bool) {
+	// 1. Authentication — unconditionally clear any pre-populated auth headers
+	// so caller-side state can never leak through. Then set the provider's key
+	// as a Bearer token if one is configured. Relay stations behind Bedrock
+	// typically still accept a Bearer token even though direct AWS Bedrock
+	// would require SigV4 — the relay re-signs internally.
+	req.Header.Del("x-api-key")
+	req.Header.Del("Authorization")
 	if apiKey != "" {
-		req.Header.Del("x-api-key")
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
 	// 2. Content-Type
 	req.Header.Set("Content-Type", "application/json")
 
-	// 3. Strip every Claude Code fingerprint header. We delete them on both the
-	// upstream request (in case Claude headers were copied earlier) and again
-	// later via the same loop on any aliases the client may have set.
+	// 3. Strip every Claude Code fingerprint header so the upstream Bedrock
+	// backend doesn't see Claude Code identifiers.
 	for _, h := range claudeIdentityHeaders {
 		req.Header.Del(h)
-	}
-	if clientReq != nil {
-		// Defensive: also remove from any header pulled in via earlier copy.
-		for _, h := range claudeIdentityHeaders {
-			req.Header.Del(h)
-		}
 	}
 
 	// 4. User-Agent: pretend to be aws-sdk-go-v2's Bedrock Runtime client.
 	req.Header.Set("User-Agent", defaultBedrockCompatUserAgent)
 
-	// 5. Connection / encoding (match the AWS SDK defaults loosely; gzip is fine)
+	// 5. Connection / encoding (match the AWS SDK defaults loosely)
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Accept-Encoding", "identity")
 

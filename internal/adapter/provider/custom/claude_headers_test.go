@@ -235,14 +235,44 @@ func TestApplyBedrockCompatHeadersAccept(t *testing.T) {
 	}
 }
 
-func TestApplyBedrockCompatHeadersWithoutAPIKeyDoesNotSetAuth(t *testing.T) {
+func TestApplyBedrockCompatHeadersWithoutAPIKeyClearsPreexistingAuth(t *testing.T) {
 	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
-	req.Header.Set("x-api-key", "preexisting")
+	// Pre-populated auth headers must be cleared even when apiKey is empty —
+	// otherwise caller-side state could leak through to the upstream.
+	req.Header.Set("x-api-key", "preexisting-key")
+	req.Header.Set("Authorization", "Bearer preexisting-bearer")
 
 	applyBedrockCompatHeaders(req, nil, "", true)
 
-	// Empty apiKey path doesn't touch x-api-key (consistent with applyClaudeHeaders).
+	if got := req.Header.Get("x-api-key"); got != "" {
+		t.Errorf("expected x-api-key to be cleared, got %q", got)
+	}
 	if got := req.Header.Get("Authorization"); got != "" {
-		t.Errorf("expected no Authorization header, got %q", got)
+		t.Errorf("expected Authorization to be cleared, got %q", got)
+	}
+}
+
+// TestApplyBedrockCompatHeadersFromClaudeBaseline simulates the realistic flow:
+// adapter.go first sets the full Claude Code header set on upstreamReq, and
+// then the bedrock disguise wrapper has to scrub all of them back out.
+func TestApplyBedrockCompatHeadersFromClaudeBaseline(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	clientReq, _ := http.NewRequest("POST", "https://example.com", nil)
+	// Run the regular Claude Code header set first to get a realistic starting state.
+	applyClaudeHeaders(req, clientReq, "sk-old", true, []string{"some-beta"}, true)
+
+	// Now apply bedrock disguise — every Claude Code fingerprint must be gone.
+	applyBedrockCompatHeaders(req, nil, "sk-new", true)
+
+	for _, h := range claudeIdentityHeaders {
+		if got := req.Header.Get(h); got != "" {
+			t.Errorf("expected %s to be stripped, still got %q", h, got)
+		}
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer sk-new" {
+		t.Errorf("Authorization should be the new key, got %q", got)
+	}
+	if !strings.HasPrefix(req.Header.Get("User-Agent"), "aws-sdk-go-v2") {
+		t.Errorf("User-Agent should be replaced with AWS SDK string, got %q", req.Header.Get("User-Agent"))
 	}
 }
