@@ -22,8 +22,9 @@ type ProviderConfigCustom struct {
 	// API Key
 	APIKey string `json:"apiKey"`
 
-	// Claude Cloaking 配置（可选）
-	Cloak *ProviderConfigCustomCloak `json:"cloak,omitempty"`
+	// 伪装配置（可选）。控制对外发包时把请求装成什么客户端。
+	// 替代旧的 Cloak 字段，互斥地选择一种伪装类型。
+	Disguise *ProviderConfigCustomDisguise `json:"disguise,omitempty"`
 
 	// 某个 Client 有特殊的 BaseURL
 	ClientBaseURL map[ClientType]string `json:"clientBaseURL,omitempty"`
@@ -35,7 +36,20 @@ type ProviderConfigCustom struct {
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
-type ProviderConfigCustomCloak struct {
+// ProviderConfigCustomDisguise 描述对外伪装的目标客户端类型与对应子选项。
+// Type 为单选枚举，互斥地决定走哪一种伪装逻辑。
+type ProviderConfigCustomDisguise struct {
+	// "" / "none"   — 不伪装，原样转发
+	// "claude-code" — 装成 Claude Code CLI（注入 system prompt、伪 user_id、x-stainless 等）
+	// "bedrock"     — 洗掉 Claude Code 标识，让 Bedrock 后端的中转站不报 invalid beta flag 等错
+	Type string `json:"type,omitempty"`
+
+	// claude-code 类型的子选项
+	ClaudeCode *DisguiseClaudeCodeOptions `json:"claudeCode,omitempty"`
+}
+
+// DisguiseClaudeCodeOptions 是 Claude Code 伪装的子选项，沿用旧 Cloak 的形状。
+type DisguiseClaudeCodeOptions struct {
 	// "auto" (default), "always", "never"
 	Mode string `json:"mode,omitempty"`
 

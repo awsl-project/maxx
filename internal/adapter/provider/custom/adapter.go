@@ -106,22 +106,29 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	switch clientType {
 	case domain.ClientTypeClaude:
 		// Claude: Following CLIProxyAPI pattern
-		// 1. Process body first (get extraBetas, inject cloaking/cache_control)
-		apiKey := a.provider.Config.Custom.APIKey
+		// 1. Process body first (apply disguise + structural fixes, return extra betas)
+		customCfg := a.provider.Config.Custom
+		apiKey := customCfg.APIKey
 		clientUA := ""
 		if request != nil {
 			clientUA = request.Header.Get("User-Agent")
 		}
 		var extraBetas []string
-		requestBody, extraBetas = processClaudeRequestBody(requestBody, clientUA, a.provider.Config.Custom.Cloak)
+		requestBody, extraBetas = processClaudeRequestBody(requestBody, clientUA, customCfg)
 		useAPIKey := shouldUseClaudeAPIKey(apiKey, request)
 		isOAuthToken = isClaudeOAuthToken(apiKey)
 		if isOAuthToken {
 			requestBody = applyClaudeToolPrefix(requestBody, claudeToolPrefix)
 		}
 
-		// 2. Set headers (streaming only if requested)
-		applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)
+		// 2. Set headers — pick variant based on Disguise.Type.
+		// "bedrock" strips Claude Code identity entirely; "claude-code" / "" / "none"
+		// uses the standard Claude Code header set.
+		if customCfg.Disguise != nil && strings.EqualFold(strings.TrimSpace(customCfg.Disguise.Type), "bedrock") {
+			applyBedrockCompatHeaders(upstreamReq, request, apiKey, stream)
+		} else {
+			applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)
+		}
 
 		// 3. Update request body and ContentLength (IMPORTANT: body was modified)
 		upstreamReq.Body = io.NopCloser(bytes.NewReader(requestBody))

@@ -954,9 +954,13 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 	if config.Custom != nil {
 		custom := *config.Custom
 		custom.APIKey = ""
-		if custom.Cloak != nil {
-			cloak := *custom.Cloak
-			custom.Cloak = &cloak
+		if custom.Disguise != nil {
+			disguise := *custom.Disguise
+			if disguise.ClaudeCode != nil {
+				cc := *disguise.ClaudeCode
+				disguise.ClaudeCode = &cc
+			}
+			custom.Disguise = &disguise
 		}
 		config.Custom = &custom
 	}

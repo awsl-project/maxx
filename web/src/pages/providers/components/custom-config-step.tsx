@@ -55,6 +55,23 @@ export function CustomConfigStep() {
         }
       });
 
+      const disguiseType = formData.disguiseType ?? 'claude-code';
+      const ccMode = formData.cloakMode ?? 'auto';
+      const ccStrict = !!formData.cloakStrictMode;
+      const ccWords = parseSensitiveWords(formData.cloakSensitiveWords || '');
+      // Only emit the disguise field when it deviates from the legacy default
+      // (claude-code with all sub-options at their defaults).
+      const isLegacyDefault =
+        disguiseType === 'claude-code' && ccMode === 'auto' && !ccStrict && ccWords.length === 0;
+      const disguise = isLegacyDefault
+        ? undefined
+        : disguiseType === 'claude-code'
+          ? {
+              type: 'claude-code' as const,
+              claudeCode: { mode: ccMode, strictMode: ccStrict, sensitiveWords: ccWords },
+            }
+          : { type: disguiseType };
+
       const data: CreateProviderData = {
         type: 'custom',
         name: formData.name,
@@ -67,16 +84,7 @@ export function CustomConfigStep() {
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
-            cloak:
-              formData.cloakMode !== 'auto' ||
-              formData.cloakStrictMode ||
-              parseSensitiveWords(formData.cloakSensitiveWords || '').length > 0
-                ? {
-                    mode: formData.cloakMode,
-                    strictMode: formData.cloakStrictMode,
-                    sensitiveWords: parseSensitiveWords(formData.cloakSensitiveWords || ''),
-                  }
-                : undefined,
+            disguise,
           },
         },
         supportedClientTypes,
@@ -206,16 +214,19 @@ export function CustomConfigStep() {
             <ClientsConfigSection
               clients={formData.clients}
               onUpdateClient={updateClient}
-              cloak={{
-                mode: formData.cloakMode || 'auto',
-                strictMode: !!formData.cloakStrictMode,
-                sensitiveWords: formData.cloakSensitiveWords || '',
+              disguise={{
+                type: formData.disguiseType ?? 'claude-code',
+                claudeCodeMode: formData.cloakMode ?? 'auto',
+                claudeCodeStrictMode: !!formData.cloakStrictMode,
+                claudeCodeSensitiveWords: formData.cloakSensitiveWords ?? '',
               }}
-              onUpdateCloak={(updates) =>
+              onUpdateDisguise={(updates) =>
                 updateFormData({
-                  cloakMode: updates?.mode ?? formData.cloakMode,
-                  cloakStrictMode: updates?.strictMode ?? formData.cloakStrictMode,
-                  cloakSensitiveWords: updates?.sensitiveWords ?? formData.cloakSensitiveWords,
+                  disguiseType: updates?.type ?? formData.disguiseType,
+                  cloakMode: updates?.claudeCodeMode ?? formData.cloakMode,
+                  cloakStrictMode: updates?.claudeCodeStrictMode ?? formData.cloakStrictMode,
+                  cloakSensitiveWords:
+                    updates?.claudeCodeSensitiveWords ?? formData.cloakSensitiveWords,
                 })
               }
             />

@@ -1,0 +1,135 @@
+package bedrock
+
+import (
+	"testing"
+
+	"github.com/tidwall/gjson"
+)
+
+func TestSanitizeForBedrockCompatStripsRejectedTopLevelFields(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-sonnet-4-5",
+		"stream":true,
+		"betas":["claude-code-20250219"],
+		"output_config":{"foo":"bar"},
+		"context_management":{"x":1},
+		"reasoning":{"effort":"high"},
+		"max_tokens":1024,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result := SanitizeForBedrockCompat(body)
+
+	for _, f := range []string{"betas", "output_config", "context_management", "reasoning"} {
+		if gjson.GetBytes(result, f).Exists() {
+			t.Errorf("expected %s to be stripped, still present", f)
+		}
+	}
+
+	// model and stream are NOT stripped — relay still needs them. Only the
+	// direct-Bedrock sanitizeRequestBody removes those.
+	if got := gjson.GetBytes(result, "model").String(); got != "claude-sonnet-4-5" {
+		t.Errorf("model should be preserved, got %q", got)
+	}
+	if !gjson.GetBytes(result, "stream").Exists() {
+		t.Error("stream should be preserved by SanitizeForBedrockCompat")
+	}
+}
+
+func TestSanitizeForBedrockCompatConvertsAdaptiveThinking(t *testing.T) {
+	body := []byte(`{
+		"thinking":{"type":"adaptive"},
+		"max_tokens":4096,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result := SanitizeForBedrockCompat(body)
+
+	if got := gjson.GetBytes(result, "thinking.type").String(); got != "enabled" {
+		t.Errorf("thinking.type = %q, want enabled", got)
+	}
+	if got := gjson.GetBytes(result, "thinking.budget_tokens").Int(); got != 4095 {
+		t.Errorf("thinking.budget_tokens = %d, want 4095 (max_tokens-1)", got)
+	}
+}
+
+func TestSanitizeForBedrockCompatRaisesMaxTokensWhenBudgetExceeds(t *testing.T) {
+	body := []byte(`{
+		"thinking":{"type":"enabled","budget_tokens":5000},
+		"max_tokens":2048,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result := SanitizeForBedrockCompat(body)
+
+	if got := gjson.GetBytes(result, "max_tokens").Int(); got != 5001 {
+		t.Errorf("max_tokens = %d, want 5001 (budget+1)", got)
+	}
+}
+
+func TestSanitizeForBedrockCompatStripsCacheControlScope(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"x","cache_control":{"type":"ephemeral","scope":"turn"}}],
+		"tools":[{"name":"t","cache_control":{"type":"ephemeral","scope":"turn"}}],
+		"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","scope":"turn"}}]}]
+	}`)
+
+	result := SanitizeForBedrockCompat(body)
+
+	for _, p := range []string{
+		"system.0.cache_control.scope",
+		"tools.0.cache_control.scope",
+		"messages.0.content.0.cache_control.scope",
+	} {
+		if gjson.GetBytes(result, p).Exists() {
+			t.Errorf("%s should be stripped", p)
+		}
+	}
+
+	// type sub-field preserved everywhere
+	for _, p := range []string{
+		"system.0.cache_control.type",
+		"tools.0.cache_control.type",
+		"messages.0.content.0.cache_control.type",
+	} {
+		if got := gjson.GetBytes(result, p).String(); got != "ephemeral" {
+			t.Errorf("%s = %q, want ephemeral", p, got)
+		}
+	}
+}
+
+func TestSanitizeForBedrockCompatStripsToolsCustom(t *testing.T) {
+	body := []byte(`{
+		"tools":[{"name":"a","custom":{"foo":"bar"}},{"name":"b"}]
+	}`)
+
+	result := SanitizeForBedrockCompat(body)
+
+	if gjson.GetBytes(result, "tools.0.custom").Exists() {
+		t.Error("tools[0].custom should be stripped")
+	}
+	if got := gjson.GetBytes(result, "tools.0.name").String(); got != "a" {
+		t.Errorf("tools[0].name = %q, want a", got)
+	}
+}
+
+func TestSanitizeRequestBodyRemovesModelAndStream(t *testing.T) {
+	// The direct-Bedrock helper should strip both fields and set anthropic_version.
+	body := []byte(`{
+		"model":"claude-sonnet-4-5",
+		"stream":true,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result := sanitizeRequestBody(body)
+
+	if gjson.GetBytes(result, "model").Exists() {
+		t.Error("model should be stripped for direct Bedrock")
+	}
+	if gjson.GetBytes(result, "stream").Exists() {
+		t.Error("stream should be stripped for direct Bedrock")
+	}
+	if got := gjson.GetBytes(result, "anthropic_version").String(); got != BedrockAPIVersion {
+		t.Errorf("anthropic_version = %q, want %q", got, BedrockAPIVersion)
+	}
+}

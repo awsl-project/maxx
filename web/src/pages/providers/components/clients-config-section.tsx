@@ -14,15 +14,21 @@ import type { ClientType } from '@/lib/transport';
 import type { ClientConfig } from '../types';
 import { useTranslation } from 'react-i18next';
 
+export type DisguiseTypeValue = 'none' | 'claude-code' | 'bedrock';
+
+interface DisguiseProp {
+  type: DisguiseTypeValue;
+  // Sub-options only meaningful when type === 'claude-code'
+  claudeCodeMode: 'auto' | 'always' | 'never';
+  claudeCodeStrictMode: boolean;
+  claudeCodeSensitiveWords: string;
+}
+
 interface ClientsConfigSectionProps {
   clients: ClientConfig[];
   onUpdateClient: (clientId: ClientType, updates: Partial<ClientConfig>) => void;
-  cloak?: {
-    mode: 'auto' | 'always' | 'never';
-    strictMode: boolean;
-    sensitiveWords: string;
-  };
-  onUpdateCloak?: (updates: Partial<ClientsConfigSectionProps['cloak']>) => void;
+  disguise?: DisguiseProp;
+  onUpdateDisguise?: (updates: Partial<DisguiseProp>) => void;
 }
 
 // Separate component for multiplier input to manage local state
@@ -74,8 +80,8 @@ function MultiplierInput({
 export function ClientsConfigSection({
   clients,
   onUpdateClient,
-  cloak,
-  onUpdateCloak,
+  disguise,
+  onUpdateDisguise,
 }: ClientsConfigSectionProps) {
   const { t } = useTranslation();
   return (
@@ -143,62 +149,104 @@ export function ClientsConfigSection({
                 </div>
               </div>
 
-              {client.id === 'claude' && cloak && onUpdateCloak && (
+              {client.id === 'claude' && disguise && onUpdateDisguise && (
                 <div className="mt-5 space-y-4">
                   <div className="border-t border-border/60" />
                   <div>
                     <label className="text-xs font-medium text-muted-foreground block mb-1.5 uppercase tracking-wide">
-                      {t('provider.cloakMode')}
+                      {t('provider.disguiseType')}
                     </label>
                     <Select
-                      value={cloak.mode}
+                      value={disguise.type}
                       onValueChange={(value) =>
-                        onUpdateCloak({ mode: value as 'auto' | 'always' | 'never' })
+                        onUpdateDisguise({ type: value as DisguiseTypeValue })
                       }
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="auto">{t('provider.cloakModeAuto')}</SelectItem>
-                        <SelectItem value="always">{t('provider.cloakModeAlways')}</SelectItem>
-                        <SelectItem value="never">{t('provider.cloakModeNever')}</SelectItem>
+                        <SelectItem value="none">{t('provider.disguiseTypeNone')}</SelectItem>
+                        <SelectItem value="claude-code">
+                          {t('provider.disguiseTypeClaudeCode')}
+                        </SelectItem>
+                        <SelectItem value="bedrock">
+                          {t('provider.disguiseTypeBedrock')}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {t('provider.cloakModeDesc')}
+                      {disguise.type === 'bedrock'
+                        ? t('provider.disguiseTypeBedrockDesc')
+                        : disguise.type === 'claude-code'
+                          ? t('provider.disguiseTypeClaudeCodeDesc')
+                          : t('provider.disguiseTypeNoneDesc')}
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">
-                        {t('provider.cloakStrictMode')}
-                      </label>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('provider.cloakStrictModeDesc')}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={cloak.strictMode}
-                      onCheckedChange={(checked) => onUpdateCloak({ strictMode: checked })}
-                    />
-                  </div>
+                  {disguise.type === 'claude-code' && (
+                    <>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1.5 uppercase tracking-wide">
+                          {t('provider.cloakMode')}
+                        </label>
+                        <Select
+                          value={disguise.claudeCodeMode}
+                          onValueChange={(value) =>
+                            onUpdateDisguise({
+                              claudeCodeMode: value as 'auto' | 'always' | 'never',
+                            })
+                          }
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="auto">{t('provider.cloakModeAuto')}</SelectItem>
+                            <SelectItem value="always">{t('provider.cloakModeAlways')}</SelectItem>
+                            <SelectItem value="never">{t('provider.cloakModeNever')}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {t('provider.cloakModeDesc')}
+                        </p>
+                      </div>
 
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground block mb-1.5 uppercase tracking-wide">
-                      {t('provider.cloakSensitiveWords')}
-                    </label>
-                    <Textarea
-                      value={cloak.sensitiveWords}
-                      onChange={(e) => onUpdateCloak({ sensitiveWords: e.target.value })}
-                      placeholder={t('provider.cloakSensitiveWordsPlaceholder')}
-                      className="min-h-[100px] bg-card"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {t('provider.cloakSensitiveWordsDesc')}
-                    </p>
-                  </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">
+                            {t('provider.cloakStrictMode')}
+                          </label>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('provider.cloakStrictModeDesc')}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={disguise.claudeCodeStrictMode}
+                          onCheckedChange={(checked) =>
+                            onUpdateDisguise({ claudeCodeStrictMode: checked })
+                          }
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground block mb-1.5 uppercase tracking-wide">
+                          {t('provider.cloakSensitiveWords')}
+                        </label>
+                        <Textarea
+                          value={disguise.claudeCodeSensitiveWords}
+                          onChange={(e) =>
+                            onUpdateDisguise({ claudeCodeSensitiveWords: e.target.value })
+                          }
+                          placeholder={t('provider.cloakSensitiveWordsPlaceholder')}
+                          className="min-h-[100px] bg-card"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {t('provider.cloakSensitiveWordsDesc')}
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

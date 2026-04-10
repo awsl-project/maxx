@@ -176,3 +176,73 @@ func TestCloakingBuildsSub2apiCompatibleClaudeShape(t *testing.T) {
 		t.Fatalf("expected cloaked system prompt, got %q", systemText)
 	}
 }
+
+func TestApplyBedrockCompatHeadersStripsClaudeIdentity(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	// Pre-populate every Claude Code identifying header to verify they all get deleted.
+	req.Header.Set("Anthropic-Beta", "claude-code-20250219,interleaved-thinking-2025-05-14")
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	req.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
+	req.Header.Set("X-App", "cli")
+	req.Header.Set("X-Stainless-Helper-Method", "stream")
+	req.Header.Set("X-Stainless-Retry-Count", "0")
+	req.Header.Set("X-Stainless-Runtime-Version", "v24.3.0")
+	req.Header.Set("X-Stainless-Package-Version", "0.55.1")
+	req.Header.Set("X-Stainless-Runtime", "node")
+	req.Header.Set("X-Stainless-Lang", "js")
+	req.Header.Set("X-Stainless-Arch", "arm64")
+	req.Header.Set("X-Stainless-Os", "MacOS")
+	req.Header.Set("X-Stainless-Timeout", "60")
+	req.Header.Set("x-api-key", "leaked-key")
+
+	applyBedrockCompatHeaders(req, nil, "sk-test", true)
+
+	for _, h := range claudeIdentityHeaders {
+		if v := req.Header.Get(h); v != "" {
+			t.Errorf("expected %s to be stripped, got %q", h, v)
+		}
+	}
+	if v := req.Header.Get("x-api-key"); v != "" {
+		t.Errorf("expected x-api-key to be stripped, got %q", v)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer sk-test" {
+		t.Errorf("expected Authorization Bearer sk-test, got %q", got)
+	}
+	if got := req.Header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", got)
+	}
+	if got := req.Header.Get("User-Agent"); got != defaultBedrockCompatUserAgent {
+		t.Errorf("expected User-Agent %q, got %q", defaultBedrockCompatUserAgent, got)
+	}
+	if !strings.Contains(req.Header.Get("User-Agent"), "aws-sdk-go-v2") {
+		t.Errorf("User-Agent should look like AWS SDK, got %q", req.Header.Get("User-Agent"))
+	}
+}
+
+func TestApplyBedrockCompatHeadersAccept(t *testing.T) {
+	// Streaming should yield the AWS event-stream content type.
+	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	applyBedrockCompatHeaders(req, nil, "sk-test", true)
+	if got := req.Header.Get("Accept"); got != "application/vnd.amazon.eventstream" {
+		t.Errorf("streaming Accept = %q, want application/vnd.amazon.eventstream", got)
+	}
+
+	// Non-streaming should yield application/json.
+	req2, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	applyBedrockCompatHeaders(req2, nil, "sk-test", false)
+	if got := req2.Header.Get("Accept"); got != "application/json" {
+		t.Errorf("non-streaming Accept = %q, want application/json", got)
+	}
+}
+
+func TestApplyBedrockCompatHeadersWithoutAPIKeyDoesNotSetAuth(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	req.Header.Set("x-api-key", "preexisting")
+
+	applyBedrockCompatHeaders(req, nil, "", true)
+
+	// Empty apiKey path doesn't touch x-api-key (consistent with applyClaudeHeaders).
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("expected no Authorization header, got %q", got)
+	}
+}

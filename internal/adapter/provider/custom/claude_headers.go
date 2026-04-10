@@ -8,7 +8,32 @@ import (
 const (
 	defaultAnthropicVersion = "2023-06-01"
 	defaultClaudeUserAgent  = "claude-cli/2.1.17 (external, cli)"
+
+	// defaultBedrockCompatUserAgent mimics the User-Agent string emitted by a real
+	// AWS SDK for Go v2 Bedrock Runtime client. Used by the "bedrock" disguise mode
+	// so that upstream relay stations forwarding to AWS Bedrock won't reject the
+	// request based on a Claude Code fingerprint.
+	defaultBedrockCompatUserAgent = "aws-sdk-go-v2/1.32.6 os/linux lang/go#1.23.0 md/GOOS#linux md/GOARCH#amd64 api/bedrockruntime#1.20.0"
 )
+
+// claudeIdentityHeaders is the set of request headers that fingerprint a request
+// as coming from Claude Code CLI. The "bedrock" disguise mode strips these so the
+// upstream Bedrock backend won't see Claude Code identifiers.
+var claudeIdentityHeaders = []string{
+	"Anthropic-Beta",
+	"Anthropic-Version",
+	"Anthropic-Dangerous-Direct-Browser-Access",
+	"X-App",
+	"X-Stainless-Helper-Method",
+	"X-Stainless-Retry-Count",
+	"X-Stainless-Runtime-Version",
+	"X-Stainless-Package-Version",
+	"X-Stainless-Runtime",
+	"X-Stainless-Lang",
+	"X-Stainless-Arch",
+	"X-Stainless-Os",
+	"X-Stainless-Timeout",
+}
 
 // applyClaudeHeaders sets Claude API request headers.
 // Following CLIProxyAPI pattern: build headers from scratch, use EnsureHeader for selective passthrough.
@@ -98,6 +123,51 @@ func applyClaudeHeaders(req *http.Request, clientReq *http.Request, apiKey strin
 	// 7. Set Accept based on stream flag
 	if stream {
 		req.Header.Set("Accept", "text/event-stream")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
+}
+
+// applyBedrockCompatHeaders sets request headers for the "bedrock" disguise mode.
+// Drops every Claude Code fingerprint header and replaces the User-Agent with a
+// neutral AWS SDK string. Used when forwarding to a relay station whose backend
+// is AWS Bedrock — such relays reject requests carrying claude-code-* beta flags
+// and x-stainless-* SDK markers.
+func applyBedrockCompatHeaders(req *http.Request, clientReq *http.Request, apiKey string, stream bool) {
+	// 1. Authentication — relay stations behind Bedrock typically still take a
+	// Bearer token even though direct AWS Bedrock would require SigV4. The relay
+	// re-signs internally.
+	if apiKey != "" {
+		req.Header.Del("x-api-key")
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	// 2. Content-Type
+	req.Header.Set("Content-Type", "application/json")
+
+	// 3. Strip every Claude Code fingerprint header. We delete them on both the
+	// upstream request (in case Claude headers were copied earlier) and again
+	// later via the same loop on any aliases the client may have set.
+	for _, h := range claudeIdentityHeaders {
+		req.Header.Del(h)
+	}
+	if clientReq != nil {
+		// Defensive: also remove from any header pulled in via earlier copy.
+		for _, h := range claudeIdentityHeaders {
+			req.Header.Del(h)
+		}
+	}
+
+	// 4. User-Agent: pretend to be aws-sdk-go-v2's Bedrock Runtime client.
+	req.Header.Set("User-Agent", defaultBedrockCompatUserAgent)
+
+	// 5. Connection / encoding (match the AWS SDK defaults loosely; gzip is fine)
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Accept-Encoding", "identity")
+
+	// 6. Accept based on stream flag
+	if stream {
+		req.Header.Set("Accept", "application/vnd.amazon.eventstream")
 	} else {
 		req.Header.Set("Accept", "application/json")
 	}

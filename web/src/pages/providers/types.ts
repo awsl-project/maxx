@@ -240,6 +240,11 @@ export type ProviderFormData = {
   baseURL: string;
   apiKey: string;
   clients: ClientConfig[];
+  // Disguise: which client identity to present to the upstream relay.
+  // 'none'        — no disguise, raw forwarding
+  // 'claude-code' — inject Claude Code system prompt + claude-cli headers (legacy default)
+  // 'bedrock'     — strip Claude Code identity, look like an AWS Bedrock SDK client
+  disguiseType?: 'none' | 'claude-code' | 'bedrock';
   cloakMode?: 'auto' | 'always' | 'never';
   cloakStrictMode?: boolean;
   cloakSensitiveWords?: string;

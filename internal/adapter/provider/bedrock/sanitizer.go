@@ -7,16 +7,16 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// sanitizeRequestBody prepares the request body for Bedrock:
-// - Removes fields not supported by Bedrock
+// sanitizeRequestBody prepares the request body for direct Bedrock invocation:
 // - Removes `model` (Bedrock takes model in URL, not body)
+// - Removes `stream` (Bedrock streams via the *Stream API verb)
 // - Sets `anthropic_version`
-// - Converts adaptive thinking to enabled
+// - Then runs the relay-safe transformations via SanitizeForBedrockCompat.
 //
 // Bedrock feature support (verified via real API tests):
 //   ACCEPTED: cache_control (system/tools/messages), thinking(enabled), tools, tool_use
 //   REJECTED: stream, output_config, context_management, reasoning, betas,
-//             thinking(adaptive), tools[].custom
+//             thinking(adaptive), tools[].custom, cache_control.scope
 func sanitizeRequestBody(body []byte) []byte {
 	// Remove `model` field (Bedrock uses URL path)
 	body, _ = sjson.DeleteBytes(body, "model")
@@ -24,8 +24,24 @@ func sanitizeRequestBody(body []byte) []byte {
 	// Set anthropic_version
 	body, _ = sjson.SetBytes(body, "anthropic_version", BedrockAPIVersion)
 
+	// Remove `stream` (only valid against direct Bedrock; relay still wants it)
+	if gjson.GetBytes(body, "stream").Exists() {
+		body, _ = sjson.DeleteBytes(body, "stream")
+	}
+
+	return SanitizeForBedrockCompat(body)
+}
+
+// SanitizeForBedrockCompat applies the subset of Bedrock-compatibility
+// transformations that are safe to run before forwarding through a relay
+// station whose backend is AWS Bedrock. It deliberately does NOT remove
+// `model` or `stream`, since the relay still needs those for routing.
+//
+// Used both by the direct Bedrock adapter and by the custom adapter's
+// "bedrock" disguise mode.
+func SanitizeForBedrockCompat(body []byte) []byte {
 	// Remove unsupported top-level fields
-	for _, field := range []string{"stream", "output_config", "context_management", "reasoning", "betas"} {
+	for _, field := range []string{"output_config", "context_management", "reasoning", "betas"} {
 		if gjson.GetBytes(body, field).Exists() {
 			body, _ = sjson.DeleteBytes(body, field)
 		}

@@ -37,6 +37,7 @@ const initialFormData: ProviderFormData = {
   baseURL: '',
   apiKey: '',
   clients: [...defaultClients],
+  disguiseType: 'claude-code',
   cloakMode: 'auto',
   cloakStrictMode: false,
   cloakSensitiveWords: '',
