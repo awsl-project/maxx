@@ -142,6 +142,19 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			originalHeaders := flow.GetRequestHeaders(c)
 			upstreamReq.Header = make(http.Header)
 			copyHeadersFiltered(upstreamReq.Header, originalHeaders)
+
+			// processClaudeRequestBody always strips body-side `betas` into
+			// extraBetas. The legacy claude-code header path re-merges them
+			// into Anthropic-Beta; raw forwarding mode has to do it here too,
+			// otherwise body beta flags silently disappear before reaching
+			// upstream.
+			if len(extraBetas) > 0 {
+				upstreamReq.Header.Set(
+					"Anthropic-Beta",
+					mergeBetaList(upstreamReq.Header.Get("Anthropic-Beta"), extraBetas),
+				)
+			}
+
 			if apiKey != "" {
 				// setAuthHeader's non-forceCreate path only overrides an
 				// EXISTING auth header. If the inbound client carried no

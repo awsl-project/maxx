@@ -62,18 +62,7 @@ func SanitizeForBedrockCompat(body []byte) []byte {
 		}
 	}
 
-	// Bedrock requires max_tokens > thinking.budget_tokens.
-	// We treat max_tokens == 0 (or unset) as "caller didn't pin a ceiling" and
-	// leave it alone — Bedrock will reject unset max_tokens earlier in its own
-	// validation if the model requires it, and we don't want to silently invent
-	// a ceiling that wasn't there.
-	if gjson.GetBytes(body, "thinking.type").String() == "enabled" {
-		budgetTokens := gjson.GetBytes(body, "thinking.budget_tokens").Int()
-		maxTokens := gjson.GetBytes(body, "max_tokens").Int()
-		if maxTokens > 0 && budgetTokens >= maxTokens {
-			body, _ = sjson.SetBytes(body, "max_tokens", budgetTokens+1)
-		}
-	}
+	body = EnsureMaxTokensAboveThinkingBudget(body)
 
 	// cache_control is SUPPORTED by Bedrock, but the "scope" sub-field is NOT.
 	// Claude Code CLI sends cache_control like {"type":"ephemeral","scope":"turn"}
@@ -91,6 +80,27 @@ func SanitizeForBedrockCompat(body []byte) []byte {
 		}
 	}
 
+	return body
+}
+
+// EnsureMaxTokensAboveThinkingBudget enforces Bedrock's invariant that
+// `max_tokens > thinking.budget_tokens` whenever extended thinking is enabled.
+// If the caller's max_tokens is unset or zero we leave it alone (treating that
+// as "caller didn't pin a ceiling"); otherwise we raise it to budget+1 when
+// it's too low.
+//
+// Exposed publicly so the custom adapter's bedrock disguise mode can re-run
+// this check after later body-processing steps (e.g. ensureMinThinkingBudget)
+// raise the budget above an originally-acceptable max_tokens.
+func EnsureMaxTokensAboveThinkingBudget(body []byte) []byte {
+	if gjson.GetBytes(body, "thinking.type").String() != "enabled" {
+		return body
+	}
+	budgetTokens := gjson.GetBytes(body, "thinking.budget_tokens").Int()
+	maxTokens := gjson.GetBytes(body, "max_tokens").Int()
+	if maxTokens > 0 && budgetTokens >= maxTokens {
+		body, _ = sjson.SetBytes(body, "max_tokens", budgetTokens+1)
+	}
 	return body
 }
 

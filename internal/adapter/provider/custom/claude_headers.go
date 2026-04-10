@@ -180,6 +180,29 @@ func applyBedrockCompatHeaders(req *http.Request, _ *http.Request, apiKey string
 	}
 }
 
+// mergeBetaList merges an existing comma-separated Anthropic-Beta header value
+// with an additional list of beta strings, deduplicating in first-occurrence
+// order. Empty entries are dropped. Returns the merged comma-joined string.
+func mergeBetaList(existing string, extra []string) string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(extra)+4)
+	add := func(b string) {
+		b = strings.TrimSpace(b)
+		if b == "" || seen[b] {
+			return
+		}
+		seen[b] = true
+		out = append(out, b)
+	}
+	for _, b := range strings.Split(existing, ",") {
+		add(b)
+	}
+	for _, b := range extra {
+		add(b)
+	}
+	return strings.Join(out, ",")
+}
+
 // ensureHeader sets a header value with priority: source > target existing > default
 // This matches CLIProxyAPI's misc.EnsureHeader behavior
 func ensureHeader(target http.Header, source http.Header, key, defaultValue string) {

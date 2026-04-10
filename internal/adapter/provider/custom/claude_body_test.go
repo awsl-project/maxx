@@ -818,6 +818,33 @@ func TestProcessClaudeRequestBodyBedrockDisguiseStripsUnsupportedFields(t *testi
 	}
 }
 
+// TestProcessClaudeRequestBodyBedrockDisguiseRecheckMaxTokensAfterMinBudget
+// guards against a subtle ordering bug: SanitizeForBedrockCompat enforces
+// `max_tokens > thinking.budget_tokens` early, then ensureMinThinkingBudget
+// raises the budget to 1024 — which can put max_tokens BELOW the new budget.
+// processClaudeRequestBody must re-run the constraint after the min-budget
+// raise so Bedrock doesn't reject the request.
+func TestProcessClaudeRequestBodyBedrockDisguiseRecheckMaxTokensAfterMinBudget(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":200,
+		"thinking":{"type":"enabled","budget_tokens":100},
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+	// ensureMinThinkingBudget should have raised budget to 1024
+	if got := gjson.GetBytes(result, "thinking.budget_tokens").Int(); got != 1024 {
+		t.Errorf("thinking.budget_tokens = %d, want 1024 (min)", got)
+	}
+	// max_tokens MUST then be raised above the new budget
+	maxT := gjson.GetBytes(result, "max_tokens").Int()
+	if maxT <= 1024 {
+		t.Errorf("max_tokens = %d, want > 1024 (above raised budget)", maxT)
+	}
+}
+
 func TestProcessClaudeRequestBodyNoneDisguiseSkipsCloaking(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-sonnet-4-5",

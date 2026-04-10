@@ -239,6 +239,53 @@ func TestApplyBedrockCompatHeadersAccept(t *testing.T) {
 	}
 }
 
+func TestMergeBetaListDedupesAndPreservesOrder(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing string
+		extra    []string
+		want     string
+	}{
+		{
+			name:     "empty existing + extras",
+			existing: "",
+			extra:    []string{"a", "b"},
+			want:     "a,b",
+		},
+		{
+			name:     "existing then extras (no overlap)",
+			existing: "a,b",
+			extra:    []string{"c", "d"},
+			want:     "a,b,c,d",
+		},
+		{
+			name:     "dedupe extras already in existing",
+			existing: "a,b,c",
+			extra:    []string{"b", "d", "a"},
+			want:     "a,b,c,d",
+		},
+		{
+			name:     "trim whitespace and drop empty entries",
+			existing: " a , , b ",
+			extra:    []string{"  ", "c", "a"},
+			want:     "a,b,c",
+		},
+		{
+			name:     "no extras",
+			existing: "a,b",
+			extra:    nil,
+			want:     "a,b",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mergeBetaList(tc.existing, tc.extra); got != tc.want {
+				t.Errorf("mergeBetaList(%q, %v) = %q, want %q", tc.existing, tc.extra, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestApplyBedrockCompatHeadersWithoutAPIKeyClearsPreexistingAuth(t *testing.T) {
 	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
 	// Pre-populated auth headers must be cleared even when apiKey is empty —

@@ -62,11 +62,13 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 
 	// 2. Apply disguise transformation.
 	disguise := disguiseFromCustomConfig(customCfg)
+	bedrockMode := false
 	switch strings.ToLower(strings.TrimSpace(disguiseType(disguise))) {
 	case domain.DisguiseTypeBedrock:
 		// Strip Claude Code identifying fields so the upstream relay's Bedrock
 		// backend won't reject the request with "invalid beta flag" etc.
 		body = bedrock.SanitizeForBedrockCompat(body)
+		bedrockMode = true
 	case domain.DisguiseTypeNone:
 		// Explicit opt-out: no body transformation.
 	default:
@@ -83,6 +85,13 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 
 	// 4. Ensure minimum thinking budget if present
 	body = ensureMinThinkingBudget(body)
+
+	// 4b. For bedrock disguise: re-check the `max_tokens > thinking.budget_tokens`
+	// invariant. ensureMinThinkingBudget may have just raised budget_tokens to 1024,
+	// which can violate Bedrock's constraint even though the body looked valid at step 2.
+	if bedrockMode {
+		body = bedrock.EnsureMaxTokensAboveThinkingBudget(body)
+	}
 
 	// 5. Auto-inject cache_control if missing (CLIProxyAPI behavior)
 	if countCacheControls(body) == 0 {

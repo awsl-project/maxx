@@ -113,6 +113,36 @@ func TestSanitizeForBedrockCompatStripsToolsCustom(t *testing.T) {
 	}
 }
 
+func TestEnsureMaxTokensAboveThinkingBudgetIdempotent(t *testing.T) {
+	// Already-valid input should be unchanged.
+	body := []byte(`{"thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":2048}`)
+	out := EnsureMaxTokensAboveThinkingBudget(body)
+	if got := gjson.GetBytes(out, "max_tokens").Int(); got != 2048 {
+		t.Errorf("max_tokens = %d, want 2048 (unchanged)", got)
+	}
+
+	// Budget == max should be raised so max_tokens > budget.
+	body = []byte(`{"thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":1024}`)
+	out = EnsureMaxTokensAboveThinkingBudget(body)
+	if got := gjson.GetBytes(out, "max_tokens").Int(); got != 1025 {
+		t.Errorf("max_tokens = %d, want 1025", got)
+	}
+
+	// thinking disabled — leave alone even if max_tokens is small.
+	body = []byte(`{"thinking":{"type":"disabled","budget_tokens":2000},"max_tokens":100}`)
+	out = EnsureMaxTokensAboveThinkingBudget(body)
+	if got := gjson.GetBytes(out, "max_tokens").Int(); got != 100 {
+		t.Errorf("disabled-thinking max_tokens = %d, want 100", got)
+	}
+
+	// max_tokens unset (== 0) — never invent a ceiling.
+	body = []byte(`{"thinking":{"type":"enabled","budget_tokens":2000}}`)
+	out = EnsureMaxTokensAboveThinkingBudget(body)
+	if gjson.GetBytes(out, "max_tokens").Exists() {
+		t.Error("max_tokens should not be invented when caller didn't set one")
+	}
+}
+
 func TestSanitizeRequestBodyRemovesModelAndStream(t *testing.T) {
 	// The direct-Bedrock helper should strip both fields and set anthropic_version.
 	body := []byte(`{
