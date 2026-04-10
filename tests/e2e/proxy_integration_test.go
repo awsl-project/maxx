@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/testutil/mockserver"
 	"github.com/tidwall/gjson"
 )
@@ -60,8 +62,7 @@ func createProvider(t *testing.T, env *ProxyTestEnv, name, baseURL string, suppo
 	var result struct {
 		ID uint64 `json:"id"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
-	resp.Body.Close()
+	DecodeJSON(t, resp, &result)
 	return result.ID
 }
 
@@ -81,8 +82,7 @@ func createRoute(t *testing.T, env *ProxyTestEnv, clientType string, providerID 
 	var result struct {
 		ID uint64 `json:"id"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
-	resp.Body.Close()
+	DecodeJSON(t, resp, &result)
 	return result.ID
 }
 
@@ -198,6 +198,132 @@ func newMockGeminiUpstream(t *testing.T, captured *capturedRequest) *httptest.Se
 			},
 		})
 	}))
+}
+
+func newMockGeminiStreamUpstream(t *testing.T, captured *capturedRequest) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.Set(r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("streaming not supported")
+		}
+
+		chunk := map[string]any{
+			"candidates": []map[string]any{{
+				"content": map[string]any{
+					"role":  "model",
+					"parts": []map[string]any{{"text": "Hello from mock Gemini stream"}},
+				},
+			}},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     10,
+				"candidatesTokenCount": 8,
+				"totalTokenCount":      18,
+			},
+		}
+
+		if _, err := w.Write(converter.FormatSSE("", chunk)); err != nil {
+			t.Fatalf("write gemini stream chunk: %v", err)
+		}
+		flusher.Flush()
+		if _, err := w.Write(converter.FormatDone()); err != nil {
+			t.Fatalf("write gemini done chunk: %v", err)
+		}
+		flusher.Flush()
+	}))
+}
+
+func newMockCodexStreamUpstream(t *testing.T, captured *capturedRequest) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.Set(r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("streaming not supported")
+		}
+
+		events := [][]byte{
+			converter.FormatSSE("response.created", map[string]any{
+				"type": "response.created",
+				"response": map[string]any{
+					"id":         "resp_mock_stream",
+					"object":     "response",
+					"created_at": 1700000000,
+					"status":     "in_progress",
+				},
+			}),
+			converter.FormatSSE("response.output_text.delta", map[string]any{
+				"type": "response.output_text.delta",
+				"delta": map[string]any{
+					"type": "output_text_delta",
+					"text": "Hello from mock Codex stream",
+				},
+			}),
+			converter.FormatSSE("response.output_item.added", map[string]any{
+				"type": "response.output_item.added",
+				"item": map[string]any{
+					"type":      "function_call",
+					"name":      "lookup",
+					"call_id":   "call_1",
+					"arguments": `{"city":"Tokyo"}`,
+					"status":    "completed",
+				},
+			}),
+			converter.FormatSSE("response.completed", map[string]any{
+				"type": "response.completed",
+				"response": map[string]any{
+					"id":         "resp_mock_stream",
+					"object":     "response",
+					"created_at": 1700000001,
+					"status":     "completed",
+					"usage": map[string]any{
+						"input_tokens":  10,
+						"output_tokens": 8,
+						"total_tokens":  18,
+					},
+				},
+			}),
+			converter.FormatDone(),
+		}
+
+		for _, event := range events {
+			if _, err := w.Write(event); err != nil {
+				t.Fatalf("write codex stream event: %v", err)
+			}
+			flusher.Flush()
+		}
+	}))
+}
+
+func proxyStreamPost(t *testing.T, env *ProxyTestEnv, path string, body any, headers map[string]string) *http.Response {
+	t.Helper()
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("Failed to marshal stream body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, env.URL(path), bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("Failed to create stream request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Stream request failed: %v", err)
+	}
+	return resp
 }
 
 // --- Helper: assert response status ---
@@ -654,10 +780,19 @@ func TestProxyUpstreamError(t *testing.T) {
 	createRoute(t, env, "openai", providerID)
 
 	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
-	defer resp.Body.Close()
+	AssertStatus(t, resp, http.StatusTooManyRequests)
 
-	if resp.StatusCode == http.StatusOK {
-		t.Error("Expected non-200 status for upstream error")
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["type"]; got != "upstream_error" {
+		t.Fatalf("error.type = %v, want upstream_error", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "Rate limit exceeded") {
+		t.Fatalf("error.message = %q, want to contain Rate limit exceeded", msg)
+	}
+	if got := payload["error"]["retryable"]; got != true {
+		t.Fatalf("error.retryable = %v, want true", got)
 	}
 }
 
@@ -665,10 +800,115 @@ func TestProxyNoMatchingRoute(t *testing.T) {
 	env := NewProxyTestEnv(t)
 
 	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
-	defer resp.Body.Close()
+	AssertStatus(t, resp, http.StatusBadGateway)
 
-	if resp.StatusCode == http.StatusOK {
-		t.Error("Expected non-200 status when no routes match")
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["type"]; got != "upstream_error" {
+		t.Fatalf("error.type = %v, want upstream_error", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "route match failed") || !strings.Contains(msg, "no routes available") {
+		t.Fatalf("error.message = %q, want to contain route match failed and no routes available", msg)
+	}
+	if got := payload["error"]["retryable"]; got != false {
+		t.Fatalf("error.retryable = %v, want false", got)
+	}
+}
+
+func TestProxyCodexToGeminiStreamingSSE(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockGeminiStreamUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-gemini-stream", mock.URL, []string{"gemini"})
+	createRoute(t, env, "codex", providerID)
+
+	request := codexRequest("gemini-2.0-flash")
+	request["stream"] = true
+
+	resp := proxyStreamPost(t, env, "/responses", request, nil)
+	AssertStatus(t, resp, http.StatusOK)
+	if got := resp.Header.Get("Content-Type"); !strings.Contains(got, "text/event-stream") {
+		resp.Body.Close()
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+	respBody := ReadBody(t, resp)
+
+	_, path, headers, body := captured.Get()
+	if path != "/v1beta/models/gemini-2.0-flash:streamGenerateContent" {
+		t.Fatalf("upstream path = %q, want /v1beta/models/gemini-2.0-flash:streamGenerateContent", path)
+	}
+	if accept := headers.Get("Accept"); !strings.Contains(accept, "text/event-stream") {
+		t.Fatalf("upstream Accept = %q, want text/event-stream", accept)
+	}
+	if !gjson.GetBytes(body, "contents").Exists() {
+		t.Fatalf("expected Gemini upstream request to contain contents, body=%s", string(body))
+	}
+
+	if !strings.Contains(respBody, "response.created") {
+		t.Fatalf("stream body missing response.created: %s", respBody)
+	}
+	if !strings.Contains(respBody, "response.output_text.delta") {
+		t.Fatalf("stream body missing response.output_text.delta: %s", respBody)
+	}
+	if !strings.Contains(respBody, "Hello from mock Gemini stream") {
+		t.Fatalf("stream body missing transformed Gemini text: %s", respBody)
+	}
+	if !strings.Contains(respBody, "response.completed") {
+		t.Fatalf("stream body missing response.completed: %s", respBody)
+	}
+	if !strings.Contains(respBody, "data: [DONE]") {
+		t.Fatalf("stream body missing [DONE]: %s", respBody)
+	}
+}
+
+func TestProxyGeminiToCodexStreamingSSE(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockCodexStreamUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-codex-stream", mock.URL, []string{"codex"})
+	createRoute(t, env, "gemini", providerID)
+
+	resp := proxyStreamPost(t, env, "/v1beta/models/gpt-4o:streamGenerateContent", geminiRequest(), nil)
+	AssertStatus(t, resp, http.StatusOK)
+	if got := resp.Header.Get("Content-Type"); !strings.Contains(got, "text/event-stream") {
+		resp.Body.Close()
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+	respBody := ReadBody(t, resp)
+
+	_, path, headers, body := captured.Get()
+	if path != "/responses" {
+		t.Fatalf("upstream path = %q, want /responses", path)
+	}
+	if accept := headers.Get("Accept"); !strings.Contains(accept, "text/event-stream") {
+		t.Fatalf("upstream Accept = %q, want text/event-stream", accept)
+	}
+	if got := gjson.GetBytes(body, "model").String(); got != "gpt-4o" {
+		t.Fatalf("upstream model = %q, want gpt-4o", got)
+	}
+	if !gjson.GetBytes(body, "input").Exists() {
+		t.Fatalf("expected Codex upstream request to contain input, body=%s", string(body))
+	}
+	if !gjson.GetBytes(body, "stream").Bool() {
+		t.Fatalf("expected Codex upstream request stream=true, body=%s", string(body))
+	}
+
+	if !strings.Contains(respBody, "Hello from mock Codex stream") {
+		t.Fatalf("stream body missing transformed Codex text: %s", respBody)
+	}
+	if !strings.Contains(respBody, `"functionCall":{"name":"lookup_call_1"`) {
+		t.Fatalf("stream body missing transformed functionCall: %s", respBody)
+	}
+	if !strings.Contains(respBody, `"finishReason":"STOP"`) {
+		t.Fatalf("stream body missing finishReason STOP: %s", respBody)
+	}
+	if !strings.Contains(respBody, `"totalTokenCount":18`) {
+		t.Fatalf("stream body missing usage metadata: %s", respBody)
 	}
 }
 
