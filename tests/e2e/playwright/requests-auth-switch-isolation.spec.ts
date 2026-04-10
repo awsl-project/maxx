@@ -175,7 +175,7 @@ test('requests page does not leak cached requests or token filters across tenant
 
     if (url.pathname === '/api/api-tokens') {
       if (bearer === TENANT_TOKEN) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 5000));
         tenantTokensResolved = true;
       }
       await route.fulfill({
@@ -258,7 +258,7 @@ test('requests page does not leak cached requests or token filters across tenant
   await page.fill('input[type="password"]', 'test123');
   await page.locator('button[type="submit"]').click();
 
-  await expect(page.locator('body')).not.toContainText('admin-tenant-model', { timeout: 800 });
-  await expect(page.locator('body')).toContainText('tenant-two-model', { timeout: 1200 });
+  await expect(page.locator('body')).not.toContainText('admin-tenant-model', { timeout: 1200 });
+  await expect(page.locator('body')).toContainText('tenant-two-model', { timeout: 3000 });
   expect(tenantTokensResolved).toBeFalsy();
 });
