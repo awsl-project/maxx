@@ -208,12 +208,25 @@ async function openRequestsPage(page: Page, providerId?: number) {
     );
   }
 
-  await page.goto(`${BASE}/requests`, { waitUntil: 'domcontentloaded' });
+  const passwordInput = page.locator('input[type="password"]');
+  const requestsHeading = page.getByRole('heading', { name: 'Requests' });
 
-  if (await page.locator('input[type="password"]').count()) {
-    await loginToAdminUI(page);
+  const navigateToRequests = async () => {
     await page.goto(`${BASE}/requests`, { waitUntil: 'domcontentloaded' });
+    await Promise.race([
+      requestsHeading.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined),
+      passwordInput.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined),
+    ]);
+  };
+
+  await navigateToRequests();
+
+  if (await passwordInput.isVisible().catch(() => false)) {
+    await loginToAdminUI(page);
+    await navigateToRequests();
   }
+
+  await expect(requestsHeading).toBeVisible({ timeout: 30_000 });
 }
 
 test('virtualized requests table keeps header and body columns aligned', async ({ page }, testInfo) => {
