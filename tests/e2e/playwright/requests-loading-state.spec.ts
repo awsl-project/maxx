@@ -153,6 +153,8 @@ test('requests page shows loading fallback when filter dependency is delayed', a
       ({ pid }) => {
         localStorage.setItem('maxx-requests-filter-mode', 'provider');
         localStorage.setItem('maxx-requests-provider-filter', String(pid));
+        localStorage.setItem('maxx-requests-filter-mode:tenant-1:user-1', 'provider');
+        localStorage.setItem('maxx-requests-provider-filter:tenant-1:user-1', String(pid));
       },
       { pid: providerId },
     );

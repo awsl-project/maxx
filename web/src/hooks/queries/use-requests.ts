@@ -359,15 +359,14 @@ export function useProxyRequestUpdates() {
           });
         }
 
-        // 新请求时乐观更新 count（增加保护：避免因“未观察详情缓存”导致重复 +1）
+        // 新请求时乐观更新 count。重连后首个看到的增量可能已经是 COMPLETED，
+        // 不能只盯 PENDING，否则会把断线窗口内完成的新请求漏掉。
         if (!isKnown) {
           const startTimeMs = new Date(updatedRequest.startTime).getTime();
-          const looksLikeNewRequest =
-            updatedRequest.status === 'PENDING' &&
-            Number.isFinite(startTimeMs) &&
-            Date.now() - startTimeMs < 15_000;
+          const looksLikeRecentRequest =
+            Number.isFinite(startTimeMs) && Date.now() - startTimeMs < 15_000;
 
-          if (looksLikeNewRequest) {
+          if (looksLikeRecentRequest) {
             for (const query of countQueries) {
               const filterProviderId = query.queryKey[1] as number | undefined;
               const filterStatus = query.queryKey[2] as string | undefined;

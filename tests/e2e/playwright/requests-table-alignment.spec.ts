@@ -14,6 +14,10 @@ const REQUEST_FILTER_MODE_STORAGE_KEY = 'maxx-requests-filter-mode';
 const REQUEST_PROVIDER_FILTER_STORAGE_KEY = 'maxx-requests-provider-filter';
 const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
+const REQUEST_FILTER_MODE_SCOPED_STORAGE_KEY = 'maxx-requests-filter-mode:tenant-1:user-1';
+const REQUEST_PROVIDER_FILTER_SCOPED_STORAGE_KEY = 'maxx-requests-provider-filter:tenant-1:user-1';
+const REQUEST_TOKEN_FILTER_SCOPED_STORAGE_KEY = 'maxx-requests-token-filter:tenant-1:user-1';
+const REQUEST_PROJECT_FILTER_SCOPED_STORAGE_KEY = 'maxx-requests-project-filter:tenant-1:user-1';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -182,6 +186,11 @@ async function openRequestsPage(page: Page, providerId?: number) {
         localStorage.setItem(keys.provider, String(id));
         localStorage.removeItem(keys.token);
         localStorage.removeItem(keys.project);
+
+        localStorage.setItem(keys.scopedMode, 'provider');
+        localStorage.setItem(keys.scopedProvider, String(id));
+        localStorage.removeItem(keys.scopedToken);
+        localStorage.removeItem(keys.scopedProject);
       },
       {
         id: providerId,
@@ -190,6 +199,10 @@ async function openRequestsPage(page: Page, providerId?: number) {
           provider: REQUEST_PROVIDER_FILTER_STORAGE_KEY,
           token: REQUEST_TOKEN_FILTER_STORAGE_KEY,
           project: REQUEST_PROJECT_FILTER_STORAGE_KEY,
+          scopedMode: REQUEST_FILTER_MODE_SCOPED_STORAGE_KEY,
+          scopedProvider: REQUEST_PROVIDER_FILTER_SCOPED_STORAGE_KEY,
+          scopedToken: REQUEST_TOKEN_FILTER_SCOPED_STORAGE_KEY,
+          scopedProject: REQUEST_PROJECT_FILTER_SCOPED_STORAGE_KEY,
         },
       },
     );
