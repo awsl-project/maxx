@@ -208,13 +208,11 @@ async function openRequestsPage(page: Page, providerId?: number) {
     );
   }
 
-  await page.goto(`${BASE}/requests`);
-  await page.waitForLoadState('networkidle');
+  await page.goto(`${BASE}/requests`, { waitUntil: 'domcontentloaded' });
 
   if (await page.locator('input[type="password"]').count()) {
     await loginToAdminUI(page);
-    await page.goto(`${BASE}/requests`);
-    await page.waitForLoadState('networkidle');
+    await page.goto(`${BASE}/requests`, { waitUntil: 'domcontentloaded' });
   }
 }
 
