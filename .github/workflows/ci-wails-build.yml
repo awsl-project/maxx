@@ -32,6 +32,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".node-version"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - uses: pnpm/action-setup@v4
         with:
@@ -116,6 +118,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".node-version"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - uses: pnpm/action-setup@v4
         with:
@@ -183,6 +187,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".node-version"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Install Linux Build Dependencies
         run: |

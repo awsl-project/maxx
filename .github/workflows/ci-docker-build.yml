@@ -36,6 +36,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: '.node-version'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -92,7 +94,10 @@ jobs:
           file: Dockerfile.ci
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:latest
