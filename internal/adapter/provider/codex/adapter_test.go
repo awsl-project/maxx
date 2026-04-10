@@ -17,14 +17,27 @@ type scriptedReadCloser struct {
 	chunks [][]byte
 	err    error
 	idx    int
+	off    int
 }
 
 func (r *scriptedReadCloser) Read(p []byte) (int, error) {
-	if r.idx < len(r.chunks) {
+	for r.idx < len(r.chunks) {
 		chunk := r.chunks[r.idx]
-		r.idx++
-		copy(p, chunk)
-		return len(chunk), nil
+		if r.off >= len(chunk) {
+			r.idx++
+			r.off = 0
+			continue
+		}
+
+		n := copy(p, chunk[r.off:])
+		r.off += n
+		if r.off >= len(chunk) {
+			r.idx++
+			r.off = 0
+		}
+		if n > 0 {
+			return n, nil
+		}
 	}
 	if r.err != nil {
 		err := r.err
@@ -36,6 +49,33 @@ func (r *scriptedReadCloser) Read(p []byte) (int, error) {
 
 func (r *scriptedReadCloser) Close() error {
 	return nil
+}
+
+func TestScriptedReadCloserPreservesUnreadBytesAcrossPartialReads(t *testing.T) {
+	r := &scriptedReadCloser{chunks: [][]byte{[]byte("hello")}}
+	buf := make([]byte, 3)
+
+	n, err := r.Read(buf)
+	if err != nil {
+		t.Fatalf("expected first read to succeed, got %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("expected first read count 3, got %d", n)
+	}
+	if got := string(buf[:n]); got != "hel" {
+		t.Fatalf("expected first read %q, got %q", "hel", got)
+	}
+
+	n, err = r.Read(buf)
+	if err != nil {
+		t.Fatalf("expected second read to succeed, got %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("expected second read count 2, got %d", n)
+	}
+	if got := string(buf[:n]); got != "lo" {
+		t.Fatalf("expected second read %q, got %q", "lo", got)
+	}
 }
 
 func TestApplyCodexRequestTuning(t *testing.T) {
