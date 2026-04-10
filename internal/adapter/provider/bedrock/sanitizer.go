@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -99,7 +100,15 @@ func EnsureMaxTokensAboveThinkingBudget(body []byte) []byte {
 	budgetTokens := gjson.GetBytes(body, "thinking.budget_tokens").Int()
 	maxTokens := gjson.GetBytes(body, "max_tokens").Int()
 	if maxTokens > 0 && budgetTokens >= maxTokens {
-		body, _ = sjson.SetBytes(body, "max_tokens", budgetTokens+1)
+		// Guard against the pathological case where budget_tokens is so large
+		// that budget+1 would overflow to a negative number. In that case the
+		// request is going to be rejected by Bedrock anyway; just clamp to
+		// MaxInt64 instead of corrupting the field with a negative value.
+		newMax := budgetTokens + 1
+		if budgetTokens == math.MaxInt64 {
+			newMax = math.MaxInt64
+		}
+		body, _ = sjson.SetBytes(body, "max_tokens", newMax)
 	}
 	return body
 }

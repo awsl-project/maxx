@@ -1,6 +1,8 @@
 package bedrock
 
 import (
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -110,6 +112,26 @@ func TestSanitizeForBedrockCompatStripsToolsCustom(t *testing.T) {
 	}
 	if got := gjson.GetBytes(result, "tools.0.name").String(); got != "a" {
 		t.Errorf("tools[0].name = %q, want a", got)
+	}
+}
+
+// TestEnsureMaxTokensAboveThinkingBudgetGuardsOverflow asserts that a
+// pathologically large budget_tokens (== math.MaxInt64) does not cause the
+// `+1` increment to wrap to a negative integer when written back into
+// max_tokens. The request will fail at Bedrock anyway, but we never want to
+// silently corrupt the field with garbage.
+func TestEnsureMaxTokensAboveThinkingBudgetGuardsOverflow(t *testing.T) {
+	body := []byte(fmt.Sprintf(
+		`{"thinking":{"type":"enabled","budget_tokens":%d},"max_tokens":1024}`,
+		int64(math.MaxInt64),
+	))
+	out := EnsureMaxTokensAboveThinkingBudget(body)
+	got := gjson.GetBytes(out, "max_tokens").Int()
+	if got != math.MaxInt64 {
+		t.Errorf("max_tokens = %d, want clamp to math.MaxInt64 (%d)", got, int64(math.MaxInt64))
+	}
+	if got < 0 {
+		t.Errorf("max_tokens overflowed to negative value: %d", got)
 	}
 }
 
