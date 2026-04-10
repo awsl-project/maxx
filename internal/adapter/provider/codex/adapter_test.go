@@ -1,7 +1,10 @@
 package codex
 
 import (
+	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -9,6 +12,31 @@ import (
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/tidwall/gjson"
 )
+
+type scriptedReadCloser struct {
+	chunks [][]byte
+	err    error
+	idx    int
+}
+
+func (r *scriptedReadCloser) Read(p []byte) (int, error) {
+	if r.idx < len(r.chunks) {
+		chunk := r.chunks[r.idx]
+		r.idx++
+		copy(p, chunk)
+		return len(chunk), nil
+	}
+	if r.err != nil {
+		err := r.err
+		r.err = nil
+		return 0, err
+	}
+	return 0, io.EOF
+}
+
+func (r *scriptedReadCloser) Close() error {
+	return nil
+}
 
 func TestApplyCodexRequestTuning(t *testing.T) {
 	c := flow.NewCtx(nil, nil)
@@ -144,10 +172,10 @@ func TestApplyCodexHeadersUsesDefaultUAWhenClientUAIsBlank(t *testing.T) {
 
 func TestExtractModelFromSSELine(t *testing.T) {
 	tests := []struct {
-		name     string
-		line     string
-		wantSet  bool
-		wantVal  string
+		name    string
+		line    string
+		wantSet bool
+		wantVal string
 	}{
 		{"extracts model", `data: {"model":"gpt-4.1","type":"response.created"}`, true, "gpt-4.1"},
 		{"ignores non-data", `event: response.created`, false, ""},
@@ -183,5 +211,88 @@ func TestExtractModelFromSSELine_KeepsLast(t *testing.T) {
 	}
 	if model != "gpt-4.1-2025-04-14" {
 		t.Fatalf("expected last model, got %q", model)
+	}
+}
+
+func TestHandleStreamResponseReturnsProviderErrorWhenStreamEndsBeforeCompleted(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n",
+		)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected incomplete stream to return error")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Fatalf("expected scope %q, got %q", domain.ScopeProvider, proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Fatalf("expected reason %q, got %q", domain.CooldownReasonNetworkError, proxyErr.Reason)
+	}
+	if proxyErr.Message != "stream closed before response.completed" {
+		t.Fatalf("expected message %q, got %q", "stream closed before response.completed", proxyErr.Message)
+	}
+}
+
+func TestHandleStreamResponseReturnsProviderErrorOnReadErrorBeforeCompleted(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body: &scriptedReadCloser{
+			chunks: [][]byte{[]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n")},
+			err:    errors.New("boom"),
+		},
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected read error before completion to return error")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Fatalf("expected scope %q, got %q", domain.ScopeProvider, proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Fatalf("expected reason %q, got %q", domain.CooldownReasonNetworkError, proxyErr.Reason)
+	}
+	if proxyErr.Message != "stream closed before response.completed" {
+		t.Fatalf("expected message %q, got %q", "stream closed before response.completed", proxyErr.Message)
+	}
+}
+
+func TestHandleStreamResponseAllowsCompletedStreamWithoutTrailingNewline(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.completed\",\"response\":{}}",
+		)),
+	}
+
+	if err := a.handleStreamResponse(ctx, resp); err != nil {
+		t.Fatalf("expected completed stream without trailing newline to succeed, got %v", err)
 	}
 }
