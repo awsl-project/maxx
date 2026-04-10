@@ -1268,7 +1268,7 @@
     "apiEndpoint": "API 端点",
     "apiKey": "API 密钥",
     "apiKeyEdit": "API 密钥（留空保持当前值）",
-    "apiKeyExcludedHint": "该提供商已设置为“从导出与备份中排除”。您仍可在这里轮换 API 密钥，只是它不会被写入导出文件或系统备份。",
+    "apiKeyExcludedHint": "该提供商已设置为“不导出此提供商配置”。您仍可在这里轮换 API 密钥，但当前提供商及其配置不会被包含在提供商导出或系统备份中。",
     "optionalUrlNote": "如果下面设置了客户端特定的 URL，则此项为可选。",
     "namePlaceholder": "例如：Production OpenAI",
     "endpointPlaceholder": "https://api.openai.com/v1",
@@ -1293,8 +1293,8 @@
     "errorCooldownTitle": "3. 错误冷冻",
     "disableErrorCooldown": "禁用错误冷冻",
     "disableErrorCooldownDesc": "开启后，错误将不再触发自动冷冻；手动冷冻与上游明确冷冻时间仍会生效。",
-    "excludeFromExport": "从导出与备份中排除",
-    "excludeFromExportDesc": "开启后，该提供商仅保留在当前系统中，不会被写入导出文件或系统备份。"
+    "excludeFromExport": "不导出此提供商配置",
+    "excludeFromExportDesc": "开启后，此提供商及其配置不会被包含在提供商导出或系统备份中。仅影响当前提供商，不影响 API Token、系统设置等其他数据的导出。"
   },
   "cooldown": {
     "title": "冷却保护中",

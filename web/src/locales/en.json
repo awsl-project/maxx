@@ -1269,7 +1269,7 @@
     "apiEndpoint": "API Endpoint",
     "apiKey": "API Key",
     "apiKeyEdit": "API Key (leave empty to keep current)",
-    "apiKeyExcludedHint": "This provider is excluded from export and backup. You can still rotate the API key here; it just won't be included in exported files or backup packages.",
+    "apiKeyExcludedHint": "This provider is set to \"Do not export this provider\". You can still rotate the API key here, but this provider and its configuration will not be included in provider exports or system backups.",
     "optionalUrlNote": "Optional if client-specific URLs are set below.",
     "namePlaceholder": "e.g. Production OpenAI",
     "endpointPlaceholder": "https://api.openai.com/v1",
@@ -1294,8 +1294,8 @@
     "errorCooldownTitle": "3. Error Cooldown",
     "disableErrorCooldown": "Disable Error Cooldown",
     "disableErrorCooldownDesc": "When enabled, errors won't trigger automatic cooldown. Manual freezes and explicit cooldown times still apply.",
-    "excludeFromExport": "Exclude from export and backup",
-    "excludeFromExportDesc": "When enabled, this provider stays local to this system and will not be included in exported files or backup packages."
+    "excludeFromExport": "Do not export this provider",
+    "excludeFromExportDesc": "When enabled, this provider and its configuration will not be included in provider exports or system backups. This only affects the current provider and does not reduce the export of other data such as API tokens or system settings."
   },
   "cooldown": {
     "title": "Cooldown Protection",
