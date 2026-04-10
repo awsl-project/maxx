@@ -41,18 +41,28 @@ var claudeIdentityHeaders = []string{
 // applyClaudeHeaders and the `none` disguise raw-forwarding path so a force-create
 // auth injection on a non-Anthropic relay still produces the Bearer header that
 // such relays expect.
+//
+// Before writing the new header, every credential header that the source client
+// might have sent is unconditionally deleted (Authorization / x-api-key /
+// x-goog-api-key). This matters for the raw-forwarding path: an OpenAI- or
+// Gemini-origin request that gets converted to Claude must not leak its source
+// credential alongside the provider key.
 func setClaudeAuthForURL(req *http.Request, apiKey string, useAPIKey bool) {
 	if apiKey == "" {
 		return
 	}
+	// We own auth from here on. Clear every credential header that might
+	// have survived header copying so the upstream sees only the provider key.
+	req.Header.Del("Authorization")
+	req.Header.Del("x-api-key")
+	req.Header.Del("x-goog-api-key")
+
 	isAnthropicBase := req.URL != nil &&
 		strings.EqualFold(req.URL.Scheme, "https") &&
 		strings.EqualFold(req.URL.Host, "api.anthropic.com")
 	if isAnthropicBase && useAPIKey {
-		req.Header.Del("Authorization")
 		req.Header.Set("x-api-key", apiKey)
 	} else {
-		req.Header.Del("x-api-key")
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 }

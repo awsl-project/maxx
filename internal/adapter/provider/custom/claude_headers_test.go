@@ -280,6 +280,46 @@ func TestSetClaudeAuthForURLEmptyAPIKeyNoOp(t *testing.T) {
 	}
 }
 
+func TestSetClaudeAuthForURLClearsStaleSourceCredentialsOnConversion(t *testing.T) {
+	// Simulates an OpenAI- and Gemini-origin request that just got format-converted
+	// to Claude. Both source credentials must be wiped so the upstream sees only
+	// the provider key.
+	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer source-openai-key")
+	req.Header.Set("x-goog-api-key", "source-gemini-key")
+	req.Header.Set("x-api-key", "source-claude-key")
+
+	setClaudeAuthForURL(req, "sk-provider", true)
+
+	if got := req.Header.Get("Authorization"); got != "Bearer sk-provider" {
+		t.Errorf("Authorization = %q, want Bearer sk-provider (relay → Bearer)", got)
+	}
+	if got := req.Header.Get("x-api-key"); got != "" {
+		t.Errorf("stale x-api-key should be cleared, got %q", got)
+	}
+	if got := req.Header.Get("x-goog-api-key"); got != "" {
+		t.Errorf("stale x-goog-api-key should be cleared, got %q", got)
+	}
+}
+
+func TestSetClaudeAuthForURLAnthropicClearsBothOpposites(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer stale")
+	req.Header.Set("x-goog-api-key", "stale-google")
+
+	setClaudeAuthForURL(req, "sk-test", true)
+
+	if got := req.Header.Get("x-api-key"); got != "sk-test" {
+		t.Errorf("x-api-key = %q, want sk-test", got)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("stale Authorization should be cleared on anthropic.com, got %q", got)
+	}
+	if got := req.Header.Get("x-goog-api-key"); got != "" {
+		t.Errorf("stale x-goog-api-key should be cleared on anthropic.com, got %q", got)
+	}
+}
+
 func TestMergeBetaListDedupesAndPreservesOrder(t *testing.T) {
 	cases := []struct {
 		name     string
