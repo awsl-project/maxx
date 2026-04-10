@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTransport } from '@/lib/transport';
 import type { UserRole } from '@/lib/transport/types';
 
@@ -30,10 +31,15 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const { transport } = useTransport();
+  const queryClient = useQueryClient();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [authEnabled, setAuthEnabled] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
+
+  const resetClientState = useCallback(() => {
+    queryClient.clear();
+  }, [queryClient]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +83,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             );
             localStorage.removeItem(AUTH_TOKEN_KEY);
             transport.clearAuthToken();
+            resetClientState();
             return;
           }
 
@@ -142,10 +149,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         clearTimeout(timeoutId);
       }
     };
-  }, [transport]);
+  }, [resetClientState, transport]);
 
   const login = useCallback(
     (token: string, userInfo?: AuthUser) => {
+      resetClientState();
       localStorage.setItem(AUTH_TOKEN_KEY, token);
       transport.setAuthToken(token);
       if (userInfo) {
@@ -153,15 +161,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
       setIsAuthenticated(true);
     },
-    [transport],
+    [resetClientState, transport],
   );
 
   const logout = useCallback(() => {
+    resetClientState();
     localStorage.removeItem(AUTH_TOKEN_KEY);
     transport.clearAuthToken();
     setUser(null);
     setIsAuthenticated(false);
-  }, [transport]);
+  }, [resetClientState, transport]);
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, isLoading, authEnabled, user, login, logout }}>

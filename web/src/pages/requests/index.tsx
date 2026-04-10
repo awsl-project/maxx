@@ -39,6 +39,7 @@ import {
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useAuth } from '@/lib/auth-context';
 import { calculateVirtualRange } from './virtual-range';
 
 type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
@@ -81,6 +82,24 @@ function readStoredNumber(key: string): number | undefined {
   return parsed;
 }
 
+function readStoredFilterMode(key: string): RequestFilterMode {
+  if (typeof window === 'undefined') {
+    return 'token';
+  }
+  const stored = window.localStorage.getItem(key);
+  if (stored === 'provider' || stored === 'project') {
+    return stored;
+  }
+  return 'token';
+}
+
+function buildScopedStorageKey(baseKey: string, tenantID?: number, userID?: number): string {
+  if (!tenantID || !userID) {
+    return `${baseKey}:anonymous`;
+  }
+  return `${baseKey}:tenant-${tenantID}:user-${userID}`;
+}
+
 /** Maps each proxy request status to its corresponding badge variant. */
 export const statusVariant: Record<
   ProxyRequestStatus,
@@ -99,27 +118,40 @@ export function RequestsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
+
+  const filterModeStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_FILTER_MODE_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
+  const providerFilterStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_PROVIDER_FILTER_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
+  const tokenFilterStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_TOKEN_FILTER_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
+  const projectFilterStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_PROJECT_FILTER_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
 
   // 过滤维度（默认令牌）
-  const [filterMode, setFilterMode] = useState<RequestFilterMode>(() => {
-    if (typeof window === 'undefined') {
-      return 'token';
-    }
-    const stored = window.localStorage.getItem(REQUEST_FILTER_MODE_STORAGE_KEY);
-    if (stored === 'provider' || stored === 'project') return stored;
-    return 'token';
-  });
+  const [filterMode, setFilterMode] = useState<RequestFilterMode>(() =>
+    readStoredFilterMode(filterModeStorageKey),
+  );
   // Provider 过滤器
   const [selectedProviderId, setSelectedProviderId] = useState<number | undefined>(() =>
-    readStoredNumber(REQUEST_PROVIDER_FILTER_STORAGE_KEY),
+    readStoredNumber(providerFilterStorageKey),
   );
   // Token 过滤器
   const [selectedTokenId, setSelectedTokenId] = useState<number | undefined>(() =>
-    readStoredNumber(REQUEST_TOKEN_FILTER_STORAGE_KEY),
+    readStoredNumber(tokenFilterStorageKey),
   );
   // Project 过滤器
   const [selectedProjectId, setSelectedProjectId] = useState<number | undefined>(() =>
-    readStoredNumber(REQUEST_PROJECT_FILTER_STORAGE_KEY),
+    readStoredNumber(projectFilterStorageKey),
   );
   // Status 过滤器
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
@@ -305,44 +337,57 @@ export function RequestsPage() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   useEffect(() => {
+    setFilterMode(readStoredFilterMode(filterModeStorageKey));
+    setSelectedProviderId(readStoredNumber(providerFilterStorageKey));
+    setSelectedTokenId(readStoredNumber(tokenFilterStorageKey));
+    setSelectedProjectId(readStoredNumber(projectFilterStorageKey));
+    setSelectedStatus(undefined);
+  }, [
+    filterModeStorageKey,
+    projectFilterStorageKey,
+    providerFilterStorageKey,
+    tokenFilterStorageKey,
+  ]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
-    window.localStorage.setItem(REQUEST_FILTER_MODE_STORAGE_KEY, filterMode);
-  }, [filterMode]);
+    window.localStorage.setItem(filterModeStorageKey, filterMode);
+  }, [filterMode, filterModeStorageKey]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
     if (selectedProviderId === undefined) {
-      window.localStorage.removeItem(REQUEST_PROVIDER_FILTER_STORAGE_KEY);
+      window.localStorage.removeItem(providerFilterStorageKey);
       return;
     }
-    window.localStorage.setItem(REQUEST_PROVIDER_FILTER_STORAGE_KEY, String(selectedProviderId));
-  }, [selectedProviderId]);
+    window.localStorage.setItem(providerFilterStorageKey, String(selectedProviderId));
+  }, [providerFilterStorageKey, selectedProviderId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
     if (selectedTokenId === undefined) {
-      window.localStorage.removeItem(REQUEST_TOKEN_FILTER_STORAGE_KEY);
+      window.localStorage.removeItem(tokenFilterStorageKey);
       return;
     }
-    window.localStorage.setItem(REQUEST_TOKEN_FILTER_STORAGE_KEY, String(selectedTokenId));
-  }, [selectedTokenId]);
+    window.localStorage.setItem(tokenFilterStorageKey, String(selectedTokenId));
+  }, [selectedTokenId, tokenFilterStorageKey]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
     if (selectedProjectId === undefined) {
-      window.localStorage.removeItem(REQUEST_PROJECT_FILTER_STORAGE_KEY);
+      window.localStorage.removeItem(projectFilterStorageKey);
       return;
     }
-    window.localStorage.setItem(REQUEST_PROJECT_FILTER_STORAGE_KEY, String(selectedProjectId));
-  }, [selectedProjectId]);
+    window.localStorage.setItem(projectFilterStorageKey, String(selectedProjectId));
+  }, [projectFilterStorageKey, selectedProjectId]);
 
   useEffect(() => {
     if (!providersIsSuccess || selectedProviderId === undefined) {
