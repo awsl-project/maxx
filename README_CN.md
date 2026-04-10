@@ -2,6 +2,13 @@
   <img src="web/public/logo.png" alt="maxx logo" width="128" height="128">
 </p>
 
+<p align="center">
+  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag" alt="Latest Release"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?branch=main&label=PR%20Checks" alt="PR Checks"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E" alt="E2E Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?branch=main&label=Playwright" alt="Playwright Tests"></a>
+</p>
+
 # maxx
 
 [English](README.md) | 简体中文
