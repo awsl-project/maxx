@@ -489,7 +489,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 
 		if err != nil {
 			a.sendFinalStreamEvents(eventChan, &collector, &model, resp)
-			if err == io.EOF || responseCompleted {
+			if responseCompleted {
 				return nil
 			}
 			if ctx.Err() != nil {
@@ -497,7 +497,10 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 				proxyErr.Scope = domain.ScopeRequest
 				return proxyErr
 			}
-			return nil
+			proxyErr := domain.NewProxyErrorWithMessage(err, true, "stream closed before response.completed")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 	}
 }
