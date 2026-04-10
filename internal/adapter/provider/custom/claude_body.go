@@ -102,12 +102,10 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 	return body, extraBetas
 }
 
-// disguiseFromCustomConfig returns the Disguise pointer from a custom config or nil.
+// disguiseFromCustomConfig returns the effective disguise for a custom config,
+// migrating any legacy `cloak` field via ResolveDisguise().
 func disguiseFromCustomConfig(cfg *domain.ProviderConfigCustom) *domain.ProviderConfigCustomDisguise {
-	if cfg == nil {
-		return nil
-	}
-	return cfg.Disguise
+	return cfg.ResolveDisguise()
 }
 
 // disguiseType returns the Type field of a Disguise or "" if nil.

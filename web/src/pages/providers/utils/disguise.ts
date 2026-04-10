@@ -2,13 +2,18 @@ import type { DisguiseType, ProviderConfigCustomDisguise } from '@/lib/transport
 
 /**
  * Parse a comma- or newline-separated string of sensitive words into a
- * trimmed, deduplicated list (preserves first occurrence order).
+ * trimmed, deduplicated list (preserves first-occurrence order).
  */
 export function parseSensitiveWords(value: string): string[] {
-  return value
-    .split(/[\n,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value.split(/[\n,]/)) {
+    const trimmed = raw.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 /**

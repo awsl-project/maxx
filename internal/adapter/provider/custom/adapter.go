@@ -121,14 +121,16 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			requestBody = applyClaudeToolPrefix(requestBody, claudeToolPrefix)
 		}
 
-		// 2. Set headers — pick variant based on Disguise.Type.
+		// 2. Set headers — pick variant based on the effective disguise type
+		// (ResolveDisguise migrates the legacy `cloak` JSON field on the way in).
 		//   bedrock      — strip Claude Code identity entirely (applyBedrockCompatHeaders)
 		//   none         — raw forwarding: copy client headers, override auth only
 		//   claude-code  — inject Claude Code identity headers (legacy default)
 		//   "" / nil     — same as claude-code (backward compatibility)
+		effectiveDisguise := customCfg.ResolveDisguise()
 		disguiseType := ""
-		if customCfg.Disguise != nil {
-			disguiseType = strings.ToLower(strings.TrimSpace(customCfg.Disguise.Type))
+		if effectiveDisguise != nil {
+			disguiseType = strings.ToLower(strings.TrimSpace(effectiveDisguise.Type))
 		}
 		switch disguiseType {
 		case domain.DisguiseTypeBedrock:
@@ -141,9 +143,19 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			upstreamReq.Header = make(http.Header)
 			copyHeadersFiltered(upstreamReq.Header, originalHeaders)
 			if apiKey != "" {
+				// setAuthHeader's non-forceCreate path only overrides an
+				// EXISTING auth header. If the inbound client carried no
+				// Authorization / x-api-key / x-goog-api-key, the provider's
+				// apiKey would never be injected and the upstream relay would
+				// reject the request with 401. Detect that case and force-create
+				// a Claude-style auth header so raw forwarding still works for
+				// clients that authenticate via env vars rather than headers.
+				hasInboundAuth := originalHeaders.Get("Authorization") != "" ||
+					originalHeaders.Get("x-api-key") != "" ||
+					originalHeaders.Get("x-goog-api-key") != ""
 				originalClientType := flow.GetOriginalClientType(c)
 				isConversion := originalClientType != "" && originalClientType != clientType
-				setAuthHeader(upstreamReq, clientType, apiKey, isConversion)
+				setAuthHeader(upstreamReq, clientType, apiKey, isConversion || !hasInboundAuth)
 			}
 		default:
 			applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)

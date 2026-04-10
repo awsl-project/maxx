@@ -165,9 +165,16 @@ func applyBedrockCompatHeaders(req *http.Request, _ *http.Request, apiKey string
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Accept-Encoding", "identity")
 
-	// 6. Accept based on stream flag
+	// 6. Accept based on stream flag.
+	// Even in bedrock disguise mode the relay station's outward-facing API is
+	// Anthropic-compatible (the relay translates AWS Event Stream binary frames
+	// from the actual Bedrock backend back into SSE before responding to us),
+	// and CustomAdapter.handleStreamResponse only knows how to parse SSE text
+	// lines. Asking for application/vnd.amazon.eventstream here would either
+	// confuse the relay or, if the relay honored it, return binary frames the
+	// stream parser couldn't decode.
 	if stream {
-		req.Header.Set("Accept", "application/vnd.amazon.eventstream")
+		req.Header.Set("Accept", "text/event-stream")
 	} else {
 		req.Header.Set("Accept", "application/json")
 	}

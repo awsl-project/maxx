@@ -313,13 +313,22 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [formData, setFormData] = useState<EditFormData>(() => {
-    const disguise = provider.config?.custom?.disguise;
+    // Read effective claude-code sub-options, preferring the new `disguise`
+    // shape but falling back to the legacy `cloak` field so providers saved
+    // before the migration continue to display their previous settings.
+    const customCfg = provider.config?.custom as
+      | (NonNullable<typeof provider.config>['custom'] & {
+          cloak?: { mode?: 'auto' | 'always' | 'never'; strictMode?: boolean; sensitiveWords?: string[] };
+        })
+      | undefined;
+    const disguise = customCfg?.disguise;
+    const legacyCloak = customCfg?.cloak;
     // Default disguiseType: 'claude-code' (preserves legacy auto-cloak behavior).
     const disguiseType = (disguise?.type ?? 'claude-code') as
       | 'none'
       | 'claude-code'
       | 'bedrock';
-    const cc = disguise?.claudeCode;
+    const cc = disguise?.claudeCode ?? legacyCloak;
     return {
       name: provider.name,
       baseURL: provider.config?.custom?.baseURL || '',

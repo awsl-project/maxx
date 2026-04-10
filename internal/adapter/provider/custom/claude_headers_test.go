@@ -220,11 +220,15 @@ func TestApplyBedrockCompatHeadersStripsClaudeIdentity(t *testing.T) {
 }
 
 func TestApplyBedrockCompatHeadersAccept(t *testing.T) {
-	// Streaming should yield the AWS event-stream content type.
+	// Streaming must use text/event-stream so CustomAdapter.handleStreamResponse
+	// (an SSE line parser) can decode the upstream response. The relay station
+	// translates AWS Bedrock's binary event frames back to SSE before forwarding,
+	// so asking for application/vnd.amazon.eventstream here would only break the
+	// downstream parser.
 	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
 	applyBedrockCompatHeaders(req, nil, "sk-test", true)
-	if got := req.Header.Get("Accept"); got != "application/vnd.amazon.eventstream" {
-		t.Errorf("streaming Accept = %q, want application/vnd.amazon.eventstream", got)
+	if got := req.Header.Get("Accept"); got != "text/event-stream" {
+		t.Errorf("streaming Accept = %q, want text/event-stream", got)
 	}
 
 	// Non-streaming should yield application/json.
