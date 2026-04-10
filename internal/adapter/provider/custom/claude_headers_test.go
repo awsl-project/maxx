@@ -239,6 +239,47 @@ func TestApplyBedrockCompatHeadersAccept(t *testing.T) {
 	}
 }
 
+func TestSetClaudeAuthForURLPicksXAPIKeyForAnthropic(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer stale")
+	setClaudeAuthForURL(req, "sk-test", true)
+	if got := req.Header.Get("x-api-key"); got != "sk-test" {
+		t.Errorf("x-api-key = %q, want sk-test", got)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization should be cleared, got %q", got)
+	}
+}
+
+func TestSetClaudeAuthForURLPicksBearerForRelay(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	req.Header.Set("x-api-key", "stale-key")
+	setClaudeAuthForURL(req, "sk-test", true)
+	if got := req.Header.Get("Authorization"); got != "Bearer sk-test" {
+		t.Errorf("Authorization = %q, want Bearer sk-test", got)
+	}
+	if got := req.Header.Get("x-api-key"); got != "" {
+		t.Errorf("x-api-key should be cleared on non-anthropic, got %q", got)
+	}
+}
+
+func TestSetClaudeAuthForURLAnthropicWithoutUseAPIKeyFallsBackToBearer(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
+	setClaudeAuthForURL(req, "sk-test", false)
+	if got := req.Header.Get("Authorization"); got != "Bearer sk-test" {
+		t.Errorf("Authorization = %q, want Bearer sk-test (useAPIKey=false should fall back)", got)
+	}
+}
+
+func TestSetClaudeAuthForURLEmptyAPIKeyNoOp(t *testing.T) {
+	req, _ := http.NewRequest("POST", "https://relay.example.com/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer untouched")
+	setClaudeAuthForURL(req, "", true)
+	if got := req.Header.Get("Authorization"); got != "Bearer untouched" {
+		t.Errorf("Authorization should be untouched when apiKey empty, got %q", got)
+	}
+}
+
 func TestMergeBetaListDedupesAndPreservesOrder(t *testing.T) {
 	cases := []struct {
 		name     string

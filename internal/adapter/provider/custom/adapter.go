@@ -160,15 +160,35 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 				// EXISTING auth header. If the inbound client carried no
 				// Authorization / x-api-key / x-goog-api-key, the provider's
 				// apiKey would never be injected and the upstream relay would
-				// reject the request with 401. Detect that case and force-create
-				// a Claude-style auth header so raw forwarding still works for
-				// clients that authenticate via env vars rather than headers.
+				// reject the request with 401. Two sub-cases:
+				//
+				//   1) Conversion (Claude → OpenAI etc.): the header style
+				//      depends on the target client type, so let setAuthHeader
+				//      pick (it'll write Bearer for OpenAI/Codex, x-goog-api-key
+				//      for Gemini, etc.).
+				//
+				//   2) Non-conversion Claude: setAuthHeader's forceCreate path
+				//      would always emit x-api-key, but most non-Anthropic
+				//      relays speak Bearer. Use setClaudeAuthForURL instead so
+				//      we honor the same x-api-key-vs-Bearer choice that
+				//      applyClaudeHeaders makes (api.anthropic.com → x-api-key,
+				//      everything else → Authorization: Bearer).
 				hasInboundAuth := originalHeaders.Get("Authorization") != "" ||
 					originalHeaders.Get("x-api-key") != "" ||
 					originalHeaders.Get("x-goog-api-key") != ""
 				originalClientType := flow.GetOriginalClientType(c)
 				isConversion := originalClientType != "" && originalClientType != clientType
-				setAuthHeader(upstreamReq, clientType, apiKey, isConversion || !hasInboundAuth)
+				switch {
+				case isConversion:
+					setAuthHeader(upstreamReq, clientType, apiKey, true)
+				case hasInboundAuth:
+					// Override whatever auth the client already sent.
+					setAuthHeader(upstreamReq, clientType, apiKey, false)
+				default:
+					// No inbound auth + non-conversion Claude → write the
+					// URL-appropriate header from scratch.
+					setClaudeAuthForURL(upstreamReq, apiKey, useAPIKey)
+				}
 			}
 		default:
 			applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)

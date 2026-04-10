@@ -35,6 +35,28 @@ var claudeIdentityHeaders = []string{
 	"X-Stainless-Timeout",
 }
 
+// setClaudeAuthForURL writes the Claude-style provider auth header for a request,
+// choosing between `x-api-key` (direct api.anthropic.com) and `Authorization: Bearer`
+// (every other host) the same way applyClaudeHeaders does. Used by both
+// applyClaudeHeaders and the `none` disguise raw-forwarding path so a force-create
+// auth injection on a non-Anthropic relay still produces the Bearer header that
+// such relays expect.
+func setClaudeAuthForURL(req *http.Request, apiKey string, useAPIKey bool) {
+	if apiKey == "" {
+		return
+	}
+	isAnthropicBase := req.URL != nil &&
+		strings.EqualFold(req.URL.Scheme, "https") &&
+		strings.EqualFold(req.URL.Host, "api.anthropic.com")
+	if isAnthropicBase && useAPIKey {
+		req.Header.Del("Authorization")
+		req.Header.Set("x-api-key", apiKey)
+	} else {
+		req.Header.Del("x-api-key")
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+}
+
 // applyClaudeHeaders sets Claude API request headers.
 // Following CLIProxyAPI pattern: build headers from scratch, use EnsureHeader for selective passthrough.
 func applyClaudeHeaders(req *http.Request, clientReq *http.Request, apiKey string, useAPIKey bool, extraBetas []string, stream bool) {
@@ -45,18 +67,7 @@ func applyClaudeHeaders(req *http.Request, clientReq *http.Request, apiKey strin
 	}
 
 	// 1. Set authentication (only if apiKey is provided)
-	if apiKey != "" {
-		isAnthropicBase := req.URL != nil &&
-			strings.EqualFold(req.URL.Scheme, "https") &&
-			strings.EqualFold(req.URL.Host, "api.anthropic.com")
-		if isAnthropicBase && useAPIKey {
-			req.Header.Del("Authorization")
-			req.Header.Set("x-api-key", apiKey)
-		} else {
-			req.Header.Del("x-api-key")
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		}
-	}
+	setClaudeAuthForURL(req, apiKey, useAPIKey)
 
 	// 2. Set Content-Type (always)
 	req.Header.Set("Content-Type", "application/json")
