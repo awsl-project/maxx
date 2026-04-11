@@ -8,7 +8,7 @@ import {
   Sparkles,
   Gem,
   Github,
-  ChevronsUp,
+  Settings2,
   RefreshCw,
   LogOut,
   KeyRound,
@@ -335,7 +335,7 @@ export function NavUser() {
     subtitle: accountSubtitle,
     identity: accountIdentity,
     status: accountStatusLabel,
-    avatar: '/logo.png',
+    avatar: undefined,
   };
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
   const menuDisplayName = displayUser.name || 'Maxx';
@@ -347,101 +347,121 @@ export function NavUser() {
       <SidebarMenuItem>
         <div
           className={cn(
-            'flex items-center gap-2 rounded-xl border border-sidebar-border/70 bg-sidebar/70 p-1.5 backdrop-blur-sm',
-            isCollapsed ? 'flex-col' : 'justify-between',
+            'rounded-xl border border-sidebar-border/70 bg-sidebar/70 backdrop-blur-sm',
+            isCollapsed ? 'flex flex-col items-center gap-2 p-1.5' : 'space-y-2 p-2',
           )}
         >
-          <a
-            href="https://github.com/awsl-project/maxx"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            title="GitHub"
-          >
-            <Github className="h-4 w-4" />
-          </a>
-
-          <button
-            type="button"
-            onClick={handleToggleLanguage}
-            title={`${t('nav.language')}: ${currentLanguageLabel}`}
-            className={cn(
-              'inline-flex items-center rounded-full border border-sidebar-border/70 bg-sidebar-accent/40 p-0.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-              isCollapsed ? 'h-8 w-8 justify-center' : 'h-8 px-1 gap-1',
-            )}
-          >
-            {isCollapsed ? (
-              <span className="text-[11px] font-semibold uppercase">
-                {currentLanguage === 'zh' ? '中' : 'EN'}
-              </span>
-            ) : (
-              <>
-                <span className="inline-flex items-center rounded-full bg-sidebar/70 p-0.5">
-                  <span
-                    className={cn(
-                      'rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase transition-colors',
-                      currentLanguage === 'zh'
-                        ? 'bg-sidebar text-sidebar-foreground shadow-sm'
-                        : 'text-sidebar-foreground/55',
-                    )}
-                  >
-                    中
-                  </span>
-                  <span
-                    className={cn(
-                      'rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase transition-colors',
-                      currentLanguage === 'en'
-                        ? 'bg-sidebar text-sidebar-foreground shadow-sm'
-                        : 'text-sidebar-foreground/55',
-                    )}
-                  >
-                    EN
-                  </span>
-                </span>
-              </>
-            )}
-          </button>
-
           {isCollapsed ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={(props) => (
-                  <button
-                    {...props}
-                    type="button"
-                    className={cn(
-                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-                      props.className,
-                    )}
-                  >
-                    <Avatar className="h-6 w-6 rounded-lg">
-                      <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                      <AvatarFallback className="rounded-lg text-[10px]">
-                        {displayUserFallback}
-                      </AvatarFallback>
-                    </Avatar>
-                  </button>
-                )}
-              />
-              <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
-                <span className="text-xs font-medium">{displayUser.name}</span>
-              </TooltipContent>
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={(props) => (
+                    <button
+                      {...props}
+                      type="button"
+                      className={cn(
+                        'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                        props.className,
+                      )}
+                    >
+                      <Avatar className="h-7 w-7 rounded-lg">
+                        <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                        <AvatarFallback className="rounded-lg text-[10px] font-semibold">
+                          {displayUserFallback}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                  )}
+                />
+                <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
+                  <span className="text-xs font-medium">{displayUser.name}</span>
+                </TooltipContent>
+              </Tooltip>
+
+              <button
+                type="button"
+                onClick={handleToggleLanguage}
+                title={`${t('nav.language')}: ${currentLanguageLabel}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-[11px] font-semibold uppercase text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+              >
+                {currentLanguage === 'zh' ? '中' : 'EN'}
+              </button>
+
+              <a
+                href="https://github.com/awsl-project/maxx"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                title="GitHub"
+              >
+                <Github className="h-4 w-4" />
+              </a>
+            </>
           ) : (
-            <div
-              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2"
-              title={accountTitle}
-            >
-              <Avatar className="h-6 w-6 rounded-lg">
-                <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                <AvatarFallback className="rounded-lg text-[10px]">
-                  {displayUserFallback}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <span className="block truncate text-xs font-medium">{displayUser.name}</span>
+            <>
+              <div
+                className="flex min-w-0 items-center gap-3 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/15 px-3 py-2"
+                title={accountTitle}
+              >
+                <Avatar className="h-9 w-9 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/30">
+                  <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                  <AvatarFallback className="rounded-lg text-xs font-semibold">
+                    {displayUserFallback}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-sidebar-foreground">
+                    {displayUser.name}
+                  </span>
+                  <span className="block truncate text-xs text-sidebar-foreground/60">
+                    {displayUser.subtitle}
+                  </span>
+                </div>
               </div>
-            </div>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleToggleLanguage}
+                  title={`${t('nav.language')}: ${currentLanguageLabel}`}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+                >
+                  <span className="inline-flex items-center rounded-full bg-sidebar/70 p-0.5">
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase transition-colors',
+                        currentLanguage === 'zh'
+                          ? 'bg-sidebar text-sidebar-foreground shadow-sm'
+                          : 'text-sidebar-foreground/55',
+                      )}
+                    >
+                      中
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase transition-colors',
+                        currentLanguage === 'en'
+                          ? 'bg-sidebar text-sidebar-foreground shadow-sm'
+                          : 'text-sidebar-foreground/55',
+                      )}
+                    >
+                      EN
+                    </span>
+                  </span>
+                </button>
+
+                <a
+                  href="https://github.com/awsl-project/maxx"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  title="GitHub"
+                >
+                  <Github className="h-4 w-4" />
+                  <span className="text-xs font-medium">GitHub</span>
+                </a>
+              </div>
+            </>
           )}
 
           <DropdownMenu>
@@ -450,13 +470,16 @@ export function NavUser() {
                 <button
                   {...props}
                   type="button"
-                  title="Menu"
+                  title={t('nav.settings')}
                   className={cn(
-                    'inline-flex h-8 w-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                    isCollapsed
+                      ? 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                      : 'inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                     props.className,
                   )}
                 >
-                  <ChevronsUp className="h-4 w-4" />
+                  <Settings2 className="h-4 w-4" />
+                  {!isCollapsed && <span className="text-xs font-medium">{t('nav.settings')}</span>}
                 </button>
               )}
             />
