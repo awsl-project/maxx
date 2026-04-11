@@ -45,7 +45,7 @@ import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries
 import { useAuth } from '@/lib/auth-context';
 import { useTransport } from '@/lib/transport/context';
 import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
-import { getDefaultThemes, getLuxuryThemes } from '@/lib/theme';
+import { getDefaultThemes, getLuxuryThemes, isLuxuryTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 function parseRetentionInteger(value: string): number | null {
@@ -304,6 +304,13 @@ function GeneralSection() {
 
   const defaultThemes = getDefaultThemes();
   const luxuryThemes = getLuxuryThemes();
+  const [themeCategoryTab, setThemeCategoryTab] = useState<'default' | 'luxury'>(
+    isLuxuryTheme(theme) ? 'luxury' : 'default',
+  );
+
+  useEffect(() => {
+    setThemeCategoryTab(isLuxuryTheme(theme) ? 'luxury' : 'default');
+  }, [theme]);
 
   const languages = [
     { value: 'en', label: t('settings.languages.en') },
@@ -321,7 +328,11 @@ function GeneralSection() {
       <CardContent className="space-y-6">
         {/* Theme Selection */}
         <div className="space-y-3">
-          <Tabs defaultValue="default" className="w-full">
+          <Tabs
+            value={themeCategoryTab}
+            onValueChange={(value) => setThemeCategoryTab(value as 'default' | 'luxury')}
+            className="w-full"
+          >
             <div className="flex items-center justify-between mb-3 ">
               <div className="text-sm font-medium text-muted-foreground">
                 {t('settings.themePreference')}
