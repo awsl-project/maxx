@@ -90,7 +90,14 @@ function AppRoutes() {
           <Route path="model-mappings" element={<ModelMappingsPage />} />
           <Route path="model-prices" element={<ModelPricesPage />} />
           <Route path="retry-configs" element={<RetryConfigsPage />} />
-          <Route path="routing-strategies" element={<RoutingStrategiesPage />} />
+          <Route
+            path="routing-strategies"
+            element={
+              <AdminRoute>
+                <RoutingStrategiesPage />
+              </AdminRoute>
+            }
+          />
           <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route

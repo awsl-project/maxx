@@ -13,6 +13,7 @@ import {
   DollarSign,
   BookOpen,
   Ticket,
+  Workflow,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -145,6 +146,15 @@ export const sidebarConfig: SidebarConfig = {
           to: '/model-prices',
           icon: DollarSign,
           labelKey: 'nav.modelPrices',
+        },
+        {
+          type: 'standard',
+          key: 'routing-strategies',
+          to: '/routing-strategies',
+          icon: Workflow,
+          labelKey: 'nav.routingStrategies',
+          adminOnly: true,
+          authOnly: true,
         },
         {
           type: 'standard',

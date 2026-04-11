@@ -79,6 +79,7 @@
     "modelMappings": "模型映射",
     "modelPrices": "模型价格",
     "retryConfigs": "重试配置",
+    "routingStrategies": "路由策略",
     "settings": "设置",
     "stats": "统计",
     "routes": "路由",
