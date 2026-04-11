@@ -36,6 +36,6 @@ test('expanded sidebar footer keeps language github and settings in one aligned 
   const [languageBox, githubBox, settingsBox] = boxes as NonNullable<(typeof boxes)[number]>[];
   expect(Math.abs(languageBox.y - githubBox.y)).toBeLessThanOrEqual(1);
   expect(Math.abs(githubBox.y - settingsBox.y)).toBeLessThanOrEqual(1);
-  expect(languageBox.x).toBeLessThan(githubBox.x);
-  expect(githubBox.x).toBeLessThan(settingsBox.x);
+  expect(githubBox.x).toBeLessThan(languageBox.x);
+  expect(languageBox.x).toBeLessThan(settingsBox.x);
 });

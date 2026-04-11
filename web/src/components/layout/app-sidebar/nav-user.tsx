@@ -335,7 +335,7 @@ export function NavUser() {
     subtitle: accountSubtitle,
     identity: accountIdentity,
     status: accountStatusLabel,
-    avatar: undefined,
+    avatar: '/logo.png',
   };
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
   const menuDisplayName = displayUser.name || 'Maxx';
@@ -523,15 +523,6 @@ export function NavUser() {
                 </TooltipContent>
               </Tooltip>
 
-              <button
-                type="button"
-                onClick={handleToggleLanguage}
-                title={`${t('nav.language')}: ${currentLanguageLabel}`}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-[11px] font-semibold uppercase text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
-              >
-                {currentLanguage === 'zh' ? '中' : 'EN'}
-              </button>
-
               <a
                 href="https://github.com/awsl-project/maxx"
                 target="_blank"
@@ -541,6 +532,15 @@ export function NavUser() {
               >
                 <Github className="h-4 w-4" />
               </a>
+
+              <button
+                type="button"
+                onClick={handleToggleLanguage}
+                title={`${t('nav.language')}: ${currentLanguageLabel}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-[11px] font-semibold uppercase text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+              >
+                {currentLanguage === 'zh' ? '中' : 'EN'}
+              </button>
             </>
           ) : (
             <>
@@ -565,6 +565,21 @@ export function NavUser() {
               </div>
 
               <div className="grid grid-cols-3 items-center gap-1.5" data-footer-actions="true">
+                <a
+                  href="https://github.com/awsl-project/maxx"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-footer-action="github"
+                  aria-label="GitHub"
+                  title="GitHub"
+                  className={cn(
+                    footerActionButtonClass,
+                    'text-sidebar-foreground/80 hover:text-sidebar-accent-foreground',
+                  )}
+                >
+                  <Github className="h-4 w-4" />
+                </a>
+
                 <button
                   type="button"
                   data-footer-action="language"
@@ -596,21 +611,6 @@ export function NavUser() {
                     </span>
                   </span>
                 </button>
-
-                <a
-                  href="https://github.com/awsl-project/maxx"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-footer-action="github"
-                  aria-label="GitHub"
-                  title="GitHub"
-                  className={cn(
-                    footerActionButtonClass,
-                    'text-sidebar-foreground/80 hover:text-sidebar-accent-foreground',
-                  )}
-                >
-                  <Github className="h-4 w-4" />
-                </a>
 
                 <DropdownMenu>
                   <DropdownMenuTrigger
