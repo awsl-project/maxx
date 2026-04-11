@@ -341,6 +341,151 @@ export function NavUser() {
   const menuDisplayName = displayUser.name || 'Maxx';
   const menuDisplayFallback = menuDisplayName.slice(0, 2).toUpperCase();
   const accountTitle = displayUser.name || undefined;
+  const footerActionButtonClass =
+    'inline-flex h-9 w-full items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 transition-colors hover:bg-sidebar-accent';
+  const settingsMenuContent = (
+    <DropdownMenuContent
+      className="!w-72 rounded-lg max-w-sm !min-w-0"
+      style={{ width: '18rem' }}
+      side={isMobile ? 'bottom' : 'right'}
+      align="end"
+      sideOffset={4}
+    >
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>
+          <div className="flex items-start gap-2 w-full">
+            <Avatar className="h-8 w-8 rounded-lg">
+              <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
+              <AvatarFallback className="rounded-lg">{menuDisplayFallback}</AvatarFallback>
+            </Avatar>
+            <div className="grid flex-1 text-left text-sm leading-tight gap-0.5">
+              <div className="flex items-center gap-2">
+                <span className="truncate font-medium">{menuDisplayName}</span>
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {displayUser.status}
+                </span>
+              </div>
+              <span className="truncate text-xs text-muted-foreground">{displayUser.subtitle}</span>
+              <span className="truncate text-[10px] text-muted-foreground/80">
+                {displayUser.identity}
+              </span>
+            </div>
+          </div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+      </DropdownMenuGroup>
+
+      {authEnabled && (
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-xs text-muted-foreground">
+            {t('nav.account')}
+          </DropdownMenuLabel>
+          <DropdownMenuItem onClick={logout}>
+            <ArrowLeftRight />
+            <span>{t('nav.switchAccount')}</span>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      )}
+
+      {authEnabled && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              {t('nav.security')}
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => {
+                setPasskeyError('');
+                setPasskeySuccess('');
+                setShowPasskeyDialog(true);
+              }}
+            >
+              <ShieldAlert />
+              <span>{t('nav.managePasskeys')}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                resetPasswordDialogState();
+                setShowPasswordDialog(true);
+              }}
+            >
+              <KeyRound />
+              <span>{t('nav.changePassword')}</span>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </>
+      )}
+
+      <DropdownMenuSeparator />
+      <DropdownMenuGroup>
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {t('nav.system')}
+        </DropdownMenuLabel>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            {theme === 'light' ? (
+              <Sun />
+            ) : theme === 'dark' ? (
+              <Moon />
+            ) : theme === 'hermes' || theme === 'tiffany' ? (
+              <Sparkles />
+            ) : (
+              <Laptop />
+            )}
+            <span>{t('nav.theme')}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('settings.themeDefault')}
+                </DropdownMenuLabel>
+                <DropdownMenuRadioItem value="light" closeOnClick>
+                  <Sun />
+                  <span>{t('settings.theme.light')}</span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="dark" closeOnClick>
+                  <Moon />
+                  <span>{t('settings.theme.dark')}</span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="system" closeOnClick>
+                  <Laptop />
+                  <span>{t('settings.theme.system')}</span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('settings.themeLuxury')}
+                </DropdownMenuLabel>
+                <DropdownMenuRadioItem value="hermes" closeOnClick>
+                  <Sparkles className="text-orange-500" />
+                  <span>{t('settings.theme.hermes')}</span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="tiffany" closeOnClick>
+                  <Gem className="text-cyan-500" />
+                  <span>{t('settings.theme.tiffany')}</span>
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+        <DropdownMenuItem onClick={handleRestartServer}>
+          <RefreshCw />
+          <span>{t('nav.restartServer')}</span>
+        </DropdownMenuItem>
+      </DropdownMenuGroup>
+
+      {authEnabled && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={logout}>
+            <LogOut />
+            <span>{t('nav.logout')}</span>
+          </DropdownMenuItem>
+        </>
+      )}
+    </DropdownMenuContent>
+  );
 
   return (
     <SidebarMenu>
@@ -419,12 +564,14 @@ export function NavUser() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-3 items-center gap-1.5" data-footer-actions="true">
                 <button
                   type="button"
-                  onClick={handleToggleLanguage}
+                  data-footer-action="language"
+                  aria-label={`${t('nav.language')}: ${currentLanguageLabel}`}
                   title={`${t('nav.language')}: ${currentLanguageLabel}`}
-                  className="inline-flex h-9 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+                  onClick={handleToggleLanguage}
+                  className={cn(footerActionButtonClass, 'px-2 text-sidebar-foreground')}
                 >
                   <span className="inline-flex items-center rounded-full bg-sidebar/70 p-0.5">
                     <span
@@ -454,182 +601,62 @@ export function NavUser() {
                   href="https://github.com/awsl-project/maxx"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  data-footer-action="github"
+                  aria-label="GitHub"
                   title="GitHub"
+                  className={cn(
+                    footerActionButtonClass,
+                    'text-sidebar-foreground/80 hover:text-sidebar-accent-foreground',
+                  )}
                 >
                   <Github className="h-4 w-4" />
-                  <span className="text-xs font-medium">GitHub</span>
                 </a>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={(props) => (
+                      <button
+                        {...props}
+                        type="button"
+                        data-footer-action="settings"
+                        aria-label={t('nav.settings')}
+                        title={t('nav.settings')}
+                        className={cn(
+                          footerActionButtonClass,
+                          'text-sidebar-foreground/80 hover:text-sidebar-accent-foreground',
+                          props.className,
+                        )}
+                      >
+                        <Settings2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  />
+                  {settingsMenuContent}
+                </DropdownMenu>
               </div>
             </>
           )}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={(props) => (
-                <button
-                  {...props}
-                  type="button"
-                  title={t('nav.settings')}
-                  className={cn(
-                    isCollapsed
-                      ? 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                      : 'inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                    props.className,
-                  )}
-                >
-                  <Settings2 className="h-4 w-4" />
-                  {!isCollapsed && <span className="text-xs font-medium">{t('nav.settings')}</span>}
-                </button>
-              )}
-            />
-            <DropdownMenuContent
-              className="!w-72 rounded-lg max-w-sm !min-w-0"
-              style={{ width: '18rem' }}
-              side={isMobile ? 'bottom' : 'right'}
-              align="end"
-              sideOffset={4}
-            >
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>
-                  <div className="flex items-start gap-2 w-full">
-                    <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
-                      <AvatarFallback className="rounded-lg">{menuDisplayFallback}</AvatarFallback>
-                    </Avatar>
-                    <div className="grid flex-1 text-left text-sm leading-tight gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">{menuDisplayName}</span>
-                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                          {displayUser.status}
-                        </span>
-                      </div>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {displayUser.subtitle}
-                      </span>
-                      <span className="truncate text-[10px] text-muted-foreground/80">
-                        {displayUser.identity}
-                      </span>
-                    </div>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-              </DropdownMenuGroup>
-
-              {authEnabled && (
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    {t('nav.account')}
-                  </DropdownMenuLabel>
-                  <DropdownMenuItem onClick={logout}>
-                    <ArrowLeftRight />
-                    <span>{t('nav.switchAccount')}</span>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              )}
-
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      {t('nav.security')}
-                    </DropdownMenuLabel>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setPasskeyError('');
-                        setPasskeySuccess('');
-                        setShowPasskeyDialog(true);
-                      }}
-                    >
-                      <ShieldAlert />
-                      <span>{t('nav.managePasskeys')}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        resetPasswordDialogState();
-                        setShowPasswordDialog(true);
-                      }}
-                    >
-                      <KeyRound />
-                      <span>{t('nav.changePassword')}</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </>
-              )}
-
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {t('nav.system')}
-                </DropdownMenuLabel>
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    {theme === 'light' ? (
-                      <Sun />
-                    ) : theme === 'dark' ? (
-                      <Moon />
-                    ) : theme === 'hermes' || theme === 'tiffany' ? (
-                      <Sparkles />
-                    ) : (
-                      <Laptop />
+          {isCollapsed && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={(props) => (
+                  <button
+                    {...props}
+                    type="button"
+                    title={t('nav.settings')}
+                    className={cn(
+                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                      props.className,
                     )}
-                    <span>{t('nav.theme')}</span>
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuPortal>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuRadioGroup
-                        value={theme}
-                        onValueChange={(v) => setTheme(v as Theme)}
-                      >
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                          {t('settings.themeDefault')}
-                        </DropdownMenuLabel>
-                        <DropdownMenuRadioItem value="light" closeOnClick>
-                          <Sun />
-                          <span>{t('settings.theme.light')}</span>
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="dark" closeOnClick>
-                          <Moon />
-                          <span>{t('settings.theme.dark')}</span>
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="system" closeOnClick>
-                          <Laptop />
-                          <span>{t('settings.theme.system')}</span>
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                          {t('settings.themeLuxury')}
-                        </DropdownMenuLabel>
-                        <DropdownMenuRadioItem value="hermes" closeOnClick>
-                          <Sparkles className="text-orange-500" />
-                          <span>{t('settings.theme.hermes')}</span>
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="tiffany" closeOnClick>
-                          <Gem className="text-cyan-500" />
-                          <span>{t('settings.theme.tiffany')}</span>
-                        </DropdownMenuRadioItem>
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuPortal>
-                </DropdownMenuSub>
-                <DropdownMenuItem onClick={handleRestartServer}>
-                  <RefreshCw />
-                  <span>{t('nav.restartServer')}</span>
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>
-                    <LogOut />
-                    <span>{t('nav.logout')}</span>
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  >
+                    <Settings2 className="h-4 w-4" />
+                  </button>
+                )}
+              />
+              {settingsMenuContent}
+            </DropdownMenu>
+          )}
         </div>
       </SidebarMenuItem>
 

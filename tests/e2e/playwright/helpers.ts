@@ -49,10 +49,19 @@ export async function waitForDashboard(page: Page, timeout = 10000) {
 
 export async function loginToAdminUI(page: Page) {
   await page.goto(BASE);
-  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-  await page.fill('input[type="text"]', USER);
-  await page.fill('input[type="password"]', PASS);
-  await page.locator('button[type="submit"]').click();
+
+  const usernameInput = page.locator('input[type="text"]');
+  const loginVisible = await usernameInput
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (loginVisible) {
+    await page.fill('input[type="text"]', USER);
+    await page.fill('input[type="password"]', PASS);
+    await page.locator('button[type="submit"]').click();
+  }
+
   await waitForDashboard(page);
 }
 
