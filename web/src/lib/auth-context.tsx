@@ -101,8 +101,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return;
         }
         console.error('[AuthProvider] Auth check failed, fallback to authenticated:', error);
-        // Auth check failed, assume no auth required
+        // Auth check failed, assume no auth required — grant admin so UI is not locked
         setIsAuthenticated(true);
+        setUser({
+          id: 1,
+          username: 'admin',
+          tenantID: 1,
+          role: 'admin',
+        });
       }
     };
 
@@ -131,6 +137,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
           error,
         );
         setIsAuthenticated(true);
+        setUser({
+          id: 1,
+          username: 'admin',
+          tenantID: 1,
+          role: 'admin',
+        });
       } finally {
         if (timeoutId) {
           clearTimeout(timeoutId);
