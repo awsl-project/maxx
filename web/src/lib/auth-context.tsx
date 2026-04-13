@@ -100,15 +100,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (shouldSkip()) {
           return;
         }
-        console.error('[AuthProvider] Auth check failed, fallback to authenticated:', error);
-        // Auth check failed, assume no auth required — grant admin so UI is not locked
-        setIsAuthenticated(true);
-        setUser({
-          id: 1,
-          username: 'admin',
-          tenantID: 1,
-          role: 'admin',
-        });
+        console.error('[AuthProvider] Auth check failed:', error);
+        // Fail closed: treat unknown state as auth-required so admin routes stay guarded
+        setAuthEnabled(true);
+        setIsAuthenticated(false);
+        setUser(null);
       }
     };
 
@@ -132,17 +128,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         timedOut = true;
-        console.error(
-          '[AuthProvider] Auth bootstrap failed or timed out, fallback to authenticated:',
-          error,
-        );
-        setIsAuthenticated(true);
-        setUser({
-          id: 1,
-          username: 'admin',
-          tenantID: 1,
-          role: 'admin',
-        });
+        console.error('[AuthProvider] Auth bootstrap failed or timed out:', error);
+        // Fail closed: treat unknown state as auth-required so admin routes stay guarded
+        setAuthEnabled(true);
+        setIsAuthenticated(false);
+        setUser(null);
       } finally {
         if (timeoutId) {
           clearTimeout(timeoutId);
