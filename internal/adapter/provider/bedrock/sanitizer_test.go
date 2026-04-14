@@ -165,6 +165,117 @@ func TestEnsureMaxTokensAboveThinkingBudgetIdempotent(t *testing.T) {
 	}
 }
 
+func TestRemoveOrphanedToolResults(t *testing.T) {
+	t.Run("removes orphaned tool_result", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"user","content":"hi"},
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"toolu_aaa","name":"get_weather","input":{"city":"Tokyo"}}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"toolu_aaa","content":"sunny"},
+					{"type":"tool_result","tool_use_id":"toolu_orphan","content":"stale"},
+					{"type":"text","text":"thanks"}
+				]}
+			]
+		}`)
+
+		result := RemoveOrphanedToolResults(body)
+
+		msgs := gjson.GetBytes(result, "messages").Array()
+		userContent := msgs[2].Get("content").Array()
+
+		if len(userContent) != 2 {
+			t.Fatalf("expected 2 content blocks, got %d", len(userContent))
+		}
+		// Valid tool_result kept
+		if userContent[0].Get("tool_use_id").String() != "toolu_aaa" {
+			t.Error("valid tool_result should be kept")
+		}
+		// Text block kept
+		if userContent[1].Get("type").String() != "text" {
+			t.Error("text block should be kept")
+		}
+	})
+
+	t.Run("replaces with empty text when all tool_results orphaned", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"toolu_aaa","name":"f","input":{}}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"toolu_bad","content":"x"}
+				]}
+			]
+		}`)
+
+		result := RemoveOrphanedToolResults(body)
+
+		msgs := gjson.GetBytes(result, "messages").Array()
+		userContent := msgs[1].Get("content").Array()
+		if len(userContent) != 1 {
+			t.Fatalf("expected 1 content block, got %d", len(userContent))
+		}
+		if userContent[0].Get("type").String() != "text" {
+			t.Error("expected fallback text block")
+		}
+	})
+
+	t.Run("no-op when all tool_results match", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"toolu_1","name":"f","input":{}}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}
+				]}
+			]
+		}`)
+
+		result := RemoveOrphanedToolResults(body)
+
+		// Should be unchanged (byte-exact)
+		if gjson.GetBytes(result, "messages.1.content.0.tool_use_id").String() != "toolu_1" {
+			t.Error("matching tool_result should be preserved")
+		}
+	})
+
+	t.Run("no-op when no tool_results", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"user","content":"hi"},
+				{"role":"assistant","content":"hello"}
+			]
+		}`)
+
+		result := RemoveOrphanedToolResults(body)
+
+		if string(result) != string(body) {
+			t.Error("should be unchanged when no tool_results")
+		}
+	})
+
+	t.Run("does not touch user message without preceding assistant", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"toolu_x","content":"y"}
+				]}
+			]
+		}`)
+
+		result := RemoveOrphanedToolResults(body)
+
+		// First message has no preceding assistant, should be untouched
+		if gjson.GetBytes(result, "messages.0.content.0.tool_use_id").String() != "toolu_x" {
+			t.Error("first user message should not be modified")
+		}
+	})
+}
+
 func TestSanitizeRequestBodyRemovesModelAndStream(t *testing.T) {
 	// The direct-Bedrock helper should strip both fields and set anthropic_version.
 	body := []byte(`{

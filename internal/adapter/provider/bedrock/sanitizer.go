@@ -3,6 +3,7 @@ package bedrock
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -30,7 +31,9 @@ func sanitizeRequestBody(body []byte) []byte {
 		body, _ = sjson.DeleteBytes(body, "stream")
 	}
 
-	return SanitizeForBedrockCompat(body)
+	body = SanitizeForBedrockCompat(body)
+	body = RemoveOrphanedToolResults(body)
+	return body
 }
 
 // SanitizeForBedrockCompat applies the subset of Bedrock-compatibility
@@ -111,6 +114,113 @@ func EnsureMaxTokensAboveThinkingBudget(body []byte) []byte {
 		body, _ = sjson.SetBytes(body, "max_tokens", newMax)
 	}
 	return body
+}
+
+// RemoveOrphanedToolResults removes tool_result blocks from user messages
+// whose tool_use_id does not match any tool_use block in the immediately
+// preceding assistant message. The Anthropic API (and Bedrock) rejects such
+// requests with: "unexpected `tool_use_id` found in `tool_result` blocks".
+//
+// Exported so both the direct Bedrock adapter and the custom adapter can
+// call it before sending requests upstream.
+func RemoveOrphanedToolResults(body []byte) []byte {
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.Exists() || !messages.IsArray() {
+		return body
+	}
+
+	msgArr := messages.Array()
+	if len(msgArr) < 2 {
+		return body
+	}
+
+	rebuilt := make([]string, 0, len(msgArr))
+	modified := false
+
+	for i := 0; i < len(msgArr); i++ {
+		msg := msgArr[i]
+
+		// Only process user messages that follow an assistant message.
+		if msg.Get("role").String() != "user" || i == 0 {
+			rebuilt = append(rebuilt, msg.Raw)
+			continue
+		}
+
+		prevMsg := msgArr[i-1]
+		if prevMsg.Get("role").String() != "assistant" {
+			rebuilt = append(rebuilt, msg.Raw)
+			continue
+		}
+
+		content := msg.Get("content")
+		if !content.IsArray() {
+			rebuilt = append(rebuilt, msg.Raw)
+			continue
+		}
+
+		// Collect tool_use IDs from the preceding assistant message.
+		validIDs := make(map[string]bool)
+		prevContent := prevMsg.Get("content")
+		if prevContent.IsArray() {
+			prevContent.ForEach(func(_, block gjson.Result) bool {
+				if block.Get("type").String() == "tool_use" {
+					if id := block.Get("id").String(); id != "" {
+						validIDs[id] = true
+					}
+				}
+				return true
+			})
+		}
+
+		// If the preceding assistant has no tool_use blocks, nothing to orphan.
+		if len(validIDs) == 0 {
+			rebuilt = append(rebuilt, msg.Raw)
+			continue
+		}
+
+		// Filter content blocks: keep non-tool_result blocks and
+		// tool_result blocks whose tool_use_id is valid.
+		var kept []string
+		removed := false
+		content.ForEach(func(_, block gjson.Result) bool {
+			if block.Get("type").String() == "tool_result" {
+				id := block.Get("tool_use_id").String()
+				if !validIDs[id] {
+					removed = true
+					return true // skip this block
+				}
+			}
+			kept = append(kept, block.Raw)
+			return true
+		})
+
+		if !removed {
+			rebuilt = append(rebuilt, msg.Raw)
+			continue
+		}
+
+		modified = true
+		if len(kept) == 0 {
+			// All content was orphaned tool_results; replace with a minimal text block
+			// so the message isn't empty (Anthropic rejects empty content arrays).
+			kept = append(kept, `{"type":"text","text":"[empty]"}`)
+		}
+		if updatedMsg, err := sjson.SetRaw(msg.Raw, "content", "["+strings.Join(kept, ",")+"]"); err == nil {
+			rebuilt = append(rebuilt, updatedMsg)
+		} else {
+			rebuilt = append(rebuilt, msg.Raw)
+		}
+	}
+
+	if !modified {
+		return body
+	}
+
+	updatedBody, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(rebuilt, ",")+"]"))
+	if err != nil {
+		return body
+	}
+	return updatedBody
 }
 
 // stripCacheControlScope removes the "scope" sub-field from all cache_control objects.

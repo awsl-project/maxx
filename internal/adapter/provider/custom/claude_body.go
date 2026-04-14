@@ -101,7 +101,10 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 	// 6. Remove empty text content blocks to satisfy Anthropic validation.
 	body = sanitizeClaudeMessages(body)
 
-	// 7. Inject missing tool_results to satisfy tool_use/tool_result correspondence.
+	// 7. Fix tool_use/tool_result correspondence:
+	//    a) Remove orphaned tool_results (tool_use_id not in preceding assistant message)
+	//    b) Inject missing tool_results (tool_use without corresponding tool_result)
+	body = bedrock.RemoveOrphanedToolResults(body)
 	body = ensureToolResultCorrespondence(body)
 
 	// 8. Extract betas from body (to be added to header)
