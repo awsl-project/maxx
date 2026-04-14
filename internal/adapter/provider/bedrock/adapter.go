@@ -382,7 +382,7 @@ func classifyBedrockHTTPError(statusCode int, body []byte, headers http.Header, 
 		// Only upgrade to ScopeModel for genuine model-availability errors.
 		// Use specific Bedrock error patterns to avoid false positives from
 		// field validation errors that happen to mention "model".
-		if model != "" && isBedrockModelUnavailable(bodyLower) {
+		if model != "" && isBedrockModelUnavailable(bodyStr) {
 			proxyErr.Scope = domain.ScopeModel
 			proxyErr.Reason = domain.CooldownReasonModelUnavailable
 			proxyErr.Model = model
@@ -447,7 +447,8 @@ func classifyBedrockHTTPError(statusCode int, body []byte, headers http.Header, 
 // the model itself is unavailable (as opposed to a request validation error
 // that happens to mention the word "model"). This prevents false-positive
 // ScopeModel classification that would wrongly freeze the provider.
-func isBedrockModelUnavailable(bodyLower string) bool {
+func isBedrockModelUnavailable(body string) bool {
+	bodyLower := strings.ToLower(body)
 	// Bedrock model-access errors use specific exception types and phrases.
 	modelPatterns := []string{
 		"could not resolve the foundation model",
