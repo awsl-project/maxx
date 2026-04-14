@@ -123,3 +123,27 @@ func TestWriteStreamErrorPreservesStatusAndRetryAfter(t *testing.T) {
 		t.Fatalf("stream body = %q, want error event", rec.Body.String())
 	}
 }
+
+func TestProxyHandlerRejectsRequestsWhenKillSwitchEnabled(t *testing.T) {
+	repo := &settingsTestRepo{values: map[string]string{domain.SettingKeyProxyRequestsDisabled: "true"}}
+	h := NewProxyHandler(nil, nil, nil, repo, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/v1/chat/completions", strings.NewReader(`{"model":"gpt-5.4","messages":[]}`))
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), proxyRequestsDisabledMessage) {
+		t.Fatalf("body = %q, want disabled message", rec.Body.String())
+	}
+}
+
+func TestIsBooleanSystemSettingEnabledDefaultsFalse(t *testing.T) {
+	repo := &settingsTestRepo{}
+	if isBooleanSystemSettingEnabled(repo, domain.SettingKeyProxyRequestsDisabled) {
+		t.Fatal("expected missing setting to default to false")
+	}
+}

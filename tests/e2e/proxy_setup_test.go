@@ -185,7 +185,7 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(cachedAPITokenRepo, settingRepo)
 
 	// Create proxy handler
-	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, tokenAuthMiddleware)
+	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, settingRepo, tokenAuthMiddleware)
 
 	// Create admin and auth handlers
 	adminHandler := handler.NewAdminHandler(adminService, backupService, "")

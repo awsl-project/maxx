@@ -394,7 +394,7 @@ func main() {
 	requestTracker := core.NewRequestTracker()
 
 	// Create handlers
-	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, tokenAuthMiddleware)
+	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, settingRepo, tokenAuthMiddleware)
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
 	selfServiceHandler := handler.NewSelfServiceHandler(adminService)

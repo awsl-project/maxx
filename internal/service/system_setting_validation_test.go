@@ -48,6 +48,32 @@ func TestAdminServiceUpdateSettingRejectsInvalidPayloadOverrideRules(t *testing.
 	}
 }
 
+func TestAdminServiceUpdateSettingRejectsInvalidProxyRequestsDisabledValue(t *testing.T) {
+	repo := &stubSystemSettingRepo{}
+	svc := &AdminService{settingRepo: repo}
+
+	err := svc.UpdateSetting(domain.SettingKeyProxyRequestsDisabled, "maybe")
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected invalid input error, got %v", err)
+	}
+	if len(repo.values) != 0 {
+		t.Fatalf("expected invalid setting not to be persisted")
+	}
+}
+
+func TestAdminServiceUpdateSettingAcceptsValidProxyRequestsDisabledValue(t *testing.T) {
+	repo := &stubSystemSettingRepo{}
+	svc := &AdminService{settingRepo: repo}
+
+	err := svc.UpdateSetting(domain.SettingKeyProxyRequestsDisabled, "true")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got := repo.values[domain.SettingKeyProxyRequestsDisabled]; got != "true" {
+		t.Fatalf("stored value = %q, want true", got)
+	}
+}
+
 func TestBackupServiceImportSystemSettingsSkipsPayloadOverrideRules(t *testing.T) {
 	repo := &stubSystemSettingRepo{
 		values: map[string]string{},

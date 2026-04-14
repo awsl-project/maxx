@@ -41,6 +41,7 @@ import {
 } from '@/components/ui';
 import { Textarea } from '@/components/ui/textarea';
 import { PageHeader } from '@/components/layout/page-header';
+import { ProxyKillSwitchCard } from '@/components/settings/proxy-kill-switch-card';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
 import { useTransport } from '@/lib/transport/context';
@@ -284,6 +285,7 @@ export function SettingsPage() {
             <>
               <TimezoneSection />
               <DataRetentionSection />
+              <ProxyKillSwitchSection />
               <ForceProjectSection />
               <PayloadOverrideSection />
               <APITokenConcurrencySection />
@@ -783,6 +785,10 @@ function ForceProjectSection() {
       </CardContent>
     </Card>
   );
+}
+
+function ProxyKillSwitchSection() {
+  return <ProxyKillSwitchCard />;
 }
 
 function PayloadOverrideSection() {

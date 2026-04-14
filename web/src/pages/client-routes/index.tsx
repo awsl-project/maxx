@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { ProxyKillSwitchCard } from '@/components/settings/proxy-kill-switch-card';
 import { ClientIcon, getClientName } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
 import type { ClientType } from '@/lib/transport';
@@ -26,6 +27,7 @@ import { useProjects, useUpdateProject, useRoutes, useProviders, routeKeys } fro
 import { useTransport } from '@/lib/transport/context';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth-context';
 
 const SCROLL_STEP = 200;
 
@@ -134,7 +136,9 @@ function ProjectTabBar({
 
 export function ClientRoutesPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const { clientType } = useParams<{ clientType: string }>();
+  const isAdmin = user?.role === 'admin';
   const activeClientType = (clientType as ClientType) || 'claude';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('0'); // '0' = Global
@@ -255,6 +259,14 @@ export function ClientRoutesPage() {
           </div>
         }
       />
+
+      {isAdmin && (
+        <div className="border-b border-border bg-background px-6 py-4">
+          <div className="mx-auto max-w-[1400px]">
+            <ProxyKillSwitchCard />
+          </div>
+        </div>
+      )}
 
       {/* Tabs for Global / Projects */}
       <Tabs
