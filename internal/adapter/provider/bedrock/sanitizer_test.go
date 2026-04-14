@@ -258,6 +258,34 @@ func TestRemoveOrphanedToolResults(t *testing.T) {
 		}
 	})
 
+	t.Run("removes tool_result when preceding assistant has only text", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"text","text":"I don't need any tools for this."}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"toolu_stale","content":"leftover"},
+					{"type":"text","text":"ok thanks"}
+				]}
+			]
+		}`)
+
+		result := RemoveOrphanedToolResults(body)
+
+		msgs := gjson.GetBytes(result, "messages").Array()
+		userContent := msgs[1].Get("content").Array()
+		if len(userContent) != 1 {
+			t.Fatalf("expected 1 content block, got %d", len(userContent))
+		}
+		if userContent[0].Get("type").String() != "text" {
+			t.Error("expected text block preserved")
+		}
+		if userContent[0].Get("text").String() != "ok thanks" {
+			t.Errorf("text = %q, want 'ok thanks'", userContent[0].Get("text").String())
+		}
+	})
+
 	t.Run("does not touch user message without preceding assistant", func(t *testing.T) {
 		body := []byte(`{
 			"messages":[

@@ -172,14 +172,10 @@ func RemoveOrphanedToolResults(body []byte) []byte {
 			})
 		}
 
-		// If the preceding assistant has no tool_use blocks, nothing to orphan.
-		if len(validIDs) == 0 {
-			rebuilt = append(rebuilt, msg.Raw)
-			continue
-		}
-
 		// Filter content blocks: keep non-tool_result blocks and
 		// tool_result blocks whose tool_use_id is valid.
+		// When validIDs is empty (assistant had no tool_use), ALL tool_results
+		// in this user message are orphaned and will be removed.
 		var kept []string
 		removed := false
 		content.ForEach(func(_, block gjson.Result) bool {
