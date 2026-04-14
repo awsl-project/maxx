@@ -84,6 +84,16 @@ func SanitizeForBedrockCompat(body []byte) []byte {
 		}
 	}
 
+	// Remove empty top-level arrays that Bedrock rejects with ValidationException.
+	// Clients sometimes send `"system":[]` or `"tools":[]` which Anthropic API
+	// tolerates but Bedrock does not.
+	for _, field := range []string{"system", "tools"} {
+		v := gjson.GetBytes(body, field)
+		if v.IsArray() && v.Get("#").Int() == 0 {
+			body, _ = sjson.DeleteBytes(body, field)
+		}
+	}
+
 	return body
 }
 

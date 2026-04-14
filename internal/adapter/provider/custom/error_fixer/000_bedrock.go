@@ -71,7 +71,15 @@ func (f *bedrockFixer) FixRequest(req *http.Request, body []byte) (*http.Request
 		}
 	}
 
-	// 4. Filter anthropic-beta header (Bedrock rejects unknown betas too)
+	// 4. Remove empty top-level arrays (Bedrock rejects empty system/tools)
+	for _, field := range []string{"system", "tools"} {
+		v := gjson.GetBytes(body, field)
+		if v.IsArray() && v.Get("#").Int() == 0 {
+			body, _ = sjson.DeleteBytes(body, field)
+		}
+	}
+
+	// 5. Filter anthropic-beta header (Bedrock rejects unknown betas too)
 	filterRejectedBetas(req)
 
 	return req, body

@@ -379,8 +379,10 @@ func classifyBedrockHTTPError(statusCode int, body []byte, headers http.Header, 
 	case statusCode == 400:
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.Retryable = false
-		if strings.Contains(bodyLower, "validationexception") && model != "" &&
-			(strings.Contains(bodyLower, "model") || strings.Contains(bodyLower, "inference profile")) {
+		// Only upgrade to ScopeModel for genuine model-availability errors.
+		// Use specific Bedrock error patterns to avoid false positives from
+		// field validation errors that happen to mention "model".
+		if model != "" && isBedrockModelUnavailable(bodyLower) {
 			proxyErr.Scope = domain.ScopeModel
 			proxyErr.Reason = domain.CooldownReasonModelUnavailable
 			proxyErr.Model = model
@@ -439,6 +441,28 @@ func classifyBedrockHTTPError(statusCode int, body []byte, headers http.Header, 
 	}
 
 	return proxyErr
+}
+
+// isBedrockModelUnavailable checks whether a Bedrock 400 error body indicates
+// the model itself is unavailable (as opposed to a request validation error
+// that happens to mention the word "model"). This prevents false-positive
+// ScopeModel classification that would wrongly freeze the provider.
+func isBedrockModelUnavailable(bodyLower string) bool {
+	// Bedrock model-access errors use specific exception types and phrases.
+	modelPatterns := []string{
+		"could not resolve the foundation model",
+		"is not authorized to perform: bedrock",
+		"you don't have access to the model",
+		"access denied for model",
+		"model identifier is invalid",
+		"inference profile",
+	}
+	for _, p := range modelPatterns {
+		if strings.Contains(bodyLower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func isRetryableStatusCode(status int) bool {

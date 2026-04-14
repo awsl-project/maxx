@@ -304,6 +304,44 @@ func TestRemoveOrphanedToolResults(t *testing.T) {
 	})
 }
 
+func TestSanitizeForBedrockCompatStripsEmptyArrays(t *testing.T) {
+	body := []byte(`{
+		"system":[],
+		"tools":[],
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result := SanitizeForBedrockCompat(body)
+
+	if gjson.GetBytes(result, "system").Exists() {
+		t.Error("empty system[] should be stripped")
+	}
+	if gjson.GetBytes(result, "tools").Exists() {
+		t.Error("empty tools[] should be stripped")
+	}
+	// messages should be preserved (it's not empty)
+	if !gjson.GetBytes(result, "messages").Exists() {
+		t.Error("non-empty messages should be preserved")
+	}
+}
+
+func TestSanitizeForBedrockCompatPreservesNonEmptyArrays(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"hello"}],
+		"tools":[{"name":"tool1"}],
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result := SanitizeForBedrockCompat(body)
+
+	if !gjson.GetBytes(result, "system").Exists() {
+		t.Error("non-empty system should be preserved")
+	}
+	if !gjson.GetBytes(result, "tools").Exists() {
+		t.Error("non-empty tools should be preserved")
+	}
+}
+
 func TestSanitizeRequestBodyRemovesModelAndStream(t *testing.T) {
 	// The direct-Bedrock helper should strip both fields and set anthropic_version.
 	body := []byte(`{
