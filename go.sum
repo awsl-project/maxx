@@ -10,8 +10,8 @@ github.com/aws/aws-sdk-go-v2/credentials v1.19.14 h1:n+UcGWAIZHkXzYt87uMFBv/l8TH
 github.com/aws/aws-sdk-go-v2/credentials v1.19.14/go.mod h1:cJKuyWB59Mqi0jM3nFYQRmnHVQIcgoxjEMAbLkpr62w=
 github.com/aws/smithy-go v1.24.2 h1:FzA3bu/nt/vDvmnkg+R8Xl46gmzEDam6mZ1hzmwXFng=
 github.com/aws/smithy-go v1.24.2/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
-github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260415044109-2a78e399ebfc h1:czIMKN1YMsBn6vchHyunQS9q7Gs5R0ZmNQtFNkeN804=
-github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260415044109-2a78e399ebfc/go.mod h1:P1jsIPFXorYGuS2N/3BlZYkpRKi/z7+oR3+1tdG0u4k=
+github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260416044654-2cff0c37ed15 h1:JcAxIxP2WrG8SgxwtDW/W5vsSg1tpbTIoey5Ilp/61A=
+github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260416044654-2cff0c37ed15/go.mod h1:P1jsIPFXorYGuS2N/3BlZYkpRKi/z7+oR3+1tdG0u4k=
 github.com/bep/debounce v1.2.1 h1:v67fRdBA9UQu2NhLFXrSg0Brw7CexQekrBwDMM8bzeY=
 github.com/bep/debounce v1.2.1/go.mod h1:H8yggRPQKLUhUoqrJC1bO2xNya7vanpDl7xR3ISbCJ0=
 github.com/bytedance/gopkg v0.1.3 h1:TPBSwH8RsouGCBcMBktLt1AymVo2TVsBVCY4b6TnZ/M=
