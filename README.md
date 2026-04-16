@@ -14,16 +14,16 @@
 
 # maxx
 
-English | [简体中文](README_CN.md)
-
-Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
-
-[Docs](docs/database-migrations.md) · [Docker](#docker-recommended-for-server) · [Desktop](#desktop-app-recommended-for-personal-use) · [API](#api-endpoints)
-
-## Preview
+<p align="center">
+  English | <a href="README_CN.md">简体中文</a>
+</p>
 
 <p align="center">
-  <img src="web/public/preview.png" alt="maxx dashboard preview" width="960">
+  Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
+</p>
+
+<p align="center">
+  <a href="docs/database-migrations.md">Docs</a> · <a href="#docker-recommended-for-server">Docker</a> · <a href="#desktop-app-recommended-for-personal-use">Desktop</a> · <a href="#api-endpoints">API</a>
 </p>
 
 ## Features

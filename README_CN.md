@@ -14,16 +14,16 @@
 
 # maxx
 
-[English](README.md) | 简体中文
-
-多提供商 AI 代理服务，内置管理界面、路由和使用追踪功能。
-
-[文档](docs/database-migrations.md) · [发行版](https://github.com/awsl-project/maxx/releases) · [Docker 镜像](https://ghcr.io/awsl-project/maxx)
-
-## 预览
+<p align="center">
+  <a href="README.md">English</a> | 简体中文
+</p>
 
 <p align="center">
-  <img src="web/public/preview.png" alt="maxx dashboard preview" width="960">
+  多提供商 AI 代理服务，内置管理界面、路由和使用追踪功能。
+</p>
+
+<p align="center">
+  <a href="docs/database-migrations.md">文档</a> · <a href="https://github.com/awsl-project/maxx/releases">发行版</a> · <a href="https://ghcr.io/awsl-project/maxx">Docker 镜像</a>
 </p>
 
 ## 功能特性
