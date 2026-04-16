@@ -17,6 +17,7 @@ import (
 	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/awsl-project/maxx/internal/version"
 )
@@ -471,6 +472,7 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	if err := s.settingRepo.Set(key, value); err != nil {
 		return err
 	}
+	systemsettingcache.Invalidate(key)
 	if key == domain.SettingKeyPayloadOverrideRules {
 		payloadoverride.InvalidateGlobalSettingsCache()
 	}
@@ -492,6 +494,7 @@ func (s *AdminService) DeleteSetting(key string) error {
 	if err := s.settingRepo.Delete(key); err != nil {
 		return err
 	}
+	systemsettingcache.Invalidate(key)
 	if key == domain.SettingKeyPayloadOverrideRules {
 		payloadoverride.InvalidateGlobalSettingsCache()
 	}

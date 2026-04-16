@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -10,7 +11,33 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 )
+
+type proxyBooleanSettingRepo struct {
+	values []string
+	errs   []error
+	reads  int
+}
+
+func (r *proxyBooleanSettingRepo) Get(key string) (string, error) {
+	r.reads++
+	idx := r.reads - 1
+	if idx < len(r.errs) && r.errs[idx] != nil {
+		return "", r.errs[idx]
+	}
+	if idx < len(r.values) {
+		return r.values[idx], nil
+	}
+	if len(r.values) > 0 {
+		return r.values[len(r.values)-1], nil
+	}
+	return "", nil
+}
+
+func (r *proxyBooleanSettingRepo) Set(key, value string) error              { return nil }
+func (r *proxyBooleanSettingRepo) GetAll() ([]*domain.SystemSetting, error) { return nil, nil }
+func (r *proxyBooleanSettingRepo) Delete(key string) error                  { return nil }
 
 func TestWriteError(t *testing.T) {
 	rec := httptest.NewRecorder()
@@ -142,8 +169,53 @@ func TestProxyHandlerRejectsRequestsWhenKillSwitchEnabled(t *testing.T) {
 }
 
 func TestIsBooleanSystemSettingEnabledDefaultsFalse(t *testing.T) {
+	systemsettingcache.Invalidate(domain.SettingKeyProxyRequestsDisabled)
 	repo := &settingsTestRepo{}
 	if isBooleanSystemSettingEnabled(repo, domain.SettingKeyProxyRequestsDisabled) {
 		t.Fatal("expected missing setting to default to false")
+	}
+}
+
+func TestIsBooleanSystemSettingEnabledCachesFreshValue(t *testing.T) {
+	oldTTL := systemsettingcache.BooleanTTL
+	systemsettingcache.BooleanTTL = time.Hour
+	defer func() { systemsettingcache.BooleanTTL = oldTTL }()
+
+	key := domain.SettingKeyProxyRequestsDisabled
+	systemsettingcache.Invalidate(key)
+	repo := &proxyBooleanSettingRepo{values: []string{"true"}}
+
+	if !isBooleanSystemSettingEnabled(repo, key) {
+		t.Fatal("expected first read to return true")
+	}
+	if !isBooleanSystemSettingEnabled(repo, key) {
+		t.Fatal("expected cached read to return true")
+	}
+	if repo.reads != 1 {
+		t.Fatalf("reads = %d, want 1", repo.reads)
+	}
+}
+
+func TestIsBooleanSystemSettingEnabledFallsBackToLastKnownValueOnReadError(t *testing.T) {
+	oldTTL := systemsettingcache.BooleanTTL
+	systemsettingcache.BooleanTTL = time.Nanosecond
+	defer func() { systemsettingcache.BooleanTTL = oldTTL }()
+
+	key := domain.SettingKeyProxyRequestsDisabled
+	systemsettingcache.Invalidate(key)
+	repo := &proxyBooleanSettingRepo{
+		values: []string{"true"},
+		errs:   []error{nil, errors.New("db temporarily unavailable")},
+	}
+
+	if !isBooleanSystemSettingEnabled(repo, key) {
+		t.Fatal("expected first read to return true")
+	}
+	time.Sleep(time.Millisecond)
+	if !isBooleanSystemSettingEnabled(repo, key) {
+		t.Fatal("expected cached true value on refresh error")
+	}
+	if repo.reads != 2 {
+		t.Fatalf("reads = %d, want 2", repo.reads)
 	}
 }

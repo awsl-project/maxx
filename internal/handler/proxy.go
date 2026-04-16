@@ -19,6 +19,7 @@ import (
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
+	"github.com/awsl-project/maxx/internal/systemsettingcache"
 )
 
 const proxyRequestsDisabledMessage = "proxy requests are temporarily disabled by admin"
@@ -321,17 +322,7 @@ func (h *ProxyHandler) isProxyRequestsDisabled() bool {
 }
 
 func isBooleanSystemSettingEnabled(repo repository.SystemSettingRepository, key string) bool {
-	if repo == nil {
-		return false
-	}
-
-	value, err := repo.Get(key)
-	if err != nil {
-		log.Printf("[Proxy] Failed to read system setting %s: %v", key, err)
-		return false
-	}
-
-	return strings.EqualFold(strings.TrimSpace(value), "true")
+	return systemsettingcache.GetBoolean(repo, key)
 }
 
 // Helper functions

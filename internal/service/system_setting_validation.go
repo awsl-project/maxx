@@ -20,7 +20,11 @@ func validateSystemSettingValue(key, value string) error {
 }
 
 func validateBooleanSystemSetting(value string) error {
-	switch strings.TrimSpace(value) {
+	if strings.TrimSpace(value) != value {
+		return fmt.Errorf("%w: boolean setting must not contain surrounding whitespace", domain.ErrInvalidInput)
+	}
+
+	switch value {
 	case "true", "false":
 		return nil
 	default:

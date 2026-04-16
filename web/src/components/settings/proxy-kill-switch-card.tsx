@@ -13,7 +13,8 @@ export function ProxyKillSwitchCard({ className }: ProxyKillSwitchCardProps) {
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
 
-  const proxyRequestsDisabled = settings?.proxy_requests_disabled === 'true';
+  const proxyRequestsDisabled =
+    (settings?.proxy_requests_disabled ?? '').trim().toLowerCase() === 'true';
 
   const handleToggle = async (checked: boolean) => {
     await updateSetting.mutateAsync({
@@ -51,6 +52,7 @@ export function ProxyKillSwitchCard({ className }: ProxyKillSwitchCardProps) {
             checked={proxyRequestsDisabled}
             onCheckedChange={handleToggle}
             disabled={updateSetting.isPending}
+            aria-label={t('settings.enableProxyKillSwitch')}
           />
         </div>
 
