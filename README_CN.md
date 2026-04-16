@@ -1,12 +1,15 @@
-﻿<p align="center">
+<p align="center">
   <img src="web/public/logo.png" alt="maxx logo" width="128" height="128">
 </p>
 
 <p align="center">
-  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag" alt="Latest Release"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?branch=main&label=PR%20Checks" alt="PR Checks"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E" alt="E2E Tests"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?branch=main&label=Playwright" alt="Playwright Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag&style=flat-square" alt="Latest Release"></a>
+  <a href="https://github.com/awsl-project/maxx/blob/main/LICENSE"><img src="https://img.shields.io/github/license/awsl-project/maxx?style=flat-square" alt="License"></a>
+  <a href="https://github.com/awsl-project/maxx/pkgs/container/maxx"><img src="https://img.shields.io/badge/ghcr.io-awsl--project%2Fmaxx-blue?style=flat-square&logo=github" alt="GHCR Image"></a>
+  <a href="https://github.com/awsl-project/maxx/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/awsl-project/maxx?style=flat-square" alt="Go Version"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?branch=main&label=Checks&style=flat-square" alt="Checks"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E&style=flat-square" alt="E2E Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?branch=main&label=Playwright&style=flat-square" alt="Playwright Tests"></a>
 </p>
 
 # maxx
@@ -14,6 +17,8 @@
 [English](README.md) | 简体中文
 
 多提供商 AI 代理服务，内置管理界面、路由和使用追踪功能。
+
+[文档](docs/database-migrations.md) · [发行版](https://github.com/awsl-project/maxx/releases) · [Docker 镜像](https://ghcr.io/awsl-project/maxx)
 
 ## 预览
 
@@ -23,16 +28,16 @@
 
 ## 功能特性
 
-- **多协议代理**：支持 Claude、OpenAI、Gemini 和 Codex API 格式
-- **AI 编程工具支持**：兼容 Claude Code、Codex CLI 等 AI 编程工具
-- **供应商管理**：支持自定义中转站、Antigravity (Google)、Kiro (AWS) 供应商类型
-- **智能路由**：优先级路由和加权随机路由策略
-- **多数据库**：支持 SQLite（默认）、MySQL 和 PostgreSQL
-- **使用追踪**：纳美元精度计费，支持请求倍率记录
-- **模型定价**：版本化定价，支持分层定价和缓存价格
-- **管理界面**：Web UI 支持多语言，WebSocket 实时更新
-- **性能分析**：内置 pprof 支持，便于调试
-- **备份恢复**：配置导入导出功能
+- **协议兼容**：支持 Claude、OpenAI、Gemini、Codex API 格式
+- **AI 工具友好**：兼容 Claude Code、Codex CLI 等 AI 编程工具
+- **供应商类型**：自定义中转站、Antigravity (Google)、Kiro (AWS)
+- **路由策略**：优先级路由、加权随机路由
+- **数据库**：SQLite（默认）、MySQL、PostgreSQL
+- **用量与计费**：请求记录 + 纳美元精度计费，支持倍率
+- **模型定价**：版本化定价，支持分层与缓存价格
+- **管理界面**：多语言 Web UI，WebSocket 实时更新
+- **性能分析**：内置 pprof
+- **备份恢复**：配置导入/导出
 
 ## 快速开始
 

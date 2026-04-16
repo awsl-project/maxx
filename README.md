@@ -1,12 +1,15 @@
-﻿<p align="center">
+<p align="center">
   <img src="web/public/logo.png" alt="maxx logo" width="128" height="128">
 </p>
 
 <p align="center">
-  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag" alt="Latest Release"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?branch=main&label=PR%20Checks" alt="PR Checks"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E" alt="E2E Tests"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?branch=main&label=Playwright" alt="Playwright Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag&style=flat-square" alt="Latest Release"></a>
+  <a href="https://github.com/awsl-project/maxx/blob/main/LICENSE"><img src="https://img.shields.io/github/license/awsl-project/maxx?style=flat-square" alt="License"></a>
+  <a href="https://github.com/awsl-project/maxx/pkgs/container/maxx"><img src="https://img.shields.io/badge/ghcr.io-awsl--project%2Fmaxx-blue?style=flat-square&logo=github" alt="GHCR Image"></a>
+  <a href="https://github.com/awsl-project/maxx/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/awsl-project/maxx?style=flat-square" alt="Go Version"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?branch=main&label=Checks&style=flat-square" alt="Checks"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E&style=flat-square" alt="E2E Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?branch=main&label=Playwright&style=flat-square" alt="Playwright Tests"></a>
 </p>
 
 # maxx
@@ -14,6 +17,8 @@
 English | [简体中文](README_CN.md)
 
 Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
+
+[Docs](docs/database-migrations.md) · [Docker](#docker-recommended-for-server) · [Desktop](#desktop-app-recommended-for-personal-use) · [API](#api-endpoints)
 
 ## Preview
 
@@ -23,16 +28,16 @@ Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
 
 ## Features
 
-- **Multi-Protocol Proxy**: Claude, OpenAI, Gemini, and Codex API formats
-- **AI Coding Tool Support**: Compatible with Claude Code, Codex CLI, and other AI coding tools
-- **Provider Management**: Custom relay, Antigravity (Google), Kiro (AWS) provider types
-- **Smart Routing**: Priority-based and weighted random routing strategies
-- **Multi-Database**: SQLite (default), MySQL, and PostgreSQL support
-- **Usage Tracking**: Nano-dollar precision billing with request multiplier tracking
-- **Model Pricing**: Versioned pricing with tiered and cache pricing support
-- **Admin Interface**: Web UI with multi-language support and real-time WebSocket updates
-- **Performance Profiling**: Built-in pprof support for debugging
-- **Backup & Restore**: Configuration import/export functionality
+- **Protocol Compatibility**: Claude, OpenAI, Gemini, and Codex API formats
+- **AI Tool Friendly**: Works with Claude Code, Codex CLI, and other coding agents
+- **Provider Types**: Custom relay, Antigravity (Google), Kiro (AWS)
+- **Routing**: Priority-based and weighted-random routing strategies
+- **Databases**: SQLite (default), MySQL, PostgreSQL
+- **Usage & Billing**: Request logs + nano-dollar pricing with multipliers
+- **Pricing Catalog**: Versioned, tiered, and cache pricing support
+- **Admin UI**: Multi-language Web UI with real-time WebSocket updates
+- **Profiling**: Built-in pprof support
+- **Backup**: Import/export configuration
 
 ## Quick Start
 
