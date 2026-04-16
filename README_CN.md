@@ -12,7 +12,7 @@
   <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?branch=main&label=Playwright&style=flat-square" alt="Playwright Tests"></a>
 </p>
 
-# maxx
+<h1 align="center">maxx</h1>
 
 <p align="center">
   <a href="README.md">English</a> | 简体中文
