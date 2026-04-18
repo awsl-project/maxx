@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -227,9 +228,17 @@ func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error
 	if profErr != nil && fmErr != nil {
 		return nil, profErr
 	}
-	// If only one source succeeded, run with what we have — better partial
-	// discovery than none. A missing IAM permission on one endpoint
-	// shouldn't take out the other.
+	// Log partial failures loudly — silently running with only one of the
+	// two catalogs can mask a real IAM / config issue (e.g. missing
+	// bedrock:ListInferenceProfiles permission), and cross-region routing
+	// would silently downgrade to whichever region the current endpoint
+	// serves. Logging lets operators notice without breaking requests.
+	if profErr != nil {
+		log.Printf("bedrock discovery: inference profiles unavailable in %s (%v); falling back to foundation models only", d.region, profErr)
+	}
+	if fmErr != nil {
+		log.Printf("bedrock discovery: foundation models unavailable in %s (%v); falling back to inference profiles only", d.region, fmErr)
+	}
 	merged := make(map[string]string, len(profiles)+len(foundations))
 	for k, v := range foundations {
 		merged[k] = v

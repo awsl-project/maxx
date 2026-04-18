@@ -3,8 +3,10 @@ package bedrock
 import "testing"
 
 func TestResolveModelIDPriority(t *testing.T) {
+	// Canonical dated+versioned anthropic value — gets the region prefix
+	// attached to become a valid inference profile ID.
 	userMapping := map[string]string{
-		"claude-opus-4-7": "anthropic.user-override-v1:0",
+		"claude-opus-4-7": "anthropic.claude-override-20260101-v1:0",
 	}
 	discovered := func(name string) (string, bool) {
 		switch name {
@@ -39,12 +41,30 @@ func TestResolveModelIDPriority(t *testing.T) {
 		wantOK  bool
 	}{
 		{
-			name:    "user mapping wins over discovery",
+			name:    "user mapping wins over discovery and gets prefixed when dated+versioned",
 			model:   "claude-opus-4-7",
 			mapping: userMapping,
 			lookup:  discovered,
 			prefix:  "us",
-			wantID:  "us.anthropic.user-override-v1:0",
+			wantID:  "us.anthropic.claude-override-20260101-v1:0",
+			wantOK:  true,
+		},
+		{
+			name:    "user mapping with bare foundation-model ID is not prefixed",
+			model:   "claude-sonnet-4-6",
+			mapping: map[string]string{"claude-sonnet-4-6": "anthropic.claude-sonnet-4-6"},
+			lookup:  nil,
+			prefix:  "us",
+			wantID:  "anthropic.claude-sonnet-4-6",
+			wantOK:  true,
+		},
+		{
+			name:    "user mapping with foundation model + -v1 suffix is not prefixed",
+			model:   "claude-opus-4-6",
+			mapping: map[string]string{"claude-opus-4-6": "anthropic.claude-opus-4-6-v1"},
+			lookup:  nil,
+			prefix:  "us",
+			wantID:  "anthropic.claude-opus-4-6-v1",
 			wantOK:  true,
 		},
 		{
@@ -105,12 +125,16 @@ func TestResolveModelIDPriority(t *testing.T) {
 			wantOK: true,
 		},
 		{
-			name:    "non-anthropic dotted user mapping keeps configured prefix",
+			// Non-anthropic IDs (e.g. Amazon Nova) are valid Bedrock targets
+			// without a region prefix; our adapter only supports the Claude
+			// client type, but if an operator uses a user mapping to reach
+			// one we must not mangle it by prepending "us.".
+			name:    "non-anthropic user mapping passes through unprefixed",
 			model:   "custom-model",
 			mapping: map[string]string{"custom-model": "amazon.nova-pro-v1:0"},
 			lookup:  nil,
 			prefix:  "us",
-			wantID:  "us.amazon.nova-pro-v1:0",
+			wantID:  "amazon.nova-pro-v1:0",
 			wantOK:  true,
 		},
 		{

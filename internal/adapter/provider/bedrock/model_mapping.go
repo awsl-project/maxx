@@ -15,11 +15,19 @@ var modelDatePattern = regexp.MustCompile(`^claude-[\w-]+-\d{8}$`)
 var bedrockIDPattern = regexp.MustCompile(`^(?:[a-z]{2,}\.)?anthropic\.`)
 
 // regionPrefixedPattern matches a fully-qualified profile ID that already
-// starts with a region prefix like "us.", "eu.", "apac." — applyPrefix
-// uses it to avoid re-adding the configured prefix. Keeping this strict
-// (instead of "contains a dot") prevents us from silently dropping the
-// configured prefix on unusual user-mapping values.
+// starts with a region prefix like "us.", "eu.", "apac.", "global." —
+// applyPrefix uses it to avoid re-adding the configured prefix. Keeping
+// this strict (instead of "contains a dot") prevents silently dropping
+// the configured prefix on unusual user-mapping values.
 var regionPrefixedPattern = regexp.MustCompile(`^[a-z]{2,}\.anthropic\.`)
+
+// inferenceProfilePattern matches the canonical dated + versioned
+// Anthropic ID that becomes a valid Bedrock inference profile once a
+// region prefix is attached. Any other shape — bare foundation models
+// ("anthropic.claude-sonnet-4-6"), non-Anthropic providers, or
+// user-defined aliases — is left unprefixed by applyPrefix because
+// Bedrock does not accept region prefixes on those targets.
+var inferenceProfilePattern = regexp.MustCompile(`^anthropic\.claude-[a-z0-9-]+-\d{8}-v\d+:\d+$`)
 
 // discoveredLookup returns a Bedrock profile ID for an Anthropic short name,
 // or ("", false) on miss. May be nil when no discoverer is wired up.
@@ -63,11 +71,22 @@ func resolveModelID(model string, configMapping map[string]string, modelPrefix s
 	return "", false
 }
 
-// applyPrefix prepends the region prefix (e.g. "us.") unless the model ID
-// already starts with one (e.g. "us.anthropic...", "eu.anthropic..."). The
-// check is a strict region-prefix match rather than "contains a dot", so
-// user-supplied values like "amazon.nova-pro-v1:0" or typos don't silently
-// lose the configured prefix.
+// applyPrefix prepends the region prefix (e.g. "us.") only to IDs whose
+// shape matches a Bedrock inference profile missing its region prefix —
+// i.e. "anthropic.claude-X-YYYYMMDD-vN:M". Every other shape passes
+// through untouched:
+//
+//   - Already region-prefixed ("us.anthropic.X…") — would double-prefix.
+//   - Bare foundation models ("anthropic.claude-sonnet-4-6") — Bedrock
+//     rejects region-prefixed foundation-model IDs as invalid targets.
+//   - Non-Anthropic providers, user-defined aliases, typos — we have no
+//     basis for claiming a region prefix would make them valid.
+//
+// Keeping the prefix behaviour narrowly scoped to canonical inference
+// profile shapes prevents silently turning valid IDs into invalid ones
+// (e.g. a user-configured modelMapping value of
+// "anthropic.claude-sonnet-4-6" must not become
+// "us.anthropic.claude-sonnet-4-6").
 func applyPrefix(modelID, prefix string) string {
 	if prefix == "" {
 		return modelID
@@ -75,5 +94,8 @@ func applyPrefix(modelID, prefix string) string {
 	if regionPrefixedPattern.MatchString(modelID) {
 		return modelID
 	}
-	return prefix + "." + modelID
+	if inferenceProfilePattern.MatchString(modelID) {
+		return prefix + "." + modelID
+	}
+	return modelID
 }
