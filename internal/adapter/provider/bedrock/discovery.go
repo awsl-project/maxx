@@ -39,7 +39,10 @@ const discoveryFailureTTL = 2 * time.Minute
 // discoveryLookupTimeout bounds a single ListInferenceProfiles round-trip
 // when called during model resolution. Kept separate from the request's
 // context so a client disconnect can't cancel (and poison) discovery.
-const discoveryLookupTimeout = 10 * time.Second
+// Set well above the observed p99 (~5s for two paginated calls) so
+// concurrent cold-start callers waiting on single-flight don't prematurely
+// fall through on tail-latency spikes.
+const discoveryLookupTimeout = 20 * time.Second
 
 // minInvalidateInterval rate-limits Invalidate() so a burst of upstream
 // model-unavailable errors (e.g. from a misconfigured modelMapping
@@ -169,12 +172,13 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 	d.mu.Lock()
 	d.loadingCh = nil
 	close(ch)
+	now := time.Now()
 	switch {
 	case err == nil:
 		d.lastErr = nil
 		d.entries = entries
-		d.expiresAt = time.Now().Add(d.ttl)
-		d.lastFetchAt = time.Now()
+		d.expiresAt = now.Add(d.ttl)
+		d.lastFetchAt = now
 		d.everLoaded = true
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		// Transient cancellation from a caller-supplied context — do not
@@ -183,8 +187,8 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 	default:
 		// Keep previous entries (if any) but back off before retrying.
 		d.lastErr = err
-		d.expiresAt = time.Now().Add(discoveryFailureTTL)
-		d.lastFetchAt = time.Now()
+		d.expiresAt = now.Add(discoveryFailureTTL)
+		d.lastFetchAt = now
 	}
 	d.mu.Unlock()
 }
@@ -297,7 +301,11 @@ func newerProfile(a, b string) bool {
 	aDate, aVer, aOK := profileDateVersion(a)
 	bDate, bVer, bOK := profileDateVersion(b)
 	if !aOK || !bOK {
-		return a > b // fall back to lexicographic for unparseable inputs
+		// Defensive: callers always pass IDs already validated by
+		// profileIDPattern, so this branch should be unreachable. If an
+		// odd shape ever slips through, prefer deterministic ordering
+		// over a crash.
+		return a > b
 	}
 	if aDate != bDate {
 		return aDate > bDate
