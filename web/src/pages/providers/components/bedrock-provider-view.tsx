@@ -50,11 +50,21 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
       const result = await getTransport().getBedrockDiscoveredModels(provider.id);
       setDiscovered(result);
     } catch (err) {
-      setDiscoveryError(err instanceof Error ? err.message : String(err));
+      // 503 from the admin endpoint means the adapter hasn't been
+      // initialized yet — from the operator's perspective that is
+      // another flavour of "discovery isn't working right now", so
+      // treat it the same as an Available=false response rather than
+      // a red transport error.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 503) {
+        setDiscovered({ available: false, region: provider.config?.bedrock?.region || '', models: [] });
+      } else {
+        setDiscoveryError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setDiscoveryLoading(false);
     }
-  }, [provider.id]);
+  }, [provider.id, provider.config?.bedrock?.region]);
 
   useEffect(() => {
     loadDiscoveredModels();

@@ -104,26 +104,19 @@ func (a *BedrockAdapter) DiscoveredModels(ctx context.Context) DiscoveredModelsR
 	result.Available = a.discoverer.Available()
 	result.Models = make([]DiscoveredModel, 0, len(entries))
 	for _, e := range entries {
+		// Source is carried from the AWS catalog that produced the
+		// entry, not inferred from the ID shape — profile-shaped IDs
+		// can appear unprefixed from ListFoundationModels too.
 		result.Models = append(result.Models, DiscoveredModel{
 			ShortName: e.ShortName,
 			BedrockID: e.BedrockID,
-			Source:    classifyBedrockIDSource(e.BedrockID),
+			Source:    e.Source,
 		})
 	}
 	sort.Slice(result.Models, func(i, j int) bool {
 		return result.Models[i].ShortName < result.Models[j].ShortName
 	})
 	return result
-}
-
-// classifyBedrockIDSource labels an ID as "inference-profile" when it
-// carries a region prefix (us./eu./global. etc.) and "foundation-model"
-// otherwise. Presentation-only; the adapter doesn't branch on it.
-func classifyBedrockIDSource(id string) string {
-	if regionPrefixedPattern.MatchString(id) {
-		return "inference-profile"
-	}
-	return "foundation-model"
 }
 
 func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {

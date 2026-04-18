@@ -77,19 +77,37 @@ const minInvalidateInterval = 60 * time.Second
 //     callers block on the same load instead of each doing their own.
 //   - everLoaded stays true once discovery has succeeded at least once, so
 //     Available() can distinguish "fresh but stale" from "never loaded".
+// entrySource is the AWS catalog a discovered entry came from. Tracked
+// at ingestion time because the source cannot always be recovered from
+// the ID shape alone (foundation-model IDs can carry the same date +
+// version suffix as inference-profile bases minus the region prefix).
+type entrySource uint8
+
+const (
+	sourceFoundation entrySource = iota
+	sourceInferenceProfile
+)
+
+// discoveredEntry pairs an invoke-ready Bedrock ID with the catalog
+// that produced it.
+type discoveredEntry struct {
+	id     string
+	source entrySource
+}
+
 type profileDiscoverer struct {
 	httpClient *http.Client
 	creds      credentials.StaticCredentialsProvider
 	region     string
 	ttl        time.Duration
 
-	mu           sync.Mutex
-	entries      map[string]string
-	expiresAt    time.Time
-	lastFetchAt  time.Time
-	lastErr      error
-	everLoaded   bool
-	loadingCh    chan struct{}
+	mu          sync.Mutex
+	entries     map[string]discoveredEntry
+	expiresAt   time.Time
+	lastFetchAt time.Time
+	lastErr     error
+	everLoaded  bool
+	loadingCh   chan struct{}
 }
 
 func newProfileDiscoverer(httpClient *http.Client, creds credentials.StaticCredentialsProvider, region string) *profileDiscoverer {
@@ -98,7 +116,7 @@ func newProfileDiscoverer(httpClient *http.Client, creds credentials.StaticCrede
 		creds:      creds,
 		region:     region,
 		ttl:        defaultDiscoveryTTL,
-		entries:    map[string]string{},
+		entries:    map[string]discoveredEntry{},
 	}
 }
 
@@ -114,8 +132,11 @@ func (d *profileDiscoverer) Lookup(ctx context.Context, shortName string) (strin
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	id, ok := d.entries[shortName]
-	return id, ok
+	e, ok := d.entries[shortName]
+	if !ok {
+		return "", false
+	}
+	return e.id, true
 }
 
 // Available reports whether discovery has ever completed successfully. A
@@ -146,11 +167,14 @@ func (d *profileDiscoverer) Names() []string {
 }
 
 // Entry pairs an Anthropic short name with the invoke-ready Bedrock ID
-// discovery resolved it to. Used by the admin API to surface "what can
-// this provider actually call right now" to operators in the UI.
+// discovery resolved it to, plus the AWS catalog ("inference-profile"
+// or "foundation-model") that produced it. Used by the admin API to
+// surface "what can this provider actually call right now" — and to
+// tell the two catalogs apart — to operators in the UI.
 type Entry struct {
 	ShortName string
 	BedrockID string
+	Source    string // "inference-profile" or "foundation-model"
 }
 
 // Entries returns the short-name → Bedrock-ID pairs discovery is serving
@@ -163,9 +187,16 @@ func (d *profileDiscoverer) Entries() []Entry {
 		if modelDatePattern.MatchString(k) {
 			continue
 		}
-		out = append(out, Entry{ShortName: k, BedrockID: v})
+		out = append(out, Entry{ShortName: k, BedrockID: v.id, Source: v.source.label()})
 	}
 	return out
+}
+
+func (s entrySource) label() string {
+	if s == sourceInferenceProfile {
+		return "inference-profile"
+	}
+	return "foundation-model"
 }
 
 // Invalidate marks the cache as stale so the next Lookup forces a refresh.
@@ -213,7 +244,9 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 	switch {
 	case err == nil:
 		d.lastErr = nil
-		d.entries = entries
+		if entries != nil {
+			d.entries = entries
+		}
 		d.expiresAt = now.Add(d.ttl)
 		d.lastFetchAt = now
 		d.everLoaded = true
@@ -243,7 +276,7 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 //     discovery even though they work when invoked directly.
 //
 // When the same short name appears in both catalogs the profile wins.
-func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error) {
+func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]discoveredEntry, error) {
 	profiles, profErr := d.fetchInferenceProfiles(ctx)
 	foundations, fmErr := d.fetchFoundationModels(ctx)
 
@@ -262,12 +295,16 @@ func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error
 	if fmErr != nil {
 		log.Printf("bedrock discovery: foundation models unavailable in %s (%v); falling back to inference profiles only", d.region, fmErr)
 	}
-	merged := make(map[string]string, len(profiles)+len(foundations))
+	merged := make(map[string]discoveredEntry, len(profiles)+len(foundations))
 	for k, v := range foundations {
-		merged[k] = v
+		merged[k] = discoveredEntry{id: v, source: sourceFoundation}
 	}
 	for k, v := range profiles {
-		merged[k] = v // profile wins over foundation for same short name
+		// Profile wins over foundation for the same short name — and
+		// we relabel the source even if a foundation entry already sat
+		// under this key, because the chosen invoke target is now the
+		// profile's.
+		merged[k] = discoveredEntry{id: v, source: sourceInferenceProfile}
 	}
 	return merged, nil
 }

@@ -362,6 +362,49 @@ func TestProfileDiscovererMergesFoundationModelsAndProfilesWin(t *testing.T) {
 	}
 }
 
+func TestProfileDiscovererEntriesTracksSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/inference-profiles":
+			fmt.Fprint(w, `{"inferenceProfileSummaries":[
+				{"inferenceProfileId":"us.anthropic.claude-opus-4-5-20251101-v1:0","status":"ACTIVE"}
+			]}`)
+		case "/foundation-models":
+			// claude-opus-4-5 overlap — profile must win AND be labeled
+			// inference-profile. claude-sonnet-4-6 is FM-only. And
+			// anthropic.claude-3-5-sonnet-20241022-v2:0 is a dated
+			// profile-shaped ID but coming from the FM catalog, so it
+			// must be labeled foundation-model (not inferred from shape).
+			fmt.Fprint(w, `{"modelSummaries":[
+				{"modelId":"anthropic.claude-opus-4-5-20251101-v1:0","modelLifecycle":{"status":"ACTIVE"}},
+				{"modelId":"anthropic.claude-sonnet-4-6","modelLifecycle":{"status":"ACTIVE"}},
+				{"modelId":"anthropic.claude-3-5-sonnet-20241022-v2:0","modelLifecycle":{"status":"ACTIVE"}}
+			]}`)
+		}
+	}))
+	defer srv.Close()
+
+	d := newDiscovererForTest(srv.URL)
+	// Force a load.
+	_, _ = d.Lookup(context.Background(), "__force_load__")
+
+	byName := map[string]Entry{}
+	for _, e := range d.Entries() {
+		byName[e.ShortName] = e
+	}
+
+	if got := byName["claude-opus-4-5"].Source; got != "inference-profile" {
+		t.Errorf("overlap short name should keep inference-profile source; got %q", got)
+	}
+	if got := byName["claude-sonnet-4-6"].Source; got != "foundation-model" {
+		t.Errorf("FM-only should be labeled foundation-model; got %q", got)
+	}
+	if got := byName["claude-3-5-sonnet"].Source; got != "foundation-model" {
+		t.Errorf("dated FM entry must be labeled foundation-model even though its shape resembles a profile; got %q", got)
+	}
+}
+
 func TestProfileDiscovererPartialFailure(t *testing.T) {
 	// ListInferenceProfiles errors (e.g. missing IAM), but foundation
 	// models still resolve — discovery should surface what it can.

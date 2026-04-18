@@ -52,6 +52,6 @@ func TestLiveDiscovery(t *testing.T) {
 	sort.Strings(names)
 	t.Logf("region=%s discovered %d Anthropic profiles:", region, len(d.entries))
 	for _, n := range names {
-		t.Logf("  %-30s -> %s", n, d.entries[n])
+		t.Logf("  %-30s -> %s", n, d.entries[n].id)
 	}
 }
