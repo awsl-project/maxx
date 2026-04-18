@@ -12,6 +12,11 @@ func TestResolveModelIDPriority(t *testing.T) {
 			return "us.anthropic.claude-opus-4-7-20260115-v1:0", true
 		case "claude-sonnet-4-9":
 			return "us.anthropic.claude-sonnet-4-9-20260201-v1:0", true
+		// Dated name indexed from a real Bedrock profile that uses v2:0.
+		// resolveModelID must prefer this over the auto-derive fallback
+		// that would otherwise synthesize an incorrect -v1:0 suffix.
+		case "claude-3-5-sonnet-20241022":
+			return "us.anthropic.claude-3-5-sonnet-20241022-v2:0", true
 		}
 		return "", false
 	}
@@ -66,6 +71,23 @@ func TestResolveModelIDPriority(t *testing.T) {
 			prefix: "us",
 			wantID: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
 			wantOK: true,
+		},
+		{
+			name:   "dated name prefers discovery v2:0 over auto-derived v1:0",
+			model:  "claude-3-5-sonnet-20241022",
+			lookup: discovered,
+			prefix: "us",
+			wantID: "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+			wantOK: true,
+		},
+		{
+			name:    "non-anthropic dotted user mapping keeps configured prefix",
+			model:   "custom-model",
+			mapping: map[string]string{"custom-model": "amazon.nova-pro-v1:0"},
+			lookup:  nil,
+			prefix:  "us",
+			wantID:  "us.amazon.nova-pro-v1:0",
+			wantOK:  true,
 		},
 		{
 			name:   "client-supplied fully-qualified bedrock ID passes through",

@@ -2,7 +2,6 @@ package bedrock
 
 import (
 	"regexp"
-	"strings"
 )
 
 // modelDatePattern matches an Anthropic short name that already carries an
@@ -14,6 +13,13 @@ var modelDatePattern = regexp.MustCompile(`^claude-[\w-]+-\d{8}$`)
 // bedrockIDPattern matches an already-qualified Bedrock model / inference
 // profile ID — optionally with a region prefix. Passed through untouched.
 var bedrockIDPattern = regexp.MustCompile(`^(?:[a-z]{2,}\.)?anthropic\.`)
+
+// regionPrefixedPattern matches a fully-qualified profile ID that already
+// starts with a region prefix like "us.", "eu.", "apac." — applyPrefix
+// uses it to avoid re-adding the configured prefix. Keeping this strict
+// (instead of "contains a dot") prevents us from silently dropping the
+// configured prefix on unusual user-mapping values.
+var regionPrefixedPattern = regexp.MustCompile(`^[a-z]{2,}\.anthropic\.`)
 
 // discoveredLookup returns a Bedrock profile ID for an Anthropic short name,
 // or ("", false) on miss. May be nil when no discoverer is wired up.
@@ -50,14 +56,16 @@ func resolveModelID(model string, configMapping map[string]string, modelPrefix s
 	return "", false
 }
 
-// applyPrefix adds the region prefix (e.g. "us.") when the model ID doesn't
-// already carry one. If the ID starts with a non-"anthropic" dotted segment
-// (like "us.anthropic...") it's assumed to already be prefixed.
+// applyPrefix prepends the region prefix (e.g. "us.") unless the model ID
+// already starts with one (e.g. "us.anthropic...", "eu.anthropic..."). The
+// check is a strict region-prefix match rather than "contains a dot", so
+// user-supplied values like "amazon.nova-pro-v1:0" or typos don't silently
+// lose the configured prefix.
 func applyPrefix(modelID, prefix string) string {
 	if prefix == "" {
 		return modelID
 	}
-	if strings.Contains(modelID, ".") && !strings.HasPrefix(modelID, "anthropic.") {
+	if regionPrefixedPattern.MatchString(modelID) {
 		return modelID
 	}
 	return prefix + "." + modelID

@@ -121,10 +121,23 @@ func TestProfileDiscovererInvalidateTriggersReload(t *testing.T) {
 		t.Fatalf("expected 1 hit, got %d", hits)
 	}
 
+	// Invalidate is rate-limited against recent fetches to prevent AWS
+	// control-plane amplification — call it before the min interval to
+	// confirm the guard, then again after clearing lastFetchAt.
+	d.Invalidate()
+	_, _ = d.Lookup(context.Background(), "claude-opus-4-7")
+	if atomic.LoadInt32(&hits) != 1 {
+		t.Errorf("Invalidate within rate-limit window should be a no-op; got %d hits", hits)
+	}
+
+	d.mu.Lock()
+	d.lastFetchAt = time.Time{}
+	d.mu.Unlock()
+
 	d.Invalidate()
 	_, _ = d.Lookup(context.Background(), "claude-opus-4-7")
 	if atomic.LoadInt32(&hits) != 2 {
-		t.Errorf("Invalidate should force a reload; got %d hits", hits)
+		t.Errorf("Invalidate after rate-limit window should force a reload; got %d hits", hits)
 	}
 }
 
@@ -147,17 +160,107 @@ func TestProfileDiscovererBacksOffOnError(t *testing.T) {
 		t.Errorf("failed discovery should back off; got %d hits", hits)
 	}
 
-	d.mu.RLock()
+	d.mu.Lock()
 	wantMin := time.Now()
 	wantMax := time.Now().Add(discoveryFailureTTL + time.Second)
 	exp := d.expiresAt
-	d.mu.RUnlock()
+	d.mu.Unlock()
 	if exp.Before(wantMin) || exp.After(wantMax) {
 		t.Errorf("unexpected backoff expiry %v", exp)
 	}
 
 	if d.Available() {
 		t.Error("Available should report false when last fetch failed")
+	}
+}
+
+func TestProfileDiscovererIndexesDatedNamesAndPreservesVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"inferenceProfileSummaries":[
+			{"inferenceProfileId":"us.anthropic.claude-3-5-sonnet-20241022-v2:0","status":"ACTIVE"},
+			{"inferenceProfileId":"us.anthropic.claude-opus-4-5-20251101-v1:0","status":"ACTIVE"}
+		]}`)
+	}))
+	defer srv.Close()
+
+	d := newDiscovererForTest(srv.URL)
+
+	// Dated-name lookup must carry the upstream's real version suffix (v2:0
+	// for 3.5-sonnet), not a locally-fabricated v1:0 — this is the
+	// regression the old versionOverrides table used to paper over.
+	id, ok := d.Lookup(context.Background(), "claude-3-5-sonnet-20241022")
+	if !ok || id != "us.anthropic.claude-3-5-sonnet-20241022-v2:0" {
+		t.Errorf("dated name lookup got (%q,%v); want the v2:0 profile", id, ok)
+	}
+
+	// Short-name lookup still works.
+	id, ok = d.Lookup(context.Background(), "claude-opus-4-5")
+	if !ok || id != "us.anthropic.claude-opus-4-5-20251101-v1:0" {
+		t.Errorf("short-name lookup got (%q,%v)", id, ok)
+	}
+
+	// Operator-facing Names() should not leak the dated index entries.
+	for _, n := range d.Names() {
+		if modelDatePattern.MatchString(n) {
+			t.Errorf("Names() leaked dated entry: %q", n)
+		}
+	}
+}
+
+func TestProfileDiscovererConcurrentColdStartBlocksOnSingleFlight(t *testing.T) {
+	var hits int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		<-release // hold the first request until all concurrent callers have queued
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"inferenceProfileSummaries":[
+			{"inferenceProfileId":"us.anthropic.claude-opus-4-5-20251101-v1:0","status":"ACTIVE"}
+		]}`)
+	}))
+	defer srv.Close()
+
+	d := newDiscovererForTest(srv.URL)
+
+	const N = 8
+	results := make(chan bool, N)
+	for i := 0; i < N; i++ {
+		go func() {
+			_, ok := d.Lookup(context.Background(), "claude-opus-4-5")
+			results <- ok
+		}()
+	}
+
+	// Wait for the first fetch to start, then let it finish.
+	for atomic.LoadInt32(&hits) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(release)
+
+	// Every concurrent caller must see the hit — the old "loading=true →
+	// early return" path would have let the other 7 miss.
+	for i := 0; i < N; i++ {
+		if !<-results {
+			t.Error("concurrent Lookup saw miss during single-flight load")
+		}
+	}
+
+	// Only one upstream fetch should have fired.
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("expected single upstream fetch, got %d", got)
+	}
+}
+
+func TestNewerProfileHandlesDoubleDigitVersion(t *testing.T) {
+	// -v10:0 is "older" lexicographically than -v9:0; must compare numerically.
+	older := "us.anthropic.claude-opus-4-5-20251101-v9:0"
+	newer := "us.anthropic.claude-opus-4-5-20251101-v10:0"
+	if !newerProfile(newer, older) {
+		t.Errorf("newerProfile(v10, v9) must be true")
+	}
+	if newerProfile(older, newer) {
+		t.Errorf("newerProfile(v9, v10) must be false")
 	}
 }
 
@@ -181,10 +284,10 @@ func TestProfileDiscovererContextCancelDoesNotPoisonCache(t *testing.T) {
 
 	// Cache must NOT be marked with a failure TTL — a transient client cancel
 	// should not back off the shared cache for other callers.
-	d.mu.RLock()
+	d.mu.Lock()
 	lastErr := d.lastErr
 	expiresAt := d.expiresAt
-	d.mu.RUnlock()
+	d.mu.Unlock()
 	if lastErr != nil {
 		t.Errorf("lastErr should remain nil after ctx cancel, got %v", lastErr)
 	}

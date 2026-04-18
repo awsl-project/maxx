@@ -36,8 +36,8 @@ func TestLiveDiscovery(t *testing.T) {
 	// Force a load via an arbitrary lookup (miss is fine — we just want fetch).
 	_, _ = d.Lookup(ctx, "__force_load__")
 
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.lastErr != nil {
 		t.Fatalf("discovery failed: %v", d.lastErr)
 	}

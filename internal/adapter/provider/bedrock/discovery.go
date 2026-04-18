@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 
@@ -40,6 +41,12 @@ const discoveryFailureTTL = 2 * time.Minute
 // context so a client disconnect can't cancel (and poison) discovery.
 const discoveryLookupTimeout = 10 * time.Second
 
+// minInvalidateInterval rate-limits Invalidate() so a burst of upstream
+// model-unavailable errors (e.g. from a misconfigured modelMapping
+// pointing at a bogus ID) can't amplify into a ListInferenceProfiles
+// flood against the AWS control plane.
+const minInvalidateInterval = 60 * time.Second
+
 // profileDiscoverer calls bedrock:ListInferenceProfiles for a given region +
 // credentials, extracts Anthropic short-name → full-profile-ID mappings via
 // profileIDPattern, and caches them with a TTL. Safe for concurrent use.
@@ -47,20 +54,25 @@ const discoveryLookupTimeout = 10 * time.Second
 // Design notes:
 //   - The cache holds *both* successful and failed loads (with different TTLs)
 //     to avoid stampedes against a broken IAM configuration.
-//   - Invalidate() flips the expiry so the next Lookup reloads synchronously.
-//   - A single in-flight refresh is enforced via `loading`; concurrent callers
-//     read whatever state exists until the refresh completes.
+//   - Invalidate() flips the expiry so the next Lookup reloads synchronously,
+//     but it is rate-limited by minInvalidateInterval to prevent amplification.
+//   - A single in-flight refresh is coordinated via loadingCh: concurrent
+//     callers block on the same load instead of each doing their own.
+//   - everLoaded stays true once discovery has succeeded at least once, so
+//     Available() can distinguish "fresh but stale" from "never loaded".
 type profileDiscoverer struct {
 	httpClient *http.Client
 	creds      credentials.StaticCredentialsProvider
 	region     string
 	ttl        time.Duration
 
-	mu        sync.RWMutex
-	entries   map[string]string
-	expiresAt time.Time
-	lastErr   error
-	loading   bool
+	mu           sync.Mutex
+	entries      map[string]string
+	expiresAt    time.Time
+	lastFetchAt  time.Time
+	lastErr      error
+	everLoaded   bool
+	loadingCh    chan struct{}
 }
 
 func newProfileDiscoverer(httpClient *http.Client, creds credentials.StaticCredentialsProvider, region string) *profileDiscoverer {
@@ -83,69 +95,87 @@ func newProfileDiscoverer(httpClient *http.Client, creds credentials.StaticCrede
 func (d *profileDiscoverer) Lookup(ctx context.Context, shortName string) (string, bool) {
 	d.ensureFresh(ctx)
 
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	id, ok := d.entries[shortName]
 	return id, ok
 }
 
-// Available reports whether the last discovery attempt succeeded. Callers
-// use this to distinguish "model truly not on Bedrock" (Available=true,
-// Lookup miss) from "discovery never ran or failed" (Available=false).
+// Available reports whether discovery has ever completed successfully. A
+// miss after Available()==true means the model is genuinely not on Bedrock
+// in this region; a miss with Available()==false means discovery never
+// worked (missing IAM, etc.) and callers should say so in the error.
 func (d *profileDiscoverer) Available() bool {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.lastErr == nil && !d.expiresAt.IsZero()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.everLoaded
 }
 
 // Names returns every discovered short name, in arbitrary order. Used for
 // error messages that list the alternatives when a request model can't be
 // resolved.
 func (d *profileDiscoverer) Names() []string {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	out := make([]string, 0, len(d.entries))
 	for k := range d.entries {
-		out = append(out, k)
+		// Only include pure short names in the operator-facing list; the
+		// dated-name index entries are an implementation detail.
+		if !modelDatePattern.MatchString(k) {
+			out = append(out, k)
+		}
 	}
 	return out
 }
 
 // Invalidate marks the cache as stale so the next Lookup forces a refresh.
-// Called when the upstream returns a model-identifier error — AWS may have
-// just rotated legacy IDs.
+// Rate-limited: if the most recent fetch completed less than
+// minInvalidateInterval ago, the call is a no-op. This protects against a
+// flood of upstream ModelUnavailable errors (from e.g. a bad modelMapping
+// entry) amplifying into a burst of ListInferenceProfiles calls.
 func (d *profileDiscoverer) Invalidate() {
 	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.lastFetchAt.IsZero() && time.Since(d.lastFetchAt) < minInvalidateInterval {
+		return
+	}
 	d.expiresAt = time.Time{}
-	d.mu.Unlock()
 }
 
 func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
-	d.mu.RLock()
-	fresh := time.Now().Before(d.expiresAt)
-	loading := d.loading
-	d.mu.RUnlock()
-	if fresh || loading {
-		return
-	}
-
 	d.mu.Lock()
-	if time.Now().Before(d.expiresAt) || d.loading {
+	if time.Now().Before(d.expiresAt) {
 		d.mu.Unlock()
 		return
 	}
-	d.loading = true
+	if d.loadingCh != nil {
+		// Another goroutine is fetching — block on it so we either return
+		// with fresh data or propagate the same failure, instead of each
+		// concurrent caller seeing an empty cache.
+		ch := d.loadingCh
+		d.mu.Unlock()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+		}
+		return
+	}
+	ch := make(chan struct{})
+	d.loadingCh = ch
 	d.mu.Unlock()
 
 	entries, err := d.fetch(ctx)
 
 	d.mu.Lock()
-	d.loading = false
+	d.loadingCh = nil
+	close(ch)
 	switch {
 	case err == nil:
 		d.lastErr = nil
 		d.entries = entries
 		d.expiresAt = time.Now().Add(d.ttl)
+		d.lastFetchAt = time.Now()
+		d.everLoaded = true
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		// Transient cancellation from a caller-supplied context — do not
 		// poison the cache with a failure TTL, the next caller should retry
@@ -154,6 +184,7 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 		// Keep previous entries (if any) but back off before retrying.
 		d.lastErr = err
 		d.expiresAt = time.Now().Add(discoveryFailureTTL)
+		d.lastFetchAt = time.Now()
 	}
 	d.mu.Unlock()
 }
@@ -212,15 +243,23 @@ func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error
 			if s.Status != "" && s.Status != "ACTIVE" {
 				continue
 			}
-			short, ok := extractShortName(s.InferenceProfileID)
+			short, date, ok := extractNameAndDate(s.InferenceProfileID)
 			if !ok {
 				continue
 			}
-			// If multiple profiles collapse to the same short name, keep the
-			// lexicographically greatest ID — the date suffix makes that the
-			// newest dated release.
-			if existing, exists := entries[short]; !exists || s.InferenceProfileID > existing {
+			// Index under both the short name ("claude-3-5-sonnet") and the
+			// dated name ("claude-3-5-sonnet-20241022"). Dated-name indexing
+			// lets a client request a specific release + version suffix
+			// (e.g. Bedrock's v2:0 for 3.5-sonnet) without us ever having to
+			// hardcode version overrides locally.
+			dated := short + "-" + date
+			// Short name: newest date wins.
+			if existing, exists := entries[short]; !exists || newerProfile(s.InferenceProfileID, existing) {
 				entries[short] = s.InferenceProfileID
+			}
+			// Dated name: highest version suffix wins for the same date.
+			if existing, exists := entries[dated]; !exists || newerProfile(s.InferenceProfileID, existing) {
+				entries[dated] = s.InferenceProfileID
 			}
 		}
 
@@ -233,14 +272,54 @@ func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error
 	return entries, nil
 }
 
-// extractShortName returns ("claude-opus-4-7", true) for
-// "us.anthropic.claude-opus-4-7-20260115-v1:0"; ok=false for anything else.
-func extractShortName(profileID string) (string, bool) {
+// extractNameAndDate returns ("claude-opus-4-7", "20260115", true) for
+// "us.anthropic.claude-opus-4-7-20260115-v1:0"; ok=false for anything that
+// doesn't match the Anthropic inference-profile shape.
+func extractNameAndDate(profileID string) (short, date string, ok bool) {
 	m := profileIDPattern.FindStringSubmatch(profileID)
-	if len(m) < 2 {
-		return "", false
+	if len(m) < 3 {
+		return "", "", false
 	}
-	return m[1], true
+	return m[1], m[2], true
+}
+
+// extractShortName is kept for tests that only care about the short name.
+func extractShortName(profileID string) (string, bool) {
+	short, _, ok := extractNameAndDate(profileID)
+	return short, ok
+}
+
+// newerProfile returns true when a should replace b for the same indexed
+// key. Dates are compared numerically via the YYYYMMDD capture; same-date
+// collisions fall back to the higher version suffix ("v2:0" > "v1:0"),
+// parsed numerically so "v10:0" wins over "v9:0" too.
+func newerProfile(a, b string) bool {
+	aDate, aVer, aOK := profileDateVersion(a)
+	bDate, bVer, bOK := profileDateVersion(b)
+	if !aOK || !bOK {
+		return a > b // fall back to lexicographic for unparseable inputs
+	}
+	if aDate != bDate {
+		return aDate > bDate
+	}
+	return aVer > bVer
+}
+
+var profileVersionPattern = regexp.MustCompile(`-(\d{8})-v(\d+):\d+$`)
+
+func profileDateVersion(profileID string) (dateNum, verNum int, ok bool) {
+	m := profileVersionPattern.FindStringSubmatch(profileID)
+	if len(m) < 3 {
+		return 0, 0, false
+	}
+	var err error
+	if dateNum, err = strconv.Atoi(m[1]); err != nil {
+		return 0, 0, false
+	}
+	if verNum, err = strconv.Atoi(m[2]); err != nil {
+		return 0, 0, false
+	}
+	return dateNum, verNum, true
 }
 
 func truncate(s string, n int) string {
