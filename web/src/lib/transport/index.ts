@@ -51,6 +51,8 @@ export type {
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityOAuthResult,
+  // Bedrock
+  BedrockDiscoveredModelsResult,
   // Model Mapping
   ModelMapping,
   ModelMappingInput,
