@@ -34,6 +34,8 @@ type discoveredLookup func(shortName string) (id string, hit bool)
 // Priority:
 //  1. user configMapping — explicit override, trusted
 //  2. runtime discovery  — authoritative list from ListInferenceProfiles
+//                          and ListFoundationModels; returns ready-to-use
+//                          IDs that must not be further prefixed
 //  3. client-supplied dated name (claude-*-YYYYMMDD) — wrap as anthropic.X-v1:0
 //  4. client-supplied fully-qualified Bedrock ID — passthrough
 func resolveModelID(model string, configMapping map[string]string, modelPrefix string, discovered discoveredLookup) (string, bool) {
@@ -44,7 +46,12 @@ func resolveModelID(model string, configMapping map[string]string, modelPrefix s
 	}
 	if discovered != nil {
 		if id, ok := discovered(model); ok {
-			return applyPrefix(id, modelPrefix), true
+			// Discovery returns the exact invoke-ready ID: inference
+			// profiles already carry their region prefix, foundation
+			// models must not receive one (a region-prefixed foundation
+			// model ID like "us.anthropic.claude-sonnet-4-6" is not a
+			// valid Bedrock target).
+			return id, true
 		}
 	}
 	if modelDatePattern.MatchString(model) {

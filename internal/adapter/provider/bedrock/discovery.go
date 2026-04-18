@@ -28,6 +28,19 @@ var profileIDPattern = regexp.MustCompile(
 	`^(?:[a-z]{2,}\.)?anthropic\.(claude-[a-z0-9-]+?)-(\d{8})-v\d+:\d+$`,
 )
 
+// foundationModelPattern extracts the short name from a Bedrock foundation-
+// model ID that has no release date (newer AWS releases frequently omit
+// it). Shapes:
+//
+//	anthropic.claude-sonnet-4-6
+//	anthropic.claude-opus-4-6-v1
+//
+// The capture requires at least one digit to reject ancient legacy IDs
+// like "anthropic.claude-v2" that would otherwise collapse to "claude".
+var foundationModelPattern = regexp.MustCompile(
+	`^anthropic\.(claude-[a-z0-9-]*?\d[a-z0-9-]*?)(?:-v\d+)?$`,
+)
+
 // defaultDiscoveryTTL is how long a successful discovery result is cached.
 const defaultDiscoveryTTL = 30 * time.Minute
 
@@ -193,9 +206,41 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 	d.mu.Unlock()
 }
 
-// fetch calls ListInferenceProfiles and returns a shortName→profileID map.
-// Handles pagination via nextToken.
+// fetch builds the Anthropic short-name → Bedrock-ID map for the configured
+// region. Two upstream catalogs contribute:
+//
+//   - ListInferenceProfiles: preferred. Cross-region profiles (e.g.
+//     us.anthropic.claude-opus-4-5-20251101-v1:0) give automatic regional
+//     failover and are AWS's recommended invocation path for Anthropic.
+//   - ListFoundationModels: fallback. Models that AWS has released but not
+//     (yet) fronted with an inference profile — most recent example is
+//     Claude Sonnet 4.6 / Opus 4.6 which exist only as foundation models
+//     in every region. Without this call, those models are invisible to
+//     discovery even though they work when invoked directly.
+//
+// When the same short name appears in both catalogs the profile wins.
 func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error) {
+	profiles, profErr := d.fetchInferenceProfiles(ctx)
+	foundations, fmErr := d.fetchFoundationModels(ctx)
+
+	// If both fail, propagate the profiles error (the primary source).
+	if profErr != nil && fmErr != nil {
+		return nil, profErr
+	}
+	// If only one source succeeded, run with what we have — better partial
+	// discovery than none. A missing IAM permission on one endpoint
+	// shouldn't take out the other.
+	merged := make(map[string]string, len(profiles)+len(foundations))
+	for k, v := range foundations {
+		merged[k] = v
+	}
+	for k, v := range profiles {
+		merged[k] = v // profile wins over foundation for same short name
+	}
+	return merged, nil
+}
+
+func (d *profileDiscoverer) fetchInferenceProfiles(ctx context.Context) (map[string]string, error) {
 	entries := map[string]string{}
 	var nextToken string
 	base := fmt.Sprintf("https://bedrock.%s.amazonaws.com/inference-profiles", d.region)
@@ -209,27 +254,9 @@ func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error
 		}
 		fullURL := base + "?" + q.Encode()
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+		body, err := d.signedGet(ctx, fullURL)
 		if err != nil {
-			return nil, fmt.Errorf("build discovery request: %w", err)
-		}
-		req.Header.Set("Accept", "application/json")
-
-		if err := signRequest(ctx, req, nil, d.creds, d.region); err != nil {
-			return nil, fmt.Errorf("sign discovery request: %w", err)
-		}
-
-		resp, err := d.httpClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("list inference profiles: %w", err)
-		}
-		body, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if readErr != nil {
-			return nil, fmt.Errorf("read discovery response: %w", readErr)
-		}
-		if resp.StatusCode >= 400 {
-			return nil, fmt.Errorf("list inference profiles returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+			return nil, err
 		}
 
 		var parsed struct {
@@ -240,7 +267,7 @@ func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error
 			NextToken string `json:"nextToken"`
 		}
 		if err := json.Unmarshal(body, &parsed); err != nil {
-			return nil, fmt.Errorf("decode discovery response: %w", err)
+			return nil, fmt.Errorf("decode inference profiles: %w", err)
 		}
 
 		for _, s := range parsed.InferenceProfileSummaries {
@@ -251,19 +278,14 @@ func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error
 			if !ok {
 				continue
 			}
-			// Index under both the short name ("claude-3-5-sonnet") and the
-			// dated name ("claude-3-5-sonnet-20241022"). Dated-name indexing
-			// lets a client request a specific release + version suffix
-			// (e.g. Bedrock's v2:0 for 3.5-sonnet) without us ever having to
-			// hardcode version overrides locally.
-			dated := short + "-" + date
-			// Short name: newest date wins.
-			if existing, exists := entries[short]; !exists || newerProfile(s.InferenceProfileID, existing) {
-				entries[short] = s.InferenceProfileID
-			}
-			// Dated name: highest version suffix wins for the same date.
-			if existing, exists := entries[dated]; !exists || newerProfile(s.InferenceProfileID, existing) {
-				entries[dated] = s.InferenceProfileID
+			// Index under the short name ("claude-3-5-sonnet") and, when
+			// a date is present, also the dated name ("claude-3-5-sonnet-
+			// 20241022"). Dated-name indexing lets a client request a
+			// specific release + version suffix (e.g. Bedrock's v2:0 for
+			// 3.5-sonnet) without hardcoding version overrides locally.
+			upsertEntry(entries, short, s.InferenceProfileID)
+			if date != "" {
+				upsertEntry(entries, short+"-"+date, s.InferenceProfileID)
 			}
 		}
 
@@ -276,15 +298,98 @@ func (d *profileDiscoverer) fetch(ctx context.Context) (map[string]string, error
 	return entries, nil
 }
 
-// extractNameAndDate returns ("claude-opus-4-7", "20260115", true) for
-// "us.anthropic.claude-opus-4-7-20260115-v1:0"; ok=false for anything that
-// doesn't match the Anthropic inference-profile shape.
-func extractNameAndDate(profileID string) (short, date string, ok bool) {
-	m := profileIDPattern.FindStringSubmatch(profileID)
-	if len(m) < 3 {
-		return "", "", false
+func (d *profileDiscoverer) fetchFoundationModels(ctx context.Context) (map[string]string, error) {
+	entries := map[string]string{}
+	q := url.Values{}
+	q.Set("byProvider", "anthropic")
+	fullURL := fmt.Sprintf("https://bedrock.%s.amazonaws.com/foundation-models?%s", d.region, q.Encode())
+
+	body, err := d.signedGet(ctx, fullURL)
+	if err != nil {
+		return nil, err
 	}
-	return m[1], m[2], true
+
+	var parsed struct {
+		ModelSummaries []struct {
+			ModelID        string `json:"modelId"`
+			ModelLifecycle struct {
+				Status string `json:"status"`
+			} `json:"modelLifecycle"`
+		} `json:"modelSummaries"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("decode foundation models: %w", err)
+	}
+
+	for _, s := range parsed.ModelSummaries {
+		if s.ModelLifecycle.Status != "" && s.ModelLifecycle.Status != "ACTIVE" {
+			continue
+		}
+		short, date, ok := extractNameAndDate(s.ModelID)
+		if !ok {
+			continue
+		}
+		upsertEntry(entries, short, s.ModelID)
+		if date != "" {
+			upsertEntry(entries, short+"-"+date, s.ModelID)
+		}
+	}
+	return entries, nil
+}
+
+// signedGet issues a SigV4-signed GET and returns the body. Non-2xx becomes
+// an error containing a truncated body so failures stay debuggable without
+// leaking full AWS error payloads into our own error chain.
+func (d *profileDiscoverer) signedGet(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build discovery request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	if err := signRequest(ctx, req, nil, d.creds, d.region); err != nil {
+		return nil, fmt.Errorf("sign discovery request: %w", err)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list discovery: %w", err)
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("read discovery response: %w", readErr)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("discovery returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+	return body, nil
+}
+
+// upsertEntry inserts id at key, keeping the newer ID on collisions. Called
+// from both inference-profile and foundation-model loops; within one source
+// the newer-wins rule via newerProfile deduplicates AWS returning multiple
+// dates for the same short name.
+func upsertEntry(m map[string]string, key, id string) {
+	if existing, ok := m[key]; !ok || newerProfile(id, existing) {
+		m[key] = id
+	}
+}
+
+// extractNameAndDate returns the Anthropic short name (and release date
+// when present) for a Bedrock ID — either an inference profile like
+// "us.anthropic.claude-opus-4-7-20260115-v1:0" or an undated foundation
+// model like "anthropic.claude-sonnet-4-6". Returns ok=false when the
+// shape isn't recognised (non-Anthropic, malformed, or an ancient legacy
+// name without any version digits).
+func extractNameAndDate(modelID string) (short, date string, ok bool) {
+	if m := profileIDPattern.FindStringSubmatch(modelID); len(m) >= 3 {
+		return m[1], m[2], true
+	}
+	if m := foundationModelPattern.FindStringSubmatch(modelID); len(m) >= 2 {
+		return m[1], "", true
+	}
+	return "", "", false
 }
 
 // extractShortName is kept for tests that only care about the short name.

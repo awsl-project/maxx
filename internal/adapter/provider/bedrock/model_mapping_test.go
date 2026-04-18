@@ -17,6 +17,14 @@ func TestResolveModelIDPriority(t *testing.T) {
 		// that would otherwise synthesize an incorrect -v1:0 suffix.
 		case "claude-3-5-sonnet-20241022":
 			return "us.anthropic.claude-3-5-sonnet-20241022-v2:0", true
+		// Foundation-model-only release (e.g. AWS's initial ship of 4.6).
+		// resolveModelID must return the bare foundation model ID with
+		// no region prefix added — prepending "us." produces an invalid
+		// Bedrock target.
+		case "claude-sonnet-4-6":
+			return "anthropic.claude-sonnet-4-6", true
+		case "claude-opus-4-6":
+			return "anthropic.claude-opus-4-6-v1", true
 		}
 		return "", false
 	}
@@ -57,11 +65,27 @@ func TestResolveModelIDPriority(t *testing.T) {
 			wantOK: true,
 		},
 		{
-			name:   "discovered ID with region prefix is not double-prefixed",
+			name:   "discovered ID is returned verbatim (no re-prefixing)",
 			model:  "claude-opus-4-7",
 			lookup: discovered,
 			prefix: "us",
 			wantID: "us.anthropic.claude-opus-4-7-20260115-v1:0",
+			wantOK: true,
+		},
+		{
+			name:   "foundation-model discovery hit is not region-prefixed",
+			model:  "claude-sonnet-4-6",
+			lookup: discovered,
+			prefix: "us",
+			wantID: "anthropic.claude-sonnet-4-6",
+			wantOK: true,
+		},
+		{
+			name:   "foundation-model with -v1 suffix is preserved verbatim",
+			model:  "claude-opus-4-6",
+			lookup: discovered,
+			prefix: "us",
+			wantID: "anthropic.claude-opus-4-6-v1",
 			wantOK: true,
 		},
 		{
@@ -107,7 +131,7 @@ func TestResolveModelIDPriority(t *testing.T) {
 		},
 		{
 			name:   "bare short name with discovery miss is unresolvable",
-			model:  "claude-sonnet-4-6",
+			model:  "claude-unreleased-99",
 			lookup: discovered,
 			prefix: "us",
 			wantOK: false,
