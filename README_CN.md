@@ -136,7 +136,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
 
-**前端开发环境要求：** Node.js 22.11.0（见 `.node-version` / `.nvmrc`）以及 pnpm 10.7.0（在 `web/package.json` 中锁定）。
+**前端开发环境要求：** Node.js 22.12.0+（22.x 线内，见 `.node-version` / `.nvmrc`）以及 pnpm 10.7.0（在 `web/package.json` 中锁定）。
 
 ## 配置 AI 编程工具
 

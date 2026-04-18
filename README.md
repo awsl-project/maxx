@@ -136,7 +136,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
 
-**Frontend requirements:** Node.js 22.11.0 (see `.node-version` / `.nvmrc`) and pnpm 10.7.0 (locked via `web/package.json`).
+**Frontend requirements:** Node.js 22.12.0+ within the 22.x line (see `.node-version` / `.nvmrc`) and pnpm 10.7.0 (locked via `web/package.json`).
 
 ## Configure AI Coding Tools
 
