@@ -138,6 +138,16 @@ func TestResolveModelIDPriority(t *testing.T) {
 			wantOK:  true,
 		},
 		{
+			// A client that already knows the Bedrock foundation-model
+			// shape can send it verbatim; applyPrefix must leave it alone.
+			name:   "client-supplied bare foundation-model ID passes through unprefixed",
+			model:  "anthropic.claude-sonnet-4-6",
+			lookup: nil,
+			prefix: "us",
+			wantID: "anthropic.claude-sonnet-4-6",
+			wantOK: true,
+		},
+		{
 			name:   "client-supplied fully-qualified bedrock ID passes through",
 			model:  "anthropic.claude-opus-4-5-20251101-v1:0",
 			lookup: discovered,
