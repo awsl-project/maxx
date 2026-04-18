@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/payloadoverride"
@@ -26,6 +27,20 @@ import (
 type ProviderAdapterRefresher interface {
 	RefreshAdapter(p *domain.Provider) error
 	RemoveAdapter(providerID uint64)
+	// GetAdapter returns the cached adapter for a provider, if any. Used
+	// by admin endpoints that reach into adapter-specific runtime state.
+	GetAdapter(providerID uint64) (provider.ProviderAdapter, bool)
+}
+
+// GetProviderAdapter exposes the cached adapter for a provider so HTTP
+// handlers can call adapter-specific methods (e.g. Bedrock discovery).
+// Returns nil,false when no adapter is registered yet or refresher is
+// unwired (test setups).
+func (s *AdminService) GetProviderAdapter(providerID uint64) (provider.ProviderAdapter, bool) {
+	if s.adapterRefresher == nil {
+		return nil, false
+	}
+	return s.adapterRefresher.GetAdapter(providerID)
 }
 
 // AdminService provides business logic for admin operations

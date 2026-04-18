@@ -58,6 +58,74 @@ func (a *BedrockAdapter) SupportedClientTypes() []domain.ClientType {
 	return []domain.ClientType{domain.ClientTypeClaude}
 }
 
+// DiscoveredModel describes one entry in the discovery catalog: the
+// client-facing short name, the invoke-ready Bedrock ID, and which
+// upstream catalog it came from. Source is either "inference-profile"
+// (cross-region, ID carries a region prefix) or "foundation-model"
+// (bare anthropic.X, single-region).
+type DiscoveredModel struct {
+	ShortName string `json:"shortName"`
+	BedrockID string `json:"bedrockId"`
+	Source    string `json:"source"`
+}
+
+// DiscoveredModelsResult is the payload returned by the admin endpoint.
+// Available distinguishes "discovery completed, the listed models are
+// what this provider can currently invoke" from "discovery never
+// succeeded — usually missing bedrock:ListInferenceProfiles IAM
+// permission"; Region echoes back where the lookup ran so the UI can
+// show it alongside the list.
+type DiscoveredModelsResult struct {
+	Available bool              `json:"available"`
+	Region    string            `json:"region"`
+	Models    []DiscoveredModel `json:"models"`
+}
+
+// DiscoveredModels triggers a discovery refresh (subject to the normal
+// TTL) and returns the current catalog. Uses an isolated background
+// context so admin UI polling can't poison the shared cache.
+func (a *BedrockAdapter) DiscoveredModels(ctx context.Context) DiscoveredModelsResult {
+	region := DefaultRegion
+	if a.provider != nil && a.provider.Config != nil && a.provider.Config.Bedrock != nil && a.provider.Config.Bedrock.Region != "" {
+		region = a.provider.Config.Bedrock.Region
+	}
+	result := DiscoveredModelsResult{Region: region}
+	if a.discoverer == nil {
+		return result
+	}
+
+	lookupCtx, cancel := context.WithTimeout(ctx, discoveryLookupTimeout)
+	defer cancel()
+	// Force a refresh if the cache is stale. Lookup's argument is a
+	// miss-on-purpose key — we only want the side effect.
+	_, _ = a.discoverer.Lookup(lookupCtx, "__admin_refresh__")
+
+	entries := a.discoverer.Entries()
+	result.Available = a.discoverer.Available()
+	result.Models = make([]DiscoveredModel, 0, len(entries))
+	for _, e := range entries {
+		result.Models = append(result.Models, DiscoveredModel{
+			ShortName: e.ShortName,
+			BedrockID: e.BedrockID,
+			Source:    classifyBedrockIDSource(e.BedrockID),
+		})
+	}
+	sort.Slice(result.Models, func(i, j int) bool {
+		return result.Models[i].ShortName < result.Models[j].ShortName
+	})
+	return result
+}
+
+// classifyBedrockIDSource labels an ID as "inference-profile" when it
+// carries a region prefix (us./eu./global. etc.) and "foundation-model"
+// otherwise. Presentation-only; the adapter doesn't branch on it.
+func classifyBedrockIDSource(id string) string {
+	if regionPrefixedPattern.MatchString(id) {
+		return "inference-profile"
+	}
+	return "foundation-model"
+}
+
 func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	requestBody := flow.GetRequestBody(c)
 	clientWantsStream := flow.GetIsStream(c)

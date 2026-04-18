@@ -99,6 +99,25 @@ export interface ProviderConfigBedrock {
   modelMapping?: Record<string, string>;
 }
 
+// One row in the Bedrock discovery catalog: the Anthropic short name
+// clients send, the invoke-ready Bedrock ID our adapter routes to, and
+// which AWS catalog the entry was sourced from.
+export interface BedrockDiscoveredModel {
+  shortName: string;
+  bedrockId: string;
+  source: 'inference-profile' | 'foundation-model';
+}
+
+// Response payload for GET /providers/{id}/bedrock-models. Available
+// distinguishes a successful discovery with zero matches from "discovery
+// never succeeded" (usually missing IAM permission); operators should
+// treat an empty models[] differently in each case.
+export interface BedrockDiscoveredModelsResult {
+  available: boolean;
+  region: string;
+  models: BedrockDiscoveredModel[];
+}
+
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
   custom?: ProviderConfigCustom;

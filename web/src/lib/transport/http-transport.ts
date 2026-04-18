@@ -30,6 +30,7 @@ import type {
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
+  BedrockDiscoveredModelsResult,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -549,6 +550,15 @@ export class HttpTransport implements Transport {
     const { data } = await this.client.post<AntigravityBatchValidationResult>(
       '/antigravity/validate-tokens',
       { tokenText },
+    );
+    return data;
+  }
+
+  async getBedrockDiscoveredModels(
+    providerId: number,
+  ): Promise<BedrockDiscoveredModelsResult> {
+    const { data } = await this.client.get<BedrockDiscoveredModelsResult>(
+      `/providers/${providerId}/bedrock-models`,
     );
     return data;
   }

@@ -145,6 +145,29 @@ func (d *profileDiscoverer) Names() []string {
 	return out
 }
 
+// Entry pairs an Anthropic short name with the invoke-ready Bedrock ID
+// discovery resolved it to. Used by the admin API to surface "what can
+// this provider actually call right now" to operators in the UI.
+type Entry struct {
+	ShortName string
+	BedrockID string
+}
+
+// Entries returns the short-name → Bedrock-ID pairs discovery is serving
+// for this provider, excluding the internal dated-name index entries.
+func (d *profileDiscoverer) Entries() []Entry {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]Entry, 0, len(d.entries))
+	for k, v := range d.entries {
+		if modelDatePattern.MatchString(k) {
+			continue
+		}
+		out = append(out, Entry{ShortName: k, BedrockID: v})
+	}
+	return out
+}
+
 // Invalidate marks the cache as stale so the next Lookup forces a refresh.
 // Rate-limited: if the most recent fetch completed less than
 // minInvalidateInterval ago, the call is a no-op. This protects against a

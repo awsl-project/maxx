@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -166,6 +167,10 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		h.handleProvidersImport(w, r)
 		return
 	}
+	if id > 0 && strings.HasSuffix(path, "/bedrock-models") {
+		h.handleBedrockDiscoveredModels(w, r, id)
+		return
+	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 
@@ -237,6 +242,41 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+// handleBedrockDiscoveredModels surfaces the runtime discovery catalog
+// for one Bedrock provider. The response answers "what Claude models can
+// this provider actually invoke right now" — built from
+// ListInferenceProfiles + ListFoundationModels against the provider's
+// real credentials — so operators don't have to maintain a local alias
+// table. Available=false means discovery hasn't succeeded (typically
+// missing bedrock:ListInferenceProfiles IAM permission).
+func (h *AdminHandler) handleBedrockDiscoveredModels(w http.ResponseWriter, r *http.Request, id uint64) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	tenantID := maxxctx.GetTenantID(r.Context())
+	p, err := h.svc.GetProvider(tenantID, id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+	if p.Type != "bedrock" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider is not a bedrock provider"})
+		return
+	}
+	adapter, ok := h.svc.GetProviderAdapter(id)
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "adapter not initialized"})
+		return
+	}
+	bedrockA, ok := adapter.(*bedrock.BedrockAdapter)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "bedrock adapter type mismatch"})
+		return
+	}
+	writeJSON(w, http.StatusOK, bedrockA.DiscoveredModels(r.Context()))
 }
 
 // handleProvidersExport exports all providers as JSON

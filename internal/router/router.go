@@ -108,6 +108,16 @@ func (r *Router) RemoveAdapter(providerID uint64) {
 	r.mu.Unlock()
 }
 
+// GetAdapter returns the cached adapter for a provider, if any. Used by
+// admin endpoints that need to reach into adapter-specific state (e.g.
+// Bedrock runtime model discovery).
+func (r *Router) GetAdapter(providerID uint64) (provider.ProviderAdapter, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.adapters[providerID]
+	return a, ok
+}
+
 // Match returns matched routes for a client type and project
 func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 	tenantID := ctx.TenantID

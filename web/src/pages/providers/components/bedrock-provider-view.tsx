@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Cloud,
   ChevronLeft,
@@ -9,9 +9,13 @@ import {
   EyeOff,
   Copy,
   Check,
+  RefreshCw,
+  PackageSearch,
+  AlertTriangle,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { Provider } from '@/lib/transport';
+import type { BedrockDiscoveredModelsResult, Provider } from '@/lib/transport';
+import { getTransport } from '@/lib/transport';
 import { useUpdateProvider } from '@/hooks/queries';
 import { Button, Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
@@ -31,6 +35,30 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
 
   const [showSecret, setShowSecret] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+
+  // Runtime discovery catalog for this provider — what Bedrock actually
+  // lets these credentials invoke right now, as opposed to anything the
+  // operator has statically configured in modelMapping.
+  const [discovered, setDiscovered] = useState<BedrockDiscoveredModelsResult | null>(null);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+
+  const loadDiscoveredModels = useCallback(async () => {
+    setDiscoveryLoading(true);
+    setDiscoveryError(null);
+    try {
+      const result = await getTransport().getBedrockDiscoveredModels(provider.id);
+      setDiscovered(result);
+    } catch (err) {
+      setDiscoveryError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  }, [provider.id]);
+
+  useEffect(() => {
+    loadDiscoveredModels();
+  }, [loadDiscoveredModels]);
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -167,6 +195,105 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
 
           {/* Proxy URL Card */}
           <ProviderProxyURLCard provider={provider} />
+
+          {/* Runtime discovered models — authoritative list of what
+              these creds can actually invoke in this region. */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <div className="flex items-center gap-2">
+                <PackageSearch size={16} className="text-muted-foreground" />
+                <h3 className="text-lg font-semibold text-text-primary">
+                  {t('provider.bedrock.discoveredModels', 'Discovered Models')}
+                </h3>
+                {discovered && (
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {discovered.region} · {discovered.models.length}
+                  </span>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={loadDiscoveredModels}
+                disabled={discoveryLoading}
+              >
+                <RefreshCw size={14} className={discoveryLoading ? 'animate-spin' : ''} />
+                {t('common.refresh', 'Refresh')}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'provider.bedrock.discoveredModelsDesc',
+                'Pulled live from bedrock:ListInferenceProfiles and ListFoundationModels with these credentials. Inference profiles take priority over foundation models when both exist.',
+              )}
+            </p>
+            {discoveryError && (
+              <div className="flex items-start gap-2 p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-sm text-destructive">
+                <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                <span>{discoveryError}</span>
+              </div>
+            )}
+            {discovered && !discoveryError && !discovered.available && (
+              <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-sm text-amber-700 dark:text-amber-500">
+                <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                <span>
+                  {t(
+                    'provider.bedrock.discoveryUnavailable',
+                    'Discovery unavailable — grant bedrock:ListInferenceProfiles and bedrock:ListFoundationModels, or set an explicit modelMapping.',
+                  )}
+                </span>
+              </div>
+            )}
+            {discovered && discovered.models.length > 0 && (
+              <div className="rounded-xl border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-xs text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium">
+                        {t('provider.bedrock.shortName', 'Short Name')}
+                      </th>
+                      <th className="text-left px-4 py-2 font-medium">
+                        {t('provider.bedrock.source', 'Source')}
+                      </th>
+                      <th className="text-left px-4 py-2 font-medium">
+                        {t('provider.bedrock.bedrockId', 'Bedrock ID')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {discovered.models.map((m) => (
+                      <tr key={m.shortName} className="border-t border-border/50 hover:bg-muted/30">
+                        <td className="px-4 py-2 font-mono text-foreground">{m.shortName}</td>
+                        <td className="px-4 py-2">
+                          <span
+                            className={
+                              'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ' +
+                              (m.source === 'inference-profile'
+                                ? 'bg-blue-500/10 text-blue-700 dark:text-blue-400'
+                                : 'bg-purple-500/10 text-purple-700 dark:text-purple-400')
+                            }
+                          >
+                            {m.source === 'inference-profile' ? 'IP' : 'FM'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground break-all">
+                          {m.bedrockId}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {discovered && discovered.available && discovered.models.length === 0 && (
+              <p className="text-sm text-muted-foreground italic">
+                {t(
+                  'provider.bedrock.noModels',
+                  'No Anthropic models returned by AWS for this region. Check model access grants.',
+                )}
+              </p>
+            )}
+          </div>
 
           {/* Error Cooldown */}
           <div className="space-y-4">
