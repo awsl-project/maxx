@@ -35,6 +35,15 @@ func TestResolveModelIDPriority(t *testing.T) {
 			wantOK:  true,
 		},
 		{
+			name:    "user mapping already carrying region prefix is not double-prefixed",
+			model:   "claude-opus-4-7",
+			mapping: map[string]string{"claude-opus-4-7": "us.anthropic.user-override-v1:0"},
+			lookup:  discovered,
+			prefix:  "us",
+			wantID:  "us.anthropic.user-override-v1:0",
+			wantOK:  true,
+		},
+		{
 			name:   "discovery resolves brand-new model",
 			model:  "claude-sonnet-4-9",
 			lookup: discovered,

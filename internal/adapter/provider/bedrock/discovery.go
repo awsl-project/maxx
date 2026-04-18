@@ -3,6 +3,7 @@ package bedrock
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,6 +34,11 @@ const defaultDiscoveryTTL = 30 * time.Minute
 // (e.g. missing IAM permission). Shorter than the success TTL so a fix lands
 // quickly, longer than a single request so we don't hammer the API.
 const discoveryFailureTTL = 2 * time.Minute
+
+// discoveryLookupTimeout bounds a single ListInferenceProfiles round-trip
+// when called during model resolution. Kept separate from the request's
+// context so a client disconnect can't cancel (and poison) discovery.
+const discoveryLookupTimeout = 10 * time.Second
 
 // profileDiscoverer calls bedrock:ListInferenceProfiles for a given region +
 // credentials, extracts Anthropic short-name → full-profile-ID mappings via
@@ -68,9 +74,12 @@ func newProfileDiscoverer(httpClient *http.Client, creds credentials.StaticCrede
 }
 
 // Lookup returns the discovered Bedrock profile ID for an Anthropic short name
-// like "claude-opus-4-7". It triggers a synchronous refresh if the cache is
-// stale. Returns (id, true) on hit; ("", false) on miss or when discovery
-// failed — callers should then fall through to the static alias table.
+// like "claude-opus-4-7". Triggers a synchronous refresh via ensureFresh when
+// the cache is stale. Returns (id, true) on hit; ("", false) on miss — miss
+// means either the profile genuinely isn't on Bedrock (Available() == true)
+// or discovery never succeeded (Available() == false). Callers in adapter.go
+// use Available() + Names() to build a precise unresolvableModelError; they
+// no longer fall back to any static alias table.
 func (d *profileDiscoverer) Lookup(ctx context.Context, shortName string) (string, bool) {
 	d.ensureFresh(ctx)
 
@@ -132,12 +141,18 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 
 	d.mu.Lock()
 	d.loading = false
-	d.lastErr = err
-	if err == nil {
+	switch {
+	case err == nil:
+		d.lastErr = nil
 		d.entries = entries
 		d.expiresAt = time.Now().Add(d.ttl)
-	} else {
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		// Transient cancellation from a caller-supplied context — do not
+		// poison the cache with a failure TTL, the next caller should retry
+		// immediately rather than wait out discoveryFailureTTL.
+	default:
 		// Keep previous entries (if any) but back off before retrying.
+		d.lastErr = err
 		d.expiresAt = time.Now().Add(discoveryFailureTTL)
 	}
 	d.mu.Unlock()

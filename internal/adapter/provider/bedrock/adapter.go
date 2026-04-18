@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -92,7 +93,12 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		if a.discoverer == nil {
 			return "", false
 		}
-		return a.discoverer.Lookup(ctx, name)
+		// Decouple discovery from the request context: a client disconnect
+		// must not cancel an in-flight ListInferenceProfiles call and poison
+		// the shared cache. Give discovery its own bounded timeout.
+		discoveryCtx, cancel := context.WithTimeout(context.Background(), discoveryLookupTimeout)
+		defer cancel()
+		return a.discoverer.Lookup(discoveryCtx, name)
 	}
 	bedrockModelID, ok := resolveModelID(mappedModel, config.ModelMapping, modelPrefix, lookup)
 	if !ok {
@@ -397,7 +403,7 @@ func (a *BedrockAdapter) unresolvableModelError(model, region string) *domain.Pr
 		msg = fmt.Sprintf("cannot resolve model %q: Bedrock discovery unavailable "+
 			"(grant bedrock:ListInferenceProfiles or configure bedrock.modelMapping)", model)
 	}
-	proxyErr := domain.NewProxyErrorWithMessage(fmt.Errorf("%s", msg), false, msg)
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New(msg), false, msg)
 	proxyErr.Scope = domain.ScopeModel
 	proxyErr.Reason = domain.CooldownReasonModelUnavailable
 	proxyErr.Model = model

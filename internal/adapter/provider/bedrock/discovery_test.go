@@ -161,6 +161,38 @@ func TestProfileDiscovererBacksOffOnError(t *testing.T) {
 	}
 }
 
+func TestProfileDiscovererContextCancelDoesNotPoisonCache(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		// Block until the caller cancels so we always observe context.Canceled.
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	d := newDiscovererForTest(srv.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before the call so fetch returns context.Canceled
+
+	if _, ok := d.Lookup(ctx, "claude-opus-4-7"); ok {
+		t.Error("expected miss on cancelled lookup")
+	}
+
+	// Cache must NOT be marked with a failure TTL — a transient client cancel
+	// should not back off the shared cache for other callers.
+	d.mu.RLock()
+	lastErr := d.lastErr
+	expiresAt := d.expiresAt
+	d.mu.RUnlock()
+	if lastErr != nil {
+		t.Errorf("lastErr should remain nil after ctx cancel, got %v", lastErr)
+	}
+	if !expiresAt.IsZero() {
+		t.Errorf("expiresAt should remain zero after ctx cancel, got %v", expiresAt)
+	}
+}
+
 // newDiscovererForTest builds a discoverer whose fetch() call is redirected
 // to the provided test server URL. We swap the base URL via a transport that
 // rewrites the Host so SigV4 still passes for bedrock.us-east-1.amazonaws.com.
