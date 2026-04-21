@@ -27,8 +27,8 @@ type fakeProviderRepo struct {
 	err       error
 }
 
-func (f *fakeProviderRepo) Create(provider *domain.Provider) error { return nil }
-func (f *fakeProviderRepo) Update(provider *domain.Provider) error { return nil }
+func (f *fakeProviderRepo) Create(provider *domain.Provider) error  { return nil }
+func (f *fakeProviderRepo) Update(provider *domain.Provider) error  { return nil }
 func (f *fakeProviderRepo) Delete(tenantID uint64, id uint64) error { return nil }
 func (f *fakeProviderRepo) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
 	return nil, domain.ErrNotFound
@@ -172,6 +172,9 @@ func TestModelsHandlerPricingSupplementByUserAgent(t *testing.T) {
 	}
 	if !containsModel(openAIIDs, "gpt-5.3") {
 		t.Fatalf("expected gpt-5.3 in openai model list")
+	}
+	if !containsModel(openAIIDs, "gpt-5.4-mini") {
+		t.Fatalf("expected gpt-5.4-mini in openai model list")
 	}
 	if containsModel(openAIIDs, "claude-opus-4-6") {
 		t.Fatalf("did not expect claude pricing-only model in codex model list")

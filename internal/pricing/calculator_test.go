@@ -125,6 +125,15 @@ func TestCalculator_Calculate(t *testing.T) {
 			wantZero: false,
 		},
 		{
+			name:  "gpt-5.4-mini basic",
+			model: "gpt-5.4-mini",
+			metrics: &usage.Metrics{
+				InputTokens:  50_000,
+				OutputTokens: 5_000,
+			},
+			wantZero: false,
+		},
+		{
 			name:  "gemini-2.5-pro basic",
 			model: "gemini-2.5-pro",
 			metrics: &usage.Metrics{
@@ -226,6 +235,7 @@ func TestPriceTable_Get_PrefixMatch(t *testing.T) {
 		{"gpt-5.2", true},
 		{"gpt-5.3", true},
 		{"gpt-5.4", true},
+		{"gpt-5.4-mini", true},
 		{"gemini-2.5-pro", true},
 		{"gemini-2.5-flash", true},
 		{"gemini-3-pro-preview", true},
