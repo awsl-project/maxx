@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository/cached"
@@ -173,7 +174,9 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	handler.RegisterSelfServiceRoutes(mux, authMiddleware.Wrap, adminHandler, selfServiceHandler)
 
 	// Models endpoint (public)
-	mux.Handle("/v1/models", modelsHandler)
+	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
+		ModelsHandler: modelsHandler,
+	})
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

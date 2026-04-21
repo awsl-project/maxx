@@ -11,6 +11,7 @@ import (
 
 	client "github.com/awsl-project/maxx/internal/adapter/client"
 	"github.com/awsl-project/maxx/internal/cooldown"
+	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository/cached"
@@ -206,20 +207,12 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 	// Admin API routes with authentication
 	mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
 
-	// Models endpoint
-	mux.Handle("/v1/models", modelsHandler)
-
-	// Proxy routes - all AI API endpoints
-	mux.Handle("/v1/messages", proxyHandler)
-	mux.Handle("/v1/messages/", proxyHandler)
-	mux.Handle("/v1/chat/completions", proxyHandler)
-	mux.Handle("/responses", proxyHandler)
-	mux.Handle("/responses/", proxyHandler)
-	mux.Handle("/v1/responses", proxyHandler)
-	mux.Handle("/v1/responses/", proxyHandler)
-	mux.Handle("/v1beta/models/", proxyHandler)
+	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
+		ProxyHandler:         proxyHandler,
+		ModelsHandler:        modelsHandler,
+		ProviderProxyHandler: providerProxyHandler,
+	})
 	mux.Handle("/project/", projectProxyHandler)
-	mux.Handle("/provider/", providerProxyHandler)
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
