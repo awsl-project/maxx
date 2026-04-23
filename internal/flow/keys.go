@@ -18,7 +18,7 @@ const (
 	KeyRequestURI          = "request_uri"
 	KeyIsStream            = "is_stream"
 	KeyAPITokenID          = "api_token_id"
-	KeyAPITokenDevMode     = "api_token_dev_mode"
+	KeyRequestDevMode      = "request_dev_mode"
 	KeyProxyRequest        = "proxy_request"
 	KeyUpstreamAttempt     = "upstream_attempt"
 	KeyEventChan           = "event_chan"

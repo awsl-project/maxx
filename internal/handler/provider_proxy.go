@@ -192,7 +192,7 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 	projectID := flow.GetProjectID(c)
 	tenantID := maxxctx.GetTenantID(c.Request.Context())
 	devMode := false
-	if v, ok := c.Get(flow.KeyAPITokenDevMode); ok {
+	if v, ok := c.Get(flow.KeyRequestDevMode); ok {
 		if b, ok := v.(bool); ok {
 			devMode = b
 		}
@@ -229,7 +229,7 @@ func (h *ProviderProxyHandler) shouldClearRequestDetailFor(c *flow.Ctx) bool {
 	}
 	devMode := false
 	if c != nil {
-		if v, ok := c.Get(flow.KeyAPITokenDevMode); ok {
+		if v, ok := c.Get(flow.KeyRequestDevMode); ok {
 			if b, ok := v.(bool); ok {
 				devMode = b
 			}
