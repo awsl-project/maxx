@@ -74,6 +74,16 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.handleProviders(w, r, id)
+		case len(parts) == 4 && parts[3] == "bedrock-models":
+			// Mirror the admin endpoint (/api/admin/providers/{id}/bedrock-models)
+			// under /api/providers/{id}/bedrock-models so the frontend's
+			// default axios baseURL (/api) can read the discovery catalog
+			// without talking to the admin-only surface.
+			id, ok := parseSelfServiceID(w, "provider", parts[2])
+			if !ok {
+				return
+			}
+			serveBedrockDiscoveredModels(h.svc, w, r, id)
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}

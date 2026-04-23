@@ -252,15 +252,27 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 // table. Available=false means discovery hasn't succeeded (typically
 // missing bedrock:ListInferenceProfiles IAM permission).
 func (h *AdminHandler) handleBedrockDiscoveredModels(w http.ResponseWriter, r *http.Request, id uint64) {
-	// GET returns the current catalog (triggers a lazy refresh on TTL
-	// expiry). POST forces an immediate fetch bypassing the TTL and the
-	// Invalidate() rate-limit — used by the admin UI's refresh button.
+	serveBedrockDiscoveredModels(h.svc, w, r, id)
+}
+
+// serveBedrockDiscoveredModels is the shared GET/POST handler for the
+// Bedrock discovery catalog surface, used by both the admin
+// (/api/admin/providers/{id}/bedrock-models) and self-service
+// (/api/providers/{id}/bedrock-models) paths. The self-service path is
+// what the frontend's default axios baseURL of /api actually hits —
+// without this shared handler, the admin-only registration used to 404
+// under non-admin deployments.
+//
+// GET returns the current catalog (triggers a lazy refresh on TTL
+// expiry). POST forces an immediate fetch bypassing the TTL and the
+// Invalidate() rate-limit — used by the admin UI's refresh button.
+func serveBedrockDiscoveredModels(svc *service.AdminService, w http.ResponseWriter, r *http.Request, id uint64) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 	tenantID := maxxctx.GetTenantID(r.Context())
-	p, err := h.svc.GetProvider(tenantID, id)
+	p, err := svc.GetProvider(tenantID, id)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 		return
@@ -269,7 +281,7 @@ func (h *AdminHandler) handleBedrockDiscoveredModels(w http.ResponseWriter, r *h
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider is not a bedrock provider"})
 		return
 	}
-	adapter, ok := h.svc.GetProviderAdapter(id)
+	adapter, ok := svc.GetProviderAdapter(id)
 	if !ok {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "adapter not initialized"})
 		return
