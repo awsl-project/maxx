@@ -235,7 +235,7 @@ func (h *ProviderProxyHandler) shouldClearRequestDetailFor(c *flow.Ctx) bool {
 			}
 		}
 	}
-	return h.proxyHandler.executor.ShouldClearRequestDetailFor(devMode)
+	return h.proxyHandler.executor.ShouldClearRequestDetailForDevMode(devMode)
 }
 
 func generateProxyRequestID() string {
