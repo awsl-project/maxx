@@ -461,12 +461,18 @@ func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
 	if state != nil && state.apiTokenDevMode {
 		return false
 	}
-	return e.ShouldClearRequestDetailByConfig()
+	return e.shouldClearRequestDetail()
+}
+
+// shouldClearRequestDetail 检查是否应该立即清理请求详情（全局配置）
+// 当设置为 0 时返回 true
+func (e *Executor) shouldClearRequestDetail() bool {
+	return e.getRequestDetailRetentionSeconds() == 0
 }
 
 // ShouldClearRequestDetailByConfig 检查是否应该按全局配置立即清理请求详情
 func (e *Executor) ShouldClearRequestDetailByConfig() bool {
-	return e.getRequestDetailRetentionSeconds() == 0
+	return e.shouldClearRequestDetail()
 }
 
 // getProviderMultiplier 获取 Provider 针对特定 ClientType 的倍率

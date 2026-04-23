@@ -126,15 +126,10 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		mappedModel := requestModel
 		isStream := flow.GetIsStream(c)
 		clearDetail := h.proxyHandler != nil && h.proxyHandler.executor != nil && h.proxyHandler.executor.ShouldClearRequestDetailByConfig()
-		if v, ok := c.Get(flow.KeyAPITokenDevMode); ok {
-			if b, ok := v.(bool); ok && b {
-				clearDetail = false
-			}
+		if getAPITokenDevMode(c) {
+			clearDetail = false
 		}
-		proxyReq := h.newProxyRequest(c, route, provider, requestModel, mappedModel, isStream)
-		if clearDetail {
-			proxyReq.RequestInfo = nil
-		}
+		proxyReq := h.newProxyRequest(c, route, provider, requestModel, mappedModel, isStream, clearDetail)
 		if err := h.proxyRequestRepo.Create(proxyReq); err != nil {
 			log.Printf("[ProviderProxy] failed to create proxy request: %v", err)
 		}
@@ -154,13 +149,12 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		proxyReq.Duration = now.Sub(proxyReq.StartTime)
 		proxyReq.StatusCode = responseCapture.StatusCode()
 		proxyReq.ResponseModel = mappedModel
-		proxyReq.ResponseInfo = &domain.ResponseInfo{
-			Status:  responseCapture.StatusCode(),
-			Headers: responseCapture.CapturedHeaders(),
-			Body:    responseCapture.Body(),
-		}
-		if clearDetail {
-			proxyReq.ResponseInfo = nil
+		if !clearDetail {
+			proxyReq.ResponseInfo = &domain.ResponseInfo{
+				Status:  responseCapture.StatusCode(),
+				Headers: responseCapture.CapturedHeaders(),
+				Body:    responseCapture.Body(),
+			}
 		}
 
 		if err == nil {
@@ -189,21 +183,16 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 	}
 }
 
-func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route, provider *domain.Provider, requestModel, mappedModel string, isStream bool) *domain.ProxyRequest {
+func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route, provider *domain.Provider, requestModel, mappedModel string, isStream bool, clearDetail bool) *domain.ProxyRequest {
 	requestHeaders := flow.GetRequestHeaders(c)
 	requestURI := flow.GetRequestURI(c)
 	requestBody := flow.GetRequestBody(c)
 	apiTokenID := flow.GetAPITokenID(c)
 	projectID := flow.GetProjectID(c)
 	tenantID := maxxctx.GetTenantID(c.Request.Context())
-	devMode := false
-	if v, ok := c.Get(flow.KeyAPITokenDevMode); ok {
-		if b, ok := v.(bool); ok {
-			devMode = b
-		}
-	}
+	devMode := getAPITokenDevMode(c)
 
-	return &domain.ProxyRequest{
+	proxyReq := &domain.ProxyRequest{
 		TenantID:      tenantID,
 		RequestID:     generateProxyRequestID(),
 		SessionID:     flow.GetSessionID(c),
@@ -214,18 +203,33 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 		IsStream:      isStream,
 		Status:        "IN_PROGRESS",
 		StatusCode:    http.StatusOK,
-		RequestInfo: &domain.RequestInfo{
+		RouteID:       route.ID,
+		ProviderID:    provider.ID,
+		ProjectID:     projectID,
+		APITokenID:    apiTokenID,
+		DevMode:       devMode,
+	}
+	if !clearDetail {
+		proxyReq.RequestInfo = &domain.RequestInfo{
 			Method:  c.Request.Method,
 			Headers: flattenRequestHeaders(requestHeaders),
 			URL:     requestURI,
 			Body:    string(requestBody),
-		},
-		RouteID:    route.ID,
-		ProviderID: provider.ID,
-		ProjectID:  projectID,
-		APITokenID: apiTokenID,
-		DevMode:    devMode,
+		}
 	}
+	return proxyReq
+}
+
+func getAPITokenDevMode(c *flow.Ctx) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(flow.KeyAPITokenDevMode)
+	if !ok {
+		return false
+	}
+	b, _ := v.(bool)
+	return b
 }
 
 func generateProxyRequestID() string {
@@ -275,7 +279,6 @@ func (h *ProviderProxyHandler) parseProviderPath(path string) (providerID, apiPa
 	if !isValidProviderAPIPath(apiPath) {
 		return "", "", false
 	}
-
 	return providerID, apiPath, true
 }
 

@@ -10,7 +10,7 @@ func TestRequestDetailRetentionZero_AlignedAcrossProxyPaths(t *testing.T) {
 	t.Run("global URL clears request detail", func(t *testing.T) {
 		request := runRequestDetailRetentionZeroCase(t, "/v1/messages", false)
 		assertRequestDetailCleared(t, request)
-		if got := int(request["projectID"].(float64)); got != 0 {
+		if got := getProjectID(t, request); got != 0 {
 			t.Fatalf("expected global request projectID 0, got %d", got)
 		}
 	})
@@ -18,15 +18,15 @@ func TestRequestDetailRetentionZero_AlignedAcrossProxyPaths(t *testing.T) {
 	t.Run("project URL clears request detail", func(t *testing.T) {
 		request := runRequestDetailRetentionZeroCase(t, "/project/issue-526/v1/messages", true)
 		assertRequestDetailCleared(t, request)
-		if got := int(request["projectID"].(float64)); got == 0 {
-			t.Fatal("expected project request to carry non-zero projectID")
+		if got := getProjectID(t, request); got == 0 {
+			t.Fatalf("expected project request to carry non-zero projectID, request=%#v", request)
 		}
 	})
 
 	t.Run("provider URL clears request detail", func(t *testing.T) {
 		request := runRequestDetailRetentionZeroCase(t, "", false)
 		assertRequestDetailCleared(t, request)
-		if got := int(request["projectID"].(float64)); got != 0 {
+		if got := getProjectID(t, request); got != 0 {
 			t.Fatalf("expected provider request projectID 0, got %d", got)
 		}
 	})
@@ -98,4 +98,17 @@ func assertRequestDetailCleared(t *testing.T, request map[string]any) {
 	if request["responseInfo"] != nil {
 		t.Fatalf("expected responseInfo to be nil when retention=0, got %#v", request["responseInfo"])
 	}
+}
+
+func getProjectID(t *testing.T, request map[string]any) int {
+	t.Helper()
+	value, ok := request["projectID"]
+	if !ok {
+		t.Fatalf("projectID missing from request: %#v", request)
+	}
+	pid, ok := value.(float64)
+	if !ok {
+		t.Fatalf("projectID missing or wrong type: value=%#v request=%#v", value, request)
+	}
+	return int(pid)
 }
