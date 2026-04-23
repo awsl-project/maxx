@@ -362,3 +362,22 @@ type FailureCountRepository interface {
 	// DeleteExpired deletes failure counts where last failure was too long ago
 	DeleteExpired(olderThan int64) error
 }
+
+// BedrockDiscoveryRepository persists per-provider Bedrock discovery
+// catalogs across process restarts so the profileDiscoverer can warm its
+// in-memory cache at startup and skip the ~1-5s
+// ListInferenceProfiles + ListFoundationModels round-trip on the first
+// request. Scoped per provider: different Bedrock providers may hold
+// different IAM permissions and therefore see different catalogs.
+type BedrockDiscoveryRepository interface {
+	// Load returns every cached entry for a provider plus the timestamp
+	// of the most recent successful fetch, used to decide whether the
+	// rehydrated cache is still within TTL. Zero entries + zero time
+	// means no cache; nil error.
+	Load(providerID uint64) ([]*domain.BedrockDiscoveryEntry, time.Time, error)
+
+	// Replace atomically swaps the stored catalog for a provider. Empty
+	// entries is valid — it clears the cache, matching what the adapter
+	// sees after a discovery run that returned nothing.
+	Replace(providerID uint64, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -25,6 +26,20 @@ import (
 
 func init() {
 	provider.RegisterAdapterFactory("bedrock", NewAdapter)
+}
+
+// discoveryRepo is the persistence backend for the profileDiscoverer,
+// shared by every BedrockAdapter instance. Wired at process startup by
+// the binary that owns the database; stays nil in unit tests, in which
+// case discovery falls back to in-memory-only behaviour. Set once at
+// boot — reassigning under concurrent NewAdapter calls is undefined.
+var discoveryRepo repository.BedrockDiscoveryRepository
+
+// SetDiscoveryRepository wires the per-process persistence backend for
+// Bedrock discovery. Called once from main after the sqlite layer is
+// available. Passing nil disables persistence.
+func SetDiscoveryRepository(r repository.BedrockDiscoveryRepository) {
+	discoveryRepo = r
 }
 
 // BedrockAdapter handles communication with AWS Bedrock.
@@ -46,11 +61,22 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 		region = DefaultRegion
 	}
 	httpClient := newHTTPClient()
+	discoverer := newProfileDiscoverer(httpClient, creds, region)
+	if discoveryRepo != nil && p.ID > 0 {
+		discoverer.repo = discoveryRepo
+		discoverer.providerID = p.ID
+		// Warm the in-memory cache from the persisted catalog so the
+		// first request doesn't pay ~1-5s of AWS round-trip latency.
+		// If the persisted FetchedAt is older than the TTL, Lookup
+		// will refresh on demand — loadFromStore only primes, it does
+		// not extend the TTL.
+		discoverer.loadFromStore()
+	}
 	return &BedrockAdapter{
 		provider:   p,
 		httpClient: httpClient,
 		creds:      creds,
-		discoverer: newProfileDiscoverer(httpClient, creds, region),
+		discoverer: discoverer,
 	}, nil
 }
 
@@ -79,6 +105,23 @@ type DiscoveredModelsResult struct {
 	Available bool              `json:"available"`
 	Region    string            `json:"region"`
 	Models    []DiscoveredModel `json:"models"`
+}
+
+// RefreshDiscoveredModels forces a fresh ListInferenceProfiles +
+// ListFoundationModels round-trip, bypassing the normal TTL and the
+// Invalidate() rate-limit. Used by the admin UI's "refresh" button —
+// the operator's intent is explicit, so the rate-limit that protects
+// against error-path stampedes is not needed here. Returns the refreshed
+// catalog and any fetch error (the catalog still reflects whatever was
+// in memory when the fetch failed).
+func (a *BedrockAdapter) RefreshDiscoveredModels(ctx context.Context) (DiscoveredModelsResult, error) {
+	var refreshErr error
+	if a.discoverer != nil {
+		lookupCtx, cancel := context.WithTimeout(ctx, discoveryLookupTimeout)
+		defer cancel()
+		refreshErr = a.discoverer.ForceRefresh(lookupCtx)
+	}
+	return a.DiscoveredModels(ctx), refreshErr
 }
 
 // DiscoveredModels triggers a discovery refresh (subject to the normal
@@ -168,6 +211,16 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Sanitize request body for Bedrock
 	requestBody = sanitizeRequestBody(requestBody)
+
+	// Model-specific thinking config: Opus 4.7 rejects the classic
+	// thinking.type="enabled" shape and requires adaptive. Earlier
+	// sanitize steps run without knowing the target model; this step
+	// rewrites the thinking block (and sets output_config.effort) based
+	// on the resolved Bedrock ID's short name, so classic-shape clients
+	// (e.g. Claude Code CLI) can still hit adaptive-only models.
+	if short, _, ok := extractNameAndDate(bedrockModelID); ok {
+		requestBody = adaptThinkingForModel(requestBody, short)
+	}
 
 	// Build upstream URL
 	upstreamURL := buildBedrockURL(region, bedrockModelID, clientWantsStream)

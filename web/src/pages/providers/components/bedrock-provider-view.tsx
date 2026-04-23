@@ -43,28 +43,48 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
 
-  const loadDiscoveredModels = useCallback(async () => {
-    setDiscoveryLoading(true);
-    setDiscoveryError(null);
-    try {
-      const result = await getTransport().getBedrockDiscoveredModels(provider.id);
-      setDiscovered(result);
-    } catch (err) {
-      // 503 from the admin endpoint means the adapter hasn't been
-      // initialized yet — from the operator's perspective that is
-      // another flavour of "discovery isn't working right now", so
-      // treat it the same as an Available=false response rather than
-      // a red transport error.
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 503) {
-        setDiscovered({ available: false, region: provider.config?.bedrock?.region || '', models: [] });
-      } else {
-        setDiscoveryError(err instanceof Error ? err.message : String(err));
+  const fetchDiscovery = useCallback(
+    async (force: boolean) => {
+      setDiscoveryLoading(true);
+      setDiscoveryError(null);
+      try {
+        const result = force
+          ? await getTransport().refreshBedrockDiscoveredModels(provider.id)
+          : await getTransport().getBedrockDiscoveredModels(provider.id);
+        setDiscovered(result);
+        // The refresh endpoint may return the stale catalog + an error
+        // field when the forced AWS round-trip itself failed. Surface
+        // it as a non-fatal error so the operator sees both the old
+        // list and why the new one couldn't land.
+        const refreshErr = (result as BedrockDiscoveredModelsResult & { refreshError?: string })
+          .refreshError;
+        if (refreshErr) {
+          setDiscoveryError(refreshErr);
+        }
+      } catch (err) {
+        // 503 from the admin endpoint means the adapter hasn't been
+        // initialized yet — from the operator's perspective that is
+        // another flavour of "discovery isn't working right now", so
+        // treat it the same as an Available=false response rather than
+        // a red transport error.
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 503) {
+          setDiscovered({ available: false, region: provider.config?.bedrock?.region || '', models: [] });
+        } else {
+          setDiscoveryError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        setDiscoveryLoading(false);
       }
-    } finally {
-      setDiscoveryLoading(false);
-    }
-  }, [provider.id, provider.config?.bedrock?.region]);
+    },
+    [provider.id, provider.config?.bedrock?.region],
+  );
+
+  // Mount: cheap GET that returns the persisted/cached catalog. The
+  // refresh button (below) is the only path that triggers a live AWS
+  // round-trip so routine navigation doesn't burn API quota.
+  const loadDiscoveredModels = useCallback(() => fetchDiscovery(false), [fetchDiscovery]);
+  const refreshDiscoveredModels = useCallback(() => fetchDiscovery(true), [fetchDiscovery]);
 
   useEffect(() => {
     loadDiscoveredModels();
@@ -224,7 +244,7 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={loadDiscoveredModels}
+                onClick={refreshDiscoveredModels}
                 disabled={discoveryLoading}
               >
                 <RefreshCw size={14} className={discoveryLoading ? 'animate-spin' : ''} />

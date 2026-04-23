@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/awsl-project/maxx/internal/domain"
 )
 
 func TestExtractShortName(t *testing.T) {
@@ -289,8 +290,13 @@ func TestExtractNameAndDateAcceptsFoundationModels(t *testing.T) {
 		{"anthropic.claude-sonnet-4-6", "claude-sonnet-4-6", "", true},
 		{"anthropic.claude-opus-4-6-v1", "claude-opus-4-6", "", true},
 		{"anthropic.claude-haiku-4-5", "claude-haiku-4-5", "", true},
-		// Foundation model shape mustn't swallow the region prefix.
-		{"us.anthropic.claude-sonnet-4-6", "", "", false},
+		// Region-prefixed dateless inference-profile IDs: AWS started
+		// shipping these for Claude 4.6/4.7 under type=APPLICATION.
+		// The pattern must accept them so discovery indexes them.
+		{"us.anthropic.claude-sonnet-4-6", "claude-sonnet-4-6", "", true},
+		{"us.anthropic.claude-opus-4-7", "claude-opus-4-7", "", true},
+		{"global.anthropic.claude-opus-4-7", "claude-opus-4-7", "", true},
+		{"us.anthropic.claude-opus-4-6-v1", "claude-opus-4-6", "", true},
 		// Legacy "claude-v2": the `2` satisfies the digit requirement
 		// and the whole name is preserved — clients still send it.
 		{"anthropic.claude-v2", "claude-v2", "", true},
@@ -426,6 +432,176 @@ func TestProfileDiscovererPartialFailure(t *testing.T) {
 	id, ok := d.Lookup(context.Background(), "claude-sonnet-4-6")
 	if !ok || id != "anthropic.claude-sonnet-4-6" {
 		t.Errorf("partial discovery must still return FM hits; got (%q,%v)", id, ok)
+	}
+}
+
+// fakeRepo is a deterministic in-memory BedrockDiscoveryRepository for
+// unit tests. It ignores providerID — the discoverer always passes its
+// own providerID (0 in tests), but the repo contract is about persisting
+// per-provider catalogs, not multiplexing them in a single fake.
+type fakeRepo struct {
+	loaded    []*domain.BedrockDiscoveryEntry
+	loadedAt  time.Time
+	loadErr   error
+	saved     []*domain.BedrockDiscoveryEntry
+	savedAt   time.Time
+	saveCount int
+	saveErr   error
+}
+
+func (s *fakeRepo) Load(providerID uint64) ([]*domain.BedrockDiscoveryEntry, time.Time, error) {
+	return s.loaded, s.loadedAt, s.loadErr
+}
+func (s *fakeRepo) Replace(providerID uint64, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error {
+	s.saveCount++
+	if s.saveErr != nil {
+		return s.saveErr
+	}
+	s.saved = append([]*domain.BedrockDiscoveryEntry(nil), entries...)
+	s.savedAt = fetchedAt
+	return nil
+}
+
+func TestProfileDiscovererLoadsFromStore(t *testing.T) {
+	// Pre-populated store simulates a process restart: the in-memory
+	// cache must be seeded before any Lookup() so the first request
+	// doesn't pay the AWS round-trip. The stored FetchedAt sits well
+	// within the TTL, so no refresh should fire.
+	repo := &fakeRepo{
+		loaded: []*domain.BedrockDiscoveryEntry{
+			{ShortName: "claude-sonnet-4-5", BedrockID: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", Source: "inference-profile"},
+			{ShortName: "claude-opus-4", BedrockID: "anthropic.claude-opus-4-v1", Source: "foundation-model"},
+		},
+		loadedAt: time.Now().Add(-1 * time.Minute),
+	}
+	// Server would be a bug — if discovery hits AWS we want the test to
+	// fail loudly, not silently "pass" because both sources return the
+	// same data.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected AWS call to %s — load-from-store should have served the hit", r.URL.Path)
+	}))
+	defer srv.Close()
+
+	d := newDiscovererForTest(srv.URL)
+	d.repo = repo
+	d.loadFromStore()
+
+	if !d.Available() {
+		t.Error("Available() must be true after rehydration from store")
+	}
+	if id, ok := d.Lookup(context.Background(), "claude-sonnet-4-5"); !ok || id != "us.anthropic.claude-sonnet-4-5-20250929-v1:0" {
+		t.Errorf("rehydrated lookup got (%q,%v)", id, ok)
+	}
+	if e := d.entries["claude-opus-4"]; e.source != sourceFoundation {
+		t.Errorf("rehydrated source = %v; want sourceFoundation", e.source)
+	}
+}
+
+func TestProfileDiscovererSavesToStoreAfterFetch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/inference-profiles":
+			fmt.Fprint(w, `{"inferenceProfileSummaries":[
+				{"inferenceProfileId":"us.anthropic.claude-sonnet-4-5-20250929-v1:0","status":"ACTIVE"}
+			]}`)
+		case "/foundation-models":
+			fmt.Fprint(w, `{"modelSummaries":[]}`)
+		}
+	}))
+	defer srv.Close()
+
+	repo := &fakeRepo{}
+	d := newDiscovererForTest(srv.URL)
+	d.repo = repo
+
+	if _, _ = d.Lookup(context.Background(), "claude-sonnet-4-5"); repo.saveCount != 1 {
+		t.Fatalf("Save should be called exactly once after fetch; got %d", repo.saveCount)
+	}
+	// Expect exactly the short-name entry persisted — the internal
+	// dated-name index must not be saved.
+	var saw map[string]string = map[string]string{}
+	for _, e := range repo.saved {
+		saw[e.ShortName] = e.BedrockID
+	}
+	if got, ok := saw["claude-sonnet-4-5"]; !ok || got != "us.anthropic.claude-sonnet-4-5-20250929-v1:0" {
+		t.Errorf("expected claude-sonnet-4-5 saved; got %v", saw)
+	}
+	if _, ok := saw["claude-sonnet-4-5-20250929"]; ok {
+		t.Error("dated-name index must not be persisted")
+	}
+}
+
+func TestProfileDiscovererForceRefreshBypassesRateLimit(t *testing.T) {
+	// The hit counter proves the admin-path refresh really re-fetches,
+	// not just returns whatever sits in the cache.
+	var profileHits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/inference-profiles":
+			atomic.AddInt32(&profileHits, 1)
+			fmt.Fprint(w, `{"inferenceProfileSummaries":[]}`)
+		case "/foundation-models":
+			fmt.Fprint(w, `{"modelSummaries":[]}`)
+		}
+	}))
+	defer srv.Close()
+
+	d := newDiscovererForTest(srv.URL)
+	// Initial fetch.
+	_, _ = d.Lookup(context.Background(), "__seed__")
+	// Invalidate's 60s rate-limit kicks in; a plain Invalidate would be a no-op.
+	d.Invalidate()
+	// ForceRefresh must still trigger a second fetch.
+	if err := d.ForceRefresh(context.Background()); err != nil {
+		t.Fatalf("ForceRefresh: %v", err)
+	}
+	if got := atomic.LoadInt32(&profileHits); got < 2 {
+		t.Errorf("ForceRefresh should have re-fetched; profileHits=%d", got)
+	}
+}
+
+func TestProfileDiscovererSkipsFoundationModelsWithoutOnDemand(t *testing.T) {
+	// AWS lists Claude 4.x foundation models but sets
+	// inferenceTypesSupported to ["INFERENCE_PROFILE"] only — direct
+	// InvokeModel on the bare FM ID returns "on-demand throughput isn't
+	// supported". Discovery must skip those so resolveModelID doesn't
+	// route a request to a target that cannot be invoked.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/inference-profiles":
+			fmt.Fprint(w, `{"inferenceProfileSummaries":[]}`)
+		case "/foundation-models":
+			fmt.Fprint(w, `{"modelSummaries":[
+				{"modelId":"anthropic.claude-sonnet-4-6","modelLifecycle":{"status":"ACTIVE"},"inferenceTypesSupported":["INFERENCE_PROFILE"]},
+				{"modelId":"anthropic.claude-opus-4-6-v1","modelLifecycle":{"status":"ACTIVE"},"inferenceTypesSupported":["INFERENCE_PROFILE"]},
+				{"modelId":"anthropic.claude-3-5-sonnet-20241022-v2:0","modelLifecycle":{"status":"ACTIVE"},"inferenceTypesSupported":["ON_DEMAND","INFERENCE_PROFILE"]},
+				{"modelId":"anthropic.claude-v2","modelLifecycle":{"status":"ACTIVE"},"inferenceTypesSupported":["ON_DEMAND"]}
+			]}`)
+		}
+	}))
+	defer srv.Close()
+
+	d := newDiscovererForTest(srv.URL)
+
+	// FM-only 4.x entries must NOT be indexed — letting them through
+	// is exactly the regression this test pins down.
+	if _, ok := d.Lookup(context.Background(), "claude-sonnet-4-6"); ok {
+		t.Error("claude-sonnet-4-6 has no ON_DEMAND support; must be filtered out")
+	}
+	if _, ok := d.Lookup(context.Background(), "claude-opus-4-6"); ok {
+		t.Error("claude-opus-4-6 has no ON_DEMAND support; must be filtered out")
+	}
+
+	// Entries that do advertise ON_DEMAND still pass through, including
+	// the mixed case where ON_DEMAND sits alongside INFERENCE_PROFILE.
+	if id, ok := d.Lookup(context.Background(), "claude-3-5-sonnet"); !ok || id != "anthropic.claude-3-5-sonnet-20241022-v2:0" {
+		t.Errorf("mixed ON_DEMAND+INFERENCE_PROFILE must be indexed; got (%q,%v)", id, ok)
+	}
+	if id, ok := d.Lookup(context.Background(), "claude-v2"); !ok || id != "anthropic.claude-v2" {
+		t.Errorf("ON_DEMAND-only FM must be indexed; got (%q,%v)", id, ok)
 	}
 }
 

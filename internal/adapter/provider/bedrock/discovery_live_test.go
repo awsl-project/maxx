@@ -52,6 +52,21 @@ func TestLiveDiscovery(t *testing.T) {
 	sort.Strings(names)
 	t.Logf("region=%s discovered %d Anthropic profiles:", region, len(d.entries))
 	for _, n := range names {
-		t.Logf("  %-30s -> %s", n, d.entries[n].id)
+		t.Logf("  %-30s -> %s (%s)", n, d.entries[n].id, d.entries[n].source.label())
+	}
+
+	// Regression pin: Claude 4.x FM-only entries are listed by AWS with
+	// inferenceTypesSupported=["INFERENCE_PROFILE"]. If the filter in
+	// fetchFoundationModels regressed, one of these would be indexed as a
+	// bare foundation-model ID and InvokeModel would fail at runtime with
+	// "on-demand throughput isn't supported".
+	for _, short := range []string{"claude-sonnet-4-6", "claude-opus-4-6"} {
+		e, ok := d.entries[short]
+		if !ok {
+			continue
+		}
+		if e.source == sourceFoundation {
+			t.Errorf("%s was indexed as foundation-model (%s) — filter must skip non-ON_DEMAND FM entries", short, e.id)
+		}
 	}
 }

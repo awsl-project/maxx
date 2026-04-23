@@ -1,7 +1,10 @@
 package bedrock
 
 import (
+	"fmt"
+	"log"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -34,6 +37,57 @@ var inferenceProfilePattern = regexp.MustCompile(`^anthropic\.claude-[a-z0-9-]+-
 // or ("", false) on miss. May be nil when no discoverer is wired up.
 type discoveredLookup func(shortName string) (id string, hit bool)
 
+// minorVersionPattern captures the new-style "claude-<family>-<major>-<minor>"
+// short names (e.g. "claude-sonnet-4-6", "claude-opus-4-1"). Used to drive
+// the degrade loop — we don't want it firing on old-style
+// "claude-3-5-sonnet" (version before family) or on dated names.
+var minorVersionPattern = regexp.MustCompile(`^(claude-[a-z]+)-(\d+)-(\d+)$`)
+
+// degradeCandidates yields progressively-older fallback short names for a
+// client-requested short name whose AWS inference profile has not yet
+// shipped. Given "claude-sonnet-4-6" it returns
+// ["claude-sonnet-4-5", "claude-sonnet-4-4", ..., "claude-sonnet-4-0",
+// "claude-sonnet-4"]. Inputs that don't match minorVersionPattern yield
+// nothing — so dated names, old-style names, and bare majors don't degrade.
+func degradeCandidates(short string) []string {
+	m := minorVersionPattern.FindStringSubmatch(short)
+	if len(m) != 4 {
+		return nil
+	}
+	family, major := m[1], m[2]
+	minor, err := strconv.Atoi(m[3])
+	if err != nil || minor <= 0 {
+		return []string{family + "-" + major}
+	}
+	out := make([]string, 0, minor+1)
+	for i := minor - 1; i >= 0; i-- {
+		out = append(out, fmt.Sprintf("%s-%s-%d", family, major, i))
+	}
+	out = append(out, family+"-"+major)
+	return out
+}
+
+// lookupWithFallback queries discovery for the exact short name and, on a
+// miss, walks degradeCandidates until one hits. Logs a WARN on a degrade
+// hit so operators notice that a request for 4.6/4.7 was silently served
+// by 4.5 — otherwise a user debugging "why does my response look like a
+// different model" has nothing to grep for.
+func lookupWithFallback(discovered discoveredLookup, short string) (string, bool) {
+	if discovered == nil {
+		return "", false
+	}
+	if id, ok := discovered(short); ok {
+		return id, true
+	}
+	for _, cand := range degradeCandidates(short) {
+		if id, ok := discovered(cand); ok {
+			log.Printf("bedrock: no inference profile for %q, falling back to %q (%s)", short, cand, id)
+			return id, true
+		}
+	}
+	return "", false
+}
+
 // resolveModelID maps a request model to a fully-qualified Bedrock ID.
 // Returns ok=false for bare short names that cannot be resolved — the caller
 // must surface an error rather than guess a date, since Bedrock profile IDs
@@ -57,15 +111,13 @@ func resolveModelID(model string, configMapping map[string]string, modelPrefix s
 			return applyPrefix(mapped, modelPrefix), true
 		}
 	}
-	if discovered != nil {
-		if id, ok := discovered(model); ok {
-			// Discovery returns the exact invoke-ready ID: inference
-			// profiles already carry their region prefix, foundation
-			// models must not receive one (a region-prefixed foundation
-			// model ID like "us.anthropic.claude-sonnet-4-6" is not a
-			// valid Bedrock target).
-			return id, true
-		}
+	if id, ok := lookupWithFallback(discovered, model); ok {
+		// Discovery returns the exact invoke-ready ID: inference
+		// profiles already carry their region prefix, foundation
+		// models must not receive one (a region-prefixed foundation
+		// model ID like "us.anthropic.claude-sonnet-4-6" is not a
+		// valid Bedrock target).
+		return id, true
 	}
 	if modelDatePattern.MatchString(model) {
 		return applyPrefix("anthropic."+model+"-v1:0", modelPrefix), true
@@ -82,7 +134,7 @@ func resolveModelID(model string, configMapping map[string]string, modelPrefix s
 			!regionPrefixedPattern.MatchString(model) &&
 			!inferenceProfilePattern.MatchString(model) {
 			if short, ok := strings.CutPrefix(model, "anthropic."); ok && short != "" {
-				if id, hit := discovered(short); hit {
+				if id, hit := lookupWithFallback(discovered, short); hit {
 					return id, true
 				}
 			}

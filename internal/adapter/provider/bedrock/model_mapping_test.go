@@ -254,3 +254,66 @@ func TestResolveModelIDPriority(t *testing.T) {
 		})
 	}
 }
+
+func TestDegradeCandidates(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"claude-sonnet-4-6", []string{"claude-sonnet-4-5", "claude-sonnet-4-4", "claude-sonnet-4-3", "claude-sonnet-4-2", "claude-sonnet-4-1", "claude-sonnet-4-0", "claude-sonnet-4"}},
+		{"claude-opus-4-1", []string{"claude-opus-4-0", "claude-opus-4"}},
+		{"claude-opus-4-0", []string{"claude-opus-4"}},
+		// No minor: nothing to degrade to; we never downshift across majors.
+		{"claude-sonnet-4", nil},
+		// Old-style "claude-3-5-sonnet": version before family, no degrade.
+		{"claude-3-5-sonnet", nil},
+		// Dated name: authoritative, no degrade.
+		{"claude-sonnet-4-5-20250929", nil},
+		{"gpt-4-1", nil},
+	}
+	for _, c := range cases {
+		got := degradeCandidates(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("degradeCandidates(%q) = %v; want %v", c.in, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("degradeCandidates(%q)[%d] = %q; want %q", c.in, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
+func TestResolveModelIDDegradesOnDiscoveryMiss(t *testing.T) {
+	// Only claude-sonnet-4-5 and claude-opus-4 are discoverable; requests
+	// for newer minor versions must degrade to the nearest available.
+	lookup := func(name string) (string, bool) {
+		switch name {
+		case "claude-sonnet-4-5":
+			return "us.anthropic.claude-sonnet-4-5-20250929-v1:0", true
+		case "claude-opus-4":
+			return "us.anthropic.claude-opus-4-20250514-v1:0", true
+		}
+		return "", false
+	}
+
+	cases := []struct {
+		name   string
+		model  string
+		wantID string
+	}{
+		{"sonnet-4-6 degrades to sonnet-4-5", "claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"},
+		{"sonnet-4-7 degrades past missing 4-6 to 4-5", "claude-sonnet-4-7", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"},
+		{"opus-4-6 degrades all the way to bare opus-4", "claude-opus-4-6", "us.anthropic.claude-opus-4-20250514-v1:0"},
+		{"bare anthropic.<short> also degrades", "anthropic.claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := resolveModelID(c.model, nil, "us", lookup)
+			if !ok || got != c.wantID {
+				t.Errorf("got (%q,%v); want (%q,true)", got, ok, c.wantID)
+			}
+		})
+	}
+}

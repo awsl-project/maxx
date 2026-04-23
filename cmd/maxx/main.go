@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/bedrock" // Register bedrock adapter
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"  // Register custom adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"    // Register kiro adapter
@@ -120,6 +120,12 @@ func main() {
 	userRepo := sqlite.NewUserRepository(db)
 	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
 	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
+
+	// Wire Bedrock discovery persistence: each BedrockAdapter will rehydrate
+	// its short-name → inference-profile catalog from SQLite at startup,
+	// avoiding the ~1-5s ListInferenceProfiles round-trip on the first
+	// request after a restart.
+	bedrock.SetDiscoveryRepository(sqlite.NewBedrockDiscoveryRepository(db))
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)

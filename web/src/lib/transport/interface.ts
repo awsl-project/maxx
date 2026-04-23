@@ -177,6 +177,9 @@ export interface Transport {
   // ListInferenceProfiles + ListFoundationModels with the provider's
   // credentials and returns what's actually invocable in its region.
   getBedrockDiscoveredModels(providerId: number): Promise<BedrockDiscoveredModelsResult>;
+  // Force a fresh AWS round-trip (bypasses the server-side TTL). Use
+  // only in response to an explicit operator refresh action.
+  refreshBedrockDiscoveredModels(providerId: number): Promise<BedrockDiscoveredModelsResult>;
 
   // ===== Model Mapping API =====
   getModelMappings(): Promise<ModelMapping[]>;
