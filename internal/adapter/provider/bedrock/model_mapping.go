@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"regexp"
+	"strings"
 )
 
 // modelDatePattern matches an Anthropic short name that already carries an
@@ -66,6 +67,22 @@ func resolveModelID(model string, configMapping map[string]string, modelPrefix s
 		return applyPrefix("anthropic."+model+"-v1:0", modelPrefix), true
 	}
 	if bedrockIDPattern.MatchString(model) {
+		// Bare "anthropic.<short>" (no region prefix, no date+version) is a
+		// foundation-model shape. Many current Claude releases have no
+		// on-demand foundation SKU and only invoke through an inference
+		// profile, so give discovery a chance at the short name before
+		// falling back to passthrough. If discovery is absent or misses,
+		// the original passthrough stands (operators/tests relying on it
+		// stay unaffected).
+		if discovered != nil &&
+			!regionPrefixedPattern.MatchString(model) &&
+			!inferenceProfilePattern.MatchString(model) {
+			if short, ok := strings.CutPrefix(model, "anthropic."); ok {
+				if id, hit := discovered(short); hit {
+					return id, true
+				}
+			}
+		}
 		return applyPrefix(model, modelPrefix), true
 	}
 	return "", false

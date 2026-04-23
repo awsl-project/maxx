@@ -148,6 +148,31 @@ func TestResolveModelIDPriority(t *testing.T) {
 			wantOK: true,
 		},
 		{
+			// Client sends "anthropic.<short>" for a model that Bedrock
+			// refuses on-demand (no foundation SKU — must invoke via an
+			// inference profile). Discovery knows the profile under the
+			// short name, so stripping "anthropic." and consulting
+			// discovery lets us resolve to an invoke-ready profile ID
+			// instead of letting the bare foundation ID hit Bedrock and
+			// fail with "on-demand throughput isn't supported".
+			name:   "client-supplied bare anthropic.X resolves via discovery",
+			model:  "anthropic.claude-sonnet-4-9",
+			lookup: discovered,
+			prefix: "us",
+			wantID: "us.anthropic.claude-sonnet-4-9-20260201-v1:0",
+			wantOK: true,
+		},
+		{
+			// Discovery-miss on the stripped short name must fall back to
+			// the original passthrough, not synthesize a profile ID.
+			name:   "client-supplied bare anthropic.X with discovery miss falls back to passthrough",
+			model:  "anthropic.claude-unreleased-99",
+			lookup: discovered,
+			prefix: "us",
+			wantID: "anthropic.claude-unreleased-99",
+			wantOK: true,
+		},
+		{
 			name:   "client-supplied fully-qualified bedrock ID passes through",
 			model:  "anthropic.claude-opus-4-5-20251101-v1:0",
 			lookup: discovered,
