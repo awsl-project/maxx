@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -150,7 +151,7 @@ func (d *profileDiscoverer) loadFromStore() {
 	if len(rows) == 0 {
 		return
 	}
-	entries := make(map[string]discoveredEntry, len(rows))
+	entries := make(map[string]discoveredEntry, len(rows)*2)
 	for _, r := range rows {
 		var src entrySource
 		if r.Source == "inference-profile" {
@@ -158,7 +159,18 @@ func (d *profileDiscoverer) loadFromStore() {
 		} else {
 			src = sourceFoundation
 		}
-		entries[r.ShortName] = discoveredEntry{id: r.BedrockID, source: src}
+		entry := discoveredEntry{id: r.BedrockID, source: src}
+		entries[r.ShortName] = entry
+		// Rebuild the dated-name alias from the Bedrock ID so clients
+		// that send explicit release-dated names (e.g.
+		// "claude-3-5-sonnet-20241022") keep resolving to the correct
+		// versioned profile ID after a restart. Without this, a cold
+		// discoverer misses on the dated lookup and resolveModelID
+		// synthesises "anthropic.claude-3-5-sonnet-20241022-v1:0"
+		// which hits a different model (the real profile is -v2:0).
+		if _, date, ok := extractNameAndDate(r.BedrockID); ok && date != "" {
+			entries[r.ShortName+"-"+date] = entry
+		}
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -168,18 +180,14 @@ func (d *profileDiscoverer) loadFromStore() {
 	d.everLoaded = true
 }
 
-// persistEntries copies the current catalog to the store. Called after
-// a successful fetch (holding d.mu). Errors are logged, not surfaced —
-// a broken store should not fail an otherwise-good fetch.
-func (d *profileDiscoverer) persistEntries(fetchedAt time.Time) {
-	if d.repo == nil {
-		return
-	}
+// snapshotPersistableRows collects the short-name entries worth
+// persisting from the current catalog. Runs while d.mu is held so the
+// caller can release the lock before doing the blocking DB write.
+// Dated-name aliases are skipped — loadFromStore reconstructs them from
+// the stored Bedrock ID.
+func (d *profileDiscoverer) snapshotPersistableRows() []*domain.BedrockDiscoveryEntry {
 	rows := make([]*domain.BedrockDiscoveryEntry, 0, len(d.entries))
 	for k, v := range d.entries {
-		// Skip the internal dated-name index; on reload it will be
-		// reconstructed (or not) from fresh discovery. Persisting it
-		// would double the row count for no caller benefit.
 		if modelDatePattern.MatchString(k) {
 			continue
 		}
@@ -189,9 +197,7 @@ func (d *profileDiscoverer) persistEntries(fetchedAt time.Time) {
 			Source:    v.source.label(),
 		})
 	}
-	if err := d.repo.Replace(d.providerID, rows, fetchedAt); err != nil {
-		log.Printf("bedrock discovery: save to store failed (%v)", err)
-	}
+	return rows
 }
 
 // Lookup returns the discovered Bedrock profile ID for an Anthropic short name
@@ -330,16 +336,25 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 	d.loadingCh = nil
 	close(ch)
 	now := time.Now()
+	// Snapshot rows to persist *inside* the lock, but perform the
+	// blocking DB write outside — SQLite's transaction can stall on
+	// contention and holding d.mu would serialise every concurrent
+	// Lookup behind it.
+	var toPersist []*domain.BedrockDiscoveryEntry
+	var shouldPersist bool
 	switch {
 	case err == nil:
 		d.lastErr = nil
 		if entries != nil {
 			d.entries = entries
+			shouldPersist = true
 		}
 		d.expiresAt = now.Add(d.ttl)
 		d.lastFetchAt = now
 		d.everLoaded = true
-		d.persistEntries(now)
+		if shouldPersist {
+			toPersist = d.snapshotPersistableRows()
+		}
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		// Transient cancellation from a caller-supplied context — do not
 		// poison the cache with a failure TTL, the next caller should retry
@@ -351,6 +366,12 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 		d.lastFetchAt = now
 	}
 	d.mu.Unlock()
+
+	if shouldPersist && d.repo != nil {
+		if err := d.repo.Replace(d.providerID, toPersist, now); err != nil {
+			log.Printf("bedrock discovery: save to store failed (%v)", err)
+		}
+	}
 }
 
 // fetch builds the Anthropic short-name → Bedrock-ID map for the configured
@@ -498,7 +519,7 @@ func (d *profileDiscoverer) fetchFoundationModels(ctx context.Context) (map[stri
 		// model through a profile it cannot discover. Missing/empty
 		// field is treated as on-demand-capable (older catalog shapes
 		// and unit-test fixtures that don't set it).
-		if len(s.InferenceTypesSupported) > 0 && !containsString(s.InferenceTypesSupported, "ON_DEMAND") {
+		if len(s.InferenceTypesSupported) > 0 && !slices.Contains(s.InferenceTypesSupported, "ON_DEMAND") {
 			continue
 		}
 		short, date, ok := extractNameAndDate(s.ModelID)
@@ -513,14 +534,6 @@ func (d *profileDiscoverer) fetchFoundationModels(ctx context.Context) (map[stri
 	return entries, nil
 }
 
-func containsString(xs []string, target string) bool {
-	for _, x := range xs {
-		if x == target {
-			return true
-		}
-	}
-	return false
-}
 
 // signedGet issues a SigV4-signed GET and returns the body. Non-2xx becomes
 // an error containing a truncated body so failures stay debuggable without

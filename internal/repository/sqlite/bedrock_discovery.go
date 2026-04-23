@@ -6,7 +6,6 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type BedrockDiscoveryRepository struct {
@@ -60,6 +59,11 @@ func (r *BedrockDiscoveryRepository) Replace(providerID uint64, entries []*domai
 				FetchedAt:  fetchedMs,
 			})
 		}
-		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&rows).Error
+		// No OnConflict clause — the preceding Delete already cleared
+		// every (provider_id, short_name) row for this provider, so a
+		// unique-index violation here would indicate a caller passed
+		// duplicates in `entries` and should surface as an error rather
+		// than be silently dropped.
+		return tx.Create(&rows).Error
 	})
 }

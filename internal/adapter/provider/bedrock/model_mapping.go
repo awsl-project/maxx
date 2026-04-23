@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // modelDatePattern matches an Anthropic short name that already carries an
@@ -67,11 +68,22 @@ func degradeCandidates(short string) []string {
 	return out
 }
 
+// degradeLog deduplicates degrade warnings so a high-QPS client
+// requesting an unshipped model doesn't flood the log with one line per
+// request. Logging once per (requested, fallback) pair is enough to
+// surface the substitution to an operator; the pair changes only when
+// AWS ships or retires a profile, at which point we want the next
+// occurrence logged again.
+var degradeLog struct {
+	sync.Mutex
+	seen map[string]struct{}
+}
+
 // lookupWithFallback queries discovery for the exact short name and, on a
-// miss, walks degradeCandidates until one hits. Logs a WARN on a degrade
-// hit so operators notice that a request for 4.6/4.7 was silently served
-// by 4.5 — otherwise a user debugging "why does my response look like a
-// different model" has nothing to grep for.
+// miss, walks degradeCandidates until one hits. Logs a WARN on the first
+// occurrence of each degrade pair so operators notice that a request for
+// 4.6/4.7 was silently served by 4.5 — without flooding the log on a
+// busy endpoint.
 func lookupWithFallback(discovered discoveredLookup, short string) (string, bool) {
 	if discovered == nil {
 		return "", false
@@ -81,7 +93,19 @@ func lookupWithFallback(discovered discoveredLookup, short string) (string, bool
 	}
 	for _, cand := range degradeCandidates(short) {
 		if id, ok := discovered(cand); ok {
-			log.Printf("bedrock: no inference profile for %q, falling back to %q (%s)", short, cand, id)
+			key := short + "->" + cand
+			degradeLog.Lock()
+			if degradeLog.seen == nil {
+				degradeLog.seen = map[string]struct{}{}
+			}
+			_, already := degradeLog.seen[key]
+			if !already {
+				degradeLog.seen[key] = struct{}{}
+			}
+			degradeLog.Unlock()
+			if !already {
+				log.Printf("bedrock: no inference profile for %q, falling back to %q (%s)", short, cand, id)
+			}
 			return id, true
 		}
 	}

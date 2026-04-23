@@ -280,20 +280,21 @@ func (h *AdminHandler) handleBedrockDiscoveredModels(w http.ResponseWriter, r *h
 		return
 	}
 	if r.Method == http.MethodPost {
+		// POST always returns the same shape — available/region/models
+		// plus refreshError (empty string on success). Keeping the key
+		// present regardless of outcome means the UI doesn't have to
+		// branch on its existence.
 		result, refreshErr := bedrockA.RefreshDiscoveredModels(r.Context())
+		errStr := ""
 		if refreshErr != nil {
-			// Return 200 with the payload + error field so the UI can show
-			// the stale list alongside the refresh failure reason (missing
-			// IAM, throttling, etc.) without a separate error endpoint.
-			writeJSON(w, http.StatusOK, map[string]any{
-				"available":    result.Available,
-				"region":       result.Region,
-				"models":       result.Models,
-				"refreshError": refreshErr.Error(),
-			})
-			return
+			errStr = refreshErr.Error()
 		}
-		writeJSON(w, http.StatusOK, result)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"available":    result.Available,
+			"region":       result.Region,
+			"models":       result.Models,
+			"refreshError": errStr,
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, bedrockA.DiscoveredModels(r.Context()))

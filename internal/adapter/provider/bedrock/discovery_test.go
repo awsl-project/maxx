@@ -302,6 +302,14 @@ func TestExtractNameAndDateAcceptsFoundationModels(t *testing.T) {
 		{"anthropic.claude-v2", "claude-v2", "", true},
 		// Inference-profile shape still works.
 		{"us.anthropic.claude-opus-4-7-20260115-v1:0", "claude-opus-4-7", "20260115", true},
+		// Legacy "claude-instant-v1": pin the current behaviour. The
+		// regex's non-greedy inner capture does NOT peel off the
+		// trailing "-v1" for this shape because the version suffix's
+		// digit satisfies the `\d` requirement inside the capture. The
+		// short name is therefore "claude-instant-v1" as-is. Harmless
+		// in practice (clients request the full name), but pinned so a
+		// future regex rework doesn't silently change it.
+		{"anthropic.claude-instant-v1", "claude-instant-v1", "", true},
 	}
 	for _, c := range cases {
 		short, date, ok := extractNameAndDate(c.id)
@@ -494,6 +502,14 @@ func TestProfileDiscovererLoadsFromStore(t *testing.T) {
 	}
 	if e := d.entries["claude-opus-4"]; e.source != sourceFoundation {
 		t.Errorf("rehydrated source = %v; want sourceFoundation", e.source)
+	}
+	// Dated-name alias must be reconstructed from the stored Bedrock
+	// ID so clients sending explicit release-dated names keep resolving
+	// after a restart — without this, the cold discoverer would miss on
+	// the dated lookup and resolveModelID would synthesise a wrong
+	// -v1:0 target for models whose real profile is -v2:0.
+	if id, ok := d.Lookup(context.Background(), "claude-sonnet-4-5-20250929"); !ok || id != "us.anthropic.claude-sonnet-4-5-20250929-v1:0" {
+		t.Errorf("dated-name alias not reconstructed: got (%q,%v)", id, ok)
 	}
 }
 
