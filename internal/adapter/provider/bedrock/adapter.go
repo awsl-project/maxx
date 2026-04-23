@@ -126,13 +126,21 @@ func (a *BedrockAdapter) RefreshDiscoveredModels(ctx context.Context) (Discovere
 		defer cancel()
 		refreshErr = a.discoverer.ForceRefresh(lookupCtx)
 	}
-	return a.DiscoveredModels(ctx), refreshErr
+	// Refresh path already forced a fetch; pass false so DiscoveredModels
+	// doesn't do a redundant second Lookup.
+	return a.DiscoveredModels(ctx, false), refreshErr
 }
 
-// DiscoveredModels triggers a discovery refresh (subject to the normal
-// TTL) and returns the current catalog. Uses an isolated background
-// context so admin UI polling can't poison the shared cache.
-func (a *BedrockAdapter) DiscoveredModels(ctx context.Context) DiscoveredModelsResult {
+// DiscoveredModels returns the current catalog. When allowRefresh is
+// true, a TTL-expiry Lookup is triggered so the caller gets a fresh
+// list if the cache is stale; when false, the in-memory snapshot is
+// returned as-is. Admin GETs pass true (they're fine paying an
+// occasional AWS round-trip); non-admin GETs from the self-service
+// surface pass false, so an anonymous poller cannot wait out the TTL
+// to force a ListInferenceProfiles call. Uses an isolated background
+// context on the refresh path so admin UI polling can't poison the
+// shared cache if the client disconnects.
+func (a *BedrockAdapter) DiscoveredModels(ctx context.Context, allowRefresh bool) DiscoveredModelsResult {
 	region := DefaultRegion
 	if a.provider != nil && a.provider.Config != nil && a.provider.Config.Bedrock != nil && a.provider.Config.Bedrock.Region != "" {
 		region = a.provider.Config.Bedrock.Region
@@ -142,11 +150,13 @@ func (a *BedrockAdapter) DiscoveredModels(ctx context.Context) DiscoveredModelsR
 		return result
 	}
 
-	lookupCtx, cancel := context.WithTimeout(ctx, discoveryLookupTimeout)
-	defer cancel()
-	// Force a refresh if the cache is stale. Lookup's argument is a
-	// miss-on-purpose key — we only want the side effect.
-	_, _ = a.discoverer.Lookup(lookupCtx, "__admin_refresh__")
+	if allowRefresh {
+		lookupCtx, cancel := context.WithTimeout(ctx, discoveryLookupTimeout)
+		defer cancel()
+		// Force a refresh if the cache is stale. Lookup's argument is a
+		// miss-on-purpose key — we only want the side effect.
+		_, _ = a.discoverer.Lookup(lookupCtx, "__admin_refresh__")
+	}
 
 	entries := a.discoverer.Entries()
 	result.Available = a.discoverer.Available()

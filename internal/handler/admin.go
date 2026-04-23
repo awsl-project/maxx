@@ -252,7 +252,9 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 // table. Available=false means discovery hasn't succeeded (typically
 // missing bedrock:ListInferenceProfiles IAM permission).
 func (h *AdminHandler) handleBedrockDiscoveredModels(w http.ResponseWriter, r *http.Request, id uint64) {
-	serveBedrockDiscoveredModels(h.svc, w, r, id)
+	// Admin surface: callers are always admin, so GET may trigger a
+	// lazy AWS refresh on TTL expiry.
+	serveBedrockDiscoveredModels(h.svc, w, r, id, true)
 }
 
 // serveBedrockDiscoveredModels is the shared GET/POST handler for the
@@ -266,7 +268,7 @@ func (h *AdminHandler) handleBedrockDiscoveredModels(w http.ResponseWriter, r *h
 // GET returns the current catalog (triggers a lazy refresh on TTL
 // expiry). POST forces an immediate fetch bypassing the TTL and the
 // Invalidate() rate-limit — used by the admin UI's refresh button.
-func serveBedrockDiscoveredModels(svc *service.AdminService, w http.ResponseWriter, r *http.Request, id uint64) {
+func serveBedrockDiscoveredModels(svc *service.AdminService, w http.ResponseWriter, r *http.Request, id uint64, allowLazyRefresh bool) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -309,7 +311,7 @@ func serveBedrockDiscoveredModels(svc *service.AdminService, w http.ResponseWrit
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, bedrockA.DiscoveredModels(r.Context()))
+	writeJSON(w, http.StatusOK, bedrockA.DiscoveredModels(r.Context(), allowLazyRefresh))
 }
 
 // handleProvidersExport exports all providers as JSON

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/bedrock" // Register bedrock adapter
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"  // Register custom adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"    // Register kiro adapter
@@ -121,9 +121,13 @@ func main() {
 	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
 	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
 
-	// Bedrock discovery persistence is wired inside
-	// core.InitializeServerComponents so both the CLI and desktop
-	// startup paths pick it up (see internal/core/database.go).
+	// Wire Bedrock discovery persistence. The CLI entry point does not
+	// go through core.InitializeServerComponents (the desktop launcher
+	// does — the desktop path gets the same call from core/database.go),
+	// so it needs its own setter call; otherwise the server process
+	// leaves the repo unset and the first Bedrock request after every
+	// restart pays the full AWS discovery round-trip.
+	bedrock.SetDiscoveryRepository(sqlite.NewBedrockDiscoveryRepository(db))
 
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)

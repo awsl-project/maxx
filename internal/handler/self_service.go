@@ -93,7 +93,11 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost && !h.requireAdmin(w, r) {
 				return
 			}
-			serveBedrockDiscoveredModels(h.svc, w, r, id)
+			// Non-admin GET must not be able to trigger a ListInferenceProfiles
+			// refresh by polling past the TTL window — pass the caller's
+			// admin status through so DiscoveredModels only lazy-refreshes
+			// when an admin is on the other end.
+			serveBedrockDiscoveredModels(h.svc, w, r, id, h.isAdmin(r))
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}
