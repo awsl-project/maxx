@@ -54,13 +54,20 @@ func (f *thinkingSignatureFixer) FixRequest(req *http.Request, body []byte) (*ht
 	return req, stripThinkingBlocks(body)
 }
 
+// emptyAssistantPlaceholder is the content we leave on an assistant
+// message that was nothing but thinking blocks. Upstreams reject both
+// empty content arrays and zero-length text, and dropping the whole
+// message would merge adjacent user turns (also rejected). A minimal
+// text block keeps turn structure intact for the retry.
+var emptyAssistantPlaceholder = []byte(`[{"type":"text","text":"[thinking omitted]"}]`)
+
 // stripThinkingBlocks removes every content block whose `type` is
-// `thinking` or `redacted_thinking` from all messages. Non-array
-// content (plain string) and non-thinking blocks are preserved. If
-// stripping empties a message's content array, the message is left
-// in place — downstream semantics (empty content validation) are
-// upstream's responsibility, and dropping the whole message would
-// alter turn ordering.
+// `thinking` or `redacted_thinking` from all messages. Plain-string
+// content and non-thinking blocks are preserved. When stripping
+// empties an assistant message's content array, a single placeholder
+// text block is inserted to keep the retry valid — dropping the
+// message would create adjacent user turns and an empty array is
+// itself a validation error on most upstreams.
 func stripThinkingBlocks(payload []byte) []byte {
 	messages := gjson.GetBytes(payload, "messages")
 	if !messages.IsArray() {
@@ -72,14 +79,31 @@ func stripThinkingBlocks(payload []byte) []byte {
 		if !content.IsArray() {
 			continue
 		}
+		removed := false
 		// Iterate in reverse so index-based deletes do not shift
 		// remaining indices.
 		for j := int(content.Get("#").Int()) - 1; j >= 0; j-- {
 			blockType := gjson.GetBytes(payload, fmt.Sprintf("%s.%d.type", contentPath, j)).String()
 			if blockType == "thinking" || blockType == "redacted_thinking" {
 				payload, _ = sjson.DeleteBytes(payload, fmt.Sprintf("%s.%d", contentPath, j))
+				removed = true
 			}
 		}
+		if !removed {
+			continue
+		}
+		if gjson.GetBytes(payload, contentPath+".#").Int() > 0 {
+			continue
+		}
+		role := gjson.GetBytes(payload, fmt.Sprintf("messages.%d.role", i)).String()
+		if role != "assistant" {
+			// Only assistant turns legitimately carry thinking blocks.
+			// If a non-assistant role somehow had only thinking
+			// content, we leave the empty array as-is rather than
+			// fabricate content for a role that never produced it.
+			continue
+		}
+		payload, _ = sjson.SetRawBytes(payload, contentPath, emptyAssistantPlaceholder)
 	}
 	return payload
 }

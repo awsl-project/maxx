@@ -132,19 +132,74 @@ func TestStripThinkingBlocks(t *testing.T) {
 			},
 		},
 		{
-			name: "message of only thinking blocks becomes empty content array (left in place)",
+			// Dropping to content:[] would retry-fail ("at least one
+			// block required") and trigger an endless fix-retry loop;
+			// dropping the whole message would merge the surrounding
+			// user turns. Placeholder text keeps the retry valid.
+			name: "assistant message of only thinking gets placeholder text",
 			input: `{"messages":[
+				{"role":"user","content":[{"type":"text","text":"hi"}]},
 				{"role":"assistant","content":[
 					{"type":"thinking","thinking":"...","signature":"abc"}
+				]},
+				{"role":"user","content":[{"type":"text","text":"next"}]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				ac := gjson.GetBytes(out, "messages.1.content")
+				if n := ac.Get("#").Int(); n != 1 {
+					t.Fatalf("assistant content len = %d, want 1 (placeholder)", n)
+				}
+				if got := ac.Get("0.type").String(); got != "text" {
+					t.Errorf("placeholder type = %q, want text", got)
+				}
+				if got := ac.Get("0.text").String(); got == "" {
+					t.Errorf("placeholder text must be non-empty")
+				}
+				// Surrounding user turns are untouched.
+				if got := gjson.GetBytes(out, "messages.0.content.0.text").String(); got != "hi" {
+					t.Errorf("preceding user turn mangled: %q", got)
+				}
+				if got := gjson.GetBytes(out, "messages.2.content.0.text").String(); got != "next" {
+					t.Errorf("following user turn mangled: %q", got)
+				}
+			},
+		},
+		{
+			// Non-assistant roles never legitimately carry thinking
+			// blocks, but if one slips through we leave the empty
+			// array rather than fabricate content for a role that
+			// did not produce it.
+			name: "non-assistant empty content after strip is left empty",
+			input: `{"messages":[
+				{"role":"user","content":[
+					{"type":"redacted_thinking","data":"xxx"}
 				]}
 			]}`,
 			check: func(t *testing.T, out []byte) {
 				ac := gjson.GetBytes(out, "messages.0.content")
 				if !ac.IsArray() {
-					t.Fatalf("expected content to remain an array, got %v", ac.Type)
+					t.Fatalf("expected array, got %v", ac.Type)
 				}
 				if n := ac.Get("#").Int(); n != 0 {
-					t.Errorf("expected empty content array, got len %d", n)
+					t.Errorf("expected empty array for non-assistant, got len %d", n)
+				}
+			},
+		},
+		{
+			// Running the fix twice must be a no-op on the second
+			// pass — otherwise a retry loop with no new thinking to
+			// strip would keep re-triggering this fixer forever.
+			name: "idempotent on already-stripped body",
+			input: `{"messages":[
+				{"role":"assistant","content":[
+					{"type":"thinking","thinking":"t","signature":"s"},
+					{"type":"text","text":"hello"}
+				]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				twice := stripThinkingBlocks(out)
+				if string(twice) != string(out) {
+					t.Errorf("second strip must be a no-op; before=%s after=%s", out, twice)
 				}
 			},
 		},
@@ -164,5 +219,34 @@ func TestStripThinkingBlocks(t *testing.T) {
 			out := stripThinkingBlocks([]byte(c.input))
 			c.check(t, out)
 		})
+	}
+}
+
+func TestThinkingSignatureFixer_FixRequest(t *testing.T) {
+	f := &thinkingSignatureFixer{}
+	req := &http.Request{}
+	input := []byte(`{"messages":[
+		{"role":"assistant","content":[
+			{"type":"thinking","thinking":"...","signature":"abc"},
+			{"type":"text","text":"hi"}
+		]}
+	]}`)
+	// Copy the input so we can assert the fixer does not mutate the
+	// caller's slice (per the ErrorFixer contract in fixer.go).
+	orig := make([]byte, len(input))
+	copy(orig, input)
+
+	gotReq, gotBody := f.FixRequest(req, input)
+	if gotReq != req {
+		t.Errorf("FixRequest should return the same request object")
+	}
+	if string(input) != string(orig) {
+		t.Errorf("input slice was mutated: before=%s after=%s", orig, input)
+	}
+	if gjson.GetBytes(gotBody, "messages.0.content.#").Int() != 1 {
+		t.Errorf("expected thinking block stripped, got %s", gotBody)
+	}
+	if got := gjson.GetBytes(gotBody, "messages.0.content.0.type").String(); got != "text" {
+		t.Errorf("remaining block type = %q, want text", got)
 	}
 }
