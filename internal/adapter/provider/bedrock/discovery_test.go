@@ -457,10 +457,10 @@ type fakeRepo struct {
 	saveErr   error
 }
 
-func (s *fakeRepo) Load(providerID uint64) ([]*domain.BedrockDiscoveryEntry, time.Time, error) {
+func (s *fakeRepo) Load(providerID uint64, region, accessKeyID string) ([]*domain.BedrockDiscoveryEntry, time.Time, error) {
 	return s.loaded, s.loadedAt, s.loadErr
 }
-func (s *fakeRepo) Replace(providerID uint64, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error {
+func (s *fakeRepo) Replace(providerID uint64, region, accessKeyID string, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error {
 	s.saveCount++
 	if s.saveErr != nil {
 		return s.saveErr
@@ -510,6 +510,60 @@ func TestProfileDiscovererLoadsFromStore(t *testing.T) {
 	// -v1:0 target for models whose real profile is -v2:0.
 	if id, ok := d.Lookup(context.Background(), "claude-sonnet-4-5-20250929"); !ok || id != "us.anthropic.claude-sonnet-4-5-20250929-v1:0" {
 		t.Errorf("dated-name alias not reconstructed: got (%q,%v)", id, ok)
+	}
+}
+
+// fakeRepoStrict rejects Load calls whose fingerprint doesn't match the
+// stored rows, mirroring the sqlite implementation's WHERE clause. Used
+// to verify the discoverer passes its own (region, accessKeyID) into
+// the repo instead of e.g. empty strings.
+type fakeRepoStrict struct {
+	storedRegion      string
+	storedAccessKeyID string
+	rows              []*domain.BedrockDiscoveryEntry
+	fetchedAt         time.Time
+}
+
+func (s *fakeRepoStrict) Load(providerID uint64, region, accessKeyID string) ([]*domain.BedrockDiscoveryEntry, time.Time, error) {
+	if region != s.storedRegion || accessKeyID != s.storedAccessKeyID {
+		// Config mismatch: pretend no rows match, same as sqlite.
+		return nil, time.Time{}, nil
+	}
+	return s.rows, s.fetchedAt, nil
+}
+func (s *fakeRepoStrict) Replace(providerID uint64, region, accessKeyID string, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error {
+	s.storedRegion = region
+	s.storedAccessKeyID = accessKeyID
+	s.rows = append([]*domain.BedrockDiscoveryEntry(nil), entries...)
+	s.fetchedAt = fetchedAt
+	return nil
+}
+
+func TestProfileDiscovererInvalidatesOnConfigChange(t *testing.T) {
+	// Pre-populate the store with rows tagged for region us-west-2 +
+	// the old access key; simulate a config edit that retargets the
+	// adapter at us-east-1 + a new key. loadFromStore must not load
+	// the stale rows, and everLoaded stays false so the UI doesn't
+	// falsely report "available" for the previous region's catalog.
+	repo := &fakeRepoStrict{
+		storedRegion:      "us-west-2",
+		storedAccessKeyID: "AKIAOLD",
+		rows: []*domain.BedrockDiscoveryEntry{
+			{ShortName: "claude-opus-4-5", BedrockID: "us.anthropic.claude-opus-4-5-20251101-v1:0", Source: "inference-profile"},
+		},
+		fetchedAt: time.Now().Add(-1 * time.Minute),
+	}
+	d := newDiscovererForTest("http://unused.local")
+	d.repo = repo
+	d.region = "us-east-1"
+	d.accessKeyID = "AKIANEW"
+	d.loadFromStore()
+
+	if d.Available() {
+		t.Error("Available() must be false — persisted rows were from a previous config")
+	}
+	if _, ok := d.entries["claude-opus-4-5"]; ok {
+		t.Error("loadFromStore must not rehydrate rows whose region/accessKeyID don't match current config")
 	}
 }
 

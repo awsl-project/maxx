@@ -65,6 +65,11 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 	if discoveryRepo != nil && p.ID > 0 {
 		discoverer.repo = discoveryRepo
 		discoverer.providerID = p.ID
+		// Access-key ID (not the secret) identifies the IAM principal;
+		// storing it alongside region lets loadFromStore reject rows
+		// from a previous config when the operator rotates credentials
+		// or retargets the provider at another account/region.
+		discoverer.accessKeyID = config.AccessKeyID
 		// Warm the in-memory cache from the persisted catalog so the
 		// first request doesn't pay ~1-5s of AWS round-trip latency.
 		// If the persisted FetchedAt is older than the TTL, Lookup

@@ -455,13 +455,22 @@ func (ModelPrice) TableName() string { return "model_prices" }
 // region may have different IAM permissions and therefore see different
 // catalogs. FetchedAt tracks when the row was written so the loader can
 // decide whether the cache is still within TTL.
+//
+// Region + AccessKeyID are recorded alongside so a later config edit
+// that retargets the provider at a different region or IAM principal
+// invalidates the cache: loadFromStore filters to rows whose (region,
+// access_key_id) still match the live config, so a stale catalog from
+// the previous region never gets served post-edit. AccessKeyID is only
+// the public ID ("AKIA..."), not the secret.
 type BedrockDiscoveryEntry struct {
-	ID         uint64 `gorm:"primaryKey;autoIncrement"`
-	ProviderID uint64 `gorm:"uniqueIndex:idx_bedrock_disc_provider_short"`
-	ShortName  string `gorm:"size:128;uniqueIndex:idx_bedrock_disc_provider_short"`
-	BedrockID  string `gorm:"size:255"`
-	Source     string `gorm:"size:32"` // "inference-profile" or "foundation-model"
-	FetchedAt  int64  `gorm:"index"`   // unix ms
+	ID           uint64 `gorm:"primaryKey;autoIncrement"`
+	ProviderID   uint64 `gorm:"uniqueIndex:idx_bedrock_disc_provider_short"`
+	ShortName    string `gorm:"size:128;uniqueIndex:idx_bedrock_disc_provider_short"`
+	BedrockID    string `gorm:"size:255"`
+	Source       string `gorm:"size:32"` // "inference-profile" or "foundation-model"
+	Region       string `gorm:"size:64"`
+	AccessKeyID  string `gorm:"size:128"`
+	FetchedAt    int64  `gorm:"index"` // unix ms
 }
 
 func (BedrockDiscoveryEntry) TableName() string { return "bedrock_discovery_entries" }

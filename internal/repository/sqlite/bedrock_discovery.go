@@ -16,9 +16,16 @@ func NewBedrockDiscoveryRepository(db *DB) repository.BedrockDiscoveryRepository
 	return &BedrockDiscoveryRepository{db: db}
 }
 
-func (r *BedrockDiscoveryRepository) Load(providerID uint64) ([]*domain.BedrockDiscoveryEntry, time.Time, error) {
+// Load returns cached entries for a provider whose stored (region,
+// access_key_id) matches the supplied live config. Rows from a previous
+// region or IAM principal are silently ignored — they'll be wiped on
+// the next Replace so we don't accumulate orphan rows over time.
+func (r *BedrockDiscoveryRepository) Load(providerID uint64, region, accessKeyID string) ([]*domain.BedrockDiscoveryEntry, time.Time, error) {
 	var rows []BedrockDiscoveryEntry
-	if err := r.db.gorm.Where("provider_id = ?", providerID).Find(&rows).Error; err != nil {
+	if err := r.db.gorm.Where(
+		"provider_id = ? AND region = ? AND access_key_id = ?",
+		providerID, region, accessKeyID,
+	).Find(&rows).Error; err != nil {
 		return nil, time.Time{}, err
 	}
 	out := make([]*domain.BedrockDiscoveryEntry, 0, len(rows))
@@ -40,9 +47,13 @@ func (r *BedrockDiscoveryRepository) Load(providerID uint64) ([]*domain.BedrockD
 	return out, newest, nil
 }
 
-func (r *BedrockDiscoveryRepository) Replace(providerID uint64, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error {
+func (r *BedrockDiscoveryRepository) Replace(providerID uint64, region, accessKeyID string, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error {
 	fetchedMs := fetchedAt.UnixMilli()
 	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		// Delete every row for this provider, regardless of its stored
+		// region/accessKeyID — a config edit that retargets the
+		// provider would otherwise leave orphan rows that silently
+		// accumulate forever.
 		if err := tx.Where("provider_id = ?", providerID).Delete(&BedrockDiscoveryEntry{}).Error; err != nil {
 			return err
 		}
@@ -52,11 +63,13 @@ func (r *BedrockDiscoveryRepository) Replace(providerID uint64, entries []*domai
 		rows := make([]BedrockDiscoveryEntry, 0, len(entries))
 		for _, e := range entries {
 			rows = append(rows, BedrockDiscoveryEntry{
-				ProviderID: providerID,
-				ShortName:  e.ShortName,
-				BedrockID:  e.BedrockID,
-				Source:     e.Source,
-				FetchedAt:  fetchedMs,
+				ProviderID:  providerID,
+				ShortName:   e.ShortName,
+				BedrockID:   e.BedrockID,
+				Source:      e.Source,
+				Region:      region,
+				AccessKeyID: accessKeyID,
+				FetchedAt:   fetchedMs,
 			})
 		}
 		// No OnConflict clause — the preceding Delete already cleared

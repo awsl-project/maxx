@@ -369,15 +369,23 @@ type FailureCountRepository interface {
 // ListInferenceProfiles + ListFoundationModels round-trip on the first
 // request. Scoped per provider: different Bedrock providers may hold
 // different IAM permissions and therefore see different catalogs.
+//
+// Rows are fingerprinted with (region, accessKeyID) so a config edit
+// that retargets the provider at a new region or IAM principal
+// invalidates the cache — the adapter would otherwise happily serve
+// profile IDs from the old region until the next TTL refresh.
 type BedrockDiscoveryRepository interface {
-	// Load returns every cached entry for a provider plus the timestamp
-	// of the most recent successful fetch, used to decide whether the
-	// rehydrated cache is still within TTL. Zero entries + zero time
-	// means no cache; nil error.
-	Load(providerID uint64) ([]*domain.BedrockDiscoveryEntry, time.Time, error)
+	// Load returns cached entries for a provider that match the current
+	// (region, accessKeyID) pair, plus the timestamp of the most recent
+	// matching fetch. Rows that don't match are silently ignored (they
+	// will be overwritten on the next Replace). Zero entries + zero time
+	// means no usable cache; nil error.
+	Load(providerID uint64, region, accessKeyID string) ([]*domain.BedrockDiscoveryEntry, time.Time, error)
 
-	// Replace atomically swaps the stored catalog for a provider. Empty
-	// entries is valid — it clears the cache, matching what the adapter
-	// sees after a discovery run that returned nothing.
-	Replace(providerID uint64, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error
+	// Replace atomically swaps the stored catalog for a provider and
+	// stamps every row with the supplied (region, accessKeyID).
+	// Clears any pre-existing rows for this provider regardless of
+	// their stored region/accessKeyID, so a config edit doesn't leave
+	// orphan rows behind.
+	Replace(providerID uint64, region, accessKeyID string, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error
 }

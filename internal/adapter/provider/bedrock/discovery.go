@@ -110,6 +110,10 @@ type profileDiscoverer struct {
 	// discovery falls back to in-memory-only behaviour.
 	repo       repository.BedrockDiscoveryRepository
 	providerID uint64
+	// accessKeyID is the AWS access-key identifier used to fingerprint
+	// stored rows so a config edit to different creds invalidates the
+	// cache. Non-secret by definition (the "AKIA…" half of a key pair).
+	accessKeyID string
 
 	mu          sync.Mutex
 	entries     map[string]discoveredEntry
@@ -143,7 +147,7 @@ func (d *profileDiscoverer) loadFromStore() {
 	if d.repo == nil {
 		return
 	}
-	rows, fetchedAt, err := d.repo.Load(d.providerID)
+	rows, fetchedAt, err := d.repo.Load(d.providerID, d.region, d.accessKeyID)
 	if err != nil {
 		log.Printf("bedrock discovery: load from store failed (%v); continuing with cold cache", err)
 		return
@@ -368,7 +372,7 @@ func (d *profileDiscoverer) ensureFresh(ctx context.Context) {
 	d.mu.Unlock()
 
 	if shouldPersist && d.repo != nil {
-		if err := d.repo.Replace(d.providerID, toPersist, now); err != nil {
+		if err := d.repo.Replace(d.providerID, d.region, d.accessKeyID, toPersist, now); err != nil {
 			log.Printf("bedrock discovery: save to store failed (%v)", err)
 		}
 	}
