@@ -159,6 +159,7 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 
 		if err == nil {
 			proxyReq.Status = "COMPLETED"
+			clearProxyRequestDetail(proxyReq, clearDetail)
 			_ = h.proxyRequestRepo.Update(proxyReq)
 			return
 		}
@@ -178,6 +179,7 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 			writeError(responseCapture, http.StatusBadGateway, err.Error())
 			proxyReq.StatusCode = http.StatusBadGateway
 		}
+		clearProxyRequestDetail(proxyReq, clearDetail)
 		_ = h.proxyRequestRepo.Update(proxyReq)
 		c.Abort()
 	}
@@ -230,6 +232,14 @@ func getAPITokenDevMode(c *flow.Ctx) bool {
 	}
 	b, _ := v.(bool)
 	return b
+}
+
+func clearProxyRequestDetail(req *domain.ProxyRequest, clearDetail bool) {
+	if !clearDetail || req == nil {
+		return
+	}
+	req.RequestInfo = nil
+	req.ResponseInfo = nil
 }
 
 func generateProxyRequestID() string {
