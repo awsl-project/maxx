@@ -147,7 +147,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		if apiToken != nil {
 			apiTokenID = apiToken.ID
 			log.Printf("[Proxy] Token authenticated: id=%d, name=%s, projectID=%d", apiToken.ID, apiToken.Name, apiToken.ProjectID)
-			c.Set(flow.KeyRequestDevMode, apiToken.DevMode)
+			c.Set(flow.KeyPreserveRequestDetail, apiToken.DevMode)
 		}
 	}
 
