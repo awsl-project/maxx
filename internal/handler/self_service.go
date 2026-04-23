@@ -79,8 +79,18 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// under /api/providers/{id}/bedrock-models so the frontend's
 			// default axios baseURL (/api) can read the discovery catalog
 			// without talking to the admin-only surface.
+			//
+			// GET is readable by any authenticated tenant member (same
+			// access posture as the providers list). POST forces a fresh
+			// ListInferenceProfiles + ListFoundationModels round-trip,
+			// bypassing the in-process TTL and Invalidate() rate-limit —
+			// gated on admin so a non-privileged member can't hammer it
+			// and burn the provider's AWS API quota.
 			id, ok := parseSelfServiceID(w, "provider", parts[2])
 			if !ok {
+				return
+			}
+			if r.Method == http.MethodPost && !h.requireAdmin(w, r) {
 				return
 			}
 			serveBedrockDiscoveredModels(h.svc, w, r, id)
