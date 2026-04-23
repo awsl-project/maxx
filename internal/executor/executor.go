@@ -456,12 +456,17 @@ func (e *Executor) getRequestDetailRetentionSeconds() int {
 	return seconds
 }
 
-// shouldClearRequestDetailFor 检查是否应该立即清理请求详情（考虑 Token 开发者模式）
-func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
-	if state != nil && state.apiTokenDevMode {
+// ShouldClearRequestDetailForDevMode 检查是否应该立即清理请求详情（考虑 Token 开发者模式）
+func (e *Executor) ShouldClearRequestDetailForDevMode(apiTokenDevMode bool) bool {
+	if apiTokenDevMode {
 		return false
 	}
 	return e.shouldClearRequestDetail()
+}
+
+// shouldClearRequestDetailFor 检查是否应该立即清理请求详情（考虑 Token 开发者模式）
+func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
+	return e.ShouldClearRequestDetailForDevMode(state != nil && state.apiTokenDevMode)
 }
 
 // shouldClearRequestDetail 检查是否应该立即清理请求详情（全局配置）

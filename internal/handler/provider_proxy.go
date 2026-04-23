@@ -125,7 +125,11 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		requestModel := flow.GetRequestModel(c)
 		mappedModel := requestModel
 		isStream := flow.GetIsStream(c)
+		clearDetail := h.shouldClearRequestDetailFor(c)
 		proxyReq := h.newProxyRequest(c, route, provider, requestModel, mappedModel, isStream)
+		if clearDetail {
+			proxyReq.RequestInfo = nil
+		}
 		if err := h.proxyRequestRepo.Create(proxyReq); err != nil {
 			log.Printf("[ProviderProxy] failed to create proxy request: %v", err)
 		}
@@ -149,6 +153,9 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 			Status:  responseCapture.StatusCode(),
 			Headers: responseCapture.CapturedHeaders(),
 			Body:    responseCapture.Body(),
+		}
+		if clearDetail {
+			proxyReq.ResponseInfo = nil
 		}
 
 		if err == nil {
@@ -214,6 +221,21 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 		APITokenID: apiTokenID,
 		DevMode:    devMode,
 	}
+}
+
+func (h *ProviderProxyHandler) shouldClearRequestDetailFor(c *flow.Ctx) bool {
+	if h == nil || h.proxyHandler == nil || h.proxyHandler.executor == nil {
+		return false
+	}
+	devMode := false
+	if c != nil {
+		if v, ok := c.Get(flow.KeyAPITokenDevMode); ok {
+			if b, ok := v.(bool); ok {
+				devMode = b
+			}
+		}
+	}
+	return h.proxyHandler.executor.ShouldClearRequestDetailForDevMode(devMode)
 }
 
 func generateProxyRequestID() string {
