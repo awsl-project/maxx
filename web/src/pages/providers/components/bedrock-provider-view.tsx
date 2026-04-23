@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import type { BedrockDiscoveredModelsResult, Provider } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
 import { useUpdateProvider } from '@/hooks/queries';
+import { useAuth } from '@/lib/auth-context';
 import { Button, Switch } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { BEDROCK_COLOR } from '../types';
@@ -31,6 +32,11 @@ interface BedrockProviderViewProps {
 export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProviderViewProps) {
   const { t } = useTranslation();
   const updateProvider = useUpdateProvider();
+  const { user } = useAuth();
+  // Refresh triggers a POST that the backend gates behind admin role —
+  // non-admin tenant members would get a 403. Hide the button for them
+  // rather than let the UI advertise an action that will fail.
+  const isAdmin = user?.role === 'admin';
   const config = provider.config?.bedrock;
 
   const [showSecret, setShowSecret] = useState(false);
@@ -239,15 +245,17 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
                   </span>
                 )}
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={refreshDiscoveredModels}
-                disabled={discoveryLoading}
-              >
-                <RefreshCw size={14} className={discoveryLoading ? 'animate-spin' : ''} />
-                {t('common.refresh', 'Refresh')}
-              </Button>
+              {isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={refreshDiscoveredModels}
+                  disabled={discoveryLoading}
+                >
+                  <RefreshCw size={14} className={discoveryLoading ? 'animate-spin' : ''} />
+                  {t('common.refresh', 'Refresh')}
+                </Button>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
               {t(
