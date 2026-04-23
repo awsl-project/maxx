@@ -23,7 +23,7 @@ type execState struct {
 	requestModel        string
 	isStream            bool
 	apiTokenID          uint64
-	devMode             bool
+	apiTokenDevMode     bool
 	requestBody         []byte
 	originalRequestBody []byte
 	requestHeaders      http.Header

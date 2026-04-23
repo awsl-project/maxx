@@ -464,9 +464,9 @@ func (e *Executor) ShouldClearRequestDetail(devMode bool) bool {
 	return e.shouldClearRequestDetail()
 }
 
-// shouldClearRequestDetailFor 检查是否应该立即清理请求详情（考虑 开发模式）
+// shouldClearRequestDetailFor 检查是否应该立即清理请求详情（考虑 Token 开发者模式）
 func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
-	return e.ShouldClearRequestDetail(state != nil && state.devMode)
+	return e.ShouldClearRequestDetail(state != nil && state.apiTokenDevMode)
 }
 
 // shouldClearRequestDetail 检查是否应该立即清理请求详情（全局配置）
