@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestLiveInvoke(t *testing.T) {
 	models := []string{"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5"}
 	if override := os.Getenv("MAXX_BEDROCK_LIVE_MODELS"); override != "" {
 		models = nil
-		for _, m := range splitCSV(override) {
+		for _, m := range strings.Split(override, ",") {
 			if m != "" {
 				models = append(models, m)
 			}
@@ -130,15 +131,4 @@ func TestLiveInvoke(t *testing.T) {
 	}
 }
 
-func splitCSV(s string) []string {
-	var out []string
-	start := 0
-	for i := 0; i <= len(s); i++ {
-		if i == len(s) || s[i] == ',' {
-			out = append(out, s[start:i])
-			start = i + 1
-		}
-	}
-	return out
-}
 

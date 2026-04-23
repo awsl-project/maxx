@@ -56,10 +56,8 @@ export function BedrockProviderView({ provider, onDelete, onClose }: BedrockProv
         // field when the forced AWS round-trip itself failed. Surface
         // it as a non-fatal error so the operator sees both the old
         // list and why the new one couldn't land.
-        const refreshErr = (result as BedrockDiscoveredModelsResult & { refreshError?: string })
-          .refreshError;
-        if (refreshErr) {
-          setDiscoveryError(refreshErr);
+        if (result.refreshError) {
+          setDiscoveryError(result.refreshError);
         }
       } catch (err) {
         // 503 from the admin endpoint means the adapter hasn't been

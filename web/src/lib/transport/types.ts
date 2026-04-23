@@ -116,6 +116,11 @@ export interface BedrockDiscoveredModelsResult {
   available: boolean;
   region: string;
   models: BedrockDiscoveredModel[];
+  // Populated by the force-refresh endpoint (POST) when the AWS
+  // round-trip failed; the server returns the stale catalog alongside
+  // this message so the UI can show both. Empty or absent on the GET
+  // read path.
+  refreshError?: string;
 }
 
 export interface ProviderConfig {
