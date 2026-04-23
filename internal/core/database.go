@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/bedrock" // Register bedrock adapter
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
@@ -54,6 +54,7 @@ type DatabaseRepos struct {
 	CodexQuotaRepo            repository.CodexQuotaRepository
 	CooldownRepo              repository.CooldownRepository
 	FailureCountRepo          repository.FailureCountRepository
+	BedrockDiscoveryRepo      repository.BedrockDiscoveryRepository
 	CachedProviderRepo        *cached.ProviderRepository
 	CachedRouteRepo           *cached.RouteRepository
 	CachedRetryConfigRepo     *cached.RetryConfigRepository
@@ -130,6 +131,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	codexQuotaRepo := sqlite.NewCodexQuotaRepository(db)
 	cooldownRepo := sqlite.NewCooldownRepository(db)
 	failureCountRepo := sqlite.NewFailureCountRepository(db)
+	bedrockDiscoveryRepo := sqlite.NewBedrockDiscoveryRepository(db)
 	apiTokenRepo := sqlite.NewAPITokenRepository(db)
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
@@ -166,6 +168,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		CodexQuotaRepo:            codexQuotaRepo,
 		CooldownRepo:              cooldownRepo,
 		FailureCountRepo:          failureCountRepo,
+		BedrockDiscoveryRepo:      bedrockDiscoveryRepo,
 		CachedProviderRepo:        cachedProviderRepo,
 		CachedRouteRepo:           cachedRouteRepo,
 		CachedRetryConfigRepo:     cachedRetryConfigRepo,
@@ -204,6 +207,14 @@ func InitializeServerComponents(
 	if err := cooldown.Default().LoadFromDatabase(); err != nil {
 		log.Printf("[Core] Warning: Failed to load cooldowns from database: %v", err)
 	}
+
+	// Wire Bedrock discovery persistence here (not in cmd/maxx/main.go)
+	// so both the CLI entrypoint and the desktop/Wails launcher — which
+	// shares this InitializeServerComponents path — benefit from the
+	// rehydrated catalog. Without this, desktop-mode restarts would pay
+	// the ~1-5s ListInferenceProfiles cold-start on the first Bedrock
+	// request even though the rows are on disk.
+	bedrock.SetDiscoveryRepository(repos.BedrockDiscoveryRepo)
 
 	log.Printf("[Core] Marking stale requests as failed")
 	if count, err := repos.ProxyRequestRepo.MarkStaleAsFailed(instanceID); err != nil {
