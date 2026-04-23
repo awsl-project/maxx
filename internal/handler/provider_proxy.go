@@ -191,10 +191,10 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 	apiTokenID := flow.GetAPITokenID(c)
 	projectID := flow.GetProjectID(c)
 	tenantID := maxxctx.GetTenantID(c.Request.Context())
-	preserveRequestDetail := false
-	if v, ok := c.Get(flow.KeyPreserveRequestDetail); ok {
+	devMode := false
+	if v, ok := c.Get(flow.KeyRequestDevMode); ok {
 		if b, ok := v.(bool); ok {
-			preserveRequestDetail = b
+			devMode = b
 		}
 	}
 
@@ -219,7 +219,7 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 		ProviderID: provider.ID,
 		ProjectID:  projectID,
 		APITokenID: apiTokenID,
-		DevMode:    preserveRequestDetail,
+		DevMode:    devMode,
 	}
 }
 
@@ -227,15 +227,15 @@ func (h *ProviderProxyHandler) shouldClearRequestDetailFor(c *flow.Ctx) bool {
 	if h == nil || h.proxyHandler == nil || h.proxyHandler.executor == nil {
 		return false
 	}
-	preserveRequestDetail := false
+	devMode := false
 	if c != nil {
-		if v, ok := c.Get(flow.KeyPreserveRequestDetail); ok {
+		if v, ok := c.Get(flow.KeyRequestDevMode); ok {
 			if b, ok := v.(bool); ok {
-				preserveRequestDetail = b
+				devMode = b
 			}
 		}
 	}
-	return h.proxyHandler.executor.ShouldClearRequestDetail(preserveRequestDetail)
+	return h.proxyHandler.executor.ShouldClearRequestDetail(devMode)
 }
 
 func generateProxyRequestID() string {

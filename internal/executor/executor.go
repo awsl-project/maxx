@@ -184,13 +184,13 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	tenantID := domain.DefaultTenantID
 	apiTokenID := uint64(0)
 	projectID := flow.GetProjectID(c)
-	preserveRequestDetail := false
+	devMode := false
 	if apiToken != nil {
 		if apiToken.TenantID > 0 {
 			tenantID = apiToken.TenantID
 		}
 		apiTokenID = apiToken.ID
-		preserveRequestDetail = apiToken.DevMode
+		devMode = apiToken.DevMode
 		if projectID == 0 {
 			projectID = apiToken.ProjectID
 		}
@@ -213,7 +213,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 		StatusCode:   statusCode,
 		Error:        errMsg,
 		APITokenID:   apiTokenID,
-		DevMode:      preserveRequestDetail,
+		DevMode:      devMode,
 	}
 
 	requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
@@ -457,8 +457,8 @@ func (e *Executor) getRequestDetailRetentionSeconds() int {
 }
 
 // ShouldClearRequestDetail 检查是否应该立即清理请求详情（开发模式请求保留详情）
-func (e *Executor) ShouldClearRequestDetail(preserveRequestDetail bool) bool {
-	if preserveRequestDetail {
+func (e *Executor) ShouldClearRequestDetail(devMode bool) bool {
+	if devMode {
 		return false
 	}
 	return e.shouldClearRequestDetail()
@@ -466,7 +466,7 @@ func (e *Executor) ShouldClearRequestDetail(preserveRequestDetail bool) bool {
 
 // shouldClearRequestDetailFor 检查是否应该立即清理请求详情（考虑 开发模式）
 func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
-	return e.ShouldClearRequestDetail(state != nil && state.preserveRequestDetail)
+	return e.ShouldClearRequestDetail(state != nil && state.devMode)
 }
 
 // shouldClearRequestDetail 检查是否应该立即清理请求详情（全局配置）

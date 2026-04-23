@@ -16,18 +16,18 @@ type execState struct {
 	currentAttempt *domain.ProxyUpstreamAttempt
 	lastErr        error
 
-	tenantID              uint64
-	clientType            domain.ClientType
-	projectID             uint64
-	sessionID             string
-	requestModel          string
-	isStream              bool
-	apiTokenID            uint64
-	preserveRequestDetail bool
-	requestBody           []byte
-	originalRequestBody   []byte
-	requestHeaders        http.Header
-	requestURI            string
+	tenantID            uint64
+	clientType          domain.ClientType
+	projectID           uint64
+	sessionID           string
+	requestModel        string
+	isStream            bool
+	apiTokenID          uint64
+	devMode             bool
+	requestBody         []byte
+	originalRequestBody []byte
+	requestHeaders      http.Header
+	requestURI          string
 }
 
 func getExecState(c *flow.Ctx) (*execState, bool) {
