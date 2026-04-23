@@ -125,7 +125,12 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		requestModel := flow.GetRequestModel(c)
 		mappedModel := requestModel
 		isStream := flow.GetIsStream(c)
-		clearDetail := h.shouldClearRequestDetailFor(c)
+		clearDetail := h.proxyHandler != nil && h.proxyHandler.executor != nil && h.proxyHandler.executor.ShouldClearRequestDetailByConfig()
+		if v, ok := c.Get(flow.KeyAPITokenDevMode); ok {
+			if b, ok := v.(bool); ok && b {
+				clearDetail = false
+			}
+		}
 		proxyReq := h.newProxyRequest(c, route, provider, requestModel, mappedModel, isStream)
 		if clearDetail {
 			proxyReq.RequestInfo = nil
@@ -221,21 +226,6 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 		APITokenID: apiTokenID,
 		DevMode:    devMode,
 	}
-}
-
-func (h *ProviderProxyHandler) shouldClearRequestDetailFor(c *flow.Ctx) bool {
-	if h == nil || h.proxyHandler == nil || h.proxyHandler.executor == nil {
-		return false
-	}
-	devMode := false
-	if c != nil {
-		if v, ok := c.Get(flow.KeyAPITokenDevMode); ok {
-			if b, ok := v.(bool); ok {
-				devMode = b
-			}
-		}
-	}
-	return h.proxyHandler.executor.ShouldClearRequestDetailForDevMode(devMode)
 }
 
 func generateProxyRequestID() string {
