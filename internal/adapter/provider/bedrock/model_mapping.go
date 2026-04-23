@@ -46,7 +46,11 @@ type discoveredLookup func(shortName string) (id string, hit bool)
 //                          and ListFoundationModels; returns ready-to-use
 //                          IDs that must not be further prefixed
 //  3. client-supplied dated name (claude-*-YYYYMMDD) — wrap as anthropic.X-v1:0
-//  4. client-supplied fully-qualified Bedrock ID — passthrough
+//  4. client-supplied bare "anthropic.<short>" — retry discovery on the
+//                          stripped short name so releases that Bedrock
+//                          only serves via inference profile can resolve
+//                          to an invoke-ready ID; miss falls through to 5
+//  5. client-supplied fully-qualified Bedrock ID — passthrough
 func resolveModelID(model string, configMapping map[string]string, modelPrefix string, discovered discoveredLookup) (string, bool) {
 	if configMapping != nil {
 		if mapped, ok := configMapping[model]; ok {
@@ -77,7 +81,7 @@ func resolveModelID(model string, configMapping map[string]string, modelPrefix s
 		if discovered != nil &&
 			!regionPrefixedPattern.MatchString(model) &&
 			!inferenceProfilePattern.MatchString(model) {
-			if short, ok := strings.CutPrefix(model, "anthropic."); ok {
+			if short, ok := strings.CutPrefix(model, "anthropic."); ok && short != "" {
 				if id, hit := discovered(short); hit {
 					return id, true
 				}
