@@ -1,0 +1,168 @@
+package error_fixer
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/tidwall/gjson"
+)
+
+func TestThinkingSignatureFixer_MatchResponse(t *testing.T) {
+	f := &thinkingSignatureFixer{}
+
+	cases := []struct {
+		name       string
+		status     int
+		nilResp    bool
+		body       string
+		clientType domain.ClientType
+		want       bool
+	}{
+		{
+			name:       "match on realistic error body",
+			status:     400,
+			body:       `{"error":{"type":"<nil>","message":"messages.0.content.0: Invalid ` + "`" + `signature` + "`" + ` in ` + "`" + `thinking` + "`" + ` block (request id: 202604230718)"}}`,
+			clientType: domain.ClientTypeClaude,
+			want:       true,
+		},
+		{
+			name:       "no match on wrong status",
+			status:     500,
+			body:       "Invalid `signature` in `thinking` block",
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "no match on non-Claude client",
+			status:     400,
+			body:       "Invalid `signature` in `thinking` block",
+			clientType: domain.ClientTypeGemini,
+			want:       false,
+		},
+		{
+			name:       "no match on AWS SigV4 style signature error",
+			status:     400,
+			body:       `{"error":"The request signature we calculated does not match the signature you provided"}`,
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "no match on thinking budget validation error",
+			status:     400,
+			body:       `{"error":"thinking.budget_tokens must be >= 1024"}`,
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "no match when both words present but not the exact phrase",
+			status:     400,
+			body:       `{"error":"signature field is required on thinking blocks"}`,
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "match on nil response (SSE error path) with exact phrase",
+			nilResp:    true,
+			body:       "event: error\ndata: {\"message\":\"messages.0.content.0: Invalid `signature` in `thinking` block\"}",
+			clientType: domain.ClientTypeClaude,
+			want:       true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var resp *http.Response
+			if !c.nilResp {
+				resp = &http.Response{StatusCode: c.status}
+			}
+			got := f.MatchResponse(resp, []byte(c.body), c.clientType)
+			if got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestStripThinkingBlocks(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		check func(t *testing.T, out []byte)
+	}{
+		{
+			name: "removes thinking and redacted_thinking, preserves text and tool_use",
+			input: `{"messages":[
+				{"role":"assistant","content":[
+					{"type":"thinking","thinking":"...","signature":"abc"},
+					{"type":"text","text":"hello"},
+					{"type":"redacted_thinking","data":"xxx"},
+					{"type":"tool_use","id":"t1","name":"x","input":{}}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"t1","content":"ok"}
+				]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				ac := gjson.GetBytes(out, "messages.0.content")
+				if n := ac.Get("#").Int(); n != 2 {
+					t.Fatalf("assistant content len = %d, want 2 (text+tool_use)", n)
+				}
+				if got := ac.Get("0.type").String(); got != "text" {
+					t.Errorf("kept content[0].type = %q, want text", got)
+				}
+				if got := ac.Get("1.type").String(); got != "tool_use" {
+					t.Errorf("kept content[1].type = %q, want tool_use", got)
+				}
+				uc := gjson.GetBytes(out, "messages.1.content")
+				if n := uc.Get("#").Int(); n != 1 {
+					t.Errorf("user content len = %d, want 1 (unchanged)", n)
+				}
+			},
+		},
+		{
+			name: "string content is left untouched",
+			input: `{"messages":[
+				{"role":"user","content":"plain text"}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				if got := gjson.GetBytes(out, "messages.0.content").String(); got != "plain text" {
+					t.Errorf("string content mangled: %q", got)
+				}
+			},
+		},
+		{
+			name: "message of only thinking blocks becomes empty content array (left in place)",
+			input: `{"messages":[
+				{"role":"assistant","content":[
+					{"type":"thinking","thinking":"...","signature":"abc"}
+				]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				ac := gjson.GetBytes(out, "messages.0.content")
+				if !ac.IsArray() {
+					t.Fatalf("expected content to remain an array, got %v", ac.Type)
+				}
+				if n := ac.Get("#").Int(); n != 0 {
+					t.Errorf("expected empty content array, got len %d", n)
+				}
+			},
+		},
+		{
+			name:  "no messages field is a no-op",
+			input: `{"model":"claude-foo"}`,
+			check: func(t *testing.T, out []byte) {
+				if got := gjson.GetBytes(out, "model").String(); got != "claude-foo" {
+					t.Errorf("unrelated fields mutated: %s", string(out))
+				}
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out := stripThinkingBlocks([]byte(c.input))
+			c.check(t, out)
+		})
+	}
+}
