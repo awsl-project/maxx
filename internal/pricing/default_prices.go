@@ -220,6 +220,13 @@ func initDefaultPrices() *PriceTable {
 	})
 
 	// ========== GPT 5.x 系列 ==========
+	// gpt-5.5: input=$5, output=$30; cache_read 使用默认 input/10
+	pt.Set(&ModelPricing{
+		ModelID:          "gpt-5.5",
+		InputPriceMicro:  5_000_000,  // $5.00/M
+		OutputPriceMicro: 30_000_000, // $30.00/M
+	})
+
 	// gpt-5.1: input=$1.25, cache_read=$0.125, output=$10
 	pt.Set(&ModelPricing{
 		ModelID:             "gpt-5.1",

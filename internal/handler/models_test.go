@@ -176,6 +176,9 @@ func TestModelsHandlerPricingSupplementByUserAgent(t *testing.T) {
 	if !containsModel(openAIIDs, "gpt-5.4-mini") {
 		t.Fatalf("expected gpt-5.4-mini in openai model list")
 	}
+	if !containsModel(openAIIDs, "gpt-5.5") {
+		t.Fatalf("expected gpt-5.5 in openai model list")
+	}
 	if containsModel(openAIIDs, "claude-opus-4-6") {
 		t.Fatalf("did not expect claude pricing-only model in codex model list")
 	}

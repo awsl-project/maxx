@@ -61,6 +61,7 @@ const COMMON_MODELS = [
   { id: 'o1-mini', name: 'o1 Mini', provider: 'OpenAI' },
   { id: 'o1-pro', name: 'o1 Pro', provider: 'OpenAI' },
   { id: 'o3-mini', name: 'o3 Mini', provider: 'OpenAI' },
+  { id: 'gpt-5.5', name: 'GPT-5.5', provider: 'OpenAI' },
   { id: 'gpt-5.3', name: 'GPT-5.3', provider: 'OpenAI' },
   { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', provider: 'OpenAI' },
   { id: 'gpt-5.4', name: 'GPT-5.4', provider: 'OpenAI' },
