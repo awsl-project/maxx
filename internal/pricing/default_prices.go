@@ -227,6 +227,13 @@ func initDefaultPrices() *PriceTable {
 		OutputPriceMicro: 30_000_000, // $30.00/M
 	})
 
+	// gpt-5.5-pro: input=$30, output=$180; 官方未列 cached input 价格
+	pt.Set(&ModelPricing{
+		ModelID:          "gpt-5.5-pro",
+		InputPriceMicro:  30_000_000,  // $30.00/M
+		OutputPriceMicro: 180_000_000, // $180.00/M
+	})
+
 	// gpt-5.1: input=$1.25, cache_read=$0.125, output=$10
 	pt.Set(&ModelPricing{
 		ModelID:             "gpt-5.1",
