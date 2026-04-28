@@ -949,6 +949,9 @@
       "en": "English",
       "zh": "简体中文"
     },
+    "ui": "界面",
+    "enableMultiTenantUI": "启用多租户界面",
+    "enableMultiTenantUIDesc": "开启后显示工作区/租户标识等多租户相关界面。",
     "forceProjectBinding": "强制项目绑定",
     "enableForceProjectBinding": "启用强制项目绑定",
     "forceProjectBindingDesc": "开启后，新会话必须选择项目才能继续执行请求",

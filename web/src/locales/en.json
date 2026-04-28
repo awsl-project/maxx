@@ -950,6 +950,9 @@
       "en": "English",
       "zh": "简体中文"
     },
+    "ui": "UI",
+    "enableMultiTenantUI": "Enable Multi-tenant UI",
+    "enableMultiTenantUIDesc": "Show workspace / tenant identifiers in the interface.",
     "forceProjectBinding": "Force Project Binding",
     "enableForceProjectBinding": "Enable Force Project Binding",
     "forceProjectBindingDesc": "When enabled, new sessions must select a project before executing requests",

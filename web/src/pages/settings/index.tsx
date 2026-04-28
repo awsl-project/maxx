@@ -282,6 +282,7 @@ export function SettingsPage() {
           <GeneralSection />
           {isAdmin && (
             <>
+              <MultiTenantUISection />
               <TimezoneSection />
               <DataRetentionSection />
               <ForceProjectSection />
@@ -1715,3 +1716,40 @@ function BackupSection() {
 }
 
 export default SettingsPage;
+
+function MultiTenantUISection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+
+  const enabled = settings?.ui_multitenant_enabled === 'true';
+
+  const handleToggle = async (checked: boolean) => {
+    await updateSetting.mutateAsync({
+      key: 'ui_multitenant_enabled',
+      value: checked ? 'true' : 'false',
+    });
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Monitor className="h-4 w-4 text-muted-foreground" />
+          {t('settings.ui')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium text-foreground">{t('settings.enableMultiTenantUI')}</div>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.enableMultiTenantUIDesc')}</p>
+          </div>
+          <Switch checked={enabled} onCheckedChange={handleToggle} disabled={updateSetting.isPending} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

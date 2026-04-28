@@ -18,6 +18,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 	"force_project_timeout":  {},
 	"auto_sort_antigravity":  {},
 	"auto_sort_codex":        {},
+	"ui_multitenant_enabled": {},
 }
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
