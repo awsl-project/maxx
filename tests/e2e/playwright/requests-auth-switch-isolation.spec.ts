@@ -141,6 +141,7 @@ test('requests page does not leak cached requests or token filters across tenant
         body: JSON.stringify({
           api_token_auth_enabled: 'true',
           force_project_binding: 'false',
+          ui_multitenant_enabled: 'true',
         }),
       });
       return;
