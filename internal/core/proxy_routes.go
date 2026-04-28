@@ -27,12 +27,13 @@ func RegisterProxyRoutes(mux *http.ServeMux, handlers ProxyRouteHandlers) {
 		mux.Handle("/responses/", handlers.ProxyHandler)
 		mux.Handle("/v1/responses", handlers.ProxyHandler)
 		mux.Handle("/v1/responses/", handlers.ProxyHandler)
-		// Gemini API (Google AI Studio style)
+		// Gemini API (Google AI Studio style generation endpoints)
 		mux.Handle("/v1beta/models/", handlers.ProxyHandler)
 	}
 
 	if handlers.ModelsHandler != nil {
 		mux.Handle("/v1/models", handlers.ModelsHandler)
+		mux.Handle("/v1beta/models", handlers.ModelsHandler)
 	}
 
 	if handlers.ProviderProxyHandler != nil {

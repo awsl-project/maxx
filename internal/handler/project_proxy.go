@@ -58,7 +58,7 @@ func (h *ProjectProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	r.URL.Path = apiPath
 
 	// Forward to the appropriate handler
-	if apiPath == "/v1/models" {
+	if isModelListAPIPath(apiPath) {
 		h.modelsHandler.ServeHTTP(w, r)
 		return
 	}
@@ -115,7 +115,7 @@ func isValidAPIPath(path string) bool {
 		return true
 	}
 	// Gemini API
-	if strings.HasPrefix(path, "/v1beta/models/") {
+	if path == "/v1beta/models" || strings.HasPrefix(path, "/v1beta/models/") {
 		return true
 	}
 	return false

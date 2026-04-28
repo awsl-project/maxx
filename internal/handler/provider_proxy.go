@@ -70,7 +70,7 @@ func (h *ProviderProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if apiPath == "/v1/models" {
+	if isModelListAPIPath(apiPath) {
 		r.URL.Path = apiPath
 		h.modelsHandler.ServeHTTP(w, r)
 		return

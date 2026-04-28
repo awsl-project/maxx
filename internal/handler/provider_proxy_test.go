@@ -77,3 +77,27 @@ func TestIsProviderProxyPath(t *testing.T) {
 		t.Fatal("did not expect regular web route to be detected")
 	}
 }
+
+func TestIsModelListAPIPath(t *testing.T) {
+	for _, path := range []string{"/v1/models", "/v1beta/models"} {
+		if !isModelListAPIPath(path) {
+			t.Fatalf("expected %q to be a model-list API path", path)
+		}
+	}
+
+	for _, path := range []string{
+		"/v1/models/list",
+		"/v1beta/models/gemini-2.5-pro:generateContent",
+		"/v1beta/models/gemini-2.5-pro:streamGenerateContent",
+	} {
+		if isModelListAPIPath(path) {
+			t.Fatalf("did not expect %q to be a model-list API path", path)
+		}
+	}
+}
+
+func TestProjectAPIPathAllowsExactGeminiModelList(t *testing.T) {
+	if !isValidAPIPath("/v1beta/models") {
+		t.Fatal("expected exact Gemini model-list path to be valid for project proxy URLs")
+	}
+}
