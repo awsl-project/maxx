@@ -10,7 +10,7 @@ import path from 'node:path';
 
 import { expect, test } from 'playwright/test';
 
-import { BASE, adminAPI, loginToAdminUI, nextAnimationFrames } from './helpers';
+import { BASE, PASS, USER, adminAPI, loginToAdminUI, nextAnimationFrames } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 

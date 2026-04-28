@@ -8,7 +8,7 @@ import http from 'node:http';
 
 import { expect, test } from 'playwright/test';
 
-import { BASE, adminAPI, loginToAdminUI } from './helpers';
+import { BASE, PASS, USER, adminAPI, loginToAdminUI } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 

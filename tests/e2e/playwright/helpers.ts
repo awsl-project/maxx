@@ -56,15 +56,19 @@ export async function loginToAdminUI(page: Page) {
   await enableMultiTenantUIForE2E();
   await page.goto(BASE);
 
-  const usernameInput = page.locator('input[type="text"]');
-  const loginVisible = await usernameInput
+  const passwordInput = page.locator('input[type="password"]');
+  const passwordVisible = await passwordInput
     .waitFor({ state: 'visible', timeout: 10000 })
     .then(() => true)
     .catch(() => false);
 
-  if (loginVisible) {
-    await page.fill('input[type="text"]', USER);
-    await page.fill('input[type="password"]', PASS);
+  if (passwordVisible) {
+    const usernameInput = page.locator('input[type="text"]');
+    const usernameVisible = await usernameInput.isVisible().catch(() => false);
+    if (usernameVisible) {
+      await usernameInput.fill(USER);
+    }
+    await passwordInput.fill(PASS);
     await page.locator('button[type="submit"]').click();
   }
 
