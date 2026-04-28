@@ -68,8 +68,7 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
   const { user, authEnabled } = useAuth();
   const publicSettings = usePublicSettings();
   const isAdmin = !user || user.role === 'admin';
-  const multiTenantUIEnabled =
-    publicSettings.isLoading || publicSettings.data?.ui_multitenant_enabled === 'true';
+  const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
 
   return (
     <>

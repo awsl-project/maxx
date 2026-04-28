@@ -74,8 +74,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const { t } = useTranslation();
   const { transport } = useTransport();
   const publicSettings = usePublicSettings();
-  const multiTenantUIEnabled =
-    publicSettings.isLoading || publicSettings.data?.ui_multitenant_enabled === 'true';
+  const publicSettingsLoading = publicSettings.isLoading;
+  const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
   const [authTab, setAuthTab] = useState<AuthTab>('login');
   const [passkeyExpanded, setPasskeyExpanded] = useState(false);
   const [showRegisterPasswordRules, setShowRegisterPasswordRules] = useState(false);
@@ -103,7 +103,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
 
   const passkeySupported = browserSupportsWebAuthn();
-  const anyLoading = isLoginLoading || isRegisterLoading || isPasskeyLoading;
+  const anyLoading =
+    publicSettingsLoading || isLoginLoading || isRegisterLoading || isPasskeyLoading;
   const registerPasswordRuleState = getManagedPasswordRuleState(registerPassword);
   const registerPasswordFormatError = getRegisterPasswordError(registerPassword, t);
   const registerPasswordFieldError =
