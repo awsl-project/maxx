@@ -26,8 +26,16 @@ func TestRegisterProxyRoutes_RegistersModelsRoute(t *testing.T) {
 			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusNoContent)
 		}
 	}
-	if len(calledPaths) != 2 {
-		t.Fatalf("models handler calls = %v, want both model-list routes", calledPaths)
+	wantPaths := map[string]bool{"/v1/models": false, "/v1beta/models": false}
+	for _, path := range calledPaths {
+		if _, ok := wantPaths[path]; ok {
+			wantPaths[path] = true
+		}
+	}
+	for path, called := range wantPaths {
+		if !called {
+			t.Fatalf("models handler calls = %v, missing %s", calledPaths, path)
+		}
 	}
 }
 

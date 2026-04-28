@@ -39,19 +39,27 @@ func (h *ModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 	userAgent := r.Header.Get("User-Agent")
-	names, err := h.collectModelNamesForUserAgent(tenantID, userAgent)
+	isGeminiModels := isGeminiModelsPath(r.URL.Path)
+
+	var names []string
+	var err error
+	if isGeminiModels {
+		names, err = h.collectModelNames(tenantID)
+	} else {
+		names, err = h.collectModelNamesForUserAgent(tenantID, userAgent)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if strings.HasPrefix(userAgent, "claude-cli") {
-		writeJSON(w, http.StatusOK, buildClaudeModelsResponse(names))
+	if isGeminiModels {
+		writeJSON(w, http.StatusOK, buildGeminiModelsResponse(names))
 		return
 	}
 
-	if isGeminiModelsPath(r.URL.Path) {
-		writeJSON(w, http.StatusOK, buildGeminiModelsResponse(names))
+	if strings.HasPrefix(userAgent, "claude-cli") {
+		writeJSON(w, http.StatusOK, buildClaudeModelsResponse(names))
 		return
 	}
 
