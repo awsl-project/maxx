@@ -305,7 +305,14 @@ function GeneralSection() {
 
   const defaultThemes = getDefaultThemes();
   const luxuryThemes = getLuxuryThemes();
-  const themeCategoryTab = isLuxuryTheme(theme) ? 'luxury' : 'default';
+  const currentThemeCategoryTab = isLuxuryTheme(theme) ? 'luxury' : 'default';
+  const [themeCategoryTab, setThemeCategoryTab] = useState<'default' | 'luxury'>(
+    currentThemeCategoryTab,
+  );
+
+  useEffect(() => {
+    setThemeCategoryTab(currentThemeCategoryTab);
+  }, [currentThemeCategoryTab]);
 
   const languages = [
     { value: 'en', label: t('settings.languages.en') },
@@ -324,8 +331,8 @@ function GeneralSection() {
         {/* Theme Selection */}
         <div className="space-y-3">
           <Tabs
-            key={themeCategoryTab}
-            defaultValue={themeCategoryTab}
+            value={themeCategoryTab}
+            onValueChange={(value) => setThemeCategoryTab(value as 'default' | 'luxury')}
             className="w-full"
           >
             <div className="flex items-center justify-between mb-3 ">
