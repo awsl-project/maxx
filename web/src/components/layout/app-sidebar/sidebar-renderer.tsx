@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { SidebarConfig, MenuItem } from '@/types/sidebar';
 import { useAuth } from '@/lib/auth-context';
+import { usePublicSettings } from '@/hooks/queries';
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -65,12 +66,26 @@ function MenuItemRenderer({ item }: { item: MenuItem }) {
 export function SidebarRenderer({ config }: SidebarRendererProps) {
   const { t } = useTranslation();
   const { user, authEnabled } = useAuth();
+  const publicSettings = usePublicSettings();
   const isAdmin = !user || user.role === 'admin';
+  const multiTenantUIEnabled =
+    publicSettings.isLoading || publicSettings.data?.ui_multitenant_enabled === 'true';
 
   return (
     <>
       {config.sections.map((section) => {
+        if (!multiTenantUIEnabled && section.key === 'routes') {
+          return null;
+        }
+
         const filteredItems = section.items.filter((item) => {
+          if (
+            !multiTenantUIEnabled &&
+            item.type === 'standard' &&
+            (item.key === 'invite-codes' || item.key === 'users')
+          ) {
+            return false;
+          }
           if (item.type === 'standard' && item.adminOnly && !isAdmin) {
             return false;
           }

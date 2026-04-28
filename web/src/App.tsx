@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useEffect, type ReactNode } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { useTranslation } from 'react-i18next';
 import { OverviewPage } from '@/pages/overview';
@@ -26,6 +26,26 @@ import { UsersPage } from '@/pages/users';
 import { AdminRoute } from '@/components/auth/admin-route';
 import { InviteCodesPage } from '@/pages/invite-codes';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { usePublicSettings } from '@/hooks/queries';
+
+function MultiTenantUIRoute({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
+  const { data: settings, isLoading } = usePublicSettings();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <span className="text-muted-foreground">{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (settings?.ui_multitenant_enabled !== 'true') {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
 
 function AppRoutes() {
   const { t } = useTranslation();
@@ -67,7 +87,14 @@ function AppRoutes() {
           <Route path="providers" element={<ProvidersPage />} />
           <Route path="providers/create/*" element={<ProviderCreateLayout />} />
           <Route path="providers/:id/edit" element={<ProviderEditPage />} />
-          <Route path="routes/:clientType" element={<ClientRoutesPage />} />
+          <Route
+            path="routes/:clientType"
+            element={
+              <MultiTenantUIRoute>
+                <ClientRoutesPage />
+              </MultiTenantUIRoute>
+            }
+          />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="sessions" element={<SessionsPage />} />
@@ -83,7 +110,9 @@ function AppRoutes() {
             path="invite-codes"
             element={
               <AdminRoute>
-                <InviteCodesPage />
+                <MultiTenantUIRoute>
+                  <InviteCodesPage />
+                </MultiTenantUIRoute>
               </AdminRoute>
             }
           />
@@ -104,7 +133,9 @@ function AppRoutes() {
             path="users"
             element={
               <AdminRoute>
-                <UsersPage />
+                <MultiTenantUIRoute>
+                  <UsersPage />
+                </MultiTenantUIRoute>
               </AdminRoute>
             }
           />
