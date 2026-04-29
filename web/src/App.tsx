@@ -87,14 +87,7 @@ function AppRoutes() {
           <Route path="providers" element={<ProvidersPage />} />
           <Route path="providers/create/*" element={<ProviderCreateLayout />} />
           <Route path="providers/:id/edit" element={<ProviderEditPage />} />
-          <Route
-            path="routes/:clientType"
-            element={
-              <MultiTenantUIRoute>
-                <ClientRoutesPage />
-              </MultiTenantUIRoute>
-            }
-          />
+          <Route path="routes/:clientType" element={<ClientRoutesPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="sessions" element={<SessionsPage />} />

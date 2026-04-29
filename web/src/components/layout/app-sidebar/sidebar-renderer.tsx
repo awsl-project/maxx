@@ -73,10 +73,6 @@ export function SidebarRenderer({ config }: SidebarRendererProps) {
   return (
     <>
       {config.sections.map((section) => {
-        if (!multiTenantUIEnabled && section.key === 'routes') {
-          return null;
-        }
-
         const filteredItems = section.items.filter((item) => {
           if (
             !multiTenantUIEnabled &&
