@@ -240,53 +240,37 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Build upstream URL
 	upstreamURL := buildBedrockURL(region, bedrockModelID, clientWantsStream)
 
-	// Create upstream request
-	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
-	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to create upstream request")
-		proxyErr.Scope = domain.ScopeEndpoint
-		proxyErr.Reason = domain.CooldownReasonServerError
-		return proxyErr
-	}
+	// Up to two attempts: a Bedrock 400 that rejects a thinking-block
+	// envelope (signature on `thinking`, opaque `data` on
+	// `redacted_thinking`) is recoverable by stripping those blocks
+	// and replaying once. Cross-deployment replays produced by
+	// clients that captured a transcript against Anthropic and now
+	// hit Bedrock are the common cause; retry preserves the rest of
+	// the conversation rather than failing the whole request.
+	var resp *http.Response
+	thinkingRetried := false
+	for {
+		var attemptErr error
+		resp, attemptErr = a.sendBedrockRequest(ctx, c, upstreamURL, requestBody, region, clientWantsStream)
+		if attemptErr != nil {
+			return attemptErr
+		}
 
-	// Set headers
-	upstreamReq.Header.Set("Content-Type", "application/json")
-	if clientWantsStream {
-		upstreamReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
-	} else {
-		upstreamReq.Header.Set("Accept", "application/json")
-	}
+		if resp.StatusCode < 400 {
+			break
+		}
 
-	// Sign request with SigV4
-	if err := signRequest(ctx, upstreamReq, requestBody, a.creds, region); err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to sign request")
-		proxyErr.Scope = domain.ScopeKey
-		proxyErr.Reason = domain.CooldownReasonAuthFailure
-		return proxyErr
-	}
-
-	// Send request info via EventChannel
-	if eventChan := flow.GetEventChan(c); eventChan != nil {
-		eventChan.SendRequestInfo(&domain.RequestInfo{
-			Method:  upstreamReq.Method,
-			URL:     upstreamURL,
-			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
-			Body:    string(requestBody),
-		})
-	}
-
-	// Execute request
-	resp, err := a.httpClient.Do(upstreamReq)
-	if err != nil {
-		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-		proxyErr.Message = "failed to connect to Bedrock"
-		return proxyErr
-	}
-	defer resp.Body.Close()
-
-	// Handle error responses
-	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if !thinkingRetried && resp.StatusCode == 400 && IsThinkingBlockEnvelopeError(body) {
+			stripped := StripThinkingBlocks(requestBody)
+			if !bytes.Equal(stripped, requestBody) {
+				requestBody = stripped
+				thinkingRetried = true
+				continue
+			}
+		}
 
 		if eventChan := flow.GetEventChan(c); eventChan != nil {
 			eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -305,12 +289,59 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		}
 		return proxyErr
 	}
+	defer resp.Body.Close()
 
 	// Handle response
 	if clientWantsStream {
 		return a.handleStreamResponse(c, resp)
 	}
 	return a.handleNonStreamResponse(c, resp)
+}
+
+// sendBedrockRequest builds, signs, emits the request-info event for,
+// and sends one upstream HTTP request. Factored out of Execute so the
+// thinking-block retry path can replay with a fresh request without
+// duplicating the SigV4/event plumbing. Caller owns the returned
+// response body.
+func (a *BedrockAdapter) sendBedrockRequest(ctx context.Context, c *flow.Ctx, upstreamURL string, requestBody []byte, region string, clientWantsStream bool) (*http.Response, error) {
+	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
+	if err != nil {
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return nil, proxyErr
+	}
+
+	upstreamReq.Header.Set("Content-Type", "application/json")
+	if clientWantsStream {
+		upstreamReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
+	} else {
+		upstreamReq.Header.Set("Accept", "application/json")
+	}
+
+	if err := signRequest(ctx, upstreamReq, requestBody, a.creds, region); err != nil {
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to sign request")
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		return nil, proxyErr
+	}
+
+	if eventChan := flow.GetEventChan(c); eventChan != nil {
+		eventChan.SendRequestInfo(&domain.RequestInfo{
+			Method:  upstreamReq.Method,
+			URL:     upstreamURL,
+			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
+			Body:    string(requestBody),
+		})
+	}
+
+	resp, err := a.httpClient.Do(upstreamReq)
+	if err != nil {
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to Bedrock"
+		return nil, proxyErr
+	}
+	return resp, nil
 }
 
 func (a *BedrockAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response) error {

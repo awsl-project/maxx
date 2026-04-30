@@ -4,12 +4,13 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/tidwall/gjson"
 )
 
-func TestThinkingSignatureFixer_MatchResponse(t *testing.T) {
-	f := &thinkingSignatureFixer{}
+func TestThinkingEnvelopeFixer_MatchResponse(t *testing.T) {
+	f := &thinkingEnvelopeFixer{}
 
 	cases := []struct {
 		name       string
@@ -20,11 +21,58 @@ func TestThinkingSignatureFixer_MatchResponse(t *testing.T) {
 		want       bool
 	}{
 		{
-			name:       "match on realistic error body",
+			name:       "match on thinking signature error",
 			status:     400,
-			body:       `{"error":{"type":"<nil>","message":"messages.0.content.0: Invalid ` + "`" + `signature` + "`" + ` in ` + "`" + `thinking` + "`" + ` block (request id: 202604230718)"}}`,
+			body:       "{\"error\":{\"message\":\"messages.0.content.0: Invalid `signature` in `thinking` block (request id: 202604230718)\"}}",
 			clientType: domain.ClientTypeClaude,
 			want:       true,
+		},
+		{
+			name:       "match on redacted_thinking data error",
+			status:     400,
+			body:       "{\"message\":\"messages.1.content.2: Invalid `data` in `redacted_thinking` block\"}",
+			clientType: domain.ClientTypeClaude,
+			want:       true,
+		},
+		{
+			// The whole point of the regex over literal phrases:
+			// hypothetical future fields on the same block types are
+			// covered without code changes.
+			name:       "match on hypothetical future field on thinking block",
+			status:     400,
+			body:       "{\"message\":\"Invalid `encryption_key` in `thinking` block\"}",
+			clientType: domain.ClientTypeClaude,
+			want:       true,
+		},
+		{
+			// Stripping thinking blocks would not help for an error on
+			// an unrelated block type, so we must not match it.
+			name:       "no match on unrelated block type (tool_result)",
+			status:     400,
+			body:       "{\"message\":\"Invalid `tool_use_id` in `tool_result` block\"}",
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "no match on AWS SigV4 signature error",
+			status:     400,
+			body:       `{"error":"The request signature we calculated does not match the signature you provided"}`,
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "no match on thinking budget validation error",
+			status:     400,
+			body:       `{"error":"thinking.budget_tokens must be >= 1024"}`,
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "no match without backticks",
+			status:     400,
+			body:       `{"error":"signature field is required on thinking blocks"}`,
+			clientType: domain.ClientTypeClaude,
+			want:       false,
 		},
 		{
 			name:       "no match on wrong status",
@@ -41,30 +89,9 @@ func TestThinkingSignatureFixer_MatchResponse(t *testing.T) {
 			want:       false,
 		},
 		{
-			name:       "no match on AWS SigV4 style signature error",
-			status:     400,
-			body:       `{"error":"The request signature we calculated does not match the signature you provided"}`,
-			clientType: domain.ClientTypeClaude,
-			want:       false,
-		},
-		{
-			name:       "no match on thinking budget validation error",
-			status:     400,
-			body:       `{"error":"thinking.budget_tokens must be >= 1024"}`,
-			clientType: domain.ClientTypeClaude,
-			want:       false,
-		},
-		{
-			name:       "no match when both words present but not the exact phrase",
-			status:     400,
-			body:       `{"error":"signature field is required on thinking blocks"}`,
-			clientType: domain.ClientTypeClaude,
-			want:       false,
-		},
-		{
-			name:       "match on nil response (SSE error path) with exact phrase",
+			name:       "match on nil response (SSE error path)",
 			nilResp:    true,
-			body:       "event: error\ndata: {\"message\":\"messages.0.content.0: Invalid `signature` in `thinking` block\"}",
+			body:       "event: error\ndata: {\"message\":\"Invalid `data` in `redacted_thinking` block\"}",
 			clientType: domain.ClientTypeClaude,
 			want:       true,
 		},
@@ -76,11 +103,38 @@ func TestThinkingSignatureFixer_MatchResponse(t *testing.T) {
 			if !c.nilResp {
 				resp = &http.Response{StatusCode: c.status}
 			}
-			got := f.MatchResponse(resp, []byte(c.body), c.clientType)
-			if got != c.want {
+			if got := f.MatchResponse(resp, []byte(c.body), c.clientType); got != c.want {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+func TestThinkingEnvelopeFixer_FixRequest(t *testing.T) {
+	f := &thinkingEnvelopeFixer{}
+	req := &http.Request{}
+	input := []byte(`{"messages":[
+		{"role":"assistant","content":[
+			{"type":"thinking","thinking":"...","signature":"abc"},
+			{"type":"redacted_thinking","data":"opaque"},
+			{"type":"text","text":"hi"}
+		]}
+	]}`)
+	orig := make([]byte, len(input))
+	copy(orig, input)
+
+	gotReq, gotBody := f.FixRequest(req, input)
+	if gotReq != req {
+		t.Errorf("FixRequest should return the same request object")
+	}
+	if string(input) != string(orig) {
+		t.Errorf("input slice was mutated: before=%s after=%s", orig, input)
+	}
+	if gjson.GetBytes(gotBody, "messages.0.content.#").Int() != 1 {
+		t.Errorf("expected both thinking blocks stripped, got %s", gotBody)
+	}
+	if got := gjson.GetBytes(gotBody, "messages.0.content.0.type").String(); got != "text" {
+		t.Errorf("remaining block type = %q, want text", got)
 	}
 }
 
@@ -155,7 +209,6 @@ func TestStripThinkingBlocks(t *testing.T) {
 				if got := ac.Get("0.text").String(); got == "" {
 					t.Errorf("placeholder text must be non-empty")
 				}
-				// Surrounding user turns are untouched.
 				if got := gjson.GetBytes(out, "messages.0.content.0.text").String(); got != "hi" {
 					t.Errorf("preceding user turn mangled: %q", got)
 				}
@@ -197,7 +250,7 @@ func TestStripThinkingBlocks(t *testing.T) {
 				]}
 			]}`,
 			check: func(t *testing.T, out []byte) {
-				twice := stripThinkingBlocks(out)
+				twice := bedrock.StripThinkingBlocks(out)
 				if string(twice) != string(out) {
 					t.Errorf("second strip must be a no-op; before=%s after=%s", out, twice)
 				}
@@ -216,37 +269,8 @@ func TestStripThinkingBlocks(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			out := stripThinkingBlocks([]byte(c.input))
+			out := bedrock.StripThinkingBlocks([]byte(c.input))
 			c.check(t, out)
 		})
-	}
-}
-
-func TestThinkingSignatureFixer_FixRequest(t *testing.T) {
-	f := &thinkingSignatureFixer{}
-	req := &http.Request{}
-	input := []byte(`{"messages":[
-		{"role":"assistant","content":[
-			{"type":"thinking","thinking":"...","signature":"abc"},
-			{"type":"text","text":"hi"}
-		]}
-	]}`)
-	// Copy the input so we can assert the fixer does not mutate the
-	// caller's slice (per the ErrorFixer contract in fixer.go).
-	orig := make([]byte, len(input))
-	copy(orig, input)
-
-	gotReq, gotBody := f.FixRequest(req, input)
-	if gotReq != req {
-		t.Errorf("FixRequest should return the same request object")
-	}
-	if string(input) != string(orig) {
-		t.Errorf("input slice was mutated: before=%s after=%s", orig, input)
-	}
-	if gjson.GetBytes(gotBody, "messages.0.content.#").Int() != 1 {
-		t.Errorf("expected thinking block stripped, got %s", gotBody)
-	}
-	if got := gjson.GetBytes(gotBody, "messages.0.content.0.type").String(); got != "text" {
-		t.Errorf("remaining block type = %q, want text", got)
 	}
 }
