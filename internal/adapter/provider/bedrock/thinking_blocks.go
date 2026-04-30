@@ -45,11 +45,18 @@ var emptyAssistantPlaceholder = []byte(`[{"type":"text","text":"[thinking omitte
 // text block is inserted to keep the retry valid — dropping the
 // message would create adjacent user turns and an empty array is
 // itself a validation error on most upstreams. Idempotent.
+//
+// The caller's slice is not modified: sjson's mutation helpers may
+// edit their input in place when there's room, so we defensively
+// copy on entry. This is rarely on a hot path (error recovery only)
+// so the extra allocation is negligible, and it lets callers reuse
+// the original body unchanged on the retry path.
 func StripThinkingBlocks(payload []byte) []byte {
 	messages := gjson.GetBytes(payload, "messages")
 	if !messages.IsArray() {
 		return payload
 	}
+	payload = append([]byte(nil), payload...)
 	for i := int(messages.Get("#").Int()) - 1; i >= 0; i-- {
 		contentPath := fmt.Sprintf("messages.%d.content", i)
 		content := gjson.GetBytes(payload, contentPath)

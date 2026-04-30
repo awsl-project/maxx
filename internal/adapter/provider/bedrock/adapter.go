@@ -247,6 +247,12 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// clients that captured a transcript against Anthropic and now
 	// hit Bedrock are the common cause; retry preserves the rest of
 	// the conversation rather than failing the whole request.
+	//
+	// Streaming requests are covered by the same path: Bedrock
+	// validates the request body before opening the response stream,
+	// so envelope rejections come back as a non-streaming HTTP 400
+	// even when the client asked for a stream — they hit this branch,
+	// not handleStreamResponse.
 	var resp *http.Response
 	thinkingRetried := false
 	for {
@@ -266,6 +272,17 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		if !thinkingRetried && resp.StatusCode == 400 && IsThinkingBlockEnvelopeError(body) {
 			stripped := StripThinkingBlocks(requestBody)
 			if !bytes.Equal(stripped, requestBody) {
+				// Surface the swallowed 400 so traffic-log readers can
+				// see why the request was retried; otherwise the trace
+				// would show one request, one success, and no record
+				// of the recovery.
+				if eventChan := flow.GetEventChan(c); eventChan != nil {
+					eventChan.SendResponseInfo(&domain.ResponseInfo{
+						Status:  resp.StatusCode,
+						Headers: flattenHeaders(resp.Header),
+						Body:    string(body),
+					})
+				}
 				requestBody = stripped
 				thinkingRetried = true
 				continue

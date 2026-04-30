@@ -1,6 +1,10 @@
 package bedrock
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/tidwall/gjson"
+)
 
 func TestIsThinkingBlockEnvelopeError(t *testing.T) {
 	cases := []struct {
@@ -59,6 +63,109 @@ func TestIsThinkingBlockEnvelopeError(t *testing.T) {
 			if got := IsThinkingBlockEnvelopeError([]byte(c.body)); got != c.want {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
+		})
+	}
+}
+
+func TestStripThinkingBlocks(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		check func(t *testing.T, out []byte)
+	}{
+		{
+			name: "removes thinking and redacted_thinking, preserves text and tool_use",
+			input: `{"messages":[
+				{"role":"assistant","content":[
+					{"type":"thinking","thinking":"...","signature":"abc"},
+					{"type":"text","text":"hello"},
+					{"type":"redacted_thinking","data":"xxx"},
+					{"type":"tool_use","id":"t1","name":"x","input":{}}
+				]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				ac := gjson.GetBytes(out, "messages.0.content")
+				if n := ac.Get("#").Int(); n != 2 {
+					t.Fatalf("len = %d, want 2", n)
+				}
+				if got := ac.Get("0.type").String(); got != "text" {
+					t.Errorf("[0].type = %q, want text", got)
+				}
+				if got := ac.Get("1.type").String(); got != "tool_use" {
+					t.Errorf("[1].type = %q, want tool_use", got)
+				}
+			},
+		},
+		{
+			name:  "string content is left untouched",
+			input: `{"messages":[{"role":"user","content":"plain"}]}`,
+			check: func(t *testing.T, out []byte) {
+				if got := gjson.GetBytes(out, "messages.0.content").String(); got != "plain" {
+					t.Errorf("string content mangled: %q", got)
+				}
+			},
+		},
+		{
+			name: "assistant-only-thinking gets placeholder text",
+			input: `{"messages":[
+				{"role":"assistant","content":[{"type":"thinking","thinking":"t","signature":"s"}]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				ac := gjson.GetBytes(out, "messages.0.content")
+				if n := ac.Get("#").Int(); n != 1 {
+					t.Fatalf("len = %d, want 1 (placeholder)", n)
+				}
+				if got := ac.Get("0.type").String(); got != "text" {
+					t.Errorf("placeholder type = %q, want text", got)
+				}
+			},
+		},
+		{
+			name: "non-assistant thinking-only message is left empty",
+			input: `{"messages":[
+				{"role":"user","content":[{"type":"redacted_thinking","data":"x"}]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				ac := gjson.GetBytes(out, "messages.0.content")
+				if n := ac.Get("#").Int(); n != 0 {
+					t.Errorf("len = %d, want 0", n)
+				}
+			},
+		},
+		{
+			name: "idempotent",
+			input: `{"messages":[
+				{"role":"assistant","content":[
+					{"type":"thinking","thinking":"t","signature":"s"},
+					{"type":"text","text":"hi"}
+				]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				twice := StripThinkingBlocks(out)
+				if string(twice) != string(out) {
+					t.Errorf("not idempotent: before=%s after=%s", out, twice)
+				}
+			},
+		},
+		{
+			name:  "no messages field is no-op",
+			input: `{"model":"claude-foo"}`,
+			check: func(t *testing.T, out []byte) {
+				if got := gjson.GetBytes(out, "model").String(); got != "claude-foo" {
+					t.Errorf("unrelated mutated: %s", string(out))
+				}
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			input := []byte(c.input)
+			orig := append([]byte(nil), input...)
+			out := StripThinkingBlocks(input)
+			if string(input) != string(orig) {
+				t.Errorf("input slice mutated; before=%s after=%s", orig, input)
+			}
+			c.check(t, out)
 		})
 	}
 }
