@@ -50,6 +50,45 @@ func TestFindFixers_PriorityExclusive(t *testing.T) {
 	}
 }
 
+func TestFindFixers_BedrockDefersToThinkingEnvelope(t *testing.T) {
+	// A real-world Bedrock SDK error wrapping the Anthropic
+	// validator's thinking-block envelope rejection. bedrockFixer
+	// (P0) sees the "Bedrock Runtime"/"InvokeModel" markers, but
+	// must decline so the priority-100 thinking_envelope fixer can
+	// run — its narrow strip is what unblocks the request. Without
+	// the opt-out, priority-exclusive matching would let bedrockFixer
+	// strip unrelated fields, leave the offending thinking blocks
+	// in place, and the next round-trip would fail the same way.
+	body := []byte("{\"error\":{\"message\":\"operation error Bedrock Runtime: InvokeModel, ValidationException: messages.0.content.0: Invalid `data` in `redacted_thinking` block\"}}")
+	fixers := FindFixers(&http.Response{StatusCode: 400}, body, domain.ClientTypeClaude)
+	if len(fixers) == 0 {
+		t.Fatal("expected at least one fixer to match")
+	}
+	for _, f := range fixers {
+		if f.Name() == "bedrock" {
+			t.Errorf("bedrock fixer should defer to thinking_envelope for envelope rejections")
+		}
+	}
+	found := false
+	for _, f := range fixers {
+		if f.Name() == "thinking_envelope" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected thinking_envelope fixer to handle envelope rejection; got %v", fixerNames(fixers))
+	}
+}
+
+func fixerNames(fixers []ErrorFixer) []string {
+	names := make([]string, 0, len(fixers))
+	for _, f := range fixers {
+		names = append(names, f.Name())
+	}
+	return names
+}
+
 func TestFindFixers_SamePriorityMultiple(t *testing.T) {
 	// Non-Bedrock error with both cache_control and beta header issues
 	// Both are P100, both should match

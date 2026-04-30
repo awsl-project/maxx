@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -38,11 +39,23 @@ func (f *bedrockFixer) MatchResponse(resp *http.Response, body []byte, clientTyp
 	if resp == nil || resp.StatusCode != 400 || clientType != domain.ClientTypeClaude {
 		return false
 	}
-	// Only match when the error is clearly from AWS Bedrock.
-	// "Bedrock Runtime" appears in the AWS SDK error chain.
-	// "InvokeModel" / "InvokeModelWithResponseStream" are Bedrock API operations.
-	return bytes.Contains(body, []byte("Bedrock Runtime")) ||
-		bytes.Contains(body, []byte("InvokeModel"))
+	// Bedrock SDK errors carry "Bedrock Runtime" / "InvokeModel" in the
+	// AWS SDK error chain. We match on either marker.
+	if !bytes.Contains(body, []byte("Bedrock Runtime")) &&
+		!bytes.Contains(body, []byte("InvokeModel")) {
+		return false
+	}
+	// Decline when the body is actually a thinking-block envelope
+	// rejection wrapped in an AWS SDK message — that case has its own
+	// fixer (thinking_envelope) which strips the offending blocks.
+	// Without this opt-out, priority-exclusive matching would hand the
+	// request to bedrockFixer, which strips unrelated fields and
+	// leaves the thinking blocks in place; the retry then fails the
+	// same way and the thinking_envelope fixer never gets a chance.
+	if bedrock.IsThinkingBlockEnvelopeError(body) {
+		return false
+	}
+	return true
 }
 
 func (f *bedrockFixer) FixRequest(req *http.Request, body []byte) (*http.Request, []byte) {

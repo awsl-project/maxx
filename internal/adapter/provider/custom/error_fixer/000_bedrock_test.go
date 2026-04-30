@@ -67,6 +67,26 @@ func TestBedrockFixer_MatchResponse(t *testing.T) {
 			clientType: domain.ClientTypeGemini,
 			want:       false,
 		},
+		{
+			// Regression: Bedrock SDK wraps the upstream Anthropic
+			// validator phrase in its own error chain. Priority-
+			// exclusive matching means whichever fixer wins here gets
+			// to handle the request alone, so bedrockFixer must
+			// decline these to let thinking_envelope strip the
+			// envelope blocks.
+			name:       "Bedrock SDK error wrapping redacted_thinking — should defer to thinking_envelope",
+			resp:       &http.Response{StatusCode: 400},
+			body:       "{\"error\":{\"message\":\"operation error Bedrock Runtime: InvokeModel, https response error StatusCode: 400, ValidationException: messages.0.content.0: Invalid `data` in `redacted_thinking` block\"}}",
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
+		{
+			name:       "Bedrock SDK error wrapping thinking signature — should defer to thinking_envelope",
+			resp:       &http.Response{StatusCode: 400},
+			body:       "{\"error\":{\"message\":\"operation error Bedrock Runtime: InvokeModelWithResponseStream, ValidationException: Invalid `signature` in `thinking` block\"}}",
+			clientType: domain.ClientTypeClaude,
+			want:       false,
+		},
 	}
 
 	for _, tt := range tests {
