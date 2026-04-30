@@ -156,6 +156,27 @@ func TestStripThinkingBlocks(t *testing.T) {
 				}
 			},
 		},
+		{
+			// Exercises the bedrock-adapter fall-through path: matcher
+			// fired (e.g. error message mentioned a thinking block on
+			// some echoed system content) but the body has nothing to
+			// strip, so output equals input and the caller's
+			// `bytes.Equal(stripped, requestBody)` guard prevents a
+			// pointless retry.
+			name: "no thinking blocks present is a no-op",
+			input: `{"messages":[
+				{"role":"user","content":[{"type":"text","text":"hi"}]},
+				{"role":"assistant","content":[{"type":"text","text":"hello"}]}
+			]}`,
+			check: func(t *testing.T, out []byte) {
+				if u := gjson.GetBytes(out, "messages.0.content.0.text").String(); u != "hi" {
+					t.Errorf("user text changed: %q", u)
+				}
+				if a := gjson.GetBytes(out, "messages.1.content.0.text").String(); a != "hello" {
+					t.Errorf("assistant text changed: %q", a)
+				}
+			},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
