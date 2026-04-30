@@ -272,17 +272,13 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		if !thinkingRetried && resp.StatusCode == 400 && IsThinkingBlockEnvelopeError(body) {
 			stripped := StripThinkingBlocks(requestBody)
 			if !bytes.Equal(stripped, requestBody) {
-				// Surface the swallowed 400 so traffic-log readers can
-				// see why the request was retried; otherwise the trace
-				// would show one request, one success, and no record
-				// of the recovery.
-				if eventChan := flow.GetEventChan(c); eventChan != nil {
-					eventChan.SendResponseInfo(&domain.ResponseInfo{
-						Status:  resp.StatusCode,
-						Headers: flattenHeaders(resp.Header),
-						Body:    string(body),
-					})
-				}
+				// Note: the swallowed 400 is intentionally not emitted
+				// via SendResponseInfo. The executor's attempt record
+				// holds a single ResponseInfo slot, so a successful
+				// retry would overwrite the 400 anyway and the persisted
+				// trace would just look like a one-shot success. Surfacing
+				// the recovered-from error properly needs a multi-attempt
+				// schema, which is out of scope for this change.
 				requestBody = stripped
 				thinkingRetried = true
 				continue
