@@ -799,12 +799,17 @@ function DataRetentionSection() {
               id={detailSplitToggleId}
               checked={splitDraft}
               onCheckedChange={(next) => {
-                // 切换到 split 时，把正在编辑（未保存）的 unified 草稿同步到
-                // 两个 split 输入，避免显示陈旧的服务端派生值，并保证保存后
-                // 实际写入的值与用户当下看到的一致
+                // 仅在"首次开启"且服务端尚未保存对应 split 键时，把 unified
+                // 草稿同步过去——避免显示陈旧的派生值，同时保证保存后写入的
+                // 是用户当下看到的值。如果服务端已有显式 split 设置，toggle
+                // 不应破坏它（用户可能只是想切换查看模式）
                 if (next && !splitDraft) {
-                  setDetailSuccessDraft(detailDraft);
-                  setDetailFailedDraft(detailDraft);
+                  if (settings?.request_detail_retention_seconds_success == null) {
+                    setDetailSuccessDraft(detailDraft);
+                  }
+                  if (settings?.request_detail_retention_seconds_failed == null) {
+                    setDetailFailedDraft(detailDraft);
+                  }
                 }
                 setSplitDraft(next);
               }}
