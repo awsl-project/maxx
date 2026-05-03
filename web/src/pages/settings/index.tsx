@@ -648,7 +648,9 @@ function DataRetentionSection() {
       });
     }
 
-    if (detailSuccessDraft !== requestDetailRetentionSecondsSuccess) {
+    // 仅在 split 开启时校验/提交 split-only 字段——如果用户编辑了 split 输入
+    // 后又关闭 split，那些隐藏字段不应阻塞保存或被持久化
+    if (splitDraft && detailSuccessDraft !== requestDetailRetentionSecondsSuccess) {
       if (detailSuccessNum === null || detailSuccessNum < -1) {
         setValidationError(t('settings.retentionValidationError'));
         return;
@@ -659,7 +661,7 @@ function DataRetentionSection() {
       });
     }
 
-    if (detailFailedDraft !== requestDetailRetentionSecondsFailed) {
+    if (splitDraft && detailFailedDraft !== requestDetailRetentionSecondsFailed) {
       if (detailFailedNum === null || detailFailedNum < -1) {
         setValidationError(t('settings.retentionValidationError'));
         return;

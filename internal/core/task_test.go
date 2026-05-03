@@ -248,9 +248,9 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 		}
 	})
 
-	t.Run("split=true covers PENDING/IN_PROGRESS via failed bucket", func(t *testing.T) {
-		// 回归 Claude SHOULD #1：卡死/孤儿 PENDING/IN_PROGRESS 也要能被清，
-		// 不能因为不属于 success 桶就永久泄漏
+	t.Run("split=true protects in-flight PENDING/IN_PROGRESS from failed bucket", func(t *testing.T) {
+		// 回归 Codex r2 P1：长流式/排队请求的 status 是 PENDING/IN_PROGRESS，
+		// 即便已超过 failed 保留时间也不能被清空 body（仍在写入中）
 		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
 		defer db.Close()
 		reqRepo := sqlite.NewProxyRequestRepository(db)
@@ -264,16 +264,17 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 			Settings:     settings,
 		}
 
+		// 故意把 created_at 拉得很老，模拟一个跑了很久还没结束的流式请求
 		stalePending := seedRequest(t, db, reqRepo, "PENDING", oldTime, 1)
 		staleInProg := seedRequest(t, db, reqRepo, "IN_PROGRESS", oldTime, 2)
 
 		deps.cleanupOldRequestDetails()
 
-		if !reloadDetailEmpty(t, db, stalePending.ID) {
-			t.Error("stale PENDING must be cleaned by failed retention")
+		if reloadDetailEmpty(t, db, stalePending.ID) {
+			t.Error("PENDING must not be cleaned (still in-flight)")
 		}
-		if !reloadDetailEmpty(t, db, staleInProg.ID) {
-			t.Error("stale IN_PROGRESS must be cleaned by failed retention")
+		if reloadDetailEmpty(t, db, staleInProg.ID) {
+			t.Error("IN_PROGRESS must not be cleaned (still in-flight)")
 		}
 	})
 

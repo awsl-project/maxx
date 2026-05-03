@@ -210,14 +210,13 @@ func (d *BackgroundTaskDeps) maybeSQLiteCheckpointAndVacuum(deletedRequests int6
 
 // 成功 / 失败 状态分组（用于 split 模式下的按状态清理）
 //
-// failedRequestStatuses 是 success 之外的全集（含 PENDING / IN_PROGRESS），
-// 这样 union 覆盖所有 status，不会有"既不是成功也不是失败"的孤儿行被永久保留。
-// 对于真正在飞的 PENDING/IN_PROGRESS 请求，时间窗口（created_at < cutoff）
-// 会保护它们；卡死的 stale 行最终会被 MarkStaleAsFailed 推进到 FAILED，
-// 此时仍落在 failed 桶中。
+// 故意不把 PENDING / IN_PROGRESS 纳入任一桶——长流式请求可能在飞超过
+// failed 保留时间，若按 created_at < cutoff 误判会把仍在写入的 body 清空。
+// 卡死的孤儿 PENDING/IN_PROGRESS 行会在下次启动时被 MarkStaleAsFailed
+// 转成 FAILED，从而被失败桶覆盖；接受这点权衡换在飞行的安全。
 var (
 	successRequestStatuses = []string{"COMPLETED"}
-	failedRequestStatuses  = []string{"FAILED", "CANCELLED", "REJECTED", "PENDING", "IN_PROGRESS"}
+	failedRequestStatuses  = []string{"FAILED", "CANCELLED", "REJECTED"}
 )
 
 // requestDetailRetentionConfig 解析当前生效的请求详情保留配置
@@ -261,12 +260,12 @@ func (d *BackgroundTaskDeps) requestDetailRetentionConfig() (successSec, failedS
 // split=false 时按统一保留时间清理全部状态（statuses=nil）
 func (d *BackgroundTaskDeps) cleanupOldRequestDetails() {
 	successSec, failedSec, split := d.requestDetailRetentionConfig()
+	now := time.Now() // 两个桶共享同一时刻，cutoff 计算一致
 
 	clear := func(seconds int, statuses []string, label string) {
 		if seconds < 0 {
 			return // 永久保存
 		}
-		now := time.Now()
 		before := now
 		if seconds > 0 {
 			before = now.Add(-time.Duration(seconds) * time.Second)
