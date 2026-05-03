@@ -575,10 +575,6 @@ function DataRetentionSection() {
     requestDetailRetentionSecondsFailed,
   ]);
 
-  // 与 handleSave 的提交规则保持对称：split-only 字段仅在 splitDraft=true
-  // 时纳入 dirty 判断。否则，统一键被独立修改后，由统一值派生出来的 split
-  // 草稿会与服务端最新值持续不一致，导致表单永远是 dirty，并且下一次保存
-  // 会把陈旧的派生值写回成显式的 split 键，覆盖新的统一保留时间
   // 与 handleSave 的提交规则保持对称：
   //   - splitDraft=false 时，仅统一键参与 dirty 比较
   //   - splitDraft=true 时，仅 split-only 字段参与 dirty 比较
