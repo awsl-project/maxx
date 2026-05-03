@@ -440,17 +440,21 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 }
 
 // ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
-func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time) (int64, error) {
+// statuses 为空时不按状态过滤；非空时仅清理 status IN (statuses) 的记录
+func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	beforeTs := toTimestamp(before)
 	now := time.Now().UnixMilli()
 
-	result := r.db.gorm.Model(&ProxyRequest{}).
-		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", beforeTs).
-		Updates(map[string]any{
-			"request_info":  nil,
-			"response_info": nil,
-			"updated_at":    now,
-		})
+	q := r.db.gorm.Model(&ProxyRequest{}).
+		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", beforeTs)
+	if len(statuses) > 0 {
+		q = q.Where("status IN ?", statuses)
+	}
+	result := q.Updates(map[string]any{
+		"request_info":  nil,
+		"response_info": nil,
+		"updated_at":    now,
+	})
 
 	return result.RowsAffected, result.Error
 }

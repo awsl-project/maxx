@@ -439,23 +439,6 @@ func (e *Executor) processAdapterEventsRealtime(
 	}
 }
 
-// getRequestDetailRetentionSeconds 获取请求详情保留秒数
-// 返回值：-1=永久保存，0=不保存，>0=保留秒数
-func (e *Executor) getRequestDetailRetentionSeconds() int {
-	if e.settingsRepo == nil {
-		return -1 // 默认永久保存
-	}
-	val, err := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSeconds)
-	if err != nil || val == "" {
-		return -1 // 默认永久保存
-	}
-	seconds, err := strconv.Atoi(val)
-	if err != nil {
-		return -1
-	}
-	return seconds
-}
-
 // shouldClearRequestDetailFor 检查是否应该立即清理请求详情（考虑 Token 开发者模式）
 func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
 	if state != nil && state.apiTokenDevMode {
@@ -465,9 +448,38 @@ func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
 }
 
 // shouldClearRequestDetail 检查是否应该立即清理请求详情（全局配置）
-// 当设置为 0 时返回 true
+//
+// 决策时机在 ingress / dispatch，此时 status 未知，因此不能按状态分别决策。
+// 语义：
+//   - split=false：当统一键 == 0 时立即清理（行为不变）
+//   - split=true：仅当 success 和 failed 两个键都解析为 0 时才立即清理
+//     （只要任一侧需要保留，就先存到 DB，后台 task 再按状态分别清理）
 func (e *Executor) shouldClearRequestDetail() bool {
-	return e.getRequestDetailRetentionSeconds() == 0
+	if e.settingsRepo == nil {
+		return false
+	}
+
+	parse := func(key string, fallback int) int {
+		v, err := e.settingsRepo.Get(key)
+		if err != nil || v == "" {
+			return fallback
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fallback
+		}
+		return n
+	}
+
+	unified := parse(domain.SettingKeyRequestDetailRetentionSeconds, -1)
+
+	splitVal, _ := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSplitEnabled)
+	if splitVal != "true" {
+		return unified == 0
+	}
+	successSec := parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified)
+	failedSec := parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified)
+	return successSec == 0 && failedSec == 0
 }
 
 // ShouldClearRequestDetailByConfig 检查是否应该按全局配置立即清理请求详情

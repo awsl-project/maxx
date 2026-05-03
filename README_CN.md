@@ -277,7 +277,10 @@ codex
 |--------|------|--------|
 | `proxy_port` | 代理服务器端口 | `9880` |
 | `request_retention_hours` | 请求日志保留时间（小时） | `168`（7 天） |
-| `request_detail_retention_seconds` | 请求详情保留时间（秒） | `-1`（永久） |
+| `request_detail_retention_seconds` | 请求详情保留时间（秒，统一配置——split 关闭时生效） | `-1`（永久） |
+| `request_detail_retention_split_enabled` | 是否分别配置成功/失败保留时长 | `false` |
+| `request_detail_retention_seconds_success` | 成功请求详情保留时间（秒，仅 split=true 生效） | 未设置回退到统一键 |
+| `request_detail_retention_seconds_failed` | 失败请求详情保留时间（秒，仅 split=true 生效） | 未设置回退到统一键 |
 | `timezone` | 时区设置 | `Asia/Shanghai` |
 | `quota_refresh_interval` | Antigravity 配额刷新间隔（分钟） | `0`（禁用） |
 | `auto_sort_antigravity` | 自动排序 Antigravity 路由 | `false` |

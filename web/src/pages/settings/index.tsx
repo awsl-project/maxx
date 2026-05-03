@@ -531,14 +531,26 @@ function DataRetentionSection() {
   const requestRetentionInputId = useId();
   const sessionRetentionInputId = useId();
   const requestDetailRetentionInputId = useId();
+  const requestDetailRetentionSuccessInputId = useId();
+  const requestDetailRetentionFailedInputId = useId();
+  const detailSplitToggleId = useId();
 
   const requestRetentionHours = settings?.request_retention_hours ?? '168';
   const sessionRetentionHours = settings?.session_retention_hours ?? '168';
   const requestDetailRetentionSeconds = settings?.request_detail_retention_seconds ?? '-1';
+  const requestDetailRetentionSplitEnabled =
+    settings?.request_detail_retention_split_enabled === 'true';
+  const requestDetailRetentionSecondsSuccess =
+    settings?.request_detail_retention_seconds_success ?? requestDetailRetentionSeconds;
+  const requestDetailRetentionSecondsFailed =
+    settings?.request_detail_retention_seconds_failed ?? requestDetailRetentionSeconds;
 
   const [requestDraft, setRequestDraft] = useState('');
   const [sessionDraft, setSessionDraft] = useState('');
   const [detailDraft, setDetailDraft] = useState('');
+  const [splitDraft, setSplitDraft] = useState(false);
+  const [detailSuccessDraft, setDetailSuccessDraft] = useState('');
+  const [detailFailedDraft, setDetailFailedDraft] = useState('');
   const [validationError, setValidationError] = useState('');
   const [initialized, setInitialized] = useState(false);
 
@@ -547,6 +559,9 @@ function DataRetentionSection() {
       setRequestDraft(requestRetentionHours);
       setSessionDraft(sessionRetentionHours);
       setDetailDraft(requestDetailRetentionSeconds);
+      setSplitDraft(requestDetailRetentionSplitEnabled);
+      setDetailSuccessDraft(requestDetailRetentionSecondsSuccess);
+      setDetailFailedDraft(requestDetailRetentionSecondsFailed);
       setInitialized(true);
     }
   }, [
@@ -555,13 +570,19 @@ function DataRetentionSection() {
     requestRetentionHours,
     sessionRetentionHours,
     requestDetailRetentionSeconds,
+    requestDetailRetentionSplitEnabled,
+    requestDetailRetentionSecondsSuccess,
+    requestDetailRetentionSecondsFailed,
   ]);
 
   const hasChanges =
     initialized &&
     (requestDraft !== requestRetentionHours ||
       sessionDraft !== sessionRetentionHours ||
-      detailDraft !== requestDetailRetentionSeconds);
+      detailDraft !== requestDetailRetentionSeconds ||
+      splitDraft !== requestDetailRetentionSplitEnabled ||
+      detailSuccessDraft !== requestDetailRetentionSecondsSuccess ||
+      detailFailedDraft !== requestDetailRetentionSecondsFailed);
 
   useEffect(() => {
     // 仅在本地没有未保存修改时，才用服务端最新值回填表单
@@ -569,23 +590,31 @@ function DataRetentionSection() {
       setRequestDraft(requestRetentionHours);
       setSessionDraft(sessionRetentionHours);
       setDetailDraft(requestDetailRetentionSeconds);
+      setSplitDraft(requestDetailRetentionSplitEnabled);
+      setDetailSuccessDraft(requestDetailRetentionSecondsSuccess);
+      setDetailFailedDraft(requestDetailRetentionSecondsFailed);
     }
   }, [
     requestRetentionHours,
     sessionRetentionHours,
     requestDetailRetentionSeconds,
+    requestDetailRetentionSplitEnabled,
+    requestDetailRetentionSecondsSuccess,
+    requestDetailRetentionSecondsFailed,
     initialized,
     hasChanges,
   ]);
 
   useEffect(() => {
     setValidationError((current) => (current ? '' : current));
-  }, [requestDraft, sessionDraft, detailDraft]);
+  }, [requestDraft, sessionDraft, detailDraft, detailSuccessDraft, detailFailedDraft, splitDraft]);
 
   const handleSave = async () => {
     const requestNum = parseRetentionInteger(requestDraft);
     const sessionNum = parseRetentionInteger(sessionDraft);
     const detailNum = parseRetentionInteger(detailDraft);
+    const detailSuccessNum = parseRetentionInteger(detailSuccessDraft);
+    const detailFailedNum = parseRetentionInteger(detailFailedDraft);
     const updates: Array<{ key: string; value: string }> = [];
 
     if (requestDraft !== requestRetentionHours) {
@@ -610,6 +639,35 @@ function DataRetentionSection() {
         return;
       }
       updates.push({ key: 'request_detail_retention_seconds', value: String(detailNum) });
+    }
+
+    if (splitDraft !== requestDetailRetentionSplitEnabled) {
+      updates.push({
+        key: 'request_detail_retention_split_enabled',
+        value: splitDraft ? 'true' : 'false',
+      });
+    }
+
+    if (detailSuccessDraft !== requestDetailRetentionSecondsSuccess) {
+      if (detailSuccessNum === null || detailSuccessNum < -1) {
+        setValidationError(t('settings.retentionValidationError'));
+        return;
+      }
+      updates.push({
+        key: 'request_detail_retention_seconds_success',
+        value: String(detailSuccessNum),
+      });
+    }
+
+    if (detailFailedDraft !== requestDetailRetentionSecondsFailed) {
+      if (detailFailedNum === null || detailFailedNum < -1) {
+        setValidationError(t('settings.retentionValidationError'));
+        return;
+      }
+      updates.push({
+        key: 'request_detail_retention_seconds_failed',
+        value: String(detailFailedNum),
+      });
     }
 
     setValidationError('');
@@ -685,28 +743,100 @@ function DataRetentionSection() {
         </div>
 
         <div className="space-y-1.5 pt-4 border-t border-border">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+          {!splitDraft && (
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <Label
+                  htmlFor={requestDetailRetentionInputId}
+                  className="text-sm font-medium text-muted-foreground shrink-0"
+                >
+                  {t('settings.requestDetailRetention')}
+                </Label>
+                <Input
+                  id={requestDetailRetentionInputId}
+                  type="number"
+                  value={detailDraft}
+                  onChange={(e) => setDetailDraft(e.target.value)}
+                  className="w-24"
+                  min={-1}
+                  step={1}
+                  disabled={updateSetting.isPending}
+                />
+                <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.requestDetailRetentionDesc')}
+              </p>
+            </>
+          )}
+
+          <div className="flex items-center justify-between gap-3 pt-2">
             <Label
-              htmlFor={requestDetailRetentionInputId}
-              className="text-sm font-medium text-muted-foreground shrink-0"
+              htmlFor={detailSplitToggleId}
+              className="text-sm font-medium text-muted-foreground"
             >
-              {t('settings.requestDetailRetention')}
+              {t('settings.requestDetailRetentionSplit')}
             </Label>
-            <Input
-              id={requestDetailRetentionInputId}
-              type="number"
-              value={detailDraft}
-              onChange={(e) => setDetailDraft(e.target.value)}
-              className="w-24"
-              min={-1}
-              step={1}
+            <Switch
+              id={detailSplitToggleId}
+              checked={splitDraft}
+              onCheckedChange={setSplitDraft}
               disabled={updateSetting.isPending}
             />
-            <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
           </div>
           <p className="text-xs text-muted-foreground">
-            {t('settings.requestDetailRetentionDesc')}
+            {t('settings.requestDetailRetentionSplitDesc')}
           </p>
+
+          {splitDraft && (
+            <div className="space-y-3 pt-2">
+              <div className="space-y-1.5">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                  <Label
+                    htmlFor={requestDetailRetentionSuccessInputId}
+                    className="text-sm font-medium text-muted-foreground shrink-0"
+                  >
+                    {t('settings.requestDetailRetentionSuccess')}
+                  </Label>
+                  <Input
+                    id={requestDetailRetentionSuccessInputId}
+                    type="number"
+                    value={detailSuccessDraft}
+                    onChange={(e) => setDetailSuccessDraft(e.target.value)}
+                    className="w-24"
+                    min={-1}
+                    step={1}
+                    disabled={updateSetting.isPending}
+                  />
+                  <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                  <Label
+                    htmlFor={requestDetailRetentionFailedInputId}
+                    className="text-sm font-medium text-muted-foreground shrink-0"
+                  >
+                    {t('settings.requestDetailRetentionFailed')}
+                  </Label>
+                  <Input
+                    id={requestDetailRetentionFailedInputId}
+                    type="number"
+                    value={detailFailedDraft}
+                    onChange={(e) => setDetailFailedDraft(e.target.value)}
+                    className="w-24"
+                    min={-1}
+                    step={1}
+                    disabled={updateSetting.isPending}
+                  />
+                  <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.requestDetailRetentionDesc')}
+              </p>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

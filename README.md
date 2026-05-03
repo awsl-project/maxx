@@ -277,7 +277,10 @@ Configurable via Admin UI:
 |---------|-------------|---------|
 | `proxy_port` | Proxy server port | `9880` |
 | `request_retention_hours` | Request log retention (hours) | `168` (7 days) |
-| `request_detail_retention_seconds` | Request detail retention (seconds) | `-1` (forever) |
+| `request_detail_retention_seconds` | Request detail retention (seconds, unified — used when split is off) | `-1` (forever) |
+| `request_detail_retention_split_enabled` | Configure success/failed retention separately | `false` |
+| `request_detail_retention_seconds_success` | Success request detail retention (seconds, only when split=true) | falls back to unified |
+| `request_detail_retention_seconds_failed` | Failed request detail retention (seconds, only when split=true) | falls back to unified |
 | `timezone` | Timezone setting | `Asia/Shanghai` |
 | `quota_refresh_interval` | Antigravity quota refresh (minutes) | `0` (disabled) |
 | `auto_sort_antigravity` | Auto-sort Antigravity routes | `false` |

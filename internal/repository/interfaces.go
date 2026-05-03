@@ -148,7 +148,8 @@ type ProxyRequestRepository interface {
 	// RecalculateCostsFromAttemptsWithProgress recalculates all request costs with progress reporting via channel
 	RecalculateCostsFromAttemptsWithProgress(progress chan<- domain.Progress) (int64, error)
 	// ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
-	ClearDetailOlderThan(before time.Time) (int64, error)
+	// statuses 为空表示不按状态过滤（统一清理）；非空时仅清理 status IN (statuses) 的记录
+	ClearDetailOlderThan(before time.Time, statuses []string) (int64, error)
 }
 
 type ProxyUpstreamAttemptRepository interface {
@@ -171,7 +172,8 @@ type ProxyUpstreamAttemptRepository interface {
 	// FixFailedAttemptsWithoutEndTime fixes FAILED attempts that have no end_time set
 	FixFailedAttemptsWithoutEndTime() (int64, error)
 	// ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
-	ClearDetailOlderThan(before time.Time) (int64, error)
+	// statuses 为空表示不按状态过滤；非空时仅清理所属 ProxyRequest.status IN (statuses) 的 attempt
+	ClearDetailOlderThan(before time.Time, statuses []string) (int64, error)
 }
 
 type SystemSettingRepository interface {

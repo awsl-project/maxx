@@ -237,17 +237,21 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 }
 
 // ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
-func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time) (int64, error) {
+// statuses 为空时不按状态过滤；非空时仅清理所属 ProxyRequest.status IN (statuses) 的 attempt
+func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	beforeTs := toTimestamp(before)
 	now := time.Now().UnixMilli()
 
-	devModeOffRequests := r.db.gorm.Model(&ProxyRequest{}).
+	parentReq := r.db.gorm.Model(&ProxyRequest{}).
 		Select("id").
 		Where("dev_mode = 0")
+	if len(statuses) > 0 {
+		parentReq = parentReq.Where("status IN ?", statuses)
+	}
 
 	result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
 		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
-		Where("proxy_request_id IN (?)", devModeOffRequests).
+		Where("proxy_request_id IN (?)", parentReq).
 		Updates(map[string]any{
 			"request_info":  nil,
 			"response_info": nil,

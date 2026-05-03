@@ -638,7 +638,10 @@ const (
 	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
 	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
 	SettingKeySessionRetentionHours         = "session_retention_hours"          // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyRequestDetailRetentionSeconds = "request_detail_retention_seconds" // 请求详情保留秒数，-1=永久保存(默认)，0=不保存，>0=保留秒数
+	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"         // 请求详情保留秒数（统一），-1=永久保存(默认)，0=不保存，>0=保留秒数；当 split=false 时使用
+	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"   // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "false"
+	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success" // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
+	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"  // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
 	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
 	SettingKeyAutoSortAntigravity           = "auto_sort_antigravity"            // 是否自动排序 Antigravity 路由，"true" 或 "false"

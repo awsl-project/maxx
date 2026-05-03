@@ -208,63 +208,95 @@ func (d *BackgroundTaskDeps) maybeSQLiteCheckpointAndVacuum(deletedRequests int6
 	log.Printf("[Task] SQLite maintenance completed (best-effort)")
 }
 
+// 成功 / 失败 状态分组（用于 split 模式下的按状态清理）
+var (
+	successRequestStatuses = []string{"COMPLETED"}
+	failedRequestStatuses  = []string{"FAILED", "CANCELLED", "REJECTED"}
+)
+
+// requestDetailRetentionConfig 解析当前生效的请求详情保留配置
+// 返回三元组 (successSeconds, failedSeconds, split)
+//   - split=false 时 success 与 failed 同值（统一键），按全表清理（statuses=nil）
+//   - split=true 时分别取 success/failed 键，未设置回退到统一键
+//   - 任一字段为 -1 表示永久保存（不清理），0 表示由 executor 即时清理
+func (d *BackgroundTaskDeps) requestDetailRetentionConfig() (successSec, failedSec int, split bool) {
+	parse := func(key string, fallback int) int {
+		v, err := d.Settings.Get(key)
+		if err != nil || v == "" {
+			return fallback
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fallback
+		}
+		return n
+	}
+
+	unified := parse(domain.SettingKeyRequestDetailRetentionSeconds, -1)
+
+	splitVal, _ := d.Settings.Get(domain.SettingKeyRequestDetailRetentionSplitEnabled)
+	if splitVal != "true" {
+		return unified, unified, false
+	}
+	return parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified),
+		parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified),
+		true
+}
+
 // cleanupOldRequestDetails 清理过期的请求详情（request_info 和 response_info）
-// 仅当 request_detail_retention_seconds > 0 时执行
+// 仅当对应保留秒数 > 0 时执行；split=false 时按统一保留时间清理全部状态
 func (d *BackgroundTaskDeps) cleanupOldRequestDetails() {
-	val, err := d.Settings.Get(domain.SettingKeyRequestDetailRetentionSeconds)
-	if err != nil || val == "" {
-		return // 未设置或读取失败，不清理（默认 -1 永久保存）
-	}
+	successSec, failedSec, split := d.requestDetailRetentionConfig()
 
-	seconds, err := strconv.Atoi(val)
-	if err != nil || seconds <= 0 {
-		return // -1 永久保存，0 在 executor 中处理，不需要后台清理
-	}
-
-	before := time.Now().Add(-time.Duration(seconds) * time.Second)
-
-	// 清理 ProxyRequest 详情
-	if deleted, err := d.ProxyRequest.ClearDetailOlderThan(before); err != nil {
-		log.Printf("[Task] Failed to clear request details: %v", err)
-	} else if deleted > 0 {
-		log.Printf("[Task] Cleared details for %d requests older than %d seconds", deleted, seconds)
-	}
-
-	// 清理 ProxyUpstreamAttempt 详情
-	if d.AttemptRepo != nil {
-		if deleted, err := d.AttemptRepo.ClearDetailOlderThan(before); err != nil {
-			log.Printf("[Task] Failed to clear attempt details: %v", err)
+	clear := func(seconds int, statuses []string, label string) {
+		if seconds <= 0 {
+			return
+		}
+		before := time.Now().Add(-time.Duration(seconds) * time.Second)
+		if deleted, err := d.ProxyRequest.ClearDetailOlderThan(before, statuses); err != nil {
+			log.Printf("[Task] Failed to clear %s request details: %v", label, err)
 		} else if deleted > 0 {
-			log.Printf("[Task] Cleared details for %d attempts older than %d seconds", deleted, seconds)
+			log.Printf("[Task] Cleared details for %d %s requests older than %d seconds", deleted, label, seconds)
+		}
+		if d.AttemptRepo != nil {
+			if deleted, err := d.AttemptRepo.ClearDetailOlderThan(before, statuses); err != nil {
+				log.Printf("[Task] Failed to clear %s attempt details: %v", label, err)
+			} else if deleted > 0 {
+				log.Printf("[Task] Cleared details for %d %s attempts older than %d seconds", deleted, label, seconds)
+			}
 		}
 	}
+
+	if !split {
+		clear(successSec, nil, "all")
+		return
+	}
+	clear(successSec, successRequestStatuses, "success")
+	clear(failedSec, failedRequestStatuses, "failed")
 }
 
 // runRequestDetailCleanup 动态间隔清理请求详情
-// 根据 request_detail_retention_seconds 配置动态调整清理间隔
+// 间隔取 success/failed 中较小的正值，未配置时每分钟检查一次
 func (d *BackgroundTaskDeps) runRequestDetailCleanup() {
 	time.Sleep(10 * time.Second) // 初始延迟
 
 	for {
-		// 读取配置
-		val, err := d.Settings.Get(domain.SettingKeyRequestDetailRetentionSeconds)
-		if err != nil || val == "" {
-			// 未设置，每分钟检查一次配置
+		successSec, failedSec, _ := d.requestDetailRetentionConfig()
+
+		// 取两者中 > 0 的最小值作为间隔；都不需要清理则每分钟轮询一次配置
+		var seconds int
+		for _, s := range []int{successSec, failedSec} {
+			if s > 0 && (seconds == 0 || s < seconds) {
+				seconds = s
+			}
+		}
+		if seconds <= 0 {
 			time.Sleep(1 * time.Minute)
 			continue
 		}
 
-		seconds, err := strconv.Atoi(val)
-		if err != nil || seconds <= 0 {
-			// -1 永久保存或 0 在 executor 中处理，每分钟检查一次配置变更
-			time.Sleep(1 * time.Minute)
-			continue
-		}
-
-		// 执行清理
 		d.cleanupOldRequestDetails()
 
-		// 按配置的秒数作为间隔等待（最小 10 秒，防止过于频繁）
 		interval := time.Duration(seconds) * time.Second
 		if interval < 10*time.Second {
 			interval = 10 * time.Second
