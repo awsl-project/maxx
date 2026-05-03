@@ -787,7 +787,16 @@ function DataRetentionSection() {
             <Switch
               id={detailSplitToggleId}
               checked={splitDraft}
-              onCheckedChange={setSplitDraft}
+              onCheckedChange={(next) => {
+                // 切换到 split 时，把正在编辑（未保存）的 unified 草稿同步到
+                // 两个 split 输入，避免显示陈旧的服务端派生值，并保证保存后
+                // 实际写入的值与用户当下看到的一致
+                if (next && !splitDraft) {
+                  setDetailSuccessDraft(detailDraft);
+                  setDetailFailedDraft(detailDraft);
+                }
+                setSplitDraft(next);
+              }}
               disabled={updateSetting.isPending}
             />
           </div>
