@@ -575,14 +575,19 @@ function DataRetentionSection() {
     requestDetailRetentionSecondsFailed,
   ]);
 
+  // 与 handleSave 的提交规则保持对称：split-only 字段仅在 splitDraft=true
+  // 时纳入 dirty 判断。否则，统一键被独立修改后，由统一值派生出来的 split
+  // 草稿会与服务端最新值持续不一致，导致表单永远是 dirty，并且下一次保存
+  // 会把陈旧的派生值写回成显式的 split 键，覆盖新的统一保留时间
   const hasChanges =
     initialized &&
     (requestDraft !== requestRetentionHours ||
       sessionDraft !== sessionRetentionHours ||
       detailDraft !== requestDetailRetentionSeconds ||
       splitDraft !== requestDetailRetentionSplitEnabled ||
-      detailSuccessDraft !== requestDetailRetentionSecondsSuccess ||
-      detailFailedDraft !== requestDetailRetentionSecondsFailed);
+      (splitDraft &&
+        (detailSuccessDraft !== requestDetailRetentionSecondsSuccess ||
+          detailFailedDraft !== requestDetailRetentionSecondsFailed)));
 
   useEffect(() => {
     // 仅在本地没有未保存修改时，才用服务端最新值回填表单
