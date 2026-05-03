@@ -172,7 +172,7 @@ type ProxyUpstreamAttemptRepository interface {
 	// FixFailedAttemptsWithoutEndTime fixes FAILED attempts that have no end_time set
 	FixFailedAttemptsWithoutEndTime() (int64, error)
 	// ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
-	// statuses 为空表示不按状态过滤；非空时仅清理所属 ProxyRequest.status IN (statuses) 的 attempt
+	// statuses 为空表示不按状态过滤；非空时按 attempt.status 过滤（不是父 ProxyRequest.status）
 	ClearDetailOlderThan(before time.Time, statuses []string) (int64, error)
 }
 

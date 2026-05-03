@@ -653,15 +653,12 @@ function DataRetentionSection() {
       updates.push({ key: 'request_detail_retention_seconds', value: String(detailNum) });
     }
 
-    if (splitDraft !== requestDetailRetentionSplitEnabled) {
-      updates.push({
-        key: 'request_detail_retention_split_enabled',
-        value: splitDraft ? 'true' : 'false',
-      });
-    }
-
     // 仅在 split 开启时校验/提交 split-only 字段——如果用户编辑了 split 输入
-    // 后又关闭 split，那些隐藏字段不应阻塞保存或被持久化
+    // 后又关闭 split，那些隐藏字段不应阻塞保存或被持久化。
+    //
+    // 顺序：split-only 键先写入，最后再切换 split_enabled。这样在 toggle 翻
+    // 到 true 的瞬间，后端读到的 success/failed 已经是新值，避免出现"split=on
+    // 但 success/failed 仍是旧 fallback"的中间状态导致活跃请求被错误清理
     if (splitDraft && detailSuccessDraft !== requestDetailRetentionSecondsSuccess) {
       if (detailSuccessNum === null || detailSuccessNum < -1) {
         setValidationError(t('settings.retentionValidationError'));
@@ -681,6 +678,13 @@ function DataRetentionSection() {
       updates.push({
         key: 'request_detail_retention_seconds_failed',
         value: String(detailFailedNum),
+      });
+    }
+
+    if (splitDraft !== requestDetailRetentionSplitEnabled) {
+      updates.push({
+        key: 'request_detail_retention_split_enabled',
+        value: splitDraft ? 'true' : 'false',
       });
     }
 

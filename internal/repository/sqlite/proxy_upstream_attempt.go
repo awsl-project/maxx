@@ -237,26 +237,33 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 }
 
 // ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
-// statuses 为空时不按状态过滤；非空时仅清理所属 ProxyRequest.status IN (statuses) 的 attempt
+//
+// statuses 语义按 attempt.status 过滤——不是父请求的 status。理由：一次有
+// 重试的请求里，前几次 attempt 可能是 FAILED 而最终一次 COMPLETED，父请求
+// 状态聚合为 COMPLETED。如果按父状态过滤，那些失败 attempt（恰好是用户最
+// 想保留来排查问题的）会被 success 桶按短保留时间清掉。
+//
+// dev_mode 仍按父请求隔离（dev token 创建的请求其 attempt 不参与清理）。
 func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	beforeTs := toTimestamp(before)
 	now := time.Now().UnixMilli()
 
-	parentReq := r.db.gorm.Model(&ProxyRequest{}).
+	devModeOffRequests := r.db.gorm.Model(&ProxyRequest{}).
 		Select("id").
 		Where("dev_mode = 0")
+
+	q := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
+		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
+		Where("proxy_request_id IN (?)", devModeOffRequests)
 	if len(statuses) > 0 {
-		parentReq = parentReq.Where("status IN ?", statuses)
+		q = q.Where("status IN ?", statuses)
 	}
 
-	result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
-		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
-		Where("proxy_request_id IN (?)", parentReq).
-		Updates(map[string]any{
-			"request_info":  nil,
-			"response_info": nil,
-			"updated_at":    now,
-		})
+	result := q.Updates(map[string]any{
+		"request_info":  nil,
+		"response_info": nil,
+		"updated_at":    now,
+	})
 
 	return result.RowsAffected, result.Error
 }
