@@ -209,9 +209,15 @@ func (d *BackgroundTaskDeps) maybeSQLiteCheckpointAndVacuum(deletedRequests int6
 }
 
 // 成功 / 失败 状态分组（用于 split 模式下的按状态清理）
+//
+// failedRequestStatuses 是 success 之外的全集（含 PENDING / IN_PROGRESS），
+// 这样 union 覆盖所有 status，不会有"既不是成功也不是失败"的孤儿行被永久保留。
+// 对于真正在飞的 PENDING/IN_PROGRESS 请求，时间窗口（created_at < cutoff）
+// 会保护它们；卡死的 stale 行最终会被 MarkStaleAsFailed 推进到 FAILED，
+// 此时仍落在 failed 桶中。
 var (
 	successRequestStatuses = []string{"COMPLETED"}
-	failedRequestStatuses  = []string{"FAILED", "CANCELLED", "REJECTED"}
+	failedRequestStatuses  = []string{"FAILED", "CANCELLED", "REJECTED", "PENDING", "IN_PROGRESS"}
 )
 
 // requestDetailRetentionConfig 解析当前生效的请求详情保留配置
@@ -244,25 +250,37 @@ func (d *BackgroundTaskDeps) requestDetailRetentionConfig() (successSec, failedS
 }
 
 // cleanupOldRequestDetails 清理过期的请求详情（request_info 和 response_info）
-// 仅当对应保留秒数 > 0 时执行；split=false 时按统一保留时间清理全部状态
+//
+// 保留秒数语义：
+//   - < 0：永久保存（跳过）
+//   - = 0：不保存（cutoff = now，eligible 行立即清理）—— 这是 split 模式下
+//     side=0 与另一 side != 0 共存时唯一不"漏存"的处理：ingress 不能按状态判断，
+//     所以先写入 DB，由本任务在下一次 tick 时清掉。
+//   - > 0：cutoff = now - seconds
+//
+// split=false 时按统一保留时间清理全部状态（statuses=nil）
 func (d *BackgroundTaskDeps) cleanupOldRequestDetails() {
 	successSec, failedSec, split := d.requestDetailRetentionConfig()
 
 	clear := func(seconds int, statuses []string, label string) {
-		if seconds <= 0 {
-			return
+		if seconds < 0 {
+			return // 永久保存
 		}
-		before := time.Now().Add(-time.Duration(seconds) * time.Second)
+		now := time.Now()
+		before := now
+		if seconds > 0 {
+			before = now.Add(-time.Duration(seconds) * time.Second)
+		}
 		if deleted, err := d.ProxyRequest.ClearDetailOlderThan(before, statuses); err != nil {
 			log.Printf("[Task] Failed to clear %s request details: %v", label, err)
 		} else if deleted > 0 {
-			log.Printf("[Task] Cleared details for %d %s requests older than %d seconds", deleted, label, seconds)
+			log.Printf("[Task] Cleared details for %d %s requests (retention=%ds)", deleted, label, seconds)
 		}
 		if d.AttemptRepo != nil {
 			if deleted, err := d.AttemptRepo.ClearDetailOlderThan(before, statuses); err != nil {
 				log.Printf("[Task] Failed to clear %s attempt details: %v", label, err)
 			} else if deleted > 0 {
-				log.Printf("[Task] Cleared details for %d %s attempts older than %d seconds", deleted, label, seconds)
+				log.Printf("[Task] Cleared details for %d %s attempts (retention=%ds)", deleted, label, seconds)
 			}
 		}
 	}
@@ -276,27 +294,39 @@ func (d *BackgroundTaskDeps) cleanupOldRequestDetails() {
 }
 
 // runRequestDetailCleanup 动态间隔清理请求详情
-// 间隔取 success/failed 中较小的正值，未配置时每分钟检查一次
+//
+// 间隔决策：
+//   - 任一 side >= 0（含 0）→ 该 side 需要清理，纳入间隔计算（0 取最小间隔 10s 以快速回收）
+//   - 两 side 都 < 0（都永久）→ 每分钟轮询一次配置
+//
+// 实际间隔取 max(min(>0 sides), 10s)；存在 0 时直接锁到 10s 以贴近"不保存"语义
 func (d *BackgroundTaskDeps) runRequestDetailCleanup() {
 	time.Sleep(10 * time.Second) // 初始延迟
 
 	for {
 		successSec, failedSec, _ := d.requestDetailRetentionConfig()
 
-		// 取两者中 > 0 的最小值作为间隔；都不需要清理则每分钟轮询一次配置
-		var seconds int
-		for _, s := range []int{successSec, failedSec} {
-			if s > 0 && (seconds == 0 || s < seconds) {
-				seconds = s
-			}
-		}
-		if seconds <= 0 {
+		needsRun := successSec >= 0 || failedSec >= 0
+		if !needsRun {
 			time.Sleep(1 * time.Minute)
 			continue
 		}
 
 		d.cleanupOldRequestDetails()
 
+		// 取所有 >0 side 的最小值；任一 side == 0 则锁到 10s
+		var seconds int
+		hasZero := successSec == 0 || failedSec == 0
+		if !hasZero {
+			for _, s := range []int{successSec, failedSec} {
+				if s > 0 && (seconds == 0 || s < seconds) {
+					seconds = s
+				}
+			}
+		}
+		if seconds <= 0 {
+			seconds = 10
+		}
 		interval := time.Duration(seconds) * time.Second
 		if interval < 10*time.Second {
 			interval = 10 * time.Second

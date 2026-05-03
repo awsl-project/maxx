@@ -218,6 +218,65 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 		}
 	})
 
+	t.Run("split=true success=0 aggressively clears completed without affecting failed", func(t *testing.T) {
+		// 回归 Codex P1：当 success=0、failed != 0 时，ingress 不再立即清，
+		// 必须由后台 cleanup 用 cutoff=now 清掉 success 行；failed 行保留
+		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
+		defer db.Close()
+		reqRepo := sqlite.NewProxyRequestRepository(db)
+		settings := &fakeSettingRepo{values: map[string]string{
+			domain.SettingKeyRequestDetailRetentionSplitEnabled:   "true",
+			domain.SettingKeyRequestDetailRetentionSecondsSuccess: "0",
+			domain.SettingKeyRequestDetailRetentionSecondsFailed:  "-1",
+		}}
+		deps := BackgroundTaskDeps{
+			ProxyRequest: reqRepo,
+			Settings:     settings,
+		}
+
+		// 故意用"刚刚创建"的时间戳——success=0 也应该把它清掉
+		freshOK := seedRequest(t, db, reqRepo, "COMPLETED", time.Now().Add(-100*time.Millisecond), 1)
+		freshBad := seedRequest(t, db, reqRepo, "FAILED", time.Now().Add(-100*time.Millisecond), 2)
+
+		deps.cleanupOldRequestDetails()
+
+		if !reloadDetailEmpty(t, db, freshOK.ID) {
+			t.Error("success=0 must clear COMPLETED even when fresh (cutoff=now)")
+		}
+		if reloadDetailEmpty(t, db, freshBad.ID) {
+			t.Error("failed=-1 must retain")
+		}
+	})
+
+	t.Run("split=true covers PENDING/IN_PROGRESS via failed bucket", func(t *testing.T) {
+		// 回归 Claude SHOULD #1：卡死/孤儿 PENDING/IN_PROGRESS 也要能被清，
+		// 不能因为不属于 success 桶就永久泄漏
+		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
+		defer db.Close()
+		reqRepo := sqlite.NewProxyRequestRepository(db)
+		settings := &fakeSettingRepo{values: map[string]string{
+			domain.SettingKeyRequestDetailRetentionSplitEnabled:   "true",
+			domain.SettingKeyRequestDetailRetentionSecondsSuccess: "-1",
+			domain.SettingKeyRequestDetailRetentionSecondsFailed:  "60",
+		}}
+		deps := BackgroundTaskDeps{
+			ProxyRequest: reqRepo,
+			Settings:     settings,
+		}
+
+		stalePending := seedRequest(t, db, reqRepo, "PENDING", oldTime, 1)
+		staleInProg := seedRequest(t, db, reqRepo, "IN_PROGRESS", oldTime, 2)
+
+		deps.cleanupOldRequestDetails()
+
+		if !reloadDetailEmpty(t, db, stalePending.ID) {
+			t.Error("stale PENDING must be cleaned by failed retention")
+		}
+		if !reloadDetailEmpty(t, db, staleInProg.ID) {
+			t.Error("stale IN_PROGRESS must be cleaned by failed retention")
+		}
+	})
+
 	t.Run("retention=-1 (default) is no-op", func(t *testing.T) {
 		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
 		defer db.Close()
