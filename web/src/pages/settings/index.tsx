@@ -799,10 +799,15 @@ function DataRetentionSection() {
               id={detailSplitToggleId}
               checked={splitDraft}
               onCheckedChange={(next) => {
-                // 仅在"首次开启"且服务端尚未保存对应 split 键时，把 unified
-                // 草稿同步过去——避免显示陈旧的派生值，同时保证保存后写入的
-                // 是用户当下看到的值。如果服务端已有显式 split 设置，toggle
-                // 不应破坏它（用户可能只是想切换查看模式）
+                // 开 → 关：把当前 split.success 草稿同步到 unified。否则保存
+                // 后后端会直接回退到可能已经陈旧的 request_detail_retention_seconds，
+                // 静默改变清理策略（Codex r8）
+                if (!next && splitDraft) {
+                  setDetailDraft(detailSuccessDraft);
+                }
+                // 关 → 开 且 服务端尚未保存对应 split 键：用 unified 草稿种入
+                // 两个 split 输入，避免显示陈旧的派生值；服务端已有显式 split
+                // 设置则保留不动（用户可能只是想切换查看模式，Codex r7）
                 if (next && !splitDraft) {
                   if (settings?.request_detail_retention_seconds_success == null) {
                     setDetailSuccessDraft(detailDraft);
