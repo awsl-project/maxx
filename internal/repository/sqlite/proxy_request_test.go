@@ -173,7 +173,10 @@ func TestProxyRequestClearDetailOlderThan(t *testing.T) {
 	cutoff := now.Add(-1 * time.Hour)
 
 	t.Run("nil statuses clears all (split=false path)", func(t *testing.T) {
-		db, _ := NewDBWithDSN("sqlite://:memory:")
+		db, err := NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		repo := NewProxyRequestRepository(db)
 
@@ -196,7 +199,10 @@ func TestProxyRequestClearDetailOlderThan(t *testing.T) {
 	})
 
 	t.Run("success-only filter spares failed", func(t *testing.T) {
-		db, _ := NewDBWithDSN("sqlite://:memory:")
+		db, err := NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		repo := NewProxyRequestRepository(db)
 
@@ -223,7 +229,10 @@ func TestProxyRequestClearDetailOlderThan(t *testing.T) {
 	})
 
 	t.Run("failed-set filter spares completed", func(t *testing.T) {
-		db, _ := NewDBWithDSN("sqlite://:memory:")
+		db, err := NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		repo := NewProxyRequestRepository(db)
 
@@ -250,7 +259,10 @@ func TestProxyRequestClearDetailOlderThan(t *testing.T) {
 	})
 
 	t.Run("respects dev_mode and time cutoff", func(t *testing.T) {
-		db, _ := NewDBWithDSN("sqlite://:memory:")
+		db, err := NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		repo := NewProxyRequestRepository(db)
 

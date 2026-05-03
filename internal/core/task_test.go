@@ -136,7 +136,10 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 	oldTime := now.Add(-2 * time.Hour) // 老到一定被清的时间
 
 	t.Run("split=false uses unified key, clears all statuses", func(t *testing.T) {
-		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
+		db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		reqRepo := sqlite.NewProxyRequestRepository(db)
 		settings := &fakeSettingRepo{values: map[string]string{
@@ -161,7 +164,10 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 	})
 
 	t.Run("split=true with success=60 failed=-1 only clears success", func(t *testing.T) {
-		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
+		db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		reqRepo := sqlite.NewProxyRequestRepository(db)
 		settings := &fakeSettingRepo{values: map[string]string{
@@ -192,7 +198,10 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 	})
 
 	t.Run("split=true success unset falls back to unified", func(t *testing.T) {
-		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
+		db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		reqRepo := sqlite.NewProxyRequestRepository(db)
 		settings := &fakeSettingRepo{values: map[string]string{
@@ -221,7 +230,10 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 	t.Run("split=true success=0 aggressively clears completed without affecting failed", func(t *testing.T) {
 		// 回归 Codex P1：当 success=0、failed != 0 时，ingress 不再立即清，
 		// 必须由后台 cleanup 用 cutoff=now 清掉 success 行；failed 行保留
-		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
+		db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		reqRepo := sqlite.NewProxyRequestRepository(db)
 		settings := &fakeSettingRepo{values: map[string]string{
@@ -251,7 +263,10 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 	t.Run("split=true protects in-flight PENDING/IN_PROGRESS from failed bucket", func(t *testing.T) {
 		// 回归 Codex r2 P1：长流式/排队请求的 status 是 PENDING/IN_PROGRESS，
 		// 即便已超过 failed 保留时间也不能被清空 body（仍在写入中）
-		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
+		db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		reqRepo := sqlite.NewProxyRequestRepository(db)
 		settings := &fakeSettingRepo{values: map[string]string{
@@ -279,7 +294,10 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 	})
 
 	t.Run("retention=-1 (default) is no-op", func(t *testing.T) {
-		db, _ := sqlite.NewDBWithDSN("sqlite://:memory:")
+		db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		reqRepo := sqlite.NewProxyRequestRepository(db)
 		settings := &fakeSettingRepo{} // 全部默认（即 -1）

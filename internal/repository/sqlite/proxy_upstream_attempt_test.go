@@ -44,7 +44,10 @@ func TestProxyUpstreamAttemptClearDetailOlderThan(t *testing.T) {
 	cutoff := now.Add(-1 * time.Hour)
 
 	t.Run("filters by parent ProxyRequest status", func(t *testing.T) {
-		db, _ := NewDBWithDSN("sqlite://:memory:")
+		db, err := NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		reqRepo := NewProxyRequestRepository(db)
 		attRepo := NewProxyUpstreamAttemptRepository(db)
@@ -73,7 +76,10 @@ func TestProxyUpstreamAttemptClearDetailOlderThan(t *testing.T) {
 	})
 
 	t.Run("dev_mode parent shields attempt", func(t *testing.T) {
-		db, _ := NewDBWithDSN("sqlite://:memory:")
+		db, err := NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
 		defer db.Close()
 		reqRepo := NewProxyRequestRepository(db)
 		attRepo := NewProxyUpstreamAttemptRepository(db)
