@@ -176,6 +176,9 @@ type ProviderConfigClaude struct {
 
 	// Model 映射: RequestModel → MappedModel
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
+
+	// 响应 Model 映射: ResponseModelPattern → MappedModelConstant
+	ResponseModelMapping map[string]string `json:"responseModelMapping,omitempty"`
 }
 
 type ProviderConfigCodex struct {

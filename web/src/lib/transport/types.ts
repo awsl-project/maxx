@@ -89,6 +89,7 @@ export interface ProviderConfigClaude {
   expiresAt?: string; // RFC3339 format
   organizationId?: string;
   modelMapping?: Record<string, string>;
+  responseModelMapping?: Record<string, string>;
 }
 
 export interface ProviderConfigBedrock {

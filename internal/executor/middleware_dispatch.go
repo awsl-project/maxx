@@ -10,6 +10,7 @@ import (
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -157,7 +158,14 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 
 			var responseWriter http.ResponseWriter
 			var convertingWriter *ConvertingResponseWriter
-			responseCapture := NewResponseCapture(c.Writer)
+			modifierWriter := responsemodifier.NewResponseModifierWriter(c.Writer, matchedRoute.Provider, originalClientType, state.isStream)
+			captureWriter := http.ResponseWriter(c.Writer)
+			if modifierWriter != nil {
+				captureWriter = modifierWriter
+			}
+			// Keep capture before modifier so stored response details remain upstream-visible,
+			// while only the client-facing writer receives response modifications.
+			responseCapture := NewResponseCapture(captureWriter)
 			if needsConversion {
 				convertingWriter = NewConvertingResponseWriter(
 					responseCapture, e.converter, originalClientType, currentClientType, state.isStream, state.originalRequestBody)
@@ -174,6 +182,11 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			if needsConversion && convertingWriter != nil && !state.isStream {
 				if finalizeErr := convertingWriter.Finalize(); finalizeErr != nil {
 					log.Printf("[Executor] Response conversion finalize failed: %v", finalizeErr)
+				}
+			}
+			if err == nil && modifierWriter != nil {
+				if finalizeErr := modifierWriter.Finalize(); finalizeErr != nil {
+					log.Printf("[Executor] Response modifier finalize failed: %v", finalizeErr)
 				}
 			}
 
