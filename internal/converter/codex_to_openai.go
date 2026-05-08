@@ -30,10 +30,11 @@ type openaiStreamState struct {
 }
 
 type openaiToolCallState struct {
-	ID       string
-	CallID   string
-	Name     string
-	NameSent bool
+	ID            string
+	CallID        string
+	Name          string
+	NameSent      bool
+	ArgsDeltaSent bool
 }
 
 func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool) ([]byte, error) {
@@ -312,8 +313,8 @@ func (c *codexToOpenAIResponse) TransformWithState(body []byte, state *Transform
 
 	outputResult := response.Get("output")
 	if outputResult.IsArray() {
-		var contentText string
-		var reasoningText string
+		var contentParts []string
+		var reasoningParts []string
 		var toolCalls []string
 		rev := buildReverseMapFromOriginalOpenAI(nil)
 		if state != nil && len(state.OriginalRequestBody) > 0 {
@@ -326,8 +327,9 @@ func (c *codexToOpenAIResponse) TransformWithState(body []byte, state *Transform
 				if summaryResult := outputItem.Get("summary"); summaryResult.IsArray() {
 					summaryResult.ForEach(func(_, summaryItem gjson.Result) bool {
 						if summaryItem.Get("type").String() == "summary_text" {
-							reasoningText = summaryItem.Get("text").String()
-							return false
+							if text := summaryItem.Get("text").String(); text != "" {
+								reasoningParts = append(reasoningParts, text)
+							}
 						}
 						return true
 					})
@@ -335,9 +337,15 @@ func (c *codexToOpenAIResponse) TransformWithState(body []byte, state *Transform
 			case "message":
 				if contentResult := outputItem.Get("content"); contentResult.IsArray() {
 					contentResult.ForEach(func(_, contentItem gjson.Result) bool {
-						if contentItem.Get("type").String() == "output_text" {
-							contentText = contentItem.Get("text").String()
-							return false
+						switch contentItem.Get("type").String() {
+						case "output_text":
+							if text := contentItem.Get("text").String(); text != "" {
+								contentParts = append(contentParts, text)
+							}
+						case "refusal":
+							if text := contentItem.Get("refusal").String(); text != "" {
+								contentParts = append(contentParts, text)
+							}
 						}
 						return true
 					})
@@ -362,12 +370,12 @@ func (c *codexToOpenAIResponse) TransformWithState(body []byte, state *Transform
 			return true
 		})
 
-		if contentText != "" {
-			template, _ = sjson.Set(template, "choices.0.message.content", contentText)
+		if len(contentParts) > 0 {
+			template, _ = sjson.Set(template, "choices.0.message.content", strings.Join(contentParts, ""))
 			template, _ = sjson.Set(template, "choices.0.message.role", "assistant")
 		}
-		if reasoningText != "" {
-			template, _ = sjson.Set(template, "choices.0.message.reasoning_content", reasoningText)
+		if len(reasoningParts) > 0 {
+			template, _ = sjson.Set(template, "choices.0.message.reasoning_content", strings.Join(reasoningParts, ""))
 			template, _ = sjson.Set(template, "choices.0.message.role", "assistant")
 		}
 		if len(toolCalls) > 0 {
@@ -379,9 +387,21 @@ func (c *codexToOpenAIResponse) TransformWithState(body []byte, state *Transform
 		}
 	}
 
-	if statusResult := response.Get("status"); statusResult.Exists() && statusResult.String() == "completed" {
-		template, _ = sjson.Set(template, "choices.0.finish_reason", "stop")
-		template, _ = sjson.Set(template, "choices.0.native_finish_reason", "stop")
+	if statusResult := response.Get("status"); statusResult.Exists() {
+		finishReason := ""
+		switch statusResult.String() {
+		case "completed":
+			finishReason = "stop"
+			if strings.Contains(template, `"tool_calls":[`) {
+				finishReason = "tool_calls"
+			}
+		case "incomplete":
+			finishReason = codexIncompleteReasonToOpenAI(response.Get("incomplete_details.reason").String())
+		}
+		if finishReason != "" {
+			template, _ = sjson.Set(template, "choices.0.finish_reason", finishReason)
+			template, _ = sjson.Set(template, "choices.0.native_finish_reason", finishReason)
+		}
 	}
 
 	return []byte(template), nil
@@ -445,24 +465,77 @@ func (c *codexToOpenAIResponse) TransformChunk(chunk []byte, state *TransformSta
 				output = append(output, FormatSSE("", []byte(chunk))...)
 			}
 
+		case "response.output_item.added":
+			item := root.Get("item")
+			if item.Exists() && item.Get("type").String() == "function_call" {
+				index := openAIStreamToolIndex(root, st)
+				st.HasToolCall = true
+
+				id := item.Get("call_id").String()
+				if id == "" {
+					id = item.Get("id").String()
+				}
+				name := openAIStreamToolName(item.Get("name").String(), state, st)
+
+				toolState := st.ToolCalls[index]
+				if toolState == nil {
+					toolState = &openaiToolCallState{}
+					st.ToolCalls[index] = toolState
+				}
+				toolState.ID = id
+				toolState.CallID = item.Get("call_id").String()
+				toolState.Name = name
+				toolState.NameSent = true
+
+				functionCallItemTemplate := `{"index":0,"id":"","type":"function","function":{"name":"","arguments":""}}`
+				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "index", index)
+				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "id", id)
+				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "function.name", name)
+
+				chunk := newOpenAIStreamTemplate(state.MessageID, st)
+				chunk, _ = sjson.Set(chunk, "choices.0.delta.role", "assistant")
+				chunk, _ = sjson.SetRaw(chunk, "choices.0.delta.tool_calls", `[]`)
+				chunk, _ = sjson.SetRaw(chunk, "choices.0.delta.tool_calls.-1", functionCallItemTemplate)
+				chunk = applyOpenAIUsageFromResponse(chunk, root.Get("response.usage"))
+				output = append(output, FormatSSE("", []byte(chunk))...)
+			}
+
+		case "response.function_call_arguments.delta":
+			if delta := root.Get("delta"); delta.Exists() {
+				index := openAIStreamToolIndex(root, st)
+				st.HasToolCall = true
+				toolState := st.ToolCalls[index]
+				if toolState == nil {
+					toolState = &openaiToolCallState{}
+					st.ToolCalls[index] = toolState
+				}
+				toolState.ArgsDeltaSent = true
+
+				functionCallItemTemplate := `{"index":0,"function":{"arguments":""}}`
+				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "index", index)
+				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "function.arguments", delta.String())
+
+				chunk := newOpenAIStreamTemplate(state.MessageID, st)
+				chunk, _ = sjson.Set(chunk, "choices.0.delta.role", "assistant")
+				chunk, _ = sjson.SetRaw(chunk, "choices.0.delta.tool_calls", `[]`)
+				chunk, _ = sjson.SetRaw(chunk, "choices.0.delta.tool_calls.-1", functionCallItemTemplate)
+				chunk = applyOpenAIUsageFromResponse(chunk, root.Get("response.usage"))
+				output = append(output, FormatSSE("", []byte(chunk))...)
+			}
+
 		case "response.output_item.done":
 			item := root.Get("item")
 			if item.Exists() && item.Get("type").String() == "function_call" {
-				st.Index++
+				index := openAIStreamToolIndex(root, st)
+				if toolState := st.ToolCalls[index]; toolState != nil && toolState.ArgsDeltaSent {
+					continue
+				}
 				st.HasToolCall = true
 				functionCallItemTemplate := `{"index":0,"id":"","type":"function","function":{"name":"","arguments":""}}`
-				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "index", st.Index)
+				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "index", index)
 				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "id", item.Get("call_id").String())
 
-				name := item.Get("name").String()
-				rev := st.ShortToOrig
-				if rev == nil {
-					rev = buildReverseMapFromOriginalOpenAI(state.OriginalRequestBody)
-					st.ShortToOrig = rev
-				}
-				if orig, ok := rev[name]; ok {
-					name = orig
-				}
+				name := openAIStreamToolName(item.Get("name").String(), state, st)
 				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "function.name", name)
 				functionCallItemTemplate, _ = sjson.Set(functionCallItemTemplate, "function.arguments", item.Get("arguments").String())
 
@@ -491,6 +564,37 @@ func (c *codexToOpenAIResponse) TransformChunk(chunk []byte, state *TransformSta
 	}
 
 	return output, nil
+}
+
+func codexIncompleteReasonToOpenAI(reason string) string {
+	switch reason {
+	case "max_output_tokens", "max_tokens":
+		return "length"
+	case "content_filter":
+		return "content_filter"
+	default:
+		return "stop"
+	}
+}
+
+func openAIStreamToolIndex(root gjson.Result, st *openaiStreamState) int {
+	if index := root.Get("output_index"); index.Exists() {
+		return int(index.Int())
+	}
+	st.Index++
+	return st.Index
+}
+
+func openAIStreamToolName(name string, state *TransformState, st *openaiStreamState) string {
+	rev := st.ShortToOrig
+	if rev == nil {
+		rev = buildReverseMapFromOriginalOpenAI(state.OriginalRequestBody)
+		st.ShortToOrig = rev
+	}
+	if orig, ok := rev[name]; ok {
+		return orig
+	}
+	return name
 }
 
 func getOpenAIStreamState(state *TransformState) *openaiStreamState {
