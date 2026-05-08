@@ -3,6 +3,7 @@ package converter
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -82,7 +83,7 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 					}
 					openaiReq.Messages = append(openaiReq.Messages, OpenAIMessage{
 						Role:    role,
-						Content: m["content"],
+						Content: codexContentToOpenAI(m["content"]),
 					})
 				case "function_call":
 					id, _ := m["id"].(string)
@@ -128,6 +129,76 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 	}
 
 	return json.Marshal(openaiReq)
+}
+
+func codexContentToOpenAI(content interface{}) interface{} {
+	switch value := content.(type) {
+	case []interface{}:
+		parts := make([]map[string]interface{}, 0, len(value))
+		var textParts []string
+		onlyText := true
+		sawCodexPart := false
+		for _, rawPart := range value {
+			part, ok := rawPart.(map[string]interface{})
+			if !ok {
+				onlyText = false
+				continue
+			}
+			switch part["type"] {
+			case "input_text", "output_text", "text":
+				sawCodexPart = true
+				text, _ := part["text"].(string)
+				if text == "" {
+					continue
+				}
+				textParts = append(textParts, text)
+				parts = append(parts, map[string]interface{}{
+					"type": "text",
+					"text": text,
+				})
+			case "input_image":
+				sawCodexPart = true
+				onlyText = false
+				imageURL := codexImageURLToOpenAI(part["image_url"])
+				if imageURL == nil {
+					imageURL = codexImageURLToOpenAI(part["image"])
+				}
+				if imageURL != nil {
+					parts = append(parts, map[string]interface{}{
+						"type":      "image_url",
+						"image_url": imageURL,
+					})
+				}
+			default:
+				onlyText = false
+			}
+		}
+		if onlyText {
+			return strings.Join(textParts, "")
+		}
+		if len(parts) > 0 {
+			return parts
+		}
+		if sawCodexPart {
+			return ""
+		}
+	}
+	return content
+}
+
+func codexImageURLToOpenAI(raw interface{}) map[string]interface{} {
+	switch image := raw.(type) {
+	case string:
+		if image == "" {
+			return nil
+		}
+		return map[string]interface{}{"url": image}
+	case map[string]interface{}:
+		if _, ok := image["url"].(string); ok {
+			return image
+		}
+	}
+	return nil
 }
 
 func (c *codexToOpenAIResponse) Transform(body []byte) ([]byte, error) {

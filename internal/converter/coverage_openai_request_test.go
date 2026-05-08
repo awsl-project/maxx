@@ -945,3 +945,62 @@ func TestCodexToOpenAIRequestInstructions(t *testing.T) {
 		t.Fatalf("expected system message from instructions")
 	}
 }
+
+func TestCodexToOpenAIRequestNormalizesResponsesContentParts(t *testing.T) {
+	req := CodexRequest{Input: []interface{}{
+		map[string]interface{}{
+			"type": "message",
+			"role": "user",
+			"content": []interface{}{
+				map[string]interface{}{"type": "input_text", "text": "look"},
+				map[string]interface{}{"type": "input_image", "image_url": "data:image/png;base64,Zm9v"},
+			},
+		},
+		map[string]interface{}{
+			"type": "message",
+			"role": "assistant",
+			"content": []interface{}{
+				map[string]interface{}{"type": "output_text", "text": "done"},
+			},
+		},
+	}}
+	body, _ := json.Marshal(req)
+	conv := &codexToOpenAIRequest{}
+	out, err := conv.Transform(body, "gpt", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if strings.Contains(string(out), "input_text") || strings.Contains(string(out), "output_text") || strings.Contains(string(out), "input_image") {
+		t.Fatalf("Codex content part types leaked into OpenAI request: %s", string(out))
+	}
+	if !strings.Contains(string(out), `"type":"image_url"`) {
+		t.Fatalf("expected OpenAI image_url content part: %s", string(out))
+	}
+	if !strings.Contains(string(out), `"content":"done"`) {
+		t.Fatalf("expected assistant output_text to collapse to text content: %s", string(out))
+	}
+}
+
+func TestCodexToOpenAIRequestDoesNotLeakMalformedResponsesImagePart(t *testing.T) {
+	req := CodexRequest{Input: []interface{}{
+		map[string]interface{}{
+			"type": "message",
+			"role": "user",
+			"content": []interface{}{
+				map[string]interface{}{"type": "input_image"},
+			},
+		},
+	}}
+	body, _ := json.Marshal(req)
+	conv := &codexToOpenAIRequest{}
+	out, err := conv.Transform(body, "gpt", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if strings.Contains(string(out), "input_image") {
+		t.Fatalf("malformed Codex image part leaked into OpenAI request: %s", string(out))
+	}
+	if !strings.Contains(string(out), `"content":""`) {
+		t.Fatalf("expected malformed known Codex part to collapse to empty content: %s", string(out))
+	}
+}
