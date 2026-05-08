@@ -216,6 +216,54 @@ func TestOpenAIToCodexStreamForwardsDoneWhenSplitFromCompletion(t *testing.T) {
 	}
 }
 
+func TestOpenAIToCodexStreamForwardsNativeResponsesEvents(t *testing.T) {
+	state := NewTransformState()
+	respConv := &openaiToCodexResponse{}
+
+	created := map[string]interface{}{
+		"type": "response.created",
+		"response": map[string]interface{}{
+			"id":         "resp_native",
+			"object":     "response",
+			"created_at": int64(1),
+			"status":     "in_progress",
+		},
+	}
+	delta := map[string]interface{}{
+		"type":          "response.output_text.delta",
+		"item_id":       "msg_resp_native_0",
+		"output_index":  0,
+		"content_index": 0,
+		"delta":         "hi",
+	}
+	completed := map[string]interface{}{
+		"type": "response.completed",
+		"response": map[string]interface{}{
+			"id":     "resp_native",
+			"object": "response",
+			"status": "completed",
+		},
+	}
+
+	stream := append(FormatSSE("", created), FormatSSE("", delta)...)
+	stream = append(stream, FormatSSE("", completed)...)
+	stream = append(stream, FormatDone()...)
+
+	out, err := respConv.TransformChunk(stream, state)
+	if err != nil {
+		t.Fatalf("TransformChunk: %v", err)
+	}
+	outStr := string(out)
+	for _, want := range []string{"event: response.created", "event: response.output_text.delta", "event: response.completed", "data: [DONE]"} {
+		if !strings.Contains(outStr, want) {
+			t.Fatalf("missing %s in forwarded responses stream: %s", want, outStr)
+		}
+	}
+	if strings.Count(outStr, "response.completed") != 2 {
+		t.Fatalf("expected one completed event/data pair, got: %s", outStr)
+	}
+}
+
 func TestClaudeToOpenAIStreamToolCalls(t *testing.T) {
 	state := NewTransformState()
 	start := ClaudeStreamEvent{Type: "message_start", Message: &ClaudeResponse{ID: "msg_1"}}

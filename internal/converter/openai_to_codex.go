@@ -356,15 +356,19 @@ func (c *openaiToCodexResponse) TransformChunk(chunk []byte, state *TransformSta
 	var output []byte
 	for _, event := range events {
 		if event.Event == "done" {
-			st, _ := state.Custom.(*openaiToResponsesState)
-			if st == nil || !st.DoneSent {
+			st := ensureOpenAIToResponsesState(state)
+			if !st.DoneSent {
 				output = append(output, FormatDone()...)
-				if st != nil {
-					st.DoneSent = true
-				}
+				st.DoneSent = true
 			}
 			continue
 		}
+
+		if forwarded := forwardOpenAIResponsesStreamEvent(event); len(forwarded) > 0 {
+			output = append(output, forwarded...)
+			continue
+		}
+
 		for _, item := range convertOpenAIChatCompletionsChunkToResponses(event.Data, state) {
 			output = append(output, item...)
 		}
@@ -411,6 +415,44 @@ type openaiToResponsesState struct {
 
 var responseIDCounter uint64
 
+func ensureOpenAIToResponsesState(state *TransformState) *openaiToResponsesState {
+	st, ok := state.Custom.(*openaiToResponsesState)
+	if ok && st != nil {
+		return st
+	}
+	st = &openaiToResponsesState{
+		FuncArgsBuf:     make(map[int]*strings.Builder),
+		FuncNames:       make(map[int]string),
+		FuncCallIDs:     make(map[int]string),
+		MsgTextBuf:      make(map[int]*strings.Builder),
+		MsgItemAdded:    make(map[int]bool),
+		MsgContentAdded: make(map[int]bool),
+		MsgItemDone:     make(map[int]bool),
+		FuncArgsDone:    make(map[int]bool),
+		FuncItemDone:    make(map[int]bool),
+		Reasonings:      make([]openaiToResponsesStateReasoning, 0),
+		MsgOutputIndex:  make(map[int]int),
+		FuncOutputIndex: make(map[int]int),
+	}
+	state.Custom = st
+	return st
+}
+
+func forwardOpenAIResponsesStreamEvent(event SSEEvent) []byte {
+	root := gjson.ParseBytes(event.Data)
+	if !root.Exists() {
+		return nil
+	}
+	eventType := root.Get("type").String()
+	if eventType == "" || !strings.HasPrefix(eventType, "response.") {
+		return nil
+	}
+	if event.Event != "" && event.Event != eventType {
+		return FormatSSE(event.Event, event.Data)
+	}
+	return FormatSSE(eventType, event.Data)
+}
+
 func synthesizeResponseID() string {
 	return fmt.Sprintf("resp_%x_%d", time.Now().UnixNano(), atomic.AddUint64(&responseIDCounter, 1))
 }
@@ -439,24 +481,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 	if state == nil {
 		return nil
 	}
-	st, ok := state.Custom.(*openaiToResponsesState)
-	if !ok || st == nil {
-		st = &openaiToResponsesState{
-			FuncArgsBuf:     make(map[int]*strings.Builder),
-			FuncNames:       make(map[int]string),
-			FuncCallIDs:     make(map[int]string),
-			MsgTextBuf:      make(map[int]*strings.Builder),
-			MsgItemAdded:    make(map[int]bool),
-			MsgContentAdded: make(map[int]bool),
-			MsgItemDone:     make(map[int]bool),
-			FuncArgsDone:    make(map[int]bool),
-			FuncItemDone:    make(map[int]bool),
-			Reasonings:      make([]openaiToResponsesStateReasoning, 0),
-			MsgOutputIndex:  make(map[int]int),
-			FuncOutputIndex: make(map[int]int),
-		}
-		state.Custom = st
-	}
+	st := ensureOpenAIToResponsesState(state)
 
 	root := gjson.ParseBytes(rawJSON)
 	obj := root.Get("object")
