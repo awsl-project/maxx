@@ -444,13 +444,13 @@ func forwardOpenAIResponsesStreamEvent(event SSEEvent) []byte {
 		return nil
 	}
 	eventType := root.Get("type").String()
-	if eventType == "" || !strings.HasPrefix(eventType, "response.") {
-		return nil
+	if strings.HasPrefix(eventType, "response.") {
+		return FormatSSE(eventType, event.Data)
 	}
-	if event.Event != "" && event.Event != eventType {
-		return FormatSSE(event.Event, event.Data)
+	if event.Event == "error" || eventType == "error" || (!root.Get("choices").Exists() && root.Get("error").Exists()) {
+		return FormatSSE("error", event.Data)
 	}
-	return FormatSSE(eventType, event.Data)
+	return nil
 }
 
 func synthesizeResponseID() string {

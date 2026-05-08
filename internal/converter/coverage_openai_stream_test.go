@@ -264,6 +264,60 @@ func TestOpenAIToCodexStreamForwardsNativeResponsesEvents(t *testing.T) {
 	}
 }
 
+func TestOpenAIToCodexStreamNormalizesNativeResponsesEventName(t *testing.T) {
+	state := NewTransformState()
+	respConv := &openaiToCodexResponse{}
+
+	completed := map[string]interface{}{
+		"type": "response.completed",
+		"response": map[string]interface{}{
+			"id":     "resp_native",
+			"object": "response",
+			"status": "completed",
+		},
+	}
+
+	out, err := respConv.TransformChunk(FormatSSE("unexpected.event", completed), state)
+	if err != nil {
+		t.Fatalf("TransformChunk: %v", err)
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "event: response.completed") {
+		t.Fatalf("expected event name normalized from data.type, got: %s", outStr)
+	}
+	if strings.Contains(outStr, "event: unexpected.event") {
+		t.Fatalf("unexpected mismatched event name preserved: %s", outStr)
+	}
+}
+
+func TestOpenAIToCodexStreamForwardsErrorEvents(t *testing.T) {
+	state := NewTransformState()
+	respConv := &openaiToCodexResponse{}
+
+	errorEvent := map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": "boom",
+		},
+	}
+	typedError := map[string]interface{}{
+		"type":    "error",
+		"message": "typed boom",
+	}
+
+	stream := append(FormatSSE("error", errorEvent), FormatSSE("", typedError)...)
+	out, err := respConv.TransformChunk(stream, state)
+	if err != nil {
+		t.Fatalf("TransformChunk: %v", err)
+	}
+	outStr := string(out)
+	if strings.Count(outStr, "event: error") != 2 {
+		t.Fatalf("expected both error events forwarded, got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "boom") || !strings.Contains(outStr, "typed boom") {
+		t.Fatalf("expected error payloads preserved, got: %s", outStr)
+	}
+}
+
 func TestClaudeToOpenAIStreamToolCalls(t *testing.T) {
 	state := NewTransformState()
 	start := ClaudeStreamEvent{Type: "message_start", Message: &ClaudeResponse{ID: "msg_1"}}
