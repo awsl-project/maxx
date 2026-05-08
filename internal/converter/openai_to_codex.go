@@ -356,6 +356,13 @@ func (c *openaiToCodexResponse) TransformChunk(chunk []byte, state *TransformSta
 	var output []byte
 	for _, event := range events {
 		if event.Event == "done" {
+			st, _ := state.Custom.(*openaiToResponsesState)
+			if st == nil || !st.DoneSent {
+				output = append(output, FormatDone()...)
+				if st != nil {
+					st.DoneSent = true
+				}
+			}
 			continue
 		}
 		for _, item := range convertOpenAIChatCompletionsChunkToResponses(event.Data, state) {
@@ -395,10 +402,11 @@ type openaiToResponsesState struct {
 	TotalTokens      int64
 	ReasoningTokens  int64
 	UsageSeen        bool
-	NextOutputIndex  int            // global counter for unique output_index across messages and function calls
-	MsgOutputIndex   map[int]int    // choice idx -> assigned output_index
-	FuncOutputIndex  map[int]int    // callIndex -> assigned output_index
-	CompletedSent    bool           // guards against duplicate response.completed
+	NextOutputIndex  int         // global counter for unique output_index across messages and function calls
+	MsgOutputIndex   map[int]int // choice idx -> assigned output_index
+	FuncOutputIndex  map[int]int // callIndex -> assigned output_index
+	CompletedSent    bool        // guards against duplicate response.completed
+	DoneSent         bool        // guards against duplicate terminal [DONE] forwarding
 }
 
 var responseIDCounter uint64
@@ -487,6 +495,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 		st.FuncOutputIndex = make(map[int]int)
 		st.NextOutputIndex = 0
 		st.CompletedSent = false
+		st.DoneSent = false
 		st.PromptTokens = 0
 		st.CachedTokens = 0
 		st.CompletionTokens = 0
@@ -608,7 +617,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 					if st.ReasoningID == "" {
 						st.ReasoningID = fmt.Sprintf("rs_%s_%d", st.ResponseID, idx)
 						st.ReasoningIndex = st.NextOutputIndex
-					st.NextOutputIndex++
+						st.NextOutputIndex++
 						item := `{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{"id":"","type":"reasoning","status":"in_progress","summary":[]}}`
 						item, _ = sjson.Set(item, "sequence_number", nextSeq())
 						item, _ = sjson.Set(item, "output_index", st.ReasoningIndex)

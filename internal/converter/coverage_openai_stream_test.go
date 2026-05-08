@@ -180,6 +180,40 @@ func TestOpenAIToCodexRequestAndStream(t *testing.T) {
 	if !strings.Contains(string(streamOut), "response.completed") {
 		t.Fatalf("missing completed")
 	}
+	if !strings.Contains(string(streamOut), "data: [DONE]") {
+		t.Fatalf("missing terminal done sentinel")
+	}
+}
+
+func TestOpenAIToCodexStreamForwardsDoneWhenSplitFromCompletion(t *testing.T) {
+	state := NewTransformState()
+	respConv := &openaiToCodexResponse{}
+	chunk := OpenAIStreamChunk{ID: "chat_1", Model: "gpt", Choices: []OpenAIChoice{{
+		Delta:        &OpenAIMessage{Content: "hi"},
+		FinishReason: "stop",
+	}}}
+	chunkBody, _ := json.Marshal(chunk)
+	firstOut, err := respConv.TransformChunk(FormatSSE("", json.RawMessage(chunkBody)), state)
+	if err != nil {
+		t.Fatalf("TransformChunk first: %v", err)
+	}
+	if !strings.Contains(string(firstOut), "response.completed") {
+		t.Fatalf("missing completed before done: %s", string(firstOut))
+	}
+	doneOut, err := respConv.TransformChunk(FormatDone(), state)
+	if err != nil {
+		t.Fatalf("TransformChunk done: %v", err)
+	}
+	if string(doneOut) != string(FormatDone()) {
+		t.Fatalf("expected terminal done sentinel, got: %q", string(doneOut))
+	}
+	duplicateOut, err := respConv.TransformChunk(FormatDone(), state)
+	if err != nil {
+		t.Fatalf("TransformChunk duplicate done: %v", err)
+	}
+	if len(duplicateOut) != 0 {
+		t.Fatalf("expected duplicate done to be suppressed, got: %q", string(duplicateOut))
+	}
 }
 
 func TestClaudeToOpenAIStreamToolCalls(t *testing.T) {
