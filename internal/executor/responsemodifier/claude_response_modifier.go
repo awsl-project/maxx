@@ -116,7 +116,10 @@ func sortedMappingPatterns(mapping map[string]string) []string {
 		if leftWildcards != rightWildcards {
 			return leftWildcards < rightWildcards
 		}
-		return len(left) > len(right)
+		if len(left) != len(right) {
+			return len(left) > len(right)
+		}
+		return left < right
 	})
 	return patterns
 }

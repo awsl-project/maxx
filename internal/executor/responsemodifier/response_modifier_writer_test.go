@@ -29,6 +29,20 @@ func TestMapModel(t *testing.T) {
 	}
 }
 
+func TestSortedMappingPatternsUsesDeterministicTieBreaker(t *testing.T) {
+	mapping := map[string]string{
+		"claude-3-*": "older",
+		"claude-4-*": "newer",
+		"claude-*":   "fallback",
+		"*":          "global",
+	}
+	got := sortedMappingPatterns(mapping)
+	want := []string{"claude-3-*", "claude-4-*", "claude-*", "*"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("sortedMappingPatterns() = %v, want %v", got, want)
+	}
+}
+
 func TestResponseModifierWriterModifiesNonStreamingClaudeResponse(t *testing.T) {
 	rr := httptest.NewRecorder()
 	writer := NewResponseModifierWriter(rr, claudeProvider(map[string]string{"upstream": "alias", "nested": "nested-alias"}), domain.ClientTypeClaude, false)
