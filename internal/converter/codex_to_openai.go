@@ -105,10 +105,12 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 					})
 				case "function_call_output":
 					callID, _ := m["call_id"].(string)
-					outputStr, _ := m["output"].(string)
+					if callID == "" {
+						continue
+					}
 					openaiReq.Messages = append(openaiReq.Messages, OpenAIMessage{
 						Role:       "tool",
-						Content:    outputStr,
+						Content:    codexToolOutputToOpenAI(m["output"]),
 						ToolCallID: callID,
 					})
 				}
@@ -139,6 +141,18 @@ func codexContentToOpenAI(content interface{}) interface{} {
 		onlyText := true
 		sawCodexPart := false
 		for _, rawPart := range value {
+			if text, ok := rawPart.(string); ok {
+				if text == "" {
+					continue
+				}
+				textParts = append(textParts, text)
+				parts = append(parts, map[string]interface{}{
+					"type": "text",
+					"text": text,
+				})
+				continue
+			}
+
 			part, ok := rawPart.(map[string]interface{})
 			if !ok {
 				onlyText = false
@@ -156,17 +170,29 @@ func codexContentToOpenAI(content interface{}) interface{} {
 					"type": "text",
 					"text": text,
 				})
-			case "input_image":
+			case "input_image", "output_image", "image_url":
 				sawCodexPart = true
 				onlyText = false
-				imageURL := codexImageURLToOpenAI(part["image_url"])
+				imageURL := codexImageURLToOpenAI(part["image_url"], part["detail"])
 				if imageURL == nil {
-					imageURL = codexImageURLToOpenAI(part["image"])
+					imageURL = codexImageURLToOpenAI(part["image"], part["detail"])
+				}
+				if imageURL == nil {
+					imageURL = codexImageURLToOpenAI(part["url"], part["detail"])
 				}
 				if imageURL != nil {
 					parts = append(parts, map[string]interface{}{
 						"type":      "image_url",
 						"image_url": imageURL,
+					})
+				}
+			case "input_file", "file":
+				sawCodexPart = true
+				onlyText = false
+				if file := codexFileToOpenAI(part); file != nil {
+					parts = append(parts, map[string]interface{}{
+						"type": "file",
+						"file": file,
 					})
 				}
 			default:
@@ -186,19 +212,69 @@ func codexContentToOpenAI(content interface{}) interface{} {
 	return content
 }
 
-func codexImageURLToOpenAI(raw interface{}) map[string]interface{} {
+func codexToolOutputToOpenAI(output interface{}) interface{} {
+	if output == nil {
+		return ""
+	}
+	if text, ok := output.(string); ok {
+		return text
+	}
+	if _, ok := output.([]interface{}); ok {
+		switch normalized := codexContentToOpenAI(output).(type) {
+		case string:
+			return normalized
+		case []map[string]interface{}:
+			return normalized
+		}
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
+func codexImageURLToOpenAI(raw interface{}, detailRaw interface{}) map[string]interface{} {
+	var imageURL map[string]interface{}
 	switch image := raw.(type) {
 	case string:
 		if image == "" {
 			return nil
 		}
-		return map[string]interface{}{"url": image}
+		imageURL = map[string]interface{}{"url": image}
 	case map[string]interface{}:
 		if _, ok := image["url"].(string); ok {
-			return image
+			imageURL = image
 		}
 	}
-	return nil
+	if imageURL == nil {
+		return nil
+	}
+	if detail, ok := detailRaw.(string); ok && detail != "" {
+		if _, exists := imageURL["detail"]; !exists {
+			imageURL["detail"] = detail
+		}
+	}
+	return imageURL
+}
+
+func codexFileToOpenAI(part map[string]interface{}) map[string]interface{} {
+	file := map[string]interface{}{}
+	if fileID, ok := part["file_id"].(string); ok && fileID != "" {
+		file["file_id"] = fileID
+	} else if fileURL, ok := part["file_url"].(string); ok && fileURL != "" {
+		file["file_id"] = fileURL
+	}
+	if fileData, ok := part["file_data"].(string); ok && fileData != "" {
+		file["file_data"] = fileData
+	}
+	if filename, ok := part["filename"].(string); ok && filename != "" {
+		file["filename"] = filename
+	}
+	if len(file) == 0 {
+		return nil
+	}
+	return file
 }
 
 func (c *codexToOpenAIResponse) Transform(body []byte) ([]byte, error) {
