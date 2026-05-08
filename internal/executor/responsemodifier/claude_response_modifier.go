@@ -18,14 +18,24 @@ type claudeResponseModifier struct {
 }
 
 func newClaudeResponseModifier(provider *domain.Provider, clientType domain.ClientType) *claudeResponseModifier {
-	if clientType != domain.ClientTypeClaude || provider.Config == nil || provider.Config.Claude == nil {
+	if clientType != domain.ClientTypeClaude || provider.Config == nil {
 		return nil
 	}
-	mapping := provider.Config.Claude.ResponseModelMapping
+	mapping := responseModelMapping(provider.Config)
 	if len(mapping) == 0 {
 		return nil
 	}
 	return &claudeResponseModifier{mapping: mapping, patterns: sortedMappingPatterns(mapping)}
+}
+
+func responseModelMapping(config *domain.ProviderConfig) map[string]string {
+	if config.Custom != nil && len(config.Custom.ResponseModelMapping) > 0 {
+		return config.Custom.ResponseModelMapping
+	}
+	if config.Claude != nil {
+		return config.Claude.ResponseModelMapping
+	}
+	return nil
 }
 
 func (m *claudeResponseModifier) modifyBody(body []byte) []byte {

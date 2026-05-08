@@ -1098,6 +1098,13 @@
     "scopeProvider": "Provider",
     "scopeRoute": "Route"
   },
+  "responseModelMappings": {
+    "title": "Response Model Mapping",
+    "pageDesc": "Rewrite the model field in final Claude API responses only. Other client protocols are not affected. The left side supports wildcard matching, and the right side is a fixed response model value.",
+    "matchPattern": "Response model pattern",
+    "targetModel": "Mapped model",
+    "noMappings": "No response model mappings configured"
+  },
   "modelPrices": {
     "title": "Model Prices",
     "description": "{{count}} prices configured",

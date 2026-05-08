@@ -13,6 +13,10 @@ func claudeProvider(mapping map[string]string) *domain.Provider {
 	return &domain.Provider{Type: "claude", Config: &domain.ProviderConfig{Claude: &domain.ProviderConfigClaude{ResponseModelMapping: mapping}}}
 }
 
+func customProvider(mapping map[string]string) *domain.Provider {
+	return &domain.Provider{Type: "custom", Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{ResponseModelMapping: mapping}}}
+}
+
 func TestMapModel(t *testing.T) {
 	mapping := map[string]string{"*": "fallback", "claude-*": "claude-alias", "bad": "client-*", "empty": " "}
 	cases := map[string]string{
@@ -40,6 +44,22 @@ func TestSortedMappingPatternsUsesDeterministicTieBreaker(t *testing.T) {
 	want := []string{"claude-3-*", "claude-4-*", "claude-*", "*"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("sortedMappingPatterns() = %v, want %v", got, want)
+	}
+}
+
+func TestResponseModifierWriterUsesCustomProviderResponseModelMapping(t *testing.T) {
+	rr := httptest.NewRecorder()
+	writer := NewResponseModifierWriter(rr, customProvider(map[string]string{"upstream": "alias"}), domain.ClientTypeClaude, false)
+	if writer == nil {
+		t.Fatal("expected writer")
+	}
+	writer.WriteHeader(200)
+	_, _ = writer.Write([]byte(`{"model":"upstream"}`))
+	if err := writer.Finalize(); err != nil {
+		t.Fatalf("finalize failed: %v", err)
+	}
+	if got := rr.Body.String(); !strings.Contains(got, `"model":"alias"`) {
+		t.Fatalf("expected custom response model mapping to apply, got %s", got)
 	}
 }
 

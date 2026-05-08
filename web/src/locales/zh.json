@@ -1097,6 +1097,13 @@
     "scopeProvider": "供应商",
     "scopeRoute": "路由"
   },
+  "responseModelMappings": {
+    "title": "返回值模型映射",
+    "pageDesc": "仅改写 Claude API 最终返回值里的 model 字段，其他客户端协议不会生效。左侧支持通配符匹配，右侧是固定的返回模型值。",
+    "matchPattern": "返回模型匹配模式",
+    "targetModel": "映射模型",
+    "noMappings": "暂无返回值模型映射配置"
+  },
   "modelPrices": {
     "title": "模型价格",
     "description": "已配置 {{count}} 个价格",

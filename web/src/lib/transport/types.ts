@@ -42,6 +42,7 @@ export interface ProviderConfigCustom {
   clientBaseURL?: Partial<Record<ClientType, string>>;
   clientMultiplier?: Partial<Record<ClientType, number>>; // 10000=1倍
   modelMapping?: Record<string, string>;
+  responseModelMapping?: Record<string, string>;
 }
 
 export interface ProviderConfigAntigravity {

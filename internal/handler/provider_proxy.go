@@ -11,6 +11,7 @@ import (
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
+	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -138,7 +139,13 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		c.Set(flow.KeyOriginalClientType, clientType)
 		c.Set(flow.KeyProxyRequest, proxyReq)
 
-		responseCapture := executor.NewResponseCapture(c.Writer)
+		clientWriter := http.ResponseWriter(c.Writer)
+		modifierWriter := responsemodifier.NewResponseModifierWriter(c.Writer, provider, clientType, isStream)
+		if modifierWriter != nil {
+			clientWriter = modifierWriter
+		}
+
+		responseCapture := executor.NewResponseCapture(clientWriter)
 		originalWriter := c.Writer
 		c.Writer = responseCapture
 		err = adapter.Execute(c, provider)
@@ -158,6 +165,17 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		}
 
 		if err == nil {
+			if modifierWriter != nil {
+				err = modifierWriter.Finalize()
+				if err != nil {
+					proxyReq.Status = "FAILED"
+					proxyReq.Error = err.Error()
+					clearProxyRequestDetail(proxyReq, clearDetail)
+					_ = h.proxyRequestRepo.Update(proxyReq)
+					c.Abort()
+					return
+				}
+			}
 			proxyReq.Status = "COMPLETED"
 			clearProxyRequestDetail(proxyReq, clearDetail)
 			_ = h.proxyRequestRepo.Update(proxyReq)
@@ -178,6 +196,11 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		} else {
 			writeError(responseCapture, http.StatusBadGateway, err.Error())
 			proxyReq.StatusCode = http.StatusBadGateway
+		}
+		if modifierWriter != nil {
+			if finalizeErr := modifierWriter.Finalize(); finalizeErr != nil {
+				log.Printf("[ProviderProxy] failed to finalize response modifier: %v", finalizeErr)
+			}
 		}
 		clearProxyRequestDetail(proxyReq, clearDetail)
 		_ = h.proxyRequestRepo.Update(proxyReq)

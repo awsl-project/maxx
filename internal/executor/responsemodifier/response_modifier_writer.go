@@ -35,16 +35,11 @@ func newResponseModifier(provider *domain.Provider, clientType domain.ClientType
 	if provider == nil {
 		return nil
 	}
-	switch provider.Type {
-	case "claude":
-		modifier := newClaudeResponseModifier(provider, clientType)
-		if modifier == nil {
-			return nil
-		}
-		return modifier
-	default:
+	modifier := newClaudeResponseModifier(provider, clientType)
+	if modifier == nil {
 		return nil
 	}
+	return modifier
 }
 
 func (w *ResponseModifierWriter) Header() http.Header {

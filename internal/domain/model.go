@@ -40,6 +40,9 @@ type ProviderConfigCustom struct {
 
 	// Model 映射: RequestModel → MappedModel
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
+
+	// ResponseModel 映射: UpstreamResponseModel → ClientResponseModel
+	ResponseModelMapping map[string]string `json:"responseModelMapping,omitempty"`
 }
 
 // Disguise type constants. Use these instead of magic strings when dispatching
