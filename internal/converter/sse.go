@@ -98,9 +98,16 @@ func FormatSSE(event string, data interface{}) []byte {
 		dataBytes, _ = json.Marshal(v)
 	}
 
-	sb.WriteString("data: ")
-	sb.Write(dataBytes)
-	sb.WriteString("\n\n")
+	dataLines := strings.Split(string(dataBytes), "\n")
+	if len(dataLines) == 0 {
+		dataLines = []string{""}
+	}
+	for _, line := range dataLines {
+		sb.WriteString("data: ")
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
 
 	return []byte(sb.String())
 }

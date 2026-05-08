@@ -42,3 +42,26 @@ func TestSSE_FormatStringData(t *testing.T) {
 		t.Fatalf("expected string data")
 	}
 }
+
+func TestSSE_FormatMultilineDataPrefixesEveryLine(t *testing.T) {
+	out := FormatSSE("response.completed", []byte("{\n  \"type\": \"response.completed\"\n}"))
+	outStr := string(out)
+	for _, want := range []string{
+		"event: response.completed",
+		"data: {",
+		"data:   \"type\": \"response.completed\"",
+		"data: }",
+	} {
+		if !strings.Contains(outStr, want) {
+			t.Fatalf("expected %q in %q", want, outStr)
+		}
+	}
+
+	events, remaining := ParseSSE(outStr)
+	if remaining != "" || len(events) != 1 {
+		t.Fatalf("expected one complete parsed event, remaining=%q events=%d", remaining, len(events))
+	}
+	if events[0].Event != "response.completed" || !strings.Contains(string(events[0].Data), "response.completed") {
+		t.Fatalf("unexpected parsed event: %+v", events[0])
+	}
+}

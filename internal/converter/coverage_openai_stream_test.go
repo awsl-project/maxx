@@ -318,6 +318,83 @@ func TestOpenAIToCodexStreamForwardsErrorEvents(t *testing.T) {
 	}
 }
 
+func TestOpenAIToCodexStreamForwardsEventOnlyNativeResponsesEvent(t *testing.T) {
+	state := NewTransformState()
+	respConv := &openaiToCodexResponse{}
+
+	completed := map[string]interface{}{
+		"response": map[string]interface{}{
+			"id":     "resp_event_only",
+			"object": "response",
+			"status": "completed",
+		},
+	}
+
+	out, err := respConv.TransformChunk(FormatSSE("response.completed", completed), state)
+	if err != nil {
+		t.Fatalf("TransformChunk: %v", err)
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "event: response.completed") || !strings.Contains(outStr, `"type":"response.completed"`) {
+		t.Fatalf("expected event-only response.completed to be forwarded with data.type injected, got: %s", outStr)
+	}
+}
+
+func TestOpenAIToCodexStreamErrorEventWinsOverResponseType(t *testing.T) {
+	state := NewTransformState()
+	respConv := &openaiToCodexResponse{}
+
+	errorEvent := map[string]interface{}{
+		"type": "response.completed",
+		"error": map[string]interface{}{
+			"message": "boom",
+		},
+	}
+
+	out, err := respConv.TransformChunk(FormatSSE("error", errorEvent), state)
+	if err != nil {
+		t.Fatalf("TransformChunk: %v", err)
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "event: error") || !strings.Contains(outStr, `"type":"error"`) {
+		t.Fatalf("expected error event to keep error semantics, got: %s", outStr)
+	}
+	if strings.Contains(outStr, `"type":"response.completed"`) {
+		t.Fatalf("error event leaked response.completed type: %s", outStr)
+	}
+}
+
+func TestOpenAIToCodexStreamSynthesizesCompletedOnDoneWithoutFinishReason(t *testing.T) {
+	state := NewTransformState()
+	respConv := &openaiToCodexResponse{}
+
+	chunk := OpenAIStreamChunk{ID: "chat_done_only", Model: "gpt", Choices: []OpenAIChoice{{
+		Delta: &OpenAIMessage{Content: "hi"},
+	}}}
+	chunkBody, _ := json.Marshal(chunk)
+	stream := append(FormatSSE("", json.RawMessage(chunkBody)), FormatDone()...)
+
+	out, err := respConv.TransformChunk(stream, state)
+	if err != nil {
+		t.Fatalf("TransformChunk: %v", err)
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "response.output_text.done") || !strings.Contains(outStr, "response.completed") {
+		t.Fatalf("expected synthetic completion before done, got: %s", outStr)
+	}
+	if strings.Index(outStr, "response.completed") > strings.Index(outStr, "data: [DONE]") {
+		t.Fatalf("response.completed should be emitted before [DONE], got: %s", outStr)
+	}
+
+	duplicateOut, err := respConv.TransformChunk(FormatDone(), state)
+	if err != nil {
+		t.Fatalf("TransformChunk duplicate done: %v", err)
+	}
+	if len(duplicateOut) != 0 {
+		t.Fatalf("expected duplicate done to be suppressed, got: %q", string(duplicateOut))
+	}
+}
+
 func TestClaudeToOpenAIStreamToolCalls(t *testing.T) {
 	state := NewTransformState()
 	start := ClaudeStreamEvent{Type: "message_start", Message: &ClaudeResponse{ID: "msg_1"}}

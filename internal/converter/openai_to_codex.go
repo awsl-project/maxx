@@ -357,6 +357,11 @@ func (c *openaiToCodexResponse) TransformChunk(chunk []byte, state *TransformSta
 	for _, event := range events {
 		if event.Event == "done" {
 			st := ensureOpenAIToResponsesState(state)
+			if st.Started && !st.CompletedSent {
+				for _, item := range finalizeOpenAIToResponsesStream(st, state) {
+					output = append(output, item...)
+				}
+			}
 			if !st.DoneSent {
 				output = append(output, FormatDone()...)
 				st.DoneSent = true
@@ -444,13 +449,28 @@ func forwardOpenAIResponsesStreamEvent(event SSEEvent) []byte {
 		return nil
 	}
 	eventType := root.Get("type").String()
+	if event.Event == "error" || eventType == "error" || (!root.Get("choices").Exists() && root.Get("error").Exists()) {
+		return FormatSSE("error", normalizeSSEEventType(event.Data, "error"))
+	}
 	if strings.HasPrefix(eventType, "response.") {
 		return FormatSSE(eventType, event.Data)
 	}
-	if event.Event == "error" || eventType == "error" || (!root.Get("choices").Exists() && root.Get("error").Exists()) {
-		return FormatSSE("error", event.Data)
+	if strings.HasPrefix(event.Event, "response.") {
+		return FormatSSE(event.Event, normalizeSSEEventType(event.Data, event.Event))
 	}
 	return nil
+}
+
+func normalizeSSEEventType(data []byte, eventType string) []byte {
+	root := gjson.ParseBytes(data)
+	if !root.IsObject() {
+		return data
+	}
+	normalized, err := sjson.SetBytes(data, "type", eventType)
+	if err != nil {
+		return data
+	}
+	return normalized
 }
 
 func synthesizeResponseID() string {
@@ -475,6 +495,165 @@ func (st *openaiToResponsesState) funcOutIdx(callIndex int) int {
 	st.FuncOutputIndex[callIndex] = oi
 	st.NextOutputIndex++
 	return oi
+}
+
+func finalizeOpenAIToResponsesStream(st *openaiToResponsesState, state *TransformState) [][]byte {
+	if st == nil || !st.Started || st.CompletedSent {
+		return nil
+	}
+	nextSeq := func() int { st.Seq++; return st.Seq }
+	var out [][]byte
+
+	if st.ReasoningID != "" {
+		text := st.ReasoningBuf.String()
+
+		textDone := `{"type":"response.reasoning_summary_text.done","sequence_number":0,"item_id":"","output_index":0,"summary_index":0,"text":""}`
+		textDone, _ = sjson.Set(textDone, "sequence_number", nextSeq())
+		textDone, _ = sjson.Set(textDone, "item_id", st.ReasoningID)
+		textDone, _ = sjson.Set(textDone, "output_index", st.ReasoningIndex)
+		textDone, _ = sjson.Set(textDone, "text", text)
+		out = append(out, FormatSSE("response.reasoning_summary_text.done", []byte(textDone)))
+
+		partDone := `{"type":"response.reasoning_summary_part.done","sequence_number":0,"item_id":"","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}`
+		partDone, _ = sjson.Set(partDone, "sequence_number", nextSeq())
+		partDone, _ = sjson.Set(partDone, "item_id", st.ReasoningID)
+		partDone, _ = sjson.Set(partDone, "output_index", st.ReasoningIndex)
+		partDone, _ = sjson.Set(partDone, "part.text", text)
+		out = append(out, FormatSSE("response.reasoning_summary_part.done", []byte(partDone)))
+
+		outputItemDone := `{"type":"response.output_item.done","item":{"id":"","type":"reasoning","encrypted_content":"","summary":[{"type":"summary_text","text":""}]},"output_index":0,"sequence_number":0}`
+		outputItemDone, _ = sjson.Set(outputItemDone, "sequence_number", nextSeq())
+		outputItemDone, _ = sjson.Set(outputItemDone, "item.id", st.ReasoningID)
+		outputItemDone, _ = sjson.Set(outputItemDone, "output_index", st.ReasoningIndex)
+		outputItemDone, _ = sjson.Set(outputItemDone, "item.summary.0.text", text)
+		out = append(out, FormatSSE("response.output_item.done", []byte(outputItemDone)))
+
+		st.Reasonings = append(st.Reasonings, openaiToResponsesStateReasoning{ReasoningID: st.ReasoningID, ReasoningData: text})
+		st.ReasoningID = ""
+		st.ReasoningBuf.Reset()
+	}
+
+	for _, i := range sortedKeys(st.MsgItemAdded) {
+		if !st.MsgItemAdded[i] || st.MsgItemDone[i] {
+			continue
+		}
+		fullText := ""
+		if b := st.MsgTextBuf[i]; b != nil {
+			fullText = b.String()
+		}
+		done := `{"type":"response.output_text.done","sequence_number":0,"item_id":"","output_index":0,"content_index":0,"text":"","logprobs":[]}`
+		done, _ = sjson.Set(done, "sequence_number", nextSeq())
+		done, _ = sjson.Set(done, "item_id", fmt.Sprintf("msg_%s_%d", st.ResponseID, i))
+		done, _ = sjson.Set(done, "output_index", st.msgOutIdx(i))
+		done, _ = sjson.Set(done, "content_index", 0)
+		done, _ = sjson.Set(done, "text", fullText)
+		out = append(out, FormatSSE("response.output_text.done", []byte(done)))
+
+		partDone := `{"type":"response.content_part.done","sequence_number":0,"item_id":"","output_index":0,"content_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""}}`
+		partDone, _ = sjson.Set(partDone, "sequence_number", nextSeq())
+		partDone, _ = sjson.Set(partDone, "item_id", fmt.Sprintf("msg_%s_%d", st.ResponseID, i))
+		partDone, _ = sjson.Set(partDone, "output_index", st.msgOutIdx(i))
+		partDone, _ = sjson.Set(partDone, "content_index", 0)
+		partDone, _ = sjson.Set(partDone, "part.text", fullText)
+		out = append(out, FormatSSE("response.content_part.done", []byte(partDone)))
+
+		itemDone := `{"type":"response.output_item.done","sequence_number":0,"output_index":0,"item":{"id":"","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":""}],"role":"assistant"}}`
+		itemDone, _ = sjson.Set(itemDone, "sequence_number", nextSeq())
+		itemDone, _ = sjson.Set(itemDone, "output_index", st.msgOutIdx(i))
+		itemDone, _ = sjson.Set(itemDone, "item.id", fmt.Sprintf("msg_%s_%d", st.ResponseID, i))
+		itemDone, _ = sjson.Set(itemDone, "item.content.0.text", fullText)
+		out = append(out, FormatSSE("response.output_item.done", []byte(itemDone)))
+		st.MsgItemDone[i] = true
+	}
+
+	for _, i := range sortedKeys(st.FuncCallIDs) {
+		callID := st.FuncCallIDs[i]
+		if callID == "" || st.FuncItemDone[i] {
+			continue
+		}
+		args := "{}"
+		if b := st.FuncArgsBuf[i]; b != nil && b.Len() > 0 {
+			args = b.String()
+		}
+		fcDone := `{"type":"response.function_call_arguments.done","sequence_number":0,"item_id":"","output_index":0,"arguments":""}`
+		fcDone, _ = sjson.Set(fcDone, "sequence_number", nextSeq())
+		fcDone, _ = sjson.Set(fcDone, "item_id", fmt.Sprintf("fc_%s", callID))
+		fcDone, _ = sjson.Set(fcDone, "output_index", st.funcOutIdx(i))
+		fcDone, _ = sjson.Set(fcDone, "arguments", args)
+		out = append(out, FormatSSE("response.function_call_arguments.done", []byte(fcDone)))
+
+		itemDone := `{"type":"response.output_item.done","sequence_number":0,"output_index":0,"item":{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}}`
+		itemDone, _ = sjson.Set(itemDone, "sequence_number", nextSeq())
+		itemDone, _ = sjson.Set(itemDone, "output_index", st.funcOutIdx(i))
+		itemDone, _ = sjson.Set(itemDone, "item.id", fmt.Sprintf("fc_%s", callID))
+		itemDone, _ = sjson.Set(itemDone, "item.arguments", args)
+		itemDone, _ = sjson.Set(itemDone, "item.call_id", callID)
+		itemDone, _ = sjson.Set(itemDone, "item.name", st.FuncNames[i])
+		out = append(out, FormatSSE("response.output_item.done", []byte(itemDone)))
+		st.FuncItemDone[i] = true
+		st.FuncArgsDone[i] = true
+	}
+
+	st.CompletedSent = true
+	completed := `{"type":"response.completed","sequence_number":0,"response":{"id":"","object":"response","created_at":0,"status":"completed","background":false,"error":null}}`
+	completed, _ = sjson.Set(completed, "sequence_number", nextSeq())
+	completed, _ = sjson.Set(completed, "response.id", st.ResponseID)
+	completed, _ = sjson.Set(completed, "response.created_at", st.Created)
+
+	outputsWrapper := `{"arr":[]}`
+	for _, r := range st.Reasonings {
+		item := `{"id":"","type":"reasoning","summary":[{"type":"summary_text","text":""}]}`
+		item, _ = sjson.Set(item, "id", r.ReasoningID)
+		item, _ = sjson.Set(item, "summary.0.text", r.ReasoningData)
+		outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
+	}
+	for _, i := range sortedKeys(st.MsgItemAdded) {
+		txt := ""
+		if b := st.MsgTextBuf[i]; b != nil {
+			txt = b.String()
+		}
+		item := `{"id":"","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":""}],"role":"assistant"}`
+		item, _ = sjson.Set(item, "id", fmt.Sprintf("msg_%s_%d", st.ResponseID, i))
+		item, _ = sjson.Set(item, "content.0.text", txt)
+		outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
+	}
+	for _, i := range sortedKeys(st.FuncCallIDs) {
+		callID := st.FuncCallIDs[i]
+		if callID == "" {
+			continue
+		}
+		args := ""
+		if b := st.FuncArgsBuf[i]; b != nil {
+			args = b.String()
+		}
+		item := `{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}`
+		item, _ = sjson.Set(item, "id", fmt.Sprintf("fc_%s", callID))
+		item, _ = sjson.Set(item, "arguments", args)
+		item, _ = sjson.Set(item, "call_id", callID)
+		item, _ = sjson.Set(item, "name", st.FuncNames[i])
+		outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
+	}
+	if gjson.Get(outputsWrapper, "arr.#").Int() > 0 {
+		completed, _ = sjson.SetRaw(completed, "response.output", gjson.Get(outputsWrapper, "arr").Raw)
+	}
+	if st.UsageSeen {
+		completed, _ = sjson.Set(completed, "response.usage.input_tokens", st.PromptTokens)
+		completed, _ = sjson.Set(completed, "response.usage.input_tokens_details.cached_tokens", st.CachedTokens)
+		completed, _ = sjson.Set(completed, "response.usage.output_tokens", st.CompletionTokens)
+		if st.ReasoningTokens > 0 {
+			completed, _ = sjson.Set(completed, "response.usage.output_tokens_details.reasoning_tokens", st.ReasoningTokens)
+		}
+		total := st.TotalTokens
+		if total == 0 {
+			total = st.PromptTokens + st.CompletionTokens
+		}
+		completed, _ = sjson.Set(completed, "response.usage.total_tokens", total)
+	}
+	if state != nil && len(state.OriginalRequestBody) > 0 {
+		completed = applyRequestEchoToResponse(completed, "response.", state.OriginalRequestBody)
+	}
+	out = append(out, FormatSSE("response.completed", []byte(completed)))
+	return out
 }
 
 func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *TransformState) [][]byte {
@@ -750,83 +929,12 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 				}
 			}
 
-			if fr := choice.Get("finish_reason"); fr.Exists() && fr.String() != "" {
-				if len(st.MsgItemAdded) > 0 {
-					for _, i := range sortedKeys(st.MsgItemAdded) {
-						if st.MsgItemAdded[i] && !st.MsgItemDone[i] {
-							fullText := ""
-							if b := st.MsgTextBuf[i]; b != nil {
-								fullText = b.String()
-							}
-							done := `{"type":"response.output_text.done","sequence_number":0,"item_id":"","output_index":0,"content_index":0,"text":"","logprobs":[]}`
-							done, _ = sjson.Set(done, "sequence_number", nextSeq())
-							done, _ = sjson.Set(done, "item_id", fmt.Sprintf("msg_%s_%d", st.ResponseID, i))
-							done, _ = sjson.Set(done, "output_index", st.msgOutIdx(i))
-							done, _ = sjson.Set(done, "content_index", 0)
-							done, _ = sjson.Set(done, "text", fullText)
-							out = append(out, FormatSSE("response.output_text.done", []byte(done)))
-
-							partDone := `{"type":"response.content_part.done","sequence_number":0,"item_id":"","output_index":0,"content_index":0,"part":{"type":"output_text","annotations":[],"logprobs":[],"text":""}}`
-							partDone, _ = sjson.Set(partDone, "sequence_number", nextSeq())
-							partDone, _ = sjson.Set(partDone, "item_id", fmt.Sprintf("msg_%s_%d", st.ResponseID, i))
-							partDone, _ = sjson.Set(partDone, "output_index", st.msgOutIdx(i))
-							partDone, _ = sjson.Set(partDone, "content_index", 0)
-							partDone, _ = sjson.Set(partDone, "part.text", fullText)
-							out = append(out, FormatSSE("response.content_part.done", []byte(partDone)))
-
-							itemDone := `{"type":"response.output_item.done","sequence_number":0,"output_index":0,"item":{"id":"","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":""}],"role":"assistant"}}`
-							itemDone, _ = sjson.Set(itemDone, "sequence_number", nextSeq())
-							itemDone, _ = sjson.Set(itemDone, "output_index", st.msgOutIdx(i))
-							itemDone, _ = sjson.Set(itemDone, "item.id", fmt.Sprintf("msg_%s_%d", st.ResponseID, i))
-							itemDone, _ = sjson.Set(itemDone, "item.content.0.text", fullText)
-							out = append(out, FormatSSE("response.output_item.done", []byte(itemDone)))
-							st.MsgItemDone[i] = true
-						}
-					}
-				}
-
-				if st.ReasoningID != "" {
-					stopReasoning(st.ReasoningBuf.String())
-					st.ReasoningBuf.Reset()
-				}
-
-				if len(st.FuncCallIDs) > 0 {
-					for _, i := range sortedKeys(st.FuncCallIDs) {
-						callID := st.FuncCallIDs[i]
-						if callID == "" || st.FuncItemDone[i] {
-							continue
-						}
-						args := "{}"
-						if b := st.FuncArgsBuf[i]; b != nil && b.Len() > 0 {
-							args = b.String()
-						}
-						fcDone := `{"type":"response.function_call_arguments.done","sequence_number":0,"item_id":"","output_index":0,"arguments":""}`
-						fcDone, _ = sjson.Set(fcDone, "sequence_number", nextSeq())
-						fcDone, _ = sjson.Set(fcDone, "item_id", fmt.Sprintf("fc_%s", callID))
-						fcDone, _ = sjson.Set(fcDone, "output_index", st.funcOutIdx(i))
-						fcDone, _ = sjson.Set(fcDone, "arguments", args)
-						out = append(out, FormatSSE("response.function_call_arguments.done", []byte(fcDone)))
-
-						itemDone := `{"type":"response.output_item.done","sequence_number":0,"output_index":0,"item":{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}}`
-						itemDone, _ = sjson.Set(itemDone, "sequence_number", nextSeq())
-						itemDone, _ = sjson.Set(itemDone, "output_index", st.funcOutIdx(i))
-						itemDone, _ = sjson.Set(itemDone, "item.id", fmt.Sprintf("fc_%s", callID))
-						itemDone, _ = sjson.Set(itemDone, "item.arguments", args)
-						itemDone, _ = sjson.Set(itemDone, "item.call_id", callID)
-						itemDone, _ = sjson.Set(itemDone, "item.name", st.FuncNames[i])
-						out = append(out, FormatSSE("response.output_item.done", []byte(itemDone)))
-						st.FuncItemDone[i] = true
-						st.FuncArgsDone[i] = true
-					}
-				}
-			}
 			return true
 		})
 	}
 
-	// Emit response.completed once after all choices have been processed
+	// Emit response.completed once after all choices have been processed.
 	if !st.CompletedSent {
-		// Check if any choice had a finish_reason
 		hasFinish := false
 		if choices := root.Get("choices"); choices.Exists() && choices.IsArray() {
 			choices.ForEach(func(_, choice gjson.Result) bool {
@@ -838,69 +946,7 @@ func convertOpenAIChatCompletionsChunkToResponses(rawJSON []byte, state *Transfo
 			})
 		}
 		if hasFinish {
-			st.CompletedSent = true
-			completed := `{"type":"response.completed","sequence_number":0,"response":{"id":"","object":"response","created_at":0,"status":"completed","background":false,"error":null}}`
-			completed, _ = sjson.Set(completed, "sequence_number", nextSeq())
-			completed, _ = sjson.Set(completed, "response.id", st.ResponseID)
-			completed, _ = sjson.Set(completed, "response.created_at", st.Created)
-
-			outputsWrapper := `{"arr":[]}`
-			if len(st.Reasonings) > 0 {
-				for _, r := range st.Reasonings {
-					item := `{"id":"","type":"reasoning","summary":[{"type":"summary_text","text":""}]}`
-					item, _ = sjson.Set(item, "id", r.ReasoningID)
-					item, _ = sjson.Set(item, "summary.0.text", r.ReasoningData)
-					outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
-				}
-			}
-			if len(st.MsgItemAdded) > 0 {
-				for _, i := range sortedKeys(st.MsgItemAdded) {
-					txt := ""
-					if b := st.MsgTextBuf[i]; b != nil {
-						txt = b.String()
-					}
-					item := `{"id":"","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":""}],"role":"assistant"}`
-					item, _ = sjson.Set(item, "id", fmt.Sprintf("msg_%s_%d", st.ResponseID, i))
-					item, _ = sjson.Set(item, "content.0.text", txt)
-					outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
-				}
-			}
-			if len(st.FuncCallIDs) > 0 {
-				for _, i := range sortedKeys(st.FuncCallIDs) {
-					args := ""
-					if b := st.FuncArgsBuf[i]; b != nil {
-						args = b.String()
-					}
-					callID := st.FuncCallIDs[i]
-					name := st.FuncNames[i]
-					item := `{"id":"","type":"function_call","status":"completed","arguments":"","call_id":"","name":""}`
-					item, _ = sjson.Set(item, "id", fmt.Sprintf("fc_%s", callID))
-					item, _ = sjson.Set(item, "arguments", args)
-					item, _ = sjson.Set(item, "call_id", callID)
-					item, _ = sjson.Set(item, "name", name)
-					outputsWrapper, _ = sjson.SetRaw(outputsWrapper, "arr.-1", item)
-				}
-			}
-			if gjson.Get(outputsWrapper, "arr.#").Int() > 0 {
-				completed, _ = sjson.SetRaw(completed, "response.output", gjson.Get(outputsWrapper, "arr").Raw)
-			}
-			if st.UsageSeen {
-				completed, _ = sjson.Set(completed, "response.usage.input_tokens", st.PromptTokens)
-				completed, _ = sjson.Set(completed, "response.usage.input_tokens_details.cached_tokens", st.CachedTokens)
-				completed, _ = sjson.Set(completed, "response.usage.output_tokens", st.CompletionTokens)
-				if st.ReasoningTokens > 0 {
-					completed, _ = sjson.Set(completed, "response.usage.output_tokens_details.reasoning_tokens", st.ReasoningTokens)
-				}
-				total := st.TotalTokens
-				if total == 0 {
-					total = st.PromptTokens + st.CompletionTokens
-				}
-				completed, _ = sjson.Set(completed, "response.usage.total_tokens", total)
-			}
-			if len(state.OriginalRequestBody) > 0 {
-				completed = applyRequestEchoToResponse(completed, "response.", state.OriginalRequestBody)
-			}
-			out = append(out, FormatSSE("response.completed", []byte(completed)))
+			out = append(out, finalizeOpenAIToResponsesStream(st, state)...)
 		}
 	}
 
