@@ -844,6 +844,40 @@ func TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForAdaptiveOnly(t 
 	}
 }
 
+// TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForBedrockID
+// guards the case where a custom provider's model mapping has already
+// rewritten `model` into a Bedrock-qualified inference-profile ID — the
+// adaptive-only strip must still fire because the short name is
+// embedded in the ID. Without normalization, a custom relay fronting
+// Bedrock would hit the same Opus 4.7 sampling-param rejection the
+// short-name path already recovers from.
+func TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForBedrockID(t *testing.T) {
+	for _, modelID := range []string{
+		"us.anthropic.claude-opus-4-7-20260115-v1:0",
+		"anthropic.claude-opus-4-7-20260115-v1:0",
+		"eu.anthropic.claude-opus-4-7-20260115-v1:0",
+	} {
+		t.Run(modelID, func(t *testing.T) {
+			body := []byte(`{
+				"model":"` + modelID + `",
+				"max_tokens":1024,
+				"temperature":0.7,
+				"top_p":0.9,
+				"top_k":40,
+				"messages":[{"role":"user","content":"hi"}]
+			}`)
+
+			result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+			for _, f := range []string{"temperature", "top_p", "top_k"} {
+				if gjson.GetBytes(result, f).Exists() {
+					t.Errorf("expected %s to be stripped when model is %q under bedrock disguise", f, modelID)
+				}
+			}
+		})
+	}
+}
+
 // TestProcessClaudeRequestBodyBedrockDisguisePreservesSamplingForClassic
 // confirms the model-aware strip only fires for adaptive-only models —
 // a classic-thinking model with no thinking block must keep its sampling

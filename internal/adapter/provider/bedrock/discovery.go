@@ -597,6 +597,22 @@ func extractShortName(profileID string) (string, bool) {
 	return short, ok
 }
 
+// ShortNameForModel returns the Anthropic short name for a model identifier.
+// If the input is a Bedrock ID / inference profile (e.g.
+// "us.anthropic.claude-opus-4-7-20260115-v1:0") it returns the embedded
+// short name ("claude-opus-4-7"); otherwise the input is returned unchanged.
+//
+// Exposed so the custom adapter's bedrock disguise path — which is fed a
+// caller-supplied `model` field that may already be a Bedrock-qualified ID
+// after model mapping — can normalize before calling AdaptThinkingForModel,
+// which keys on the short name.
+func ShortNameForModel(model string) string {
+	if short, _, ok := extractNameAndDate(model); ok {
+		return short
+	}
+	return model
+}
+
 // newerProfile returns true when a should replace b for the same indexed
 // key. Dates are compared numerically via the YYYYMMDD capture; same-date
 // collisions fall back to the higher version suffix ("v2:0" > "v1:0"),

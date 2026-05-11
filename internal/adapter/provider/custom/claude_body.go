@@ -70,11 +70,13 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 		body = bedrock.SanitizeForBedrockCompat(body)
 		// Model-aware adaptive thinking: Opus 4.7 and other adaptive-only
 		// SKUs treat every request as a thinking request and reject sampling
-		// params even when the caller never set thinking.type. The direct
-		// Bedrock adapter resolves the short name from a Bedrock-qualified
-		// ID; under custom-bedrock disguise the upstream is a relay and the
-		// short name is already in `model`, so pass it through directly.
-		body = bedrock.AdaptThinkingForModel(body, modelName)
+		// params even when the caller never set thinking.type. The `model`
+		// field may already carry a Bedrock-qualified ID after the custom
+		// provider's model-mapping rewrite (e.g.
+		// "us.anthropic.claude-opus-4-7-20260115-v1:0"), so normalize it to
+		// the Anthropic short name first — AdaptThinkingForModel keys on
+		// "claude-opus-4-7", not on inference-profile IDs.
+		body = bedrock.AdaptThinkingForModel(body, bedrock.ShortNameForModel(modelName))
 		bedrockMode = true
 	case domain.DisguiseTypeNone:
 		// Explicit opt-out: no body transformation.
