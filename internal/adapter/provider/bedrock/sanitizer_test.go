@@ -616,6 +616,71 @@ func TestNormalizeToolIdentifiers(t *testing.T) {
 		}
 	})
 
+	t.Run("suffix skips slots already taken by a valid id", func(t *testing.T) {
+		// `foo_bar_1` is already valid; `foo_bar` is already valid;
+		// `foo.bar` would collapse onto `foo_bar` → suffixed to `foo_bar_1` (taken)
+		// → must bump to `foo_bar_2`.
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"foo_bar_1","name":"a","input":{}},
+					{"type":"tool_use","id":"foo_bar","name":"b","input":{}},
+					{"type":"tool_use","id":"foo.bar","name":"c","input":{}}
+				]}
+			]
+		}`)
+
+		result := NormalizeToolIdentifiers(body)
+		ids := []string{
+			gjson.GetBytes(result, "messages.0.content.0.id").String(),
+			gjson.GetBytes(result, "messages.0.content.1.id").String(),
+			gjson.GetBytes(result, "messages.0.content.2.id").String(),
+		}
+		want := []string{"foo_bar_1", "foo_bar", "foo_bar_2"}
+		for i, w := range want {
+			if ids[i] != w {
+				t.Errorf("ids[%d] = %q, want %q (all=%v)", i, ids[i], w, ids)
+			}
+		}
+	})
+
+	t.Run("repeated original id maps to same normalized value", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"x.1","name":"a","input":{}}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"x.1","content":"r1"},
+					{"type":"tool_result","tool_use_id":"x.1","content":"r2"}
+				]}
+			]
+		}`)
+
+		result := NormalizeToolIdentifiers(body)
+		id := gjson.GetBytes(result, "messages.0.content.0.id").String()
+		ref0 := gjson.GetBytes(result, "messages.1.content.0.tool_use_id").String()
+		ref1 := gjson.GetBytes(result, "messages.1.content.1.tool_use_id").String()
+		if id == "" || id != ref0 || id != ref1 {
+			t.Errorf("repeated original should map identically: id=%q ref0=%q ref1=%q", id, ref0, ref1)
+		}
+	})
+
+	t.Run("empty id is left alone", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"","name":"a","input":{}}
+				]}
+			]
+		}`)
+
+		result := NormalizeToolIdentifiers(body)
+		if got := gjson.GetBytes(result, "messages.0.content.0.id").String(); got != "" {
+			t.Errorf("empty id should stay empty, got %q", got)
+		}
+	})
+
 	t.Run("ignores non-array message content", func(t *testing.T) {
 		body := []byte(`{"messages":[{"role":"user","content":"plain string"}]}`)
 		result := NormalizeToolIdentifiers(body)

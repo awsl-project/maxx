@@ -338,9 +338,10 @@ func NormalizeToolIdentifiers(body []byte) []byte {
 		if mapped, ok := idMap[original]; ok {
 			return mapped
 		}
-		candidate := toolIdentifierInvalidChar.ReplaceAllString(original, "_")
+		base := toolIdentifierInvalidChar.ReplaceAllString(original, "_")
+		candidate := base
 		for n := 1; used[candidate]; n++ {
-			candidate = fmt.Sprintf("%s_%d", toolIdentifierInvalidChar.ReplaceAllString(original, "_"), n)
+			candidate = fmt.Sprintf("%s_%d", base, n)
 		}
 		idMap[original] = candidate
 		used[candidate] = true
