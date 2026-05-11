@@ -302,16 +302,15 @@ func RemoveOrphanedToolResults(body []byte) []byte {
 // Some clients/SDKs synthesize ids like "functions.foo:0" which fail this regex.
 var toolIdentifierInvalidChar = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
-// normalizeToolIdentifier replaces every disallowed character with `_`. The
-// substitution is deterministic, so tool_use.id and the matching
-// tool_result.tool_use_id collapse to the same value without needing a map.
-// Name fields are additionally truncated to 128 bytes (Bedrock's max).
-func normalizeToolIdentifier(s string, capLen bool) string {
+// normalizeToolName substitutes disallowed characters and applies Bedrock's
+// 128-char cap. Used for `tool_use.name` and `tools[].name`, which are not
+// references and don't need uniqueness across a request.
+func normalizeToolName(s string) string {
 	if s == "" {
 		return s
 	}
 	out := toolIdentifierInvalidChar.ReplaceAllString(s, "_")
-	if capLen && len(out) > 128 {
+	if len(out) > 128 {
 		out = out[:128]
 	}
 	return out
@@ -325,10 +324,61 @@ func normalizeToolIdentifier(s string, capLen bool) string {
 //   - tools[*].name
 //
 // Reference pairs (tool_use.id ↔ tool_result.tool_use_id) stay consistent
-// because both sides go through the same deterministic substitution.
+// because we build a single request-wide original→normalized id map and apply
+// it to both ends. The map disambiguates collisions: if two distinct originals
+// (e.g. `foo.bar` and `foo_bar`) would collapse to the same value, the second
+// one gets a `_<n>` suffix so Bedrock still sees unique ids.
 func NormalizeToolIdentifiers(body []byte) []byte {
-	// Walk messages[*].content[*]
+	idMap := make(map[string]string)
+	used := make(map[string]bool)
+	resolve := func(original string) string {
+		if original == "" {
+			return original
+		}
+		if mapped, ok := idMap[original]; ok {
+			return mapped
+		}
+		candidate := toolIdentifierInvalidChar.ReplaceAllString(original, "_")
+		for n := 1; used[candidate]; n++ {
+			candidate = fmt.Sprintf("%s_%d", toolIdentifierInvalidChar.ReplaceAllString(original, "_"), n)
+		}
+		idMap[original] = candidate
+		used[candidate] = true
+		return candidate
+	}
+
 	messages := gjson.GetBytes(body, "messages")
+
+	// First pass (forward order): build a stable original→normalized id map.
+	// Walking forward ensures the first occurrence of a colliding original keeps
+	// the canonical normalized form; later collisions get suffixed.
+	if messages.IsArray() {
+		n := int(messages.Get("#").Int())
+		for i := 0; i < n; i++ {
+			content := gjson.GetBytes(body, fmt.Sprintf("messages.%d.content", i))
+			if !content.IsArray() {
+				continue
+			}
+			cn := int(content.Get("#").Int())
+			for j := 0; j < cn; j++ {
+				blockPath := fmt.Sprintf("messages.%d.content.%d", i, j)
+				switch gjson.GetBytes(body, blockPath+".type").String() {
+				case "tool_use":
+					if id := gjson.GetBytes(body, blockPath+".id").String(); id != "" {
+						_ = resolve(id)
+					}
+				case "tool_result":
+					if id := gjson.GetBytes(body, blockPath+".tool_use_id").String(); id != "" {
+						_ = resolve(id)
+					}
+				}
+			}
+		}
+	}
+
+	// Second pass: apply the mapping. Order doesn't matter for correctness
+	// (only scalar fields are rewritten), but reverse iteration keeps the
+	// pattern consistent with the other sanitizer helpers in this file.
 	if messages.IsArray() {
 		for i := int(messages.Get("#").Int()) - 1; i >= 0; i-- {
 			content := gjson.GetBytes(body, fmt.Sprintf("messages.%d.content", i))
@@ -340,19 +390,19 @@ func NormalizeToolIdentifiers(body []byte) []byte {
 				switch gjson.GetBytes(body, blockPath+".type").String() {
 				case "tool_use":
 					if id := gjson.GetBytes(body, blockPath+".id").String(); id != "" {
-						if fixed := normalizeToolIdentifier(id, false); fixed != id {
-							body, _ = sjson.SetBytes(body, blockPath+".id", fixed)
+						if mapped := idMap[id]; mapped != "" && mapped != id {
+							body, _ = sjson.SetBytes(body, blockPath+".id", mapped)
 						}
 					}
 					if name := gjson.GetBytes(body, blockPath+".name").String(); name != "" {
-						if fixed := normalizeToolIdentifier(name, true); fixed != name {
+						if fixed := normalizeToolName(name); fixed != name {
 							body, _ = sjson.SetBytes(body, blockPath+".name", fixed)
 						}
 					}
 				case "tool_result":
 					if id := gjson.GetBytes(body, blockPath+".tool_use_id").String(); id != "" {
-						if fixed := normalizeToolIdentifier(id, false); fixed != id {
-							body, _ = sjson.SetBytes(body, blockPath+".tool_use_id", fixed)
+						if mapped := idMap[id]; mapped != "" && mapped != id {
+							body, _ = sjson.SetBytes(body, blockPath+".tool_use_id", mapped)
 						}
 					}
 				}
@@ -366,7 +416,7 @@ func NormalizeToolIdentifiers(body []byte) []byte {
 		for i := int(tools.Get("#").Int()) - 1; i >= 0; i-- {
 			path := fmt.Sprintf("tools.%d.name", i)
 			if name := gjson.GetBytes(body, path).String(); name != "" {
-				if fixed := normalizeToolIdentifier(name, true); fixed != name {
+				if fixed := normalizeToolName(name); fixed != name {
 					body, _ = sjson.SetBytes(body, path, fixed)
 				}
 			}

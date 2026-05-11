@@ -527,7 +527,6 @@ func TestNormalizeToolIdentifiers(t *testing.T) {
 				]}
 			]
 		}`)
-		original := string(body)
 
 		result := NormalizeToolIdentifiers(body)
 
@@ -537,7 +536,92 @@ func TestNormalizeToolIdentifiers(t *testing.T) {
 		if gjson.GetBytes(result, "messages.0.content.0.name").String() != "my_tool" {
 			t.Errorf("valid name mutated: %s", result)
 		}
-		_ = original
+	})
+
+	t.Run("disambiguates colliding originals", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"foo_bar","name":"a","input":{}},
+					{"type":"tool_use","id":"foo.bar","name":"b","input":{}}
+				]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"foo_bar","content":"r0"},
+					{"type":"tool_result","tool_use_id":"foo.bar","content":"r1"}
+				]}
+			]
+		}`)
+
+		result := NormalizeToolIdentifiers(body)
+
+		id0 := gjson.GetBytes(result, "messages.0.content.0.id").String()
+		id1 := gjson.GetBytes(result, "messages.0.content.1.id").String()
+		ref0 := gjson.GetBytes(result, "messages.1.content.0.tool_use_id").String()
+		ref1 := gjson.GetBytes(result, "messages.1.content.1.tool_use_id").String()
+
+		if id0 != "foo_bar" {
+			t.Errorf("first id should keep canonical form, got %q", id0)
+		}
+		if id1 == id0 {
+			t.Errorf("colliding ids must disambiguate, both got %q", id0)
+		}
+		if ref0 != id0 {
+			t.Errorf("tool_result[0] should match tool_use[0]: %q vs %q", ref0, id0)
+		}
+		if ref1 != id1 {
+			t.Errorf("tool_result[1] should match tool_use[1]: %q vs %q", ref1, id1)
+		}
+	})
+
+	t.Run("handles multiple tool_use blocks in one message", func(t *testing.T) {
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"text","text":"thinking..."},
+					{"type":"tool_use","id":"a.1","name":"f.x","input":{}},
+					{"type":"tool_use","id":"a.2","name":"f.y","input":{}},
+					{"type":"tool_use","id":"a.3","name":"f.z","input":{}}
+				]}
+			]
+		}`)
+
+		result := NormalizeToolIdentifiers(body)
+
+		for j, want := range []string{"a_1", "a_2", "a_3"} {
+			path := fmt.Sprintf("messages.0.content.%d.id", j+1)
+			if got := gjson.GetBytes(result, path).String(); got != want {
+				t.Errorf("content.%d.id = %q, want %q", j+1, got, want)
+			}
+		}
+	})
+
+	t.Run("caps tool_use.name in messages content", func(t *testing.T) {
+		longName := strings.Repeat("a.", 80) // 160 chars, also contains invalid `.`
+		body := []byte(`{
+			"messages":[
+				{"role":"assistant","content":[
+					{"type":"tool_use","id":"toolu_1","name":"` + longName + `","input":{}}
+				]}
+			]
+		}`)
+
+		result := NormalizeToolIdentifiers(body)
+
+		got := gjson.GetBytes(result, "messages.0.content.0.name").String()
+		if len(got) != 128 {
+			t.Errorf("tool_use.name length = %d, want 128", len(got))
+		}
+		if toolIdentifierInvalidChar.MatchString(got) {
+			t.Errorf("tool_use.name still contains invalid chars: %q", got)
+		}
+	})
+
+	t.Run("ignores non-array message content", func(t *testing.T) {
+		body := []byte(`{"messages":[{"role":"user","content":"plain string"}]}`)
+		result := NormalizeToolIdentifiers(body)
+		if gjson.GetBytes(result, "messages.0.content").String() != "plain string" {
+			t.Errorf("plain-string content should be untouched: %s", result)
+		}
 	})
 
 	t.Run("normalizes tools[].name", func(t *testing.T) {
