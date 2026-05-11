@@ -689,6 +689,70 @@ func TestNormalizeToolIdentifiers(t *testing.T) {
 		}
 	})
 
+	t.Run("disambiguates colliding tool names across tools[] and tool_use", func(t *testing.T) {
+		// Regression: two distinct tool definitions whose names collapse to
+		// the same Bedrock-valid form must stay distinguishable on the wire,
+		// and tool_use.name references must follow the same mapping so that
+		// each tool_use points to the right (renamed) definition.
+		body := []byte(`{
+			"tools":[
+				{"name":"functions.foo","description":"a","input_schema":{}},
+				{"name":"functions/foo","description":"b","input_schema":{}}
+			],
+			"messages":[{"role":"assistant","content":[
+				{"type":"tool_use","id":"id1","name":"functions.foo","input":{}},
+				{"type":"tool_use","id":"id2","name":"functions/foo","input":{}}
+			]}]
+		}`)
+
+		result := NormalizeToolIdentifiers(body)
+
+		t0 := gjson.GetBytes(result, "tools.0.name").String()
+		t1 := gjson.GetBytes(result, "tools.1.name").String()
+		u0 := gjson.GetBytes(result, "messages.0.content.0.name").String()
+		u1 := gjson.GetBytes(result, "messages.0.content.1.name").String()
+
+		if t0 == t1 {
+			t.Errorf("tools[] names must not collide, both = %q", t0)
+		}
+		if u0 == u1 {
+			t.Errorf("tool_use names must not collide, both = %q", u0)
+		}
+		if t0 != u0 {
+			t.Errorf("tool_use[0].name should match tools[0].name: %q vs %q", u0, t0)
+		}
+		if t1 != u1 {
+			t.Errorf("tool_use[1].name should match tools[1].name: %q vs %q", u1, t1)
+		}
+		// And the first-occurrence original wins canonical form.
+		if t0 != "functions_foo" {
+			t.Errorf("tools[0].name should keep canonical form, got %q", t0)
+		}
+	})
+
+	t.Run("suffix respects 128-char name cap", func(t *testing.T) {
+		// Two long names that collapse to the same 128-char base. Suffix
+		// allocation must re-truncate the base so `base + "_1"` stays ≤ 128.
+		long := strings.Repeat("a", 130)
+		body := []byte(`{
+			"tools":[
+				{"name":"` + long + `.x"},
+				{"name":"` + long + `/x"}
+			],
+			"messages":[{"role":"user","content":"hi"}]
+		}`)
+
+		result := NormalizeToolIdentifiers(body)
+		t0 := gjson.GetBytes(result, "tools.0.name").String()
+		t1 := gjson.GetBytes(result, "tools.1.name").String()
+		if len(t0) > 128 || len(t1) > 128 {
+			t.Errorf("names exceed 128-char cap: %d, %d", len(t0), len(t1))
+		}
+		if t0 == t1 {
+			t.Errorf("names should be distinct after suffix, both = %q", t0)
+		}
+	})
+
 	t.Run("normalizes tools[].name", func(t *testing.T) {
 		body := []byte(`{
 			"tools":[{"name":"functions.bar","description":"d","input_schema":{}}],
