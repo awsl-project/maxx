@@ -17,9 +17,10 @@ import (
 // - Then runs the relay-safe transformations via SanitizeForBedrockCompat.
 //
 // Bedrock feature support (verified via real API tests):
-//   ACCEPTED: cache_control (system/tools/messages), thinking(enabled), tools, tool_use
-//   REJECTED: stream, output_config, context_management, reasoning, betas,
-//             thinking(adaptive), tools[].custom, cache_control.scope
+//
+//	ACCEPTED: cache_control (system/tools/messages), thinking(enabled), tools, tool_use
+//	REJECTED: stream, output_config, context_management, reasoning, betas,
+//	          thinking(adaptive), tools[].custom, cache_control.scope
 func sanitizeRequestBody(body []byte) []byte {
 	// Remove `model` field (Bedrock uses URL path)
 	body, _ = sjson.DeleteBytes(body, "model")
@@ -96,6 +97,8 @@ func SanitizeForBedrockCompat(body []byte) []byte {
 			}
 		}
 	}
+
+	body = NormalizeToolIdentifiers(body)
 
 	// Remove empty top-level arrays that Bedrock rejects with ValidationException.
 	// Clients sometimes send `"system":[]` or `"tools":[]` which Anthropic API
@@ -290,6 +293,87 @@ func RemoveOrphanedToolResults(body []byte) []byte {
 		return body
 	}
 	return updatedBody
+}
+
+// toolIdentifierInvalidChar matches any character disallowed in Bedrock's
+// tool identifier pattern. Bedrock validates tool_use.id, tool_result.tool_use_id,
+// tool_use.name, and tools[].name against `^[a-zA-Z0-9_-]+$` (name additionally
+// capped at 128 chars), and rejects requests with characters like `.` or `:`.
+// Some clients/SDKs synthesize ids like "functions.foo:0" which fail this regex.
+var toolIdentifierInvalidChar = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+
+// normalizeToolIdentifier replaces every disallowed character with `_`. The
+// substitution is deterministic, so tool_use.id and the matching
+// tool_result.tool_use_id collapse to the same value without needing a map.
+// Name fields are additionally truncated to 128 bytes (Bedrock's max).
+func normalizeToolIdentifier(s string, capLen bool) string {
+	if s == "" {
+		return s
+	}
+	out := toolIdentifierInvalidChar.ReplaceAllString(s, "_")
+	if capLen && len(out) > 128 {
+		out = out[:128]
+	}
+	return out
+}
+
+// NormalizeToolIdentifiers replaces characters that Bedrock rejects in tool
+// identifier fields. Covers:
+//   - messages[*].content[*].id (tool_use)
+//   - messages[*].content[*].name (tool_use)
+//   - messages[*].content[*].tool_use_id (tool_result)
+//   - tools[*].name
+//
+// Reference pairs (tool_use.id ↔ tool_result.tool_use_id) stay consistent
+// because both sides go through the same deterministic substitution.
+func NormalizeToolIdentifiers(body []byte) []byte {
+	// Walk messages[*].content[*]
+	messages := gjson.GetBytes(body, "messages")
+	if messages.IsArray() {
+		for i := int(messages.Get("#").Int()) - 1; i >= 0; i-- {
+			content := gjson.GetBytes(body, fmt.Sprintf("messages.%d.content", i))
+			if !content.IsArray() {
+				continue
+			}
+			for j := int(content.Get("#").Int()) - 1; j >= 0; j-- {
+				blockPath := fmt.Sprintf("messages.%d.content.%d", i, j)
+				switch gjson.GetBytes(body, blockPath+".type").String() {
+				case "tool_use":
+					if id := gjson.GetBytes(body, blockPath+".id").String(); id != "" {
+						if fixed := normalizeToolIdentifier(id, false); fixed != id {
+							body, _ = sjson.SetBytes(body, blockPath+".id", fixed)
+						}
+					}
+					if name := gjson.GetBytes(body, blockPath+".name").String(); name != "" {
+						if fixed := normalizeToolIdentifier(name, true); fixed != name {
+							body, _ = sjson.SetBytes(body, blockPath+".name", fixed)
+						}
+					}
+				case "tool_result":
+					if id := gjson.GetBytes(body, blockPath+".tool_use_id").String(); id != "" {
+						if fixed := normalizeToolIdentifier(id, false); fixed != id {
+							body, _ = sjson.SetBytes(body, blockPath+".tool_use_id", fixed)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Walk tools[*].name
+	tools := gjson.GetBytes(body, "tools")
+	if tools.IsArray() {
+		for i := int(tools.Get("#").Int()) - 1; i >= 0; i-- {
+			path := fmt.Sprintf("tools.%d.name", i)
+			if name := gjson.GetBytes(body, path).String(); name != "" {
+				if fixed := normalizeToolIdentifier(name, true); fixed != name {
+					body, _ = sjson.SetBytes(body, path, fixed)
+				}
+			}
+		}
+	}
+
+	return body
 }
 
 // stripCacheControlScope removes the "scope" sub-field from all cache_control objects.
