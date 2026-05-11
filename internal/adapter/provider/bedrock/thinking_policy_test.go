@@ -96,3 +96,57 @@ func TestAdaptThinkingForModel(t *testing.T) {
 		})
 	}
 }
+
+func TestAdaptThinkingForModelStripsSamplingParams(t *testing.T) {
+	cases := []struct {
+		name      string
+		shortName string
+		input     string
+		// true => the field must be stripped from the output.
+		wantStripTemperature bool
+		wantStripTopP        bool
+		wantStripTopK        bool
+	}{
+		{
+			name:                 "opus-4-7 strips sampling params even without thinking",
+			shortName:            "claude-opus-4-7",
+			input:                `{"max_tokens":1024,"temperature":0.7,"top_p":0.9,"top_k":40}`,
+			wantStripTemperature: true,
+			wantStripTopP:        true,
+			wantStripTopK:        true,
+		},
+		{
+			name:                 "opus-4-7 strips sampling params when thinking enabled",
+			shortName:            "claude-opus-4-7",
+			input:                `{"thinking":{"type":"enabled","budget_tokens":4000},"temperature":0.5,"top_p":0.8,"top_k":20}`,
+			wantStripTemperature: true,
+			wantStripTopP:        true,
+			wantStripTopK:        true,
+		},
+		{
+			name:                 "opus-4-5 preserves sampling params (classic-only model)",
+			shortName:            "claude-opus-4-5",
+			input:                `{"temperature":0.7,"top_p":0.9,"top_k":40}`,
+			wantStripTemperature: false,
+			wantStripTopP:        false,
+			wantStripTopK:        false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := adaptThinkingForModel([]byte(c.input), c.shortName)
+			check := func(field string, wantStripped bool) {
+				exists := gjson.GetBytes(got, field).Exists()
+				if wantStripped && exists {
+					t.Errorf("%s should be stripped, still present (body=%s)", field, string(got))
+				}
+				if !wantStripped && !exists {
+					t.Errorf("%s should be preserved, was stripped (body=%s)", field, string(got))
+				}
+			}
+			check("temperature", c.wantStripTemperature)
+			check("top_p", c.wantStripTopP)
+			check("top_k", c.wantStripTopK)
+		})
+	}
+}

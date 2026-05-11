@@ -58,6 +58,15 @@ func adaptThinkingForModel(body []byte, shortName string) []byte {
 	if !requiresAdaptiveThinking(shortName) {
 		return body
 	}
+
+	// Adaptive-thinking-only models (e.g. Opus 4.7) treat *every* request
+	// as a thinking request, even when the caller didn't set thinking.type.
+	// Bedrock therefore rejects temperature / top_p / top_k unconditionally
+	// on these SKUs. SanitizeForBedrockCompat already strips sampling params
+	// when thinking is enabled in the body, but it has no way to know about
+	// always-on adaptive — so we re-strip here, with model context.
+	body = StripSamplingParams(body)
+
 	thinkingType := gjson.GetBytes(body, "thinking.type").String()
 	if thinkingType == "" || thinkingType == "adaptive" || thinkingType == "disabled" {
 		return body
@@ -85,3 +94,4 @@ func adaptThinkingForModel(body []byte, shortName string) []byte {
 	}
 	return body
 }
+

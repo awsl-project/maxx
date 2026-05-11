@@ -255,6 +255,7 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// not handleStreamResponse.
 	var resp *http.Response
 	thinkingRetried := false
+	samplingRetried := false
 	for {
 		var attemptErr error
 		resp, attemptErr = a.sendBedrockRequest(ctx, c, upstreamURL, requestBody, region, clientWantsStream)
@@ -281,6 +282,20 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 				// schema, which is out of scope for this change.
 				requestBody = stripped
 				thinkingRetried = true
+				continue
+			}
+		}
+
+		// Bedrock sometimes rejects temperature/top_p/top_k for models that
+		// are (always-on) thinking-mode beyond the static list in
+		// thinking_policy.go. Strip and retry once so we don't need to know
+		// every adaptive-only SKU up front. Same single-attempt-slot caveat
+		// as the thinking-envelope retry above.
+		if !samplingRetried && resp.StatusCode == 400 && IsSamplingParamRejectedError(body) {
+			stripped := StripSamplingParams(requestBody)
+			if !bytes.Equal(stripped, requestBody) {
+				requestBody = stripped
+				samplingRetried = true
 				continue
 			}
 		}

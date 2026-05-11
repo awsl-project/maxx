@@ -342,6 +342,102 @@ func TestSanitizeForBedrockCompatPreservesNonEmptyArrays(t *testing.T) {
 	}
 }
 
+func TestSanitizeForBedrockCompatStripsSamplingParamsWhenThinking(t *testing.T) {
+	cases := []struct {
+		name         string
+		body         string
+		wantStripped bool
+	}{
+		{
+			name:         "thinking enabled strips sampling",
+			body:         `{"thinking":{"type":"enabled","budget_tokens":2048},"max_tokens":4096,"temperature":0.7,"top_p":0.9,"top_k":40,"messages":[{"role":"user","content":"hi"}]}`,
+			wantStripped: true,
+		},
+		{
+			name:         "thinking adaptive strips sampling",
+			body:         `{"thinking":{"type":"adaptive"},"temperature":0.5,"top_p":0.8,"messages":[{"role":"user","content":"hi"}]}`,
+			wantStripped: true,
+		},
+		{
+			name:         "no thinking preserves sampling",
+			body:         `{"temperature":0.7,"top_p":0.9,"top_k":40,"messages":[{"role":"user","content":"hi"}]}`,
+			wantStripped: false,
+		},
+		{
+			name:         "thinking disabled preserves sampling",
+			body:         `{"thinking":{"type":"disabled"},"temperature":0.7,"messages":[{"role":"user","content":"hi"}]}`,
+			wantStripped: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result := SanitizeForBedrockCompat([]byte(c.body))
+			for _, f := range []string{"temperature", "top_p", "top_k"} {
+				exists := gjson.GetBytes(result, f).Exists()
+				inInput := gjson.GetBytes([]byte(c.body), f).Exists()
+				if !inInput {
+					continue
+				}
+				if c.wantStripped && exists {
+					t.Errorf("%s should be stripped, still present", f)
+				}
+				if !c.wantStripped && !exists {
+					t.Errorf("%s should be preserved, was stripped", f)
+				}
+			}
+		})
+	}
+}
+
+func TestIsSamplingParamRejectedError(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "temperature rejected with thinking mention",
+			body: `{"message":"`+"`temperature`"+` may only be set to 1 when thinking is enabled"}`,
+			want: true,
+		},
+		{
+			name: "top_p rejected with thinking mention",
+			body: `{"message":"`+"`top_p`"+` is not supported when thinking is enabled"}`,
+			want: true,
+		},
+		{
+			name: "unrelated 400 (no thinking mention)",
+			body: `{"message":"`+"`temperature`"+` must be between 0 and 1"}`,
+			want: false,
+		},
+		{
+			name: "unrelated 400 (no backticks)",
+			body: `{"message":"temperature thinking error"}`,
+			want: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := IsSamplingParamRejectedError([]byte(c.body)); got != c.want {
+				t.Errorf("IsSamplingParamRejectedError = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestStripSamplingParams(t *testing.T) {
+	body := []byte(`{"temperature":0.7,"top_p":0.9,"top_k":40,"max_tokens":1024}`)
+	got := StripSamplingParams(body)
+	for _, f := range []string{"temperature", "top_p", "top_k"} {
+		if gjson.GetBytes(got, f).Exists() {
+			t.Errorf("%s should be stripped", f)
+		}
+	}
+	if !gjson.GetBytes(got, "max_tokens").Exists() {
+		t.Error("max_tokens should be preserved")
+	}
+}
+
 func TestSanitizeRequestBodyRemovesModelAndStream(t *testing.T) {
 	// The direct-Bedrock helper should strip both fields and set anthropic_version.
 	body := []byte(`{
