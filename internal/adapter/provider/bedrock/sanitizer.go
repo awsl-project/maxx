@@ -158,18 +158,29 @@ func StripSamplingParams(body []byte) []byte {
 
 // samplingParamRejectedPattern matches Bedrock 400 validation messages that
 // reject `temperature` / `top_p` / `top_k` because the target model is in
-// (possibly always-on) extended-thinking mode. The exact wording shifts
-// across Bedrock releases — the Anthropic-style format wraps the field
-// in backticks (e.g. "`temperature` may only be set to 1 when thinking
-// is enabled") while the Bedrock-native format drops them (e.g.
-// "temperature may only be set to 1 when thinking is enabled"). The
-// pattern matches both by using word boundaries on the field name and
-// requiring the literal word "thinking" within 200 chars on the same
-// line. Co-occurrence of a sampling-field name and the word "thinking"
-// in a single 400 message is a strong enough signal to retry with the
-// fields stripped; an unrelated 400 that happens to mention "thinking"
-// without naming one of these three fields will not match.
-var samplingParamRejectedPattern = regexp.MustCompile(`\b(?:temperature|top_p|top_k)\b[^\n]{0,200}\bthinking\b|\bthinking\b[^\n]{0,200}\b(?:temperature|top_p|top_k)\b`)
+// (possibly always-on) extended-thinking mode. Wording shifts across
+// releases — the Anthropic-style format wraps the field in backticks
+// ("`temperature` may only be set to 1 when thinking is enabled") while
+// the Bedrock-native format drops them — and the field may appear before
+// or after the thinking clause.
+//
+// The pattern requires both (a) one of the rejected field names and
+// (b) a phrase that anchors "thinking" to its rejection role: either a
+// preposition + "thinking" (e.g. "when thinking", "with extended
+// thinking") or "thinking is enabled/active/on" / "thinking mode".
+// Bare co-occurrence is intentionally NOT enough — a message like
+// "temperature must be between 0 and 1; thinking budget exceeds
+// max_tokens" mentions both but is not a thinking-mode rejection;
+// "thinking" there is a noun modifier of "budget", not the verb
+// describing the model state, so it must not trigger a body-mutating
+// retry.
+var samplingParamRejectedPattern = regexp.MustCompile(
+	`\b(?:temperature|top_p|top_k)\b[^\n]{0,200}` +
+		`(?:\b(?:when|with|during|while|in)\s+(?:extended\s+|adaptive\s+)?thinking\b|\bthinking\s+(?:is\s+(?:enabled|active|on)|mode)\b)` +
+		`|` +
+		`(?:\b(?:when|with|during|while|in)\s+(?:extended\s+|adaptive\s+)?thinking\b|\bthinking\s+(?:is\s+(?:enabled|active|on)|mode)\b)` +
+		`[^\n]{0,200}\b(?:temperature|top_p|top_k)\b`,
+)
 
 // IsSamplingParamRejectedError reports whether the upstream error body is
 // a Bedrock rejection of temperature / top_p / top_k that can be recovered

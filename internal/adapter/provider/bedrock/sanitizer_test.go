@@ -421,6 +421,11 @@ func TestIsSamplingParamRejectedError(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "with extended thinking phrasing",
+			body: `{"message":"temperature cannot be set with extended thinking"}`,
+			want: true,
+		},
+		{
 			name: "unrelated 400 (no thinking mention)",
 			body: `{"message":"temperature must be between 0 and 1"}`,
 			want: false,
@@ -428,6 +433,16 @@ func TestIsSamplingParamRejectedError(t *testing.T) {
 		{
 			name: "unrelated 400 (thinking mentioned but no sampling field)",
 			body: `{"message":"thinking budget exceeds max_tokens"}`,
+			want: false,
+		},
+		{
+			name: "false-positive guard: bare co-occurrence is not rejection",
+			body: `{"message":"temperature must be between 0 and 1; thinking budget exceeds max_tokens"}`,
+			want: false,
+		},
+		{
+			name: "false-positive guard: thinking as noun modifier near field",
+			body: `{"message":"thinking budget too low; temperature was 0.7"}`,
 			want: false,
 		},
 	}
