@@ -158,12 +158,18 @@ func StripSamplingParams(body []byte) []byte {
 
 // samplingParamRejectedPattern matches Bedrock 400 validation messages that
 // reject `temperature` / `top_p` / `top_k` because the target model is in
-// (possibly always-on) extended-thinking mode. The exact wording has
-// shifted across Bedrock releases, so the pattern is deliberately loose:
-// the offending field name appears in backticks alongside a mention of
-// thinking. Backticks are required to avoid matching unrelated 400s whose
-// prose happens to include the word "temperature".
-var samplingParamRejectedPattern = regexp.MustCompile("`(?:temperature|top_p|top_k)`[^`]*thinking|thinking[^`]*`(?:temperature|top_p|top_k)`")
+// (possibly always-on) extended-thinking mode. The exact wording shifts
+// across Bedrock releases — the Anthropic-style format wraps the field
+// in backticks (e.g. "`temperature` may only be set to 1 when thinking
+// is enabled") while the Bedrock-native format drops them (e.g.
+// "temperature may only be set to 1 when thinking is enabled"). The
+// pattern matches both by using word boundaries on the field name and
+// requiring the literal word "thinking" within 200 chars on the same
+// line. Co-occurrence of a sampling-field name and the word "thinking"
+// in a single 400 message is a strong enough signal to retry with the
+// fields stripped; an unrelated 400 that happens to mention "thinking"
+// without naming one of these three fields will not match.
+var samplingParamRejectedPattern = regexp.MustCompile(`\b(?:temperature|top_p|top_k)\b[^\n]{0,200}\bthinking\b|\bthinking\b[^\n]{0,200}\b(?:temperature|top_p|top_k)\b`)
 
 // IsSamplingParamRejectedError reports whether the upstream error body is
 // a Bedrock rejection of temperature / top_p / top_k that can be recovered

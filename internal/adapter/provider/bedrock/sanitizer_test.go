@@ -396,23 +396,38 @@ func TestIsSamplingParamRejectedError(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "temperature rejected with thinking mention",
-			body: `{"message":"`+"`temperature`"+` may only be set to 1 when thinking is enabled"}`,
+			name: "anthropic-style (with backticks) temperature",
+			body: `{"message":"` + "`temperature`" + ` may only be set to 1 when thinking is enabled"}`,
 			want: true,
 		},
 		{
-			name: "top_p rejected with thinking mention",
-			body: `{"message":"`+"`top_p`"+` is not supported when thinking is enabled"}`,
+			name: "anthropic-style (with backticks) top_p",
+			body: `{"message":"` + "`top_p`" + ` is not supported when thinking is enabled"}`,
+			want: true,
+		},
+		{
+			name: "bedrock-native (no backticks) temperature",
+			body: `{"message":"temperature may only be set to 1 when thinking is enabled"}`,
+			want: true,
+		},
+		{
+			name: "bedrock-native (no backticks) top_k",
+			body: `{"message":"top_k is not supported when thinking is enabled"}`,
+			want: true,
+		},
+		{
+			name: "thinking mentioned first, then field",
+			body: `{"message":"thinking mode is active so top_p is not allowed"}`,
 			want: true,
 		},
 		{
 			name: "unrelated 400 (no thinking mention)",
-			body: `{"message":"`+"`temperature`"+` must be between 0 and 1"}`,
+			body: `{"message":"temperature must be between 0 and 1"}`,
 			want: false,
 		},
 		{
-			name: "unrelated 400 (no backticks)",
-			body: `{"message":"temperature thinking error"}`,
+			name: "unrelated 400 (thinking mentioned but no sampling field)",
+			body: `{"message":"thinking budget exceeds max_tokens"}`,
 			want: false,
 		},
 	}

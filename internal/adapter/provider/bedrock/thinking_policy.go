@@ -94,4 +94,3 @@ func adaptThinkingForModel(body []byte, shortName string) []byte {
 	}
 	return body
 }
-
