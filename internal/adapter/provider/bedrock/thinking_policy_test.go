@@ -78,7 +78,7 @@ func TestAdaptThinkingForModel(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := adaptThinkingForModel([]byte(c.input), c.shortName)
+			got := AdaptThinkingForModel([]byte(c.input), c.shortName)
 			if c.wantType != "" {
 				if gt := gjson.GetBytes(got, "thinking.type").String(); gt != c.wantType {
 					t.Errorf("thinking.type = %q; want %q (body=%s)", gt, c.wantType, string(got))
@@ -134,7 +134,7 @@ func TestAdaptThinkingForModelStripsSamplingParams(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := adaptThinkingForModel([]byte(c.input), c.shortName)
+			got := AdaptThinkingForModel([]byte(c.input), c.shortName)
 			check := func(field string, wantStripped bool) {
 				exists := gjson.GetBytes(got, field).Exists()
 				if wantStripped && exists {

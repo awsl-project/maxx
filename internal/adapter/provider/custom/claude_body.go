@@ -68,6 +68,13 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 		// Strip Claude Code identifying fields so the upstream relay's Bedrock
 		// backend won't reject the request with "invalid beta flag" etc.
 		body = bedrock.SanitizeForBedrockCompat(body)
+		// Model-aware adaptive thinking: Opus 4.7 and other adaptive-only
+		// SKUs treat every request as a thinking request and reject sampling
+		// params even when the caller never set thinking.type. The direct
+		// Bedrock adapter resolves the short name from a Bedrock-qualified
+		// ID; under custom-bedrock disguise the upstream is a relay and the
+		// short name is already in `model`, so pass it through directly.
+		body = bedrock.AdaptThinkingForModel(body, modelName)
 		bedrockMode = true
 	case domain.DisguiseTypeNone:
 		// Explicit opt-out: no body transformation.

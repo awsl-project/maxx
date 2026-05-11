@@ -75,7 +75,7 @@ func SanitizeForBedrockCompat(body []byte) []byte {
 	// sensible defaults and the caller's intent of "no sampling override"
 	// is preserved. The model-specific always-on adaptive case (Opus 4.7
 	// without an explicit thinking block) is handled later by
-	// adaptThinkingForModel, which calls StripSamplingParams again.
+	// AdaptThinkingForModel, which calls StripSamplingParams again.
 	switch gjson.GetBytes(body, "thinking.type").String() {
 	case "enabled", "adaptive":
 		body = StripSamplingParams(body)
@@ -145,7 +145,7 @@ func EnsureMaxTokensAboveThinkingBudget(body []byte) []byte {
 var samplingParamFields = []string{"temperature", "top_p", "top_k"}
 
 // StripSamplingParams removes `temperature`, `top_p`, and `top_k` from the
-// request body. Exported for reuse by adaptThinkingForModel (model-specific
+// request body. Exported for reuse by AdaptThinkingForModel (model-specific
 // always-on adaptive) and the adapter's error-driven retry path.
 func StripSamplingParams(body []byte) []byte {
 	for _, field := range samplingParamFields {

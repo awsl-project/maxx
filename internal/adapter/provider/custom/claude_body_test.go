@@ -818,6 +818,51 @@ func TestProcessClaudeRequestBodyBedrockDisguiseStripsUnsupportedFields(t *testi
 	}
 }
 
+// TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForAdaptiveOnly
+// guards that custom-bedrock disguise applies the adaptive-only model
+// strip too: Opus 4.7 rejects temperature/top_p/top_k even without an
+// explicit thinking block, so the relay path needs the same model-aware
+// handling as the direct Bedrock adapter — otherwise a custom relay
+// fronting Bedrock fails on the same class of requests the direct path
+// already recovers from.
+func TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForAdaptiveOnly(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-opus-4-7",
+		"max_tokens":1024,
+		"temperature":0.7,
+		"top_p":0.9,
+		"top_k":40,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+	for _, f := range []string{"temperature", "top_p", "top_k"} {
+		if gjson.GetBytes(result, f).Exists() {
+			t.Errorf("expected %s to be stripped on claude-opus-4-7 under bedrock disguise", f)
+		}
+	}
+}
+
+// TestProcessClaudeRequestBodyBedrockDisguisePreservesSamplingForClassic
+// confirms the model-aware strip only fires for adaptive-only models —
+// a classic-thinking model with no thinking block must keep its sampling
+// params under the bedrock disguise.
+func TestProcessClaudeRequestBodyBedrockDisguisePreservesSamplingForClassic(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-opus-4-5",
+		"max_tokens":1024,
+		"temperature":0.7,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+	if !gjson.GetBytes(result, "temperature").Exists() {
+		t.Error("expected temperature to be preserved on classic model under bedrock disguise")
+	}
+}
+
 // TestProcessClaudeRequestBodyBedrockDisguiseRecheckMaxTokensAfterMinBudget
 // guards against a subtle ordering bug: SanitizeForBedrockCompat enforces
 // `max_tokens > thinking.budget_tokens` early, then ensureMinThinkingBudget

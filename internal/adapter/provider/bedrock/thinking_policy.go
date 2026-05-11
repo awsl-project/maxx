@@ -19,7 +19,7 @@ import (
 //   either         — Opus 4.6, Sonnet 4.6: accept both (adaptive recommended)
 //
 // The sanitizer already handles classic-only (it rewrites adaptive →
-// enabled). What's new is the adaptive-only tier. adaptThinkingForModel
+// enabled). What's new is the adaptive-only tier. AdaptThinkingForModel
 // performs the inverse rewrite when the resolved short name requires it,
 // so clients that only speak the classic shape (Claude Code CLI on
 // Bedrock) can still hit Opus 4.7.
@@ -39,7 +39,7 @@ func requiresAdaptiveThinking(shortName string) bool {
 	return adaptiveOnlyModels[shortName]
 }
 
-// adaptThinkingForModel rewrites a classic extended-thinking config into
+// AdaptThinkingForModel rewrites a classic extended-thinking config into
 // adaptive form when the target model demands it. Idempotent: if the
 // payload already uses adaptive, or the model doesn't require it, or
 // there's no thinking config at all, the body is returned unchanged.
@@ -54,7 +54,7 @@ func requiresAdaptiveThinking(shortName string) bool {
 // decides dynamically; we just need to land in the same ballpark so
 // clients that crank budget_tokens up don't silently get capped to a
 // tiny thinking allotment.
-func adaptThinkingForModel(body []byte, shortName string) []byte {
+func AdaptThinkingForModel(body []byte, shortName string) []byte {
 	if !requiresAdaptiveThinking(shortName) {
 		return body
 	}

@@ -234,16 +234,19 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// on the resolved Bedrock ID's short name, so classic-shape clients
 	// (e.g. Claude Code CLI) can still hit adaptive-only models.
 	if short, _, ok := extractNameAndDate(bedrockModelID); ok {
-		requestBody = adaptThinkingForModel(requestBody, short)
+		requestBody = AdaptThinkingForModel(requestBody, short)
 	}
 
 	// Build upstream URL
 	upstreamURL := buildBedrockURL(region, bedrockModelID, clientWantsStream)
 
-	// Up to two attempts: a Bedrock 400 that rejects a thinking-block
+	// Up to three attempts: two independent retry paths each fire at
+	// most once. (1) a Bedrock 400 that rejects a thinking-block
 	// envelope (signature on `thinking`, opaque `data` on
 	// `redacted_thinking`) is recoverable by stripping those blocks
-	// and replaying once. Cross-deployment replays produced by
+	// and replaying once. (2) a 400 rejecting temperature/top_p/top_k
+	// (extended-thinking mode) is recoverable by stripping those
+	// fields and replaying once. Cross-deployment replays produced by
 	// clients that captured a transcript against Anthropic and now
 	// hit Bedrock are the common cause; retry preserves the rest of
 	// the conversation rather than failing the whole request.
