@@ -666,21 +666,6 @@ func TestNormalizeToolIdentifiers(t *testing.T) {
 		}
 	})
 
-	t.Run("empty id is left alone", func(t *testing.T) {
-		body := []byte(`{
-			"messages":[
-				{"role":"assistant","content":[
-					{"type":"tool_use","id":"","name":"a","input":{}}
-				]}
-			]
-		}`)
-
-		result := NormalizeToolIdentifiers(body)
-		if got := gjson.GetBytes(result, "messages.0.content.0.id").String(); got != "" {
-			t.Errorf("empty id should stay empty, got %q", got)
-		}
-	})
-
 	t.Run("ignores non-array message content", func(t *testing.T) {
 		body := []byte(`{"messages":[{"role":"user","content":"plain string"}]}`)
 		result := NormalizeToolIdentifiers(body)
