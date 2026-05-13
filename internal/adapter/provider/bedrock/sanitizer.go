@@ -188,10 +188,16 @@ var samplingParamRejectedPattern = regexp.MustCompile(
 		`(?:\b(?:when|with|during|while|in)\s+(?:extended\s+|adaptive\s+)?thinking\b|\bthinking\s+(?:is\s+(?:enabled|active|on)|mode)\b)` +
 		`[^\n]{0,200}\b(?:temperature|top_p|top_k)\b` +
 		`|` +
-		// (2) deprecation wording (no thinking phrase)
-		`\b(?:temperature|top_p|top_k)\b[^\n]{0,60}\b(?:is\s+)?deprecated\b` +
+		// (2) deprecation wording (no thinking phrase). The 200-char window
+		// matches the thinking-anchored branch — "deprecated" near a
+		// sampling field name is itself a strong anchor, so we tolerate
+		// longer prose like "`temperature` is deprecated for this model
+		// when X; use default behavior instead." A spurious match would
+		// just waste a single replay (the stripped body either succeeds
+		// or fails the same way), so the failure mode is self-correcting.
+		`\b(?:temperature|top_p|top_k)\b[^\n]{0,200}\b(?:is\s+)?deprecated\b` +
 		`|` +
-		`\bdeprecated\b[^\n]{0,60}\b(?:temperature|top_p|top_k)\b`,
+		`\bdeprecated\b[^\n]{0,200}\b(?:temperature|top_p|top_k)\b`,
 )
 
 // IsSamplingParamRejectedError reports whether the upstream error body is

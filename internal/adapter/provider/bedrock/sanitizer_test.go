@@ -471,6 +471,17 @@ func TestIsSamplingParamRejectedError(t *testing.T) {
 			body: `{"message":"this endpoint is deprecated, use v2"}`,
 			want: false,
 		},
+		{
+			name: "deprecation wording for top_k",
+			body: `{"message":"top_k is deprecated for this model."}`,
+			want: true,
+		},
+		{
+			// Defensive: longer prose wording within the 200-char window.
+			name: "deprecation wording with extended prose",
+			body: `{"message":"` + "`temperature`" + ` is deprecated for this model when extended thinking is used; use the default behavior instead."}`,
+			want: true,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
