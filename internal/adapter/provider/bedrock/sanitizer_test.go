@@ -446,6 +446,31 @@ func TestIsSamplingParamRejectedError(t *testing.T) {
 			body: `{"message":"thinking budget too low; temperature was 0.7"}`,
 			want: false,
 		},
+		{
+			// Production regression captured 2026-05-12 onward: Bedrock now
+			// emits this wording for claude-opus-4-7 instead of the older
+			// "may only be set to 1 when thinking is enabled" form. No
+			// mention of thinking, but the recovery (strip + replay) is
+			// the same.
+			name: "deprecation wording (backticks)",
+			body: `{"message":"` + "`temperature`" + ` is deprecated for this model."}`,
+			want: true,
+		},
+		{
+			name: "deprecation wording (no backticks)",
+			body: `{"message":"top_p is deprecated for this model."}`,
+			want: true,
+		},
+		{
+			name: "deprecation wording (reversed clause)",
+			body: `{"message":"deprecated parameter: temperature"}`,
+			want: true,
+		},
+		{
+			name: "false-positive guard: unrelated deprecation",
+			body: `{"message":"this endpoint is deprecated, use v2"}`,
+			want: false,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

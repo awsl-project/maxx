@@ -162,27 +162,36 @@ func StripSamplingParams(body []byte) []byte {
 // samplingParamRejectedPattern matches Bedrock 400 validation messages that
 // reject `temperature` / `top_p` / `top_k` because the target model is in
 // (possibly always-on) extended-thinking mode. Wording shifts across
-// releases — the Anthropic-style format wraps the field in backticks
-// ("`temperature` may only be set to 1 when thinking is enabled") while
-// the Bedrock-native format drops them — and the field may appear before
-// or after the thinking clause.
+// releases:
 //
-// The pattern requires both (a) one of the rejected field names and
-// (b) a phrase that anchors "thinking" to its rejection role: either a
-// preposition + "thinking" (e.g. "when thinking", "with extended
-// thinking") or "thinking is enabled/active/on" / "thinking mode".
-// Bare co-occurrence is intentionally NOT enough — a message like
-// "temperature must be between 0 and 1; thinking budget exceeds
-// max_tokens" mentions both but is not a thinking-mode rejection;
-// "thinking" there is a noun modifier of "budget", not the verb
-// describing the model state, so it must not trigger a body-mutating
-// retry.
+//  1. Thinking-anchored: "temperature may only be set to 1 when thinking
+//     is enabled" / "with extended thinking" / etc. The Anthropic-style
+//     format wraps the field in backticks while the Bedrock-native format
+//     drops them; the field may appear before or after the thinking clause.
+//  2. Deprecation-style (observed in production starting 2026-05-12 for
+//     `claude-opus-4-7`): "`temperature` is deprecated for this model."
+//     No mention of "thinking" at all. The same body mutation (strip
+//     sampling params and replay) is the right recovery.
+//
+// The thinking-anchored alternation deliberately rejects bare
+// co-occurrence — a message like "temperature must be between 0 and 1;
+// thinking budget exceeds max_tokens" mentions both words but is not a
+// thinking-mode rejection. The deprecation alternation has no such
+// ambiguity: a 400 saying a sampling param "is deprecated for this model"
+// is exactly the case we want to recover from.
 var samplingParamRejectedPattern = regexp.MustCompile(
+	// (1a) field-then-thinking
 	`\b(?:temperature|top_p|top_k)\b[^\n]{0,200}` +
 		`(?:\b(?:when|with|during|while|in)\s+(?:extended\s+|adaptive\s+)?thinking\b|\bthinking\s+(?:is\s+(?:enabled|active|on)|mode)\b)` +
 		`|` +
+		// (1b) thinking-then-field
 		`(?:\b(?:when|with|during|while|in)\s+(?:extended\s+|adaptive\s+)?thinking\b|\bthinking\s+(?:is\s+(?:enabled|active|on)|mode)\b)` +
-		`[^\n]{0,200}\b(?:temperature|top_p|top_k)\b`,
+		`[^\n]{0,200}\b(?:temperature|top_p|top_k)\b` +
+		`|` +
+		// (2) deprecation wording (no thinking phrase)
+		`\b(?:temperature|top_p|top_k)\b[^\n]{0,60}\b(?:is\s+)?deprecated\b` +
+		`|` +
+		`\bdeprecated\b[^\n]{0,60}\b(?:temperature|top_p|top_k)\b`,
 )
 
 // IsSamplingParamRejectedError reports whether the upstream error body is
