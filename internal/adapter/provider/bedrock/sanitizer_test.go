@@ -482,6 +482,20 @@ func TestIsSamplingParamRejectedError(t *testing.T) {
 			body: `{"message":"` + "`temperature`" + ` is deprecated for this model when extended thinking is used; use the default behavior instead."}`,
 			want: true,
 		},
+		{
+			// Boundary: field and `deprecated` separated by ~190 chars of
+			// filler to exercise the 200-char proximity window.
+			name: "deprecation wording near 200-char boundary",
+			body: `{"message":"temperature ` + strings.Repeat("x", 190) + ` is deprecated."}`,
+			want: true,
+		},
+		{
+			// Boundary: same shape but pushed past 200 chars between the
+			// field and `deprecated` — should NOT match.
+			name: "deprecation wording beyond 200-char boundary",
+			body: `{"message":"temperature ` + strings.Repeat("x", 220) + ` is deprecated."}`,
+			want: false,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
