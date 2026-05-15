@@ -238,27 +238,50 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 
 // ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
 // statuses 为空时不按状态过滤；非空时仅清理所属 ProxyRequest.status IN (statuses) 的 attempt
+//
+// 分批处理：详情字段是大 blob，且关联父表子查询代价不低，故按 batchSize 拆分。
 func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
+	const batchSize = 500
 	beforeTs := toTimestamp(before)
-	now := time.Now().UnixMilli()
+	var total int64
 
-	parentReq := r.db.gorm.Model(&ProxyRequest{}).
-		Select("id").
-		Where("dev_mode = 0")
-	if len(statuses) > 0 {
-		parentReq = parentReq.Where("status IN ?", statuses)
+	for {
+		var ids []uint64
+
+		parentReq := r.db.gorm.Model(&ProxyRequest{}).
+			Select("id").
+			Where("dev_mode = 0")
+		if len(statuses) > 0 {
+			parentReq = parentReq.Where("status IN ?", statuses)
+		}
+
+		if err := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
+			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
+			Where("proxy_request_id IN (?)", parentReq).
+			Limit(batchSize).
+			Pluck("id", &ids).Error; err != nil {
+			return total, err
+		}
+		if len(ids) == 0 {
+			return total, nil
+		}
+
+		result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
+			Where("id IN ?", ids).
+			Updates(map[string]any{
+				"request_info":  nil,
+				"response_info": nil,
+				"updated_at":    time.Now().UnixMilli(),
+			})
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += result.RowsAffected
+
+		if len(ids) < batchSize {
+			return total, nil
+		}
 	}
-
-	result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
-		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
-		Where("proxy_request_id IN (?)", parentReq).
-		Updates(map[string]any{
-			"request_info":  nil,
-			"response_info": nil,
-			"updated_at":    now,
-		})
-
-	return result.RowsAffected, result.Error
 }
 
 func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {

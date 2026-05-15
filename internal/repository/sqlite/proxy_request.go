@@ -278,37 +278,42 @@ func (r *ProxyRequestRepository) UpdateProjectIDBySessionID(tenantID uint64, ses
 }
 
 // DeleteOlderThan 删除指定时间之前的请求记录
+//
+// 分批处理：避免一次性 pluck 海量 id + 两次大 IN DELETE 产生超大事务。
 func (r *ProxyRequestRepository) DeleteOlderThan(before time.Time) (int64, error) {
+	const batchSize = 500
 	beforeTs := toTimestamp(before)
+	var total int64
 
-	// 先查询需要删除的请求ID列表（兼容MySQL）
-	var requestIDs []uint64
-	if err := r.db.gorm.Model(&ProxyRequest{}).Where("created_at < ?", beforeTs).Pluck("id", &requestIDs).Error; err != nil {
-		return 0, err
+	for {
+		var ids []uint64
+		if err := r.db.gorm.Model(&ProxyRequest{}).
+			Where("created_at < ?", beforeTs).
+			Limit(batchSize).
+			Pluck("id", &ids).Error; err != nil {
+			return total, err
+		}
+		if len(ids) == 0 {
+			return total, nil
+		}
+
+		if err := r.db.gorm.Where("proxy_request_id IN ?", ids).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
+			return total, err
+		}
+
+		result := r.db.gorm.Where("id IN ?", ids).Delete(&ProxyRequest{})
+		if result.Error != nil {
+			return total, result.Error
+		}
+		if result.RowsAffected > 0 {
+			atomic.AddInt64(&r.count, -result.RowsAffected)
+		}
+		total += result.RowsAffected
+
+		if len(ids) < batchSize {
+			return total, nil
+		}
 	}
-
-	if len(requestIDs) == 0 {
-		return 0, nil
-	}
-
-	// 删除关联的 attempts
-	if err := r.db.gorm.Where("proxy_request_id IN ?", requestIDs).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
-		return 0, err
-	}
-
-	// 删除 requests
-	result := r.db.gorm.Where("id IN ?", requestIDs).Delete(&ProxyRequest{})
-	if result.Error != nil {
-		return 0, result.Error
-	}
-
-	affected := result.RowsAffected
-	// 更新计数缓存
-	if affected > 0 {
-		atomic.AddInt64(&r.count, -affected)
-	}
-
-	return affected, nil
 }
 
 // HasRecentRequests 检查指定时间之后是否有请求记录
@@ -470,22 +475,44 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 
 // ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
 // statuses 为空时不按状态过滤；非空时仅清理 status IN (statuses) 的记录
+//
+// 分批处理：request_info/response_info 是大 JSON blob，一次性 UPDATE 会产生
+// 超大事务（WAL 同时记录 old/new value），故按 batchSize 拆分。
 func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
+	const batchSize = 500
 	beforeTs := toTimestamp(before)
-	now := time.Now().UnixMilli()
+	var total int64
 
-	q := r.db.gorm.Model(&ProxyRequest{}).
-		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", beforeTs)
-	if len(statuses) > 0 {
-		q = q.Where("status IN ?", statuses)
+	for {
+		var ids []uint64
+		q := r.db.gorm.Model(&ProxyRequest{}).
+			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", beforeTs)
+		if len(statuses) > 0 {
+			q = q.Where("status IN ?", statuses)
+		}
+		if err := q.Limit(batchSize).Pluck("id", &ids).Error; err != nil {
+			return total, err
+		}
+		if len(ids) == 0 {
+			return total, nil
+		}
+
+		result := r.db.gorm.Model(&ProxyRequest{}).
+			Where("id IN ?", ids).
+			Updates(map[string]any{
+				"request_info":  nil,
+				"response_info": nil,
+				"updated_at":    time.Now().UnixMilli(),
+			})
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += result.RowsAffected
+
+		if len(ids) < batchSize {
+			return total, nil
+		}
 	}
-	result := q.Updates(map[string]any{
-		"request_info":  nil,
-		"response_info": nil,
-		"updated_at":    now,
-	})
-
-	return result.RowsAffected, result.Error
 }
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
