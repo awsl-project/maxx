@@ -152,6 +152,12 @@ func main() {
 	}
 	coordinator.StartHeartbeat(coordCtx, coord, instanceTTL)
 
+	// Wire cooldown manager for cross-instance state sync. After this call,
+	// any cooldown set/clear on one instance is broadcast to peers so their
+	// in-memory maps stay coherent. LoadFromDatabase above already populated
+	// the local map at boot, so this just sets up the live event channel.
+	cooldown.Default().SetCoordinator(coordCtx, coord)
+
 	startupStep := time.Now()
 	log.Printf("[Startup] Marking stale requests as failed...")
 	aliveInstances, err := coord.ListAliveInstances(coordCtx)
@@ -200,6 +206,7 @@ func main() {
 	// "invalidated" event after writes; the matching subscribers below reload the
 	// entire entity on receipt. We register publishers and subscribers up-front
 	// so admin mutations on any instance propagate to peers immediately.
+	cachedSessionRepo.SetCoordinator(coord, time.Hour)
 	cachedProviderRepo.SetCoordinator(coord)
 	cachedRouteRepo.SetCoordinator(coord)
 	cachedRetryConfigRepo.SetCoordinator(coord)

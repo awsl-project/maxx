@@ -3,8 +3,10 @@ package cooldown
 import (
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -18,6 +20,10 @@ type Manager struct {
 	failureTracker *FailureTracker                   // tracks failure counts
 	policies       map[CooldownReason]CooldownPolicy // cooldown calculation strategies
 	repository     repository.CooldownRepository
+	// coord 用 atomic.Pointer 存,避免和 mu 形成嵌套锁依赖:
+	// setCooldownLocked 等内部方法持有 mu 时调用 broadcast,
+	// broadcast 读 coord 不获取 mu,从而避免重入死锁。
+	coord atomic.Pointer[coordinator.Coordinator]
 }
 
 // NewManager creates a new cooldown manager
@@ -194,6 +200,13 @@ func (m *Manager) RecordSuccess(providerID uint64, clientType string, model stri
 	// Reset failure counts for this specific model
 	m.failureTracker.ResetFailures(providerID, clientType, model)
 
+	m.broadcast(cooldownEvent{
+		Op:         opClear,
+		ProviderID: providerID,
+		ClientType: clientType,
+		Model:      model,
+	})
+
 	log.Printf("[Cooldown] Provider %d (clientType=%s, model=%s): Cleared model-level cooldown after successful request", providerID, clientType, model)
 }
 
@@ -216,6 +229,16 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 			log.Printf("[Cooldown] Failed to persist cooldown for provider %d: %v", providerID, err)
 		}
 	}
+
+	// 广播给其他实例同步内存。broadcast 不锁,可在持锁路径内安全调用。
+	m.broadcast(cooldownEvent{
+		Op:         opSet,
+		ProviderID: providerID,
+		ClientType: clientType,
+		Model:      model,
+		UntilUnix:  until.Unix(),
+		Reason:     string(reason),
+	})
 }
 
 // SetCooldownDuration sets a cooldown for a provider with a duration from now
@@ -267,6 +290,8 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string, model stri
 
 		// Also reset all failure counts for this provider
 		m.failureTracker.ResetFailures(providerID, "", "")
+
+		m.broadcast(cooldownEvent{Op: opClearAll, ProviderID: providerID})
 	} else {
 		// Clear specific cooldown
 		key := CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}
@@ -282,6 +307,13 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string, model stri
 
 		// Also reset failure counts for this provider+clientType+model
 		m.failureTracker.ResetFailures(providerID, clientType, model)
+
+		m.broadcast(cooldownEvent{
+			Op:         opClear,
+			ProviderID: providerID,
+			ClientType: clientType,
+			Model:      model,
+		})
 	}
 }
 
