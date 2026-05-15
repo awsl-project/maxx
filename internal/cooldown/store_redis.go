@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -39,22 +40,39 @@ func NewRedisCooldownStore(rdb *redis.Client) CooldownStore {
 }
 
 // keyName 把 CooldownKey 编码成 Redis key。空 clientType/model 用 "*"
-// 表示通配,避免 "p:42:c::m:" 这种容易和其他用途撞的形式。
+// 表示通配。
+//
+// clientType / model 用 url.QueryEscape 转义,这样含 ":" 的值
+// (如 "gpt-4:turbo" 这种模型名)不会破坏 parseKey 的分段逻辑。
+// `*` (wildcardToken) 不被 url 编码,保持作为通配符。
 func keyName(k CooldownKey) string {
-	c := k.ClientType
-	if c == "" {
-		c = wildcardToken
-	}
-	m := k.Model
-	if m == "" {
-		m = wildcardToken
-	}
+	c := encodeKeyPart(k.ClientType)
+	m := encodeKeyPart(k.Model)
 	return fmt.Sprintf(redisCooldownKeyFmt, k.ProviderID, c, m)
+}
+
+func encodeKeyPart(v string) string {
+	if v == "" {
+		return wildcardToken
+	}
+	return url.QueryEscape(v)
+}
+
+func decodeKeyPart(v string) (string, bool) {
+	if v == wildcardToken {
+		return "", true
+	}
+	out, err := url.QueryUnescape(v)
+	if err != nil {
+		return "", false
+	}
+	return out, true
 }
 
 // parseKey 把 Redis key 解析回 CooldownKey。仅在 ListByProvider 中使用。
 func parseKey(raw string) (CooldownKey, bool) {
 	// 期望:maxx:v1:cooldown:p:<id>:c:<client>:m:<model>
+	// clientType/model 经 url.QueryEscape 转义,所以分段安全。
 	parts := strings.Split(raw, ":")
 	if len(parts) != 9 || parts[0] != "maxx" || parts[1] != "v1" || parts[2] != "cooldown" {
 		return CooldownKey{}, false
@@ -66,13 +84,13 @@ func parseKey(raw string) (CooldownKey, bool) {
 	if err != nil {
 		return CooldownKey{}, false
 	}
-	clientType := parts[6]
-	if clientType == wildcardToken {
-		clientType = ""
+	clientType, ok := decodeKeyPart(parts[6])
+	if !ok {
+		return CooldownKey{}, false
 	}
-	model := parts[8]
-	if model == wildcardToken {
-		model = ""
+	model, ok := decodeKeyPart(parts[8])
+	if !ok {
+		return CooldownKey{}, false
 	}
 	return CooldownKey{ProviderID: pid, ClientType: clientType, Model: model}, true
 }

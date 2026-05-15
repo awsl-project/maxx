@@ -52,20 +52,17 @@ func NewMemory(instanceID string) Coordinator {
 func (c *memoryCoordinator) InstanceID() string { return c.instanceID }
 
 func (c *memoryCoordinator) Publish(_ context.Context, channel string, payload []byte) error {
+	// 在 RLock 内执行非阻塞 send。Close 和 ctx-cancel cleanup 必须持写锁
+	// 关闭 channel,RWMutex 互斥保证这里 send 时 channel 不会被 close,从而
+	// 避免 "send on closed channel" panic。
+	// send 是 select+default 非阻塞,持锁时间是 O(subscribers) 的常数操作。
 	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if c.closed {
-		c.mu.RUnlock()
 		return nil
 	}
-	subs := make([]*memorySub, 0, len(c.subs[channel]))
-	for s := range c.subs[channel] {
-		subs = append(subs, s)
-	}
-	c.mu.RUnlock()
-
 	msg := Message{Sender: c.instanceID, Payload: append([]byte(nil), payload...)}
-	for _, s := range subs {
-		// 非阻塞投递:订阅者跟不上就丢弃,避免拖垮整个广播
+	for s := range c.subs[channel] {
 		select {
 		case s.ch <- msg:
 		default:
@@ -91,12 +88,14 @@ func (c *memoryCoordinator) Subscribe(ctx context.Context, channel string) (<-ch
 
 	go func() {
 		<-ctx.Done()
+		// close(ch) 必须在持写锁的时刻,这样和 Publish 持读锁的 send 互斥,
+		// 避免 send on closed channel panic。
 		c.mu.Lock()
 		if m := c.subs[channel]; m != nil {
 			delete(m, sub)
 		}
-		c.mu.Unlock()
 		sub.shut()
+		c.mu.Unlock()
 	}()
 
 	return sub.ch, nil
@@ -174,20 +173,19 @@ func (c *memoryCoordinator) ListAliveInstances(_ context.Context) ([]string, err
 }
 
 func (c *memoryCoordinator) Close() error {
+	// shut(=close ch) 必须在锁内完成。和 Publish 持读锁的 send 互斥,
+	// 避免 send on closed channel panic。
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.closed {
-		c.mu.Unlock()
 		return nil
 	}
 	c.closed = true
-	subs := c.subs
-	c.subs = make(map[string]map[*memorySub]struct{})
-	c.mu.Unlock()
-
-	for _, m := range subs {
+	for _, m := range c.subs {
 		for s := range m {
 			s.shut()
 		}
 	}
+	c.subs = make(map[string]map[*memorySub]struct{})
 	return nil
 }

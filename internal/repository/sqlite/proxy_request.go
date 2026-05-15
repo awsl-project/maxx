@@ -202,11 +202,18 @@ func (r *ProxyRequestRepository) MarkStaleAsFailed(aliveInstanceIDs []string) (i
 	timeoutThreshold := nowMs - int64(30*time.Minute/time.Millisecond)
 	deadGraceThreshold := nowMs - deadInstanceGraceMillis
 
+	// 死实例分支用 COALESCE(NULLIF(start_time, 0), created_at):PENDING 状态
+	// 请求可能 start_time = 0(还没真正开始处理就被卡在队列),如果只看
+	// start_time 这些请求永远不会被回收。fallback 到 created_at 让"创建超过
+	// 60s 且实例已死"的请求也能被清。
+	//
+	// 30min 硬超时分支仍只看 start_time > 0:超时本质上是"已开始但卡死太久",
+	// 还没开始的 PENDING 不算超时(它由死实例分支或 hourly cleanup 处理)。
 	result := r.db.gorm.Exec(`
 		UPDATE proxy_requests
 		SET status = 'FAILED',
 		    error = CASE
-		        WHEN start_time < ? THEN 'Request timed out (stuck in progress)'
+		        WHEN start_time > 0 AND start_time < ? THEN 'Request timed out (stuck in progress)'
 		        ELSE 'Instance no longer alive'
 		    END,
 		    end_time = ?,
@@ -216,11 +223,11 @@ func (r *ProxyRequestRepository) MarkStaleAsFailed(aliveInstanceIDs []string) (i
 		    END,
 		    updated_at = ?
 		WHERE status IN ('PENDING', 'IN_PROGRESS')
-		  AND start_time > 0
 		  AND (
-		      ((instance_id IS NULL OR instance_id NOT IN (?)) AND start_time < ?)
+		      ((instance_id IS NULL OR instance_id NOT IN (?))
+		         AND COALESCE(NULLIF(start_time, 0), created_at) < ?)
 		      OR
-		      start_time < ?
+		      (start_time > 0 AND start_time < ?)
 		  )`,
 		timeoutThreshold, nowMs, nowMs, nowMs,
 		aliveInstanceIDs, deadGraceThreshold,

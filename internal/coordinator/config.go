@@ -143,6 +143,12 @@ func (c *Config) Validate() error {
 	if c.HeartbeatInterval >= c.InstanceTTL {
 		return fmt.Errorf("HeartbeatInterval (%v) must be shorter than InstanceTTL (%v)", c.HeartbeatInterval, c.InstanceTTL)
 	}
+	if c.ReconnectInterval <= 0 {
+		return fmt.Errorf("ReconnectInterval must be > 0")
+	}
+	if c.SweepInterval <= 0 {
+		return fmt.Errorf("SweepInterval must be > 0")
+	}
 
 	return nil
 }

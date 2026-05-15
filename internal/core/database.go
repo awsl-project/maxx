@@ -228,6 +228,15 @@ func InitializeServerComponents(
 	if err != nil {
 		return nil, fmt.Errorf("setup coordinator: %w", err)
 	}
+	// 如果后续 component 初始化失败,需要释放 coordinator 资源
+	// (heartbeat goroutine、Redis 连接等)。成功路径在最后置 setupOK=true,
+	// 让 defer 跳过 cleanup。
+	setupOK := false
+	defer func() {
+		if !setupOK {
+			coordComp.Cleanup()
+		}
+	}()
 	AttachCachedReposToCoordinator(coordComp.Ctx, coordComp.Coordinator, repos)
 
 	log.Printf("[Core] Marking stale requests as failed")
@@ -501,6 +510,7 @@ func InitializeServerComponents(
 	}
 
 	log.Printf("[Core] Server components initialized successfully")
+	setupOK = true // 跳过 defer 中的 cleanup,coordinator 现在归 launcher 管
 	return components, nil
 }
 

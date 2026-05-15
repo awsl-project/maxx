@@ -222,9 +222,11 @@ func (m *Manager) RecordSuccess(providerID uint64, clientType string, model stri
 
 	// Delete from store (distributed truth)
 	if sp := m.store.Load(); sp != nil {
-		if err := (*sp).Delete(context.Background(), key); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
+		if err := (*sp).Delete(ctx, key); err != nil {
 			log.Printf("[Cooldown] store Delete failed: %v", err)
 		}
+		cancel()
 	}
 
 	// Delete from database
@@ -265,7 +267,8 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 	storeRejected := false // SetIfLater 明确拒绝(已有更晚 cooldown)
 	if sp := m.store.Load(); sp != nil {
 		s := *sp
-		ctx := context.Background()
+		// 在 m.mu 写锁路径内调 Redis;用短 timeout 防止持锁阻塞读路径
+		ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
 		if useIfLater {
 			ok, err := s.SetIfLater(ctx, key, until)
 			if err != nil {
@@ -281,6 +284,7 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 				storeAccepted = false
 			}
 		}
+		cancel()
 	}
 
 	// 2. 本地 map
@@ -377,9 +381,11 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string, model stri
 
 		// Delete from store
 		if sp := m.store.Load(); sp != nil {
-			if err := (*sp).DeleteByProvider(context.Background(), providerID); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
+			if err := (*sp).DeleteByProvider(ctx, providerID); err != nil {
 				log.Printf("[Cooldown] store DeleteByProvider failed: %v", err)
 			}
+			cancel()
 		}
 
 		// Delete from database
@@ -401,9 +407,11 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string, model stri
 
 		// Delete from store
 		if sp := m.store.Load(); sp != nil {
-			if err := (*sp).Delete(context.Background(), key); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
+			if err := (*sp).Delete(ctx, key); err != nil {
 				log.Printf("[Cooldown] store Delete failed: %v", err)
 			}
+			cancel()
 		}
 
 		// Delete from database

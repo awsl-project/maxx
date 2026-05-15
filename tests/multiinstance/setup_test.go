@@ -88,6 +88,7 @@ func (c *cluster) newInstance(t testing.TB, instanceID string) *instance {
 		InstanceTTL:       30 * time.Second,
 		HeartbeatInterval: 10 * time.Second,
 		ReconnectInterval: 5 * time.Second,
+		SweepInterval:     15 * time.Second,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	coord, cleanup, err := coordinator.Build(ctx, cfg, instanceID)

@@ -12,6 +12,11 @@ import (
 // 事件 channel:RFC schema 中的 maxx:v1:event:cooldown
 const eventChannel = "maxx:v1:event:cooldown"
 
+// cooldownIOTimeout 是 Redis 调用(BumpGeneration / GetGeneration / Publish)的
+// 最大等待时间。设小一些避免在 m.mu 写锁路径上挂太久。失败的代价仅是这次
+// generation 同步缺失,下次 IsInCooldown 触发的节流 sync 会拉齐。
+const cooldownIOTimeout = 200 * time.Millisecond
+
 // providerEvent 是广播给其他实例的事件 payload。
 // 故意只带 provider_id + generation:
 //   - generation 是 provider 状态变化的版本号,变了就要重载该 provider 的本地条目
@@ -76,7 +81,9 @@ func (m *Manager) bumpAndPublishLocked(providerID uint64) {
 	var canPublish bool
 
 	if sp := m.store.Load(); sp != nil {
-		gen, err := (*sp).BumpGeneration(context.Background(), providerID)
+		bumpCtx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
+		gen, err := (*sp).BumpGeneration(bumpCtx, providerID)
+		cancel()
 		if err != nil {
 			log.Printf("[Cooldown] BumpGeneration failed for provider %d: %v (skipping publish; remote peers will resync on next generation change)", providerID, err)
 			// 不更新本地 gen 也不 publish。
@@ -105,7 +112,10 @@ func (m *Manager) bumpAndPublishLocked(providerID uint64) {
 			log.Printf("[Cooldown] marshal event: %v", err)
 			return
 		}
-		if err := (*cp).Publish(context.Background(), eventChannel, payload); err != nil {
+		pubCtx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
+		err = (*cp).Publish(pubCtx, eventChannel, payload)
+		cancel()
+		if err != nil {
 			log.Printf("[Cooldown] publish event: %v", err)
 		}
 	}
@@ -218,7 +228,9 @@ func (m *Manager) syncProviderGeneration(providerID uint64) {
 		return
 	}
 
-	remoteGen, err := (*sp).GetGeneration(context.Background(), providerID)
+	syncCtx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
+	remoteGen, err := (*sp).GetGeneration(syncCtx, providerID)
+	cancel()
 	if err != nil {
 		log.Printf("[Cooldown] syncProviderGeneration %d: %v", providerID, err)
 		// 即便查失败也记下尝试时间,避免热路径上反复打 Redis
