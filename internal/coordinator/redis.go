@@ -49,6 +49,19 @@ func NewRedis(ctx context.Context, url, instanceID string) (Coordinator, error) 
 
 func (c *redisCoordinator) InstanceID() string { return c.instanceID }
 
+// underlying 暴露 Redis 客户端给同包内的其他子系统(如 cooldown store)。
+// 故意不放进 Coordinator 接口,避免污染通用抽象;memory 实现自然 nil。
+func (c *redisCoordinator) underlying() *redis.Client { return c.rdb }
+
+// RedisClient 返回 Coordinator 的底层 Redis 客户端,memory 实现返回 nil。
+// 用于需要执行 Redis 专属操作的子系统(SetIfLater 的 Lua、SCAN 等)。
+func RedisClient(c Coordinator) *redis.Client {
+	if r, ok := c.(*redisCoordinator); ok {
+		return r.underlying()
+	}
+	return nil
+}
+
 func (c *redisCoordinator) Publish(ctx context.Context, channel string, payload []byte) error {
 	env := redisEnvelope{
 		Sender:  c.instanceID,
