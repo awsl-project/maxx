@@ -73,3 +73,7 @@ type deleteReportingRepo struct {
 func (r *deleteReportingRepo) DeleteOlderThan(before time.Time) (int64, error) {
 	return r.deletedCount, nil
 }
+
+// Cross-instance invalidation 由 tests/multiinstance/session_delete_test.go
+// 覆盖(需要真 Redis pub/sub 跨 instance ID 传播事件,memory coordinator 是
+// 进程内的不适合模拟跨实例 sender)。

@@ -45,9 +45,26 @@ func NewSessionRepository(repo repository.SessionRepository) *SessionRepository 
 	}
 }
 
+// sessionDeleteChannel 是 session 删除事件 channel。
+// DeleteOlderThan 删 KV 之后通过这条 channel 把 expired session keys 广播给
+// 其他实例,让它们也清掉本地 cache 中可能存在的 stale session。否则即便 KV
+// 和 DB 都删了,某个实例上次命中本地的 session 仍会通过 GetBySessionID 命中
+// 本地 cache 直接返回。
+const sessionDeleteChannel = "session:delete"
+
+// sessionDeleteEvent 是事件 payload。Keys 列表通常几十~几千条;单事件
+// 容纳所有 batch,避免 N 次小事件。
+type sessionDeleteEvent struct {
+	Keys []repository.SessionKey `json:"keys"`
+}
+
 // SetCoordinator 注入 coordinator,启用跨实例 session 共享。
 // ttl 控制 KV 条目过期时间。建议 1 小时左右——足够热数据复用,冷数据
 // 由 TTL 自然回收,DB 仍然是权威源。ttl <= 0 时使用默认 1 小时。
+//
+// 同时启动一个订阅 goroutine 处理跨实例的 session deletion event:
+// 收到非自身发出的事件时,清除本地 cache 中对应 keys。这样其他实例
+// 跑 DeleteOlderThan 后,本实例本地 cache 不会保留 stale 副本。
 func (r *SessionRepository) SetCoordinator(c coordinator.Coordinator, ttl time.Duration) {
 	if c == nil {
 		return
@@ -57,6 +74,32 @@ func (r *SessionRepository) SetCoordinator(c coordinator.Coordinator, ttl time.D
 	}
 	r.coordTTL = ttl
 	r.coord.Store(&c)
+
+	// 订阅 session 删除事件
+	ctx := context.Background()
+	ch, err := c.Subscribe(ctx, sessionDeleteChannel)
+	if err != nil {
+		log.Printf("[SessionCache] subscribe %s failed: %v", sessionDeleteChannel, err)
+		return
+	}
+	selfID := c.InstanceID()
+	go func() {
+		for msg := range ch {
+			if msg.Sender == selfID {
+				continue
+			}
+			var ev sessionDeleteEvent
+			if err := json.Unmarshal(msg.Payload, &ev); err != nil {
+				log.Printf("[SessionCache] discard malformed delete event: %v", err)
+				continue
+			}
+			r.mu.Lock()
+			for _, k := range ev.Keys {
+				delete(r.cache, sessionCacheKey{TenantID: k.TenantID, SessionID: k.SessionID})
+			}
+			r.mu.Unlock()
+		}
+	}()
 }
 
 func (r *SessionRepository) coordinator() coordinator.Coordinator {
@@ -322,6 +365,21 @@ func (r *SessionRepository) DeleteOlderThan(before time.Time) (int64, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), coordIOTimeout)
 			if err := c.Del(ctx, sessionCoordKey(k.TenantID, k.SessionID)); err != nil {
 				log.Printf("[SessionCache] del KV %s failed: %v", sessionCoordKey(k.TenantID, k.SessionID), err)
+			}
+			cancel()
+		}
+
+		// Step 4: 广播 deletion event 让其他实例清自己本地 cache。
+		// 即便 DB+KV 都删了,其他实例若之前命中过这些 session 到本地,
+		// 它们的 GetBySessionID/GetOrCreate 命中本地分支会直接返回 stale。
+		// 必须显式 invalidate 它们的本地 cache。
+		payload, err := json.Marshal(sessionDeleteEvent{Keys: expired})
+		if err != nil {
+			log.Printf("[SessionCache] marshal delete event failed: %v", err)
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), coordIOTimeout)
+			if err := c.Publish(ctx, sessionDeleteChannel, payload); err != nil {
+				log.Printf("[SessionCache] publish delete event failed: %v", err)
 			}
 			cancel()
 		}

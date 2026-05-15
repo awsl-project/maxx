@@ -215,30 +215,36 @@ func (m *Manager) RecordSuccess(providerID uint64, clientType string, model stri
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Clear only the model-level cooldown from memory
 	key := CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}
-	delete(m.cooldowns, key)
-	delete(m.reasons, key)
 
-	// Delete from store (distributed truth)
+	// Step 1: Redis store (distributed truth) — 必须先成功才能推进本地/DB。
+	// 失败时和 setCooldownLocked 的失败分支对齐:不动本地、不动 DB、不 bump。
+	// 否则 Redis 真值仍保留旧 cooldown,但本实例已经放行 + 其他实例 reload 又会
+	// 把它们的本地状态拉回到旧值,造成跨实例分叉。
 	if sp := m.store.Load(); sp != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
-		if err := (*sp).Delete(ctx, key); err != nil {
-			log.Printf("[Cooldown] store Delete failed: %v", err)
-		}
+		err := (*sp).Delete(ctx, key)
 		cancel()
+		if err != nil {
+			log.Printf("[Cooldown] store Delete failed for provider %d, clientType=%s, model=%s: %v (skipping local/DB/publish to avoid divergence)",
+				providerID, clientType, model, err)
+			// 让下次 IsInCooldown 触发 syncProviderGeneration 重新拉齐
+			delete(m.lastGenSync, providerID)
+			return
+		}
 	}
 
-	// Delete from database
+	// Step 2: 本地 + DB(此时已确认 Redis 删除成功)
+	delete(m.cooldowns, key)
+	delete(m.reasons, key)
 	if m.repository != nil {
 		if err := m.repository.Delete(providerID, clientType, model); err != nil {
 			log.Printf("[Cooldown] Failed to delete cooldown for provider %d, client %s, model %s from database: %v", providerID, clientType, model, err)
 		}
 	}
 
-	// Reset failure counts for this specific model
+	// Step 3: 重置失败计数 + 通知其他实例
 	m.failureTracker.ResetFailures(providerID, clientType, model)
-
 	m.bumpAndPublishLocked(providerID)
 
 	log.Printf("[Cooldown] Provider %d (clientType=%s, model=%s): Cleared model-level cooldown after successful request", providerID, clientType, model)
@@ -261,6 +267,33 @@ func (m *Manager) RecordSuccess(providerID uint64, clientType string, model stri
 // useIfLater=false:UpdateCooldown / SetCooldownUntil / SetCooldownDuration 等显式覆盖路径。
 func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model string, until time.Time, reason CooldownReason, useIfLater bool) {
 	key := CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}
+
+	// 0. until <= now 时退化为 clear:Redis store 的 Set/SetIfLater 对过期 until
+	//    会 no-op(PEXPIRE 不允许 ttl <= 0),继续走 Set 路径 → 本地/DB 写成过期
+	//    值,但 Redis 仍保留旧 cooldown,当前实例放行+其他实例从 Redis 读旧值继续
+	//    拦截 = 分布式分叉。直接 inline clear semantics(已持写锁,不需重入)。
+	if !until.After(time.Now()) {
+		if sp := m.store.Load(); sp != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
+			err := (*sp).Delete(ctx, key)
+			cancel()
+			if err != nil {
+				log.Printf("[Cooldown] store Delete on past-until clear failed: %v (skipping local/DB/publish)", err)
+				delete(m.lastGenSync, providerID)
+				return
+			}
+		}
+		delete(m.cooldowns, key)
+		delete(m.reasons, key)
+		if m.repository != nil {
+			if err := m.repository.Delete(providerID, clientType, model); err != nil {
+				log.Printf("[Cooldown] repository.Delete on past-until clear failed: %v", err)
+			}
+		}
+		m.failureTracker.ResetFailures(providerID, clientType, model)
+		m.bumpAndPublishLocked(providerID)
+		return
+	}
 
 	// 1. Redis store (分布式真值)
 	storeAccepted := true
@@ -367,7 +400,18 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string, model stri
 	defer m.mu.Unlock()
 
 	if clientType == "" && model == "" {
-		// Clear all cooldowns for this provider
+		// Clear all cooldowns for this provider.
+		// 和 RecordSuccess 一样:Redis 删除失败必须中止,不能让本地/DB 抢跑。
+		if sp := m.store.Load(); sp != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
+			err := (*sp).DeleteByProvider(ctx, providerID)
+			cancel()
+			if err != nil {
+				log.Printf("[Cooldown] store DeleteByProvider failed for provider %d: %v (skipping local/DB/publish)", providerID, err)
+				delete(m.lastGenSync, providerID)
+				return
+			}
+		}
 		keysToDelete := []CooldownKey{}
 		for key := range m.cooldowns {
 			if key.ProviderID == providerID {
@@ -377,15 +421,6 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string, model stri
 		for _, key := range keysToDelete {
 			delete(m.cooldowns, key)
 			delete(m.reasons, key)
-		}
-
-		// Delete from store
-		if sp := m.store.Load(); sp != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
-			if err := (*sp).DeleteByProvider(ctx, providerID); err != nil {
-				log.Printf("[Cooldown] store DeleteByProvider failed: %v", err)
-			}
-			cancel()
 		}
 
 		// Delete from database
@@ -400,19 +435,21 @@ func (m *Manager) ClearCooldown(providerID uint64, clientType string, model stri
 
 		m.bumpAndPublishLocked(providerID)
 	} else {
-		// Clear specific cooldown
+		// Clear specific cooldown — 同样先确保 Redis 真值删除成功
 		key := CooldownKey{ProviderID: providerID, ClientType: clientType, Model: model}
-		delete(m.cooldowns, key)
-		delete(m.reasons, key)
-
-		// Delete from store
 		if sp := m.store.Load(); sp != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), cooldownIOTimeout)
-			if err := (*sp).Delete(ctx, key); err != nil {
-				log.Printf("[Cooldown] store Delete failed: %v", err)
-			}
+			err := (*sp).Delete(ctx, key)
 			cancel()
+			if err != nil {
+				log.Printf("[Cooldown] store Delete failed for provider %d, clientType=%s, model=%s: %v (skipping local/DB/publish)",
+					providerID, clientType, model, err)
+				delete(m.lastGenSync, providerID)
+				return
+			}
 		}
+		delete(m.cooldowns, key)
+		delete(m.reasons, key)
 
 		// Delete from database
 		if m.repository != nil {
