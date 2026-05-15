@@ -196,6 +196,53 @@ func main() {
 	cachedAPITokenRepo := cached.NewAPITokenRepository(apiTokenRepo)
 	cachedModelMappingRepo := cached.NewModelMappingRepository(modelMappingRepo)
 
+	// Wire cross-instance cache invalidation. Each cached repo publishes a small
+	// "invalidated" event after writes; the matching subscribers below reload the
+	// entire entity on receipt. We register publishers and subscribers up-front
+	// so admin mutations on any instance propagate to peers immediately.
+	cachedProviderRepo.SetCoordinator(coord)
+	cachedRouteRepo.SetCoordinator(coord)
+	cachedRetryConfigRepo.SetCoordinator(coord)
+	cachedRoutingStrategyRepo.SetCoordinator(coord)
+	cachedProjectRepo.SetCoordinator(coord)
+	cachedAPITokenRepo.SetCoordinator(coord)
+	cachedModelMappingRepo.SetCoordinator(coord)
+	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateProvider, func() {
+		if err := cachedProviderRepo.Load(); err != nil {
+			log.Printf("[Cache] reload providers failed: %v", err)
+		}
+	})
+	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateRoute, func() {
+		if err := cachedRouteRepo.Load(); err != nil {
+			log.Printf("[Cache] reload routes failed: %v", err)
+		}
+	})
+	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateRetryConfig, func() {
+		if err := cachedRetryConfigRepo.Load(); err != nil {
+			log.Printf("[Cache] reload retry configs failed: %v", err)
+		}
+	})
+	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateRoutingStrategy, func() {
+		if err := cachedRoutingStrategyRepo.Load(); err != nil {
+			log.Printf("[Cache] reload routing strategies failed: %v", err)
+		}
+	})
+	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateProject, func() {
+		if err := cachedProjectRepo.Load(); err != nil {
+			log.Printf("[Cache] reload projects failed: %v", err)
+		}
+	})
+	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateAPIToken, func() {
+		if err := cachedAPITokenRepo.Load(); err != nil {
+			log.Printf("[Cache] reload api tokens failed: %v", err)
+		}
+	})
+	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateModelMapping, func() {
+		if err := cachedModelMappingRepo.Load(); err != nil {
+			log.Printf("[Cache] reload model mappings failed: %v", err)
+		}
+	})
+
 	// Load cached data
 	startupStep = time.Now()
 	log.Printf("[Startup] Loading caches...")

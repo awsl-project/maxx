@@ -3,6 +3,7 @@ package cached
 import (
 	"sync"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -12,6 +13,7 @@ type RetryConfigRepository struct {
 	cache        map[uint64]*domain.RetryConfig
 	defaultCache map[uint64]*domain.RetryConfig // tenantID -> default config
 	mu           sync.RWMutex
+	bc           cacheBroadcast
 }
 
 func NewRetryConfigRepository(repo repository.RetryConfigRepository) *RetryConfigRepository {
@@ -20,6 +22,10 @@ func NewRetryConfigRepository(repo repository.RetryConfigRepository) *RetryConfi
 		cache:        make(map[uint64]*domain.RetryConfig),
 		defaultCache: make(map[uint64]*domain.RetryConfig),
 	}
+}
+
+func (r *RetryConfigRepository) SetCoordinator(c coordinator.Coordinator) {
+	r.bc.attach(c, InvalidateRetryConfig)
 }
 
 func (r *RetryConfigRepository) Load() error {
@@ -58,6 +64,7 @@ func (r *RetryConfigRepository) Create(c *domain.RetryConfig) error {
 		}
 		r.defaultCache[c.TenantID] = c
 	}
+	r.bc.publish()
 	return nil
 }
 
@@ -81,6 +88,7 @@ func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
 	} else if old, ok := r.defaultCache[c.TenantID]; ok && old.ID == c.ID {
 		delete(r.defaultCache, c.TenantID)
 	}
+	r.bc.publish()
 	return nil
 }
 
@@ -97,6 +105,7 @@ func (r *RetryConfigRepository) Delete(tenantID uint64, id uint64) error {
 	}
 	delete(r.cache, id)
 	r.mu.Unlock()
+	r.bc.publish()
 	return nil
 }
 
