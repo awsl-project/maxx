@@ -1,0 +1,54 @@
+name: E2E Multi-instance
+
+# 跑 docker compose 起的真 stack(redis + postgres + 2 maxx 实例 + test-runner),
+# 验证 multi-instance 协调的 HTTP 端到端行为。本地代码层语义由
+# tests/multiinstance/(miniredis 进程内)覆盖,这个 workflow 是真容器化补充。
+
+on:
+  pull_request:
+    paths:
+      - "cmd/maxx/**"
+      - "internal/coordinator/**"
+      - "internal/cooldown/**"
+      - "internal/repository/cached/**"
+      - "internal/core/coordinator_setup.go"
+      - "internal/core/database.go"
+      - "internal/repository/sqlite/proxy_request.go"
+      - "tests/multiinstance-e2e/**"
+      - "Dockerfile"
+      - ".github/workflows/e2e-multiinstance.yml"
+  push:
+    branches: [main]
+
+jobs:
+  multiinstance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build & run multi-instance stack
+        working-directory: tests/multiinstance-e2e
+        run: |
+          docker compose build
+          docker compose up --abort-on-container-exit --exit-code-from test-runner
+
+      - name: Dump logs on failure
+        if: failure()
+        working-directory: tests/multiinstance-e2e
+        run: |
+          echo "===== maxx-a ====="
+          docker compose logs maxx-a || true
+          echo "===== maxx-b ====="
+          docker compose logs maxx-b || true
+          echo "===== redis ====="
+          docker compose logs redis || true
+          echo "===== postgres ====="
+          docker compose logs postgres || true
+          echo "===== test-runner ====="
+          docker compose logs test-runner || true
+
+      - name: Cleanup
+        if: always()
+        working-directory: tests/multiinstance-e2e
+        run: docker compose down -v

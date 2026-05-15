@@ -1,0 +1,103 @@
+# 多实例 e2e:redis + 共享 postgres + 2 个 maxx HTTP server 实例 + test-runner。
+#
+# 这个 stack 验证 docs/multi-instance-rfc.md 中描述的端到端行为,
+# 是对 tests/multiinstance/ (miniredis 进程内) 的真容器化补充:
+#   - 真 Redis pub/sub(网络 + 持久连接 + 实际编解码)
+#   - 共享 Postgres 数据库
+#   - 两个独立 maxx HTTP server 进程,通过 Redis 协调
+#   - HTTP API 层的跨实例可见性 / sweep 行为
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: maxx-mi-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: maxx-mi-postgres
+    environment:
+      POSTGRES_USER: maxx
+      POSTGRES_PASSWORD: maxxtest
+      POSTGRES_DB: maxx
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maxx -d maxx"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  maxx-a:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: maxx-mi-a
+    environment:
+      MAXX_ADMIN_PASSWORD: e2e-test-admin
+      MAXX_DSN: postgres://maxx:maxxtest@postgres:5432/maxx?sslmode=disable
+      MAXX_COORDINATOR_MODE: fail-fast
+      MAXX_COORDINATOR_REDIS_URL: redis://redis:6379/0
+      # 把心跳 + sweep 调短,加速 kill-then-recover 测试
+      MAXX_COORDINATOR_INSTANCE_TTL: 10s
+      MAXX_COORDINATOR_HEARTBEAT_INTERVAL: 3s
+      MAXX_PROXY_REQUEST_SWEEP_INTERVAL: 5s
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9880/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  maxx-b:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: maxx-mi-b
+    environment:
+      MAXX_ADMIN_PASSWORD: e2e-test-admin
+      MAXX_DSN: postgres://maxx:maxxtest@postgres:5432/maxx?sslmode=disable
+      MAXX_COORDINATOR_MODE: fail-fast
+      MAXX_COORDINATOR_REDIS_URL: redis://redis:6379/0
+      MAXX_COORDINATOR_INSTANCE_TTL: 10s
+      MAXX_COORDINATOR_HEARTBEAT_INTERVAL: 3s
+      MAXX_PROXY_REQUEST_SWEEP_INTERVAL: 5s
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      maxx-a:
+        # 先启动 A,让两个实例尽量错开心跳起始时间,
+        # 方便 kill-A 后看 B 的接管行为
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9880/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: maxx-mi-runner
+    depends_on:
+      maxx-a:
+        condition: service_healthy
+      maxx-b:
+        condition: service_healthy
+    environment:
+      MAXX_A_URL: http://maxx-a:9880
+      MAXX_B_URL: http://maxx-b:9880
+      MAXX_ADMIN_PASSWORD: e2e-test-admin
+    volumes:
+      - ./scripts:/scripts:ro
