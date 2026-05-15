@@ -22,6 +22,7 @@ import (
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"    // Register kiro adapter
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
@@ -136,11 +137,27 @@ func main() {
 		log.Printf("Warning: Failed to load cooldowns from database: %v", err)
 	}
 
-	// Generate instance ID and mark stale requests as failed
+	// Generate instance ID
 	instanceID := generateInstanceID()
+
+	// Setup coordinator (Redis pub/sub + KV + instance heartbeat).
+	// 必须在 MarkStaleAsFailed 和任何会写入 proxy_requests.instance_id 的代码路径
+	// (主要是 HTTP server) 之前完成 RegisterInstance,否则其他实例可能误判本实
+	// 例为"死亡"并清理本实例刚下发的请求。
+	const instanceTTL = 60 * time.Second
+	coordCtx, coordCancel := context.WithCancel(context.Background())
+	coord := coordinator.FromEnv(coordCtx, instanceID)
+	if err := coord.RegisterInstance(coordCtx, instanceTTL); err != nil {
+		log.Printf("Warning: Failed to register instance heartbeat: %v", err)
+	}
+	coordinator.StartHeartbeat(coordCtx, coord, instanceTTL)
+
 	startupStep := time.Now()
 	log.Printf("[Startup] Marking stale requests as failed...")
-	if count, err := proxyRequestRepo.MarkStaleAsFailed(instanceID); err != nil {
+	aliveInstances, err := coord.ListAliveInstances(coordCtx)
+	if err != nil {
+		log.Printf("Warning: ListAliveInstances failed: %v (skipping stale sweep)", err)
+	} else if count, err := proxyRequestRepo.MarkStaleAsFailed(aliveInstances); err != nil {
 		log.Printf("Warning: Failed to mark stale requests: %v", err)
 	} else {
 		log.Printf("[Startup] Marked %d stale requests as failed (%v)", count, time.Since(startupStep))
@@ -215,6 +232,31 @@ func main() {
 		log.Printf("Warning: Failed to initialize adapters: %v", err)
 	}
 	log.Printf("[Startup] Provider adapters initialized (%v)", time.Since(startupStep))
+
+	// Periodic sweep: 每 5 分钟基于活实例列表清理一次孤儿请求。多实例环境下,
+	// 这让活的实例能持续回收已死实例(实例突然崩溃、未走优雅关闭)留下的
+	// in-progress 请求。
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-coordCtx.Done():
+				return
+			case <-ticker.C:
+				alive, err := coord.ListAliveInstances(coordCtx)
+				if err != nil {
+					log.Printf("[Coordinator] periodic sweep: ListAlive failed: %v", err)
+					continue
+				}
+				if count, err := proxyRequestRepo.MarkStaleAsFailed(alive); err != nil {
+					log.Printf("[Coordinator] periodic sweep: MarkStaleAsFailed failed: %v", err)
+				} else if count > 0 {
+					log.Printf("[Coordinator] periodic sweep: marked %d stale requests as failed", count)
+				}
+			}
+		}
+	}()
 
 	// Start cooldown cleanup goroutine with graceful shutdown support
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
@@ -511,6 +553,19 @@ func main() {
 
 		// Stop background cleanup task
 		cleanupCancel()
+
+		// Unregister instance heartbeat so other instances immediately see us as dead;
+		// then cancel coord context and close client. 顺序很重要:先 Unregister,
+		// 让其他实例感知到本实例下线,再切断 ctx 阻止后续重新注册。
+		unregCtx, unregCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := coord.UnregisterInstance(unregCtx); err != nil {
+			log.Printf("Warning: Failed to unregister instance: %v", err)
+		}
+		unregCancel()
+		coordCancel()
+		if err := coord.Close(); err != nil {
+			log.Printf("Warning: Failed to close coordinator: %v", err)
+		}
 
 		// Stop pprof manager
 		if err := pprofMgr.Stop(shutdownCtx); err != nil {

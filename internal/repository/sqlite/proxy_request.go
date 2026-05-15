@@ -175,21 +175,39 @@ func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *reposi
 	return count, nil
 }
 
-// MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
-// Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
-// Sets proper end_time and duration_ms for complete failure handling
-func (r *ProxyRequestRepository) MarkStaleAsFailed(currentInstanceID string) (int64, error) {
-	timeoutThreshold := time.Now().Add(-30 * time.Minute).UnixMilli()
-	now := time.Now().UnixMilli()
+// 死实例孤儿请求的回收宽限期。当一个请求的 instance_id 不在活实例列表里时,
+// 等它的 start_time 早于 (now - DeadInstanceGracePeriod) 才标记为 FAILED。
+// 这个宽限期覆盖以下场景:
+//   - 新启动的实例完成 RegisterInstance 之前可能已经下发了少量请求
+//   - 实例 ID 一时未来得及同步到 coordinator(网络抖动)
+// 选 60s 与心跳 TTL 对齐;单实例重启场景下,旧 in-progress 请求等 60s 后被清理,
+// 远好于原行为(立刻杀)和过保守行为(等 30min)之间。
+const deadInstanceGraceMillis = int64(60 * 1000)
 
-	// Use raw SQL for complex CASE expression
-	// Sets end_time = now and calculates duration_ms = now - start_time
+// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their
+// owning instance is no longer alive, or when the request has been in flight
+// for more than 30 minutes (timeout).
+//
+// 关键安全语义:
+//   - aliveInstanceIDs 为空 → 直接返回 0,不做任何回收。防止 coordinator
+//     异常导致全表误杀。调用方在 coordinator 健康时才该调用。
+//   - 多实例环境下,只清理 (a) instance_id 不在活实例集合且过了 60s 宽限期,
+//     或 (b) 任意实例上 start_time 超过 30min 的卡死请求。
+func (r *ProxyRequestRepository) MarkStaleAsFailed(aliveInstanceIDs []string) (int64, error) {
+	if len(aliveInstanceIDs) == 0 {
+		return 0, nil
+	}
+
+	nowMs := time.Now().UnixMilli()
+	timeoutThreshold := nowMs - int64(30*time.Minute/time.Millisecond)
+	deadGraceThreshold := nowMs - deadInstanceGraceMillis
+
 	result := r.db.gorm.Exec(`
 		UPDATE proxy_requests
 		SET status = 'FAILED',
 		    error = CASE
-		        WHEN instance_id IS NULL OR instance_id != ? THEN 'Server restarted'
-		        ELSE 'Request timed out (stuck in progress)'
+		        WHEN start_time < ? THEN 'Request timed out (stuck in progress)'
+		        ELSE 'Instance no longer alive'
 		    END,
 		    end_time = ?,
 		    duration_ms = CASE
@@ -198,11 +216,15 @@ func (r *ProxyRequestRepository) MarkStaleAsFailed(currentInstanceID string) (in
 		    END,
 		    updated_at = ?
 		WHERE status IN ('PENDING', 'IN_PROGRESS')
+		  AND start_time > 0
 		  AND (
-		      (instance_id IS NULL OR instance_id != ?)
-		      OR (start_time < ? AND start_time > 0)
+		      ((instance_id IS NULL OR instance_id NOT IN (?)) AND start_time < ?)
+		      OR
+		      start_time < ?
 		  )`,
-		currentInstanceID, now, now, now, currentInstanceID, timeoutThreshold,
+		timeoutThreshold, nowMs, nowMs, nowMs,
+		aliveInstanceIDs, deadGraceThreshold,
+		timeoutThreshold,
 	)
 	if result.Error != nil {
 		return 0, result.Error

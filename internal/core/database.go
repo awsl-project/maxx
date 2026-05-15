@@ -217,7 +217,9 @@ func InitializeServerComponents(
 	bedrock.SetDiscoveryRepository(repos.BedrockDiscoveryRepo)
 
 	log.Printf("[Core] Marking stale requests as failed")
-	if count, err := repos.ProxyRequestRepo.MarkStaleAsFailed(instanceID); err != nil {
+	// TODO(distributed): 接入 coordinator.ListAliveInstances 后替换。当前 desktop 路径
+	// 仍是单实例,把自己当作唯一活实例,行为等价于原逻辑(modulo 60s grace period)。
+	if count, err := repos.ProxyRequestRepo.MarkStaleAsFailed([]string{instanceID}); err != nil {
 		log.Printf("[Core] Warning: Failed to mark stale requests: %v", err)
 	} else if count > 0 {
 		log.Printf("[Core] Marked %d stale requests as failed", count)

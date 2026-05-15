@@ -128,9 +128,14 @@ type ProxyRequestRepository interface {
 	CountWithFilter(tenantID uint64, filter *ProxyRequestFilter) (int64, error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 	UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error)
-	// MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
-	// Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
-	MarkStaleAsFailed(currentInstanceID string) (int64, error)
+	// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their
+	// owning instance is no longer alive, or when start_time is older than 30 minutes.
+	//
+	// aliveInstanceIDs 必须由 coordinator.ListAliveInstances 提供。一个安全门:
+	// 当 aliveInstanceIDs 为空(说明 coordinator 异常或刚启动)时,实现应跳过
+	// 清理,绝不基于"没有活实例"的假设把所有 in-progress 请求都标记 FAILED。
+	// 这样多实例环境下后启动的实例不会误杀先启动实例的在飞请求。
+	MarkStaleAsFailed(aliveInstanceIDs []string) (int64, error)
 	// FixFailedRequestsWithoutEndTime fixes FAILED requests that have no end_time set
 	FixFailedRequestsWithoutEndTime() (int64, error)
 	// DeleteOlderThan 删除指定时间之前的请求记录
