@@ -99,13 +99,23 @@ func (m *Manager) bumpAndPublishLocked(providerID uint64) {
 
 // applyRemoteEvent 处理来自其他实例的事件。
 //
-// 策略:不管 generation 是不是大于本地的,都触发该 provider 的 reload。
-// 重复 reload 是幂等的(全清 + ListByProvider 全装),换得"事件被严格处理"
-// 的清晰语义。
+// 跳过条件:ev.Generation <= 本地已知 generation。
+// 原因:Redis pub/sub 偶尔会乱序送达(连接重连后回放队列),如果照单全收
+// 会让本地 providerGen 倒退,然后 syncProviderGeneration 立刻又会跑一次
+// reload 把它推回最新值——白做一次 ListByProvider。严格"只前进不后退"
+// 既保证收敛,又避免乱序时的颠簸。
 func (m *Manager) applyRemoteEvent(ev providerEvent) {
 	if sp := m.store.Load(); sp == nil {
 		return // 没有 store 就没有真值可重载
 	}
+
+	m.mu.RLock()
+	local := m.providerGen[ev.ProviderID]
+	m.mu.RUnlock()
+	if ev.Generation <= local {
+		return
+	}
+
 	m.reloadProvider(ev.ProviderID, ev.Generation)
 }
 

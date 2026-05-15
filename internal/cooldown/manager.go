@@ -3,6 +3,7 @@ package cooldown
 import (
 	"context"
 	"log"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -187,6 +188,11 @@ func (m *Manager) RecordFailure(providerID uint64, clientType string, model stri
 // This is used for async updates (e.g., when quota reset time is fetched asynchronously)
 // Keeps the existing reason
 func (m *Manager) UpdateCooldown(providerID uint64, clientType string, model string, until time.Time) {
+	if !until.After(time.Now()) {
+		// 已过期或刚好等于现在,不写入 store/本地;直接相当于 clear。
+		m.ClearCooldown(providerID, clientType, model)
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -239,8 +245,15 @@ func (m *Manager) RecordSuccess(providerID uint64, clientType string, model stri
 // setCooldownLocked sets cooldown without acquiring lock (internal use only).
 //
 // 写入顺序:Redis store(分布式真值) → 本地 map → DB(持久化) → bump generation + publish。
-// 如果 store 写入因为 SetIfLater 判定不更晚而被拒(returnedOK=false),仍然更新本地
-// 但不再 bump generation/publish,因为分布式状态没变。
+//
+// 三个分支:
+//   - store 接受(写入或同值覆盖):本地与 store 一致,正常 bump + publish
+//   - store 因 SetIfLater 拒绝(已有更晚 cooldown):**不能**用本实例的 until
+//     覆盖本地,否则本地暂时低于真值。改为 schedule 一次该 provider 的
+//     reload,把本地拉到 store 最新状态
+//   - store 错误:Redis 暂时不可用。仍然更新本地保证单机正确,bump 本地
+//     generation 并尝试 publish——这样 Redis 恢复后 syncProviderGeneration
+//     会发现本地 generation 落后并 reload
 //
 // useIfLater=true:RecordFailure 路径,避免覆盖更晚的 cooldown。
 // useIfLater=false:UpdateCooldown / SetCooldownUntil / SetCooldownDuration 等显式覆盖路径。
@@ -249,6 +262,7 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 
 	// 1. Redis store (分布式真值)
 	storeAccepted := true
+	storeRejected := false // SetIfLater 明确拒绝(已有更晚 cooldown)
 	if sp := m.store.Load(); sp != nil {
 		s := *sp
 		ctx := context.Background()
@@ -256,21 +270,30 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 			ok, err := s.SetIfLater(ctx, key, until)
 			if err != nil {
 				log.Printf("[Cooldown] store SetIfLater failed: %v", err)
+				storeAccepted = false
+			} else {
+				storeAccepted = ok
+				storeRejected = !ok
 			}
-			storeAccepted = ok
 		} else {
 			if err := s.Set(ctx, key, until); err != nil {
 				log.Printf("[Cooldown] store Set failed: %v", err)
+				storeAccepted = false
 			}
 		}
 	}
 
 	// 2. 本地 map
-	m.cooldowns[key] = until
-	m.reasons[key] = reason
+	// SetIfLater 拒绝时跳过本地写入,而是 reload —— 这样本地不会因为
+	// "用了一个比 store 真值更早的 until 覆盖本地" 而变得不一致。
+	// store 错误时仍写本地,保证单机视图正确(详见上面注释)。
+	if !storeRejected {
+		m.cooldowns[key] = until
+		m.reasons[key] = reason
+	}
 
 	// 3. DB 持久化 (兼容旧的 LoadFromDatabase 启动恢复路径)
-	if m.repository != nil {
+	if m.repository != nil && !storeRejected {
 		cd := &domain.Cooldown{
 			ProviderID: providerID,
 			ClientType: clientType,
@@ -283,8 +306,18 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 		}
 	}
 
-	// 4. 通知其他实例(仅在 store 接受变更时)
-	if storeAccepted {
+	// 4. 通知其他实例 / 本地恢复
+	switch {
+	case storeRejected:
+		// 已有更晚 cooldown:本地未更新。把 lastGenSync 清零,下次
+		// IsInCooldown 立即触发 syncProviderGeneration,从 store reload。
+		// 不在持锁路径直接 reload —— 避免在写锁内做 Redis I/O。
+		delete(m.lastGenSync, providerID)
+	case storeAccepted:
+		// 正常写入,bump + publish
+		m.bumpAndPublishLocked(providerID)
+	default:
+		// store 错误:本地仍记一次 generation 增量,后续 sync 会拉齐
 		m.bumpAndPublishLocked(providerID)
 	}
 }
@@ -595,7 +628,8 @@ func formatWithUnits(val1 int, unit1 string, val2 int, unit2 string, val3 int, u
 }
 
 func formatInt(i int) string {
-	return string(rune('0' + i/10)) + string(rune('0' + i%10))
+	// strconv 处理任意范围(原始实现对 >= 100 会产生乱码 rune)
+	return strconv.Itoa(i)
 }
 
 // GetAllCooldownsFromDB returns all active cooldowns from the repository

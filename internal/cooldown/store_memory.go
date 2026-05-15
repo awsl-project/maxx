@@ -59,7 +59,9 @@ func (s *memoryCooldownStore) Set(_ context.Context, key CooldownKey, until time
 func (s *memoryCooldownStore) SetIfLater(_ context.Context, key CooldownKey, until time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing, ok := s.entries[key]; ok && !until.After(existing) {
+	// 严格大于:同 until 仍接受,保证"mutation 必产生事件"的不变量
+	// (详见 store_redis.go::setIfLaterScript 注释)
+	if existing, ok := s.entries[key]; ok && existing.After(until) {
 		return false, nil
 	}
 	s.entries[key] = until

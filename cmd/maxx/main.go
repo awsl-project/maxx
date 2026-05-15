@@ -244,11 +244,12 @@ func main() {
 	}
 	log.Printf("[Startup] Provider adapters initialized (%v)", time.Since(startupStep))
 
-	// Periodic sweep: 每 5 分钟基于活实例列表清理一次孤儿请求。多实例环境下,
+	// Periodic sweep: 周期性基于活实例列表清理孤儿请求。多实例环境下,
 	// 这让活的实例能持续回收已死实例(实例突然崩溃、未走优雅关闭)留下的
-	// in-progress 请求。
+	// in-progress 请求。频率由 MAXX_PROXY_REQUEST_SWEEP_INTERVAL 控制
+	// (默认 45s,见 RFC)。
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(coordComp.Config.SweepInterval)
 		defer ticker.Stop()
 		for {
 			select {

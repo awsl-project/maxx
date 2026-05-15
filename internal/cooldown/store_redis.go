@@ -99,7 +99,8 @@ func (s *redisCooldownStore) Get(ctx context.Context, key CooldownKey) (time.Tim
 func (s *redisCooldownStore) ListByProvider(ctx context.Context, providerID uint64) ([]CooldownStoreEntry, error) {
 	pattern := fmt.Sprintf(redisCooldownKeyFmt, providerID, "*", "*")
 	// 用 SCAN 避免 KEYS 在大库阻塞。每 provider 的 cooldown key 一般几个到几十个,
-	// 单次扫描完即可。
+	// 单次扫描即可;再用 MGET 一次性取所有 value,避免 N+1 round trips
+	// (尤其是 applyRemoteEvent 路径每次事件都会重 ListByProvider)。
 	var (
 		cursor uint64
 		out    = make([]CooldownStoreEntry, 0)
@@ -110,27 +111,34 @@ func (s *redisCooldownStore) ListByProvider(ctx context.Context, providerID uint
 		if err != nil {
 			return nil, err
 		}
-		for _, raw := range keys {
-			k, ok := parseKey(raw)
-			if !ok {
-				continue
-			}
-			v, err := s.rdb.Get(ctx, raw).Result()
-			if errors.Is(err, redis.Nil) {
-				continue // 刚好过期
-			}
+		if len(keys) > 0 {
+			values, err := s.rdb.MGet(ctx, keys...).Result()
 			if err != nil {
 				return nil, err
 			}
-			ms, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				continue
+			for i, raw := range keys {
+				k, ok := parseKey(raw)
+				if !ok {
+					continue
+				}
+				v := values[i]
+				if v == nil {
+					continue // 刚好过期 / 失踪
+				}
+				str, ok := v.(string)
+				if !ok {
+					continue
+				}
+				ms, err := strconv.ParseInt(str, 10, 64)
+				if err != nil {
+					continue
+				}
+				t := time.UnixMilli(ms)
+				if now.After(t) {
+					continue
+				}
+				out = append(out, CooldownStoreEntry{Key: k, Until: t})
 			}
-			t := time.UnixMilli(ms)
-			if now.After(t) {
-				continue
-			}
-			out = append(out, CooldownStoreEntry{Key: k, Until: t})
 		}
 		cursor = next
 		if cursor == 0 {
@@ -150,14 +158,21 @@ func (s *redisCooldownStore) Set(ctx context.Context, key CooldownKey, until tim
 
 // SetIfLater 用 Lua 保证原子性。逻辑:
 //   - 读当前值
-//   - 如果不存在 / 已过期 / 比新值早 → 写入并返回 1
+//   - 如果不存在 / 比新值严格早 → 写入并返回 1
 //   - 否则返回 0
+//
+// 用 `>` 严格大于而不是 `>=`:两个实例在同一毫秒计算出相同 until
+// 是常见情形(time.Now().Add(d) 经常对齐),如果同 until 也被拒绝,
+// 第二个实例就完全跳过了 generation bump + publish 步骤,其他实例
+// 也无法收到事件 → 状态分歧。允许同值"写入"虽然多一次 SET,但
+// 保证了"凡发生 mutation 必产生事件"的不变量。
+//
 // PEXPIRE 用毫秒级 TTL,避免 redis 自动过期时精度损失影响并发判断。
 var setIfLaterScript = redis.NewScript(`
 local key = KEYS[1]
 local newMs = tonumber(ARGV[1])
 local current = redis.call("GET", key)
-if current and tonumber(current) >= newMs then
+if current and tonumber(current) > newMs then
     return 0
 end
 local ttl = newMs - tonumber(ARGV[2])

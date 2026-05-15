@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -27,11 +28,12 @@ const (
 // Config 是 coordinator 启动配置。所有字段都可以由环境变量初始化,
 // 也允许调用方手动构造(便于测试与 desktop launcher)。
 type Config struct {
-	Mode               Mode
-	RedisURL           string
-	InstanceTTL        time.Duration
-	HeartbeatInterval  time.Duration
-	ReconnectInterval  time.Duration
+	Mode              Mode
+	RedisURL          string
+	InstanceTTL       time.Duration
+	HeartbeatInterval time.Duration
+	ReconnectInterval time.Duration
+	SweepInterval     time.Duration // 周期性 stale-request sweep 间隔
 }
 
 // 环境变量名常量,与 docs/multi-instance-rfc.md 保持一致。
@@ -42,6 +44,7 @@ const (
 	EnvInstanceTTL       = "MAXX_COORDINATOR_INSTANCE_TTL"
 	EnvHeartbeatInterval = "MAXX_COORDINATOR_HEARTBEAT_INTERVAL"
 	EnvReconnectInterval = "MAXX_COORDINATOR_RECONNECT_INTERVAL"
+	EnvSweepInterval     = "MAXX_PROXY_REQUEST_SWEEP_INTERVAL"
 )
 
 // ConfigFromEnv 从环境变量加载配置。未设置的字段使用 RFC 默认值。
@@ -60,11 +63,16 @@ func ConfigFromEnv() Config {
 		InstanceTTL:       60 * time.Second,
 		HeartbeatInterval: 20 * time.Second,
 		ReconnectInterval: 5 * time.Second,
+		SweepInterval:     45 * time.Second,
 	}
 
 	c.RedisURL = strings.TrimSpace(os.Getenv(EnvRedisURLPrimary))
+	usedLegacyURL := false
 	if c.RedisURL == "" {
-		c.RedisURL = strings.TrimSpace(os.Getenv(EnvRedisURLLegacy))
+		if legacy := strings.TrimSpace(os.Getenv(EnvRedisURLLegacy)); legacy != "" {
+			c.RedisURL = legacy
+			usedLegacyURL = true
+		}
 	}
 
 	if v := strings.TrimSpace(os.Getenv(EnvMode)); v != "" {
@@ -72,6 +80,13 @@ func ConfigFromEnv() Config {
 	} else if c.RedisURL != "" {
 		// 老用户设置过 MAXX_REDIS_URL,默认走 degraded(连得上就用,连不上 warn)
 		c.Mode = ModeDegraded
+		if usedLegacyURL {
+			log.Printf("[Coordinator] DEPRECATION: %s is set but %s is not — "+
+				"defaulting to %s mode. Set %s=%s (or =fail-fast/standalone) "+
+				"explicitly and use %s to silence this warning.",
+				EnvRedisURLLegacy, EnvRedisURLPrimary,
+				ModeDegraded, EnvMode, ModeDegraded, EnvRedisURLPrimary)
+		}
 	} else {
 		c.Mode = ModeStandalone
 	}
@@ -84,6 +99,9 @@ func ConfigFromEnv() Config {
 	}
 	if d, ok := parseDurationEnv(EnvReconnectInterval); ok {
 		c.ReconnectInterval = d
+	}
+	if d, ok := parseDurationEnv(EnvSweepInterval); ok {
+		c.SweepInterval = d
 	}
 
 	return c

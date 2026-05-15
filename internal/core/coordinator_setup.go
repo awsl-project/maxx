@@ -45,9 +45,8 @@ func SetupCoordinator(parentCtx context.Context, instanceID string, forceStandal
 		return nil, err
 	}
 
-	if err := coord.RegisterInstance(coordCtx, cfg.InstanceTTL); err != nil {
-		log.Printf("[Coordinator] Warning: RegisterInstance failed: %v", err)
-	}
+	// StartHeartbeat 内部立即执行一次 RegisterInstance 并起后台续期 goroutine,
+	// 所以这里不需要在外面再单独 RegisterInstance。
 	coordinator.StartHeartbeat(coordCtx, coord, cfg.InstanceTTL)
 
 	cooldown.Default().SetCoordinator(coordCtx, coord)
