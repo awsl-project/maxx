@@ -138,11 +138,12 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 }
 
 func codexMessageRoleToOpenAI(role string) string {
-	switch strings.ToLower(strings.TrimSpace(role)) {
+	normalized := strings.ToLower(strings.TrimSpace(role))
+	switch normalized {
 	case "developer", "system":
 		return "system"
 	case "assistant", "user", "tool", "function":
-		return strings.ToLower(strings.TrimSpace(role))
+		return normalized
 	default:
 		return "user"
 	}

@@ -55,13 +55,11 @@ func isOpenRouterCompatibleURL(rawURL string) bool {
 		return false
 	}
 	parsed, err := url.Parse(trimmed)
-	if err == nil {
-		host := strings.TrimPrefix(parsed.Hostname(), "www.")
-		if host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai") {
-			return true
-		}
+	if err != nil {
+		return false
 	}
-	return strings.Contains(trimmed, "openrouter.ai")
+	host := strings.TrimPrefix(parsed.Hostname(), "www.")
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
 }
 
 func isOpenRouterCompatibleProviderName(name string) bool {

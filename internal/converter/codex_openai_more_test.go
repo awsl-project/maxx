@@ -59,7 +59,7 @@ func TestCodexToOpenAIRequest_ConvertsResponseToolsToFunctionTools(t *testing.T)
 	if got.Model != "deepseek-test" || !got.Stream {
 		t.Fatalf("unexpected model/stream: %#v", got)
 	}
-	if len(got.Messages) < 2 || got.Messages[0].Role != "system" || got.Messages[1].Role != "user" {
+	if len(got.Messages) != 2 || got.Messages[0].Role != "system" || got.Messages[1].Role != "user" {
 		t.Fatalf("unexpected converted roles: %#v", got.Messages)
 	}
 	if len(got.Tools) != 1 {
