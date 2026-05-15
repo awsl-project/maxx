@@ -282,17 +282,51 @@ func (r *SessionRepository) List(tenantID uint64) ([]*domain.Session, error) {
 	return r.repo.List(tenantID)
 }
 
-func (r *SessionRepository) DeleteOlderThan(before time.Time) (int64, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// ListExpiredKeys 透传到底层。本层不缓存这个查询(用例是低频 background
+// cleanup,缓存命中率几乎为零)。
+func (r *SessionRepository) ListExpiredKeys(before time.Time) ([]repository.SessionKey, error) {
+	return r.repo.ListExpiredKeys(before)
+}
 
+func (r *SessionRepository) DeleteOlderThan(before time.Time) (int64, error) {
+	// Step 1: 取要删的 session keys(在锁外做 DB SELECT;只取 tenant_id/session_id
+	// 两列,避免拉整行)。这是为了在 Step 3 同步删除 coordinator KV 中对应条目,
+	// 否则其他实例可能从 KV 读到已被 DB 删除的 session(stale read,见 PR 评论)。
+	// coord 未注入时跳过 SELECT,保持 standalone 性能不退化。
+	var expired []repository.SessionKey
+	if r.coordinator() != nil {
+		keys, err := r.repo.ListExpiredKeys(before)
+		if err != nil {
+			log.Printf("[SessionCache] ListExpiredKeys before KV cleanup failed: %v (proceeding with DB delete; KV may have stale entries up to coordTTL)", err)
+		} else {
+			expired = keys
+		}
+	}
+
+	// Step 2: DB 删除 + 本地 cache 全清
+	r.mu.Lock()
 	deleted, err := r.repo.DeleteOlderThan(before)
 	if err != nil {
+		r.mu.Unlock()
 		return 0, err
 	}
 	if deleted > 0 {
 		r.cache = make(map[sessionCacheKey]*domain.Session)
 	}
+	r.mu.Unlock()
+
+	// Step 3: 同步删 KV(锁外)。失败仅 log,降级到自然 TTL 过期,
+	// 单次操作短超时避免拖累 background task。
+	if c := r.coordinator(); c != nil && len(expired) > 0 {
+		for _, k := range expired {
+			ctx, cancel := context.WithTimeout(context.Background(), coordIOTimeout)
+			if err := c.Del(ctx, sessionCoordKey(k.TenantID, k.SessionID)); err != nil {
+				log.Printf("[SessionCache] del KV %s failed: %v", sessionCoordKey(k.TenantID, k.SessionID), err)
+			}
+			cancel()
+		}
+	}
+
 	return deleted, nil
 }
 

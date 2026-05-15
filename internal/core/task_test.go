@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
 
@@ -30,6 +31,10 @@ func (f *fakeSessionRepo) GetBySessionID(tenantID uint64, sessionID string) (*do
 }
 
 func (f *fakeSessionRepo) List(tenantID uint64) ([]*domain.Session, error) {
+	return nil, nil
+}
+
+func (f *fakeSessionRepo) ListExpiredKeys(before time.Time) ([]repository.SessionKey, error) {
 	return nil, nil
 }
 

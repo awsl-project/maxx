@@ -99,7 +99,19 @@ type SessionRepository interface {
 	Touch(tenantID uint64, sessionID string, touchedAt time.Time) error
 	GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error)
 	List(tenantID uint64) ([]*domain.Session, error)
+	// ListExpiredKeys 返回 updated_at 早于 before 的 session 标识。
+	// 用于跨实例 KV 同步:DeleteOlderThan 之前先取要删的 keys,
+	// DB 删除完成后用这些 keys 同步删除 coordinator KV 上的副本,
+	// 避免其他实例仍从 KV 读到已被 hard-delete 的 session(stale read)。
+	ListExpiredKeys(before time.Time) ([]SessionKey, error)
 	DeleteOlderThan(before time.Time) (int64, error)
+}
+
+// SessionKey 是 session 的最小标识,用于 ListExpiredKeys 等只需 (tenant, session_id)
+// 的批量操作,避免拉整行 domain.Session 浪费内存/带宽。
+type SessionKey struct {
+	TenantID  uint64
+	SessionID string
 }
 
 // ProxyRequestFilter 请求列表过滤条件

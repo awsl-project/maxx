@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 )
 
 type sessionTestRepo struct {
@@ -88,6 +89,15 @@ func (r *sessionTestRepo) List(tenantID uint64) ([]*domain.Session, error) {
 
 func (r *sessionTestRepo) DeleteOlderThan(before time.Time) (int64, error) {
 	return 0, nil
+}
+
+func (r *sessionTestRepo) ListExpiredKeys(before time.Time) ([]repository.SessionKey, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.session == nil || !r.session.UpdatedAt.Before(before) {
+		return nil, nil
+	}
+	return []repository.SessionKey{{TenantID: r.session.TenantID, SessionID: r.session.SessionID}}, nil
 }
 
 func (r *blockingDeleteSessionRepo) DeleteOlderThan(before time.Time) (int64, error) {
