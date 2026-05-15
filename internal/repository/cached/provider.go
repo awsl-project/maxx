@@ -49,7 +49,7 @@ func (r *ProviderRepository) Create(p *domain.Provider) error {
 	r.mu.Lock()
 	r.cache[p.ID] = p
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpCreate, p.ID)
 	return nil
 }
 
@@ -60,7 +60,7 @@ func (r *ProviderRepository) Update(p *domain.Provider) error {
 	r.mu.Lock()
 	r.cache[p.ID] = p
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpUpdate, p.ID)
 	return nil
 }
 
@@ -73,7 +73,7 @@ func (r *ProviderRepository) Delete(tenantID uint64, id uint64) error {
 	r.mu.Lock()
 	delete(r.cache, id)
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 

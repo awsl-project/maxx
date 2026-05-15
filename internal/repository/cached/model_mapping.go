@@ -79,7 +79,7 @@ func (r *ModelMappingRepository) Create(mapping *domain.ModelMapping) error {
 	r.cache = append(r.cache, mapping)
 	r.sortCache()
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpCreate, mapping.ID)
 	return nil
 }
 
@@ -97,7 +97,7 @@ func (r *ModelMappingRepository) Update(mapping *domain.ModelMapping) error {
 	}
 	r.sortCache() // 可能 priority 或 scope 变了，需要重新排序
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpUpdate, mapping.ID)
 	return nil
 }
 
@@ -114,7 +114,7 @@ func (r *ModelMappingRepository) Delete(tenantID uint64, id uint64) error {
 		}
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 
@@ -225,7 +225,7 @@ func (r *ModelMappingRepository) DeleteAll(tenantID uint64) error {
 		r.cache = filtered
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpReload, 0)
 	return nil
 }
 
@@ -246,7 +246,7 @@ func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
 		r.cache = filtered
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpReload, 0)
 	return nil
 }
 
@@ -258,6 +258,6 @@ func (r *ModelMappingRepository) SeedDefaults(tenantID uint64) error {
 	if err := r.Load(); err != nil {
 		return err
 	}
-	r.bc.publish()
+	r.bc.publish(OpReload, 0)
 	return nil
 }

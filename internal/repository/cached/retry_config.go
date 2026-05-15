@@ -64,7 +64,7 @@ func (r *RetryConfigRepository) Create(c *domain.RetryConfig) error {
 		}
 		r.defaultCache[c.TenantID] = c
 	}
-	r.bc.publish()
+	r.bc.publish(OpCreate, c.ID)
 	return nil
 }
 
@@ -88,7 +88,7 @@ func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
 	} else if old, ok := r.defaultCache[c.TenantID]; ok && old.ID == c.ID {
 		delete(r.defaultCache, c.TenantID)
 	}
-	r.bc.publish()
+	r.bc.publish(OpUpdate, c.ID)
 	return nil
 }
 
@@ -105,7 +105,7 @@ func (r *RetryConfigRepository) Delete(tenantID uint64, id uint64) error {
 	}
 	delete(r.cache, id)
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 

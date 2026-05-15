@@ -45,7 +45,7 @@ func (r *RouteRepository) Create(route *domain.Route) error {
 	r.cache = append(r.cache, route)
 	r.sortCacheLocked()
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpCreate, route.ID)
 	return nil
 }
 
@@ -62,7 +62,7 @@ func (r *RouteRepository) Update(route *domain.Route) error {
 	}
 	r.sortCacheLocked()
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpUpdate, route.ID)
 	return nil
 }
 
@@ -78,7 +78,7 @@ func (r *RouteRepository) Delete(tenantID uint64, id uint64) error {
 		}
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 
@@ -99,7 +99,7 @@ func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain
 	}
 	r.sortCacheLocked()
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpReload, 0) // BatchUpdatePositions 是批量,无单个 id
 	return nil
 }
 

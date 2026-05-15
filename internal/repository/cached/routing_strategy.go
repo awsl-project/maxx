@@ -52,7 +52,7 @@ func (r *RoutingStrategyRepository) Create(s *domain.RoutingStrategy) error {
 	r.mu.Lock()
 	r.cache[routingStrategyCacheKey{TenantID: s.TenantID, ProjectID: s.ProjectID}] = s
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpCreate, s.ID)
 	return nil
 }
 
@@ -72,7 +72,7 @@ func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
 	}
 	r.cache[newKey] = s
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpUpdate, s.ID)
 	return nil
 }
 
@@ -89,7 +89,7 @@ func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 		}
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 

@@ -61,7 +61,7 @@ func (r *ProjectRepository) Create(p *domain.Project) error {
 		r.slugCache[projectSlugKey{TenantID: p.TenantID, Slug: p.Slug}] = p
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpCreate, p.ID)
 	return nil
 }
 
@@ -85,7 +85,7 @@ func (r *ProjectRepository) Update(p *domain.Project) error {
 		r.slugCache[projectSlugKey{TenantID: p.TenantID, Slug: p.Slug}] = p
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpUpdate, p.ID)
 	return nil
 }
 
@@ -105,7 +105,7 @@ func (r *ProjectRepository) Delete(tenantID uint64, id uint64) error {
 		delete(r.slugCache, projectSlugKey{TenantID: p.TenantID, Slug: p.Slug})
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 

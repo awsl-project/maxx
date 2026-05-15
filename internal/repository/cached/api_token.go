@@ -38,7 +38,7 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 	r.cache[t.ID] = t
 	r.tokenCache[t.Token] = t
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpCreate, t.ID)
 	return nil
 }
 
@@ -58,7 +58,7 @@ func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	r.cache[t.ID] = t
 	r.tokenCache[t.Token] = t
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpUpdate, t.ID)
 	return nil
 }
 
@@ -78,7 +78,7 @@ func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 		delete(r.tokenCache, t.Token)
 	}
 	r.mu.Unlock()
-	r.bc.publish()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 

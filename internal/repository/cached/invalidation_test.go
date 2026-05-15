@@ -24,7 +24,7 @@ func TestCacheBroadcastPublishReachesSubscriber(t *testing.T) {
 
 	bc := &cacheBroadcast{}
 	bc.attach(coord, "x")
-	bc.publish()
+	bc.publish(OpUpdate, 42)
 
 	select {
 	case msg := <-ch:
@@ -51,7 +51,7 @@ func TestAttachInvalidationFiltersSelf(t *testing.T) {
 	// 同一 coordinator publish:Sender == inst-A,订阅者应过滤
 	bc := &cacheBroadcast{}
 	bc.attach(coord, "x")
-	bc.publish()
+	bc.publish(OpUpdate, 42)
 
 	time.Sleep(50 * time.Millisecond)
 	if got := atomic.LoadInt32(&hits); got != 0 {
@@ -62,7 +62,7 @@ func TestAttachInvalidationFiltersSelf(t *testing.T) {
 func TestCacheBroadcastNilCoordIsNoop(t *testing.T) {
 	t.Parallel()
 	bc := &cacheBroadcast{}
-	bc.publish() // 不应 panic
+	bc.publish(OpUpdate, 1) // 不应 panic
 }
 
 func TestAttachInvalidationNilCoordIsNoop(t *testing.T) {
