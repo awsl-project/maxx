@@ -79,11 +79,8 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 				role, _ := m["role"].(string)
 				switch itemType {
 				case "message":
-					if role == "" {
-						role = "user"
-					}
 					openaiReq.Messages = append(openaiReq.Messages, OpenAIMessage{
-						Role:    role,
+						Role:    codexMessageRoleToOpenAI(role),
 						Content: codexContentToOpenAI(m["content"]),
 					})
 				case "function_call":
@@ -119,8 +116,14 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 		}
 	}
 
-	// Convert tools
+	// Convert tools. Chat Completions can carry function tools, but Responses-only
+	// built-ins such as web_search do not have an OpenAI Chat function shape.
+	// Dropping those keeps Codex/OpenRouter-compatible fallbacks from sending
+	// invalid {type:"web_search"} or empty function names upstream.
 	for _, tool := range req.Tools {
+		if !strings.EqualFold(strings.TrimSpace(tool.Type), "function") || strings.TrimSpace(tool.Name) == "" {
+			continue
+		}
 		openaiReq.Tools = append(openaiReq.Tools, OpenAITool{
 			Type: "function",
 			Function: OpenAIFunction{
@@ -132,6 +135,17 @@ func (c *codexToOpenAIRequest) Transform(body []byte, model string, stream bool)
 	}
 
 	return json.Marshal(openaiReq)
+}
+
+func codexMessageRoleToOpenAI(role string) string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "developer", "system":
+		return "system"
+	case "assistant", "user", "tool", "function":
+		return strings.ToLower(strings.TrimSpace(role))
+	default:
+		return "user"
+	}
 }
 
 func codexContentToOpenAI(content interface{}) interface{} {
