@@ -25,7 +25,8 @@ into a concrete, minimal-diff implementation plan.
 - Replacing the existing `cache:invalidate:<entity>` channel naming.
 - Cross-provider global generation counters. Generation is strictly per-provider.
 - Single-flight / pipeline / scoped-lock optimizations.
-- Running-mode flips beyond a single `mem → redis` recovery in `degraded` mode.
+- Live coordinator swap. `degraded` mode only logs reconnect success; it does
+  not hot-swap implementations. Operators restart the process to upgrade.
 - Loading the on-disk cooldown table back into Redis at startup. Local memory
   may hydrate from DB, but Redis remains the *runtime* source of truth for
   distributed deployments.
@@ -42,13 +43,24 @@ MAXX_COORDINATOR_MODE = standalone | fail-fast | degraded   # default: standalon
 | ----------- | -------------------------- | ----------------------------- | --------------------------------------- |
 | standalone  | memory coordinator         | memory coordinator (URL ignored, warned) | memory coordinator (URL ignored, warned) |
 | fail-fast   | startup error              | redis coordinator             | startup error                           |
-| degraded    | startup error              | redis coordinator             | memory + background reconnect           |
+| degraded    | startup error              | redis coordinator             | memory; background reconnect logs WARN on recovery (no hot-swap) |
 
-`degraded` recovery is one-shot: a single successful reconnect upgrades the
-process to a Redis coordinator and rewires `cooldown.Manager` and all cached
-repos. Subsequent connection drops do *not* fall back to memory again — they
-surface as errors instead. v1 deliberately avoids the complexity of repeated
-recovery loops.
+`degraded` recovery in v1 is limited to a startup-time grace window: the
+process keeps trying to reach Redis in the background (every
+`MAXX_COORDINATOR_RECONNECT_INTERVAL`) and logs at WARN level when the
+connection is restored — *but does not switch the running coordinator
+implementation*. Operators see a log line that says "Redis became
+reachable, restart the process to enable distributed coordination" and
+restart at their convenience. The motivation is conservatism: live-swapping
+a coordinator means re-subscribing every cached-repo and cooldown channel
+and re-bumping every instance heartbeat, with subtle ordering hazards
+across goroutines. v1.x can add the live-swap later if the operator-restart
+workflow turns out to be too painful.
+
+In all three modes, runtime Redis errors after a successful start are
+surfaced through normal error paths (logged, metric-counted) but do *not*
+trigger a memory fallback. The contract is "if you asked for Redis at
+boot, you keep getting Redis errors until Redis recovers."
 
 ### Configuration
 

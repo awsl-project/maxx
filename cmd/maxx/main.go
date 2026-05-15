@@ -140,17 +140,20 @@ func main() {
 	// Generate instance ID
 	instanceID := generateInstanceID()
 
-	// Setup coordinator (Redis pub/sub + KV + instance heartbeat).
+	// Setup coordinator (mode + heartbeat).
 	// 必须在 MarkStaleAsFailed 和任何会写入 proxy_requests.instance_id 的代码路径
 	// (主要是 HTTP server) 之前完成 RegisterInstance,否则其他实例可能误判本实
 	// 例为"死亡"并清理本实例刚下发的请求。
-	const instanceTTL = 60 * time.Second
 	coordCtx, coordCancel := context.WithCancel(context.Background())
-	coord := coordinator.FromEnv(coordCtx, instanceID)
-	if err := coord.RegisterInstance(coordCtx, instanceTTL); err != nil {
+	coordCfg := coordinator.ConfigFromEnv()
+	coord, coordCleanup, err := coordinator.Build(coordCtx, coordCfg, instanceID)
+	if err != nil {
+		log.Fatalf("[Startup] coordinator setup: %v", err)
+	}
+	if err := coord.RegisterInstance(coordCtx, coordCfg.InstanceTTL); err != nil {
 		log.Printf("Warning: Failed to register instance heartbeat: %v", err)
 	}
-	coordinator.StartHeartbeat(coordCtx, coord, instanceTTL)
+	coordinator.StartHeartbeat(coordCtx, coord, coordCfg.InstanceTTL)
 
 	// Wire cooldown manager for cross-instance state sync. After this call,
 	// any cooldown set/clear on one instance is broadcast to peers so their
@@ -617,9 +620,7 @@ func main() {
 		}
 		unregCancel()
 		coordCancel()
-		if err := coord.Close(); err != nil {
-			log.Printf("Warning: Failed to close coordinator: %v", err)
-		}
+		coordCleanup()
 
 		// Stop pprof manager
 		if err := pprofMgr.Stop(shutdownCtx); err != nil {
