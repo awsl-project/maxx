@@ -465,6 +465,10 @@ func (a *LauncherApp) Shutdown(ctx context.Context) {
 		}
 	}
 
+	if a.components != nil && a.components.CoordinatorCleanup != nil {
+		a.components.CoordinatorCleanup()
+	}
+
 	if a.dbRepos != nil {
 		if err := core.CloseDatabase(a.dbRepos); err != nil {
 			log.Printf("[Launcher] Failed to close database: %v", err)

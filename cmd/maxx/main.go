@@ -22,7 +22,6 @@ import (
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"    // Register kiro adapter
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
-	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
@@ -140,26 +139,16 @@ func main() {
 	// Generate instance ID
 	instanceID := generateInstanceID()
 
-	// Setup coordinator (mode + heartbeat).
+	// Setup coordinator (mode + heartbeat + cooldown wiring).
 	// 必须在 MarkStaleAsFailed 和任何会写入 proxy_requests.instance_id 的代码路径
 	// (主要是 HTTP server) 之前完成 RegisterInstance,否则其他实例可能误判本实
 	// 例为"死亡"并清理本实例刚下发的请求。
-	coordCtx, coordCancel := context.WithCancel(context.Background())
-	coordCfg := coordinator.ConfigFromEnv()
-	coord, coordCleanup, err := coordinator.Build(coordCtx, coordCfg, instanceID)
+	coordComp, err := core.SetupCoordinator(context.Background(), instanceID, false)
 	if err != nil {
 		log.Fatalf("[Startup] coordinator setup: %v", err)
 	}
-	if err := coord.RegisterInstance(coordCtx, coordCfg.InstanceTTL); err != nil {
-		log.Printf("Warning: Failed to register instance heartbeat: %v", err)
-	}
-	coordinator.StartHeartbeat(coordCtx, coord, coordCfg.InstanceTTL)
-
-	// Wire cooldown manager for cross-instance state sync. After this call,
-	// any cooldown set/clear on one instance is broadcast to peers so their
-	// in-memory maps stay coherent. LoadFromDatabase above already populated
-	// the local map at boot, so this just sets up the live event channel.
-	cooldown.Default().SetCoordinator(coordCtx, coord)
+	coord := coordComp.Coordinator
+	coordCtx := coordComp.Ctx
 
 	startupStep := time.Now()
 	log.Printf("[Startup] Marking stale requests as failed...")
@@ -205,52 +194,17 @@ func main() {
 	cachedAPITokenRepo := cached.NewAPITokenRepository(apiTokenRepo)
 	cachedModelMappingRepo := cached.NewModelMappingRepository(modelMappingRepo)
 
-	// Wire cross-instance cache invalidation. Each cached repo publishes a small
-	// "invalidated" event after writes; the matching subscribers below reload the
-	// entire entity on receipt. We register publishers and subscribers up-front
-	// so admin mutations on any instance propagate to peers immediately.
-	cachedSessionRepo.SetCoordinator(coord, time.Hour)
-	cachedProviderRepo.SetCoordinator(coord)
-	cachedRouteRepo.SetCoordinator(coord)
-	cachedRetryConfigRepo.SetCoordinator(coord)
-	cachedRoutingStrategyRepo.SetCoordinator(coord)
-	cachedProjectRepo.SetCoordinator(coord)
-	cachedAPITokenRepo.SetCoordinator(coord)
-	cachedModelMappingRepo.SetCoordinator(coord)
-	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateProvider, func() {
-		if err := cachedProviderRepo.Load(); err != nil {
-			log.Printf("[Cache] reload providers failed: %v", err)
-		}
-	})
-	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateRoute, func() {
-		if err := cachedRouteRepo.Load(); err != nil {
-			log.Printf("[Cache] reload routes failed: %v", err)
-		}
-	})
-	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateRetryConfig, func() {
-		if err := cachedRetryConfigRepo.Load(); err != nil {
-			log.Printf("[Cache] reload retry configs failed: %v", err)
-		}
-	})
-	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateRoutingStrategy, func() {
-		if err := cachedRoutingStrategyRepo.Load(); err != nil {
-			log.Printf("[Cache] reload routing strategies failed: %v", err)
-		}
-	})
-	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateProject, func() {
-		if err := cachedProjectRepo.Load(); err != nil {
-			log.Printf("[Cache] reload projects failed: %v", err)
-		}
-	})
-	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateAPIToken, func() {
-		if err := cachedAPITokenRepo.Load(); err != nil {
-			log.Printf("[Cache] reload api tokens failed: %v", err)
-		}
-	})
-	cached.AttachInvalidation(coordCtx, coord, cached.InvalidateModelMapping, func() {
-		if err := cachedModelMappingRepo.Load(); err != nil {
-			log.Printf("[Cache] reload model mappings failed: %v", err)
-		}
+	// Wire cross-instance cache invalidation. AttachCachedReposToCoordinator
+	// 是 desktop launcher 也走的同一个 helper,保证两条启动路径行为一致。
+	core.AttachCachedReposToCoordinator(coordCtx, coord, &core.DatabaseRepos{
+		CachedProviderRepo:        cachedProviderRepo,
+		CachedRouteRepo:           cachedRouteRepo,
+		CachedRetryConfigRepo:     cachedRetryConfigRepo,
+		CachedRoutingStrategyRepo: cachedRoutingStrategyRepo,
+		CachedProjectRepo:         cachedProjectRepo,
+		CachedAPITokenRepo:        cachedAPITokenRepo,
+		CachedModelMappingRepo:    cachedModelMappingRepo,
+		CachedSessionRepo:         cachedSessionRepo,
 	})
 
 	// Load cached data
@@ -611,16 +565,8 @@ func main() {
 		// Stop background cleanup task
 		cleanupCancel()
 
-		// Unregister instance heartbeat so other instances immediately see us as dead;
-		// then cancel coord context and close client. 顺序很重要:先 Unregister,
-		// 让其他实例感知到本实例下线,再切断 ctx 阻止后续重新注册。
-		unregCtx, unregCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		if err := coord.UnregisterInstance(unregCtx); err != nil {
-			log.Printf("Warning: Failed to unregister instance: %v", err)
-		}
-		unregCancel()
-		coordCancel()
-		coordCleanup()
+		// Cleanup 内部顺序:UnregisterInstance → cancel ctx → close coordinator
+		coordComp.Cleanup()
 
 		// Stop pprof manager
 		if err := pprofMgr.Stop(shutdownCtx); err != nil {

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +15,7 @@ import (
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/executor"
@@ -99,6 +101,10 @@ type ServerComponents struct {
 	AuthMiddleware       *handler.AuthMiddleware
 	AuthHandler          *handler.AuthHandler
 	BackupService        *service.BackupService
+
+	// Coordinator wiring (desktop launcher 与 cmd/maxx 共用此字段)
+	Coordinator        coordinator.Coordinator
+	CoordinatorCleanup func()
 }
 
 // InitializeDatabase 初始化数据库和所有仓库
@@ -216,10 +222,19 @@ func InitializeServerComponents(
 	// request even though the rows are on disk.
 	bedrock.SetDiscoveryRepository(repos.BedrockDiscoveryRepo)
 
+	// Setup coordinator. Desktop launcher 强制 standalone:multi-instance
+	// 部署对桌面应用没意义,即使环境变量被意外设置也忽略。
+	coordComp, err := SetupCoordinator(context.Background(), instanceID, true)
+	if err != nil {
+		return nil, fmt.Errorf("setup coordinator: %w", err)
+	}
+	AttachCachedReposToCoordinator(coordComp.Ctx, coordComp.Coordinator, repos)
+
 	log.Printf("[Core] Marking stale requests as failed")
-	// TODO(distributed): 接入 coordinator.ListAliveInstances 后替换。当前 desktop 路径
-	// 仍是单实例,把自己当作唯一活实例,行为等价于原逻辑(modulo 60s grace period)。
-	if count, err := repos.ProxyRequestRepo.MarkStaleAsFailed([]string{instanceID}); err != nil {
+	alive, err := coordComp.Coordinator.ListAliveInstances(coordComp.Ctx)
+	if err != nil {
+		log.Printf("[Core] Warning: ListAliveInstances failed: %v (skipping stale sweep)", err)
+	} else if count, err := repos.ProxyRequestRepo.MarkStaleAsFailed(alive); err != nil {
 		log.Printf("[Core] Warning: Failed to mark stale requests: %v", err)
 	} else if count > 0 {
 		log.Printf("[Core] Marked %d stale requests as failed", count)
@@ -481,6 +496,8 @@ func InitializeServerComponents(
 		AuthMiddleware:       authMiddleware,
 		AuthHandler:          authHandler,
 		BackupService:        backupService,
+		Coordinator:          coordComp.Coordinator,
+		CoordinatorCleanup:   coordComp.Cleanup,
 	}
 
 	log.Printf("[Core] Server components initialized successfully")
