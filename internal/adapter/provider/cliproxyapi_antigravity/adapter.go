@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awsl-project/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/awsl-project/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	"github.com/awsl-project/CLIProxyAPI/v7/sdk/exec"
+	"github.com/awsl-project/CLIProxyAPI/v7/sdk/translator"
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/exec"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 )
 
 type CLIProxyAPIAntigravityAdapter struct {
