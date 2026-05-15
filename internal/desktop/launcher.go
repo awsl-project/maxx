@@ -330,6 +330,13 @@ func (a *LauncherApp) RestartServer() error {
 		}
 	}
 
+	// 释放 coordinator 资源(心跳 goroutine + Redis 连接 + 订阅 goroutine)。
+	// 必须先于 CloseDatabase,因为某些清理(如 UnregisterInstance)可能在
+	// goroutine 里仍要使用 coord。
+	if a.components != nil && a.components.CoordinatorCleanup != nil {
+		a.components.CoordinatorCleanup()
+	}
+
 	// 关闭数据库
 	if a.dbRepos != nil {
 		if err := core.CloseDatabase(a.dbRepos); err != nil {

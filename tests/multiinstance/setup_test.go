@@ -96,6 +96,8 @@ func (c *cluster) newInstance(t testing.TB, instanceID string) *instance {
 		t.Fatalf("build coordinator: %v", err)
 	}
 	if err := coord.RegisterInstance(ctx, cfg.InstanceTTL); err != nil {
+		cleanup()
+		cancel()
 		t.Fatalf("register instance: %v", err)
 	}
 

@@ -169,7 +169,15 @@ func (m *Manager) reloadProvider(providerID uint64, targetGen int64) {
 		}
 	}
 
-	m.providerGen[providerID] = targetGen
+	// providerGen 只能前进,不能后退。reloadProvider 可能被 applyRemoteEvent
+	// 触发(targetGen 来自远程事件)、被 syncProviderGeneration 触发(targetGen
+	// 来自 store GetGeneration),或被 store 错误时清空 lastGenSync 后的下一次
+	// IsInCooldown 触发。在 ListByProvider I/O 期间,本地 bumpAndPublishLocked
+	// 可能已经把 providerGen 推到比 targetGen 更高的值;此时不应该让 reload
+	// 把它倒退。
+	if current := m.providerGen[providerID]; targetGen > current {
+		m.providerGen[providerID] = targetGen
+	}
 	m.lastGenSync[providerID] = time.Now()
 }
 

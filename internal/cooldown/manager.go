@@ -293,6 +293,10 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 	}
 
 	// 3. DB 持久化 (兼容旧的 LoadFromDatabase 启动恢复路径)
+	// SetIfLater 拒绝时跳过 DB 写入:store 上更晚的 cooldown 是由另一个
+	// 实例写入的,那个实例同样会执行 repository.Upsert,所以 DB 也已经
+	// 是真值。当前架构下所有实例都连同一个 DB,这个假设成立。
+	// 如果未来拆分成"只写 store 不写 DB"的角色,这里需要补一次 DB sync。
 	if m.repository != nil && !storeRejected {
 		cd := &domain.Cooldown{
 			ProviderID: providerID,

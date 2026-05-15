@@ -71,6 +71,11 @@ func sessionCoordKey(tenantID uint64, sessionID string) string {
 	return fmt.Sprintf("session:%d:%s", tenantID, sessionID)
 }
 
+// coordIOTimeout 是单次 KV 操作的最大等待时间。
+// 这条路径在 proxy 请求的热路径上,Redis 抖动不能拖累整个请求,
+// 失败的代价仅仅是降级到 DB 读取。
+const coordIOTimeout = 200 * time.Millisecond
+
 // writeCoord 把 session 写到 coordinator KV,coord 未注入时 no-op。
 // 失败仅记日志:DB 已经写过,KV 只是加速层,丢失不影响正确性。
 func (r *SessionRepository) writeCoord(s *domain.Session) {
@@ -83,7 +88,9 @@ func (r *SessionRepository) writeCoord(s *domain.Session) {
 		log.Printf("[SessionCache] marshal failed: %v", err)
 		return
 	}
-	if err := c.Set(context.Background(), sessionCoordKey(s.TenantID, s.SessionID), data, r.coordTTL); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), coordIOTimeout)
+	defer cancel()
+	if err := c.Set(ctx, sessionCoordKey(s.TenantID, s.SessionID), data, r.coordTTL); err != nil {
 		log.Printf("[SessionCache] set %s failed: %v", sessionCoordKey(s.TenantID, s.SessionID), err)
 	}
 }
@@ -96,7 +103,9 @@ func (r *SessionRepository) readCoord(tenantID uint64, sessionID string) *domain
 	if c == nil || tenantID == domain.TenantIDAll {
 		return nil
 	}
-	data, err := c.Get(context.Background(), sessionCoordKey(tenantID, sessionID))
+	ctx, cancel := context.WithTimeout(context.Background(), coordIOTimeout)
+	defer cancel()
+	data, err := c.Get(ctx, sessionCoordKey(tenantID, sessionID))
 	if err != nil {
 		if !errors.Is(err, coordinator.ErrNotFound) {
 			log.Printf("[SessionCache] get %s failed: %v", sessionCoordKey(tenantID, sessionID), err)

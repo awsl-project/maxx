@@ -104,12 +104,19 @@ func (c *memoryCoordinator) Subscribe(ctx context.Context, channel string) (<-ch
 
 func (c *memoryCoordinator) Get(_ context.Context, key string) ([]byte, error) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	e, ok := c.kv[key]
+	c.mu.RUnlock()
 	if !ok {
 		return nil, ErrNotFound
 	}
 	if !e.expiry.IsZero() && time.Now().After(e.expiry) {
+		// 过期条目主动清理,避免 map 在长期运行下无界增长
+		// (生产环境用 Redis 实现走 TTL,memory 实现没有 background expirer)
+		c.mu.Lock()
+		if e2, still := c.kv[key]; still && e2.expiry == e.expiry {
+			delete(c.kv, key)
+		}
+		c.mu.Unlock()
 		return nil, ErrNotFound
 	}
 	return append([]byte(nil), e.value...), nil

@@ -50,20 +50,23 @@ func (r *RetryConfigRepository) Create(c *domain.RetryConfig) error {
 	if err := r.repo.Create(c); err != nil {
 		return err
 	}
+	// publish 必须在锁外:它会调用 coordinator.Publish,在 Redis 慢时持锁
+	// 等待会放大锁竞争,阻塞其他读路径。
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.cache[c.ID] = c
 	if c.IsDefault {
 		if old, ok := r.defaultCache[c.TenantID]; ok && old.ID != c.ID {
 			oldCopy := *old
 			oldCopy.IsDefault = false
 			if err := r.repo.Update(&oldCopy); err != nil {
+				r.mu.Unlock()
 				return err
 			}
 			old.IsDefault = false
 		}
 		r.defaultCache[c.TenantID] = c
 	}
+	r.mu.Unlock()
 	r.bc.publish(OpCreate, c.ID)
 	return nil
 }
@@ -73,13 +76,13 @@ func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
 		return err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.cache[c.ID] = c
 	if c.IsDefault {
 		if old, ok := r.defaultCache[c.TenantID]; ok && old.ID != c.ID {
 			oldCopy := *old
 			oldCopy.IsDefault = false
 			if err := r.repo.Update(&oldCopy); err != nil {
+				r.mu.Unlock()
 				return err
 			}
 			old.IsDefault = false
@@ -88,6 +91,7 @@ func (r *RetryConfigRepository) Update(c *domain.RetryConfig) error {
 	} else if old, ok := r.defaultCache[c.TenantID]; ok && old.ID == c.ID {
 		delete(r.defaultCache, c.TenantID)
 	}
+	r.mu.Unlock()
 	r.bc.publish(OpUpdate, c.ID)
 	return nil
 }

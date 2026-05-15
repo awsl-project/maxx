@@ -59,10 +59,16 @@ func (b *cacheBroadcast) attach(c coordinator.Coordinator, name string) {
 	b.name = name
 }
 
+// publishTimeout 是单次 publish 的最大等待时间。
+// Publish 走 coordinator → Redis,在 Redis 抖动时可能短暂阻塞;给一个
+// 较小的上限避免写路径(管理 API、admin 操作)被外部存储拖死。
+// 超时只意味着这次 invalidation 没被广播,数据本身已经写好。
+const publishTimeout = 200 * time.Millisecond
+
 // publish 通知其他实例:这个 entity 的某条记录发生了变更。
 // op 指明操作类型,id 是变更对象的主键(批量操作传 0),订阅端 v1 全部按
 // 全表 reload 处理,但 payload 字段为细粒度版本预留。
-// coord 未绑定时是 no-op。
+// coord 未绑定时是 no-op。失败/超时仅 log,不返回给调用方。
 func (b *cacheBroadcast) publish(op CacheInvalidateOp, id uint64) {
 	if b == nil || b.coord == nil {
 		return
@@ -77,7 +83,9 @@ func (b *cacheBroadcast) publish(op CacheInvalidateOp, id uint64) {
 		log.Printf("[Cache] marshal invalidation event for %s: %v", b.name, err)
 		return
 	}
-	if err := b.coord.Publish(context.Background(), cacheChannelPrefix+b.name, payload); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+	defer cancel()
+	if err := b.coord.Publish(ctx, cacheChannelPrefix+b.name, payload); err != nil {
 		log.Printf("[Cache] publish %s invalidation failed: %v", b.name, err)
 	}
 }
