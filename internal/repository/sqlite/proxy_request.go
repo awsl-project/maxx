@@ -289,6 +289,7 @@ func (r *ProxyRequestRepository) DeleteOlderThan(before time.Time) (int64, error
 		var ids []uint64
 		if err := r.db.gorm.Model(&ProxyRequest{}).
 			Where("created_at < ?", beforeTs).
+			Order("id").
 			Limit(batchSize).
 			Pluck("id", &ids).Error; err != nil {
 			return total, err
@@ -297,18 +298,24 @@ func (r *ProxyRequestRepository) DeleteOlderThan(before time.Time) (int64, error
 			return total, nil
 		}
 
-		if err := r.db.gorm.Where("proxy_request_id IN ?", ids).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
+		var batchAffected int64
+		if err := r.db.gorm.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("proxy_request_id IN ?", ids).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
+				return err
+			}
+			res := tx.Where("id IN ? AND created_at < ?", ids, beforeTs).Delete(&ProxyRequest{})
+			if res.Error != nil {
+				return res.Error
+			}
+			batchAffected = res.RowsAffected
+			return nil
+		}); err != nil {
 			return total, err
 		}
-
-		result := r.db.gorm.Where("id IN ?", ids).Delete(&ProxyRequest{})
-		if result.Error != nil {
-			return total, result.Error
+		if batchAffected > 0 {
+			atomic.AddInt64(&r.count, -batchAffected)
 		}
-		if result.RowsAffected > 0 {
-			atomic.AddInt64(&r.count, -result.RowsAffected)
-		}
-		total += result.RowsAffected
+		total += batchAffected
 
 		if len(ids) < batchSize {
 			return total, nil
@@ -490,20 +497,24 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 		if len(statuses) > 0 {
 			q = q.Where("status IN ?", statuses)
 		}
-		if err := q.Limit(batchSize).Pluck("id", &ids).Error; err != nil {
+		if err := q.Order("id").Limit(batchSize).Pluck("id", &ids).Error; err != nil {
 			return total, err
 		}
 		if len(ids) == 0 {
 			return total, nil
 		}
 
-		result := r.db.gorm.Model(&ProxyRequest{}).
-			Where("id IN ?", ids).
-			Updates(map[string]any{
-				"request_info":  nil,
-				"response_info": nil,
-				"updated_at":    time.Now().UnixMilli(),
-			})
+		// 重应用谓词：Pluck 与 UPDATE 之间行可能因 status/dev_mode 变动而不再 eligible。
+		uq := r.db.gorm.Model(&ProxyRequest{}).
+			Where("id IN ? AND created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", ids, beforeTs)
+		if len(statuses) > 0 {
+			uq = uq.Where("status IN ?", statuses)
+		}
+		result := uq.Updates(map[string]any{
+			"request_info":  nil,
+			"response_info": nil,
+			"updated_at":    time.Now().UnixMilli(),
+		})
 		if result.Error != nil {
 			return total, result.Error
 		}

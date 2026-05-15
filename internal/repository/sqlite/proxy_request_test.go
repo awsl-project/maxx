@@ -258,6 +258,37 @@ func TestProxyRequestClearDetailOlderThan(t *testing.T) {
 		}
 	})
 
+	t.Run("clears across more than one batch", func(t *testing.T) {
+		// 验证分批循环：seed > batchSize(500) 条，保证至少触发两次迭代且终止条件正确
+		db, err := NewDBWithDSN("sqlite://:memory:")
+		if err != nil {
+			t.Fatalf("open db: %v", err)
+		}
+		defer db.Close()
+		repo := NewProxyRequestRepository(db)
+
+		const seedCount = 1200
+		ids := make([]uint64, 0, seedCount)
+		for i := 0; i < seedCount; i++ {
+			req := seedRequestWithDetail(t, repo, "COMPLETED", false, old, i)
+			ids = append(ids, req.ID)
+		}
+
+		n, err := repo.ClearDetailOlderThan(cutoff, nil)
+		if err != nil {
+			t.Fatalf("clear: %v", err)
+		}
+		if n != seedCount {
+			t.Fatalf("expected %d cleared, got %d", seedCount, n)
+		}
+		for _, id := range ids {
+			if !detailCleared(t, repo, id) {
+				t.Fatalf("req %d not cleared after multi-batch run", id)
+				break
+			}
+		}
+	})
+
 	t.Run("respects dev_mode and time cutoff", func(t *testing.T) {
 		db, err := NewDBWithDSN("sqlite://:memory:")
 		if err != nil {

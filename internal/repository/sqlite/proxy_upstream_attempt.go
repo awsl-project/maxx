@@ -245,19 +245,23 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 	beforeTs := toTimestamp(before)
 	var total int64
 
-	for {
-		var ids []uint64
-
-		parentReq := r.db.gorm.Model(&ProxyRequest{}).
+	parentReqBuilder := func() *gorm.DB {
+		q := r.db.gorm.Model(&ProxyRequest{}).
 			Select("id").
 			Where("dev_mode = 0")
 		if len(statuses) > 0 {
-			parentReq = parentReq.Where("status IN ?", statuses)
+			q = q.Where("status IN ?", statuses)
 		}
+		return q
+	}
+
+	for {
+		var ids []uint64
 
 		if err := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
 			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
-			Where("proxy_request_id IN (?)", parentReq).
+			Where("proxy_request_id IN (?)", parentReqBuilder()).
+			Order("id").
 			Limit(batchSize).
 			Pluck("id", &ids).Error; err != nil {
 			return total, err
@@ -266,8 +270,10 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 			return total, nil
 		}
 
+		// 重应用谓词与父表过滤：Pluck 与 UPDATE 之间父请求状态可能变动。
 		result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
-			Where("id IN ?", ids).
+			Where("id IN ? AND created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", ids, beforeTs).
+			Where("proxy_request_id IN (?)", parentReqBuilder()).
 			Updates(map[string]any{
 				"request_info":  nil,
 				"response_info": nil,
