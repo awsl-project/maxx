@@ -48,7 +48,12 @@ api() {
   fi
 }
 
-# wait_for <timeout_sec> <cmd...> — poll until cmd returns 0 or timeout
+# wait_for <timeout_sec> <cmd...> — poll until cmd returns 0 or timeout.
+#
+# 注意:cmd 通过 "$@" 透传,**不要**包成 `bash -c "..."` —— 子 shell 拿不到
+# parent shell 里定义的 function(如 `api`),会以 command-not-found 静默失败。
+# 调用方应该把闭包逻辑写在一个 wrapper function 里然后传函数名,或者用
+# `helper_xxx_check` 命名约定,本脚本里有具体例子。
 wait_for() {
   local timeout="$1"; shift
   local deadline=$(($(date +%s) + timeout))
@@ -59,6 +64,28 @@ wait_for() {
     sleep 0.5
   done
   return 1
+}
+
+# 提供给 wait_for 用的 check helpers。不能用 bash -c 内联表达式,
+# 因为 subshell 拿不到 api()。
+check_provider_visible_on_b() {
+  local pid="$1" token="$2"
+  api GET "$MAXX_B/api/admin/providers/$pid" "$token" >/dev/null 2>&1
+}
+
+check_cooldown_visible_on_b() {
+  local pid="$1" token="$2"
+  local cd
+  cd=$(api GET "$MAXX_B/api/admin/cooldowns" "$token" 2>/dev/null) || return 1
+  echo "$cd" | jq -e --argjson pid "$pid" '.[] | select(.providerID == $pid)' >/dev/null 2>&1
+}
+
+check_providers_count_matches() {
+  local expected="$1" tok_a="$2" tok_b="$3"
+  local a b
+  a=$(api GET "$MAXX_A/api/admin/providers" "$tok_a" 2>/dev/null | jq 'length' 2>/dev/null) || return 1
+  b=$(api GET "$MAXX_B/api/admin/providers" "$tok_b" 2>/dev/null | jq 'length' 2>/dev/null) || return 1
+  [ "$a" -eq "$expected" ] && [ "$b" -eq "$expected" ]
 }
 
 mark_pass() {
@@ -100,7 +127,7 @@ test_cache_invalidation_provider() {
   fi
 
   # B 应该在 cache invalidation pub/sub 到达后看到这个 provider
-  if wait_for 10 bash -c "api GET '$MAXX_B/api/admin/providers/$pid' '$TOKEN_B' >/dev/null 2>&1"; then
+  if wait_for 10 check_provider_visible_on_b "$pid" "$TOKEN_B"; then
     mark_pass "test_cache_invalidation_provider (id=$pid visible on B)"
   else
     mark_fail "test_cache_invalidation_provider: B never saw provider $pid created on A"
@@ -121,7 +148,7 @@ test_cooldown_cross_instance() {
   pid=$(echo "$created" | jq -r '.id')
 
   # 等 B 也看到该 provider(cache invalidation 已经在 test 1 验证过)
-  if ! wait_for 10 bash -c "api GET '$MAXX_B/api/admin/providers/$pid' '$TOKEN_B' >/dev/null 2>&1"; then
+  if ! wait_for 10 check_provider_visible_on_b "$pid" "$TOKEN_B"; then
     mark_fail "test_cooldown_cross_instance: B never saw provider $pid"
     return 1
   fi
@@ -134,10 +161,7 @@ test_cooldown_cross_instance() {
   api PUT "$MAXX_A/api/admin/cooldowns/$pid" "$TOKEN_A" "$cd_body" >/dev/null
 
   # B 应该通过 cooldown event/generation 同步看到
-  if wait_for 10 bash -c "
-    cd=\$(api GET '$MAXX_B/api/admin/cooldowns' '$TOKEN_B')
-    echo \"\$cd\" | jq -e --argjson pid $pid '.[] | select(.providerID == \$pid)' >/dev/null 2>&1
-  "; then
+  if wait_for 10 check_cooldown_visible_on_b "$pid" "$TOKEN_B"; then
     mark_pass "test_cooldown_cross_instance (cooldown for provider=$pid visible on B)"
   else
     mark_fail "test_cooldown_cross_instance: B never saw the cooldown for provider $pid"
@@ -186,12 +210,8 @@ test_rolling_data_integrity() {
     api POST "$MAXX_A/api/admin/providers" "$TOKEN_A" "$body" >/dev/null
   done
 
-  if wait_for 10 bash -c "
-    a=\$(api GET '$MAXX_A/api/admin/providers' '$TOKEN_A' | jq 'length')
-    b=\$(api GET '$MAXX_B/api/admin/providers' '$TOKEN_B' | jq 'length')
-    expected=\$((${before} + 3))
-    [ \"\$a\" -eq \"\$expected\" ] && [ \"\$b\" -eq \"\$expected\" ]
-  "; then
+  local expected=$((before + 3))
+  if wait_for 10 check_providers_count_matches "$expected" "$TOKEN_A" "$TOKEN_B"; then
     mark_pass "test_rolling_data_integrity (both A and B see all 3 new providers)"
   else
     local a_now b_now
