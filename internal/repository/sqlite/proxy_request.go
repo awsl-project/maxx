@@ -284,11 +284,12 @@ func (r *ProxyRequestRepository) DeleteOlderThan(before time.Time) (int64, error
 	const batchSize = 500
 	beforeTs := toTimestamp(before)
 	var total int64
+	var lastID uint64
 
 	for {
 		var ids []uint64
 		if err := r.db.gorm.Model(&ProxyRequest{}).
-			Where("created_at < ?", beforeTs).
+			Where("created_at < ? AND id > ?", beforeTs, lastID).
 			Order("id").
 			Limit(batchSize).
 			Pluck("id", &ids).Error; err != nil {
@@ -297,10 +298,16 @@ func (r *ProxyRequestRepository) DeleteOlderThan(before time.Time) (int64, error
 		if len(ids) == 0 {
 			return total, nil
 		}
+		// keyset 推进：即使本批写命中 0 行也保证下一批跳过这段 id 区间，不会 livelock
+		lastID = ids[len(ids)-1]
 
 		var batchAffected int64
 		if err := r.db.gorm.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Where("proxy_request_id IN ?", ids).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
+			// 子删除限定到当前仍 eligible 的 parent（防止 parent 不可删时 attempts 成孤儿）
+			eligibleParents := tx.Model(&ProxyRequest{}).
+				Select("id").
+				Where("id IN ? AND created_at < ?", ids, beforeTs)
+			if err := tx.Where("proxy_request_id IN (?)", eligibleParents).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
 				return err
 			}
 			res := tx.Where("id IN ? AND created_at < ?", ids, beforeTs).Delete(&ProxyRequest{})
@@ -489,11 +496,12 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 	const batchSize = 500
 	beforeTs := toTimestamp(before)
 	var total int64
+	var lastID uint64
 
 	for {
 		var ids []uint64
 		q := r.db.gorm.Model(&ProxyRequest{}).
-			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", beforeTs)
+			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0 AND id > ?", beforeTs, lastID)
 		if len(statuses) > 0 {
 			q = q.Where("status IN ?", statuses)
 		}
@@ -503,6 +511,7 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 		if len(ids) == 0 {
 			return total, nil
 		}
+		lastID = ids[len(ids)-1]
 
 		// 重应用谓词：Pluck 与 UPDATE 之间行可能因 status/dev_mode 变动而不再 eligible。
 		uq := r.db.gorm.Model(&ProxyRequest{}).
