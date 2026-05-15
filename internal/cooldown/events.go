@@ -63,26 +63,40 @@ func (m *Manager) SetCoordinator(ctx context.Context, c coordinator.Coordinator)
 //
 // 必须在持有 m.mu 的路径内调用。内部不再获取锁。
 //
-// store/coord 缺失时仍维护本地 providerGen,这样即便没有 redis 也能保证
-// 一致的 "generation 单调递增" 语义,LocalGen-only 的代码路径不会破。
+// 三个分支:
+//   - 有 store 且 BumpGeneration 成功:用 Redis 返回的新 generation
+//   - 有 store 但 BumpGeneration 失败:**不**广播,**不**自增本地 gen。
+//     原因:如果本地 gen 单独自增,会和 Redis 上的 gen 漂移。下次
+//     syncProviderGeneration 看到 Redis gen < local gen,会触发 reload,
+//     reload 又把 local gen 拉低到 Redis gen ——形成"先涨后跌"的回滚,
+//     既不必要又给观测留下假信号。让 Redis 是 generation 的唯一真值。
+//   - 无 store (standalone):本地自增,memory 模式下不存在多实例所以无差。
 func (m *Manager) bumpAndPublishLocked(providerID uint64) {
 	var newGen int64
+	var canPublish bool
 
 	if sp := m.store.Load(); sp != nil {
 		gen, err := (*sp).BumpGeneration(context.Background(), providerID)
 		if err != nil {
-			log.Printf("[Cooldown] BumpGeneration failed for provider %d: %v", providerID, err)
-			// 即便 Redis 失败也要更新本地 gen,防止 generation 失同步
-			newGen = m.providerGen[providerID] + 1
-		} else {
-			newGen = gen
+			log.Printf("[Cooldown] BumpGeneration failed for provider %d: %v (skipping publish; remote peers will resync on next generation change)", providerID, err)
+			// 不更新本地 gen 也不 publish。
+			// 后续成功的 mutation 会推进 Redis gen,然后本实例和其他实例
+			// 都能通过 syncProviderGeneration / 事件感知。
+			return
 		}
+		newGen = gen
+		canPublish = true
 	} else {
+		// standalone:本地自增
 		newGen = m.providerGen[providerID] + 1
 	}
 
 	m.providerGen[providerID] = newGen
 	m.lastGenSync[providerID] = time.Now()
+
+	if !canPublish {
+		return
+	}
 
 	// 广播事件给其他实例
 	if cp := m.coord.Load(); cp != nil {

@@ -321,8 +321,17 @@ func (m *Manager) setCooldownLocked(providerID uint64, clientType string, model 
 		// 正常写入,bump + publish
 		m.bumpAndPublishLocked(providerID)
 	default:
-		// store 错误:本地仍记一次 generation 增量,后续 sync 会拉齐
-		m.bumpAndPublishLocked(providerID)
+		// store 错误:绝对**不能** bump/publish。原因:
+		// 如果 store.Set 失败(Redis 上没有这条 cooldown)但 BumpGeneration
+		// 成功,事件会让其他实例 reload。它们 ListByProvider 拿到的是 Redis
+		// 上的旧状态(没有本次 cooldown),会把它们本地刚记的该 provider
+		// cooldown 全部 erase —— 真正的"漏封禁"。
+		//
+		// 把"分布式失败"局限在本实例的本地视图:本地仍有这条 cooldown
+		// (单机正确),但不去污染其他实例。lastGenSync 清零,下次
+		// IsInCooldown 触发 syncProviderGeneration,看到 store 上 generation
+		// 没变就保持本地;Redis 恢复后,下次成功的 mutation 才会同步 generation。
+		delete(m.lastGenSync, providerID)
 	}
 }
 
