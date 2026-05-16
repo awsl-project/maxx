@@ -216,24 +216,27 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 		DevMode:      devMode,
 	}
 
-	requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
-	requestURI := flow.GetRequestURI(c)
-	requestBody := flow.GetRequestBody(c)
-	if c.Request != nil {
-		if c.Request.Host != "" {
-			if requestHeaders == nil {
-				requestHeaders = make(map[string]string)
+	clearDetail := e.shouldClearRequestDetailFor(&execState{apiTokenDevMode: devMode})
+	if !clearDetail {
+		requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
+		requestURI := flow.GetRequestURI(c)
+		requestBody := flow.GetRequestBody(c)
+		if c.Request != nil {
+			if c.Request.Host != "" {
+				if requestHeaders == nil {
+					requestHeaders = make(map[string]string)
+				}
+				requestHeaders["Host"] = c.Request.Host
 			}
-			requestHeaders["Host"] = c.Request.Host
+			proxyReq.RequestInfo = &domain.RequestInfo{
+				Method:  c.Request.Method,
+				URL:     requestURI,
+				Headers: requestHeaders,
+				Body:    string(requestBody),
+			}
 		}
-		proxyReq.RequestInfo = &domain.RequestInfo{
-			Method:  c.Request.Method,
-			URL:     requestURI,
-			Headers: requestHeaders,
-			Body:    string(requestBody),
-		}
+		proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}
 	}
-	proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}
 
 	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
 		log.Printf("[Executor] Failed to create rejected proxy request: %v", err)
