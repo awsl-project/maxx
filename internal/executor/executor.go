@@ -216,7 +216,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 		DevMode:      devMode,
 	}
 
-	clearDetail := e.shouldClearRequestDetailFor(&execState{apiTokenDevMode: devMode})
+	clearDetail := e.shouldClearFailedRequestDetailFor(&execState{apiTokenDevMode: devMode})
 	if !clearDetail {
 		requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
 		requestURI := flow.GetRequestURI(c)
@@ -450,6 +450,14 @@ func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
 	return e.shouldClearRequestDetail()
 }
 
+// shouldClearFailedRequestDetailFor 检查已知失败状态的请求详情是否应该立即清理。
+func (e *Executor) shouldClearFailedRequestDetailFor(state *execState) bool {
+	if state != nil && state.apiTokenDevMode {
+		return false
+	}
+	return e.shouldClearFailedRequestDetail()
+}
+
 // shouldClearRequestDetail 检查是否应该立即清理请求详情（全局配置）
 //
 // 决策时机在 ingress / dispatch，此时 status 未知，因此不能按状态分别决策。
@@ -458,8 +466,40 @@ func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
 //   - split=true：仅当 success 和 failed 两个键都解析为 0 时才立即清理
 //     （只要任一侧需要保留，就先存到 DB，后台 task 再按状态分别清理）
 func (e *Executor) shouldClearRequestDetail() bool {
-	if e.settingsRepo == nil {
+	cfg, ok := e.requestDetailRetentionConfig()
+	if !ok {
 		return false
+	}
+	if !cfg.split {
+		return cfg.unified == 0
+	}
+	return cfg.successSec == 0 && cfg.failedSec == 0
+}
+
+// shouldClearFailedRequestDetail 检查已知失败/拒绝请求是否应该立即清理详情。
+// 对 early rejection 这类已知失败状态，可以使用 failed 桶，而不是退化成
+// “success 和 failed 都为 0 才清理”的未知状态策略。
+func (e *Executor) shouldClearFailedRequestDetail() bool {
+	cfg, ok := e.requestDetailRetentionConfig()
+	if !ok {
+		return false
+	}
+	if !cfg.split {
+		return cfg.unified == 0
+	}
+	return cfg.failedSec == 0
+}
+
+type requestDetailRetentionConfig struct {
+	unified    int
+	split      bool
+	successSec int
+	failedSec  int
+}
+
+func (e *Executor) requestDetailRetentionConfig() (requestDetailRetentionConfig, bool) {
+	if e.settingsRepo == nil {
+		return requestDetailRetentionConfig{}, false
 	}
 
 	parse := func(key string, fallback int) int {
@@ -475,14 +515,18 @@ func (e *Executor) shouldClearRequestDetail() bool {
 	}
 
 	unified := parse(domain.SettingKeyRequestDetailRetentionSeconds, -1)
-
 	splitVal, _ := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSplitEnabled)
-	if splitVal != "true" {
-		return unified == 0
+	cfg := requestDetailRetentionConfig{
+		unified:    unified,
+		split:      splitVal == "true",
+		successSec: unified,
+		failedSec:  unified,
 	}
-	successSec := parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified)
-	failedSec := parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified)
-	return successSec == 0 && failedSec == 0
+	if cfg.split {
+		cfg.successSec = parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified)
+		cfg.failedSec = parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified)
+	}
+	return cfg, true
 }
 
 // ShouldClearRequestDetailByConfig 检查是否应该按全局配置立即清理请求详情

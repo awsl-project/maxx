@@ -1171,6 +1171,42 @@ func TestProxyAllProtocolsCoexist(t *testing.T) {
 // ============================================================
 
 func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
+	cases := []struct {
+		name               string
+		configureRetention func(t *testing.T, env *ProxyTestEnv)
+	}{
+		{
+			name: "unified retention zero",
+			configureRetention: func(t *testing.T, env *ProxyTestEnv) {
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_seconds", "0")
+			},
+		},
+		{
+			name: "split failed retention zero",
+			configureRetention: func(t *testing.T, env *ProxyTestEnv) {
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_seconds", "86400")
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_split_enabled", "true")
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_seconds_success", "86400")
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_seconds_failed", "0")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runTokenConcurrencyLimitRecordsRejectedRequest(t, tc.configureRetention)
+		})
+	}
+}
+
+func setRequestDetailRetentionSetting(t *testing.T, env *ProxyTestEnv, key, value string) {
+	t.Helper()
+	resp := env.AdminPut("/api/admin/settings/"+key, map[string]any{"value": value})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+}
+
+func runTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T, configureRetention func(t *testing.T, env *ProxyTestEnv)) {
 	blocked := make(chan struct{})
 	entered := make(chan struct{}, 1)
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1201,11 +1237,9 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 	providerID := createProvider(t, env, "mock-openai", mock.URL, []string{"openai"})
 	createRoute(t, env, "openai", providerID)
 
-	resp := env.AdminPut("/api/admin/settings/request_detail_retention_seconds", map[string]any{"value": "0"})
-	AssertStatus(t, resp, http.StatusOK)
-	resp.Body.Close()
+	configureRetention(t, env)
 
-	resp = env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
+	resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
 	AssertStatus(t, resp, http.StatusOK)
 	resp.Body.Close()
 
@@ -1316,10 +1350,10 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 	var rejected map[string]any
 	DecodeJSON(t, resp, &rejected)
 	if rejected["requestInfo"] != nil {
-		t.Fatalf("requestInfo must be nil when retention=0 for rejected request, got %#v", rejected["requestInfo"])
+		t.Fatalf("requestInfo must be nil when retention clears failed requests, got %#v", rejected["requestInfo"])
 	}
 	if rejected["responseInfo"] != nil {
-		t.Fatalf("responseInfo must be nil when retention=0 for rejected request, got %#v", rejected["responseInfo"])
+		t.Fatalf("responseInfo must be nil when retention clears failed requests, got %#v", rejected["responseInfo"])
 	}
 
 	close(blocked)
