@@ -490,15 +490,24 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 // ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
 // statuses 为空时不按状态过滤；非空时仅清理 status IN (statuses) 的记录
 //
-// 分批处理：request_info/response_info 是大 JSON blob，一次性 UPDATE 会产生
-// 超大事务（WAL 同时记录 old/new value），故按 batchSize 拆分。
+// 大数据量下的关键约束：
+//   - 分批：request_info/response_info 是大 JSON blob，一次性 UPDATE 会产生
+//     超大事务（WAL 同时记录 old/new value），故按 batchSize 拆分。
+//   - 批间 yield：SQLite 全库单写锁，连续不停的 UPDATE 会饿死正常请求写入（表现为
+//     线上 API "卡死"）。每批之间 sleep 一小段让真实流量的 INSERT 有机会拿到锁。
+//   - 单次调用封顶 maxBatchesPerCall 批：避免存量积压时一次清理占据整个 tick；
+//     剩余的部分由 runRequestDetailCleanup 的下一次 tick 继续推进。
 func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
-	const batchSize = 500
+	const (
+		batchSize         = 200
+		maxBatchesPerCall = 200
+		batchSleep        = 50 * time.Millisecond
+	)
 	beforeTs := toTimestamp(before)
 	var total int64
 	var lastID uint64
 
-	for {
+	for batchIdx := 0; batchIdx < maxBatchesPerCall; batchIdx++ {
 		var ids []uint64
 		q := r.db.gorm.Model(&ProxyRequest{}).
 			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0 AND id > ?", beforeTs, lastID)
@@ -532,7 +541,9 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 		if len(ids) < batchSize {
 			return total, nil
 		}
+		time.Sleep(batchSleep)
 	}
+	return total, nil
 }
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {

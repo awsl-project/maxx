@@ -373,6 +373,49 @@ var migrations = []Migration{
 			return fmt.Errorf("migration v12 cannot be rolled back: dropping columns not supported in SQLite")
 		},
 	},
+	{
+		Version:     13,
+		Description: "Add created_at indexes on proxy_requests and proxy_upstream_attempts for detail-cleanup",
+		Up: func(db *gorm.DB) error {
+			// detail 清理 (ClearDetailOlderThan) 用 `WHERE created_at < ?` 过滤过期行；
+			// 在百万级以上的请求日志表上，没有 created_at 索引会导致每次清理都全表扫描，
+			// 进而长时间占用 SQLite 单写锁，表现为线上 API 写入"卡死"。
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("CREATE INDEX idx_proxy_requests_created_at ON proxy_requests(created_at)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+				if err := db.Exec("CREATE INDEX idx_proxy_upstream_attempts_created_at ON proxy_upstream_attempts(created_at)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
+					return err
+				}
+				return nil
+			default:
+				if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_proxy_requests_created_at ON proxy_requests(created_at)").Error; err != nil {
+					return err
+				}
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_proxy_upstream_attempts_created_at ON proxy_upstream_attempts(created_at)").Error
+			}
+		},
+		Down: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				for _, sql := range []string{
+					"DROP INDEX idx_proxy_requests_created_at ON proxy_requests",
+					"DROP INDEX idx_proxy_upstream_attempts_created_at ON proxy_upstream_attempts",
+				} {
+					if err := db.Exec(sql).Error; err != nil && !isMySQLMissingIndexError(err) {
+						log.Printf("[Migration] Warning: rollback v13 failed sql=%q err=%v", sql, err)
+					}
+				}
+				return nil
+			default:
+				if err := db.Exec("DROP INDEX IF EXISTS idx_proxy_requests_created_at").Error; err != nil {
+					return err
+				}
+				return db.Exec("DROP INDEX IF EXISTS idx_proxy_upstream_attempts_created_at").Error
+			}
+		},
+	},
 }
 
 func applyCodexQuotaIdentityMigration(db *gorm.DB) error {

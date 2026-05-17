@@ -239,9 +239,14 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 // ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
 // statuses 为空时不按状态过滤；非空时仅清理所属 ProxyRequest.status IN (statuses) 的 attempt
 //
-// 分批处理：详情字段是大 blob，且关联父表子查询代价不低，故按 batchSize 拆分。
+// 与 ProxyRequestRepository.ClearDetailOlderThan 同样的取舍：批间 sleep 让出写锁，
+// 单次调用封顶批数避免大数据量积压时占满整个 cleanup tick。
 func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
-	const batchSize = 500
+	const (
+		batchSize         = 200
+		maxBatchesPerCall = 200
+		batchSleep        = 50 * time.Millisecond
+	)
 	beforeTs := toTimestamp(before)
 	var total int64
 	var lastID uint64
@@ -256,7 +261,7 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 		return q
 	}
 
-	for {
+	for batchIdx := 0; batchIdx < maxBatchesPerCall; batchIdx++ {
 		var ids []uint64
 
 		if err := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
@@ -289,7 +294,9 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 		if len(ids) < batchSize {
 			return total, nil
 		}
+		time.Sleep(batchSleep)
 	}
+	return total, nil
 }
 
 func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
