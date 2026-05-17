@@ -355,6 +355,11 @@ func TestProxyRequestClearDetailOlderThan_UsesPartialIndex(t *testing.T) {
 	if !strings.Contains(plan, "idx_proxy_requests_detail_cleanup") {
 		t.Fatalf("expected plan to use idx_proxy_requests_detail_cleanup, got:\n%s", plan)
 	}
+	// 显式拒绝 TEMP B-TREE 排序：partial index 的键 (created_at, id) 已经匹配 ORDER BY，
+	// 出现 TEMP B-TREE 意味着 cursor 或 ORDER BY 形状变了，planner 退化到扫+排。
+	if strings.Contains(plan, "TEMP B-TREE") {
+		t.Fatalf("plan should not require TEMP B-TREE sort, got:\n%s", plan)
+	}
 }
 
 // TestProxyUpstreamAttemptClearDetailOlderThan_UsesPartialIndex 同上，针对
@@ -390,5 +395,10 @@ func TestProxyUpstreamAttemptClearDetailOlderThan_UsesPartialIndex(t *testing.T)
 	plan := strings.Join(planLines, "\n")
 	if !strings.Contains(plan, "idx_proxy_upstream_attempts_detail_cleanup") {
 		t.Fatalf("expected plan to use idx_proxy_upstream_attempts_detail_cleanup, got:\n%s", plan)
+	}
+	// 显式拒绝 TEMP B-TREE 排序：EXISTS 改写的全部意义就是避免 planner 从父表驱动后
+	// 再做一次临时排序。若再次出现，说明有人把 EXISTS 改回了 IN 子查询。
+	if strings.Contains(plan, "TEMP B-TREE") {
+		t.Fatalf("plan should not require TEMP B-TREE sort, got:\n%s", plan)
 	}
 }
