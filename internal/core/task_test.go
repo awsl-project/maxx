@@ -382,6 +382,24 @@ func TestIsCleanupLeader(t *testing.T) {
 	}
 }
 
+func TestCheckDetailCleanupIndexHealth_NilDBNoPanic(t *testing.T) {
+	// 测试调用方未提供 DB 时(常见于 unit test 场景),health check 必须安全 no-op。
+	deps := &BackgroundTaskDeps{}
+	deps.checkDetailCleanupIndexHealth() // must not panic
+}
+
+func TestCheckDetailCleanupIndexHealth_SQLiteSkipped(t *testing.T) {
+	// SQLite 用 partial index,index_name 与 MySQL 不同;health check 必须直接跳过
+	// 而不是对着 SQLite 的 sqlite_master 跑 information_schema 查询。
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	deps := &BackgroundTaskDeps{DB: db}
+	deps.checkDetailCleanupIndexHealth() // must not error/panic on non-MySQL
+}
+
 func TestRunCleanupTasksSkipsWhenNotLeader(t *testing.T) {
 	sessionRepo := &fakeSessionRepo{}
 	deps := BackgroundTaskDeps{

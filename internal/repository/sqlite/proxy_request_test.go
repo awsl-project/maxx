@@ -10,25 +10,47 @@ import (
 )
 
 func TestDetailCleanupBatchParams(t *testing.T) {
-	tests := []struct {
-		dialector  string
-		wantBatch  int
-		wantSleep  time.Duration
-	}{
-		{"sqlite", 200, 50 * time.Millisecond},
-		{"mysql", 1000, 20 * time.Millisecond},
-		{"postgres", 200, 50 * time.Millisecond}, // unknown → conservative defaults
-		{"", 200, 50 * time.Millisecond},
-	}
-	for _, tt := range tests {
-		t.Run(tt.dialector, func(t *testing.T) {
+	// 子测试间共享全局 detailCleanupIndexMissing,确保不串扰。
+	defer detailCleanupIndexMissing.Store(0)
+
+	t.Run("dialect defaults (index present)", func(t *testing.T) {
+		detailCleanupIndexMissing.Store(0)
+		tests := []struct {
+			dialector string
+			wantBatch int
+			wantSleep time.Duration
+		}{
+			{"sqlite", 200, 50 * time.Millisecond},
+			{"mysql", 1000, 20 * time.Millisecond},
+			{"postgres", 200, 50 * time.Millisecond}, // unknown → conservative defaults
+			{"", 200, 50 * time.Millisecond},
+		}
+		for _, tt := range tests {
 			gotBatch, gotSleep := detailCleanupBatchParams(tt.dialector)
 			if gotBatch != tt.wantBatch || gotSleep != tt.wantSleep {
 				t.Errorf("detailCleanupBatchParams(%q) = (%d, %v), want (%d, %v)",
 					tt.dialector, gotBatch, gotSleep, tt.wantBatch, tt.wantSleep)
 			}
-		})
-	}
+		}
+	})
+
+	t.Run("MySQL falls back to conservative when index missing", func(t *testing.T) {
+		MarkDetailCleanupIndexMissing()
+		defer detailCleanupIndexMissing.Store(0)
+		gotBatch, gotSleep := detailCleanupBatchParams("mysql")
+		if gotBatch != 200 || gotSleep != 50*time.Millisecond {
+			t.Errorf("MySQL with missing index = (%d, %v), want (200, 50ms)", gotBatch, gotSleep)
+		}
+	})
+
+	t.Run("SQLite unaffected by MySQL index-missing flag", func(t *testing.T) {
+		MarkDetailCleanupIndexMissing()
+		defer detailCleanupIndexMissing.Store(0)
+		gotBatch, gotSleep := detailCleanupBatchParams("sqlite")
+		if gotBatch != 200 || gotSleep != 50*time.Millisecond {
+			t.Errorf("SQLite default = (%d, %v), want (200, 50ms)", gotBatch, gotSleep)
+		}
+	})
 }
 
 func buildTestProxyRequest(status string, index int) *domain.ProxyRequest {

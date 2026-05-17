@@ -487,16 +487,34 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 	return totalUpdated, nil
 }
 
+// detailCleanupIndexMissing 由启动时健康检查置位:MySQL detail-cleanup 索引不存在时
+// 设为 1。设置后 detailCleanupBatchParams 退化回保守批次(200/50ms),避免在无索引的
+// 大表上以 batch=1000 反复触发 full-table-scan 把 IOPS 打满。
+//
+// 用 atomic.Int32 而非 mutex:写一次(启动),读高频(每次清理批次),无锁读最便宜。
+var detailCleanupIndexMissing atomic.Int32
+
+// MarkDetailCleanupIndexMissing 标记 MySQL detail-cleanup 索引缺失。startup health-check
+// 调用,见 internal/core/task.go:checkDetailCleanupIndexHealth。
+func MarkDetailCleanupIndexMissing() {
+	detailCleanupIndexMissing.Store(1)
+}
+
 // detailCleanupBatchParams 返回当前 dialect 下 detail cleanup 批次大小与 batch 间 sleep。
 //
 //   - SQLite:200 / 50ms。SQLite WAL 是单写者锁,大 batch 会让 API INSERT 长时间等待
 //     ("卡死"问题的根因);沿用 v0.13.77 的保守值,验证稳定。
-//   - MySQL/其它:1000 / 20ms。MySQL 用行级锁 + redo log,不存在单写阻塞;改完 v14 索引
-//     后 SELECT 亚秒级,瓶颈转到 UPDATE 网络往返,大 batch 把往返摊薄到更多行。
-//     20ms sleep 仍保留一点让步给在线流量,避免长时间持锁热点。
+//   - MySQL 且索引就绪:1000 / 20ms。改完 v14 索引后 SELECT 亚秒级,瓶颈转到 UPDATE
+//     网络往返,大 batch 把往返摊薄到更多行。
+//   - MySQL 但索引缺失(threshold-skip 且没手动建):退化回 200 / 50ms。无索引时 SELECT
+//     是 full-scan-per-batch,大 batch 不会摊薄全扫成本,反而每批次锁更多行;保守批次
+//     +更长 sleep 减小对在线流量的干扰。startup 已经打了告警日志,运维应当尽快建索引。
 func detailCleanupBatchParams(dialector string) (batchSize int, sleep time.Duration) {
 	switch dialector {
 	case "mysql":
+		if detailCleanupIndexMissing.Load() == 1 {
+			return 200, 50 * time.Millisecond
+		}
 		return 1000, 20 * time.Millisecond
 	default:
 		return 200, 50 * time.Millisecond
