@@ -375,33 +375,30 @@ var migrations = []Migration{
 	},
 	{
 		Version:     13,
-		Description: "Add created_at indexes on proxy_requests and proxy_upstream_attempts for detail-cleanup",
+		Description: "Add detail-cleanup indexes on proxy_requests and proxy_upstream_attempts",
 		Up: func(db *gorm.DB) error {
-			// detail 清理 (ClearDetailOlderThan) 用 `WHERE created_at < ?` 过滤过期行；
-			// 在百万级以上的请求日志表上，没有 created_at 索引会导致每次清理都全表扫描，
-			// 进而长时间占用 SQLite 单写锁，表现为线上 API 写入"卡死"。
-			switch db.Dialector.Name() {
-			case "mysql":
-				if err := db.Exec("CREATE INDEX idx_proxy_requests_created_at ON proxy_requests(created_at)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
-					return err
-				}
-				if err := db.Exec("CREATE INDEX idx_proxy_upstream_attempts_created_at ON proxy_upstream_attempts(created_at)").Error; err != nil && !isMySQLDuplicateIndexError(err) {
-					return err
-				}
-				return nil
-			default:
-				if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_proxy_requests_created_at ON proxy_requests(created_at)").Error; err != nil {
-					return err
-				}
-				return db.Exec("CREATE INDEX IF NOT EXISTS idx_proxy_upstream_attempts_created_at ON proxy_upstream_attempts(created_at)").Error
-			}
+			// detail 清理 (ClearDetailOlderThan) 用
+			//   WHERE created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) [AND dev_mode = 0]
+			//   ORDER BY id LIMIT ?
+			// 之前没索引时每次都全表扫，长时间占 SQLite 单写锁导致线上写入"卡死"。
+			//
+			// SQLite 用 **partial index**：WHERE 子句让只有"还没清理"的行进入索引；行被 null
+			// 后自动从索引移除，存量收敛后索引很小，scan 几乎免费。键设计 (created_at, id) 同
+			// 时服务 cleanup 的 ORDER BY id LIMIT。
+			//
+			// MySQL 不支持 partial index（functional index 语法又不同），退化为普通的
+			// (created_at, id) 复合索引。
+			//
+			// 注意：大表（>1M 行）首次 CREATE INDEX 会一次性扫描全表并阻塞写入数秒到几十秒，
+			// 这是一次性成本（之后清理快得多）。下面 log 行让运维能看到这段窗口。
+			return runDetailCleanupIndexMigration(db)
 		},
 		Down: func(db *gorm.DB) error {
 			switch db.Dialector.Name() {
 			case "mysql":
 				for _, sql := range []string{
-					"DROP INDEX idx_proxy_requests_created_at ON proxy_requests",
-					"DROP INDEX idx_proxy_upstream_attempts_created_at ON proxy_upstream_attempts",
+					"DROP INDEX idx_proxy_requests_detail_cleanup ON proxy_requests",
+					"DROP INDEX idx_proxy_upstream_attempts_detail_cleanup ON proxy_upstream_attempts",
 				} {
 					if err := db.Exec(sql).Error; err != nil && !isMySQLMissingIndexError(err) {
 						log.Printf("[Migration] Warning: rollback v13 failed sql=%q err=%v", sql, err)
@@ -409,13 +406,65 @@ var migrations = []Migration{
 				}
 				return nil
 			default:
-				if err := db.Exec("DROP INDEX IF EXISTS idx_proxy_requests_created_at").Error; err != nil {
+				if err := db.Exec("DROP INDEX IF EXISTS idx_proxy_requests_detail_cleanup").Error; err != nil {
 					return err
 				}
-				return db.Exec("DROP INDEX IF EXISTS idx_proxy_upstream_attempts_created_at").Error
+				return db.Exec("DROP INDEX IF EXISTS idx_proxy_upstream_attempts_detail_cleanup").Error
 			}
 		},
 	},
+}
+
+// runDetailCleanupIndexMigration 建立 v13 的清理索引并附带耗时/行数日志。
+// SQLite 在大表上 CREATE INDEX 会阻塞写入，提前打 log 让运维知道这段窗口。
+func runDetailCleanupIndexMigration(db *gorm.DB) error {
+	type tableSpec struct {
+		table     string
+		index     string
+		sqliteDDL string
+		mysqlDDL  string
+	}
+	specs := []tableSpec{
+		{
+			table:     "proxy_requests",
+			index:     "idx_proxy_requests_detail_cleanup",
+			sqliteDDL: "CREATE INDEX IF NOT EXISTS idx_proxy_requests_detail_cleanup ON proxy_requests(created_at, id) WHERE (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0",
+			mysqlDDL:  "CREATE INDEX idx_proxy_requests_detail_cleanup ON proxy_requests(created_at, id)",
+		},
+		{
+			table:     "proxy_upstream_attempts",
+			index:     "idx_proxy_upstream_attempts_detail_cleanup",
+			sqliteDDL: "CREATE INDEX IF NOT EXISTS idx_proxy_upstream_attempts_detail_cleanup ON proxy_upstream_attempts(created_at, id) WHERE request_info IS NOT NULL OR response_info IS NOT NULL",
+			mysqlDDL:  "CREATE INDEX idx_proxy_upstream_attempts_detail_cleanup ON proxy_upstream_attempts(created_at, id)",
+		},
+	}
+
+	for _, s := range specs {
+		var rowCount int64
+		if err := db.Raw("SELECT COUNT(*) FROM " + s.table).Scan(&rowCount).Error; err != nil {
+			// 计数失败不阻止迁移；日志少一行而已。
+			log.Printf("[Migration v13] could not count %s: %v", s.table, err)
+		}
+		log.Printf("[Migration v13] building %s (rows=%d). On large tables this briefly blocks writes; one-time cost.", s.index, rowCount)
+		start := time.Now()
+
+		var ddl string
+		switch db.Dialector.Name() {
+		case "mysql":
+			ddl = s.mysqlDDL
+		default:
+			ddl = s.sqliteDDL
+		}
+		if err := db.Exec(ddl).Error; err != nil {
+			if db.Dialector.Name() == "mysql" && isMySQLDuplicateIndexError(err) {
+				log.Printf("[Migration v13] %s already exists, skipped", s.index)
+				continue
+			}
+			return err
+		}
+		log.Printf("[Migration v13] built %s in %s", s.index, time.Since(start).Round(time.Millisecond))
+	}
+	return nil
 }
 
 func applyCodexQuotaIdentityMigration(db *gorm.DB) error {
