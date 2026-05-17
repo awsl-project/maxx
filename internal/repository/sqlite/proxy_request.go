@@ -490,15 +490,16 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 // ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
 // statuses 为空时不按状态过滤；非空时仅清理 status IN (statuses) 的记录
 //
-// 大数据量下的关键约束：
-//   - 分批：request_info/response_info 是大 JSON blob，一次性 UPDATE 会产生
-//     超大事务（WAL 同时记录 old/new value），故按 batchSize 拆分。
-//   - 批间 yield：SQLite 全库单写锁，连续不停的 UPDATE 会饿死正常请求写入（表现为
-//     线上 API "卡死"）。每批之间 sleep 一小段让真实流量的 INSERT 有机会拿到锁。
-//   - 不设单次调用封顶：之前的 cap 会在 backlog > cap 时产生回归——lastID 每次调用
-//     从 0 开始，下次 tick 还得重扫一遍上次已 null 的老区段。改回 drain-to-completion，
-//     由批间 sleep 保证写锁不被长期独占；partial index (v13) 让"已清理的行"自然从
-//     索引中移除，所以 backlog 收敛后扫描代价很小。
+// Cursor / index 协作：
+//   - 用 (created_at, id) 二元组游标 + ORDER BY (created_at, id)，与 v13 的
+//     partial index idx_proxy_requests_detail_cleanup(created_at, id) 键顺序一致，
+//     EXPLAIN QUERY PLAN 验证：planner 走 SEARCH USING INDEX。若改用 id 游标 +
+//     ORDER BY id，planner 会回退到 PK 扫，索引失效，partial index 形同虚设。
+//   - drain-to-completion：50ms 批间 sleep 已经让出 SQLite 写锁，无需封顶批数。
+//     早期版本曾加 maxBatchesPerCall，但游标每次调用归零会导致 backlog 大于 cap 时
+//     下次 tick 重扫整段已 null 的老区，回退而不是改进。
+//   - 分批：request_info/response_info 是大 JSON blob，一次 UPDATE 全表会产生超大
+//     事务（WAL 同时记录 old/new），故按 batchSize 拆分。
 func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	const (
 		batchSize  = 200
@@ -506,22 +507,37 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 	)
 	beforeTs := toTimestamp(before)
 	var total int64
+	var lastCreatedAt int64
 	var lastID uint64
 
+	type cursorRow struct {
+		ID        uint64 `gorm:"column:id"`
+		CreatedAt int64  `gorm:"column:created_at"`
+	}
+
 	for {
-		var ids []uint64
+		var rows []cursorRow
 		q := r.db.gorm.Model(&ProxyRequest{}).
-			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0 AND id > ?", beforeTs, lastID)
+			Select("id, created_at").
+			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", beforeTs).
+			// 二元组游标：(created_at, id) > (lastCreatedAt, lastID)
+			Where("(created_at > ? OR (created_at = ? AND id > ?))", lastCreatedAt, lastCreatedAt, lastID)
 		if len(statuses) > 0 {
 			q = q.Where("status IN ?", statuses)
 		}
-		if err := q.Order("id").Limit(batchSize).Pluck("id", &ids).Error; err != nil {
+		if err := q.Order("created_at, id").Limit(batchSize).Scan(&rows).Error; err != nil {
 			return total, err
 		}
-		if len(ids) == 0 {
+		if len(rows) == 0 {
 			return total, nil
 		}
-		lastID = ids[len(ids)-1]
+		ids := make([]uint64, len(rows))
+		for i, row := range rows {
+			ids[i] = row.ID
+		}
+		last := rows[len(rows)-1]
+		lastCreatedAt = last.CreatedAt
+		lastID = last.ID
 
 		// 重应用谓词：Pluck 与 UPDATE 之间行可能因 status/dev_mode 变动而不再 eligible。
 		uq := r.db.gorm.Model(&ProxyRequest{}).
@@ -539,7 +555,7 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 		}
 		total += result.RowsAffected
 
-		if len(ids) < batchSize {
+		if len(rows) < batchSize {
 			return total, nil
 		}
 		time.Sleep(batchSleep)

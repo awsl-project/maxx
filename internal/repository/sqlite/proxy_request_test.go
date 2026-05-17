@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -318,4 +319,76 @@ func TestProxyRequestClearDetailOlderThan(t *testing.T) {
 			t.Error("fresh record must be retained")
 		}
 	})
+}
+
+// TestProxyRequestClearDetailOlderThan_UsesPartialIndex 锁定 cleanup 查询确实
+// 走 v13 partial index。回归守护：若有人改回 `id > ?` 游标 + `ORDER BY id`，
+// SQLite planner 会回退到 PK 扫，partial index 形同虚设，该测试会捕获。
+func TestProxyRequestClearDetailOlderThan_UsesPartialIndex(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	const sql = `SELECT id, created_at FROM proxy_requests ` +
+		`WHERE created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0 ` +
+		`AND (created_at > ? OR (created_at = ? AND id > ?)) ` +
+		`ORDER BY created_at, id LIMIT 200`
+
+	rows, err := db.gorm.Raw("EXPLAIN QUERY PLAN "+sql, 0, 0, 0, 0).Rows()
+	if err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	defer rows.Close()
+
+	var planLines []string
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		planLines = append(planLines, detail)
+	}
+	plan := strings.Join(planLines, "\n")
+	if !strings.Contains(plan, "idx_proxy_requests_detail_cleanup") {
+		t.Fatalf("expected plan to use idx_proxy_requests_detail_cleanup, got:\n%s", plan)
+	}
+}
+
+// TestProxyUpstreamAttemptClearDetailOlderThan_UsesPartialIndex 同上，针对
+// attempt 表的 cleanup 查询。
+func TestProxyUpstreamAttemptClearDetailOlderThan_UsesPartialIndex(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	const sql = `SELECT id, created_at FROM proxy_upstream_attempts ` +
+		`WHERE created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) ` +
+		`AND (created_at > ? OR (created_at = ? AND id > ?)) ` +
+		`AND EXISTS (SELECT 1 FROM proxy_requests WHERE proxy_requests.id = proxy_upstream_attempts.proxy_request_id AND proxy_requests.dev_mode = 0) ` +
+		`ORDER BY created_at, id LIMIT 200`
+
+	rows, err := db.gorm.Raw("EXPLAIN QUERY PLAN "+sql, 0, 0, 0, 0).Rows()
+	if err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	defer rows.Close()
+
+	var planLines []string
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		planLines = append(planLines, detail)
+	}
+	plan := strings.Join(planLines, "\n")
+	if !strings.Contains(plan, "idx_proxy_upstream_attempts_detail_cleanup") {
+		t.Fatalf("expected plan to use idx_proxy_upstream_attempts_detail_cleanup, got:\n%s", plan)
+	}
 }

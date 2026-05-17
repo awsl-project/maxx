@@ -239,8 +239,11 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 // ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
 // statuses 为空时不按状态过滤；非空时仅清理所属 ProxyRequest.status IN (statuses) 的 attempt
 //
-// 与 ProxyRequestRepository.ClearDetailOlderThan 同样的取舍：批间 sleep 让出写锁，
-// drain-to-completion；partial index (v13) 让已清理的行不再参与扫描。
+// 关键点：父表过滤用 EXISTS 相关子查询（不是 IN）。SQLite planner 对 IN 子查询会从父表
+// 驱动 → 走 idx_proxy_upstream_attempts_proxy_request_id + USE TEMP B-TREE FOR ORDER BY，
+// partial index 形同虚设；改成 EXISTS 后 planner 走 partial index (created_at<?) +
+// 父表 PK 查找，并且 ORDER BY 不再需要临时 sort。
+// EXPLAIN QUERY PLAN 由 TestProxyUpstreamAttemptClearDetailOlderThan_UsesPartialIndex 守护。
 func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	const (
 		batchSize  = 200
@@ -248,38 +251,55 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 	)
 	beforeTs := toTimestamp(before)
 	var total int64
+	var lastCreatedAt int64
 	var lastID uint64
 
-	parentReqBuilder := func() *gorm.DB {
-		q := r.db.gorm.Model(&ProxyRequest{}).
-			Select("id").
-			Where("dev_mode = 0")
+	// parentExistsClause 构造相关 EXISTS：通过 attempt.proxy_request_id 关联父行，
+	// 然后过滤父行 dev_mode/status。返回 SQL 片段 + 对应 args。
+	parentExistsClause := func() (string, []any) {
+		sql := "EXISTS (SELECT 1 FROM proxy_requests WHERE proxy_requests.id = proxy_upstream_attempts.proxy_request_id AND proxy_requests.dev_mode = 0"
+		args := []any{}
 		if len(statuses) > 0 {
-			q = q.Where("status IN ?", statuses)
+			sql += " AND proxy_requests.status IN ?"
+			args = append(args, statuses)
 		}
-		return q
+		sql += ")"
+		return sql, args
+	}
+
+	type cursorRow struct {
+		ID        uint64 `gorm:"column:id"`
+		CreatedAt int64  `gorm:"column:created_at"`
 	}
 
 	for {
-		var ids []uint64
-
+		var rows []cursorRow
+		existsSQL, existsArgs := parentExistsClause()
 		if err := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
-			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND id > ?", beforeTs, lastID).
-			Where("proxy_request_id IN (?)", parentReqBuilder()).
-			Order("id").
+			Select("id, created_at").
+			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", beforeTs).
+			Where("(created_at > ? OR (created_at = ? AND id > ?))", lastCreatedAt, lastCreatedAt, lastID).
+			Where(existsSQL, existsArgs...).
+			Order("created_at, id").
 			Limit(batchSize).
-			Pluck("id", &ids).Error; err != nil {
+			Scan(&rows).Error; err != nil {
 			return total, err
 		}
-		if len(ids) == 0 {
+		if len(rows) == 0 {
 			return total, nil
 		}
-		lastID = ids[len(ids)-1]
+		ids := make([]uint64, len(rows))
+		for i, row := range rows {
+			ids[i] = row.ID
+		}
+		last := rows[len(rows)-1]
+		lastCreatedAt = last.CreatedAt
+		lastID = last.ID
 
 		// 重应用谓词与父表过滤：Pluck 与 UPDATE 之间父请求状态可能变动。
 		result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
 			Where("id IN ? AND created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL)", ids, beforeTs).
-			Where("proxy_request_id IN (?)", parentReqBuilder()).
+			Where(existsSQL, existsArgs...).
 			Updates(map[string]any{
 				"request_info":  nil,
 				"response_info": nil,
@@ -290,7 +310,7 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 		}
 		total += result.RowsAffected
 
-		if len(ids) < batchSize {
+		if len(rows) < batchSize {
 			return total, nil
 		}
 		time.Sleep(batchSleep)
