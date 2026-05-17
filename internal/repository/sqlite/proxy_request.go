@@ -494,10 +494,18 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 // 用 atomic.Int32 而非 mutex:写一次(启动),读高频(每次清理批次),无锁读最便宜。
 var detailCleanupIndexMissing atomic.Int32
 
-// MarkDetailCleanupIndexMissing 标记 MySQL detail-cleanup 索引缺失。startup health-check
-// 调用,见 internal/core/task.go:checkDetailCleanupIndexHealth。
-func MarkDetailCleanupIndexMissing() {
-	detailCleanupIndexMissing.Store(1)
+// SetDetailCleanupIndexMissing 设置 MySQL detail-cleanup 索引缺失状态。startup
+// health-check 调用,见 internal/core/task.go:checkDetailCleanupIndexHealth。
+//
+// 显式 set(true/false):每次启动健康检查时都覆盖写,避免之前进程态/测试态遗留的 sticky
+// 标志位污染后续判断。同进程内若索引被运维补建,需要重启进程才能恢复 fast-path;
+// 这是可接受的权衡——避免运行时反复轮询 INFORMATION_SCHEMA 的开销。
+func SetDetailCleanupIndexMissing(missing bool) {
+	if missing {
+		detailCleanupIndexMissing.Store(1)
+	} else {
+		detailCleanupIndexMissing.Store(0)
+	}
 }
 
 // detailCleanupBatchParams 返回当前 dialect 下 detail cleanup 批次大小与 batch 间 sleep。

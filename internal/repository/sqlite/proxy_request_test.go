@@ -35,8 +35,8 @@ func TestDetailCleanupBatchParams(t *testing.T) {
 	})
 
 	t.Run("MySQL falls back to conservative when index missing", func(t *testing.T) {
-		MarkDetailCleanupIndexMissing()
-		defer detailCleanupIndexMissing.Store(0)
+		SetDetailCleanupIndexMissing(true)
+		defer SetDetailCleanupIndexMissing(false)
 		gotBatch, gotSleep := detailCleanupBatchParams("mysql")
 		if gotBatch != 200 || gotSleep != 50*time.Millisecond {
 			t.Errorf("MySQL with missing index = (%d, %v), want (200, 50ms)", gotBatch, gotSleep)
@@ -44,11 +44,21 @@ func TestDetailCleanupBatchParams(t *testing.T) {
 	})
 
 	t.Run("SQLite unaffected by MySQL index-missing flag", func(t *testing.T) {
-		MarkDetailCleanupIndexMissing()
-		defer detailCleanupIndexMissing.Store(0)
+		SetDetailCleanupIndexMissing(true)
+		defer SetDetailCleanupIndexMissing(false)
 		gotBatch, gotSleep := detailCleanupBatchParams("sqlite")
 		if gotBatch != 200 || gotSleep != 50*time.Millisecond {
 			t.Errorf("SQLite default = (%d, %v), want (200, 50ms)", gotBatch, gotSleep)
+		}
+	})
+
+	// 验证 flag 可恢复:Codex 反馈 sticky flag 会污染后续启动/测试。
+	t.Run("SetDetailCleanupIndexMissing(false) restores fast-path", func(t *testing.T) {
+		SetDetailCleanupIndexMissing(true)
+		SetDetailCleanupIndexMissing(false)
+		gotBatch, gotSleep := detailCleanupBatchParams("mysql")
+		if gotBatch != 1000 || gotSleep != 20*time.Millisecond {
+			t.Errorf("after reset, MySQL = (%d, %v), want (1000, 20ms)", gotBatch, gotSleep)
 		}
 	})
 }

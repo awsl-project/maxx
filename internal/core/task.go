@@ -161,12 +161,14 @@ func (d *BackgroundTaskDeps) checkDetailCleanupIndexHealth() {
 	if indexCount == 0 {
 		// 主动降级 cleanup 批次到保守值,避免在无索引的大表上 batch=1000 反复全扫。
 		// 这是把 "warning + 错配的 batch 默认" 改成 "warning + 自动安全降级"。
-		sqlite.MarkDetailCleanupIndexMissing()
+		sqlite.SetDetailCleanupIndexMissing(true)
 		log.Printf("[Task] WARNING: MySQL proxy_requests has NO detail-cleanup index. "+
 			"Cleanup batch falls back to conservative size (200/50ms) until you apply:\n"+
 			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);")
 		return
 	}
+	// 显式清零:索引就绪时复位 flag,避免上一次启动遗留的 sticky 状态污染当前进程。
+	sqlite.SetDetailCleanupIndexMissing(false)
 	log.Printf("[Task] MySQL detail-cleanup index present (count=%d)", indexCount)
 }
 
