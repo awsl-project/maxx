@@ -414,6 +414,82 @@ var migrations = []Migration{
 			}
 		},
 	},
+	{
+		Version:     14,
+		Description: "Re-order MySQL proxy_requests detail-cleanup index to (status, dev_mode, created_at, id)",
+		Up: func(db *gorm.DB) error {
+			// 生产反馈：v13 在 MySQL 上建的 (created_at, id) 复合索引，对清理 SELECT
+			// 的 EXPLAIN filtered 只有 ~10%(WHERE 还有 status IN AND dev_mode = 0,
+			// 索引前缀覆盖不到要回表)。改成 (status, dev_mode, created_at, id) 后
+			// filtered 升到 ~99%，SELECT 从 30-70s 降到亚秒级。
+			//
+			// SQLite 用 partial index 已把谓词烧进索引,不需要改;attempts 表清理
+			// 没有 status/dev_mode 谓词,(created_at, id) 已最优,也保持不变。
+			//
+			// 大表上 CREATE INDEX 同样可能长时间阻塞写入,沿用 v13 的 threshold-skip
+			// 策略:超过 detailCleanupIndexRowThreshold 行打印 manual SQL,由运维选窗口跑。
+			if db.Dialector.Name() != "mysql" {
+				return nil
+			}
+			return runDetailCleanupIndexV2Migration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			if db.Dialector.Name() != "mysql" {
+				return nil
+			}
+			// 回滚:删 v2 名字的索引并尝试恢复 v13 的 (created_at, id)
+			if err := db.Exec("DROP INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests").Error; err != nil && !isMySQLMissingIndexError(err) {
+				log.Printf("[Migration] Warning: rollback v14 drop v2 failed: %v", err)
+			}
+			err := db.Exec("CREATE INDEX idx_proxy_requests_detail_cleanup ON proxy_requests(created_at, id)").Error
+			if err != nil && !isMySQLDuplicateIndexError(err) {
+				log.Printf("[Migration] Warning: rollback v14 recreate v1 failed: %v", err)
+			}
+			return nil
+		},
+	},
+}
+
+// runDetailCleanupIndexV2Migration 创建 (status, dev_mode, created_at, id) 索引并删除旧的
+// (created_at, id) 索引(同一张表两个清理索引同时存在意义不大,且 MySQL writes 要维护两份)。
+//
+// 命名为 _v2 后缀,保留旧名 idx_proxy_requests_detail_cleanup 给运维以便回滚/对照;
+// drop 顺序在 create 之后,确保任何瞬间至少一个索引可用(planner 会自动切换)。
+//
+// 大表跳过:超过阈值则只打印 manual SQL,migration 仍标记完成。降级行为:planner 退化
+// 用旧 (created_at, id) 索引,SELECT 慢但不至于卡死。
+func runDetailCleanupIndexV2Migration(db *gorm.DB) error {
+	const (
+		oldIndex = "idx_proxy_requests_detail_cleanup"
+		newIndex = "idx_proxy_requests_detail_cleanup_v2"
+		createSQL = "CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id)"
+	)
+	var rowCount int64
+	if err := db.Raw("SELECT COUNT(*) FROM proxy_requests").Scan(&rowCount).Error; err != nil {
+		log.Printf("[Migration v14] could not count proxy_requests (%v); skipping index build. Apply manually if needed.", err)
+		return nil
+	}
+
+	if rowCount > detailCleanupIndexRowThreshold {
+		log.Printf("[Migration v14] SKIPPING %s build: proxy_requests has %d rows (> %d threshold). "+
+			"CREATE INDEX would block writes. Apply manually during a maintenance window:\n"+
+			"  %s;\n"+
+			"  DROP INDEX %s ON proxy_requests;",
+			newIndex, rowCount, detailCleanupIndexRowThreshold, createSQL, oldIndex)
+		return nil
+	}
+
+	log.Printf("[Migration v14] building %s (rows=%d)", newIndex, rowCount)
+	start := time.Now()
+	if err := db.Exec(createSQL).Error; err != nil && !isMySQLDuplicateIndexError(err) {
+		return err
+	}
+	log.Printf("[Migration v14] built %s in %s", newIndex, time.Since(start).Round(time.Millisecond))
+
+	if err := db.Exec("DROP INDEX " + oldIndex + " ON proxy_requests").Error; err != nil && !isMySQLMissingIndexError(err) {
+		log.Printf("[Migration v14] Warning: drop old %s failed (non-fatal): %v", oldIndex, err)
+	}
+	return nil
 }
 
 // detailCleanupIndexRowThreshold 是 v13 自动建索引的行数上限。超过它则跳过自动建立

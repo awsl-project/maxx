@@ -487,6 +487,22 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 	return totalUpdated, nil
 }
 
+// detailCleanupBatchParams 返回当前 dialect 下 detail cleanup 批次大小与 batch 间 sleep。
+//
+//   - SQLite:200 / 50ms。SQLite WAL 是单写者锁,大 batch 会让 API INSERT 长时间等待
+//     ("卡死"问题的根因);沿用 v0.13.77 的保守值,验证稳定。
+//   - MySQL/其它:1000 / 20ms。MySQL 用行级锁 + redo log,不存在单写阻塞;改完 v14 索引
+//     后 SELECT 亚秒级,瓶颈转到 UPDATE 网络往返,大 batch 把往返摊薄到更多行。
+//     20ms sleep 仍保留一点让步给在线流量,避免长时间持锁热点。
+func detailCleanupBatchParams(dialector string) (batchSize int, sleep time.Duration) {
+	switch dialector {
+	case "mysql":
+		return 1000, 20 * time.Millisecond
+	default:
+		return 200, 50 * time.Millisecond
+	}
+}
+
 // ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
 // statuses 为空时不按状态过滤；非空时仅清理 status IN (statuses) 的记录
 //
@@ -501,10 +517,7 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 //   - 分批：request_info/response_info 是大 JSON blob，一次 UPDATE 全表会产生超大
 //     事务（WAL 同时记录 old/new），故按 batchSize 拆分。
 func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
-	const (
-		batchSize  = 200
-		batchSleep = 50 * time.Millisecond
-	)
+	batchSize, batchSleep := detailCleanupBatchParams(r.db.Dialector())
 	beforeTs := toTimestamp(before)
 	var total int64
 	var lastCreatedAt int64

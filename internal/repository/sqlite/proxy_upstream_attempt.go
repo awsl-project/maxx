@@ -245,10 +245,7 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 // 父表 PK 查找，并且 ORDER BY 不再需要临时 sort。
 // EXPLAIN QUERY PLAN 由 TestProxyUpstreamAttemptClearDetailOlderThan_UsesPartialIndex 守护。
 func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
-	const (
-		batchSize  = 200
-		batchSleep = 50 * time.Millisecond
-	)
+	batchSize, batchSleep := detailCleanupBatchParams(r.db.Dialector())
 	beforeTs := toTimestamp(before)
 	var total int64
 	var lastCreatedAt int64

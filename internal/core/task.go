@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"log"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
@@ -40,6 +42,43 @@ type BackgroundTaskDeps struct {
 	Settings           repository.SystemSettingRepository
 	AntigravityTaskSvc *service.AntigravityTaskService
 	CodexTaskSvc       *service.CodexTaskService
+
+	// Coordinator 可选。提供时,数据维护类清理任务(retention purge / detail cleanup)
+	// 只在 leader 实例上跑——多副本共享同一 RDS 时,6 副本同时清理会把 IOPS 放大 6 倍互相 race。
+	// 选举规则:对活实例 ID 排序,字典序最小的是 leader。简单、无外部依赖、TTL=heartbeat。
+	// Coordinator=nil 时退化为"总是 leader"(单实例 / 老路径)。
+	Coordinator coordinator.Coordinator
+}
+
+// leaderCheckTimeout 限制 coordinator 查询活实例列表的耗时;超时则保守退化为"非 leader",
+// 宁可这一轮不跑也不要让 coordinator 异常拖住后台任务。
+const leaderCheckTimeout = 2 * time.Second
+
+// isCleanupLeader 判断当前实例是否应当跑数据维护清理任务。
+//
+//   - Coordinator 为 nil → 单实例部署,总是 leader。
+//   - Coordinator.ListAliveInstances 失败/超时 → 保守返回 false。coordinator 不可用时
+//     宁可不清理也不要 6 副本一起跑(回到反馈中提到的 IOPS race 老问题)。
+//   - 选举:排序后最小 ID 是 leader,与本实例 ID 比较。
+//     无锁、无任期、无 split-brain 保护——清理任务幂等(再跑一次只是重复 WHERE 没行可清),
+//     即使瞬时两实例都自认 leader 也只是少量重复 IOPS,不会数据错乱。
+func (d *BackgroundTaskDeps) isCleanupLeader() bool {
+	if d.Coordinator == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), leaderCheckTimeout)
+	defer cancel()
+	alive, err := d.Coordinator.ListAliveInstances(ctx)
+	if err != nil {
+		log.Printf("[Task] leader check: ListAliveInstances failed (%v); skipping this tick", err)
+		return false
+	}
+	if len(alive) == 0 {
+		// 包括本实例都没注册的极端情况——保守跳过。
+		return false
+	}
+	sort.Strings(alive)
+	return alive[0] == d.Coordinator.InstanceID()
 }
 
 // StartBackgroundTasks 启动所有后台任务
@@ -87,7 +126,13 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 }
 
 // runCleanupTasks 清理任务：清理过期数据
+//
+// 多实例:仅在 leader 实例上跑。usage_stats / proxy_requests / sessions 是共享存储,
+// 6 副本同时跑只会把 IOPS 放大 6 倍且互相 race。leader gate 失败时跳过这一轮。
 func (d *BackgroundTaskDeps) runCleanupTasks() {
+	if !d.isCleanupLeader() {
+		return
+	}
 	// 1. 清理过期的分钟数据（保留 1 天）
 	before := time.Now().UTC().AddDate(0, 0, -1)
 	_, _ = d.UsageStats.DeleteOlderThan(domain.GranularityMinute, before)
@@ -311,7 +356,12 @@ func (d *BackgroundTaskDeps) runRequestDetailCleanup() {
 			continue
 		}
 
-		d.cleanupOldRequestDetails()
+		// 多实例:仅在 leader 上跑 detail cleanup。详见 isCleanupLeader 注释。
+		// 注意 sleep 调度仍然继续——非 leader 也要按相同 cadence 重新评估,
+		// 一旦 leader 切换不会延迟到下一个长间隔。
+		if d.isCleanupLeader() {
+			d.cleanupOldRequestDetails()
+		}
 
 		// 取所有 >0 side 的最小值；任一 side == 0 则锁到 10s
 		var seconds int

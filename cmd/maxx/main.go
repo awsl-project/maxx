@@ -329,6 +329,7 @@ func main() {
 		Settings:           settingRepo,
 		AntigravityTaskSvc: antigravityTaskSvc,
 		CodexTaskSvc:       codexTaskSvc,
+		Coordinator:        coord,
 	})
 
 	// Ensure default tenant exists
