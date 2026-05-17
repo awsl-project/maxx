@@ -389,8 +389,9 @@ var migrations = []Migration{
 			// MySQL 不支持 partial index（functional index 语法又不同），退化为普通的
 			// (created_at, id) 复合索引。
 			//
-			// 注意：大表（>1M 行）首次 CREATE INDEX 会一次性扫描全表并阻塞写入数秒到几十秒，
-			// 这是一次性成本（之后清理快得多）。下面 log 行让运维能看到这段窗口。
+			// 大表写锁规避：SQLite 没有 online CREATE INDEX。为不在升级路径上长时间阻塞
+			// 写入，runDetailCleanupIndexMigration 对超过 detailCleanupIndexRowThreshold
+			// 的表跳过自动建立，打印 manual SQL 由运维选维护窗口跑。
 			return runDetailCleanupIndexMigration(db)
 		},
 		Down: func(db *gorm.DB) error {
@@ -415,8 +416,18 @@ var migrations = []Migration{
 	},
 }
 
-// runDetailCleanupIndexMigration 建立 v13 的清理索引并附带耗时/行数日志。
-// SQLite 在大表上 CREATE INDEX 会阻塞写入，提前打 log 让运维知道这段窗口。
+// detailCleanupIndexRowThreshold 是 v13 自动建索引的行数上限。超过它则跳过自动建立
+// 并打印 manual SQL，由运维选维护窗口手动执行——避免大表升级时数据库被 CREATE INDEX
+// 长时间独占写锁（SQLite 没有 online DDL）。500k 行是经验值：低于此 SSD 上建索引秒级完成，
+// 远高于这个量级时建索引耗时可达数十秒到分钟级。
+const detailCleanupIndexRowThreshold = 500_000
+
+// runDetailCleanupIndexMigration 建立 v13 的清理索引：
+//   - 小表：直接同步建立（耗时可忽略）。
+//   - 大表：跳过，但打印明确的 manual SQL + 行数，让运维选窗口手动跑。
+//
+// 跳过分支下 migration 仍记为已应用——v14+ 不应依赖该索引存在。清理路径在缺索引时
+// 退化到全表扫，但 batch+sleep 的 yield 已经能避免"卡死"，只是稳态扫描成本高一些。
 func runDetailCleanupIndexMigration(db *gorm.DB) error {
 	type tableSpec struct {
 		table     string
@@ -441,12 +452,12 @@ func runDetailCleanupIndexMigration(db *gorm.DB) error {
 
 	for _, s := range specs {
 		var rowCount int64
+		// 表名是包内硬编码字面量，不存在注入面；GORM 占位符不支持表名。
 		if err := db.Raw("SELECT COUNT(*) FROM " + s.table).Scan(&rowCount).Error; err != nil {
-			// 计数失败不阻止迁移；日志少一行而已。
-			log.Printf("[Migration v13] could not count %s: %v", s.table, err)
+			// 计数失败时保守起见跳过——宁可慢，不要在升级路径上炸。
+			log.Printf("[Migration v13] could not count %s (%v); skipping index build. Apply manually if needed.", s.table, err)
+			continue
 		}
-		log.Printf("[Migration v13] building %s (rows=%d). On large tables this briefly blocks writes; one-time cost.", s.index, rowCount)
-		start := time.Now()
 
 		var ddl string
 		switch db.Dialector.Name() {
@@ -455,6 +466,17 @@ func runDetailCleanupIndexMigration(db *gorm.DB) error {
 		default:
 			ddl = s.sqliteDDL
 		}
+
+		if rowCount > detailCleanupIndexRowThreshold {
+			log.Printf("[Migration v13] SKIPPING %s build: %s has %d rows (> %d threshold). "+
+				"CREATE INDEX would block writes for tens of seconds. "+
+				"Apply manually during a maintenance window:\n  %s",
+				s.index, s.table, rowCount, detailCleanupIndexRowThreshold, ddl)
+			continue
+		}
+
+		log.Printf("[Migration v13] building %s (rows=%d)", s.index, rowCount)
+		start := time.Now()
 		if err := db.Exec(ddl).Error; err != nil {
 			if db.Dialector.Name() == "mysql" && isMySQLDuplicateIndexError(err) {
 				log.Printf("[Migration v13] %s already exists, skipped", s.index)
