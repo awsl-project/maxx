@@ -9,6 +9,28 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
+func TestDetailCleanupBatchParams(t *testing.T) {
+	tests := []struct {
+		dialector  string
+		wantBatch  int
+		wantSleep  time.Duration
+	}{
+		{"sqlite", 200, 50 * time.Millisecond},
+		{"mysql", 1000, 20 * time.Millisecond},
+		{"postgres", 200, 50 * time.Millisecond}, // unknown → conservative defaults
+		{"", 200, 50 * time.Millisecond},
+	}
+	for _, tt := range tests {
+		t.Run(tt.dialector, func(t *testing.T) {
+			gotBatch, gotSleep := detailCleanupBatchParams(tt.dialector)
+			if gotBatch != tt.wantBatch || gotSleep != tt.wantSleep {
+				t.Errorf("detailCleanupBatchParams(%q) = (%d, %v), want (%d, %v)",
+					tt.dialector, gotBatch, gotSleep, tt.wantBatch, tt.wantSleep)
+			}
+		})
+	}
+}
+
 func buildTestProxyRequest(status string, index int) *domain.ProxyRequest {
 	start := time.Unix(int64(index), 0).UTC()
 	return &domain.ProxyRequest{

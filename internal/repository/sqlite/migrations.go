@@ -462,7 +462,12 @@ func runDetailCleanupIndexV2Migration(db *gorm.DB) error {
 	const (
 		oldIndex = "idx_proxy_requests_detail_cleanup"
 		newIndex = "idx_proxy_requests_detail_cleanup_v2"
-		createSQL = "CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id)"
+		// ALGORITHM=INPLACE, LOCK=NONE 显式声明 online DDL。MySQL 8 默认就是 INPLACE,
+		// 但若 InnoDB 走 COPY fallback(罕见的 fulltext/外键交互),不加这两个 hint
+		// 会静默退化为长时间持锁。显式声明 → 不支持就报错,不让运维稳态写入被锁住。
+		createSQL = "CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id) ALGORITHM=INPLACE, LOCK=NONE"
+		// manual SQL log 中不带 ALGORITHM hint:运维窗口下手动执行,愿意承担 COPY 风险。
+		manualCreateSQL = "CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id)"
 	)
 	var rowCount int64
 	if err := db.Raw("SELECT COUNT(*) FROM proxy_requests").Scan(&rowCount).Error; err != nil {
@@ -474,8 +479,9 @@ func runDetailCleanupIndexV2Migration(db *gorm.DB) error {
 		log.Printf("[Migration v14] SKIPPING %s build: proxy_requests has %d rows (> %d threshold). "+
 			"CREATE INDEX would block writes. Apply manually during a maintenance window:\n"+
 			"  %s;\n"+
-			"  DROP INDEX %s ON proxy_requests;",
-			newIndex, rowCount, detailCleanupIndexRowThreshold, createSQL, oldIndex)
+			"  -- then (only if v13 had successfully built the old index):\n"+
+			"  -- DROP INDEX %s ON proxy_requests;",
+			newIndex, rowCount, detailCleanupIndexRowThreshold, manualCreateSQL, oldIndex)
 		return nil
 	}
 

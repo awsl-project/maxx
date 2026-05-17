@@ -83,6 +83,15 @@ func (d *BackgroundTaskDeps) isCleanupLeader() bool {
 
 // StartBackgroundTasks 启动所有后台任务
 func StartBackgroundTasks(deps BackgroundTaskDeps) {
+	// 启动时校验:多副本部署日志一行,方便运维判断生效模式。
+	if deps.Coordinator != nil {
+		log.Printf("[Task] cleanup leader gating enabled (instance=%s)", deps.Coordinator.InstanceID())
+	} else {
+		log.Printf("[Task] cleanup leader gating disabled (single-instance mode)")
+	}
+	// 启动时校验:MySQL 上 detail-cleanup 索引若缺失,稳态 SELECT 会全表扫,
+	// 配合大 batch 反而把 IOPS 放大。打印明显告警 + manual SQL,让运维不至于错过。
+	deps.checkDetailCleanupIndexHealth()
 	// 统计聚合任务（每 30 秒）- 聚合原始数据并自动 rollup 到各粒度
 	go func() {
 		time.Sleep(5 * time.Second) // 初始延迟
@@ -123,6 +132,40 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 	}
 
 	log.Println("[Task] Background tasks started (aggregation:30s, cleanup:1h, detail-cleanup:dynamic)")
+}
+
+// checkDetailCleanupIndexHealth 在 MySQL 上验证 detail-cleanup 索引是否就绪。
+//
+// 背景:v13/v14 migration 都有 500k 行 threshold-skip 分支。若大表升级时运维忽略
+// manual SQL,稳态 cleanup SELECT 会全表扫;配合 dialect-aware 的大 batch
+// (MySQL 1000),IOPS 会被放大而不是收敛。启动时显式告警,让问题在日志最显眼处出现,
+// 而不是被运维当成"清理任务在跑就行"的假象掩盖。
+//
+// 检查为 best-effort:DB 字段为 nil(测试场景)或非 MySQL(SQLite 用 partial index)
+// 直接跳过。INFORMATION_SCHEMA 查询失败也不阻塞启动——这只是健康提示,不是 gate。
+func (d *BackgroundTaskDeps) checkDetailCleanupIndexHealth() {
+	if d.DB == nil || d.DB.Dialector() != "mysql" {
+		return
+	}
+	var indexCount int64
+	err := d.DB.GormDB().Raw(`
+		SELECT COUNT(*) FROM information_schema.STATISTICS
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'proxy_requests'
+		  AND index_name IN ('idx_proxy_requests_detail_cleanup', 'idx_proxy_requests_detail_cleanup_v2')
+	`).Scan(&indexCount).Error
+	if err != nil {
+		log.Printf("[Task] WARNING: failed to verify detail-cleanup index health: %v", err)
+		return
+	}
+	if indexCount == 0 {
+		log.Printf("[Task] WARNING: MySQL proxy_requests has NO detail-cleanup index. "+
+			"Cleanup SELECT will fall back to full table scan. "+
+			"Apply manually during a maintenance window:\n"+
+			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);")
+		return
+	}
+	log.Printf("[Task] MySQL detail-cleanup index present (count=%d)", indexCount)
 }
 
 // runCleanupTasks 清理任务：清理过期数据
