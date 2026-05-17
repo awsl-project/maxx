@@ -136,10 +136,15 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 
 // checkDetailCleanupIndexHealth 在 MySQL 上验证 detail-cleanup 索引是否就绪。
 //
-// 背景:v13/v14 migration 都有 500k 行 threshold-skip 分支。若大表升级时运维忽略
-// manual SQL,稳态 cleanup SELECT 会全表扫;配合 dialect-aware 的大 batch
-// (MySQL 1000),IOPS 会被放大而不是收敛。启动时显式告警,让问题在日志最显眼处出现,
-// 而不是被运维当成"清理任务在跑就行"的假象掩盖。
+// 三档状态:
+//   - v14 (_v2) 索引存在 → fast path (1000/20ms)。生产 EXPLAIN filtered ~99%,
+//     是 PR 设计目标。
+//   - 仅 v13 旧索引 (_no _v2) → degraded。v13 的 (created_at, id) 列序对清理
+//     SELECT filtered 只有 ~10%,在大表上把 1000 batch 跑成全扫等价物。退到保守批次
+//     200/50ms,并打印 manual v14 SQL。maintainer awsl233777 在 PR #566 catch 的关键
+//     场景:v13 自动建成 + v14 threshold-skip 时,以前 health check 把它当作就绪,
+//     会用错配的 fast path。
+//   - 都不存在 → 最强警告 + 保守批次。
 //
 // 检查为 best-effort:DB 字段为 nil(测试场景)或非 MySQL(SQLite 用 partial index)
 // 直接跳过。INFORMATION_SCHEMA 查询失败也不阻塞启动——这只是健康提示,不是 gate。
@@ -147,29 +152,49 @@ func (d *BackgroundTaskDeps) checkDetailCleanupIndexHealth() {
 	if d.DB == nil || d.DB.Dialector() != "mysql" {
 		return
 	}
-	var indexCount int64
+	type indexRow struct {
+		IndexName string `gorm:"column:index_name"`
+	}
+	var rows []indexRow
 	err := d.DB.GormDB().Raw(`
-		SELECT COUNT(*) FROM information_schema.STATISTICS
+		SELECT DISTINCT index_name FROM information_schema.STATISTICS
 		WHERE table_schema = DATABASE()
 		  AND table_name = 'proxy_requests'
 		  AND index_name IN ('idx_proxy_requests_detail_cleanup', 'idx_proxy_requests_detail_cleanup_v2')
-	`).Scan(&indexCount).Error
+	`).Scan(&rows).Error
 	if err != nil {
 		log.Printf("[Task] WARNING: failed to verify detail-cleanup index health: %v", err)
 		return
 	}
-	if indexCount == 0 {
-		// 主动降级 cleanup 批次到保守值,避免在无索引的大表上 batch=1000 反复全扫。
-		// 这是把 "warning + 错配的 batch 默认" 改成 "warning + 自动安全降级"。
+	hasV13, hasV14 := false, false
+	for _, r := range rows {
+		switch r.IndexName {
+		case "idx_proxy_requests_detail_cleanup":
+			hasV13 = true
+		case "idx_proxy_requests_detail_cleanup_v2":
+			hasV14 = true
+		}
+	}
+	switch {
+	case hasV14:
+		sqlite.SetDetailCleanupIndexMissing(false)
+		log.Printf("[Task] MySQL detail-cleanup v14 index present (fast path enabled)")
+	case hasV13:
+		// v13 索引存在但 v14 缺失。v13 列序只让 ~10% 行有效过滤,大 batch 等同全扫。
+		// 退到保守批次,并提示运维补 v14。
+		sqlite.SetDetailCleanupIndexMissing(true)
+		log.Printf("[Task] WARNING: MySQL proxy_requests has only the v13 detail-cleanup index "+
+			"(created_at, id). v14 reorder is the actual perf fix; cleanup batch falls back to "+
+			"conservative size (200/50ms) until you apply:\n"+
+			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);\n"+
+			"  -- then optionally:\n"+
+			"  -- DROP INDEX idx_proxy_requests_detail_cleanup ON proxy_requests;")
+	default:
 		sqlite.SetDetailCleanupIndexMissing(true)
 		log.Printf("[Task] WARNING: MySQL proxy_requests has NO detail-cleanup index. "+
 			"Cleanup batch falls back to conservative size (200/50ms) until you apply:\n"+
 			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);")
-		return
 	}
-	// 显式清零:索引就绪时复位 flag,避免上一次启动遗留的 sticky 状态污染当前进程。
-	sqlite.SetDetailCleanupIndexMissing(false)
-	log.Printf("[Task] MySQL detail-cleanup index present (count=%d)", indexCount)
 }
 
 // runCleanupTasks 清理任务：清理过期数据
