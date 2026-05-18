@@ -462,11 +462,12 @@ func runDetailCleanupIndexV2Migration(db *gorm.DB) error {
 	const (
 		oldIndex = "idx_proxy_requests_detail_cleanup"
 		newIndex = "idx_proxy_requests_detail_cleanup_v2"
-		// ALGORITHM=INPLACE, LOCK=NONE 显式声明 online DDL。MySQL 8 默认就是 INPLACE,
-		// 但若 InnoDB 走 COPY fallback(罕见的 fulltext/外键交互),不加这两个 hint
-		// 会静默退化为长时间持锁。显式声明 → 不支持就报错,不让运维稳态写入被锁住。
-		createSQL = "CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id) ALGORITHM=INPLACE, LOCK=NONE"
-		// manual SQL log 中不带 ALGORITHM hint:运维窗口下手动执行,愿意承担 COPY 风险。
+		// ALGORITHM=INPLACE, LOCK=NONE 显式声明 online DDL。这两个子句**只能用在
+		// ALTER TABLE ADD INDEX 上**;附在 CREATE INDEX 后面 MySQL 8 会报 1064 语法错。
+		// 之前用 CREATE INDEX 的版本在 v0.13.78 启动崩溃(生产报告)。
+		// 用 ALTER TABLE 等价表达,等价语义,但语法被 MySQL parser 接受。
+		createSQL = "ALTER TABLE proxy_requests ADD INDEX idx_proxy_requests_detail_cleanup_v2 (status, dev_mode, created_at, id), ALGORITHM=INPLACE, LOCK=NONE"
+		// manual SQL log 中保持 CREATE INDEX 形式:运维窗口下不需要 INPLACE/LOCK 提示。
 		manualCreateSQL = "CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id)"
 	)
 	var rowCount int64
