@@ -171,6 +171,9 @@ func (d *BackgroundTaskDeps) checkDetailClearedColumnHealth() {
 }
 
 // detailClearedColumnExists 跨 dialect 探测列是否存在。
+//
+// 注意 Postgres 分支:不能 fall through 到 SQLite PRAGMA 路径。Postgres 会以
+// SQLSTATE 42601 拒绝 PRAGMA 并 abort 当前事务,后续查询全部失败(multiinstance CI 抓到)。
 func detailClearedColumnExists(db *sqlite.DB, table string) (bool, error) {
 	switch db.Dialector() {
 	case "mysql":
@@ -180,7 +183,15 @@ func detailClearedColumnExists(db *sqlite.DB, table string) (bool, error) {
 			WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'detail_cleared'
 		`, table).Scan(&n).Error
 		return n > 0, err
+	case "postgres":
+		var n int64
+		err := db.GormDB().Raw(`
+			SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = ? AND column_name = 'detail_cleared'
+		`, table).Scan(&n).Error
+		return n > 0, err
 	default:
+		// SQLite
 		rows, err := db.GormDB().Raw("PRAGMA table_info(" + table + ")").Rows()
 		if err != nil {
 			return false, err

@@ -513,8 +513,17 @@ func runDetailClearedColumnMigration(db *gorm.DB) error {
 				WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'detail_cleared'
 			`, table).Scan(&n).Error
 			return n > 0, err
+		case "postgres":
+			var n int64
+			err := db.Raw(`
+				SELECT COUNT(*) FROM information_schema.columns
+				WHERE table_schema = current_schema() AND table_name = ? AND column_name = 'detail_cleared'
+			`, table).Scan(&n).Error
+			return n > 0, err
 		default:
-			// SQLite:PRAGMA table_info(...) 列表里找
+			// SQLite:PRAGMA table_info(...) 列表里找。
+			// 注意:**不要**让 PRAGMA 跑在其它 dialect 上——Postgres 会以 SQLSTATE 42601
+			// 抛出错误并 abort 整个事务,导致 v15 后续 SQL 全部失败。multiinstance CI 抓到。
 			rows, err := db.Raw("PRAGMA table_info(" + table + ")").Rows()
 			if err != nil {
 				return false, err
@@ -552,7 +561,15 @@ func runDetailClearedColumnMigration(db *gorm.DB) error {
 			continue
 		}
 
-		ddl := "ALTER TABLE " + table + " ADD COLUMN detail_cleared TINYINT NOT NULL DEFAULT 0"
+		// 列类型按 dialect:
+		//   - MySQL:TINYINT 1 字节
+		//   - Postgres:SMALLINT 2 字节(没有 TINYINT,SMALLINT 是 16-bit 最小整型)
+		//   - SQLite:整型亲和力,类型名只是 hint,用 TINYINT 与 MySQL 对齐即可
+		columnType := "TINYINT"
+		if db.Dialector.Name() == "postgres" {
+			columnType = "SMALLINT"
+		}
+		ddl := "ALTER TABLE " + table + " ADD COLUMN detail_cleared " + columnType + " NOT NULL DEFAULT 0"
 
 		if rowCount > detailCleanupIndexRowThreshold {
 			log.Printf("[Migration v15] SKIPPING ADD COLUMN on %s: %d rows (> %d threshold). "+
