@@ -148,6 +148,12 @@ func (d *BackgroundTaskDeps) checkDetailClearedColumnHealth() {
 	if d.DB == nil {
 		return
 	}
+	// 列类型与 migration v15 的 dialect 分支保持一致——否则运维复制 manual SQL 时
+	// Postgres 上 TINYINT 直接 1064 语法错(awsl233777 在 PR #568 catch)。
+	columnType := "TINYINT"
+	if d.DB.Dialector() == "postgres" {
+		columnType = "SMALLINT"
+	}
 	tables := []string{"proxy_requests", "proxy_upstream_attempts"}
 	missing := false
 	for _, table := range tables {
@@ -160,7 +166,7 @@ func (d *BackgroundTaskDeps) checkDetailClearedColumnHealth() {
 		if !exists {
 			missing = true
 			log.Printf("[Task] WARNING: %s.detail_cleared column missing — cleanup will use legacy IS NOT NULL predicate (slow but functional). Apply manually:\n"+
-				"  ALTER TABLE %s ADD COLUMN detail_cleared TINYINT NOT NULL DEFAULT 0;", table, table)
+				"  ALTER TABLE %s ADD COLUMN detail_cleared %s NOT NULL DEFAULT 0;", table, table, columnType)
 			break
 		}
 	}
