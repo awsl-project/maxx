@@ -251,9 +251,27 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	batchSize, batchSleep := detailCleanupBatchParams(r.db.Dialector())
 	beforeTs := toTimestamp(before)
+	useSentinel := detailClearedColumnAvailable()
 	var total int64
 	var lastCreatedAt int64
 	var lastID uint64
+
+	// Sentinel vs legacy 谓词分支,见 proxy_request.go 同名函数的注释。
+	selectPred := "detail_cleared = 0 AND created_at < ?"
+	updatePred := "id IN ? AND detail_cleared = 0 AND created_at < ?"
+	updateMap := map[string]any{
+		"request_info":   nil,
+		"response_info":  nil,
+		"detail_cleared": 1,
+	}
+	if !useSentinel {
+		selectPred = "(request_info IS NOT NULL OR response_info IS NOT NULL) AND created_at < ?"
+		updatePred = "id IN ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND created_at < ?"
+		updateMap = map[string]any{
+			"request_info":  nil,
+			"response_info": nil,
+		}
+	}
 
 	// parentExistsClause 构造相关 EXISTS：通过 attempt.proxy_request_id 关联父行，
 	// 然后过滤父行 dev_mode/status。返回 SQL 片段 + 对应 args。
@@ -278,7 +296,7 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 		existsSQL, existsArgs := parentExistsClause()
 		if err := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
 			Select("id, created_at").
-			Where("detail_cleared = 0 AND created_at < ?", beforeTs).
+			Where(selectPred, beforeTs).
 			Where("(created_at > ? OR (created_at = ? AND id > ?))", lastCreatedAt, lastCreatedAt, lastID).
 			Where(existsSQL, existsArgs...).
 			Order("created_at, id").
@@ -297,15 +315,11 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 		lastCreatedAt = last.CreatedAt
 		lastID = last.ID
 
+		updateMap["updated_at"] = time.Now().UnixMilli()
 		result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
-			Where("id IN ? AND detail_cleared = 0 AND created_at < ?", ids, beforeTs).
+			Where(updatePred, ids, beforeTs).
 			Where(existsSQL, existsArgs...).
-			Updates(map[string]any{
-				"request_info":   nil,
-				"response_info":  nil,
-				"detail_cleared": 1,
-				"updated_at":     time.Now().UnixMilli(),
-			})
+			Updates(updateMap)
 		if result.Error != nil {
 			return total, result.Error
 		}

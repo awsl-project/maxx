@@ -375,6 +375,48 @@ func TestProxyRequestClearDetailOlderThan(t *testing.T) {
 	})
 }
 
+// TestClearDetailOlderThan_LegacyFallback 守护 sentinel 列缺失时的退化路径。
+//
+// 场景:v15 在大表上 threshold-skip 了 ADD COLUMN,运维没补建。运行期
+// SetDetailClearedColumnMissing(true) 让 ClearDetailOlderThan 走 legacy
+// IS NOT NULL 谓词,不引用不存在的 detail_cleared 列。功能正常但慢。
+//
+// 实现验证:用一个真实的 SQLite DB(列已建),手动 set flag,运行清理,
+// 确认 legacy 谓词路径不报错且能清出数据。
+func TestClearDetailOlderThan_LegacyFallback(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	repo := NewProxyRequestRepository(db)
+
+	// 模拟列缺失场景。注意 SQLite 本地其实有列,我们只是逼 ClearDetailOlderThan 走
+	// legacy 路径——legacy 路径不引用列,不报错;清理结果与 sentinel 路径一致。
+	SetDetailClearedColumnMissing(true)
+	defer SetDetailClearedColumnMissing(false)
+
+	old := time.Now().Add(-2 * time.Hour)
+	for i := 0; i < 3; i++ {
+		r := buildTestProxyRequest("COMPLETED", i)
+		if err := repo.Create(r); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if err := db.gorm.Table("proxy_requests").Where("id = ?", r.ID).
+			Update("created_at", old.UnixMilli()+int64(i)).Error; err != nil {
+			t.Fatalf("backdate: %v", err)
+		}
+	}
+
+	cleared, err := repo.ClearDetailOlderThan(time.Now().Add(-time.Hour), nil)
+	if err != nil {
+		t.Fatalf("legacy-path clear: %v", err)
+	}
+	if cleared != 3 {
+		t.Fatalf("legacy-path cleared = %d, want 3", cleared)
+	}
+}
+
 // TestClearDetailOlderThan_StatusBucketIsolation 守护"状态后变的行不会被永久跳过"。
 //
 // 历史 bug:之前的实现在 repo 上持久化 cursor。PENDING 行先被 cursor 越过(status 过滤

@@ -92,6 +92,7 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 	// 启动时校验:MySQL 上 detail-cleanup 索引若缺失,稳态 SELECT 会全表扫,
 	// 配合大 batch 反而把 IOPS 放大。打印明显告警 + manual SQL,让运维不至于错过。
 	deps.checkDetailCleanupIndexHealth()
+	deps.checkDetailClearedColumnHealth()
 	// 统计聚合任务（每 30 秒）- 聚合原始数据并自动 rollup 到各粒度
 	go func() {
 		time.Sleep(5 * time.Second) // 初始延迟
@@ -132,6 +133,73 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 	}
 
 	log.Println("[Task] Background tasks started (aggregation:30s, cleanup:1h, detail-cleanup:dynamic)")
+}
+
+// checkDetailClearedColumnHealth 在所有 dialect 上验证 v15 detail_cleared 列是否就绪。
+//
+// 背景:v15 migration 在 proxy_requests / proxy_upstream_attempts 行数 > 500k 时跳过
+// ADD COLUMN(避免大表升级阻塞写入)。如果运维忽略 manual SQL,稳态 ClearDetailOlderThan
+// 的 SELECT 会引用不存在的列 → 每个 tick 都报错 → cleanup 功能直接挂掉(不是变慢)。
+// 启动时探测列是否存在,缺失则置位 flag,sentinel-aware 的清理代码退化到 v13/v14 legacy
+// 谓词(`request_info IS NOT NULL OR response_info IS NOT NULL`),保证功能正常。
+//
+// 检查为 best-effort:DB 字段为 nil(测试场景)直接跳过。任一表缺列即视为 missing。
+func (d *BackgroundTaskDeps) checkDetailClearedColumnHealth() {
+	if d.DB == nil {
+		return
+	}
+	tables := []string{"proxy_requests", "proxy_upstream_attempts"}
+	missing := false
+	for _, table := range tables {
+		exists, err := detailClearedColumnExists(d.DB, table)
+		if err != nil {
+			log.Printf("[Task] WARNING: failed to probe %s.detail_cleared (%v); assuming missing", table, err)
+			missing = true
+			break
+		}
+		if !exists {
+			missing = true
+			log.Printf("[Task] WARNING: %s.detail_cleared column missing — cleanup will use legacy IS NOT NULL predicate (slow but functional). Apply manually:\n"+
+				"  ALTER TABLE %s ADD COLUMN detail_cleared TINYINT NOT NULL DEFAULT 0;", table, table)
+			break
+		}
+	}
+	sqlite.SetDetailClearedColumnMissing(missing)
+	if !missing {
+		log.Printf("[Task] detail_cleared sentinel column present on both tables (fast path enabled)")
+	}
+}
+
+// detailClearedColumnExists 跨 dialect 探测列是否存在。
+func detailClearedColumnExists(db *sqlite.DB, table string) (bool, error) {
+	switch db.Dialector() {
+	case "mysql":
+		var n int64
+		err := db.GormDB().Raw(`
+			SELECT COUNT(*) FROM information_schema.COLUMNS
+			WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'detail_cleared'
+		`, table).Scan(&n).Error
+		return n > 0, err
+	default:
+		rows, err := db.GormDB().Raw("PRAGMA table_info(" + table + ")").Rows()
+		if err != nil {
+			return false, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dflt any
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+				return false, err
+			}
+			if name == "detail_cleared" {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 }
 
 // checkDetailCleanupIndexHealth 在 MySQL 上验证 detail-cleanup 索引是否就绪。

@@ -494,6 +494,29 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 // 用 atomic.Int32 而非 mutex:写一次(启动),读高频(每次清理批次),无锁读最便宜。
 var detailCleanupIndexMissing atomic.Int32
 
+// detailClearedColumnMissing 由启动时检查置位:大表 threshold-skip 导致 v15 没建
+// detail_cleared 列时设为 1。ClearDetailOlderThan 据此走 legacy IS NOT NULL 谓词,
+// 否则查询会因列不存在而每个 tick 都失败——是功能失效,不是降级变慢(Codex 抓到)。
+var detailClearedColumnMissing atomic.Int32
+
+// SetDetailClearedColumnMissing 设置 detail_cleared 列缺失状态。
+//
+// 调用方:internal/core/task.go:checkDetailClearedColumnHealth 在启动时探测一次。
+// 同进程内若列后续被运维手动补建,需重启进程才能恢复 fast-path——这是与
+// detailCleanupIndexMissing 一致的语义,避免运行时反复轮询。
+func SetDetailClearedColumnMissing(missing bool) {
+	if missing {
+		detailClearedColumnMissing.Store(1)
+	} else {
+		detailClearedColumnMissing.Store(0)
+	}
+}
+
+// detailClearedColumnAvailable 返回是否可以使用 detail_cleared sentinel。
+func detailClearedColumnAvailable() bool {
+	return detailClearedColumnMissing.Load() == 0
+}
+
 // SetDetailCleanupIndexMissing 设置 MySQL detail-cleanup 索引缺失状态。startup
 // health-check 调用,见 internal/core/task.go:checkDetailCleanupIndexHealth。
 //
@@ -563,9 +586,32 @@ var maxCleanupBatchesPerCall = 50
 func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	batchSize, batchSleep := detailCleanupBatchParams(r.db.Dialector())
 	beforeTs := toTimestamp(before)
+	useSentinel := detailClearedColumnAvailable()
 	var total int64
 	var lastCreatedAt int64
 	var lastID uint64
+
+	// 谓词分支:
+	//   - useSentinel=true(常态):detail_cleared = 0,planner 走 v15 sentinel 索引
+	//   - useSentinel=false(大表 threshold-skip 列没建):退化到 v13/v14 legacy 谓词,
+	//     虽然慢但功能正常。运维补建列+重启即恢复 fast-path。
+	selectPred := "detail_cleared = 0 AND created_at < ? AND dev_mode = 0"
+	updatePred := "id IN ? AND detail_cleared = 0 AND created_at < ? AND dev_mode = 0"
+	updateMap := map[string]any{
+		"request_info":   nil,
+		"response_info":  nil,
+		"detail_cleared": 1,
+		"updated_at":     time.Now().UnixMilli(),
+	}
+	if !useSentinel {
+		selectPred = "(request_info IS NOT NULL OR response_info IS NOT NULL) AND created_at < ? AND dev_mode = 0"
+		updatePred = "id IN ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND created_at < ? AND dev_mode = 0"
+		updateMap = map[string]any{
+			"request_info":  nil,
+			"response_info": nil,
+			"updated_at":    time.Now().UnixMilli(),
+		}
+	}
 
 	type cursorRow struct {
 		ID        uint64 `gorm:"column:id"`
@@ -576,7 +622,7 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 		var rows []cursorRow
 		q := r.db.gorm.Model(&ProxyRequest{}).
 			Select("id, created_at").
-			Where("detail_cleared = 0 AND created_at < ? AND dev_mode = 0", beforeTs).
+			Where(selectPred, beforeTs).
 			Where("(created_at > ? OR (created_at = ? AND id > ?))", lastCreatedAt, lastCreatedAt, lastID)
 		if len(statuses) > 0 {
 			q = q.Where("status IN ?", statuses)
@@ -595,17 +641,14 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 		lastCreatedAt = last.CreatedAt
 		lastID = last.ID
 
-		uq := r.db.gorm.Model(&ProxyRequest{}).
-			Where("id IN ? AND detail_cleared = 0 AND created_at < ? AND dev_mode = 0", ids, beforeTs)
+		// 每个 batch 用当前时刻刷新 updated_at;updateMap 在循环外构造时是初始时刻,
+		// 长 backlog 下让 updated_at 反映最近一次实际写入更精确。
+		updateMap["updated_at"] = time.Now().UnixMilli()
+		uq := r.db.gorm.Model(&ProxyRequest{}).Where(updatePred, ids, beforeTs)
 		if len(statuses) > 0 {
 			uq = uq.Where("status IN ?", statuses)
 		}
-		result := uq.Updates(map[string]any{
-			"request_info":   nil,
-			"response_info":  nil,
-			"detail_cleared": 1,
-			"updated_at":     time.Now().UnixMilli(),
-		})
+		result := uq.Updates(updateMap)
 		if result.Error != nil {
 			return total, result.Error
 		}
