@@ -307,6 +307,10 @@ type ProxyRequest struct {
 	ProjectID                   uint64 `gorm:"index"`
 	APITokenID                  uint64
 	DevMode                     int `gorm:"default:0"`
+	// DetailCleared:1 表示 RequestInfo/ResponseInfo 已被清理任务 nullify。复合索引
+	// idx_proxy_requests_detail_cleared (detail_cleared, created_at, id) 由 migration v15
+	// 显式创建——AutoMigrate 不便表达 BaseModel 跨字段的复合索引顺序。
+	DetailCleared int `gorm:"default:0"`
 }
 
 func (ProxyRequest) TableName() string { return "proxy_requests" }
@@ -338,6 +342,8 @@ type ProxyUpstreamAttempt struct {
 	RequestModel      string `gorm:"size:128"`
 	MappedModel       string `gorm:"size:128"`
 	ResponseModel     string `gorm:"size:128"`
+	// DetailCleared:同 ProxyRequest.DetailCleared,见上方注释。
+	DetailCleared int `gorm:"default:0"`
 }
 
 func (ProxyUpstreamAttempt) TableName() string { return "proxy_upstream_attempts" }

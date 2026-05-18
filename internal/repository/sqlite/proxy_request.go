@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -12,18 +13,66 @@ import (
 	"gorm.io/gorm"
 )
 
+// cleanupCursor 持久化在 repo 实例上的 (created_at, id) 二元组游标。
+//
+// 解决"每个 tick 都从 (0,0) 重扫"的稳态 O(N) 问题:
+//   - cursor 在进程生命周期内单调推进,跨 ClearDetailOlderThan 调用复用
+//   - 新行 created_at = now,远大于 cursor.CreatedAt,自然落在 cursor 之后
+//   - 老行被 UPDATE SET detail_cleared=1 后离开二级索引的 detail_cleared=0 段,
+//     即使 cursor 倒回也不会重复处理
+//   - 进程重启 / leader 切换:cursor 归零,但配合 sentinel 索引,SELECT 在
+//     detail_cleared=0 段扫描,大表稳态下这一段几乎为空,cold-start 也很快
+type cleanupCursor struct {
+	CreatedAt int64
+	ID        uint64
+}
+
 type ProxyRequestRepository struct {
 	db    *DB
 	count int64 // 缓存的请求总数，使用原子操作
+
+	// cleanupCursors 按"状态桶"维护游标。split mode 下三种 bucket key:
+	//   - "" (全量,statuses=nil)
+	//   - "COMPLETED" (success bucket)
+	//   - "FAILED,CANCELLED,REJECTED" (failed bucket)
+	// 每个 bucket 的扫描进度独立(同一 row 可能在不同 bucket 下被 EXISTS 过滤),
+	// 所以各自一份 cursor。key 直接用 strings.Join(sortedStatuses, ",")。
+	cleanupCursorsMu sync.Mutex
+	cleanupCursors   map[string]cleanupCursor
 }
 
 var activeProxyRequestStatuses = []string{"PENDING", "IN_PROGRESS"}
 
 func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
-	r := &ProxyRequestRepository{db: db}
+	r := &ProxyRequestRepository{
+		db:             db,
+		cleanupCursors: make(map[string]cleanupCursor),
+	}
 	// 初始化时从数据库加载计数
 	r.initCount()
 	return r
+}
+
+// cleanupBucketKey 把 statuses 切片规范化为字符串 key,用作 cleanupCursors 的 map key。
+// 不需要排序——调用方 (cleanupOldRequestDetails) 永远用同样的常量切片
+// (successRequestStatuses / failedRequestStatuses / nil),内容稳定。
+func cleanupBucketKey(statuses []string) string {
+	if len(statuses) == 0 {
+		return ""
+	}
+	return strings.Join(statuses, ",")
+}
+
+func (r *ProxyRequestRepository) loadCleanupCursor(key string) cleanupCursor {
+	r.cleanupCursorsMu.Lock()
+	defer r.cleanupCursorsMu.Unlock()
+	return r.cleanupCursors[key]
+}
+
+func (r *ProxyRequestRepository) saveCleanupCursor(key string, c cleanupCursor) {
+	r.cleanupCursorsMu.Lock()
+	defer r.cleanupCursorsMu.Unlock()
+	r.cleanupCursors[key] = c
 }
 
 // initCount 从数据库初始化计数缓存
@@ -529,45 +578,66 @@ func detailCleanupBatchParams(dialector string) (batchSize int, sleep time.Durat
 	}
 }
 
+// maxCleanupBatchesPerCall 限制单次 ClearDetailOlderThan 调用最多处理多少 batch。
+//
+// 解决"一次调用 drain-to-completion 跑 43 min"的延迟尾问题。配合持久化 cursor:
+//   - cursor 跨 tick 复用,封顶批数不会导致 backlog 永远处理不完——下次 tick 从 cursor
+//     处继续
+//   - 50 batch × 1000 行(MySQL) = 50k 行 / 调用,单次 wall-clock 几秒,对 API 写入零干扰
+//   - SQLite 200/50ms 时 50 × 200 = 10k 行 / 调用,同样几秒收敛
+const maxCleanupBatchesPerCall = 50
+
 // ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
 // statuses 为空时不按状态过滤；非空时仅清理 status IN (statuses) 的记录
 //
-// Cursor / index 协作：
-//   - 用 (created_at, id) 二元组游标 + ORDER BY (created_at, id)，与 v13 的
-//     partial index idx_proxy_requests_detail_cleanup(created_at, id) 键顺序一致，
-//     EXPLAIN QUERY PLAN 验证：planner 走 SEARCH USING INDEX。若改用 id 游标 +
-//     ORDER BY id，planner 会回退到 PK 扫，索引失效，partial index 形同虚设。
-//   - drain-to-completion：50ms 批间 sleep 已经让出 SQLite 写锁，无需封顶批数。
-//     早期版本曾加 maxBatchesPerCall，但游标每次调用归零会导致 backlog 大于 cap 时
-//     下次 tick 重扫整段已 null 的老区，回退而不是改进。
-//   - 分批：request_info/response_info 是大 JSON blob，一次 UPDATE 全表会产生超大
-//     事务（WAL 同时记录 old/new），故按 batchSize 拆分。
+// 设计三件套（与 v15 sentinel + index 协作）:
+//
+//  1. **持久化 cursor**：repo struct 上的 cleanupCursors[bucketKey] 跨调用单调推进。
+//     避免每个 tick 都从 (0,0) 重扫已经处理过的区间——这是 v0.13.x 上 43-min stall 的
+//     直接成因。新行的 created_at = now,远大于 cursor.CreatedAt,自然落在 cursor 之后,
+//     不会被遗漏。
+//
+//  2. **sentinel column (detail_cleared)**：WHERE 不再用 (request_info IS NOT NULL OR
+//     response_info IS NOT NULL),改为 detail_cleared = 0。配合 v15 索引
+//     (detail_cleared, created_at, id),planner 在 detail_cleared=0 段直接做 created_at
+//     范围扫,**无需回行读 LONGTEXT NULL flag**——MySQL 上原来 100k 行 PK lookup 是
+//     43-min 的根因。SQLite 上也用 sentinel,代码路径统一。
+//
+//  3. **maxCleanupBatchesPerCall 封顶**：单次调用最多 50 个 batch。即使 backlog 巨大,
+//     单次 wall-clock 也被封在几秒级,不会出现"一个调用霸占 cleanup goroutine 几十分钟"。
+//     封顶后保存 cursor,下次 tick 从断点续。
+//
+// 重新应用谓词：Pluck 与 UPDATE 之间行的 status/dev_mode 可能变动,UPDATE WHERE 必须
+// 再次校验所有过滤条件,避免错改 dev_mode 行或状态已变更的行。
 func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	batchSize, batchSleep := detailCleanupBatchParams(r.db.Dialector())
 	beforeTs := toTimestamp(before)
+	bucketKey := cleanupBucketKey(statuses)
+	cursor := r.loadCleanupCursor(bucketKey)
 	var total int64
-	var lastCreatedAt int64
-	var lastID uint64
 
 	type cursorRow struct {
 		ID        uint64 `gorm:"column:id"`
 		CreatedAt int64  `gorm:"column:created_at"`
 	}
 
-	for {
+	for batchIdx := 0; batchIdx < maxCleanupBatchesPerCall; batchIdx++ {
 		var rows []cursorRow
 		q := r.db.gorm.Model(&ProxyRequest{}).
 			Select("id, created_at").
-			Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", beforeTs).
-			// 二元组游标：(created_at, id) > (lastCreatedAt, lastID)
-			Where("(created_at > ? OR (created_at = ? AND id > ?))", lastCreatedAt, lastCreatedAt, lastID)
+			Where("detail_cleared = 0 AND created_at < ? AND dev_mode = 0", beforeTs).
+			Where("(created_at > ? OR (created_at = ? AND id > ?))", cursor.CreatedAt, cursor.CreatedAt, cursor.ID)
 		if len(statuses) > 0 {
 			q = q.Where("status IN ?", statuses)
 		}
 		if err := q.Order("created_at, id").Limit(batchSize).Scan(&rows).Error; err != nil {
+			r.saveCleanupCursor(bucketKey, cursor)
 			return total, err
 		}
 		if len(rows) == 0 {
+			// 没有更多行可清理:cursor 已扫到 (cutoff, 0) 之外。保留 cursor,下次 tick
+			// 从这里开始即可处理新增老化行。
+			r.saveCleanupCursor(bucketKey, cursor)
 			return total, nil
 		}
 		ids := make([]uint64, len(rows))
@@ -575,30 +645,35 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 			ids[i] = row.ID
 		}
 		last := rows[len(rows)-1]
-		lastCreatedAt = last.CreatedAt
-		lastID = last.ID
+		cursor = cleanupCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 
-		// 重应用谓词：Pluck 与 UPDATE 之间行可能因 status/dev_mode 变动而不再 eligible。
 		uq := r.db.gorm.Model(&ProxyRequest{}).
-			Where("id IN ? AND created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", ids, beforeTs)
+			Where("id IN ? AND detail_cleared = 0 AND created_at < ? AND dev_mode = 0", ids, beforeTs)
 		if len(statuses) > 0 {
 			uq = uq.Where("status IN ?", statuses)
 		}
 		result := uq.Updates(map[string]any{
-			"request_info":  nil,
-			"response_info": nil,
-			"updated_at":    time.Now().UnixMilli(),
+			"request_info":   nil,
+			"response_info":  nil,
+			"detail_cleared": 1,
+			"updated_at":     time.Now().UnixMilli(),
 		})
 		if result.Error != nil {
+			r.saveCleanupCursor(bucketKey, cursor)
 			return total, result.Error
 		}
 		total += result.RowsAffected
 
 		if len(rows) < batchSize {
+			// 本批返回不满,说明当前 cutoff 内已没有更多 detail_cleared=0 行。
+			r.saveCleanupCursor(bucketKey, cursor)
 			return total, nil
 		}
 		time.Sleep(batchSleep)
 	}
+	// 达到封顶批数。保存 cursor,下次 tick 从断点继续。
+	r.saveCleanupCursor(bucketKey, cursor)
+	return total, nil
 }
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
