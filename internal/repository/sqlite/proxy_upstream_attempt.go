@@ -3,7 +3,6 @@ package sqlite
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -12,30 +11,10 @@ import (
 
 type ProxyUpstreamAttemptRepository struct {
 	db *DB
-
-	// cleanupCursors / cleanupCursorsMu:见 proxy_request.go 同名字段注释,语义一致。
-	// 三种 bucket key:"" / "COMPLETED" / "FAILED,CANCELLED,REJECTED"。
-	cleanupCursorsMu sync.Mutex
-	cleanupCursors   map[string]cleanupCursor
 }
 
 func NewProxyUpstreamAttemptRepository(db *DB) *ProxyUpstreamAttemptRepository {
-	return &ProxyUpstreamAttemptRepository{
-		db:             db,
-		cleanupCursors: make(map[string]cleanupCursor),
-	}
-}
-
-func (r *ProxyUpstreamAttemptRepository) loadCleanupCursor(key string) cleanupCursor {
-	r.cleanupCursorsMu.Lock()
-	defer r.cleanupCursorsMu.Unlock()
-	return r.cleanupCursors[key]
-}
-
-func (r *ProxyUpstreamAttemptRepository) saveCleanupCursor(key string, c cleanupCursor) {
-	r.cleanupCursorsMu.Lock()
-	defer r.cleanupCursorsMu.Unlock()
-	r.cleanupCursors[key] = c
+	return &ProxyUpstreamAttemptRepository{db: db}
 }
 
 func (r *ProxyUpstreamAttemptRepository) Create(a *domain.ProxyUpstreamAttempt) error {
@@ -272,9 +251,9 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
 	batchSize, batchSleep := detailCleanupBatchParams(r.db.Dialector())
 	beforeTs := toTimestamp(before)
-	bucketKey := cleanupBucketKey(statuses)
-	cursor := r.loadCleanupCursor(bucketKey)
 	var total int64
+	var lastCreatedAt int64
+	var lastID uint64
 
 	// parentExistsClause 构造相关 EXISTS：通过 attempt.proxy_request_id 关联父行，
 	// 然后过滤父行 dev_mode/status。返回 SQL 片段 + 对应 args。
@@ -300,16 +279,14 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 		if err := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
 			Select("id, created_at").
 			Where("detail_cleared = 0 AND created_at < ?", beforeTs).
-			Where("(created_at > ? OR (created_at = ? AND id > ?))", cursor.CreatedAt, cursor.CreatedAt, cursor.ID).
+			Where("(created_at > ? OR (created_at = ? AND id > ?))", lastCreatedAt, lastCreatedAt, lastID).
 			Where(existsSQL, existsArgs...).
 			Order("created_at, id").
 			Limit(batchSize).
 			Scan(&rows).Error; err != nil {
-			r.saveCleanupCursor(bucketKey, cursor)
 			return total, err
 		}
 		if len(rows) == 0 {
-			r.saveCleanupCursor(bucketKey, cursor)
 			return total, nil
 		}
 		ids := make([]uint64, len(rows))
@@ -317,7 +294,8 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 			ids[i] = row.ID
 		}
 		last := rows[len(rows)-1]
-		cursor = cleanupCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+		lastCreatedAt = last.CreatedAt
+		lastID = last.ID
 
 		result := r.db.gorm.Model(&ProxyUpstreamAttempt{}).
 			Where("id IN ? AND detail_cleared = 0 AND created_at < ?", ids, beforeTs).
@@ -329,18 +307,15 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 				"updated_at":     time.Now().UnixMilli(),
 			})
 		if result.Error != nil {
-			r.saveCleanupCursor(bucketKey, cursor)
 			return total, result.Error
 		}
 		total += result.RowsAffected
 
 		if len(rows) < batchSize {
-			r.saveCleanupCursor(bucketKey, cursor)
 			return total, nil
 		}
 		time.Sleep(batchSleep)
 	}
-	r.saveCleanupCursor(bucketKey, cursor)
 	return total, nil
 }
 

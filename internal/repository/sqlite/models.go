@@ -307,10 +307,13 @@ type ProxyRequest struct {
 	ProjectID                   uint64 `gorm:"index"`
 	APITokenID                  uint64
 	DevMode                     int `gorm:"default:0"`
-	// DetailCleared:1 表示 RequestInfo/ResponseInfo 已被清理任务 nullify。复合索引
-	// idx_proxy_requests_detail_cleared (detail_cleared, created_at, id) 由 migration v15
-	// 显式创建——AutoMigrate 不便表达 BaseModel 跨字段的复合索引顺序。
-	DetailCleared int `gorm:"default:0"`
+	// detail_cleared 列**故意不放在 struct 上**:
+	//
+	// 该列由 migration v15 raw SQL 添加,带有 500k 行 threshold-skip 保护。
+	// 如果放在这里,GORM AutoMigrate 在 v15 之前就会跑 ADD COLUMN,绕过 threshold
+	// 守护——46GB 大表上 MySQL 5.7 INPLACE 重写可达小时级。
+	// 代码通过 .Updates(map[string]any{"detail_cleared": 1}) 和 raw WHERE 访问该列,
+	// 不需要 struct 字段。详见 ClearDetailOlderThan 与 runDetailClearedColumnMigration。
 }
 
 func (ProxyRequest) TableName() string { return "proxy_requests" }
@@ -342,8 +345,7 @@ type ProxyUpstreamAttempt struct {
 	RequestModel      string `gorm:"size:128"`
 	MappedModel       string `gorm:"size:128"`
 	ResponseModel     string `gorm:"size:128"`
-	// DetailCleared:同 ProxyRequest.DetailCleared,见上方注释。
-	DetailCleared int `gorm:"default:0"`
+	// detail_cleared 列同样不在 struct 上,理由见 ProxyRequest.detail_cleared 注释。
 }
 
 func (ProxyUpstreamAttempt) TableName() string { return "proxy_upstream_attempts" }

@@ -375,9 +375,15 @@ func TestProxyRequestClearDetailOlderThan(t *testing.T) {
 	})
 }
 
-// TestClearDetailOlderThan_PersistsCursorAcrossCalls 守护游标跨调用复用:
-// 第二次调用不应该从 (0,0) 重扫已经处理过的区间。
-func TestClearDetailOlderThan_PersistsCursorAcrossCalls(t *testing.T) {
+// TestClearDetailOlderThan_StatusBucketIsolation 守护"状态后变的行不会被永久跳过"。
+//
+// 历史 bug:之前的实现在 repo 上持久化 cursor。PENDING 行先被 cursor 越过(status 过滤
+// 不命中),之后转 COMPLETED 时已经在 cursor 后面,永远清不到。Codex 在 PR #568 round 1
+// 抓到。修复:去掉持久化 cursor,只保留 within-call 局部游标 + sentinel 索引。
+//
+// 这个测试模拟:先以 success bucket 清一遍,造一个 PENDING 老行;然后把它转 COMPLETED,
+// 再次清,应该被命中清掉。如果回归到持久化 cursor,这个测试会捕获。
+func TestClearDetailOlderThan_StatusBucketIsolation(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -386,47 +392,41 @@ func TestClearDetailOlderThan_PersistsCursorAcrossCalls(t *testing.T) {
 	repo := NewProxyRequestRepository(db)
 
 	old := time.Now().Add(-2 * time.Hour)
-	for i := 0; i < 10; i++ {
-		r := buildTestProxyRequest("COMPLETED", i)
-		r.StartTime = old
+	// 三行同时间窗口:一个 COMPLETED, 一个 PENDING (会被 success bucket 跳过), 一个 COMPLETED
+	completed1 := buildTestProxyRequest("COMPLETED", 1)
+	pending := buildTestProxyRequest("PENDING", 2)
+	completed2 := buildTestProxyRequest("COMPLETED", 3)
+	for _, r := range []*domain.ProxyRequest{completed1, pending, completed2} {
 		if err := repo.Create(r); err != nil {
-			t.Fatalf("create %d: %v", i, err)
+			t.Fatalf("create: %v", err)
 		}
 		if err := db.gorm.Table("proxy_requests").Where("id = ?", r.ID).
-			Update("created_at", old.Add(time.Duration(i)*time.Second).UnixMilli()).Error; err != nil {
-			t.Fatalf("backdate %d: %v", i, err)
+			Update("created_at", old.UnixMilli()+int64(r.ID)).Error; err != nil {
+			t.Fatalf("backdate: %v", err)
 		}
 	}
 
-	// 第一次调用清完所有 10 条 (远低于 cap)。游标应该停在最后一行。
-	cleared, err := repo.ClearDetailOlderThan(time.Now().Add(-time.Hour), nil)
-	if err != nil {
-		t.Fatalf("first clear: %v", err)
-	}
-	if cleared != 10 {
-		t.Fatalf("first clear count = %d, want 10", cleared)
-	}
-	c1 := repo.loadCleanupCursor("")
-	if c1.ID == 0 {
-		t.Fatalf("cursor should be advanced after first call, got %+v", c1)
+	// 第一次以 success bucket 清。COMPLETED 两条被清,PENDING 跳过(留在 detail_cleared=0)。
+	cleared, err := repo.ClearDetailOlderThan(time.Now().Add(-time.Hour), []string{"COMPLETED"})
+	if err != nil || cleared != 2 {
+		t.Fatalf("first clear: %d, %v (want 2, nil)", cleared, err)
 	}
 
-	// 第二次调用:已经全部清过,detail_cleared=1,游标也已经在末尾,SELECT 应返回 0 行。
-	cleared2, err := repo.ClearDetailOlderThan(time.Now().Add(-time.Hour), nil)
-	if err != nil {
-		t.Fatalf("second clear: %v", err)
+	// PENDING 行转 FAILED。
+	if err := db.gorm.Table("proxy_requests").Where("id = ?", pending.ID).
+		Update("status", "FAILED").Error; err != nil {
+		t.Fatalf("transition: %v", err)
 	}
-	if cleared2 != 0 {
-		t.Fatalf("second clear count = %d, want 0 (cursor should skip already-cleared region)", cleared2)
-	}
-	c2 := repo.loadCleanupCursor("")
-	if c2 != c1 {
-		t.Fatalf("cursor should not move on empty second call, c1=%+v c2=%+v", c1, c2)
+
+	// failed bucket 清。如果有持久化 cursor 把 PENDING 越过了,这里会清不到。
+	cleared, err = repo.ClearDetailOlderThan(time.Now().Add(-time.Hour), []string{"FAILED", "CANCELLED", "REJECTED"})
+	if err != nil || cleared != 1 {
+		t.Fatalf("second clear: %d, %v (want 1, nil) — status transition got skipped by stale cursor?", cleared, err)
 	}
 }
 
-// TestClearDetailOlderThan_RespectsBatchCap 守护 cap maxCleanupBatchesPerCall:
-// backlog 远大于 cap 时,单次调用只处理 cap × batchSize 行,游标保存,下次继续。
+// TestClearDetailOlderThan_RespectsBatchCap 真·cap 测试:把封顶临时调小,验证调用
+// 在 cap × batchSize 行后返回,后续调用接力清完剩余。
 func TestClearDetailOlderThan_RespectsBatchCap(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
@@ -435,9 +435,13 @@ func TestClearDetailOlderThan_RespectsBatchCap(t *testing.T) {
 	defer db.Close()
 	repo := NewProxyRequestRepository(db)
 
-	// SQLite batch=200,cap=50 → 单次理论最大 10000 行;为加速测试,造 N>200 但 <10000。
-	// 这样能验证 cursor 持久化即可,完整 cap 测试用 unit-style 更经济(不必造 10k 行)。
-	const seed = 500
+	// SQLite batch=200,cap=50 → 单次 10000 行。造 10500 行验证 cap 起效太重,改用
+	// 测试钩子把 cap 临时调到 2 实现等价验证。batchSize 也是 200(SQLite default)。
+	origCap := maxCleanupBatchesPerCall
+	maxCleanupBatchesPerCall = 2
+	defer func() { maxCleanupBatchesPerCall = origCap }()
+
+	const seed = 600 // 3 batches with batchSize=200; cap=2 → 第一次清 400, 第二次清 200
 	old := time.Now().Add(-2 * time.Hour)
 	for i := 0; i < seed; i++ {
 		r := buildTestProxyRequest("COMPLETED", i)
@@ -449,12 +453,32 @@ func TestClearDetailOlderThan_RespectsBatchCap(t *testing.T) {
 			t.Fatalf("backdate %d: %v", i, err)
 		}
 	}
+
+	// 第一次:cap=2 × batchSize=200 = 400 行
 	cleared, err := repo.ClearDetailOlderThan(time.Now().Add(-time.Hour), nil)
 	if err != nil {
-		t.Fatalf("clear: %v", err)
+		t.Fatalf("first clear: %v", err)
 	}
-	if cleared != seed {
-		t.Fatalf("clear count = %d, want %d", cleared, seed)
+	if cleared != 400 {
+		t.Fatalf("first call cleared = %d, want 400 (cap × batch)", cleared)
+	}
+
+	// 第二次:剩余 200 行,一个 batch 不满就退出
+	cleared, err = repo.ClearDetailOlderThan(time.Now().Add(-time.Hour), nil)
+	if err != nil {
+		t.Fatalf("second clear: %v", err)
+	}
+	if cleared != 200 {
+		t.Fatalf("second call cleared = %d, want 200", cleared)
+	}
+
+	// 第三次:全清完,应该 0
+	cleared, err = repo.ClearDetailOlderThan(time.Now().Add(-time.Hour), nil)
+	if err != nil {
+		t.Fatalf("third clear: %v", err)
+	}
+	if cleared != 0 {
+		t.Fatalf("third call cleared = %d, want 0", cleared)
 	}
 }
 

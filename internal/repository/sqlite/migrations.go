@@ -450,24 +450,23 @@ var migrations = []Migration{
 	},
 	{
 		Version:     15,
-		Description: "Add detail_cleared sentinel + index for cleanup; AutoMigrate handles the column",
+		Description: "Add detail_cleared sentinel column + index for cleanup (threshold-skipped on large tables)",
 		Up: func(db *gorm.DB) error {
-			// 背景:v14 之前的清理 SELECT 用 (request_info IS NOT NULL OR response_info IS NOT NULL)
-			// 作为谓词。MySQL 不支持 partial index,索引上有这俩 LONGTEXT 列的 NULL 位需要回行读
-			// row header → 每行 PK lookup,大表上 cleanup 一跑就 43 min。生产实测后明确。
+			// v15 引入 detail_cleared TINYINT sentinel + 复合索引 (detail_cleared, created_at, id)。
+			// 配合 ClearDetailOlderThan 的 WHERE detail_cleared = 0,planner 走 leading-column
+			// 等值匹配,不必回行评估 LONGTEXT NULL flag。生产上原 43-min stall 的根因。
 			//
-			// v15 引入 detail_cleared TINYINT sentinel:
-			//   - DDL 由 GORM AutoMigrate 在跑 migration 前完成(BaseModel + DetailCleared 字段)
-			//   - 这里只负责建复合索引 (detail_cleared, created_at, id)
-			//   - SELECT 改为 WHERE detail_cleared = 0,纯走索引 leading column 等值匹配,
-			//     planner 在 detail_cleared=0 段做 created_at 范围扫,不回行
-			//   - UPDATE 同步置 detail_cleared = 1,清完的行自动离开"detail_cleared=0"索引段
-			//
-			// SQLite:同样建索引。原 v13 partial index 仍可保留(SQLite 上不冲突,planner 会
-			// 挑更优的),也可在 v16 之后整理掉。
+			// **detail_cleared 列由这里的 raw SQL 添加**,不放到 GORM struct 上:
+			// - AutoMigrate 在 RunMigrations 之前运行,放到 struct 上就绕开了 threshold 守护
+			// - 46GB 大表上 5.7 INPLACE ALTER 可能小时级阻塞
+			// - 这里加 threshold-skip + bare ALTER TABLE,运维超阈值时手动跑
+			if err := runDetailClearedColumnMigration(db); err != nil {
+				return err
+			}
 			return runDetailClearedIndexMigration(db)
 		},
 		Down: func(db *gorm.DB) error {
+			// 索引 drop 优先,column 保留(列 DROP 在 MySQL 5.7 / 大表上同样危险,运维手动)。
 			switch db.Dialector.Name() {
 			case "mysql":
 				for _, sql := range []string{
@@ -487,6 +486,95 @@ var migrations = []Migration{
 			}
 		},
 	},
+}
+
+// runDetailClearedColumnMigration 显式添加 detail_cleared 列到两张大表,带 threshold-skip。
+//
+// 设计要点:
+//   - bare ALTER TABLE ADD COLUMN,无 ALGORITHM/LOCK hint(吸取 v14 1064 教训)。MySQL 5.7+
+//     8.0+ 自动选最优算法
+//   - **列类型显式 TINYINT NOT NULL DEFAULT 0**:GORM 默认会把 Go int 转成 bigint,46GB 表上
+//     每行多耗 7 字节没必要
+//   - 沿用 v13/v14 的 500k 行 threshold:超过则打印 manual SQL,migration 仍标记完成
+//   - 幂等:列已存在则跳过(检测错误码 / 文本)
+func runDetailClearedColumnMigration(db *gorm.DB) error {
+	type tableSpec struct {
+		table string
+		// 列检测的 SQL 与 dialect 相关,统一封装
+	}
+	tables := []string{"proxy_requests", "proxy_upstream_attempts"}
+
+	columnExists := func(table string) (bool, error) {
+		switch db.Dialector.Name() {
+		case "mysql":
+			var n int64
+			err := db.Raw(`
+				SELECT COUNT(*) FROM information_schema.COLUMNS
+				WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'detail_cleared'
+			`, table).Scan(&n).Error
+			return n > 0, err
+		default:
+			// SQLite:PRAGMA table_info(...) 列表里找
+			rows, err := db.Raw("PRAGMA table_info(" + table + ")").Rows()
+			if err != nil {
+				return false, err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var cid int
+				var name, ctype string
+				var notnull, pk int
+				var dflt any
+				if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+					return false, err
+				}
+				if name == "detail_cleared" {
+					return true, nil
+				}
+			}
+			return false, nil
+		}
+	}
+
+	for _, table := range tables {
+		exists, err := columnExists(table)
+		if err != nil {
+			log.Printf("[Migration v15] could not probe %s.detail_cleared (%v); skipping column add. Apply manually if needed.", table, err)
+			continue
+		}
+		if exists {
+			continue
+		}
+
+		var rowCount int64
+		if err := db.Raw("SELECT COUNT(*) FROM " + table).Scan(&rowCount).Error; err != nil {
+			log.Printf("[Migration v15] could not count %s (%v); skipping column add.", table, err)
+			continue
+		}
+
+		ddl := "ALTER TABLE " + table + " ADD COLUMN detail_cleared TINYINT NOT NULL DEFAULT 0"
+
+		if rowCount > detailCleanupIndexRowThreshold {
+			log.Printf("[Migration v15] SKIPPING ADD COLUMN on %s: %d rows (> %d threshold). "+
+				"Apply manually during a maintenance window:\n  %s;",
+				table, rowCount, detailCleanupIndexRowThreshold, ddl)
+			continue
+		}
+
+		log.Printf("[Migration v15] adding %s.detail_cleared column (rows=%d)", table, rowCount)
+		start := time.Now()
+		if err := db.Exec(ddl).Error; err != nil {
+			// 列已存在的 MySQL/SQLite 错误吞掉(幂等),其它错误抛出
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists") {
+				log.Printf("[Migration v15] %s.detail_cleared already exists, skipped", table)
+				continue
+			}
+			return err
+		}
+		log.Printf("[Migration v15] added %s.detail_cleared in %s", table, time.Since(start).Round(time.Millisecond))
+	}
+	return nil
 }
 
 // runDetailClearedIndexMigration 建立 v15 的 sentinel 复合索引。
