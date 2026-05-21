@@ -14,7 +14,6 @@ import (
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/router"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
 
@@ -30,7 +29,6 @@ type Executor struct {
 	broadcaster      event.Broadcaster
 	projectWaiter    *waiter.ProjectWaiter
 	instanceID       string
-	statsAggregator  *stats.StatsAggregator
 	converter        *converter.Registry
 	engine           *flow.Engine
 	middlewares      []flow.HandlerFunc
@@ -49,7 +47,6 @@ func NewExecutor(
 	bc event.Broadcaster,
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
-	statsAggregator *stats.StatsAggregator,
 ) *Executor {
 	return &Executor{
 		router:           r,
@@ -62,7 +59,6 @@ func NewExecutor(
 		broadcaster:      bc,
 		projectWaiter:    projectWaiter,
 		instanceID:       instanceID,
-		statsAggregator:  statsAggregator,
 		converter:        converter.GetGlobalRegistry(),
 		engine:           flow.NewEngine(),
 		cooldownSem:      make(chan struct{}, 10),

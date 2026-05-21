@@ -27,7 +27,6 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -337,9 +336,6 @@ func InitializeServerComponents(
 	log.Printf("[Core] Creating project waiter")
 	projectWaiter := waiter.NewProjectWaiter(repos.CachedSessionRepo, repos.SettingRepo, wailsBroadcaster)
 
-	log.Printf("[Core] Creating stats aggregator")
-	statsAggregator := stats.NewStatsAggregator(repos.UsageStatsRepo)
-
 	log.Printf("[Core] Configuring converter settings")
 	converter.SetGlobalSettingsGetter(func() (*converter.GlobalSettings, error) {
 		val, err := repos.SettingRepo.Get(domain.SettingKeyCodexInstructionsEnabled)
@@ -387,7 +383,6 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		projectWaiter,
 		instanceID,
-		statsAggregator,
 	)
 
 	log.Printf("[Core] Creating client adapter")

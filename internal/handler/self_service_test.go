@@ -459,21 +459,6 @@ func (r *selfServiceUsageStatsRepo) QueryDashboardData(_ uint64) (*domain.Dashbo
 func (r *selfServiceUsageStatsRepo) GetSummary(_ uint64, _ repository.UsageStatsFilter) (*domain.UsageStatsSummary, error) {
 	return nil, nil
 }
-func (r *selfServiceUsageStatsRepo) GetSummaryByProvider(_ uint64, _ repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return nil, nil
-}
-func (r *selfServiceUsageStatsRepo) GetSummaryByRoute(_ uint64, _ repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return nil, nil
-}
-func (r *selfServiceUsageStatsRepo) GetSummaryByProject(_ uint64, _ repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return nil, nil
-}
-func (r *selfServiceUsageStatsRepo) GetSummaryByAPIToken(_ uint64, _ repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return nil, nil
-}
-func (r *selfServiceUsageStatsRepo) GetSummaryByClientType(_ uint64, _ repository.UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error) {
-	return nil, nil
-}
 func (r *selfServiceUsageStatsRepo) DeleteOlderThan(_ domain.Granularity, _ time.Time) (int64, error) {
 	return 0, nil
 }
@@ -491,7 +476,6 @@ func (r *selfServiceUsageStatsRepo) AggregateAndRollUp(_ uint64) <-chan domain.A
 	close(ch)
 	return ch
 }
-func (r *selfServiceUsageStatsRepo) ClearAndRecalculate(_ uint64) error { return nil }
 func (r *selfServiceUsageStatsRepo) ClearAndRecalculateWithProgress(_ uint64, _ chan<- domain.Progress) error {
 	return nil
 }

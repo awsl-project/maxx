@@ -234,16 +234,6 @@ type UsageStatsRepository interface {
 	QueryDashboardData(tenantID uint64) (*domain.DashboardData, error)
 	// GetSummary 获取汇总统计数据（总计）
 	GetSummary(tenantID uint64, filter UsageStatsFilter) (*domain.UsageStatsSummary, error)
-	// GetSummaryByProvider 按 Provider 维度获取汇总统计
-	GetSummaryByProvider(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByRoute 按 Route 维度获取汇总统计
-	GetSummaryByRoute(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByProject 按 Project 维度获取汇总统计
-	GetSummaryByProject(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByAPIToken 按 APIToken 维度获取汇总统计
-	GetSummaryByAPIToken(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByClientType 按 ClientType 维度获取汇总统计
-	GetSummaryByClientType(tenantID uint64, filter UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error)
 	// DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
 	DeleteOlderThan(granularity domain.Granularity, before time.Time) (int64, error)
 	// GetLatestTimeBucket 获取指定粒度的最新时间桶
@@ -254,8 +244,6 @@ type UsageStatsRepository interface {
 	// 返回一个 channel，发送每个阶段的进度事件，channel 会在完成后关闭
 	// 调用者可以 range 遍历 channel 获取进度，或直接忽略（异步执行）
 	AggregateAndRollUp(tenantID uint64) <-chan domain.AggregateEvent
-	// ClearAndRecalculate 清空统计数据并重新从原始数据计算
-	ClearAndRecalculate(tenantID uint64) error
 	// ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
 	ClearAndRecalculateWithProgress(tenantID uint64, progress chan<- domain.Progress) error
 }
