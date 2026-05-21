@@ -4,6 +4,7 @@
 package stats
 
 import (
+	"sort"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -347,6 +348,52 @@ func GroupByProvider(stats []*domain.UsageStats) map[uint64]*domain.ProviderStat
 	}
 
 	return result
+}
+
+// TopModelsByRequests 按请求数降序返回 Top N 模型(用于 Dashboard 等场景)。
+// 跨多个 UsageStats 行按 Model 字段聚合,空 Model 行被忽略。
+// 当 limit <= 0 时返回空切片;不足 limit 时返回所有非空模型。
+// 平手时按 model 字典序(保证确定性)。
+func TopModelsByRequests(stats []*domain.UsageStats, limit int) []domain.DashboardModelStats {
+	if limit <= 0 {
+		return []domain.DashboardModelStats{}
+	}
+	type agg struct {
+		requests uint64
+		tokens   uint64
+	}
+	byModel := make(map[string]*agg)
+	for _, s := range stats {
+		if s.Model == "" {
+			continue
+		}
+		a, ok := byModel[s.Model]
+		if !ok {
+			a = &agg{}
+			byModel[s.Model] = a
+		}
+		a.requests += s.TotalRequests
+		a.tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
+	}
+
+	models := make([]domain.DashboardModelStats, 0, len(byModel))
+	for name, a := range byModel {
+		models = append(models, domain.DashboardModelStats{
+			Model:    name,
+			Requests: a.requests,
+			Tokens:   a.tokens,
+		})
+	}
+	sort.Slice(models, func(i, j int) bool {
+		if models[i].Requests != models[j].Requests {
+			return models[i].Requests > models[j].Requests
+		}
+		return models[i].Model < models[j].Model
+	})
+	if len(models) > limit {
+		models = models[:limit]
+	}
+	return models
 }
 
 // FilterByGranularity filters stats to only include the specified granularity.

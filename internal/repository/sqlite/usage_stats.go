@@ -1637,34 +1637,16 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		filter := repository.UsageStatsFilter{
 			Granularity: domain.GranularityMonth,
 		}
-		stats, err := r.Query(tenantID, filter)
+		monthStats, err := r.Query(tenantID, filter)
 		if err != nil {
 			return err
 		}
 
 		var allTimeSummary domain.DashboardAllTimeSummary
-		modelData := make(map[string]*struct {
-			requests uint64
-			tokens   uint64
-		})
-
-		for _, s := range stats {
+		for _, s := range monthStats {
 			allTimeSummary.Requests += s.TotalRequests
 			allTimeSummary.Tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
 			allTimeSummary.Cost += s.Cost
-
-			// Top模型（全量）
-			if s.Model != "" {
-				tokens := s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
-				if _, ok := modelData[s.Model]; !ok {
-					modelData[s.Model] = &struct {
-						requests uint64
-						tokens   uint64
-					}{}
-				}
-				modelData[s.Model].requests += s.TotalRequests
-				modelData[s.Model].tokens += tokens
-			}
 		}
 
 		// 从 proxy_requests 表获取真正的首次使用时间（按租户过滤）
@@ -1684,7 +1666,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 
 		mu.Lock()
 		result.AllTime = allTimeSummary
-		result.TopModels = r.getTopModels(modelData, 3)
+		result.TopModels = stats.TopModelsByRequests(monthStats, 3)
 		mu.Unlock()
 		return nil
 	})
@@ -1694,41 +1676,4 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 	}
 
 	return result, nil
-}
-
-// getTopModels 从 model->stats map 中提取 Top N 模型
-func (r *UsageStatsRepository) getTopModels(modelData map[string]*struct {
-	requests uint64
-	tokens   uint64
-}, limit int) []domain.DashboardModelStats {
-	// 转换为切片并排序
-	type modelReq struct {
-		model    string
-		requests uint64
-		tokens   uint64
-	}
-	models := make([]modelReq, 0, len(modelData))
-	for model, data := range modelData {
-		models = append(models, modelReq{model, data.requests, data.tokens})
-	}
-
-	// 按请求数降序排序
-	for i := 0; i < len(models)-1; i++ {
-		for j := i + 1; j < len(models); j++ {
-			if models[j].requests > models[i].requests {
-				models[i], models[j] = models[j], models[i]
-			}
-		}
-	}
-
-	// 取前 N 个
-	result := make([]domain.DashboardModelStats, 0, limit)
-	for i := 0; i < len(models) && i < limit; i++ {
-		result = append(result, domain.DashboardModelStats{
-			Model:    models[i].model,
-			Requests: models[i].requests,
-			Tokens:   models[i].tokens,
-		})
-	}
-	return result
 }

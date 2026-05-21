@@ -1662,3 +1662,91 @@ func TestFullAggregationPipeline_MultipleModels(t *testing.T) {
 		t.Errorf("sonnet cost = %d, want 1000", sonnetStats.Cost)
 	}
 }
+
+func TestTopModelsByRequests_Empty(t *testing.T) {
+	if got := TopModelsByRequests(nil, 3); len(got) != 0 {
+		t.Errorf("nil input → %v, want empty", got)
+	}
+	if got := TopModelsByRequests([]*domain.UsageStats{}, 3); len(got) != 0 {
+		t.Errorf("empty input → %v, want empty", got)
+	}
+}
+
+func TestTopModelsByRequests_ZeroLimit(t *testing.T) {
+	in := []*domain.UsageStats{{Model: "a", TotalRequests: 10}}
+	if got := TopModelsByRequests(in, 0); len(got) != 0 {
+		t.Errorf("limit=0 → %v, want empty", got)
+	}
+	if got := TopModelsByRequests(in, -1); len(got) != 0 {
+		t.Errorf("limit=-1 → %v, want empty", got)
+	}
+}
+
+func TestTopModelsByRequests_IgnoresEmptyModel(t *testing.T) {
+	in := []*domain.UsageStats{
+		{Model: "", TotalRequests: 100, InputTokens: 1000},
+		{Model: "real", TotalRequests: 10, InputTokens: 100},
+	}
+	got := TopModelsByRequests(in, 5)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1 (empty model ignored)", len(got))
+	}
+	if got[0].Model != "real" {
+		t.Errorf("model = %q, want real", got[0].Model)
+	}
+}
+
+func TestTopModelsByRequests_AggregatesAcrossBuckets(t *testing.T) {
+	in := []*domain.UsageStats{
+		{Model: "claude", TotalRequests: 10, InputTokens: 100, OutputTokens: 50, CacheRead: 5, CacheWrite: 2},
+		{Model: "claude", TotalRequests: 5, InputTokens: 50, OutputTokens: 25},
+		{Model: "gpt", TotalRequests: 20, InputTokens: 200},
+	}
+	got := TopModelsByRequests(in, 5)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	// gpt is top: 20 > 15
+	if got[0].Model != "gpt" || got[0].Requests != 20 || got[0].Tokens != 200 {
+		t.Errorf("top = %+v, want gpt/20/200", got[0])
+	}
+	// claude aggregated: 15 req, tokens = 100+50+50+25+5+2 = 232
+	if got[1].Model != "claude" || got[1].Requests != 15 || got[1].Tokens != 232 {
+		t.Errorf("second = %+v, want claude/15/232", got[1])
+	}
+}
+
+func TestTopModelsByRequests_HonorsLimit(t *testing.T) {
+	in := []*domain.UsageStats{
+		{Model: "a", TotalRequests: 1},
+		{Model: "b", TotalRequests: 2},
+		{Model: "c", TotalRequests: 3},
+		{Model: "d", TotalRequests: 4},
+		{Model: "e", TotalRequests: 5},
+	}
+	got := TopModelsByRequests(in, 3)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3", len(got))
+	}
+	// Top 3 by requests desc: e=5, d=4, c=3
+	wantOrder := []string{"e", "d", "c"}
+	for i, w := range wantOrder {
+		if got[i].Model != w {
+			t.Errorf("got[%d].Model = %q, want %q", i, got[i].Model, w)
+		}
+	}
+}
+
+func TestTopModelsByRequests_TiesAreDeterministic(t *testing.T) {
+	// All models tied on requests; expect alphabetical order so result is stable.
+	in := []*domain.UsageStats{
+		{Model: "zeta", TotalRequests: 5},
+		{Model: "alpha", TotalRequests: 5},
+		{Model: "mid", TotalRequests: 5},
+	}
+	got := TopModelsByRequests(in, 3)
+	if got[0].Model != "alpha" || got[1].Model != "mid" || got[2].Model != "zeta" {
+		t.Errorf("tie order = [%s, %s, %s], want [alpha, mid, zeta]",
+			got[0].Model, got[1].Model, got[2].Model)
+	}
+}
