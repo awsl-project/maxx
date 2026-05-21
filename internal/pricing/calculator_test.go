@@ -3,6 +3,7 @@ package pricing
 import (
 	"testing"
 
+	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/usage"
 )
 
@@ -191,6 +192,109 @@ func TestCalculator_Calculate_1MContext(t *testing.T) {
 	expected := uint64(1_200_000_000 + 750_000_000)
 	if got.Cost != expected {
 		t.Errorf("Calculate() Cost = %d nanoUSD, want %d nanoUSD", got.Cost, expected)
+	}
+}
+
+func TestCalculator_Calculate_BuiltinHasZeroPriceID(t *testing.T) {
+	// 内置默认价表的条目都没有 DB ID,Calculate 返回的 ModelPriceID 应为 0。
+	// 这保证 attempt 表里"用内置价表算出"的记录可以和"用 DB 价算出"的区分开。
+	calc := NewCalculator()
+	got := calc.Calculate("claude-sonnet-4-5", &usage.Metrics{InputTokens: 1_000_000}, 0)
+	if got.ModelPriceID != 0 {
+		t.Errorf("builtin price ModelPriceID = %d, want 0", got.ModelPriceID)
+	}
+	if got.Cost == 0 {
+		t.Fatal("expected non-zero cost from builtin price")
+	}
+}
+
+func TestCalculator_LoadFromDatabase_OverlaysBuiltin(t *testing.T) {
+	// DB 中 claude-sonnet-4-5 的 input 改为 $6/M(默认是 $3/M)。
+	// LoadFromDatabase 后,Calculate 应当走 DB 价(cost 翻倍),并把 DB 记录 ID 写回结果。
+	// 用 100K tokens 避开 1M-context 阈值,让两条路径都走线性公式,比较精确。
+	calc := NewCalculator()
+	metrics := &usage.Metrics{InputTokens: 100_000}
+	baseline := calc.Calculate("claude-sonnet-4-5", metrics, 0)
+
+	calc.LoadFromDatabase([]*domain.ModelPrice{
+		{
+			ID:              42,
+			ModelID:         "claude-sonnet-4-5",
+			InputPriceMicro: 6_000_000,
+		},
+	})
+
+	got := calc.Calculate("claude-sonnet-4-5", metrics, 0)
+	if got.ModelPriceID != 42 {
+		t.Errorf("after LoadFromDatabase, ModelPriceID = %d, want 42", got.ModelPriceID)
+	}
+	if got.Cost != baseline.Cost*2 {
+		t.Errorf("DB price not applied: db=%d builtin=%d (want db = 2× builtin)", got.Cost, baseline.Cost)
+	}
+}
+
+func TestCalculator_LoadFromDatabase_KeepsBuiltinForUnoverridden(t *testing.T) {
+	// LoadFromDatabase 只覆盖 DB 中存在的 ModelID;未覆盖的模型仍应能用内置价计算。
+	// 这是为了让用户只配置自己关心的模型,其余继续走内置。
+	calc := NewCalculator()
+	calc.LoadFromDatabase([]*domain.ModelPrice{
+		{ID: 7, ModelID: "claude-sonnet-4-5", InputPriceMicro: 6_000_000},
+	})
+
+	got := calc.Calculate("gpt-4o", &usage.Metrics{InputTokens: 1_000_000}, 0)
+	if got.Cost == 0 {
+		t.Fatal("gpt-4o cost should still be computed from builtin defaults")
+	}
+	if got.ModelPriceID != 0 {
+		t.Errorf("gpt-4o ModelPriceID = %d, want 0 (builtin)", got.ModelPriceID)
+	}
+}
+
+func TestCalculator_GetModelPriceByID(t *testing.T) {
+	calc := NewCalculator()
+	calc.LoadFromDatabase([]*domain.ModelPrice{
+		{ID: 99, ModelID: "claude-sonnet-4-5", InputPriceMicro: 1_000_000},
+	})
+
+	got := calc.GetModelPriceByID(99)
+	if got == nil || got.ModelID != "claude-sonnet-4-5" {
+		t.Errorf("GetModelPriceByID(99) = %+v, want claude-sonnet-4-5", got)
+	}
+	if calc.GetModelPriceByID(0) != nil {
+		t.Error("GetModelPriceByID(0) should be nil; builtins are not indexed by ID")
+	}
+	if calc.GetModelPriceByID(123) != nil {
+		t.Error("GetModelPriceByID for unknown ID should be nil")
+	}
+}
+
+func TestCalculator_Calculate_ZeroMultiplierDefaultsToOne(t *testing.T) {
+	// 倍率传 0 时,实际应用 DefaultMultiplier(10000),且结果里也回填 10000。
+	// 这是 backfill 旧数据(没有 multiplier 列)的兜底语义。
+	calc := NewCalculator()
+	metrics := &usage.Metrics{InputTokens: 1_000_000}
+	base := calc.Calculate("claude-sonnet-4-5", metrics, DefaultMultiplier)
+	zero := calc.Calculate("claude-sonnet-4-5", metrics, 0)
+	if zero.Cost != base.Cost {
+		t.Errorf("Cost(mul=0) = %d, want = Cost(mul=10000) = %d", zero.Cost, base.Cost)
+	}
+	if zero.Multiplier != DefaultMultiplier {
+		t.Errorf("Multiplier(mul=0) = %d, want %d", zero.Multiplier, DefaultMultiplier)
+	}
+}
+
+func TestCalculator_Calculate_UnknownModelKeepsMultiplier(t *testing.T) {
+	// 模型未命中价表时返回零成本,但 Multiplier 仍按入参回填(便于审计与日志)。
+	calc := NewCalculator()
+	got := calc.Calculate("nope-not-in-table", &usage.Metrics{InputTokens: 1000}, 15000)
+	if got.Cost != 0 {
+		t.Errorf("unknown model Cost = %d, want 0", got.Cost)
+	}
+	if got.ModelPriceID != 0 {
+		t.Errorf("unknown model ModelPriceID = %d, want 0", got.ModelPriceID)
+	}
+	if got.Multiplier != 15000 {
+		t.Errorf("unknown model Multiplier = %d, want 15000 (echo back input)", got.Multiplier)
 	}
 }
 

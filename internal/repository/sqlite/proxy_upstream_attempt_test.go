@@ -7,6 +7,122 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
+// TestStreamForCostCalc_IncludesMultiplier 确保 backfill 流式读取路径会把
+// 历史 Multiplier 带出来。这是 PR1 修复 backfill 倍率丢失 bug 的关键前提:
+// 如果 SELECT 不查 multiplier,calculator 在重算时拿不到历史值,只能默认 1.0×。
+func TestStreamForCostCalc_IncludesMultiplier(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	attRepo := NewProxyUpstreamAttemptRepository(db)
+
+	att := &domain.ProxyUpstreamAttempt{
+		TenantID:        1,
+		Status:          "COMPLETED",
+		ProxyRequestID:  100,
+		RequestModel:    "claude-sonnet-4-5",
+		ResponseModel:   "claude-sonnet-4-5",
+		InputTokenCount: 1000,
+		Multiplier:      12_500, // 1.25×
+		ModelPriceID:    7,
+		Cost:            1234,
+	}
+	if err := attRepo.Create(att); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+
+	var got *domain.AttemptCostData
+	if err := attRepo.StreamForCostCalc(10, func(batch []*domain.AttemptCostData) error {
+		if len(batch) != 1 {
+			t.Fatalf("batch size = %d, want 1", len(batch))
+		}
+		got = batch[0]
+		return nil
+	}); err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	if got.Multiplier != 12_500 {
+		t.Errorf("Multiplier = %d, want 12500", got.Multiplier)
+	}
+	if got.Cost != 1234 {
+		t.Errorf("Cost = %d, want 1234", got.Cost)
+	}
+	if got.ResponseModel != "claude-sonnet-4-5" {
+		t.Errorf("ResponseModel = %q, want claude-sonnet-4-5", got.ResponseModel)
+	}
+}
+
+// TestBatchUpdateCosts_UpdatesCostAndModelPriceID 验证 cost 和 model_price_id
+// 在同一条 UPDATE 中写入。这是 PR1 修复"重算后 cost 变了但 model_price_id
+// 停留在旧值"的不一致问题的根本检查。
+func TestBatchUpdateCosts_UpdatesCostAndModelPriceID(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	attRepo := NewProxyUpstreamAttemptRepository(db)
+
+	a1 := &domain.ProxyUpstreamAttempt{
+		TenantID: 1, Status: "COMPLETED", ProxyRequestID: 1,
+		Cost: 100, ModelPriceID: 1,
+	}
+	a2 := &domain.ProxyUpstreamAttempt{
+		TenantID: 1, Status: "COMPLETED", ProxyRequestID: 1,
+		Cost: 200, ModelPriceID: 2,
+	}
+	if err := attRepo.Create(a1); err != nil {
+		t.Fatalf("create a1: %v", err)
+	}
+	if err := attRepo.Create(a2); err != nil {
+		t.Fatalf("create a2: %v", err)
+	}
+
+	updates := map[uint64]domain.AttemptCostUpdate{
+		a1.ID: {Cost: 999, ModelPriceID: 42},
+		a2.ID: {Cost: 888, ModelPriceID: 43},
+	}
+	if err := attRepo.BatchUpdateCosts(updates); err != nil {
+		t.Fatalf("BatchUpdateCosts: %v", err)
+	}
+
+	// 直接从 DB 重新读出来,确认 cost 与 model_price_id 都被更新到新值且互相对应。
+	var rows []ProxyUpstreamAttempt
+	if err := db.gorm.Find(&rows).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got := map[uint64]ProxyUpstreamAttempt{}
+	for _, r := range rows {
+		got[r.ID] = r
+	}
+	if got[a1.ID].Cost != 999 || got[a1.ID].ModelPriceID != 42 {
+		t.Errorf("a1 = (cost=%d, priceID=%d), want (999, 42)", got[a1.ID].Cost, got[a1.ID].ModelPriceID)
+	}
+	if got[a2.ID].Cost != 888 || got[a2.ID].ModelPriceID != 43 {
+		t.Errorf("a2 = (cost=%d, priceID=%d), want (888, 43)", got[a2.ID].Cost, got[a2.ID].ModelPriceID)
+	}
+}
+
+// TestBatchUpdateCosts_Empty 验证空入参是 no-op,不抛错(被 RecalculateCosts 在没有
+// 需要更新的 batch 上调用)。
+func TestBatchUpdateCosts_Empty(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	attRepo := NewProxyUpstreamAttemptRepository(db)
+	if err := attRepo.BatchUpdateCosts(nil); err != nil {
+		t.Errorf("empty BatchUpdateCosts returned error: %v", err)
+	}
+	if err := attRepo.BatchUpdateCosts(map[uint64]domain.AttemptCostUpdate{}); err != nil {
+		t.Errorf("empty map BatchUpdateCosts returned error: %v", err)
+	}
+}
+
 // seedAttemptForRequest 为指定 ProxyRequest 创建一个带详情的 attempt，并把 created_at 回拨
 func seedAttemptForRequest(t *testing.T, repo *ProxyUpstreamAttemptRepository, db *DB, parentID uint64, createdAt time.Time) *domain.ProxyUpstreamAttempt {
 	t.Helper()
