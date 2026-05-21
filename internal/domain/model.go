@@ -546,7 +546,9 @@ type ProxyUpstreamAttempt struct {
 	Cost uint64 `json:"cost"`
 }
 
-// AttemptCostData contains minimal data needed for cost recalculation
+// AttemptCostData contains minimal data needed for cost recalculation.
+// 重算 cost 时需要带上历史 Multiplier:重算用当前价表得出新 cost,
+// 但合约层面的倍率(由 Provider×ClientType 决定)是历史值,不能在 backfill 时悄悄丢掉。
 type AttemptCostData struct {
 	ID                uint64
 	ProxyRequestID    uint64
@@ -560,6 +562,14 @@ type AttemptCostData struct {
 	Cache5mWriteCount uint64
 	Cache1hWriteCount uint64
 	Cost              uint64
+	Multiplier        uint64 // 历史倍率(10000=1×, 0 视作 10000)
+}
+
+// AttemptCostUpdate 是 backfill 时批量更新 attempt 成本字段的载荷:
+// cost 是按当前价表 + 历史倍率算出的新值,model_price_id 同步更新到当前匹配的价格记录。
+type AttemptCostUpdate struct {
+	Cost         uint64
+	ModelPriceID uint64
 }
 
 // 重试配置

@@ -212,7 +212,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 						pricingModel = attemptRecord.MappedModel
 					}
 					multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
-					result := pricing.GlobalCalculator().CalculateWithResult(pricingModel, metrics, multiplier)
+					result := pricing.GlobalCalculator().Calculate(pricingModel, metrics, multiplier)
 					attemptRecord.Cost = result.Cost
 					attemptRecord.ModelPriceID = result.ModelPriceID
 					attemptRecord.Multiplier = result.Multiplier
@@ -295,7 +295,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 					pricingModel = attemptRecord.MappedModel
 				}
 				multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
-				result := pricing.GlobalCalculator().CalculateWithResult(pricingModel, metrics, multiplier)
+				result := pricing.GlobalCalculator().Calculate(pricingModel, metrics, multiplier)
 				attemptRecord.Cost = result.Cost
 				attemptRecord.ModelPriceID = result.ModelPriceID
 				attemptRecord.Multiplier = result.Multiplier

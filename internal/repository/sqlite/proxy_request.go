@@ -345,64 +345,6 @@ func (r *ProxyRequestRepository) UpdateCost(id uint64, cost uint64) error {
 	return r.db.gorm.Model(&ProxyRequest{}).Where("id = ?", id).Update("cost", cost).Error
 }
 
-// AddCost adds a delta to the cost field of a request (can be negative)
-func (r *ProxyRequestRepository) AddCost(id uint64, delta int64) error {
-	return r.db.gorm.Model(&ProxyRequest{}).Where("id = ?", id).
-		Update("cost", gorm.Expr("cost + ?", delta)).Error
-}
-
-// BatchUpdateCosts updates costs for multiple requests in a single transaction
-func (r *ProxyRequestRepository) BatchUpdateCosts(updates map[uint64]uint64) error {
-	if len(updates) == 0 {
-		return nil
-	}
-
-	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
-		// Use CASE WHEN for batch update
-		const batchSize = 500
-		ids := make([]uint64, 0, len(updates))
-		for id := range updates {
-			ids = append(ids, id)
-		}
-
-		for i := 0; i < len(ids); i += batchSize {
-			end := i + batchSize
-			if end > len(ids) {
-				end = len(ids)
-			}
-			batchIDs := ids[i:end]
-
-			// Build CASE WHEN statement
-			var cases strings.Builder
-			cases.WriteString("CASE id ")
-			args := make([]interface{}, 0, len(batchIDs)*3+1)
-
-			// First: CASE WHEN pairs (id, cost)
-			for _, id := range batchIDs {
-				cases.WriteString("WHEN ? THEN ? ")
-				args = append(args, id, updates[id])
-			}
-			cases.WriteString("END")
-
-			// Second: timestamp for updated_at
-			args = append(args, time.Now().UnixMilli())
-
-			// Third: WHERE IN ids
-			for _, id := range batchIDs {
-				args = append(args, id)
-			}
-
-			sql := fmt.Sprintf("UPDATE proxy_requests SET cost = %s, updated_at = ? WHERE id IN (?%s)",
-				cases.String(), strings.Repeat(",?", len(batchIDs)-1))
-
-			if err := tx.Exec(sql, args...).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
 // RecalculateCostsFromAttempts recalculates all request costs by summing their attempt costs
 func (r *ProxyRequestRepository) RecalculateCostsFromAttempts() (int64, error) {
 	return r.RecalculateCostsFromAttemptsWithProgress(nil)

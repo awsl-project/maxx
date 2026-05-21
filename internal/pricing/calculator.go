@@ -2,390 +2,227 @@ package pricing
 
 import (
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/usage"
 )
 
+// DefaultMultiplier 表示 1× 倍率。倍率单位为万分之一。
+const DefaultMultiplier uint64 = 10000
+
 // CostResult 成本计算结果
 type CostResult struct {
 	Cost         uint64 // 成本（纳美元）
-	ModelPriceID uint64 // 使用的价格记录ID（0 表示使用内置价格表）
-	Multiplier   uint64 // 倍率（10000=1倍）
+	ModelPriceID uint64 // 使用的价格记录ID（0 表示使用内置默认价表）
+	Multiplier   uint64 // 实际应用的倍率（10000=1倍）
 }
 
-// Calculator 成本计算器
+// Calculator 维护 modelID → ModelPrice 映射。
+// 启动时载入内置默认价表(ID=0),LoadFromDatabase 会用 DB 记录覆盖同名条目。
+// 这样运行期只有一份价格源,不再有“内置 vs DB”分支。
 type Calculator struct {
-	priceTable *PriceTable
-
-	// 数据库价格缓存
-	modelPriceCache map[string]*domain.ModelPrice // key: modelID
-	modelPriceByID  map[uint64]*domain.ModelPrice // key: price ID
-	useDBPrices     bool                          // 是否使用数据库价格
-
-	mu sync.RWMutex
+	mu          sync.RWMutex
+	pricesByKey map[string]*domain.ModelPrice
+	pricesByID  map[uint64]*domain.ModelPrice
 }
 
-// 全局计算器实例
 var (
 	globalCalculator *Calculator
 	calculatorOnce   sync.Once
 )
 
-// GlobalCalculator 返回全局计算器实例
+// GlobalCalculator 返回全局计算器单例。
 func GlobalCalculator() *Calculator {
 	calculatorOnce.Do(func() {
-		globalCalculator = NewCalculator(DefaultPriceTable())
+		globalCalculator = NewCalculator()
 	})
 	return globalCalculator
 }
 
-// NewCalculator 创建新的计算器
-func NewCalculator(pt *PriceTable) *Calculator {
-	return &Calculator{
-		priceTable:      pt,
-		modelPriceCache: make(map[string]*domain.ModelPrice),
-		modelPriceByID:  make(map[uint64]*domain.ModelPrice),
-		useDBPrices:     false,
+// NewCalculator 构造仅含内置默认价的计算器。
+func NewCalculator() *Calculator {
+	c := &Calculator{
+		pricesByKey: make(map[string]*domain.ModelPrice),
+		pricesByID:  make(map[uint64]*domain.ModelPrice),
+	}
+	c.loadBuiltinsLocked()
+	return c
+}
+
+// loadBuiltinsLocked 用内置默认价表填充 pricesByKey。调用方需独占 c 或在构造期间。
+func (c *Calculator) loadBuiltinsLocked() {
+	for _, mp := range ConvertToDBPrices(DefaultPriceTable()) {
+		// 内置价表的 ID 恒为 0,只按 ModelID 索引。
+		c.pricesByKey[mp.ModelID] = mp
 	}
 }
 
-// LoadFromDatabase 从数据库加载当前价格
+// LoadFromDatabase 用 DB 价格覆盖内置默认价。
+// 同一 ModelID 的 DB 记录会取代内置默认;未在 DB 出现的内置默认仍然可用。
 func (c *Calculator) LoadFromDatabase(prices []*domain.ModelPrice) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.modelPriceCache = make(map[string]*domain.ModelPrice, len(prices))
-	c.modelPriceByID = make(map[uint64]*domain.ModelPrice, len(prices))
-
+	c.pricesByKey = make(map[string]*domain.ModelPrice)
+	c.pricesByID = make(map[uint64]*domain.ModelPrice)
+	c.loadBuiltinsLocked()
 	for _, p := range prices {
-		c.modelPriceCache[p.ModelID] = p
-		c.modelPriceByID[p.ID] = p
+		c.pricesByKey[p.ModelID] = p
+		c.pricesByID[p.ID] = p
 	}
-	c.useDBPrices = len(prices) > 0
 	log.Printf("[Pricing] Loaded %d model prices from database", len(prices))
 }
 
-// GetModelPrice 获取模型价格（支持前缀匹配），返回价格记录
+// GetModelPrice 按模型名取价格,支持前缀匹配。未命中返回 nil。
 func (c *Calculator) GetModelPrice(model string) *domain.ModelPrice {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
-	if !c.useDBPrices {
-		return nil
-	}
-
-	// 精确匹配
-	if p, ok := c.modelPriceCache[model]; ok {
-		return p
-	}
-
-	// 前缀匹配：找最长匹配
-	var bestMatch *domain.ModelPrice
-	var bestLen int
-
-	for key, price := range c.modelPriceCache {
-		if len(key) > 0 && len(model) >= len(key) && model[:len(key)] == key {
-			if len(key) > bestLen {
-				bestMatch = price
-				bestLen = len(key)
-			}
-		}
-	}
-
-	return bestMatch
+	return c.lookupLocked(model)
 }
 
-// GetModelPriceByID 根据ID获取价格记录
+// GetModelPriceByID 按 DB 记录 ID 取价格。
 func (c *Calculator) GetModelPriceByID(id uint64) *domain.ModelPrice {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.modelPriceByID[id]
+	return c.pricesByID[id]
 }
 
-// Calculate 计算成本，返回纳美元 (1 USD = 1,000,000,000 nanoUSD)
-// model: 模型名称
-// metrics: token使用指标
-// 如果模型未找到，返回0并记录警告日志
-func (c *Calculator) Calculate(model string, metrics *usage.Metrics) uint64 {
+// lookupLocked 在 pricesByKey 中查找,先精确再最长前缀。需持有 RLock 或 Lock。
+func (c *Calculator) lookupLocked(model string) *domain.ModelPrice {
+	if p, ok := c.pricesByKey[model]; ok {
+		return p
+	}
+	var best *domain.ModelPrice
+	var bestLen int
+	for key, p := range c.pricesByKey {
+		if len(key) > bestLen && strings.HasPrefix(model, key) {
+			best = p
+			bestLen = len(key)
+		}
+	}
+	return best
+}
+
+// Calculate 计算成本。multiplier 单位为万分之一,0 视作 DefaultMultiplier(1×)。
+// 模型未命中价表时返回零成本(Multiplier 仍带回入参,便于审计)。
+func (c *Calculator) Calculate(model string, metrics *usage.Metrics, multiplier uint64) CostResult {
+	if multiplier == 0 {
+		multiplier = DefaultMultiplier
+	}
 	if metrics == nil {
-		return 0
+		return CostResult{Multiplier: multiplier}
 	}
 
 	c.mu.RLock()
-	pricing := c.priceTable.Get(model)
+	price := c.lookupLocked(model)
 	c.mu.RUnlock()
 
-	if pricing == nil {
+	if price == nil {
 		log.Printf("[Pricing] Unknown model: %s, cost will be 0", model)
-		return 0
+		return CostResult{Multiplier: multiplier}
 	}
 
-	return c.CalculateWithPricing(pricing, metrics)
-}
-
-// CalculateWithPricing 使用指定价格计算成本（纯整数运算）
-// 返回: 纳美元成本 (nanoUSD)
-func (c *Calculator) CalculateWithPricing(pricing *ModelPricing, metrics *usage.Metrics) uint64 {
-	if pricing == nil || metrics == nil {
-		return 0
-	}
-
-	var totalCost uint64
-
-	// 1. 输入成本
-	if metrics.InputTokens > 0 {
-		if pricing.Has1MContext {
-			inputNum, inputDenom := pricing.GetInputPremiumFraction()
-			totalCost += CalculateTieredCost(
-				metrics.InputTokens,
-				pricing.InputPriceMicro,
-				inputNum, inputDenom,
-				pricing.GetContext1MThreshold(),
-			)
-		} else {
-			totalCost += CalculateLinearCost(metrics.InputTokens, pricing.InputPriceMicro)
-		}
-	}
-
-	// 2. 输出成本
-	if metrics.OutputTokens > 0 {
-		if pricing.Has1MContext {
-			outputNum, outputDenom := pricing.GetOutputPremiumFraction()
-			totalCost += CalculateTieredCost(
-				metrics.OutputTokens,
-				pricing.OutputPriceMicro,
-				outputNum, outputDenom,
-				pricing.GetContext1MThreshold(),
-			)
-		} else {
-			totalCost += CalculateLinearCost(metrics.OutputTokens, pricing.OutputPriceMicro)
-		}
-	}
-
-	// 3. 缓存读取成本（使用 input 价格的 10%）
-	if metrics.CacheReadCount > 0 {
-		totalCost += CalculateLinearCost(
-			metrics.CacheReadCount,
-			pricing.GetEffectiveCacheReadPriceMicro(),
-		)
-	}
-
-	// 4. 5分钟缓存写入成本（使用 input 价格的 125%）
-	if metrics.Cache5mCreationCount > 0 {
-		totalCost += CalculateLinearCost(
-			metrics.Cache5mCreationCount,
-			pricing.GetEffectiveCache5mWritePriceMicro(),
-		)
-	}
-
-	// 5. 1小时缓存写入成本（使用 input 价格的 200%）
-	if metrics.Cache1hCreationCount > 0 {
-		totalCost += CalculateLinearCost(
-			metrics.Cache1hCreationCount,
-			pricing.GetEffectiveCache1hWritePriceMicro(),
-		)
-	}
-
-	// 6. Fallback: 如果没有 5m/1h 细分但有总缓存写入数
-	if metrics.Cache5mCreationCount == 0 && metrics.Cache1hCreationCount == 0 && metrics.CacheCreationCount > 0 {
-		totalCost += CalculateLinearCost(
-			metrics.CacheCreationCount,
-			pricing.GetEffectiveCache5mWritePriceMicro(), // 使用 5m 价格作为默认
-		)
-	}
-
-	return totalCost
-}
-
-// CalculateWithResult 计算成本，返回完整结果（包含 model_price_id 和 multiplier）
-// model: 模型名称
-// metrics: token使用指标
-// multiplier: 倍率（10000=1倍），0 表示使用默认值 10000
-func (c *Calculator) CalculateWithResult(model string, metrics *usage.Metrics, multiplier uint64) CostResult {
-	if metrics == nil {
-		return CostResult{Cost: 0, ModelPriceID: 0, Multiplier: 10000}
-	}
-
-	if multiplier == 0 {
-		multiplier = 10000
-	}
-
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	// 优先使用数据库价格
-	if c.useDBPrices {
-		mp := c.getModelPriceLocked(model)
-		if mp != nil {
-			cost := c.calculateWithModelPrice(mp, metrics)
-			// 应用倍率: cost * multiplier / 10000
-			if multiplier != 10000 {
-				cost = cost * multiplier / 10000
-			}
-			return CostResult{
-				Cost:         cost,
-				ModelPriceID: mp.ID,
-				Multiplier:   multiplier,
-			}
-		}
-	}
-
-	// 回退到内置价格表
-	pricing := c.priceTable.Get(model)
-	if pricing == nil {
-		log.Printf("[Pricing] Unknown model: %s, cost will be 0", model)
-		return CostResult{Cost: 0, ModelPriceID: 0, Multiplier: multiplier}
-	}
-
-	cost := c.CalculateWithPricing(pricing, metrics)
-	// 应用倍率
-	if multiplier != 10000 {
-		cost = cost * multiplier / 10000
+	cost := computeCost(price, metrics)
+	if multiplier != DefaultMultiplier {
+		cost = cost * multiplier / DefaultMultiplier
 	}
 	return CostResult{
 		Cost:         cost,
-		ModelPriceID: 0, // 使用内置价格表
+		ModelPriceID: price.ID,
 		Multiplier:   multiplier,
 	}
 }
 
-// getModelPriceLocked 获取模型价格（需要持有读锁）
-func (c *Calculator) getModelPriceLocked(model string) *domain.ModelPrice {
-	// 精确匹配
-	if p, ok := c.modelPriceCache[model]; ok {
-		return p
-	}
-
-	// 前缀匹配：找最长匹配
-	var bestMatch *domain.ModelPrice
-	var bestLen int
-
-	for key, price := range c.modelPriceCache {
-		if len(key) > 0 && len(model) >= len(key) && model[:len(key)] == key {
-			if len(key) > bestLen {
-				bestMatch = price
-				bestLen = len(key)
-			}
-		}
-	}
-
-	return bestMatch
+// effectivePrice 把 domain.ModelPrice 上“0 表示用默认”的字段解析为实际值,
+// 便于 computeCost 不必到处写 fallback 逻辑。
+type effectivePrice struct {
+	InputMicro         uint64
+	OutputMicro        uint64
+	CacheReadMicro     uint64
+	Cache5mWriteMicro  uint64
+	Cache1hWriteMicro  uint64
+	Has1MContext       bool
+	Context1MThreshold uint64
+	InputPremNum       uint64
+	InputPremDenom     uint64
+	OutputPremNum      uint64
+	OutputPremDenom    uint64
 }
 
-// calculateWithModelPrice 使用数据库价格计算成本
-func (c *Calculator) calculateWithModelPrice(mp *domain.ModelPrice, metrics *usage.Metrics) uint64 {
-	if mp == nil || metrics == nil {
-		return 0
+func resolveEffective(p *domain.ModelPrice) effectivePrice {
+	e := effectivePrice{
+		InputMicro:         p.InputPriceMicro,
+		OutputMicro:        p.OutputPriceMicro,
+		CacheReadMicro:     p.CacheReadPriceMicro,
+		Cache5mWriteMicro:  p.Cache5mWritePriceMicro,
+		Cache1hWriteMicro:  p.Cache1hWritePriceMicro,
+		Has1MContext:       p.Has1MContext,
+		Context1MThreshold: p.Context1MThreshold,
+		InputPremNum:       p.InputPremiumNum,
+		InputPremDenom:     p.InputPremiumDenom,
+		OutputPremNum:      p.OutputPremiumNum,
+		OutputPremDenom:    p.OutputPremiumDenom,
 	}
+	if e.CacheReadMicro == 0 {
+		e.CacheReadMicro = e.InputMicro / 10
+	}
+	if e.Cache5mWriteMicro == 0 {
+		e.Cache5mWriteMicro = e.InputMicro * 5 / 4
+	}
+	if e.Cache1hWriteMicro == 0 {
+		e.Cache1hWriteMicro = e.InputMicro * 2
+	}
+	if e.Context1MThreshold == 0 {
+		e.Context1MThreshold = 200_000
+	}
+	if e.InputPremNum == 0 {
+		e.InputPremNum = 2
+	}
+	if e.InputPremDenom == 0 {
+		e.InputPremDenom = 1
+	}
+	if e.OutputPremNum == 0 {
+		e.OutputPremNum = 3
+	}
+	if e.OutputPremDenom == 0 {
+		e.OutputPremDenom = 2
+	}
+	return e
+}
 
-	var totalCost uint64
+func computeCost(p *domain.ModelPrice, m *usage.Metrics) uint64 {
+	e := resolveEffective(p)
+	var total uint64
 
-	// 获取有效的缓存价格
-	cacheReadPrice := mp.CacheReadPriceMicro
-	if cacheReadPrice == 0 {
-		cacheReadPrice = mp.InputPriceMicro / 10
-	}
-	cache5mWritePrice := mp.Cache5mWritePriceMicro
-	if cache5mWritePrice == 0 {
-		cache5mWritePrice = mp.InputPriceMicro * 5 / 4
-	}
-	cache1hWritePrice := mp.Cache1hWritePriceMicro
-	if cache1hWritePrice == 0 {
-		cache1hWritePrice = mp.InputPriceMicro * 2
-	}
-
-	// 获取 1M context 参数
-	threshold := mp.Context1MThreshold
-	if threshold == 0 {
-		threshold = 200000
-	}
-	inputNum := mp.InputPremiumNum
-	if inputNum == 0 {
-		inputNum = 2
-	}
-	inputDenom := mp.InputPremiumDenom
-	if inputDenom == 0 {
-		inputDenom = 1
-	}
-	outputNum := mp.OutputPremiumNum
-	if outputNum == 0 {
-		outputNum = 3
-	}
-	outputDenom := mp.OutputPremiumDenom
-	if outputDenom == 0 {
-		outputDenom = 2
-	}
-
-	// 1. 输入成本
-	if metrics.InputTokens > 0 {
-		if mp.Has1MContext {
-			totalCost += CalculateTieredCost(
-				metrics.InputTokens,
-				mp.InputPriceMicro,
-				inputNum, inputDenom,
-				threshold,
-			)
+	if m.InputTokens > 0 {
+		if e.Has1MContext {
+			total += CalculateTieredCost(m.InputTokens, e.InputMicro, e.InputPremNum, e.InputPremDenom, e.Context1MThreshold)
 		} else {
-			totalCost += CalculateLinearCost(metrics.InputTokens, mp.InputPriceMicro)
+			total += CalculateLinearCost(m.InputTokens, e.InputMicro)
 		}
 	}
-
-	// 2. 输出成本
-	if metrics.OutputTokens > 0 {
-		if mp.Has1MContext {
-			totalCost += CalculateTieredCost(
-				metrics.OutputTokens,
-				mp.OutputPriceMicro,
-				outputNum, outputDenom,
-				threshold,
-			)
+	if m.OutputTokens > 0 {
+		if e.Has1MContext {
+			total += CalculateTieredCost(m.OutputTokens, e.OutputMicro, e.OutputPremNum, e.OutputPremDenom, e.Context1MThreshold)
 		} else {
-			totalCost += CalculateLinearCost(metrics.OutputTokens, mp.OutputPriceMicro)
+			total += CalculateLinearCost(m.OutputTokens, e.OutputMicro)
 		}
 	}
-
-	// 3. 缓存读取成本
-	if metrics.CacheReadCount > 0 {
-		totalCost += CalculateLinearCost(metrics.CacheReadCount, cacheReadPrice)
+	if m.CacheReadCount > 0 {
+		total += CalculateLinearCost(m.CacheReadCount, e.CacheReadMicro)
+	}
+	if m.Cache5mCreationCount > 0 {
+		total += CalculateLinearCost(m.Cache5mCreationCount, e.Cache5mWriteMicro)
+	}
+	if m.Cache1hCreationCount > 0 {
+		total += CalculateLinearCost(m.Cache1hCreationCount, e.Cache1hWriteMicro)
+	}
+	// 旧响应只给 cache_creation_input_tokens、没有拆 5m/1h:按 5m 价格计。
+	if m.Cache5mCreationCount == 0 && m.Cache1hCreationCount == 0 && m.CacheCreationCount > 0 {
+		total += CalculateLinearCost(m.CacheCreationCount, e.Cache5mWriteMicro)
 	}
 
-	// 4. 5分钟缓存写入成本
-	if metrics.Cache5mCreationCount > 0 {
-		totalCost += CalculateLinearCost(metrics.Cache5mCreationCount, cache5mWritePrice)
-	}
-
-	// 5. 1小时缓存写入成本
-	if metrics.Cache1hCreationCount > 0 {
-		totalCost += CalculateLinearCost(metrics.Cache1hCreationCount, cache1hWritePrice)
-	}
-
-	// 6. Fallback: 如果没有 5m/1h 细分但有总缓存写入数
-	if metrics.Cache5mCreationCount == 0 && metrics.Cache1hCreationCount == 0 && metrics.CacheCreationCount > 0 {
-		totalCost += CalculateLinearCost(metrics.CacheCreationCount, cache5mWritePrice)
-	}
-
-	return totalCost
-}
-
-// SetPriceTable 更新价格表
-func (c *Calculator) SetPriceTable(pt *PriceTable) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.priceTable = pt
-}
-
-// GetPricing 获取模型价格
-func (c *Calculator) GetPricing(model string) *ModelPricing {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.priceTable.Get(model)
-}
-
-// IsUsingDBPrices 返回是否使用数据库价格
-func (c *Calculator) IsUsingDBPrices() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.useDBPrices
+	return total
 }

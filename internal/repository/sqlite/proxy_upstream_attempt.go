@@ -79,10 +79,11 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 			Cache5mWriteCount uint64 `gorm:"column:cache_5m_write_count"`
 			Cache1hWriteCount uint64 `gorm:"column:cache_1h_write_count"`
 			Cost              uint64 `gorm:"column:cost"`
+			Multiplier        uint64 `gorm:"column:multiplier"`
 		}
 
 		err := r.db.gorm.Table("proxy_upstream_attempts").
-			Select("id, proxy_request_id, response_model, mapped_model, request_model, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost").
+			Select("id, proxy_request_id, response_model, mapped_model, request_model, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, multiplier").
 			Where("id > ?", lastID).
 			Order("id").
 			Limit(batchSize).
@@ -112,6 +113,7 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 				Cache5mWriteCount: r.Cache5mWriteCount,
 				Cache1hWriteCount: r.Cache1hWriteCount,
 				Cost:              r.Cost,
+				Multiplier:        r.Multiplier,
 			}
 		}
 
@@ -127,10 +129,6 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 	}
 
 	return nil
-}
-
-func (r *ProxyUpstreamAttemptRepository) UpdateCost(id uint64, cost uint64) error {
-	return r.db.gorm.Model(&ProxyUpstreamAttempt{}).Where("id = ?", id).Update("cost", cost).Error
 }
 
 // MarkStaleAttemptsFailed marks all IN_PROGRESS/PENDING attempts belonging to stale requests as FAILED
@@ -184,14 +182,14 @@ func (r *ProxyUpstreamAttemptRepository) FixFailedAttemptsWithoutEndTime() (int6
 	return result.RowsAffected, nil
 }
 
-// BatchUpdateCosts updates costs for multiple attempts in a single transaction
-func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uint64) error {
+// BatchUpdateCosts 批量更新 attempt 的 cost 和 model_price_id。
+// model_price_id 在重算时会跟着 cost 一起更新到当前匹配的价格记录,二者保持一致。
+func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]domain.AttemptCostUpdate) error {
 	if len(updates) == 0 {
 		return nil
 	}
 
 	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
-		// Use CASE WHEN for batch update
 		const batchSize = 500
 		ids := make([]uint64, 0, len(updates))
 		for id := range updates {
@@ -205,17 +203,22 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 			}
 			batchIDs := ids[i:end]
 
-			// Build CASE WHEN statement
-			var cases strings.Builder
-			cases.WriteString("CASE id ")
-			args := make([]interface{}, 0, len(batchIDs)*3+1)
+			var costCases, priceIDCases strings.Builder
+			costCases.WriteString("CASE id ")
+			priceIDCases.WriteString("CASE id ")
+			args := make([]interface{}, 0, len(batchIDs)*4)
 
-			// First: CASE WHEN pairs (id, cost)
 			for _, id := range batchIDs {
-				cases.WriteString("WHEN ? THEN ? ")
-				args = append(args, id, updates[id])
+				costCases.WriteString("WHEN ? THEN ? ")
+				args = append(args, id, updates[id].Cost)
 			}
-			cases.WriteString("END")
+			costCases.WriteString("END")
+
+			for _, id := range batchIDs {
+				priceIDCases.WriteString("WHEN ? THEN ? ")
+				args = append(args, id, updates[id].ModelPriceID)
+			}
+			priceIDCases.WriteString("END")
 
 			// Second: timestamp for updated_at
 			args = append(args, time.Now().UnixMilli())
@@ -225,8 +228,10 @@ func (r *ProxyUpstreamAttemptRepository) BatchUpdateCosts(updates map[uint64]uin
 				args = append(args, id)
 			}
 
-			sql := fmt.Sprintf("UPDATE proxy_upstream_attempts SET cost = %s, updated_at = ? WHERE id IN (?%s)",
-				cases.String(), strings.Repeat(",?", len(batchIDs)-1))
+			sql := fmt.Sprintf(
+				"UPDATE proxy_upstream_attempts SET cost = %s, model_price_id = %s, updated_at = ? WHERE id IN (?%s)",
+				costCases.String(), priceIDCases.String(), strings.Repeat(",?", len(batchIDs)-1),
+			)
 
 			if err := tx.Exec(sql, args...).Error; err != nil {
 				return err

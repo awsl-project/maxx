@@ -156,10 +156,6 @@ type ProxyRequestRepository interface {
 	HasRecentRequests(since time.Time) (bool, error)
 	// UpdateCost updates only the cost field of a request
 	UpdateCost(id uint64, cost uint64) error
-	// AddCost adds a delta to the cost field of a request (can be negative)
-	AddCost(id uint64, delta int64) error
-	// BatchUpdateCosts updates costs for multiple requests in a single transaction
-	BatchUpdateCosts(updates map[uint64]uint64) error
 	// RecalculateCostsFromAttempts recalculates all request costs by summing their attempt costs
 	RecalculateCostsFromAttempts() (int64, error)
 	// RecalculateCostsFromAttemptsWithProgress recalculates all request costs with progress reporting via channel
@@ -180,10 +176,9 @@ type ProxyUpstreamAttemptRepository interface {
 	// StreamForCostCalc iterates through all attempts for cost calculation
 	// Calls the callback with batches of minimal data, returns early if callback returns error
 	StreamForCostCalc(batchSize int, callback func(batch []*domain.AttemptCostData) error) error
-	// UpdateCost updates only the cost field of an attempt
-	UpdateCost(id uint64, cost uint64) error
-	// BatchUpdateCosts updates costs for multiple attempts in a single transaction
-	BatchUpdateCosts(updates map[uint64]uint64) error
+	// BatchUpdateCosts 批量更新 attempt 的 cost 和 model_price_id。
+	// model_price_id 跟随 cost 一起更新到当前匹配的价格记录,保证审计字段与金额一致。
+	BatchUpdateCosts(updates map[uint64]domain.AttemptCostUpdate) error
 	// MarkStaleAttemptsFailed marks stale attempts as failed with proper end_time and duration
 	MarkStaleAttemptsFailed() (int64, error)
 	// FixFailedAttemptsWithoutEndTime fixes FAILED attempts that have no end_time set

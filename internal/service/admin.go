@@ -935,6 +935,52 @@ func (s *AdminService) RecalculateUsageStats() error {
 	return err
 }
 
+// pickPricingModel 返回用于计价的模型名。
+// 价格表按上游真实返回的 ResponseModel 匹配最准;Mapped/Request 仅作回退。
+func pickPricingModel(responseModel, mappedModel, requestModel string) string {
+	if responseModel != "" {
+		return responseModel
+	}
+	if mappedModel != "" {
+		return mappedModel
+	}
+	return requestModel
+}
+
+// pricingModelForAttempt picks pricing model for streamed AttemptCostData (backfill path).
+func pricingModelForAttempt(a *domain.AttemptCostData) string {
+	return pickPricingModel(a.ResponseModel, a.MappedModel, a.RequestModel)
+}
+
+// pricingModelForFullAttempt picks pricing model for a full ProxyUpstreamAttempt.
+func pricingModelForFullAttempt(a *domain.ProxyUpstreamAttempt) string {
+	return pickPricingModel(a.ResponseModel, a.MappedModel, a.RequestModel)
+}
+
+// metricsFromAttemptCostData 把 backfill 用的最小 attempt 字段装进 usage.Metrics。
+func metricsFromAttemptCostData(a *domain.AttemptCostData) *usage.Metrics {
+	return &usage.Metrics{
+		InputTokens:          a.InputTokenCount,
+		OutputTokens:         a.OutputTokenCount,
+		CacheReadCount:       a.CacheReadCount,
+		CacheCreationCount:   a.CacheWriteCount,
+		Cache5mCreationCount: a.Cache5mWriteCount,
+		Cache1hCreationCount: a.Cache1hWriteCount,
+	}
+}
+
+// metricsFromFullAttempt 把完整的 attempt 字段装进 usage.Metrics(单请求重算路径)。
+func metricsFromFullAttempt(a *domain.ProxyUpstreamAttempt) *usage.Metrics {
+	return &usage.Metrics{
+		InputTokens:          a.InputTokenCount,
+		OutputTokens:         a.OutputTokenCount,
+		CacheReadCount:       a.CacheReadCount,
+		CacheCreationCount:   a.CacheWriteCount,
+		Cache5mCreationCount: a.Cache5mWriteCount,
+		Cache1hCreationCount: a.Cache1hWriteCount,
+	}
+}
+
 // RecalculateCostsResult holds the result of cost recalculation
 type RecalculateCostsResult struct {
 	TotalAttempts   int    `json:"totalAttempts"`
@@ -994,47 +1040,29 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 	calculator := pricing.GlobalCalculator()
 	processedCount := 0
 	const batchSize = 100
-	affectedRequestIDs := make(map[uint64]struct{})
 
 	// 2. Stream through attempts, process and update each batch immediately
 	err = s.attemptRepo.StreamForCostCalc(batchSize, func(batch []*domain.AttemptCostData) error {
-		attemptUpdates := make(map[uint64]uint64, len(batch))
+		attemptUpdates := make(map[uint64]domain.AttemptCostUpdate, len(batch))
 
 		for _, attempt := range batch {
-			// Use responseModel if available, otherwise use mappedModel or requestModel
-			model := attempt.ResponseModel
-			if model == "" {
-				model = attempt.MappedModel
-			}
-			if model == "" {
-				model = attempt.RequestModel
-			}
+			model := pricingModelForAttempt(attempt)
+			metrics := metricsFromAttemptCostData(attempt)
 
-			// Build metrics from attempt data
-			metrics := &usage.Metrics{
-				InputTokens:          attempt.InputTokenCount,
-				OutputTokens:         attempt.OutputTokenCount,
-				CacheReadCount:       attempt.CacheReadCount,
-				CacheCreationCount:   attempt.CacheWriteCount,
-				Cache5mCreationCount: attempt.Cache5mWriteCount,
-				Cache1hCreationCount: attempt.Cache1hWriteCount,
-			}
+			// 保留历史 Multiplier:重算用当前价表算出新 cost,
+			// 但合约层面的倍率(由 Provider×ClientType 决定)是历史值,不能在 backfill 时悄悄改。
+			res := calculator.Calculate(model, metrics, attempt.Multiplier)
 
-			// Calculate new cost
-			newCost := calculator.Calculate(model, metrics)
-
-			// Track affected request IDs
-			affectedRequestIDs[attempt.ProxyRequestID] = struct{}{}
-
-			// Track if attempt needs update
-			if newCost != attempt.Cost {
-				attemptUpdates[attempt.ID] = newCost
+			if res.Cost != attempt.Cost {
+				attemptUpdates[attempt.ID] = domain.AttemptCostUpdate{
+					Cost:         res.Cost,
+					ModelPriceID: res.ModelPriceID,
+				}
 			}
 
 			processedCount++
 		}
 
-		// Batch update attempt costs immediately
 		if len(attemptUpdates) > 0 {
 			if err := s.attemptRepo.BatchUpdateCosts(attemptUpdates); err != nil {
 				log.Printf("[RecalculateCosts] Failed to batch update attempts: %v", err)
@@ -1043,11 +1071,10 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 			}
 		}
 
-		// Broadcast progress
 		broadcastProgress("calculating", processedCount, int(totalCount),
 			fmt.Sprintf("Processed %d/%d attempts", processedCount, totalCount))
 
-		// Small delay to allow UI to update (WebSocket messages need time to be processed)
+		// 给 UI 一点时间消费 WebSocket 消息;否则进度条会一段段跳。
 		time.Sleep(50 * time.Millisecond)
 
 		return nil
@@ -1114,39 +1141,29 @@ func (s *AdminService) RecalculateRequestCost(tenantID uint64, requestID uint64)
 
 	calculator := pricing.GlobalCalculator()
 	var totalCost uint64
+	updates := make(map[uint64]domain.AttemptCostUpdate, len(attempts))
 
 	// 3. Recalculate cost for each attempt
 	for _, attempt := range attempts {
-		// Use responseModel if available, otherwise use mappedModel or requestModel
-		model := attempt.ResponseModel
-		if model == "" {
-			model = attempt.MappedModel
-		}
-		if model == "" {
-			model = attempt.RequestModel
-		}
+		model := pricingModelForFullAttempt(attempt)
+		metrics := metricsFromFullAttempt(attempt)
 
-		// Build metrics from attempt data
-		metrics := &usage.Metrics{
-			InputTokens:          attempt.InputTokenCount,
-			OutputTokens:         attempt.OutputTokenCount,
-			CacheReadCount:       attempt.CacheReadCount,
-			CacheCreationCount:   attempt.CacheWriteCount,
-			Cache5mCreationCount: attempt.Cache5mWriteCount,
-			Cache1hCreationCount: attempt.Cache1hWriteCount,
-		}
+		res := calculator.Calculate(model, metrics, attempt.Multiplier)
+		totalCost += res.Cost
 
-		// Calculate new cost
-		newCost := calculator.Calculate(model, metrics)
-		totalCost += newCost
-
-		// Update attempt cost if changed
-		if newCost != attempt.Cost {
-			if err := s.attemptRepo.UpdateCost(attempt.ID, newCost); err != nil {
-				log.Printf("[RecalculateRequestCost] Failed to update attempt %d cost: %v", attempt.ID, err)
-				continue
+		if res.Cost != attempt.Cost {
+			updates[attempt.ID] = domain.AttemptCostUpdate{
+				Cost:         res.Cost,
+				ModelPriceID: res.ModelPriceID,
 			}
-			result.UpdatedAttempts++
+		}
+	}
+
+	if len(updates) > 0 {
+		if err := s.attemptRepo.BatchUpdateCosts(updates); err != nil {
+			log.Printf("[RecalculateRequestCost] Failed to update attempts: %v", err)
+		} else {
+			result.UpdatedAttempts = len(updates)
 		}
 	}
 

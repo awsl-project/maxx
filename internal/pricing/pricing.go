@@ -119,20 +119,7 @@ func (p *ModelPricing) GetContext1MThreshold() uint64 {
 	return 200000
 }
 
-// GetInputPremiumFraction 获取超阈值input倍率（分数）
-// 默认 2/1 = 2.0
-func (p *ModelPricing) GetInputPremiumFraction() (num, denom uint64) {
-	num, denom = p.InputPremiumNum, p.InputPremiumDenom
-	if num == 0 {
-		num = 2
-	}
-	if denom == 0 {
-		denom = 1
-	}
-	return
-}
-
-// GetInputPremiumNum 获取超阈值input倍率分子（默认2）
+// GetInputPremiumNum 获取超阈值 input 倍率分子(默认 2)
 func (p *ModelPricing) GetInputPremiumNum() uint64 {
 	if p.InputPremiumNum > 0 {
 		return p.InputPremiumNum
@@ -140,7 +127,7 @@ func (p *ModelPricing) GetInputPremiumNum() uint64 {
 	return 2
 }
 
-// GetInputPremiumDenom 获取超阈值input倍率分母（默认1）
+// GetInputPremiumDenom 获取超阈值 input 倍率分母(默认 1)
 func (p *ModelPricing) GetInputPremiumDenom() uint64 {
 	if p.InputPremiumDenom > 0 {
 		return p.InputPremiumDenom
@@ -148,20 +135,7 @@ func (p *ModelPricing) GetInputPremiumDenom() uint64 {
 	return 1
 }
 
-// GetOutputPremiumFraction 获取超阈值output倍率（分数）
-// 默认 3/2 = 1.5
-func (p *ModelPricing) GetOutputPremiumFraction() (num, denom uint64) {
-	num, denom = p.OutputPremiumNum, p.OutputPremiumDenom
-	if num == 0 {
-		num = 3
-	}
-	if denom == 0 {
-		denom = 2
-	}
-	return
-}
-
-// GetOutputPremiumNum 获取超阈值output倍率分子（默认3）
+// GetOutputPremiumNum 获取超阈值 output 倍率分子(默认 3)
 func (p *ModelPricing) GetOutputPremiumNum() uint64 {
 	if p.OutputPremiumNum > 0 {
 		return p.OutputPremiumNum
@@ -169,7 +143,7 @@ func (p *ModelPricing) GetOutputPremiumNum() uint64 {
 	return 3
 }
 
-// GetOutputPremiumDenom 获取超阈值output倍率分母（默认2）
+// GetOutputPremiumDenom 获取超阈值 output 倍率分母(默认 2)
 func (p *ModelPricing) GetOutputPremiumDenom() uint64 {
 	if p.OutputPremiumDenom > 0 {
 		return p.OutputPremiumDenom
