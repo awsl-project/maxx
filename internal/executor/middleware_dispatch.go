@@ -13,7 +13,6 @@ import (
 	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/pricing"
-	"github.com/awsl-project/maxx/internal/usage"
 )
 
 func (e *Executor) dispatch(c *flow.Ctx) {
@@ -193,30 +192,14 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			eventChan.Close()
 			<-eventDone
 
+			multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
+
 			if err == nil {
 				attemptRecord.EndTime = time.Now()
 				attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 				attemptRecord.Status = "COMPLETED"
 
-				if attemptRecord.InputTokenCount > 0 || attemptRecord.OutputTokenCount > 0 {
-					metrics := &usage.Metrics{
-						InputTokens:          attemptRecord.InputTokenCount,
-						OutputTokens:         attemptRecord.OutputTokenCount,
-						CacheReadCount:       attemptRecord.CacheReadCount,
-						CacheCreationCount:   attemptRecord.CacheWriteCount,
-						Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
-						Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
-					}
-					pricingModel := attemptRecord.ResponseModel
-					if pricingModel == "" {
-						pricingModel = attemptRecord.MappedModel
-					}
-					multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
-					result := pricing.GlobalCalculator().Calculate(pricingModel, metrics, multiplier)
-					attemptRecord.Cost = result.Cost
-					attemptRecord.ModelPriceID = result.ModelPriceID
-					attemptRecord.Multiplier = result.Multiplier
-				}
+				pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 
 				if clearDetail {
 					attemptRecord.RequestInfo = nil
@@ -235,8 +218,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				proxyReq.EndTime = time.Now()
 				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 				proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
-				proxyReq.ModelPriceID = attemptRecord.ModelPriceID
-				proxyReq.Multiplier = attemptRecord.Multiplier
 				proxyReq.ResponseModel = mappedModel
 
 				if !clearDetail {
@@ -248,15 +229,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				}
 				proxyReq.StatusCode = responseCapture.StatusCode()
 
-				if metrics := usage.ExtractFromResponse(responseCapture.Body()); metrics != nil {
-					proxyReq.InputTokenCount = metrics.InputTokens
-					proxyReq.OutputTokenCount = metrics.OutputTokens
-					proxyReq.CacheReadCount = metrics.CacheReadCount
-					proxyReq.CacheWriteCount = metrics.CacheCreationCount
-					proxyReq.Cache5mWriteCount = metrics.Cache5mCreationCount
-					proxyReq.Cache1hWriteCount = metrics.Cache1hCreationCount
-				}
-				proxyReq.Cost = attemptRecord.Cost
+				pricing.MirrorCostToRequest(proxyReq, attemptRecord)
 				proxyReq.TTFT = attemptRecord.TTFT
 
 				clearProxyRequestDetail(proxyReq, clearDetail)
@@ -281,25 +254,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				attemptRecord.Status = "FAILED"
 			}
 
-			if attemptRecord.InputTokenCount > 0 || attemptRecord.OutputTokenCount > 0 {
-				metrics := &usage.Metrics{
-					InputTokens:          attemptRecord.InputTokenCount,
-					OutputTokens:         attemptRecord.OutputTokenCount,
-					CacheReadCount:       attemptRecord.CacheReadCount,
-					CacheCreationCount:   attemptRecord.CacheWriteCount,
-					Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
-					Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
-				}
-				pricingModel := attemptRecord.ResponseModel
-				if pricingModel == "" {
-					pricingModel = attemptRecord.MappedModel
-				}
-				multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
-				result := pricing.GlobalCalculator().Calculate(pricingModel, metrics, multiplier)
-				attemptRecord.Cost = result.Cost
-				attemptRecord.ModelPriceID = result.ModelPriceID
-				attemptRecord.Multiplier = result.Multiplier
-			}
+			pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 
 			if clearDetail {
 				attemptRecord.RequestInfo = nil
@@ -313,8 +268,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			state.currentAttempt = nil
 
 			proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
-			proxyReq.ModelPriceID = attemptRecord.ModelPriceID
-			proxyReq.Multiplier = attemptRecord.Multiplier
 
 			if responseCapture.Body() != "" {
 				proxyReq.StatusCode = responseCapture.StatusCode()
@@ -325,16 +278,8 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 						Body:    responseCapture.Body(),
 					}
 				}
-				if metrics := usage.ExtractFromResponse(responseCapture.Body()); metrics != nil {
-					proxyReq.InputTokenCount = metrics.InputTokens
-					proxyReq.OutputTokenCount = metrics.OutputTokens
-					proxyReq.CacheReadCount = metrics.CacheReadCount
-					proxyReq.CacheWriteCount = metrics.CacheCreationCount
-					proxyReq.Cache5mWriteCount = metrics.Cache5mCreationCount
-					proxyReq.Cache1hWriteCount = metrics.Cache1hCreationCount
-				}
 			}
-			proxyReq.Cost = attemptRecord.Cost
+			pricing.MirrorCostToRequest(proxyReq, attemptRecord)
 			proxyReq.TTFT = attemptRecord.TTFT
 
 			clearProxyRequestDetail(proxyReq, clearDetail)

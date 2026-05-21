@@ -285,6 +285,27 @@ func SumStats(stats []*domain.UsageStats) (totalReq, successReq, failedReq, inpu
 	return
 }
 
+// Summarize 把一组 UsageStats 聚合为一个 UsageStatsSummary(含成功率)。
+// 这是 SumStats 的便利包装:repository / service 层不必各自重新装 struct
+// 和重算 SuccessRate,统一从这里出。
+func Summarize(stats []*domain.UsageStats) *domain.UsageStatsSummary {
+	var s domain.UsageStatsSummary
+	for _, st := range stats {
+		s.TotalRequests += st.TotalRequests
+		s.SuccessfulRequests += st.SuccessfulRequests
+		s.FailedRequests += st.FailedRequests
+		s.TotalInputTokens += st.InputTokens
+		s.TotalOutputTokens += st.OutputTokens
+		s.TotalCacheRead += st.CacheRead
+		s.TotalCacheWrite += st.CacheWrite
+		s.TotalCost += st.Cost
+	}
+	if s.TotalRequests > 0 {
+		s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
+	}
+	return &s
+}
+
 // GroupByProvider groups stats by provider ID and sums them.
 // Returns a map of provider ID to aggregated totals.
 func GroupByProvider(stats []*domain.UsageStats) map[uint64]*domain.ProviderStats {

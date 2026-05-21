@@ -610,29 +610,11 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(tenantID uint64, startMin
 // GetSummary 获取汇总统计数据（总计）
 // 复用 queryAllWithRealtime 获取实时数据
 func (r *UsageStatsRepository) GetSummary(tenantID uint64, filter repository.UsageStatsFilter) (*domain.UsageStatsSummary, error) {
-	// 使用通用的分层查询获取所有数据
 	allStats, err := r.queryAllWithRealtime(tenantID, filter)
 	if err != nil {
 		return nil, err
 	}
-
-	// 聚合所有数据
-	var s domain.UsageStatsSummary
-	for _, stat := range allStats {
-		s.TotalRequests += stat.TotalRequests
-		s.SuccessfulRequests += stat.SuccessfulRequests
-		s.FailedRequests += stat.FailedRequests
-		s.TotalInputTokens += stat.InputTokens
-		s.TotalOutputTokens += stat.OutputTokens
-		s.TotalCacheRead += stat.CacheRead
-		s.TotalCacheWrite += stat.CacheWrite
-		s.TotalCost += stat.Cost
-	}
-
-	if s.TotalRequests > 0 {
-		s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
-	}
-	return &s, nil
+	return stats.Summarize(allStats), nil
 }
 
 // GetSummaryByProvider 按 Provider 维度获取汇总统计
@@ -788,9 +770,9 @@ func (r *UsageStatsRepository) GetLatestTimeBucket(tenantID uint64, granularity 
 }
 
 // GetProviderStats 获取 Provider 统计数据
-// 使用分层查询策略，复用 queryAllWithRealtime 获取实时数据
+// 使用分层查询策略,复用 queryAllWithRealtime 获取实时数据;
+// 按 provider 聚合的逻辑统一走 stats.GroupByProvider 纯函数,与前端 useProviderStatsFromUsageStats 行为一致。
 func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
-	// 构建过滤条件
 	filter := repository.UsageStatsFilter{
 		Granularity: domain.GranularityMinute, // 使用 minute 粒度以获取最新数据
 	}
@@ -801,50 +783,11 @@ func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType stri
 		filter.ProjectID = &projectID
 	}
 
-	// 使用通用的分层查询获取所有数据（包括实时数据）
 	allStats, err := r.queryAllWithRealtime(tenantID, filter)
 	if err != nil {
 		return nil, err
 	}
-
-	// 按 provider 聚合
-	result := make(map[uint64]*domain.ProviderStats)
-	for _, s := range allStats {
-		if s.ProviderID == 0 {
-			continue
-		}
-		if existing, ok := result[s.ProviderID]; ok {
-			existing.TotalRequests += s.TotalRequests
-			existing.SuccessfulRequests += s.SuccessfulRequests
-			existing.FailedRequests += s.FailedRequests
-			existing.TotalInputTokens += s.InputTokens
-			existing.TotalOutputTokens += s.OutputTokens
-			existing.TotalCacheRead += s.CacheRead
-			existing.TotalCacheWrite += s.CacheWrite
-			existing.TotalCost += s.Cost
-		} else {
-			result[s.ProviderID] = &domain.ProviderStats{
-				ProviderID:         s.ProviderID,
-				TotalRequests:      s.TotalRequests,
-				SuccessfulRequests: s.SuccessfulRequests,
-				FailedRequests:     s.FailedRequests,
-				TotalInputTokens:   s.InputTokens,
-				TotalOutputTokens:  s.OutputTokens,
-				TotalCacheRead:     s.CacheRead,
-				TotalCacheWrite:    s.CacheWrite,
-				TotalCost:          s.Cost,
-			}
-		}
-	}
-
-	// 计算成功率
-	for _, s := range result {
-		if s.TotalRequests > 0 {
-			s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
-		}
-	}
-
-	return result, nil
+	return stats.GroupByProvider(allStats), nil
 }
 
 // queryAllWithRealtime 通用的分层查询函数，返回所有统计数据（包括实时数据）

@@ -979,6 +979,55 @@ func TestSumStats(t *testing.T) {
 	}
 }
 
+func TestSummarize_Empty(t *testing.T) {
+	got := Summarize(nil)
+	if got == nil {
+		t.Fatal("Summarize(nil) returned nil, want zero-value summary")
+	}
+	if got.TotalRequests != 0 || got.SuccessRate != 0 {
+		t.Errorf("empty summary should be all zeros, got %+v", got)
+	}
+}
+
+func TestSummarize(t *testing.T) {
+	in := []*domain.UsageStats{
+		{
+			TotalRequests:      10,
+			SuccessfulRequests: 8,
+			FailedRequests:     2,
+			InputTokens:        1000,
+			OutputTokens:       500,
+			CacheRead:          100,
+			CacheWrite:         50,
+			Cost:               10000,
+		},
+		{
+			TotalRequests:      5,
+			SuccessfulRequests: 5,
+			InputTokens:        500,
+			OutputTokens:       250,
+			CacheRead:          50,
+			CacheWrite:         25,
+			Cost:               5000,
+		},
+	}
+	got := Summarize(in)
+	if got.TotalRequests != 15 || got.SuccessfulRequests != 13 || got.FailedRequests != 2 {
+		t.Errorf("requests: %+v", got)
+	}
+	if got.TotalInputTokens != 1500 || got.TotalOutputTokens != 750 {
+		t.Errorf("tokens: %+v", got)
+	}
+	if got.TotalCacheRead != 150 || got.TotalCacheWrite != 75 || got.TotalCost != 15000 {
+		t.Errorf("cache/cost: %+v", got)
+	}
+	// 13/15 = 86.666...% — 这里既验证 SuccessRate 计算位置,也防止以后改成 float32 之类的精度回退。
+	wantRate := 13.0 / 15.0 * 100
+	if got.SuccessRate != wantRate {
+		t.Errorf("SuccessRate = %v, want %v", got.SuccessRate, wantRate)
+	}
+}
+
 func TestGroupByProvider_Empty(t *testing.T) {
 	result := GroupByProvider(nil)
 	if len(result) != 0 {
