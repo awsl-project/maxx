@@ -615,6 +615,7 @@ func (r *UsageStatsRepository) GetSummary(tenantID uint64, filter repository.Usa
 		return nil, err
 	}
 	return stats.Summarize(allStats), nil
+
 }
 
 // DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
