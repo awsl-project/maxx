@@ -1,8 +1,11 @@
 package sqlite
 
 import (
+	"errors"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/pricing"
@@ -58,10 +61,15 @@ func (r *ModelPriceRepository) BatchCreate(prices []*domain.ModelPrice) error {
 	return nil
 }
 
-// GetByID 获取指定ID的价格记录
+// GetByID 获取指定ID的价格记录。
+//
+// 不过滤 deleted_at:每次 Update 都会软删旧行并插入新行(版本化),
+// 历史 attempt 的 ModelPriceID 指向已软删的旧行——重算/审计成本时仍需按
+// ID 精确取到当时的价格快照。需要"当前价格"请走 GetCurrentByModelID 或
+// ListCurrentPrices。
 func (r *ModelPriceRepository) GetByID(id uint64) (*domain.ModelPrice, error) {
 	var m ModelPrice
-	if err := r.db.gorm.Where("deleted_at = 0").First(&m, id).Error; err != nil {
+	if err := r.db.gorm.First(&m, id).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomain(&m), nil
@@ -205,10 +213,71 @@ func (r *ModelPriceRepository) ResetToDefaults() ([]*domain.ModelPrice, error) {
 	return domainPrices, nil
 }
 
-// Update 更新价格记录
+// Update 更新价格记录——版本化语义:软删同 ModelID 当前行,插入新行。
+//
+// 旧实现是 GORM Save 原地覆盖,导致历史 attempt 的 ModelPriceID 反查时拿到
+// 被改后的新价格(成本审计/重算失真)。现在每次 Update:
+//  1. 按 ModelID 找当前(未软删的最新)行
+//  2. 与新价比较:若所有计费字段一致,直接 no-op(避免 UI 误点产生空版本)
+//  3. 否则在同一事务里软删旧行 + INSERT 新行
+//
+// price.ID 在 no-op 情况下保留当前行 ID;在有变更时被改写为新插入的 ID,
+// 调用方(admin handler)将这个新 ID 返回给前端。
 func (r *ModelPriceRepository) Update(price *domain.ModelPrice) error {
-	m := r.fromDomain(price)
-	return r.db.gorm.Save(m).Error
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		var current ModelPrice
+		err := tx.Where("model_id = ? AND deleted_at = 0", price.ModelID).
+			Order("created_at DESC").First(&current).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		if err == nil {
+			if pricesEqual(&current, price) {
+				price.ID = current.ID
+				price.CreatedAt = fromTimestamp(current.CreatedAt)
+				return nil
+			}
+			// 软删旧行
+			now := time.Now().UnixMilli()
+			if err := tx.Model(&ModelPrice{}).Where("id = ?", current.ID).
+				Update("deleted_at", now).Error; err != nil {
+				return err
+			}
+		}
+
+		// 插新行
+		m := r.fromDomain(price)
+		m.ID = 0 // 强制生成新 ID
+		m.DeletedAt = 0
+		m.CreatedAt = time.Now().UnixMilli()
+		if err := tx.Create(m).Error; err != nil {
+			return err
+		}
+		price.ID = m.ID
+		price.CreatedAt = fromTimestamp(m.CreatedAt)
+		return nil
+	})
+}
+
+// pricesEqual 比较 GORM 行的当前价与待写入 domain 价是否完全一致(所有计费/分层字段)。
+// 仅当全相等时 Update 走 no-op 分支。
+func pricesEqual(current *ModelPrice, next *domain.ModelPrice) bool {
+	nextHas1M := 0
+	if next.Has1MContext {
+		nextHas1M = 1
+	}
+	return current.InputPriceMicro == next.InputPriceMicro &&
+		current.OutputPriceMicro == next.OutputPriceMicro &&
+		current.CacheReadPriceMicro == next.CacheReadPriceMicro &&
+		current.Cache5mWritePriceMicro == next.Cache5mWritePriceMicro &&
+		current.Cache1hWritePriceMicro == next.Cache1hWritePriceMicro &&
+		current.Has1MContext == nextHas1M &&
+		current.Context1MThreshold == next.Context1MThreshold &&
+		current.InputPremiumNum == next.InputPremiumNum &&
+		current.InputPremiumDenom == next.InputPremiumDenom &&
+		current.OutputPremiumNum == next.OutputPremiumNum &&
+		current.OutputPremiumDenom == next.OutputPremiumDenom
 }
 
 func (r *ModelPriceRepository) toDomain(m *ModelPrice) *domain.ModelPrice {
