@@ -7,18 +7,23 @@ import (
 
 // FinalizeAttemptCost 根据 attempt 上已有的 token 字段算成本并写回。
 // 调用前提:attempt 的 token/cache 字段已由 adapter 的 EventMetrics 填好。
-// 没有 token 数据时不会触发查表(避免对未结束/未计量的 attempt 写假成本)。
+// 没有任何可计费 token 时不会触发查表(避免对未结束/未计量的 attempt 写假成本)。
 //
 // 返回值同时供调用方镜像到 proxyReq:线上请求路径上,attempt 是唯一事实源,
 // proxyReq 上的成本/计价字段都从这里复制过去。
 func FinalizeAttemptCost(attempt *domain.ProxyUpstreamAttempt, multiplier uint64) CostResult {
+	// 统一在入口归一化,有 token 分支和无 token 分支用同一份默认值,
+	// 不再依赖 Calculator.Calculate 内部的 fallback。
+	mult := defaultIfZero(multiplier)
 	if attempt == nil {
-		return CostResult{Multiplier: defaultIfZero(multiplier)}
+		return CostResult{Multiplier: mult}
 	}
-	if attempt.InputTokenCount == 0 && attempt.OutputTokenCount == 0 {
-		// 没有任何 token 数据:不查价表,不覆盖 attempt 上既有字段,只把入参 multiplier 回填。
-		// 这样空 attempt 也带上正确的合约倍率,供后续审计。
-		res := CostResult{Multiplier: defaultIfZero(multiplier)}
+	// 计费信号要覆盖所有计费 token:Calculator 也会按 cache_read / cache_5m / cache_1h
+	// 单独算钱,只查 input/output 会漏掉 cache-only 响应(如缓存命中型流式请求)。
+	if !hasBillableTokens(attempt) {
+		// 没有任何可计费 token:不查价表,不覆盖 attempt 上既有 Cost/ModelPriceID,
+		// 只把入参 multiplier 回填(空 attempt 也带上正确的合约倍率,供后续审计)。
+		res := CostResult{Multiplier: mult}
 		attempt.Multiplier = res.Multiplier
 		return res
 	}
@@ -35,12 +40,24 @@ func FinalizeAttemptCost(attempt *domain.ProxyUpstreamAttempt, multiplier uint64
 		CacheCreationCount:   attempt.CacheWriteCount,
 		Cache5mCreationCount: attempt.Cache5mWriteCount,
 		Cache1hCreationCount: attempt.Cache1hWriteCount,
-	}, multiplier)
+	}, mult)
 
 	attempt.Cost = res.Cost
 	attempt.ModelPriceID = res.ModelPriceID
 	attempt.Multiplier = res.Multiplier
 	return res
+}
+
+// hasBillableTokens 判断 attempt 是否有任何会被 Calculator 收费的 token 字段。
+// input/output 不算时,cache_read / cache_5m / cache_1h 单独都能产生 cost,
+// CacheWriteCount 是兼容兜底字段(老响应只给总量,没拆 5m/1h)。
+func hasBillableTokens(a *domain.ProxyUpstreamAttempt) bool {
+	return a.InputTokenCount > 0 ||
+		a.OutputTokenCount > 0 ||
+		a.CacheReadCount > 0 ||
+		a.CacheWriteCount > 0 ||
+		a.Cache5mWriteCount > 0 ||
+		a.Cache1hWriteCount > 0
 }
 
 // MirrorCostToRequest 把已结算的 attempt 的计费/token 字段复制到父 proxyReq。
