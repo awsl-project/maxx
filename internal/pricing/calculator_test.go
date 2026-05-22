@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -406,7 +407,10 @@ func TestCalculator_CalculateByPriceID_UsesCachedSnapshot(t *testing.T) {
 	})
 
 	metrics := &usage.Metrics{InputTokens: 1_000_000}
-	res, ok := calc.CalculateByPriceID(10, metrics, DefaultMultiplier)
+	res, ok, err := calc.CalculateByPriceID(10, metrics, DefaultMultiplier)
+	if err != nil {
+		t.Fatalf("CalculateByPriceID(10) unexpected error: %v", err)
+	}
 	if !ok {
 		t.Fatal("CalculateByPriceID(10) should succeed via historical lookup")
 	}
@@ -435,7 +439,7 @@ func TestCalculator_CalculateByPriceID_LazyLoadCaches(t *testing.T) {
 
 	metrics := &usage.Metrics{InputTokens: 1_000_000}
 	for i := 0; i < 5; i++ {
-		_, _ = calc.CalculateByPriceID(42, metrics, DefaultMultiplier)
+		_, _, _ = calc.CalculateByPriceID(42, metrics, DefaultMultiplier)
 	}
 	if calls != 1 {
 		t.Errorf("historicalLookup called %d times, want 1 (后续应命中缓存)", calls)
@@ -443,20 +447,29 @@ func TestCalculator_CalculateByPriceID_LazyLoadCaches(t *testing.T) {
 }
 
 // TestCalculator_CalculateByPriceID_NoLookupOrUnknownID 验证 ok=false 路径:
-// 没注入 lookup、或 lookup 返回 nil,都应返回 false 让上层走 fallback。
+// 没注入 lookup、lookup 返回 nil 或返回 error,都应返回 false。
+// 其中 error 情形还要求调用方拿到非 nil 的 err,不得盲目 fallback。
 func TestCalculator_CalculateByPriceID_NoLookupOrUnknownID(t *testing.T) {
 	metrics := &usage.Metrics{InputTokens: 1_000_000}
 
 	t.Run("ID==0 unconditionally false", func(t *testing.T) {
 		calc := NewCalculator()
-		if _, ok := calc.CalculateByPriceID(0, metrics, DefaultMultiplier); ok {
+		_, ok, err := calc.CalculateByPriceID(0, metrics, DefaultMultiplier)
+		if err != nil {
+			t.Fatalf("CalculateByPriceID(0) unexpected error: %v", err)
+		}
+		if ok {
 			t.Error("CalculateByPriceID(0) should return ok=false")
 		}
 	})
 
 	t.Run("no lookup configured", func(t *testing.T) {
 		calc := NewCalculator()
-		if _, ok := calc.CalculateByPriceID(99, metrics, DefaultMultiplier); ok {
+		_, ok, err := calc.CalculateByPriceID(99, metrics, DefaultMultiplier)
+		if err != nil {
+			t.Fatalf("CalculateByPriceID without lookup unexpected error: %v", err)
+		}
+		if ok {
 			t.Error("CalculateByPriceID without lookup should return ok=false")
 		}
 	})
@@ -466,8 +479,27 @@ func TestCalculator_CalculateByPriceID_NoLookupOrUnknownID(t *testing.T) {
 		calc.SetHistoricalLookup(func(id uint64) (*domain.ModelPrice, error) {
 			return nil, nil
 		})
-		if _, ok := calc.CalculateByPriceID(99, metrics, DefaultMultiplier); ok {
+		_, ok, err := calc.CalculateByPriceID(99, metrics, DefaultMultiplier)
+		if err != nil {
+			t.Fatalf("CalculateByPriceID with nil-returning lookup unexpected error: %v", err)
+		}
+		if ok {
 			t.Error("CalculateByPriceID with nil-returning lookup should return ok=false")
+		}
+	})
+
+	t.Run("lookup returns error", func(t *testing.T) {
+		calc := NewCalculator()
+		lookupErr := fmt.Errorf("db connection timeout")
+		calc.SetHistoricalLookup(func(id uint64) (*domain.ModelPrice, error) {
+			return nil, lookupErr
+		})
+		_, ok, err := calc.CalculateByPriceID(99, metrics, DefaultMultiplier)
+		if ok {
+			t.Error("CalculateByPriceID with erroring lookup should return ok=false")
+		}
+		if err == nil {
+			t.Error("CalculateByPriceID with erroring lookup should return non-nil error")
 		}
 	})
 }
