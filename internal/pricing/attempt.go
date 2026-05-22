@@ -31,15 +31,32 @@ func attemptMetrics(in, out, cacheRead, cacheWrite, c5m, c1h uint64) *usage.Metr
 	}
 }
 
-// RecalcAttemptUpdate 用当前价表+attempt 历史倍率重算 cost。
+// RecalcAttemptUpdate 用"当时价" × 最新 token × 历史 multiplier 重算 cost。
 // 第三个返回值 changed=true 当且仅当 Cost 或 ModelPriceID 跟当前值不一致;
 // 这样即便金额没变,只要价格记录被换成等额新版本,也会刷新 model_price_id 保留审计链。
 // 第一个返回值是新算出的 cost,即使无变化也填充(给上层做 totalCost 累加用)。
 //
+// 定价决策顺序:
+//  1. attempt 已记录 ModelPriceID(>0)→ 按 ID 反查当时的价格快照(版本化
+//     机制保证这一行物理保留)。这是正常路径,典型用途:流式结尾 token 数
+//     后补、缺失指标 backfill,需要"按当时价 × 最新 token 数"重算,而不
+//     是按今天的当前价。
+//  2. 反查不到 / ModelPriceID==0(极老数据)→ fallback 按模型名走 Calculate
+//     取当前价兜底。
+//
 // 注意:multiplier 用 attempt 自己的历史值,而不是 Provider 当下的合约值。
 // 否则 backfill 会把历史折扣率悄悄改写,违反"重算价格不改合约"的原则。
 func RecalcAttemptUpdate(model string, metrics *usage.Metrics, multiplier, currentCost, currentModelPriceID uint64) (uint64, domain.AttemptCostUpdate, bool) {
-	res := GlobalCalculator().Calculate(model, metrics, multiplier)
+	var res CostResult
+	if currentModelPriceID != 0 {
+		if r, ok := GlobalCalculator().CalculateByPriceID(currentModelPriceID, metrics, multiplier); ok {
+			res = r
+		} else {
+			res = GlobalCalculator().Calculate(model, metrics, multiplier)
+		}
+	} else {
+		res = GlobalCalculator().Calculate(model, metrics, multiplier)
+	}
 	if res.Cost == currentCost && res.ModelPriceID == currentModelPriceID {
 		return res.Cost, domain.AttemptCostUpdate{}, false
 	}

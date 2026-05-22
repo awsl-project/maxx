@@ -7,12 +7,14 @@ import (
 )
 
 // resetGlobalCalculator 在测试间还原 GlobalCalculator,避免上一个测试写入的 DB 价格
-// 污染后续测试中的查表结果。
+// 或注入的 historicalLookup 污染后续测试中的查表结果。
 func resetGlobalCalculator(t *testing.T) {
 	t.Helper()
 	GlobalCalculator().LoadFromDatabase(nil)
+	GlobalCalculator().SetHistoricalLookup(nil)
 	t.Cleanup(func() {
 		GlobalCalculator().LoadFromDatabase(nil)
+		GlobalCalculator().SetHistoricalLookup(nil)
 	})
 }
 

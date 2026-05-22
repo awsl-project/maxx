@@ -237,3 +237,93 @@ func TestRecalcFromCostData_ZeroMultiplierDefaultsToOne(t *testing.T) {
 		t.Errorf("multiplier=0: newCost = %d, want 3e9 (zero must default to 1.0×)", newCost)
 	}
 }
+
+// TestRecalcFromAttempt_UsesHistoricalSnapshotByID 锁住"当时价"重算契约:
+// 当 attempt.ModelPriceID 指向已被新价覆盖的历史快照(版本化机制保留),
+// 重算应该用旧快照价 × 最新 token,而不是按今天的当前价(模型名查表)。
+//
+// 这是这次改动的核心:之前 RecalcAttemptUpdate 用模型名走 Calculate,
+// 等于把"重算"语义变成"按今天的价回填",违背了 token 后补/缺失指标
+// backfill 的真正意图(按当时合约价 × 已知 token 数补足成本)。
+func TestRecalcFromAttempt_UsesHistoricalSnapshotByID(t *testing.T) {
+	resetGlobalCalculator(t)
+	old := &domain.ModelPrice{ID: 10, ModelID: "claude-3-opus", InputPriceMicro: 3_000_000}
+	current := &domain.ModelPrice{ID: 20, ModelID: "claude-3-opus", InputPriceMicro: 9_000_000}
+	GlobalCalculator().LoadFromDatabase([]*domain.ModelPrice{current})
+	GlobalCalculator().SetHistoricalLookup(func(id uint64) (*domain.ModelPrice, error) {
+		if id == 10 {
+			return old, nil
+		}
+		return nil, nil
+	})
+
+	// attempt 当时按 $3 价记入 ModelPriceID=10。流式结尾 token 后补,
+	// Cost 字段是 0(或老值),触发重算。
+	attempt := &domain.ProxyUpstreamAttempt{
+		ResponseModel:   "claude-3-opus",
+		InputTokenCount: 1_000_000,
+		Multiplier:      DefaultMultiplier,
+		Cost:            0,
+		ModelPriceID:    10, // 历史 ID
+	}
+
+	newCost, update, changed := RecalcFromAttempt(attempt)
+	if !changed {
+		t.Fatal("changed = false, want true (cost 从 0 改到 3e9)")
+	}
+	// 当时价 $3 → 1M × $3 = 3e9 nanoUSD,不是按今天 $9 的 9e9
+	if newCost != 3_000_000_000 {
+		t.Errorf("newCost = %d, want 3e9 (当时价 $3, 不是 today's $9)", newCost)
+	}
+	if update.ModelPriceID != 10 {
+		t.Errorf("update.ModelPriceID = %d, want 10 (维持历史 ID,不被刷成 20)", update.ModelPriceID)
+	}
+}
+
+// TestRecalcFromAttempt_FallsBackToByModelWhenIDMissing 验证 ModelPriceID=0
+// (极老数据,从未记录过 ID)走按模型名查当前价的兜底路径。
+func TestRecalcFromAttempt_FallsBackToByModelWhenIDMissing(t *testing.T) {
+	resetGlobalCalculator(t)
+	GlobalCalculator().LoadFromDatabase([]*domain.ModelPrice{
+		{ID: 20, ModelID: "claude-3-opus", InputPriceMicro: 9_000_000},
+	})
+	// 未设置 historicalLookup;ModelPriceID=0 也根本不该触发它。
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		ResponseModel:   "claude-3-opus",
+		InputTokenCount: 1_000_000,
+		Multiplier:      DefaultMultiplier,
+		ModelPriceID:    0, // 没记录历史 ID
+	}
+	newCost, update, _ := RecalcFromAttempt(attempt)
+	if newCost != 9_000_000_000 {
+		t.Errorf("newCost = %d, want 9e9 (fallback 按模型名取当前价)", newCost)
+	}
+	if update.ModelPriceID != 20 {
+		t.Errorf("update.ModelPriceID = %d, want 20 (写入当前 ID,补齐历史空缺)", update.ModelPriceID)
+	}
+}
+
+// TestRecalcFromAttempt_FallsBackWhenHistoricalLookupReturnsNil 验证:
+// ModelPriceID 非 0,但反查不到(例如硬删了历史表 / 测试环境未注入 lookup),
+// 不应该崩,而是降级走模型名取当前价。
+func TestRecalcFromAttempt_FallsBackWhenHistoricalLookupReturnsNil(t *testing.T) {
+	resetGlobalCalculator(t)
+	GlobalCalculator().LoadFromDatabase([]*domain.ModelPrice{
+		{ID: 20, ModelID: "claude-3-opus", InputPriceMicro: 9_000_000},
+	})
+	GlobalCalculator().SetHistoricalLookup(func(id uint64) (*domain.ModelPrice, error) {
+		return nil, nil // 反查不到
+	})
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		ResponseModel:   "claude-3-opus",
+		InputTokenCount: 1_000_000,
+		Multiplier:      DefaultMultiplier,
+		ModelPriceID:    99, // 不存在的 ID
+	}
+	newCost, _, _ := RecalcFromAttempt(attempt)
+	if newCost != 9_000_000_000 {
+		t.Errorf("newCost = %d, want 9e9 (fallback 必须工作)", newCost)
+	}
+}

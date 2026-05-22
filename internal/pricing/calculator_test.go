@@ -387,3 +387,87 @@ func TestDefaultCachePrices(t *testing.T) {
 		t.Errorf("GetEffectiveCache1hWritePriceMicro() = %d, want 2000000", got)
 	}
 }
+
+// TestCalculator_CalculateByPriceID_UsesCachedSnapshot 验证按 ID 计算时,
+// 即使同名模型在 pricesByKey 已被新价覆盖,仍然从 pricesByID 取当时的快照。
+// 这就是"当时价"重算的核心契约。
+func TestCalculator_CalculateByPriceID_UsesCachedSnapshot(t *testing.T) {
+	calc := NewCalculator()
+	old := &domain.ModelPrice{ID: 10, ModelID: "claude-sonnet-4-5", InputPriceMicro: 3_000_000}
+	current := &domain.ModelPrice{ID: 20, ModelID: "claude-sonnet-4-5", InputPriceMicro: 6_000_000}
+
+	calc.LoadFromDatabase([]*domain.ModelPrice{current})
+	// 注入历史反查:让 ID=10 能被解析出来。
+	calc.SetHistoricalLookup(func(id uint64) (*domain.ModelPrice, error) {
+		if id == 10 {
+			return old, nil
+		}
+		return nil, nil
+	})
+
+	metrics := &usage.Metrics{InputTokens: 1_000_000}
+	res, ok := calc.CalculateByPriceID(10, metrics, DefaultMultiplier)
+	if !ok {
+		t.Fatal("CalculateByPriceID(10) should succeed via historical lookup")
+	}
+	if res.ModelPriceID != 10 {
+		t.Errorf("res.ModelPriceID = %d, want 10 (历史快照,不被新价 ID 覆盖)", res.ModelPriceID)
+	}
+	// 按模型名走当前价
+	byName := calc.Calculate("claude-sonnet-4-5", metrics, DefaultMultiplier)
+	if res.Cost == byName.Cost {
+		t.Errorf("by-ID cost (snapshot $3) == by-name cost (current $6) = %d; 二者应分歧", res.Cost)
+	}
+	if res.Cost*2 != byName.Cost {
+		t.Errorf("by-ID cost should be half of by-name (snapshot=$3, current=$6); got %d vs %d", res.Cost, byName.Cost)
+	}
+}
+
+// TestCalculator_CalculateByPriceID_LazyLoadCaches 验证未命中缓存时通过
+// historicalLookup 加载,且只回 DB 一次(后续命中走内存缓存)。
+func TestCalculator_CalculateByPriceID_LazyLoadCaches(t *testing.T) {
+	calc := NewCalculator()
+	calls := 0
+	calc.SetHistoricalLookup(func(id uint64) (*domain.ModelPrice, error) {
+		calls++
+		return &domain.ModelPrice{ID: id, ModelID: "claude-sonnet-4-5", InputPriceMicro: 3_000_000}, nil
+	})
+
+	metrics := &usage.Metrics{InputTokens: 1_000_000}
+	for i := 0; i < 5; i++ {
+		_, _ = calc.CalculateByPriceID(42, metrics, DefaultMultiplier)
+	}
+	if calls != 1 {
+		t.Errorf("historicalLookup called %d times, want 1 (后续应命中缓存)", calls)
+	}
+}
+
+// TestCalculator_CalculateByPriceID_NoLookupOrUnknownID 验证 ok=false 路径:
+// 没注入 lookup、或 lookup 返回 nil,都应返回 false 让上层走 fallback。
+func TestCalculator_CalculateByPriceID_NoLookupOrUnknownID(t *testing.T) {
+	metrics := &usage.Metrics{InputTokens: 1_000_000}
+
+	t.Run("ID==0 unconditionally false", func(t *testing.T) {
+		calc := NewCalculator()
+		if _, ok := calc.CalculateByPriceID(0, metrics, DefaultMultiplier); ok {
+			t.Error("CalculateByPriceID(0) should return ok=false")
+		}
+	})
+
+	t.Run("no lookup configured", func(t *testing.T) {
+		calc := NewCalculator()
+		if _, ok := calc.CalculateByPriceID(99, metrics, DefaultMultiplier); ok {
+			t.Error("CalculateByPriceID without lookup should return ok=false")
+		}
+	})
+
+	t.Run("lookup returns nil", func(t *testing.T) {
+		calc := NewCalculator()
+		calc.SetHistoricalLookup(func(id uint64) (*domain.ModelPrice, error) {
+			return nil, nil
+		})
+		if _, ok := calc.CalculateByPriceID(99, metrics, DefaultMultiplier); ok {
+			t.Error("CalculateByPriceID with nil-returning lookup should return ok=false")
+		}
+	})
+}

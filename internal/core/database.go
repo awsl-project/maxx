@@ -542,6 +542,9 @@ func initializeModelPrices(repo repository.ModelPriceRepository) error {
 	}
 
 	pricing.GlobalCalculator().LoadFromDatabase(prices)
+	// 注入历史价反查:重算路径在 attempt.ModelPriceID 指向已软删行时,
+	// 走这条回 DB 取当时的价格快照。
+	pricing.GlobalCalculator().SetHistoricalLookup(repo.GetByIDIncludingDeleted)
 	return nil
 }
 

@@ -503,6 +503,10 @@ func (r *selfServiceModelPriceRepo) GetByID(id uint64) (*domain.ModelPrice, erro
 	return nil, domain.ErrNotFound
 }
 
+func (r *selfServiceModelPriceRepo) GetByIDIncludingDeleted(id uint64) (*domain.ModelPrice, error) {
+	return r.GetByID(id)
+}
+
 func (r *selfServiceModelPriceRepo) GetCurrentByModelID(modelID string) (*domain.ModelPrice, error) {
 	for _, price := range r.prices {
 		if price.ModelID == modelID {

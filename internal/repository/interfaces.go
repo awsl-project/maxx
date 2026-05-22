@@ -303,8 +303,10 @@ type ModelPriceRepository interface {
 	Create(price *domain.ModelPrice) error
 	// BatchCreate 批量创建价格记录
 	BatchCreate(prices []*domain.ModelPrice) error
-	// GetByID 获取指定ID的价格记录
+	// GetByID 获取指定ID的价格记录（仅未软删，用于 admin 读路径）
 	GetByID(id uint64) (*domain.ModelPrice, error)
+	// GetByIDIncludingDeleted 按 ID 取价格记录，包括已软删的历史版本（用于 attempt 历史快照反查）
+	GetByIDIncludingDeleted(id uint64) (*domain.ModelPrice, error)
 	// GetCurrentByModelID 获取模型的当前价格（最新记录），支持前缀匹配
 	GetCurrentByModelID(modelID string) (*domain.ModelPrice, error)
 	// ListCurrentPrices 获取所有模型的当前价格（用于初始化 Calculator）

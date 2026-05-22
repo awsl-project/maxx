@@ -64,13 +64,26 @@ func (r *ModelPriceRepository) BatchCreate(prices []*domain.ModelPrice) error {
 // GetByID 获取指定ID的价格记录(仅未软删的)。
 //
 // admin 单条编辑/查看路径,语义是"当前行";Delete 后再 GET 必须 404
-// (e2e: TestDeleteModelPrice)。"按历史 ModelPriceID 反查价格快照"目前
-// 没有实际调用方——RecalcFromAttempt 是用模型名走 GlobalCalculator 查
-// 当前价,不经此路径。如果未来需要历史反查,加一个独立方法,而不是
-// 削弱这里。
+// (e2e: TestDeleteModelPrice)。如果调用方需要拿到已被软删的历史快照行
+// (例如按 attempt.ModelPriceID 反查当时的价格),用 GetByIDIncludingDeleted。
 func (r *ModelPriceRepository) GetByID(id uint64) (*domain.ModelPrice, error) {
 	var m ModelPrice
 	if err := r.db.gorm.Where("deleted_at = 0").First(&m, id).Error; err != nil {
+		return nil, err
+	}
+	return r.toDomain(&m), nil
+}
+
+// GetByIDIncludingDeleted 按 ID 取价格记录,包括已软删的历史版本。
+//
+// 专门给"按 attempt.ModelPriceID 反查当时价"用——版本化机制保证每次价
+// 格变更都会软删旧行 + INSERT 新行,旧行物理保留作为审计快照。Calculator
+// 通过 SetHistoricalLookup 注入此方法,实现按 ID 懒加载历史价格。
+//
+// 不暴露在 admin/API 读路径,避免被删的价格意外回流到 UI。
+func (r *ModelPriceRepository) GetByIDIncludingDeleted(id uint64) (*domain.ModelPrice, error) {
+	var m ModelPrice
+	if err := r.db.gorm.First(&m, id).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomain(&m), nil
