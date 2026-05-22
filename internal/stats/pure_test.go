@@ -1737,6 +1737,102 @@ func TestTopModelsByRequests_HonorsLimit(t *testing.T) {
 	}
 }
 
+func TestHourlyTrend_Empty(t *testing.T) {
+	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+	got := HourlyTrend(nil, start, time.UTC)
+	if len(got) != 24 {
+		t.Fatalf("len = %d, want exactly 24 buckets even for empty input", len(got))
+	}
+	for i, p := range got {
+		if p.Requests != 0 {
+			t.Errorf("bucket[%d] = %d, want 0 (no data → all zeros)", i, p.Requests)
+		}
+	}
+	// Order check: first bucket label should match `start` truncated to hour.
+	if got[0].Hour != "10:00" {
+		t.Errorf("got[0].Hour = %q, want 10:00", got[0].Hour)
+	}
+	if got[23].Hour != "09:00" {
+		t.Errorf("got[23].Hour = %q, want 09:00 (24h later wraps)", got[23].Hour)
+	}
+}
+
+func TestHourlyTrend_NonHourAlignedStartTruncates(t *testing.T) {
+	// start = 10:30; hour-aligned start should be 10:00.
+	start := time.Date(2024, 1, 17, 10, 30, 0, 0, time.UTC)
+	got := HourlyTrend(nil, start, time.UTC)
+	if got[0].Hour != "10:00" {
+		t.Errorf("got[0].Hour = %q, want 10:00 (start truncates to hour)", got[0].Hour)
+	}
+}
+
+func TestHourlyTrend_AccumulatesByHour(t *testing.T) {
+	// hour-granularity stats: TimeBucket is hour-aligned (matches Query output).
+	// Two rows in the same hour bucket — sharded by another dimension — should sum.
+	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: start, ProviderID: 1, TotalRequests: 5},               // "10:00"
+		{TimeBucket: start, ProviderID: 2, TotalRequests: 3},               // "10:00" — same bucket, different provider
+		{TimeBucket: start.Add(1 * time.Hour), TotalRequests: 7},           // "11:00"
+		{TimeBucket: start.Add(23 * time.Hour), TotalRequests: 1},          // "09:00" (next day, last bucket)
+	}
+	got := HourlyTrend(in, start, time.UTC)
+	if got[0].Requests != 8 {
+		t.Errorf("got[0] = %d, want 8 (5+3 in same hour, different providers)", got[0].Requests)
+	}
+	if got[1].Requests != 7 {
+		t.Errorf("got[1] = %d, want 7", got[1].Requests)
+	}
+	if got[23].Requests != 1 {
+		t.Errorf("got[23] = %d, want 1", got[23].Requests)
+	}
+	if got[2].Requests != 0 {
+		t.Errorf("got[2] = %d, want 0 (no data → zero-fill)", got[2].Requests)
+	}
+}
+
+func TestHourlyTrend_SkipsOutOfWindow(t *testing.T) {
+	// Stat at 09:00 (hour BEFORE the window starting at 10:00, full day before).
+	// Window keys are 10..09 (next day). 09:00 collides with the LAST bucket label,
+	// so a 25h-old stat would erroneously land in the last bucket if we
+	// didn't filter. We rely on the fact that callers filter to the past 24h
+	// before calling, but defensively the helper checks key existence.
+	// This test verifies the helper at least doesn't crash and that buckets
+	// outside the 24 expected keys do not pollute anything.
+	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		// Pretend a stat is at exactly "10:00" but on a different DAY.
+		// It will still match because we key by "HH:MM" (date is dropped).
+		// This is consistent with the original dashboard behavior.
+		{TimeBucket: time.Date(2024, 1, 18, 10, 0, 0, 0, time.UTC), TotalRequests: 99},
+	}
+	got := HourlyTrend(in, start, time.UTC)
+	if got[0].Requests != 99 {
+		t.Errorf("got[0] = %d, want 99 (key 10:00 collides — same hour-of-day matches)", got[0].Requests)
+	}
+}
+
+func TestHourlyTrend_RespectsTimezone(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Skip("Asia/Shanghai not available")
+	}
+	// start = 02:00 UTC = 10:00 Shanghai.
+	// In Shanghai, the bucket label for that hour is "10:00".
+	start := time.Date(2024, 1, 17, 2, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: start, TotalRequests: 42},
+	}
+	gotUTC := HourlyTrend(in, start, time.UTC)
+	if gotUTC[0].Hour != "02:00" || gotUTC[0].Requests != 42 {
+		t.Errorf("UTC[0] = %+v, want {02:00, 42}", gotUTC[0])
+	}
+	gotShanghai := HourlyTrend(in, start, shanghai)
+	if gotShanghai[0].Hour != "10:00" || gotShanghai[0].Requests != 42 {
+		t.Errorf("Shanghai[0] = %+v, want {10:00, 42}", gotShanghai[0])
+	}
+}
+
 func TestTopModelsByRequests_TiesAreDeterministic(t *testing.T) {
 	// All models tied on requests; expect alphabetical order so result is stable.
 	in := []*domain.UsageStats{

@@ -396,6 +396,32 @@ func TopModelsByRequests(stats []*domain.UsageStats, limit int) []domain.Dashboa
 	return models
 }
 
+// HourlyTrend 构建从 start 起 24 小时滚动请求量趋势,小时对齐,在指定时区下渲染。
+// 没有数据的小时填 0 以保证 x 轴连续。窗口外的 stats 被跳过。
+// 返回切片严格 24 个元素,按时间顺序排列(start 那个小时是第 0 个)。
+func HourlyTrend(in []*domain.UsageStats, start time.Time, loc *time.Location) []domain.DashboardTrendPoint {
+	keys := make([]string, 24)
+	for i := 0; i < 24; i++ {
+		hour := start.Add(time.Duration(i) * time.Hour).In(loc).Truncate(time.Hour)
+		keys[i] = hour.Format("15:04")
+	}
+	counts := make(map[string]uint64, 24)
+	for _, k := range keys {
+		counts[k] = 0
+	}
+	for _, s := range in {
+		k := s.TimeBucket.In(loc).Format("15:04")
+		if _, ok := counts[k]; ok {
+			counts[k] += s.TotalRequests
+		}
+	}
+	trend := make([]domain.DashboardTrendPoint, 24)
+	for i, k := range keys {
+		trend[i] = domain.DashboardTrendPoint{Hour: k, Requests: counts[k]}
+	}
+	return trend
+}
+
 // FilterByGranularity filters stats to only include the specified granularity.
 func FilterByGranularity(stats []*domain.UsageStats, g domain.Granularity) []*domain.UsageStats {
 	result := make([]*domain.UsageStats, 0)

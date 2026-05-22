@@ -1507,16 +1507,9 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 			Granularity: domain.GranularityHour,
 			StartTime:   &hours24Ago,
 		}
-		stats, err := r.Query(tenantID, filter)
+		hourStats, err := r.Query(tenantID, filter)
 		if err != nil {
 			return err
-		}
-
-		// 初始化 24 小时趋势（使用配置的时区）
-		hourMap := make(map[string]uint64, 24)
-		for i := 0; i < 24; i++ {
-			hour := truncateToHourInLocation(hours24Ago.Add(time.Duration(i)*time.Hour), loc)
-			hourMap[hour.Format("15:04")] = 0
 		}
 
 		var todaySummary domain.DashboardDaySummary
@@ -1531,11 +1524,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 			durationMs uint64
 		})
 
-		for _, s := range stats {
-			// 24h趋势（使用配置的时区）
-			hourStr := s.TimeBucket.In(loc).Format("15:04")
-			hourMap[hourStr] += s.TotalRequests
-
+		for _, s := range hourStats {
 			// 今日统计（只统计今天的数据）
 			if !s.TimeBucket.Before(todayStart) {
 				todaySummary.Requests += s.TotalRequests
@@ -1573,20 +1562,9 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 			todaySummary.TPM = (float64(todaySummary.Tokens) / float64(todayDurationMs)) * 60000
 		}
 
-		// 构建24h趋势数组（使用配置的时区）
-		trend := make([]domain.DashboardTrendPoint, 0, 24)
-		for i := 0; i < 24; i++ {
-			hour := truncateToHourInLocation(hours24Ago.Add(time.Duration(i)*time.Hour), loc)
-			hourStr := hour.Format("15:04")
-			trend = append(trend, domain.DashboardTrendPoint{
-				Hour:     hourStr,
-				Requests: hourMap[hourStr],
-			})
-		}
-
 		mu.Lock()
 		result.Today = todaySummary
-		result.Trend24h = trend
+		result.Trend24h = stats.HourlyTrend(hourStats, hours24Ago, loc)
 
 		// 补充今日热力图（今日数据可能不在历史查询中）
 		if todayRequests > 0 {
