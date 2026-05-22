@@ -66,6 +66,13 @@ func hasBillableTokens(a *domain.ProxyUpstreamAttempt) bool {
 // 同样的 token 数据 —— 但所有 adapter 都会通过 EventMetrics 把 token 写到 attempt 上,
 // 重新解析既浪费,又会和 attempt 漂移(EventMetrics 经过 AdjustForClientType,而 body
 // 解析没有)。统一从 attempt 镜像可以让两端永远一致。
+//
+// 注意:EventMetrics 走的是 AdapterEventChan,该 channel 在缓冲满时会 `default:` drop
+// (见 internal/domain/adapter_event.go SendMetrics)。也就是说 attempt 的 token 字段是
+// best-effort 投递的 —— 如果上游响应非常大、消费侧抽不过来,会丢事件,attempt 上的
+// 字段就会保持 0,FinalizeAttemptCost 走 no-token 分支,这条请求会按 0 cost 写回。
+// 这是与上一版"body 解析"等价的取舍(同样的极端压力下 body 也可能没及时读完),不是
+// 本 PR 引入的回归,但记录在这里以免后续把 attempt 当成"绝对一致"的事实源。
 func MirrorCostToRequest(req *domain.ProxyRequest, attempt *domain.ProxyUpstreamAttempt) {
 	if req == nil || attempt == nil {
 		return
