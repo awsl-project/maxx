@@ -399,7 +399,11 @@ func TopModelsByRequests(stats []*domain.UsageStats, limit int) []domain.Dashboa
 // DailyCounts 按日期(YYYY-MM-DD,在指定时区下渲染)聚合 stats 的 TotalRequests,
 // 只返回非零日,日期升序。用于 dashboard 热力图。
 // stats 可以是任意粒度,日期键基于 TimeBucket 在 loc 下的渲染。
+// loc=nil 时默认 UTC(避免 t.In(nil) panic;让调用方误用也能拿到合理结果)。
 func DailyCounts(in []*domain.UsageStats, loc *time.Location) []domain.DashboardHeatmapPoint {
+	if loc == nil {
+		loc = time.UTC
+	}
 	byDate := make(map[string]uint64)
 	for _, s := range in {
 		if s.TotalRequests == 0 {
@@ -409,10 +413,10 @@ func DailyCounts(in []*domain.UsageStats, loc *time.Location) []domain.Dashboard
 		byDate[key] += s.TotalRequests
 	}
 	dates := make([]string, 0, len(byDate))
-	for d, count := range byDate {
-		if count > 0 {
-			dates = append(dates, d)
-		}
+	for d := range byDate {
+		// byDate 里的 entries 都来自 TotalRequests > 0 的行,
+		// 无需二次 if count > 0 过滤(原代码冗余,被 review 指出)。
+		dates = append(dates, d)
 	}
 	sort.Strings(dates)
 	out := make([]domain.DashboardHeatmapPoint, 0, len(dates))
@@ -425,25 +429,38 @@ func DailyCounts(in []*domain.UsageStats, loc *time.Location) []domain.Dashboard
 // HourlyTrend 构建从 start 起 24 小时滚动请求量趋势,小时对齐,在指定时区下渲染。
 // 没有数据的小时填 0 以保证 x 轴连续。窗口外的 stats 被跳过。
 // 返回切片严格 24 个元素,按时间顺序排列(start 那个小时是第 0 个)。
+//
+// 内部按 hour-aligned UnixMilli 作 key,format "HH:MM" 仅在渲染阶段。
+// 这样跨日的同 wall-clock 时间(如 2024-01-17 10:00 和 2024-01-18 10:00)不会被错误地
+// 折叠进同一桶 —— 之前 review 指出的 collision bug。
 func HourlyTrend(in []*domain.UsageStats, start time.Time, loc *time.Location) []domain.DashboardTrendPoint {
-	keys := make([]string, 24)
+	if loc == nil {
+		loc = time.UTC
+	}
+	// 24 个 hour-aligned 桶,以 start 那个小时为第 0 个。
+	bucketStarts := make([]time.Time, 24)
+	bucketKeys := make([]int64, 24)
 	for i := 0; i < 24; i++ {
 		hour := start.Add(time.Duration(i) * time.Hour).In(loc).Truncate(time.Hour)
-		keys[i] = hour.Format("15:04")
+		bucketStarts[i] = hour
+		bucketKeys[i] = hour.UnixMilli()
 	}
-	counts := make(map[string]uint64, 24)
-	for _, k := range keys {
+	counts := make(map[int64]uint64, 24)
+	for _, k := range bucketKeys {
 		counts[k] = 0
 	}
 	for _, s := range in {
-		k := s.TimeBucket.In(loc).Format("15:04")
+		k := s.TimeBucket.In(loc).Truncate(time.Hour).UnixMilli()
 		if _, ok := counts[k]; ok {
 			counts[k] += s.TotalRequests
 		}
 	}
 	trend := make([]domain.DashboardTrendPoint, 24)
-	for i, k := range keys {
-		trend[i] = domain.DashboardTrendPoint{Hour: k, Requests: counts[k]}
+	for i, k := range bucketKeys {
+		trend[i] = domain.DashboardTrendPoint{
+			Hour:     bucketStarts[i].Format("15:04"),
+			Requests: counts[k],
+		}
 	}
 	return trend
 }

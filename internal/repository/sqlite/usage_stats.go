@@ -1395,20 +1395,16 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 
 	// 查询1: 历史 day 粒度数据 (371 天,不含今天)
 	// 用于:热力图历史、昨日统计、Provider 统计 (30 天)
+	//
+	// 这里走 raw SQL 的 GROUP BY (time_bucket, provider_id, model) 把聚合下推到 SQLite/MySQL,
+	// 而不是 r.Query() 拉全维度行后在 Go 里收;前者对 (route × project × token × client_type)
+	// 高基数租户友好得多(rows 数从 N 维笛卡尔积压缩到 ~ days × providers × models)。
+	// 聚合好的行再喂给 stats/pure helpers,审计/复用语义跟其他路径一致。
 	g.Go(func() error {
-		// EndTime = todayStart 让 SQL 走到今天 00:00 这条边上;后面用
-		// FilterByTimeRange (end 排他) 精确切掉今天的桶,保留与原 raw SQL 一致的语义。
-		histFilter := repository.UsageStatsFilter{
-			Granularity: domain.GranularityDay,
-			StartTime:   &days371Ago,
-			EndTime:     &todayStart,
-		}
-		dayStatsAll, err := r.Query(tenantID, histFilter)
+		dayStats, err := r.queryDashboardHistoricalDays(tenantID, days371Ago, todayStart)
 		if err != nil {
 			return err
 		}
-		// 精确窗口 [days371Ago, todayStart):去掉可能落在 todayStart 那一秒的桶。
-		dayStats := stats.FilterByTimeRange(dayStatsAll, days371Ago, todayStart)
 
 		// 昨日统计:窗口 [yesterdayStart, todayStart)。
 		var yesterdaySummary domain.DashboardDaySummary
@@ -1588,4 +1584,77 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 	}
 
 	return result, nil
+}
+
+// queryDashboardHistoricalDays 把 dashboard 用的"过去 371 天、不含今天"day 粒度数据
+// 在 SQL 层做完聚合后再返回。GROUP BY (time_bucket, provider_id, model) 把行数从
+// (route × project × api_token × client_type × provider × model × days) 笛卡尔积压回
+// (days × providers × models),避免 r.Query() 把全维度行拖到 Go 端再聚合。
+//
+// 时间窗口语义跟原 dashboard raw SQL 一致:[startInclusive, endExclusive)。
+// 返回的 UsageStats 只填了下游 stats/pure helpers 用到的字段(TimeBucket / ProviderID /
+// Model / TotalRequests / SuccessfulRequests / Input/Output/CacheRead/CacheWrite Tokens / Cost),
+// 其他维度(Route/Project/APIToken/ClientType)全置 0。
+func (r *UsageStatsRepository) queryDashboardHistoricalDays(tenantID uint64, startInclusive, endExclusive time.Time) ([]*domain.UsageStats, error) {
+	var (
+		conditions []string
+		args       []interface{}
+	)
+	conditions = append(conditions, "granularity = ?")
+	args = append(args, domain.GranularityDay)
+	if tenantID > 0 {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, tenantID)
+	}
+	conditions = append(conditions, "time_bucket >= ?")
+	args = append(args, toTimestamp(startInclusive))
+	conditions = append(conditions, "time_bucket < ?")
+	args = append(args, toTimestamp(endExclusive))
+
+	query := `
+		SELECT time_bucket, provider_id, model,
+			SUM(total_requests), SUM(successful_requests),
+			SUM(input_tokens), SUM(output_tokens),
+			SUM(cache_read), SUM(cache_write),
+			SUM(cost)
+		FROM usage_stats
+		WHERE ` + strings.Join(conditions, " AND ") + `
+		GROUP BY time_bucket, provider_id, model
+	`
+
+	rows, err := r.db.gorm.Raw(query, args...).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []*domain.UsageStats
+	for rows.Next() {
+		var (
+			bucket                                                                          int64
+			providerID                                                                      uint64
+			model                                                                           string
+			totalReq, successReq, inputTokens, outputTokens, cacheRead, cacheWrite, cost uint64
+		)
+		if err := rows.Scan(&bucket, &providerID, &model, &totalReq, &successReq, &inputTokens, &outputTokens, &cacheRead, &cacheWrite, &cost); err != nil {
+			return nil, err
+		}
+		out = append(out, &domain.UsageStats{
+			Granularity:        domain.GranularityDay,
+			TimeBucket:         fromTimestamp(bucket),
+			ProviderID:         providerID,
+			Model:              model,
+			TotalRequests:      totalReq,
+			SuccessfulRequests: successReq,
+			InputTokens:        inputTokens,
+			OutputTokens:       outputTokens,
+			CacheRead:          cacheRead,
+			CacheWrite:         cacheWrite,
+			Cost:               cost,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

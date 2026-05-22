@@ -1873,24 +1873,50 @@ func TestHourlyTrend_AccumulatesByHour(t *testing.T) {
 	}
 }
 
-func TestHourlyTrend_SkipsOutOfWindow(t *testing.T) {
-	// Stat at 09:00 (hour BEFORE the window starting at 10:00, full day before).
-	// Window keys are 10..09 (next day). 09:00 collides with the LAST bucket label,
-	// so a 25h-old stat would erroneously land in the last bucket if we
-	// didn't filter. We rely on the fact that callers filter to the past 24h
-	// before calling, but defensively the helper checks key existence.
-	// This test verifies the helper at least doesn't crash and that buckets
-	// outside the 24 expected keys do not pollute anything.
+// TestHourlyTrend_DoesNotPolluteAcross24h 验证 review 指出的 collision bug 已修:
+// 之前 helper 按 "HH:MM" 作 key,跨天的同 wall-clock 时间(如 1/17 10:00 和 1/18 10:00)
+// 会被错误折叠到同一桶。现在按 hour-aligned UnixMilli 作 key,只有真正落在窗口
+// [start, start+24h) 内的桶才匹配;窗口外的同 HH:MM stat 应被丢弃。
+func TestHourlyTrend_DoesNotPolluteAcross24h(t *testing.T) {
 	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
 	in := []*domain.UsageStats{
-		// Pretend a stat is at exactly "10:00" but on a different DAY.
-		// It will still match because we key by "HH:MM" (date is dropped).
-		// This is consistent with the original dashboard behavior.
+		// 同一 HH:MM=10:00,但日期是下一天 — 应被忽略,不应污染 start 那个桶。
 		{TimeBucket: time.Date(2024, 1, 18, 10, 0, 0, 0, time.UTC), TotalRequests: 99},
+		// 同一 HH:MM=10:00,但日期是上一天 — 也应被忽略。
+		{TimeBucket: time.Date(2024, 1, 16, 10, 0, 0, 0, time.UTC), TotalRequests: 50},
 	}
 	got := HourlyTrend(in, start, time.UTC)
-	if got[0].Requests != 99 {
-		t.Errorf("got[0] = %d, want 99 (key 10:00 collides — same hour-of-day matches)", got[0].Requests)
+	// 所有 24 桶都应为 0(没有任何 stat 落在 [1/17 10:00, 1/18 10:00) 这个窗口里)。
+	for i, p := range got {
+		if p.Requests != 0 {
+			t.Errorf("got[%d] = %d, want 0 (跨日的 HH:MM=10:00 stat 不能污染窗口内的桶)", i, p.Requests)
+		}
+	}
+}
+
+func TestHourlyTrend_NilLocationDefaultsUTC(t *testing.T) {
+	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+	// nil loc 不应 panic(原实现 t.In(nil) 会 panic)。
+	got := HourlyTrend(nil, start, nil)
+	if len(got) != 24 {
+		t.Fatalf("nil loc: len = %d, want 24", len(got))
+	}
+	if got[0].Hour != "10:00" {
+		t.Errorf("nil loc: got[0].Hour = %q, want 10:00 (默认 UTC)", got[0].Hour)
+	}
+}
+
+func TestDailyCounts_NilLocationDefaultsUTC(t *testing.T) {
+	// nil loc 不应 panic。
+	in := []*domain.UsageStats{
+		{TimeBucket: time.Date(2024, 3, 5, 12, 0, 0, 0, time.UTC), TotalRequests: 10},
+	}
+	got := DailyCounts(in, nil)
+	if len(got) != 1 {
+		t.Fatalf("nil loc: len = %d, want 1", len(got))
+	}
+	if got[0].Date != "2024-03-05" {
+		t.Errorf("nil loc: got[0].Date = %q, want 2024-03-05 (默认 UTC)", got[0].Date)
 	}
 }
 
