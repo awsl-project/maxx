@@ -1631,9 +1631,9 @@ func (r *UsageStatsRepository) queryDashboardHistoricalDays(tenantID uint64, sta
 	var out []*domain.UsageStats
 	for rows.Next() {
 		var (
-			bucket                                                                          int64
-			providerID                                                                      uint64
-			model                                                                           string
+			bucket                                                                       int64
+			providerID                                                                   uint64
+			model                                                                        string
 			totalReq, successReq, inputTokens, outputTokens, cacheRead, cacheWrite, cost uint64
 		)
 		if err := rows.Scan(&bucket, &providerID, &model, &totalReq, &successReq, &inputTokens, &outputTokens, &cacheRead, &cacheWrite, &cost); err != nil {
