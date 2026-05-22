@@ -19,7 +19,6 @@ import (
 	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
-	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/awsl-project/maxx/internal/version"
 )
 
@@ -936,52 +935,6 @@ func (s *AdminService) RecalculateUsageStats() error {
 	return err
 }
 
-// pickPricingModel 返回用于计价的模型名。
-// 价格表按上游真实返回的 ResponseModel 匹配最准;Mapped/Request 仅作回退。
-func pickPricingModel(responseModel, mappedModel, requestModel string) string {
-	if responseModel != "" {
-		return responseModel
-	}
-	if mappedModel != "" {
-		return mappedModel
-	}
-	return requestModel
-}
-
-// pricingModelForAttempt picks pricing model for streamed AttemptCostData (backfill path).
-func pricingModelForAttempt(a *domain.AttemptCostData) string {
-	return pickPricingModel(a.ResponseModel, a.MappedModel, a.RequestModel)
-}
-
-// pricingModelForFullAttempt picks pricing model for a full ProxyUpstreamAttempt.
-func pricingModelForFullAttempt(a *domain.ProxyUpstreamAttempt) string {
-	return pickPricingModel(a.ResponseModel, a.MappedModel, a.RequestModel)
-}
-
-// metricsFromAttemptCostData 把 backfill 用的最小 attempt 字段装进 usage.Metrics。
-func metricsFromAttemptCostData(a *domain.AttemptCostData) *usage.Metrics {
-	return &usage.Metrics{
-		InputTokens:          a.InputTokenCount,
-		OutputTokens:         a.OutputTokenCount,
-		CacheReadCount:       a.CacheReadCount,
-		CacheCreationCount:   a.CacheWriteCount,
-		Cache5mCreationCount: a.Cache5mWriteCount,
-		Cache1hCreationCount: a.Cache1hWriteCount,
-	}
-}
-
-// metricsFromFullAttempt 把完整的 attempt 字段装进 usage.Metrics(单请求重算路径)。
-func metricsFromFullAttempt(a *domain.ProxyUpstreamAttempt) *usage.Metrics {
-	return &usage.Metrics{
-		InputTokens:          a.InputTokenCount,
-		OutputTokens:         a.OutputTokenCount,
-		CacheReadCount:       a.CacheReadCount,
-		CacheCreationCount:   a.CacheWriteCount,
-		Cache5mCreationCount: a.Cache5mWriteCount,
-		Cache1hCreationCount: a.Cache1hWriteCount,
-	}
-}
-
 // RecalculateCostsResult holds the result of cost recalculation
 type RecalculateCostsResult struct {
 	TotalAttempts   int    `json:"totalAttempts"`
@@ -1038,7 +991,6 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 
 	broadcastProgress("calculating", 0, int(totalCount), fmt.Sprintf("Processing %d attempts...", totalCount))
 
-	calculator := pricing.GlobalCalculator()
 	processedCount := 0
 	const batchSize = 100
 
@@ -1047,22 +999,11 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 		attemptUpdates := make(map[uint64]domain.AttemptCostUpdate, len(batch))
 
 		for _, attempt := range batch {
-			model := pricingModelForAttempt(attempt)
-			metrics := metricsFromAttemptCostData(attempt)
-
-			// 保留历史 Multiplier:重算用当前价表算出新 cost,
-			// 但合约层面的倍率(由 Provider×ClientType 决定)是历史值,不能在 backfill 时悄悄改。
-			res := calculator.Calculate(model, metrics, attempt.Multiplier)
-
-			// 同步刷 model_price_id 以保留审计:即使 cost 没变,
-			// 若价格记录被替换成等额新版本,旧 ID 也必须更新到当前匹配的行。
-			if res.Cost != attempt.Cost || res.ModelPriceID != attempt.ModelPriceID {
-				attemptUpdates[attempt.ID] = domain.AttemptCostUpdate{
-					Cost:         res.Cost,
-					ModelPriceID: res.ModelPriceID,
-				}
+			// RecalcFromCostData 内部已经处理:历史 multiplier 保留、Cost / ModelPriceID
+			// 任一不一致都触发刷新(后者用于"金额相同但价格被替换成等额新版本"的审计链刷新)。
+			if _, update, changed := pricing.RecalcFromCostData(attempt); changed {
+				attemptUpdates[attempt.ID] = update
 			}
-
 			processedCount++
 		}
 
@@ -1161,25 +1102,17 @@ func (s *AdminService) RecalculateRequestCost(tenantID uint64, requestID uint64)
 		return nil, fmt.Errorf("failed to list attempts: %w", err)
 	}
 
-	calculator := pricing.GlobalCalculator()
 	var totalCost uint64
 	updates := make(map[uint64]domain.AttemptCostUpdate, len(attempts))
 
 	// 3. Recalculate cost for each attempt
 	for _, attempt := range attempts {
-		model := pricingModelForFullAttempt(attempt)
-		metrics := metricsFromFullAttempt(attempt)
-
-		res := calculator.Calculate(model, metrics, attempt.Multiplier)
-		totalCost += res.Cost
-
-		// 同步刷 model_price_id 以保留审计:即使 cost 不变,
-		// 若价格记录被替换成等额新版本,旧 ID 也必须更新到当前匹配的行。
-		if res.Cost != attempt.Cost || res.ModelPriceID != attempt.ModelPriceID {
-			updates[attempt.ID] = domain.AttemptCostUpdate{
-				Cost:         res.Cost,
-				ModelPriceID: res.ModelPriceID,
-			}
+		// RecalcFromAttempt 同时检查 Cost 和 ModelPriceID,保证价格记录被替换成等额新版本时
+		// 旧 ID 也会刷到当前匹配行(否则审计链会指向已删除/旧版价格)。
+		newCost, update, changed := pricing.RecalcFromAttempt(attempt)
+		totalCost += newCost
+		if changed {
+			updates[attempt.ID] = update
 		}
 	}
 
