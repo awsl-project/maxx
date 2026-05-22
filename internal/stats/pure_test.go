@@ -1920,6 +1920,34 @@ func TestDailyCounts_NilLocationDefaultsUTC(t *testing.T) {
 	}
 }
 
+// TestHourlyTrend_FractionalHourOffsetTZ 验证 R2 review 指出的 wall-clock 截断 bug 已修:
+// Asia/Kathmandu 是 UTC+05:45 — 03:00 本地是 wall-clock 整点,但绝对时间是 21:15 UTC。
+// 之前用 `t.In(loc).Truncate(time.Hour)` 会把它圆到 21:00 UTC = 02:45 本地,
+// 导致 bucket 标签错位、stats 落入错误桶。现在用 time.Date(...hour, 0, 0, 0, loc) 显式构造,
+// 整点对齐于 loc wall-clock。
+func TestHourlyTrend_FractionalHourOffsetTZ(t *testing.T) {
+	kathmandu, err := time.LoadLocation("Asia/Kathmandu")
+	if err != nil {
+		t.Skip("Asia/Kathmandu not available")
+	}
+	// start = 03:00 Kathmandu wall-clock(对应 2024-01-17 21:15 UTC)。
+	start := time.Date(2024, 1, 17, 3, 0, 0, 0, kathmandu)
+	in := []*domain.UsageStats{
+		// stat 在同一 wall-clock 整点应该落到第 0 桶。
+		{TimeBucket: start, TotalRequests: 7},
+	}
+	got := HourlyTrend(in, start, kathmandu)
+	if got[0].Hour != "03:00" {
+		t.Errorf("got[0].Hour = %q, want 03:00 (wall-clock 整点对齐于 loc,不是 UTC 整点)", got[0].Hour)
+	}
+	if got[0].Requests != 7 {
+		t.Errorf("got[0].Requests = %d, want 7 (stat 应落入 wall-clock 03:00 桶)", got[0].Requests)
+	}
+	if got[1].Hour != "04:00" {
+		t.Errorf("got[1].Hour = %q, want 04:00 (下一桶应是 loc 下一小时)", got[1].Hour)
+	}
+}
+
 func TestHourlyTrend_RespectsTimezone(t *testing.T) {
 	shanghai, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
