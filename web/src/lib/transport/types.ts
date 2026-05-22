@@ -957,7 +957,7 @@ export interface RecalculateCostsResult {
 
 /** RecalculateCostsProgress - 成本重算进度更新 */
 export interface RecalculateCostsProgress {
-  phase: 'calculating' | 'updating_attempts' | 'updating_requests' | 'completed';
+  phase: 'calculating' | 'updating_attempts' | 'updating_requests' | 'completed' | 'failed';
   current: number;
   total: number;
   percentage: number;

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
@@ -1091,21 +1092,32 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 		return nil, fmt.Errorf("failed to stream attempts: %w", err)
 	}
 
-	// 3. Recalculate request costs from attempts (with progress via channel)
+	// 3. Recalculate request costs from attempts (with progress via channel).
+	// 记一下最后一次见到的 progress,失败时用 request 单位重放(避免 step-2 attempt 单位串台)。
 	progressChan := make(chan domain.Progress, 10)
+	var lastReqProgress domain.Progress
+	var progressMu sync.Mutex
+	progressDone := make(chan struct{})
 	go func() {
+		defer close(progressDone)
 		for progress := range progressChan {
+			progressMu.Lock()
+			lastReqProgress = progress
+			progressMu.Unlock()
 			broadcastProgress(progress.Phase, progress.Current, progress.Total, progress.Message)
 		}
 	}()
 
 	updatedRequests, err := s.proxyRequestRepo.RecalculateCostsFromAttemptsWithProgress(progressChan)
 	close(progressChan)
+	<-progressDone // 确保 goroutine drain 完成,后面读 lastReqProgress 不竞争
 
 	if err != nil {
 		// Step 3 失败时不能继续 broadcast "completed":attempts 行已改、父 request 部分
 		// 未同步,UI 报成功会掩盖审计偏差。统一传播错误 + 发 failed phase 让运维知道。
-		broadcastProgress("failed", result.UpdatedAttempts, int(totalCount),
+		// counter 单位用 step-3 自己看到的最后一次进度(request 单位),不是 step-2 的 attempt 单位 —
+		// 后者会让进度条在失败时跳回到一个无意义的位置。
+		broadcastProgress("failed", lastReqProgress.Current, lastReqProgress.Total,
 			fmt.Sprintf("failed to recalculate request costs: %v", err))
 		return nil, fmt.Errorf("failed to recalculate request costs: %w", err)
 	}
