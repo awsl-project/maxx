@@ -426,27 +426,33 @@ func DailyCounts(in []*domain.UsageStats, loc *time.Location) []domain.Dashboard
 	return out
 }
 
-// HourlyTrend 构建从 start 起 24 小时滚动请求量趋势,小时对齐,在指定时区下渲染。
-// 没有数据的小时填 0 以保证 x 轴连续。窗口外的 stats 被跳过。
-// 返回切片严格 24 个元素,按时间顺序排列(start 那个小时是第 0 个)。
+// HourlyTrend 构建从 start 起 24 小时滚动请求量趋势,与 stats 的 hour-bucket 网格对齐,在指定时区下渲染。
+// 没有数据的小时填 0 以保证 x 轴连续。窗口外的 stats 被跳过。返回切片严格 24 个元素。
 //
-// 内部按 hour-aligned UnixMilli 作 key,format "HH:MM" 仅在渲染阶段。
-// 这样跨日的同 wall-clock 时间(如 2024-01-17 10:00 和 2024-01-18 10:00)不会被错误地
-// 折叠进同一桶。
+// **设计要点:bucket key 用绝对 UnixMilli,而不是 wall-clock-hour key。**
 //
-// 注意 hour 截断必须按 loc 的 wall-clock 而不是绝对 UTC 来做:
-// 在 fractional-hour 时区(Kathmandu +05:45, Adelaide +09:30 等),`t.Truncate(time.Hour)`
-// 会把 03:15 圆下到 02:45,因为 Truncate 是相对 UTC epoch 而不是 loc 的小时边界。
-// 用 `time.Date(year, month, day, hour, 0, 0, 0, loc)` 显式构造才是正确的 wall-clock 整点。
+// 第一版用 "HH:MM" 字符串作 key,跨日同 wall-clock 时间会折叠 — review 已修。
+// 第二版用 `truncateHourInLoc(bucket[i])` 作 key,但 DST fall-back 时 wall-clock 整点会重复
+// (NY Nov 3: 01:00 EDT 和 01:00 EST 都被 time.Date 解析成 EDT 那一个 instant),
+// 两个真实相隔一小时的桶被折叠成一个 — Codex/Claude R3 codex 用 repro 跑出来确认了。
+//
+// 第三版(本次):一次性把 start 截到 hour-bucket 网格,之后只做"绝对加 1 小时"。
+// 这样:
+//   1. 不同日的同 wall-clock 时间 → 不同 UnixMilli ✓
+//   2. DST fall-back 的 01:00 EDT / 01:00 EST → 真实相差 1 小时的两个 UnixMilli ✓
+//      (chart 上会显示两个都贴 "01:00" 标签,这是 wall-clock 渲染的固有歧义,不是 bucket 错乱)
+//   3. 跟 stats 的 TimeBucket 网格对齐 — 后者由 TruncateToGranularity(t, Hour, loc) 写入,
+//      所以这里也走同一个函数 snap start,key 自然对得上。
 func HourlyTrend(in []*domain.UsageStats, start time.Time, loc *time.Location) []domain.DashboardTrendPoint {
 	if loc == nil {
 		loc = time.UTC
 	}
-	// 24 个 hour-aligned 桶,以 start 那个小时为第 0 个。
+	// 把 start 截到 stats 存储用的 hour 网格上;之后只做绝对加法,DST 安全。
+	snappedStart := TruncateToGranularity(start, domain.GranularityHour, loc)
 	bucketStarts := make([]time.Time, 24)
 	bucketKeys := make([]int64, 24)
 	for i := 0; i < 24; i++ {
-		bucketStarts[i] = truncateHourInLoc(start.Add(time.Duration(i)*time.Hour), loc)
+		bucketStarts[i] = snappedStart.Add(time.Duration(i) * time.Hour)
 		bucketKeys[i] = bucketStarts[i].UnixMilli()
 	}
 	counts := make(map[int64]uint64, 24)
@@ -454,7 +460,9 @@ func HourlyTrend(in []*domain.UsageStats, start time.Time, loc *time.Location) [
 		counts[k] = 0
 	}
 	for _, s := range in {
-		k := truncateHourInLoc(s.TimeBucket, loc).UnixMilli()
+		// 直接拿 stat 绝对 UnixMilli。stats 已经被 TruncateToGranularity hour 对齐,
+		// 跟 bucketKeys 同一网格,UnixMilli 应当精确匹配。
+		k := s.TimeBucket.UnixMilli()
 		if _, ok := counts[k]; ok {
 			counts[k] += s.TotalRequests
 		}
@@ -462,18 +470,11 @@ func HourlyTrend(in []*domain.UsageStats, start time.Time, loc *time.Location) [
 	trend := make([]domain.DashboardTrendPoint, 24)
 	for i, k := range bucketKeys {
 		trend[i] = domain.DashboardTrendPoint{
-			Hour:     bucketStarts[i].Format("15:04"),
+			Hour:     bucketStarts[i].In(loc).Format("15:04"),
 			Requests: counts[k],
 		}
 	}
 	return trend
-}
-
-// truncateHourInLoc 返回 t 在 loc 下 wall-clock 同小时整点(分秒纳秒全 0)。
-// 区别于 t.In(loc).Truncate(time.Hour),后者在 fractional-hour TZ 下会把整点圆到 :45 等错误位置。
-func truncateHourInLoc(t time.Time, loc *time.Location) time.Time {
-	local := t.In(loc)
-	return time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), 0, 0, 0, loc)
 }
 
 // FilterByGranularity filters stats to only include the specified granularity.

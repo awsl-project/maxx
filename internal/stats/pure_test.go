@@ -1920,31 +1920,88 @@ func TestDailyCounts_NilLocationDefaultsUTC(t *testing.T) {
 	}
 }
 
-// TestHourlyTrend_FractionalHourOffsetTZ 验证 R2 review 指出的 wall-clock 截断 bug 已修:
-// Asia/Kathmandu 是 UTC+05:45 — 03:00 本地是 wall-clock 整点,但绝对时间是 21:15 UTC。
-// 之前用 `t.In(loc).Truncate(time.Hour)` 会把它圆到 21:00 UTC = 02:45 本地,
-// 导致 bucket 标签错位、stats 落入错误桶。现在用 time.Date(...hour, 0, 0, 0, loc) 显式构造,
-// 整点对齐于 loc wall-clock。
-func TestHourlyTrend_FractionalHourOffsetTZ(t *testing.T) {
+// TestHourlyTrend_FractionalHourOffsetTZAlignsToStorageGrid 锁住 R3 修复后的行为:
+// 桶/key 的对齐方式跟 stats 存储用的 TruncateToGranularity(Hour, loc) 一致。
+// Asia/Kathmandu(UTC+05:45)的存储网格是 absolute UTC hour(因为 Truncate 是 UTC-aligned),
+// 在 Kathmandu 下渲染就是 ":45" 这种分钟。这是 storage-grid 真实就在这,helper 不应假装它在 ":00"。
+func TestHourlyTrend_FractionalHourOffsetTZAlignsToStorageGrid(t *testing.T) {
 	kathmandu, err := time.LoadLocation("Asia/Kathmandu")
 	if err != nil {
 		t.Skip("Asia/Kathmandu not available")
 	}
-	// start = 03:00 Kathmandu wall-clock(对应 2024-01-17 21:15 UTC)。
-	start := time.Date(2024, 1, 17, 3, 0, 0, 0, kathmandu)
+	// 模拟一个已经存进 DB 的 hour-stat:它必然是 absolute-UTC-hour 对齐 (= Kathmandu ":45" wall-clock)。
+	utcHour := time.Date(2024, 1, 17, 21, 0, 0, 0, time.UTC)
 	in := []*domain.UsageStats{
-		// stat 在同一 wall-clock 整点应该落到第 0 桶。
-		{TimeBucket: start, TotalRequests: 7},
+		{TimeBucket: utcHour, TotalRequests: 7}, // 在 Kathmandu 显示为 02:45
 	}
-	got := HourlyTrend(in, start, kathmandu)
-	if got[0].Hour != "03:00" {
-		t.Errorf("got[0].Hour = %q, want 03:00 (wall-clock 整点对齐于 loc,不是 UTC 整点)", got[0].Hour)
-	}
+	// start 跟 stat 在同一时刻(用 UTC hour) — bucket[0] 应落在这里。
+	got := HourlyTrend(in, utcHour, kathmandu)
 	if got[0].Requests != 7 {
-		t.Errorf("got[0].Requests = %d, want 7 (stat 应落入 wall-clock 03:00 桶)", got[0].Requests)
+		t.Errorf("got[0].Requests = %d, want 7 (stat 跟 bucket[0] 在同一存储网格上)", got[0].Requests)
 	}
-	if got[1].Hour != "04:00" {
-		t.Errorf("got[1].Hour = %q, want 04:00 (下一桶应是 loc 下一小时)", got[1].Hour)
+	// 渲染出 ":45" 是真实的 storage-grid 偏移,不是 bug。
+	if got[0].Hour != "02:45" {
+		t.Errorf("got[0].Hour = %q, want 02:45 (Kathmandu 的 hour-bucket 网格落在 :45 分钟)", got[0].Hour)
+	}
+	if got[1].Hour != "03:45" {
+		t.Errorf("got[1].Hour = %q, want 03:45 (下一桶 +1h)", got[1].Hour)
+	}
+}
+
+// TestHourlyTrend_DSTFallBackNoCollision 验证 R3 review 指出的 DST fall-back collision bug 已修:
+// 2024-11-03 在 America/New_York 时区:01:00 EDT (05:00 UTC) 和 01:00 EST (06:00 UTC) 是两个真实
+// 不同的小时桶,中间相隔 1 小时。R2 版本的 truncateHourInLoc 会通过 time.Date(...,1,0,0,0,NY)
+// 把两者折叠到同一个 UnixMilli (EDT 的那个),导致 chart 上 02:00 桶被错误地占用、01:00 桶被双倍。
+//
+// 新版用绝对 UnixMilli 作 key,加 1h 一次就走 1h 真实时间;两个 01:00 NY 桶 → 两个 distinct key,
+// 数据正确分开;chart 上会有两个相邻 "01:00" 标签(这是 wall-clock 渲染的固有歧义,无法消除)。
+func TestHourlyTrend_DSTFallBackNoCollision(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("America/New_York not available")
+	}
+	// 在 NY fall-back 那天(2024-11-03)从午夜开始一个 24h 窗口。
+	// 这一天 NY 局部时间有 25 个小时(02:00 EDT 在 01:00 EST 之前再多 1 小时);窗口包含两个 "01:00"。
+	start := time.Date(2024, 11, 3, 0, 0, 0, 0, ny)
+	t1 := time.Date(2024, 11, 3, 5, 0, 0, 0, time.UTC) // 01:00 EDT
+	t2 := time.Date(2024, 11, 3, 6, 0, 0, 0, time.UTC) // 01:00 EST
+	in := []*domain.UsageStats{
+		{TimeBucket: t1, TotalRequests: 11},
+		{TimeBucket: t2, TotalRequests: 22},
+	}
+	got := HourlyTrend(in, start, ny)
+
+	// 验证:t1 和 t2 都精确落到了自己的桶,没有合并、没有覆盖、也没有跑到 02:00 桶。
+	var t1Slot, t2Slot int = -1, -1
+	for i, p := range got {
+		if p.Requests == 11 {
+			t1Slot = i
+		}
+		if p.Requests == 22 {
+			t2Slot = i
+		}
+	}
+	if t1Slot < 0 || t2Slot < 0 {
+		t.Fatalf("two DST hours collapsed; got = %+v", got)
+	}
+	if t1Slot == t2Slot {
+		t.Fatalf("01:00 EDT 和 01:00 EST 落到了同一个 slot[%d] — bucket key collision 未修", t1Slot)
+	}
+	if t2Slot != t1Slot+1 {
+		t.Errorf("两个 DST hour 应相邻 (相差 1 小时绝对时间); t1@%d t2@%d", t1Slot, t2Slot)
+	}
+	// 渲染上,这两个相邻 slot 都会显示 "01:00" — 这是 wall-clock 的固有歧义,锁住一下提醒未来读者。
+	if got[t1Slot].Hour != "01:00" || got[t2Slot].Hour != "01:00" {
+		t.Errorf("DST fall-back 渲染:两个相邻 slot 都该贴 01:00 标签; got %q / %q", got[t1Slot].Hour, got[t2Slot].Hour)
+	}
+	// 任何其他 slot 都不应混到这两个 stat 的请求量
+	for i, p := range got {
+		if i == t1Slot || i == t2Slot {
+			continue
+		}
+		if p.Requests != 0 {
+			t.Errorf("slot[%d] = %d, 应为 0 (DST stat 不应跨桶污染)", i, p.Requests)
+		}
 	}
 }
 
