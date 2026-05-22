@@ -1393,109 +1393,43 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		g errgroup.Group
 	)
 
-	// 查询1: 历史 day 粒度数据 (371天，不含今天)
-	// 用于：热力图历史、昨日统计、Provider统计(30天)
+	// 查询1: 历史 day 粒度数据 (371 天,不含今天)
+	// 用于:热力图历史、昨日统计、Provider 统计 (30 天)
 	g.Go(func() error {
-		var dashboardArgs []interface{}
-		tenantFilter := ""
-		if tenantID > 0 {
-			tenantFilter = "AND tenant_id = ? "
-			dashboardArgs = append(dashboardArgs, tenantID)
+		// EndTime = todayStart 让 SQL 走到今天 00:00 这条边上;后面用
+		// FilterByTimeRange (end 排他) 精确切掉今天的桶,保留与原 raw SQL 一致的语义。
+		histFilter := repository.UsageStatsFilter{
+			Granularity: domain.GranularityDay,
+			StartTime:   &days371Ago,
+			EndTime:     &todayStart,
 		}
-		query := `
-			SELECT time_bucket, provider_id, model,
-				SUM(total_requests), SUM(successful_requests),
-				SUM(input_tokens + output_tokens + cache_read + cache_write), SUM(cost)
-			FROM usage_stats
-			WHERE granularity = 'day'
-			` + tenantFilter + `AND time_bucket >= ? AND time_bucket < ?
-			GROUP BY time_bucket, provider_id, model
-		`
-		dashboardArgs = append(dashboardArgs, toTimestamp(days371Ago), toTimestamp(todayStart))
-		rows, err := r.db.gorm.Raw(query, dashboardArgs...).Rows()
+		dayStatsAll, err := r.Query(tenantID, histFilter)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = rows.Close() }()
+		// 精确窗口 [days371Ago, todayStart):去掉可能落在 todayStart 那一秒的桶。
+		dayStats := stats.FilterByTimeRange(dayStatsAll, days371Ago, todayStart)
 
-		// 初始化热力图（使用配置的时区格式化日期）
-		days := int(now.Sub(days371Ago).Hours()/24) + 1
-		heatmapData := make(map[string]uint64, days)
-		for i := 0; i < days; i++ {
-			date := days371Ago.Add(time.Duration(i) * 24 * time.Hour).In(loc)
-			heatmapData[date.Format("2006-01-02")] = 0
-		}
-
+		// 昨日统计:窗口 [yesterdayStart, todayStart)。
 		var yesterdaySummary domain.DashboardDaySummary
-		providerData := make(map[uint64]*struct {
-			requests   uint64
-			successful uint64
-		})
-
-		for rows.Next() {
-			var bucket int64
-			var providerID uint64
-			var model string
-			var requests, successful, tokens, cost uint64
-			if err := rows.Scan(&bucket, &providerID, &model, &requests, &successful, &tokens, &cost); err != nil {
-				continue
-			}
-
-			bucketTime := fromTimestamp(bucket).In(loc)
-			dateStr := bucketTime.Format("2006-01-02")
-
-			// 热力图
-			heatmapData[dateStr] += requests
-
-			// 昨日统计
-			if !bucketTime.Before(yesterdayStart) && bucketTime.Before(todayStart) {
-				yesterdaySummary.Requests += requests
-				yesterdaySummary.Tokens += tokens
-				yesterdaySummary.Cost += cost
-			}
-
-			// Provider统计 (30天)
-			if !bucketTime.Before(days30Ago) && providerID > 0 {
-				if _, ok := providerData[providerID]; !ok {
-					providerData[providerID] = &struct {
-						requests   uint64
-						successful uint64
-					}{}
-				}
-				providerData[providerID].requests += requests
-				providerData[providerID].successful += successful
-			}
+		for _, s := range stats.FilterByTimeRange(dayStats, yesterdayStart, todayStart) {
+			yesterdaySummary.Requests += s.TotalRequests
+			yesterdaySummary.Tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
+			yesterdaySummary.Cost += s.Cost
 		}
+
+		// Provider 统计 (30 天):窗口 [days30Ago, todayStart),走标准 GroupByProvider。
+		providers := stats.GroupByProvider(stats.FilterByTimeRange(dayStats, days30Ago, todayStart))
 
 		mu.Lock()
-		// 设置昨日
 		result.Yesterday = yesterdaySummary
-
-		// 设置 Provider 统计 (30天)
-		for providerID, data := range providerData {
-			var successRate float64
-			if data.requests > 0 {
-				successRate = float64(data.successful) / float64(data.requests) * 100
-			}
+		for providerID, ps := range providers {
 			result.ProviderStats[providerID] = domain.DashboardProviderStats{
-				Requests:    data.requests,
-				SuccessRate: successRate,
+				Requests:    ps.TotalRequests,
+				SuccessRate: ps.SuccessRate,
 			}
 		}
-
-		// 暂存热力图数据（后面会补充今天的）- 只保留有数据的日期
-		result.Heatmap = make([]domain.DashboardHeatmapPoint, 0, days)
-		for i := 0; i < days; i++ {
-			date := days371Ago.Add(time.Duration(i) * 24 * time.Hour).In(loc)
-			dateStr := date.Format("2006-01-02")
-			count := heatmapData[dateStr]
-			if count > 0 {
-				result.Heatmap = append(result.Heatmap, domain.DashboardHeatmapPoint{
-					Date:  dateStr,
-					Count: count,
-				})
-			}
-		}
+		result.Heatmap = stats.DailyCounts(dayStats, loc)
 		mu.Unlock()
 		return nil
 	})

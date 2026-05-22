@@ -396,6 +396,32 @@ func TopModelsByRequests(stats []*domain.UsageStats, limit int) []domain.Dashboa
 	return models
 }
 
+// DailyCounts 按日期(YYYY-MM-DD,在指定时区下渲染)聚合 stats 的 TotalRequests,
+// 只返回非零日,日期升序。用于 dashboard 热力图。
+// stats 可以是任意粒度,日期键基于 TimeBucket 在 loc 下的渲染。
+func DailyCounts(in []*domain.UsageStats, loc *time.Location) []domain.DashboardHeatmapPoint {
+	byDate := make(map[string]uint64)
+	for _, s := range in {
+		if s.TotalRequests == 0 {
+			continue
+		}
+		key := s.TimeBucket.In(loc).Format("2006-01-02")
+		byDate[key] += s.TotalRequests
+	}
+	dates := make([]string, 0, len(byDate))
+	for d, count := range byDate {
+		if count > 0 {
+			dates = append(dates, d)
+		}
+	}
+	sort.Strings(dates)
+	out := make([]domain.DashboardHeatmapPoint, 0, len(dates))
+	for _, d := range dates {
+		out = append(out, domain.DashboardHeatmapPoint{Date: d, Count: byDate[d]})
+	}
+	return out
+}
+
 // HourlyTrend 构建从 start 起 24 小时滚动请求量趋势,小时对齐,在指定时区下渲染。
 // 没有数据的小时填 0 以保证 x 轴连续。窗口外的 stats 被跳过。
 // 返回切片严格 24 个元素,按时间顺序排列(start 那个小时是第 0 个)。

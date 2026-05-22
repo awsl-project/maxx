@@ -1737,6 +1737,88 @@ func TestTopModelsByRequests_HonorsLimit(t *testing.T) {
 	}
 }
 
+func TestDailyCounts_Empty(t *testing.T) {
+	got := DailyCounts(nil, time.UTC)
+	if len(got) != 0 {
+		t.Errorf("nil input → %v, want empty", got)
+	}
+	got = DailyCounts([]*domain.UsageStats{}, time.UTC)
+	if len(got) != 0 {
+		t.Errorf("empty input → %v, want empty", got)
+	}
+}
+
+func TestDailyCounts_SkipsZeroRequestRows(t *testing.T) {
+	// 一行 TotalRequests=0 不应该产生热力图条目(原 dashboard 在输出阶段 if count > 0 过滤掉)。
+	day := time.Date(2024, 3, 5, 0, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: day, TotalRequests: 0},
+	}
+	got := DailyCounts(in, time.UTC)
+	if len(got) != 0 {
+		t.Errorf("zero-request row → %v, want empty", got)
+	}
+}
+
+func TestDailyCounts_AggregatesByDate(t *testing.T) {
+	// 同一日期多条 stats(不同 provider/model 等维度)应累加。
+	day := time.Date(2024, 3, 5, 0, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: day, ProviderID: 1, TotalRequests: 5},
+		{TimeBucket: day, ProviderID: 2, TotalRequests: 3},
+		{TimeBucket: day.Add(2 * time.Hour), ProviderID: 1, TotalRequests: 7}, // 同一天不同小时
+		{TimeBucket: day.AddDate(0, 0, 1), TotalRequests: 11},                 // 第二天
+	}
+	got := DailyCounts(in, time.UTC)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2 days", len(got))
+	}
+	if got[0].Date != "2024-03-05" || got[0].Count != 15 {
+		t.Errorf("day[0] = %+v, want {2024-03-05, 15}", got[0])
+	}
+	if got[1].Date != "2024-03-06" || got[1].Count != 11 {
+		t.Errorf("day[1] = %+v, want {2024-03-06, 11}", got[1])
+	}
+}
+
+func TestDailyCounts_SortedAscending(t *testing.T) {
+	in := []*domain.UsageStats{
+		{TimeBucket: time.Date(2024, 3, 7, 0, 0, 0, 0, time.UTC), TotalRequests: 1},
+		{TimeBucket: time.Date(2024, 3, 5, 0, 0, 0, 0, time.UTC), TotalRequests: 1},
+		{TimeBucket: time.Date(2024, 3, 6, 0, 0, 0, 0, time.UTC), TotalRequests: 1},
+	}
+	got := DailyCounts(in, time.UTC)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3", len(got))
+	}
+	want := []string{"2024-03-05", "2024-03-06", "2024-03-07"}
+	for i, w := range want {
+		if got[i].Date != w {
+			t.Errorf("got[%d].Date = %q, want %q (must sort ascending)", i, got[i].Date, w)
+		}
+	}
+}
+
+func TestDailyCounts_TimezoneAffectsDateBoundary(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Skip("Asia/Shanghai not available")
+	}
+	// 2024-03-04 23:00 UTC = 2024-03-05 07:00 Shanghai → 同一桶在两个时区下日期不同。
+	utcEvening := time.Date(2024, 3, 4, 23, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: utcEvening, TotalRequests: 5},
+	}
+	gotUTC := DailyCounts(in, time.UTC)
+	if len(gotUTC) != 1 || gotUTC[0].Date != "2024-03-04" {
+		t.Errorf("UTC: got %v, want one entry on 2024-03-04", gotUTC)
+	}
+	gotShanghai := DailyCounts(in, shanghai)
+	if len(gotShanghai) != 1 || gotShanghai[0].Date != "2024-03-05" {
+		t.Errorf("Shanghai: got %v, want one entry on 2024-03-05", gotShanghai)
+	}
+}
+
 func TestHourlyTrend_Empty(t *testing.T) {
 	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
 	got := HourlyTrend(nil, start, time.UTC)
