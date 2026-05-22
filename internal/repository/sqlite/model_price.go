@@ -76,12 +76,18 @@ func (r *ModelPriceRepository) GetByID(id uint64) (*domain.ModelPrice, error) {
 	return r.toDomain(&m), nil
 }
 
-// GetCurrentByModelID 获取模型的当前价格（最新记录），支持前缀匹配
+// GetCurrentByModelID 获取模型的当前价格（最新版本），支持前缀匹配。
+//
+// "当前版本" 统一以 id DESC 为序——id 是 autoincrement + unique，单调可靠；
+// 不能用 created_at DESC，因为 BatchCreate（seed/reset）给整批同一个时间戳，
+// 同 ms 内多次 Create 也会让 created_at 出现并列，排序结果不稳定。所有
+// 涉及"取当前版本"的方法（Update、ListCurrentPrices、ListByModelID）都
+// 对齐到 id 排序，避免不同读路径对同一 ModelID 拿到不同行。
 func (r *ModelPriceRepository) GetCurrentByModelID(modelID string) (*domain.ModelPrice, error) {
 	// 1. 精确匹配
 	var exact ModelPrice
 	err := r.db.gorm.Where("model_id = ? AND deleted_at = 0", modelID).
-		Order("created_at DESC").
+		Order("id DESC").
 		First(&exact).Error
 	if err == nil {
 		return r.toDomain(&exact), nil
@@ -110,7 +116,7 @@ func (r *ModelPriceRepository) GetCurrentByModelID(modelID string) (*domain.Mode
 	// 获取最佳匹配的最新价格
 	var m ModelPrice
 	if err := r.db.gorm.Where("model_id = ? AND deleted_at = 0", bestMatch).
-		Order("created_at DESC").
+		Order("id DESC").
 		First(&m).Error; err != nil {
 		return nil, err
 	}
@@ -140,11 +146,11 @@ func (r *ModelPriceRepository) ListCurrentPrices() ([]*domain.ModelPrice, error)
 	return result, nil
 }
 
-// ListByModelID 获取模型的价格历史
+// ListByModelID 获取模型的价格历史，最新版本优先（id DESC，与 GetCurrentByModelID 对齐）。
 func (r *ModelPriceRepository) ListByModelID(modelID string) ([]*domain.ModelPrice, error) {
 	var models []ModelPrice
 	if err := r.db.gorm.Where("model_id = ? AND deleted_at = 0", modelID).
-		Order("created_at DESC").
+		Order("id DESC").
 		Find(&models).Error; err != nil {
 		return nil, err
 	}
@@ -228,7 +234,7 @@ func (r *ModelPriceRepository) Update(price *domain.ModelPrice) error {
 	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
 		var current ModelPrice
 		err := tx.Where("model_id = ? AND deleted_at = 0", price.ModelID).
-			Order("created_at DESC").First(&current).Error
+			Order("id DESC").First(&current).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}

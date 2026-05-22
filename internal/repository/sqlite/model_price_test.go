@@ -69,6 +69,12 @@ func TestUpdate_InsertsNewRow_PreservesHistory(t *testing.T) {
 		t.Errorf("old row output price = %d, want 15_000_000 (历史值不应被覆盖)", oldRow.OutputPriceMicro)
 	}
 
+	// GetByID(旧 ID)必须 not found——锁住"物理保留但不通过常规 admin/API
+	// 读路径暴露"的契约,与 TestDeleteModelPrice 的 404 语义对齐。
+	if got, err := repo.GetByID(originalID); err == nil {
+		t.Errorf("GetByID(originalID=%d) after Update should fail (historical row must not leak through admin reads); got row %+v", originalID, got)
+	}
+
 	// GetCurrentByModelID 返回新价格
 	current, err := repo.GetCurrentByModelID("test-model")
 	if err != nil {
