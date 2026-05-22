@@ -1084,6 +1084,10 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 	})
 
 	if err != nil {
+		// Step 2 failed (attempt-cost rewrite). 把 phase 改成 failed 让 UI 不会卡在
+		// 最后一次 "calculating N/M";否则进度条会永远停在那里直到超时。
+		broadcastProgress("failed", processedCount, int(totalCount),
+			fmt.Sprintf("failed to stream attempts: %v", err))
 		return nil, fmt.Errorf("failed to stream attempts: %w", err)
 	}
 
@@ -1099,10 +1103,13 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 	close(progressChan)
 
 	if err != nil {
-		log.Printf("[RecalculateCosts] Failed to recalculate request costs: %v", err)
-	} else {
-		result.UpdatedRequests = int(updatedRequests)
+		// Step 3 失败时不能继续 broadcast "completed":attempts 行已改、父 request 部分
+		// 未同步,UI 报成功会掩盖审计偏差。统一传播错误 + 发 failed phase 让运维知道。
+		broadcastProgress("failed", result.UpdatedAttempts, int(totalCount),
+			fmt.Sprintf("failed to recalculate request costs: %v", err))
+		return nil, fmt.Errorf("failed to recalculate request costs: %w", err)
 	}
+	result.UpdatedRequests = int(updatedRequests)
 
 	broadcastProgress("updating_requests", result.UpdatedRequests, result.UpdatedRequests,
 		fmt.Sprintf("Updated %d requests", result.UpdatedRequests))
@@ -1164,20 +1171,13 @@ func (s *AdminService) RecalculateRequestCost(tenantID uint64, requestID uint64)
 		}
 	}
 
-	if len(updates) > 0 {
-		// 不能 swallow:否则 attempts 行没刷,父 request.Cost 却基于内存计算值更新,
-		// 导致 proxy_requests.cost != SUM(proxy_upstream_attempts.cost)。
-		if err := s.attemptRepo.BatchUpdateCosts(updates); err != nil {
-			return nil, fmt.Errorf("batch update attempts: %w", err)
-		}
-		result.UpdatedAttempts = len(updates)
-	}
-
-	// 4. Update request cost
+	// 4. Atomic write:attempt updates + request cost 在一个事务里写,
+	// 避免 BatchUpdate 成功后 UpdateCost 失败留下"子刷父没刷"的反向 partial-state window。
 	result.NewCost = totalCost
-	if err := s.proxyRequestRepo.UpdateCost(requestID, totalCost); err != nil {
-		return nil, fmt.Errorf("failed to update request cost: %w", err)
+	if err := s.proxyRequestRepo.UpdateCostAtomically(requestID, totalCost, updates); err != nil {
+		return nil, fmt.Errorf("failed to update request and attempt costs atomically: %w", err)
 	}
+	result.UpdatedAttempts = len(updates)
 
 	result.Message = fmt.Sprintf("Recalculated request %d: %d -> %d (updated %d attempts)",
 		requestID, result.OldCost, result.NewCost, result.UpdatedAttempts)

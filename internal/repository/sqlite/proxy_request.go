@@ -345,6 +345,18 @@ func (r *ProxyRequestRepository) UpdateCost(id uint64, cost uint64) error {
 	return r.db.gorm.Model(&ProxyRequest{}).Where("id = ?", id).Update("cost", cost).Error
 }
 
+// UpdateCostAtomically 一个事务里同时更新 proxy_requests.cost 和一批 attempt 的 cost+model_price_id。
+// 保证 proxy_requests.cost == SUM(proxy_upstream_attempts.cost) 这条不变量在中途不会被打破:
+// 如果只用两步独立写,attempt 写完 / request 写失败 会留下父子不一致的窗口,审计后续很难发现。
+func (r *ProxyRequestRepository) UpdateCostAtomically(requestID, requestCost uint64, attemptUpdates map[uint64]domain.AttemptCostUpdate) error {
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		if err := batchUpdateAttemptCostsInTx(tx, attemptUpdates); err != nil {
+			return err
+		}
+		return tx.Model(&ProxyRequest{}).Where("id = ?", requestID).Update("cost", requestCost).Error
+	})
+}
+
 // RecalculateCostsFromAttempts recalculates all request costs by summing their attempt costs
 func (r *ProxyRequestRepository) RecalculateCostsFromAttempts() (int64, error) {
 	return r.RecalculateCostsFromAttemptsWithProgress(nil)

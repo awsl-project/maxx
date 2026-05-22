@@ -156,6 +156,10 @@ type ProxyRequestRepository interface {
 	HasRecentRequests(since time.Time) (bool, error)
 	// UpdateCost updates only the cost field of a request
 	UpdateCost(id uint64, cost uint64) error
+	// UpdateCostAtomically updates the request cost AND a batch of attempt cost updates
+	// in a single transaction. Used by RecalculateRequestCost to keep
+	// proxy_requests.cost == SUM(proxy_upstream_attempts.cost) atomic.
+	UpdateCostAtomically(requestID, requestCost uint64, attemptUpdates map[uint64]domain.AttemptCostUpdate) error
 	// RecalculateCostsFromAttempts recalculates all request costs by summing their attempt costs
 	RecalculateCostsFromAttempts() (int64, error)
 	// RecalculateCostsFromAttemptsWithProgress recalculates all request costs with progress reporting via channel
