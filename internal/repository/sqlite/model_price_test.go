@@ -178,3 +178,54 @@ func TestUpdate_NoOpWhenUnchanged(t *testing.T) {
 		t.Errorf("after real-change Update, current row count = %d, want 1 (旧行已软删,不计入)", count)
 	}
 }
+
+// TestGetByIDIncludingDeleted_ReturnsSoftDeletedRow 锁住"历史快照按 ID 反查"
+// 的契约:Delete(软删) → GetByID 404,但 GetByIDIncludingDeleted 仍能取出
+// 该行(且 deleted_at != 0)。RecalcAttemptUpdate / Calculator 的历史价反查
+// 路径依赖这条性质;若有人无意中把 GetByIDIncludingDeleted 改成也过滤
+// deleted_at,本测试会立刻报警。
+func TestGetByIDIncludingDeleted_ReturnsSoftDeletedRow(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	repo := NewModelPriceRepository(db)
+
+	p := &domain.ModelPrice{
+		ModelID:          "soft-delete-target",
+		InputPriceMicro:  3_000_000,
+		OutputPriceMicro: 15_000_000,
+	}
+	if err := repo.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	id := p.ID
+	if id == 0 {
+		t.Fatal("created ID should be set")
+	}
+
+	if err := repo.Delete(id); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// GetByID 必须 404(admin 读路径不该看到软删行)
+	if got, err := repo.GetByID(id); err == nil {
+		t.Errorf("GetByID(id=%d) after Delete should fail; got %+v", id, got)
+	}
+
+	// GetByIDIncludingDeleted 必须返回完整行(历史快照仍可达)
+	got, err := repo.GetByIDIncludingDeleted(id)
+	if err != nil {
+		t.Fatalf("GetByIDIncludingDeleted(id=%d) failed: %v", id, err)
+	}
+	if got == nil {
+		t.Fatalf("GetByIDIncludingDeleted returned nil")
+	}
+	if got.ID != id {
+		t.Errorf("returned ID = %d, want %d", got.ID, id)
+	}
+	if got.InputPriceMicro != 3_000_000 {
+		t.Errorf("returned InputPriceMicro = %d, want 3_000_000 (历史价不应被改写)", got.InputPriceMicro)
+	}
+}
