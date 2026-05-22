@@ -7,8 +7,10 @@ import (
 )
 
 // TestUpdate_InsertsNewRow_PreservesHistory 验证版本化语义的核心契约:
-// Update 不再原地覆盖,而是软删旧行 + 插入新行;旧 ID 仍可通过 GetByID
-// 取出当时的价格快照,历史 attempt 反查不会失真。
+// Update 不再原地覆盖,而是软删旧行 + 插入新行。旧行带 deleted_at != 0
+// 留在表里(物理保留作为审计快照),GetByID 沿用"仅当前行"语义所以拿不
+// 到——这与 admin Delete 后 404 的语义保持一致;历史反查若以后真有需要,
+// 加独立方法,不污染 GetByID。
 func TestUpdate_InsertsNewRow_PreservesHistory(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
@@ -52,16 +54,19 @@ func TestUpdate_InsertsNewRow_PreservesHistory(t *testing.T) {
 		t.Fatal("updated ID should be set")
 	}
 
-	// 旧 ID 仍能反查到旧价格(历史快照)
-	old, err := repo.GetByID(originalID)
-	if err != nil {
-		t.Fatalf("GetByID(originalID) after update should succeed (historical snapshot); got: %v", err)
+	// 旧行物理保留(deleted_at != 0)——直接查表验证审计快照仍在。
+	var oldRow ModelPrice
+	if err := db.gorm.Unscoped().First(&oldRow, originalID).Error; err != nil {
+		t.Fatalf("raw query for old row id=%d: %v", originalID, err)
 	}
-	if old.InputPriceMicro != 3_000_000 {
-		t.Errorf("historical input price = %d, want 3_000_000 (unchanged)", old.InputPriceMicro)
+	if oldRow.DeletedAt == 0 {
+		t.Errorf("old row deleted_at = 0, want > 0 (should be soft-deleted)")
 	}
-	if old.OutputPriceMicro != 15_000_000 {
-		t.Errorf("historical output price = %d, want 15_000_000 (unchanged)", old.OutputPriceMicro)
+	if oldRow.InputPriceMicro != 3_000_000 {
+		t.Errorf("old row input price = %d, want 3_000_000 (历史值不应被覆盖)", oldRow.InputPriceMicro)
+	}
+	if oldRow.OutputPriceMicro != 15_000_000 {
+		t.Errorf("old row output price = %d, want 15_000_000 (历史值不应被覆盖)", oldRow.OutputPriceMicro)
 	}
 
 	// GetCurrentByModelID 返回新价格

@@ -61,15 +61,16 @@ func (r *ModelPriceRepository) BatchCreate(prices []*domain.ModelPrice) error {
 	return nil
 }
 
-// GetByID 获取指定ID的价格记录。
+// GetByID 获取指定ID的价格记录(仅未软删的)。
 //
-// 不过滤 deleted_at:每次 Update 都会软删旧行并插入新行(版本化),
-// 历史 attempt 的 ModelPriceID 指向已软删的旧行——重算/审计成本时仍需按
-// ID 精确取到当时的价格快照。需要"当前价格"请走 GetCurrentByModelID 或
-// ListCurrentPrices。
+// admin 单条编辑/查看路径,语义是"当前行";Delete 后再 GET 必须 404
+// (e2e: TestDeleteModelPrice)。"按历史 ModelPriceID 反查价格快照"目前
+// 没有实际调用方——RecalcFromAttempt 是用模型名走 GlobalCalculator 查
+// 当前价,不经此路径。如果未来需要历史反查,加一个独立方法,而不是
+// 削弱这里。
 func (r *ModelPriceRepository) GetByID(id uint64) (*domain.ModelPrice, error) {
 	var m ModelPrice
-	if err := r.db.gorm.First(&m, id).Error; err != nil {
+	if err := r.db.gorm.Where("deleted_at = 0").First(&m, id).Error; err != nil {
 		return nil, err
 	}
 	return r.toDomain(&m), nil
