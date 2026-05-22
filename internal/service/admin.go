@@ -1053,7 +1053,9 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 			// 但合约层面的倍率(由 Provider×ClientType 决定)是历史值,不能在 backfill 时悄悄改。
 			res := calculator.Calculate(model, metrics, attempt.Multiplier)
 
-			if res.Cost != attempt.Cost {
+			// 同步刷 model_price_id 以保留审计:即使 cost 没变,
+			// 若价格记录被替换成等额新版本,旧 ID 也必须更新到当前匹配的行。
+			if res.Cost != attempt.Cost || res.ModelPriceID != attempt.ModelPriceID {
 				attemptUpdates[attempt.ID] = domain.AttemptCostUpdate{
 					Cost:         res.Cost,
 					ModelPriceID: res.ModelPriceID,
@@ -1064,11 +1066,12 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 		}
 
 		if len(attemptUpdates) > 0 {
+			// 把写入失败传播出去:吞掉的话父请求 cost 会基于内存重算值更新,
+			// 跟数据库里实际 attempt 行不一致,后续审计很难发现。
 			if err := s.attemptRepo.BatchUpdateCosts(attemptUpdates); err != nil {
-				log.Printf("[RecalculateCosts] Failed to batch update attempts: %v", err)
-			} else {
-				result.UpdatedAttempts += len(attemptUpdates)
+				return fmt.Errorf("batch update attempts: %w", err)
 			}
+			result.UpdatedAttempts += len(attemptUpdates)
 		}
 
 		broadcastProgress("calculating", processedCount, int(totalCount),
@@ -1151,7 +1154,9 @@ func (s *AdminService) RecalculateRequestCost(tenantID uint64, requestID uint64)
 		res := calculator.Calculate(model, metrics, attempt.Multiplier)
 		totalCost += res.Cost
 
-		if res.Cost != attempt.Cost {
+		// 同步刷 model_price_id 以保留审计:即使 cost 不变,
+		// 若价格记录被替换成等额新版本,旧 ID 也必须更新到当前匹配的行。
+		if res.Cost != attempt.Cost || res.ModelPriceID != attempt.ModelPriceID {
 			updates[attempt.ID] = domain.AttemptCostUpdate{
 				Cost:         res.Cost,
 				ModelPriceID: res.ModelPriceID,
@@ -1160,11 +1165,12 @@ func (s *AdminService) RecalculateRequestCost(tenantID uint64, requestID uint64)
 	}
 
 	if len(updates) > 0 {
+		// 不能 swallow:否则 attempts 行没刷,父 request.Cost 却基于内存计算值更新,
+		// 导致 proxy_requests.cost != SUM(proxy_upstream_attempts.cost)。
 		if err := s.attemptRepo.BatchUpdateCosts(updates); err != nil {
-			log.Printf("[RecalculateRequestCost] Failed to update attempts: %v", err)
-		} else {
-			result.UpdatedAttempts = len(updates)
+			return nil, fmt.Errorf("batch update attempts: %w", err)
 		}
+		result.UpdatedAttempts = len(updates)
 	}
 
 	// 4. Update request cost

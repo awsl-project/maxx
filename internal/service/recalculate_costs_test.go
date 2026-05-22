@@ -109,3 +109,74 @@ func TestRecalculateCosts_PreservesHistoricalMultiplier(t *testing.T) {
 		t.Errorf("request.Cost = %d, want %d", updatedReq.Cost, expected)
 	}
 }
+
+// TestRecalculateCosts_ModelPriceIDOnlyChange 验证 review 提的 audit-trail 风险:
+// 当价格被替换成等额的新版本(cost 不变,但 model_price ID 换了)时,
+// 重算必须把 model_price_id 也刷新到新行;否则审计上会看到指向已删除/旧版价格的孤儿引用。
+//
+// 修复前的 gate 只检查 res.Cost != attempt.Cost,会漏掉这种"金额等同但价格版本换了"的场景。
+func TestRecalculateCosts_ModelPriceIDOnlyChange(t *testing.T) {
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	attRepo := sqlite.NewProxyUpstreamAttemptRepository(db)
+	reqRepo := sqlite.NewProxyRequestRepository(db)
+
+	// 当前价表:test-model 指向 ID=200(假设旧 ID=100 已被替换成等额新版本)。
+	pricing.GlobalCalculator().LoadFromDatabase([]*domain.ModelPrice{
+		{ID: 200, ModelID: "test-model", InputPriceMicro: 3_000_000},
+	})
+	t.Cleanup(func() {
+		pricing.GlobalCalculator().LoadFromDatabase(nil)
+	})
+
+	req := &domain.ProxyRequest{
+		TenantID:  1,
+		Status:    "COMPLETED",
+		StartTime: time.Now(),
+		EndTime:   time.Now(),
+	}
+	if err := reqRepo.Create(req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	// Attempt:Cost 已经正确(3e9),但 ModelPriceID 还指向旧的 100。
+	// 旧的 gate (`cost != cost`) 会判定无需更新,model_price_id 永远停在 100。
+	const correctCost = uint64(3_000_000_000)
+	att := &domain.ProxyUpstreamAttempt{
+		TenantID:        1,
+		Status:          "COMPLETED",
+		ProxyRequestID:  req.ID,
+		ResponseModel:   "test-model",
+		InputTokenCount: 1_000_000,
+		Multiplier:      10_000, // 1.0×
+		ModelPriceID:    100,    // 旧版本 ID
+		Cost:            correctCost,
+	}
+	if err := attRepo.Create(att); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+
+	svc := &AdminService{attemptRepo: attRepo, proxyRequestRepo: reqRepo}
+	result, err := svc.RecalculateCosts()
+	if err != nil {
+		t.Fatalf("RecalculateCosts: %v", err)
+	}
+	if result.UpdatedAttempts != 1 {
+		t.Errorf("UpdatedAttempts = %d, want 1 (model_price_id 不一致也应触发 update)", result.UpdatedAttempts)
+	}
+
+	var attempts []sqlite.ProxyUpstreamAttempt
+	if err := db.GormDB().Find(&attempts).Error; err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if attempts[0].Cost != correctCost {
+		t.Errorf("Cost = %d, want %d (本应不变)", attempts[0].Cost, correctCost)
+	}
+	if attempts[0].ModelPriceID != 200 {
+		t.Errorf("ModelPriceID = %d, want 200 (必须刷新到当前匹配 ID,即使 cost 不变)", attempts[0].ModelPriceID)
+	}
+}

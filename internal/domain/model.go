@@ -563,6 +563,7 @@ type AttemptCostData struct {
 	Cache1hWriteCount uint64
 	Cost              uint64
 	Multiplier        uint64 // 历史倍率(10000=1×, 0 视作 10000)
+	ModelPriceID      uint64 // 历史 model_price_id;backfill 时跟新匹配 ID 对比来判断是否需要刷新
 }
 
 // AttemptCostUpdate 是 backfill 时批量更新 attempt 成本字段的载荷:

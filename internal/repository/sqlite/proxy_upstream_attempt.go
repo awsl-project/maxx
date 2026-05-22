@@ -80,10 +80,11 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 			Cache1hWriteCount uint64 `gorm:"column:cache_1h_write_count"`
 			Cost              uint64 `gorm:"column:cost"`
 			Multiplier        uint64 `gorm:"column:multiplier"`
+			ModelPriceID      uint64 `gorm:"column:model_price_id"`
 		}
 
 		err := r.db.gorm.Table("proxy_upstream_attempts").
-			Select("id, proxy_request_id, response_model, mapped_model, request_model, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, multiplier").
+			Select("id, proxy_request_id, response_model, mapped_model, request_model, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, multiplier, model_price_id").
 			Where("id > ?", lastID).
 			Order("id").
 			Limit(batchSize).
@@ -114,6 +115,7 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 				Cache1hWriteCount: r.Cache1hWriteCount,
 				Cost:              r.Cost,
 				Multiplier:        r.Multiplier,
+				ModelPriceID:      r.ModelPriceID,
 			}
 		}
 
