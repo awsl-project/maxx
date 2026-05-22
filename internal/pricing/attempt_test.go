@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -301,6 +302,44 @@ func TestRecalcFromAttempt_FallsBackToByModelWhenIDMissing(t *testing.T) {
 	}
 	if update.ModelPriceID != 20 {
 		t.Errorf("update.ModelPriceID = %d, want 20 (写入当前 ID,补齐历史空缺)", update.ModelPriceID)
+	}
+}
+
+// TestRecalcFromAttempt_DoesNotFallBackOnLookupError 锁住核心安全契约:
+// historicalLookup 返回非 nil 错误时,不得回退到按模型名走当前价——那会用
+// 今天的价格悄悄覆盖历史 attempt 的成本,违反"重算当时价"的语义保证。
+// 正确行为:放弃本次重算,保留原 cost 和 model_price_id,并返回 changed=false。
+func TestRecalcFromAttempt_DoesNotFallBackOnLookupError(t *testing.T) {
+	resetGlobalCalculator(t)
+	GlobalCalculator().LoadFromDatabase([]*domain.ModelPrice{
+		{ID: 20, ModelID: "claude-3-opus", InputPriceMicro: 9_000_000},
+	})
+	GlobalCalculator().SetHistoricalLookup(func(id uint64) (*domain.ModelPrice, error) {
+		return nil, fmt.Errorf("db timeout") // 瞬态错误
+	})
+
+	const originalCost = uint64(3_000_000_000)
+	attempt := &domain.ProxyUpstreamAttempt{
+		ResponseModel:   "claude-3-opus",
+		InputTokenCount: 1_000_000,
+		Multiplier:      DefaultMultiplier,
+		Cost:            originalCost, // 当时价 $3 算出的历史值
+		ModelPriceID:    10,           // 历史 ID,反查会失败
+	}
+
+	newCost, update, changed := RecalcFromAttempt(attempt)
+
+	// 必须 changed=false:不得因为 lookup 错误就写入一个当前价算出的新值
+	if changed {
+		t.Error("changed = true on lookup error; must be false to protect historical cost")
+	}
+	// 返回的 newCost 必须是原值,不是按今天的当前价($9)算出的 9e9
+	if newCost != originalCost {
+		t.Errorf("newCost = %d on lookup error, want %d (original cost must be preserved)", newCost, originalCost)
+	}
+	// update 必须是零值,不得更新 model_price_id
+	if update != (domain.AttemptCostUpdate{}) {
+		t.Errorf("update = %+v on lookup error; want zero value (no DB write should happen)", update)
 	}
 }
 

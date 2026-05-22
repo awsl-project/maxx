@@ -107,35 +107,41 @@ func (c *Calculator) SetHistoricalLookup(fn HistoricalLookup) {
 }
 
 // resolvePriceByID 优先查内存缓存;未命中且配置了 historicalLookup 时
-// 回 DB 取并缓存。返回 nil 表示该 ID 在 DB 中也不存在(或未配置反查)。
-func (c *Calculator) resolvePriceByID(id uint64) *domain.ModelPrice {
+// 回 DB 取并缓存。
+//   - 返回 (p, nil)     表示命中(p != nil)或确认不存在(p == nil)
+//   - 返回 (nil, err)   表示 DB 查询出错,调用方不得以此为由回退到当前价——
+//     否则会用今天的价格悄悄覆盖历史 attempt 的成本
+func (c *Calculator) resolvePriceByID(id uint64) (*domain.ModelPrice, error) {
 	if id == 0 {
-		return nil
+		return nil, nil
 	}
 	c.mu.RLock()
 	if p, ok := c.pricesByID[id]; ok {
 		c.mu.RUnlock()
-		return p
+		return p, nil
 	}
 	lookup := c.historicalLookup
 	c.mu.RUnlock()
 
 	if lookup == nil {
-		return nil
+		return nil, nil
 	}
 	p, err := lookup(id)
-	if err != nil || p == nil {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, nil
 	}
 	c.mu.Lock()
 	// 双检:并发情况下别人可能已经填好。
 	if existing, ok := c.pricesByID[id]; ok {
 		c.mu.Unlock()
-		return existing
+		return existing, nil
 	}
 	c.pricesByID[id] = p
 	c.mu.Unlock()
-	return p
+	return p, nil
 }
 
 // lookupLocked 在 pricesByKey 中查找,先精确再最长前缀。需持有 RLock 或 Lock。
@@ -180,20 +186,27 @@ func (c *Calculator) Calculate(model string, metrics *usage.Metrics, multiplier 
 // 用这条:attempt 保存了它写入时的 ModelPriceID,据此还原"当时价" × token
 // × multiplier,而不是按今天的当前价回填。
 //
-// 未命中(ID=0 或反查不到该 ID)返回 (CostResult{Multiplier},false)。调
-// 用方据此决定是否回退到按模型名走 Calculate。
-func (c *Calculator) CalculateByPriceID(priceID uint64, metrics *usage.Metrics, multiplier uint64) (CostResult, bool) {
+// 返回值语义:
+//   - (result, true,  nil): 找到价格快照并完成计算
+//   - (empty,  false, nil): ID=0 或 DB 中确认不存在(p==nil),调用方可安全
+//     回退到按模型名走 Calculate
+//   - (empty,  false, err): historicalLookup 返回错误,调用方必须终止本次
+//     重算并上报错误,不得回退到当前价——否则会用今天的价格覆盖历史成本
+func (c *Calculator) CalculateByPriceID(priceID uint64, metrics *usage.Metrics, multiplier uint64) (CostResult, bool, error) {
 	if multiplier == 0 {
 		multiplier = DefaultMultiplier
 	}
 	if metrics == nil {
-		return CostResult{Multiplier: multiplier}, false
+		return CostResult{Multiplier: multiplier}, false, nil
 	}
-	price := c.resolvePriceByID(priceID)
+	price, err := c.resolvePriceByID(priceID)
+	if err != nil {
+		return CostResult{Multiplier: multiplier}, false, err
+	}
 	if price == nil {
-		return CostResult{Multiplier: multiplier}, false
+		return CostResult{Multiplier: multiplier}, false, nil
 	}
-	return applyPrice(price, metrics, multiplier), true
+	return applyPrice(price, metrics, multiplier), true, nil
 }
 
 // applyPrice 把 token 用量按指定价格 + 倍率算成 cost,统一两条计算入口。

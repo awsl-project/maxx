@@ -1,6 +1,8 @@
 package pricing
 
 import (
+	"log"
+
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/usage"
 )
@@ -49,9 +51,18 @@ func attemptMetrics(in, out, cacheRead, cacheWrite, c5m, c1h uint64) *usage.Metr
 func RecalcAttemptUpdate(model string, metrics *usage.Metrics, multiplier, currentCost, currentModelPriceID uint64) (uint64, domain.AttemptCostUpdate, bool) {
 	var res CostResult
 	if currentModelPriceID != 0 {
-		if r, ok := GlobalCalculator().CalculateByPriceID(currentModelPriceID, metrics, multiplier); ok {
+		r, ok, err := GlobalCalculator().CalculateByPriceID(currentModelPriceID, metrics, multiplier)
+		if err != nil {
+			// historicalLookup 返回了错误(DB 故障、网络抖动等)。
+			// 不得回退到当前价——那会用今天的价格悄悄覆盖历史 attempt 成本,
+			// 违反本次改动的核心契约。直接放弃本次重算,保留原值。
+			log.Printf("[Pricing] RecalcAttemptUpdate: historical lookup failed for ModelPriceID=%d model=%s: %v; skipping recalc", currentModelPriceID, model, err)
+			return currentCost, domain.AttemptCostUpdate{}, false
+		}
+		if ok {
 			res = r
 		} else {
+			// p==nil: 历史记录确认不存在(极老数据或被硬删),安全回退到当前价。
 			res = GlobalCalculator().Calculate(model, metrics, multiplier)
 		}
 	} else {
