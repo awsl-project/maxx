@@ -439,7 +439,13 @@ func TestCalculator_CalculateByPriceID_LazyLoadCaches(t *testing.T) {
 
 	metrics := &usage.Metrics{InputTokens: 1_000_000}
 	for i := 0; i < 5; i++ {
-		_, _, _ = calc.CalculateByPriceID(42, metrics, DefaultMultiplier)
+		_, ok, err := calc.CalculateByPriceID(42, metrics, DefaultMultiplier)
+		if err != nil {
+			t.Fatalf("CalculateByPriceID(42) unexpected error on iter=%d: %v", i, err)
+		}
+		if !ok {
+			t.Fatalf("CalculateByPriceID(42) should return ok=true on iter=%d", i)
+		}
 	}
 	if calls != 1 {
 		t.Errorf("historicalLookup called %d times, want 1 (后续应命中缓存)", calls)
