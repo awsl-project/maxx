@@ -41,7 +41,7 @@ function formatMicroPrice(microUsd: number): string {
 // Helper to parse display price to micro USD
 function parsePriceToMicro(priceStr: string): number {
   const value = parseFloat(priceStr);
-  if (isNaN(value)) return 0;
+  if (isNaN(value) || value < 0) return 0;
   return Math.round(value * 1_000_000);
 }
 

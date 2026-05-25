@@ -127,28 +127,10 @@ func (a *Adapter) ExtractInfo(req *http.Request, clientType domain.ClientType) (
 }
 
 func (a *Adapter) extractModel(req *http.Request, clientType domain.ClientType, body []byte) string {
-	// For Gemini, try URL first
-	if clientType == domain.ClientTypeGemini {
-		path := req.URL.Path
-		if matches := geminiModelPattern.FindStringSubmatch(path); len(matches) > 1 {
-			return matches[1]
-		}
-		if matches := geminiInternalPattern.FindStringSubmatch(path); len(matches) > 1 {
-			return matches[1]
-		}
-	}
-
-	// Try body
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return ""
-	}
-
-	if model, ok := data["model"].(string); ok {
-		return model
-	}
-
-	return ""
+	// Delegate to the exported ExtractModel (same Gemini-URL → JSON → multipart
+	// logic) so ExtractInfo stays multipart-aware (e.g. images/edits) instead of
+	// silently returning "" for non-JSON bodies. Note the arg-order difference.
+	return a.ExtractModel(req, body, clientType)
 }
 
 func (a *Adapter) extractSessionID(req *http.Request, clientType domain.ClientType, body []byte) string {
