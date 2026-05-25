@@ -22,6 +22,11 @@ type ModelPricing struct {
 	Cache5mWritePriceMicro uint64 `json:"cache5mWritePriceMicro,omitempty"` // 5分钟缓存（默认 input * 5/4）
 	Cache1hWritePriceMicro uint64 `json:"cache1hWritePriceMicro,omitempty"` // 1小时缓存（默认 input * 2）
 
+	// 图像 token 价格 (microUSD/M)，图像生成模型（gpt-image-*）专用，0 表示无独立
+	// 图像价位（图像 token 回退到 Input/OutputPriceMicro）
+	ImageInputPriceMicro  uint64 `json:"imageInputPriceMicro,omitempty"`  // 图像输入
+	ImageOutputPriceMicro uint64 `json:"imageOutputPriceMicro,omitempty"` // 图像输出
+
 	// 1M Context Window 分层定价 (Claude Sonnet 4/4.5)
 	Has1MContext       bool   `json:"has1mContext"`                 // 是否支持 1M context
 	Context1MThreshold uint64 `json:"context1mThreshold,omitempty"` // 阈值（默认 200,000）
@@ -163,6 +168,8 @@ func ConvertToDBPrices(pt *PriceTable) []*domain.ModelPrice {
 			CacheReadPriceMicro:    mp.CacheReadPriceMicro,
 			Cache5mWritePriceMicro: mp.Cache5mWritePriceMicro,
 			Cache1hWritePriceMicro: mp.Cache1hWritePriceMicro,
+			ImageInputPriceMicro:   mp.ImageInputPriceMicro,
+			ImageOutputPriceMicro:  mp.ImageOutputPriceMicro,
 			Has1MContext:           mp.Has1MContext,
 			Context1MThreshold:     mp.Context1MThreshold,
 			InputPremiumNum:        mp.InputPremiumNum,

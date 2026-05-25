@@ -333,6 +333,8 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 				if event.Metrics != nil {
 					attempt.InputTokenCount = event.Metrics.InputTokens
 					attempt.OutputTokenCount = event.Metrics.OutputTokens
+					attempt.InputImageTokenCount = event.Metrics.InputImageTokens
+					attempt.OutputImageTokenCount = event.Metrics.OutputImageTokens
 					attempt.CacheReadCount = event.Metrics.CacheReadCount
 					attempt.CacheWriteCount = event.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = event.Metrics.Cache5mCreationCount
@@ -413,6 +415,8 @@ func (e *Executor) processAdapterEventsRealtime(
 				if ev.Metrics != nil {
 					attempt.InputTokenCount = ev.Metrics.InputTokens
 					attempt.OutputTokenCount = ev.Metrics.OutputTokens
+					attempt.InputImageTokenCount = ev.Metrics.InputImageTokens
+					attempt.OutputImageTokenCount = ev.Metrics.OutputImageTokens
 					attempt.CacheReadCount = ev.Metrics.CacheReadCount
 					attempt.CacheWriteCount = ev.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = ev.Metrics.Cache5mCreationCount

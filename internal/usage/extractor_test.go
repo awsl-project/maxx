@@ -238,6 +238,67 @@ func TestStreamCollector_ConsistentWithFullBuffer(t *testing.T) {
 	}
 }
 
+// TestExtractFromResponse_GptImageGenerations guards billing for the OpenAI
+// Images API (gpt-image-2). The non-streaming response carries a top-level
+// usage object that names tokens input_tokens/output_tokens (same as Claude),
+// so the existing extractor must pick them up unchanged. If this breaks,
+// gpt-image-2 requests would silently bill at zero cost.
+func TestExtractFromResponse_GptImageGenerations(t *testing.T) {
+	body := `{
+		"created": 1700000000,
+		"data": [{"b64_json": "iVBOR..."}],
+		"usage": {
+			"total_tokens": 150,
+			"input_tokens": 50,
+			"output_tokens": 100,
+			"input_tokens_details": {"text_tokens": 50, "image_tokens": 0}
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected metrics from images generations response, got nil")
+	}
+	if m.InputTokens != 50 {
+		t.Errorf("InputTokens = %d, want 50", m.InputTokens)
+	}
+	if m.OutputTokens != 100 {
+		t.Errorf("OutputTokens = %d, want 100", m.OutputTokens)
+	}
+}
+
+// TestExtractFromResponse_GptImageEditsTokenSplit guards extraction of the
+// image-token breakdown (input_tokens_details / output_tokens_details) from a
+// real gpt-image-2 edits response, so pricing can bill image tokens at the image
+// rate. These are subsets of input/output tokens.
+func TestExtractFromResponse_GptImageEditsTokenSplit(t *testing.T) {
+	body := `{
+		"created": 1700000000,
+		"data": [{"b64_json": "iVBOR..."}],
+		"usage": {
+			"total_tokens": 224,
+			"input_tokens": 28,
+			"output_tokens": 196,
+			"input_tokens_details": {"text_tokens": 12, "image_tokens": 16},
+			"output_tokens_details": {"text_tokens": 0, "image_tokens": 196}
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected metrics, got nil")
+	}
+	if m.InputTokens != 28 || m.OutputTokens != 196 {
+		t.Errorf("tokens = in %d / out %d, want 28 / 196", m.InputTokens, m.OutputTokens)
+	}
+	if m.InputImageTokens != 16 {
+		t.Errorf("InputImageTokens = %d, want 16", m.InputImageTokens)
+	}
+	if m.OutputImageTokens != 196 {
+		t.Errorf("OutputImageTokens = %d, want 196", m.OutputImageTokens)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Benchmarks: Old (full-buffer) vs New (incremental)
 // ---------------------------------------------------------------------------

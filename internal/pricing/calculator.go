@@ -227,6 +227,8 @@ func applyPrice(price *domain.ModelPrice, metrics *usage.Metrics, multiplier uin
 type effectivePrice struct {
 	InputMicro         uint64
 	OutputMicro        uint64
+	ImageInputMicro    uint64
+	ImageOutputMicro   uint64
 	CacheReadMicro     uint64
 	Cache5mWriteMicro  uint64
 	Cache1hWriteMicro  uint64
@@ -242,6 +244,8 @@ func resolveEffective(p *domain.ModelPrice) effectivePrice {
 	e := effectivePrice{
 		InputMicro:         p.InputPriceMicro,
 		OutputMicro:        p.OutputPriceMicro,
+		ImageInputMicro:    p.ImageInputPriceMicro,
+		ImageOutputMicro:   p.ImageOutputPriceMicro,
 		CacheReadMicro:     p.CacheReadPriceMicro,
 		Cache5mWriteMicro:  p.Cache5mWritePriceMicro,
 		Cache1hWriteMicro:  p.Cache1hWritePriceMicro,
@@ -251,6 +255,14 @@ func resolveEffective(p *domain.ModelPrice) effectivePrice {
 		InputPremDenom:     p.InputPremiumDenom,
 		OutputPremNum:      p.OutputPremiumNum,
 		OutputPremDenom:    p.OutputPremiumDenom,
+	}
+	// 没配独立图像价位的模型(普通文本模型)回退到文本输入/输出价——配合
+	// computeCost 里 image token 恒为 0,这条 fallback 对文本模型完全无副作用。
+	if e.ImageInputMicro == 0 {
+		e.ImageInputMicro = e.InputMicro
+	}
+	if e.ImageOutputMicro == 0 {
+		e.ImageOutputMicro = e.OutputMicro
 	}
 	if e.CacheReadMicro == 0 {
 		e.CacheReadMicro = e.InputMicro / 10
@@ -283,19 +295,40 @@ func computeCost(p *domain.ModelPrice, m *usage.Metrics) uint64 {
 	e := resolveEffective(p)
 	var total uint64
 
-	if m.InputTokens > 0 {
+	// 图像 token 是 input/output 的子集(gpt-image-*),按图像价线性计;剩余的文本
+	// token 走原有 文本价/1M 分层逻辑。对文本模型 image=0,完全等价于旧实现。
+	// clamp 防御:上游若把 image 报得比总数还大,避免 uint64 下溢。
+	inputImage := m.InputImageTokens
+	if inputImage > m.InputTokens {
+		inputImage = m.InputTokens
+	}
+	inputText := m.InputTokens - inputImage
+
+	outputImage := m.OutputImageTokens
+	if outputImage > m.OutputTokens {
+		outputImage = m.OutputTokens
+	}
+	outputText := m.OutputTokens - outputImage
+
+	if inputText > 0 {
 		if e.Has1MContext {
-			total += CalculateTieredCost(m.InputTokens, e.InputMicro, e.InputPremNum, e.InputPremDenom, e.Context1MThreshold)
+			total += CalculateTieredCost(inputText, e.InputMicro, e.InputPremNum, e.InputPremDenom, e.Context1MThreshold)
 		} else {
-			total += CalculateLinearCost(m.InputTokens, e.InputMicro)
+			total += CalculateLinearCost(inputText, e.InputMicro)
 		}
 	}
-	if m.OutputTokens > 0 {
+	if inputImage > 0 {
+		total += CalculateLinearCost(inputImage, e.ImageInputMicro)
+	}
+	if outputText > 0 {
 		if e.Has1MContext {
-			total += CalculateTieredCost(m.OutputTokens, e.OutputMicro, e.OutputPremNum, e.OutputPremDenom, e.Context1MThreshold)
+			total += CalculateTieredCost(outputText, e.OutputMicro, e.OutputPremNum, e.OutputPremDenom, e.Context1MThreshold)
 		} else {
-			total += CalculateLinearCost(m.OutputTokens, e.OutputMicro)
+			total += CalculateLinearCost(outputText, e.OutputMicro)
 		}
+	}
+	if outputImage > 0 {
+		total += CalculateLinearCost(outputImage, e.ImageOutputMicro)
 	}
 	if m.CacheReadCount > 0 {
 		total += CalculateLinearCost(m.CacheReadCount, e.CacheReadMicro)

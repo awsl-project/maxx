@@ -45,6 +45,8 @@ func FinalizeAttemptCost(attempt *domain.ProxyUpstreamAttempt, multiplier uint64
 	res := GlobalCalculator().Calculate(pricingModel, &usage.Metrics{
 		InputTokens:          attempt.InputTokenCount,
 		OutputTokens:         attempt.OutputTokenCount,
+		InputImageTokens:     attempt.InputImageTokenCount,
+		OutputImageTokens:    attempt.OutputImageTokenCount,
 		CacheReadCount:       attempt.CacheReadCount,
 		CacheCreationCount:   attempt.CacheWriteCount,
 		Cache5mCreationCount: attempt.Cache5mWriteCount,

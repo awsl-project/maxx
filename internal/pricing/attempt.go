@@ -22,10 +22,12 @@ func PricingModel(responseModel, mappedModel, requestModel string) string {
 
 // attemptMetrics 把 attempt 上的 *Count 字段映射到 usage.Metrics 命名。
 // 仅 pricing 包内部使用,屏蔽两种 attempt 类型(ProxyUpstreamAttempt / AttemptCostData)的字段差异。
-func attemptMetrics(in, out, cacheRead, cacheWrite, c5m, c1h uint64) *usage.Metrics {
+func attemptMetrics(in, out, inImg, outImg, cacheRead, cacheWrite, c5m, c1h uint64) *usage.Metrics {
 	return &usage.Metrics{
 		InputTokens:          in,
 		OutputTokens:         out,
+		InputImageTokens:     inImg,
+		OutputImageTokens:    outImg,
 		CacheReadCount:       cacheRead,
 		CacheCreationCount:   cacheWrite,
 		Cache5mCreationCount: c5m,
@@ -78,7 +80,7 @@ func RecalcAttemptUpdate(model string, metrics *usage.Metrics, multiplier, curre
 func RecalcFromAttempt(a *domain.ProxyUpstreamAttempt) (uint64, domain.AttemptCostUpdate, bool) {
 	return RecalcAttemptUpdate(
 		PricingModel(a.ResponseModel, a.MappedModel, a.RequestModel),
-		attemptMetrics(a.InputTokenCount, a.OutputTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount),
+		attemptMetrics(a.InputTokenCount, a.OutputTokenCount, a.InputImageTokenCount, a.OutputImageTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount),
 		a.Multiplier, a.Cost, a.ModelPriceID,
 	)
 }
@@ -87,7 +89,7 @@ func RecalcFromAttempt(a *domain.ProxyUpstreamAttempt) (uint64, domain.AttemptCo
 func RecalcFromCostData(a *domain.AttemptCostData) (uint64, domain.AttemptCostUpdate, bool) {
 	return RecalcAttemptUpdate(
 		PricingModel(a.ResponseModel, a.MappedModel, a.RequestModel),
-		attemptMetrics(a.InputTokenCount, a.OutputTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount),
+		attemptMetrics(a.InputTokenCount, a.OutputTokenCount, a.InputImageTokenCount, a.OutputImageTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount),
 		a.Multiplier, a.Cost, a.ModelPriceID,
 	)
 }

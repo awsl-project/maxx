@@ -289,7 +289,7 @@ func InitializeServerComponents(
 	}
 
 	// Initialize model prices and load into Calculator
-	if err := initializeModelPrices(repos.ModelPriceRepo); err != nil {
+	if err := InitializeModelPrices(repos.ModelPriceRepo); err != nil {
 		log.Printf("[Core] Warning: Failed to initialize model prices: %v", err)
 	}
 
@@ -517,10 +517,14 @@ func CloseDatabase(repos *DatabaseRepos) error {
 	return nil
 }
 
-// initializeModelPrices 初始化模型价格
-// 如果数据库为空，从内置默认价格表导入
-// 然后加载到全局 Calculator
-func initializeModelPrices(repo repository.ModelPriceRepository) error {
+// InitializeModelPrices 初始化模型价格:
+//   - 数据库为空时从内置默认价格表 seed
+//   - 把当前价加载到全局 Calculator
+//   - 注入历史价反查(按 attempt.ModelPriceID 还原当时价做重算)
+//
+// 导出供 CLI 入口(cmd/maxx)装配——它不走 InitializeServerComponents,否则
+// 启动后 Calculator 只有内置默认价,DB 改价/版本化/历史重算全部失效。
+func InitializeModelPrices(repo repository.ModelPriceRepository) error {
 	// 检查是否有价格记录
 	count, err := repo.Count()
 	if err != nil {

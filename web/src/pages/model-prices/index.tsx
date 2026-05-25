@@ -52,6 +52,8 @@ interface PriceFormData {
   cacheReadPrice: string;
   cache5mWritePrice: string;
   cache1hWritePrice: string;
+  imageInputPrice: string;
+  imageOutputPrice: string;
   has1mContext: boolean;
   context1mThreshold: string;
   inputPremiumNum: string;
@@ -67,6 +69,8 @@ const defaultFormData: PriceFormData = {
   cacheReadPrice: '0.30',
   cache5mWritePrice: '3.75',
   cache1hWritePrice: '6.00',
+  imageInputPrice: '0.00',
+  imageOutputPrice: '0.00',
   has1mContext: false,
   context1mThreshold: '200000',
   inputPremiumNum: '2',
@@ -83,6 +87,8 @@ function priceToFormData(price: ModelPrice): PriceFormData {
     cacheReadPrice: (price.cacheReadPriceMicro / 1_000_000).toFixed(2),
     cache5mWritePrice: (price.cache5mWritePriceMicro / 1_000_000).toFixed(2),
     cache1hWritePrice: (price.cache1hWritePriceMicro / 1_000_000).toFixed(2),
+    imageInputPrice: ((price.imageInputPriceMicro || 0) / 1_000_000).toFixed(2),
+    imageOutputPrice: ((price.imageOutputPriceMicro || 0) / 1_000_000).toFixed(2),
     has1mContext: price.has1mContext,
     context1mThreshold: price.context1mThreshold.toString(),
     inputPremiumNum: price.inputPremiumNum.toString(),
@@ -100,6 +106,8 @@ function formDataToInput(form: PriceFormData): ModelPriceInput {
     cacheReadPriceMicro: parsePriceToMicro(form.cacheReadPrice),
     cache5mWritePriceMicro: parsePriceToMicro(form.cache5mWritePrice),
     cache1hWritePriceMicro: parsePriceToMicro(form.cache1hWritePrice),
+    imageInputPriceMicro: parsePriceToMicro(form.imageInputPrice),
+    imageOutputPriceMicro: parsePriceToMicro(form.imageOutputPrice),
     has1mContext: form.has1mContext,
     context1mThreshold: parseInt(form.context1mThreshold) || 0,
     inputPremiumNum: parseInt(form.inputPremiumNum) || 0,
@@ -356,6 +364,33 @@ export function ModelPricesPage() {
                   onChange={(e) => setFormData({ ...formData, cache1hWritePrice: e.target.value })}
                   className="font-mono text-sm"
                 />
+              </div>
+            </div>
+
+            {/* Image token prices (gpt-image-*); leave 0 for text models */}
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">{t('modelPrices.imagePricesHint')}</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{t('modelPrices.imageInputPrice')} ($/M)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.imageInputPrice}
+                    onChange={(e) => setFormData({ ...formData, imageInputPrice: e.target.value })}
+                    className="font-mono text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('modelPrices.imageOutputPrice')} ($/M)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.imageOutputPrice}
+                    onChange={(e) => setFormData({ ...formData, imageOutputPrice: e.target.value })}
+                    className="font-mono text-sm"
+                  />
+                </div>
               </div>
             </div>
 

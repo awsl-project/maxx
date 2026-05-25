@@ -135,6 +135,16 @@ func main() {
 		log.Printf("Warning: Failed to load cooldowns from database: %v", err)
 	}
 
+	// Seed/load model prices + wire historical price lookup. Same rationale as the
+	// Bedrock setter above: the CLI entry point does not go through
+	// core.InitializeServerComponents (the desktop launcher does), so without this
+	// the global Calculator keeps only its built-in default prices — DB price
+	// edits, versioning and historical-snapshot recalc would all be inert until
+	// the first admin price write. Non-fatal: on error billing degrades to builtins.
+	if err := core.InitializeModelPrices(modelPriceRepo); err != nil {
+		log.Printf("Warning: Failed to initialize model prices: %v", err)
+	}
+
 	// Generate instance ID
 	instanceID := generateInstanceID()
 

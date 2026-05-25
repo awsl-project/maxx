@@ -24,6 +24,9 @@ type AdapterMetrics struct {
 	CacheCreationCount   uint64
 	Cache5mCreationCount uint64
 	Cache1hCreationCount uint64
+	// 图像 token(gpt-image-*),是 Input/OutputTokens 的子集,用于按图像价位计费。
+	InputImageTokens  uint64
+	OutputImageTokens uint64
 }
 
 // AdapterEvent represents an event from adapter to executor

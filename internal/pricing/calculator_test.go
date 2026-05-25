@@ -251,6 +251,53 @@ func TestCalculator_LoadFromDatabase_KeepsBuiltinForUnoverridden(t *testing.T) {
 	}
 }
 
+func TestCalculator_GptImage2_BilledFromBuiltinDefaults(t *testing.T) {
+	// gpt-image-2 按 token 类型分档计费(对齐 LiteLLM):
+	//   文本输入 $5/M, 图像输入 $8/M, 文本输出 $10/M, 图像输出 $30/M。
+	// 响应 usage 把 input/output token 拆成 text/image,Image* 是 Input/Output 的子集。
+	// 即便部署的 DB 早已 seed 过、不含 gpt-image-2 行,内置默认仍兜底(ModelPriceID=0)。
+	calc := NewCalculator()
+
+	// 用真实 edits 那一笔的 token 数: input 28 = 文本12 + 图像16, output 196 = 图像196。
+	got := calc.Calculate("gpt-image-2", &usage.Metrics{
+		InputTokens:       28,
+		InputImageTokens:  16,
+		OutputTokens:      196,
+		OutputImageTokens: 196,
+	}, 0)
+
+	// 文本输入 12×$5/M=60_000; 图像输入 16×$8/M=128_000; 文本输出 0;
+	// 图像输出 196×$30/M=5_880_000 → 合计 6_068_000 nanoUSD。
+	const want = 60_000 + 128_000 + 5_880_000
+	if got.Cost != want {
+		t.Errorf("gpt-image-2 cost = %d, want %d", got.Cost, want)
+	}
+	if got.ModelPriceID != 0 {
+		t.Errorf("gpt-image-2 ModelPriceID = %d, want 0 (builtin default)", got.ModelPriceID)
+	}
+
+	// 纯图像 1M in / 1M out → 图像输入 $8 + 图像输出 $30。
+	pure := calc.Calculate("gpt-image-2", &usage.Metrics{
+		InputTokens: 1_000_000, InputImageTokens: 1_000_000,
+		OutputTokens: 1_000_000, OutputImageTokens: 1_000_000,
+	}, 0)
+	const wantPure = 8_000_000_000 + 30_000_000_000
+	if pure.Cost != wantPure {
+		t.Errorf("gpt-image-2 pure-image cost = %d, want %d", pure.Cost, wantPure)
+	}
+}
+
+// TestCalculator_ImageTokenSplit_BackwardCompatible 确认没有图像 token 的普通文本
+// 模型计费完全不受新拆分逻辑影响(image 字段恒为 0 → 全额走文本价)。
+func TestCalculator_ImageTokenSplit_BackwardCompatible(t *testing.T) {
+	calc := NewCalculator()
+	// gpt-4o: input $2.50/M, 无 1M 分层。1M input、无图像 token → 纯线性文本价。
+	got := calc.Calculate("gpt-4o", &usage.Metrics{InputTokens: 1_000_000}, 0)
+	if got.Cost != 2_500_000_000 {
+		t.Errorf("text-model cost = %d, want 2_500_000_000 (image split must not change text billing)", got.Cost)
+	}
+}
+
 func TestCalculator_GetModelPriceByID(t *testing.T) {
 	calc := NewCalculator()
 	calc.LoadFromDatabase([]*domain.ModelPrice{

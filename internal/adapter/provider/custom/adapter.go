@@ -26,7 +26,6 @@ import (
 // Activated by setting MAXX_MOCK_MODE=1 environment variable.
 var mockMode = os.Getenv("MAXX_MOCK_MODE") == "1"
 
-
 func init() {
 	provider.RegisterAdapterFactory("custom", NewAdapter)
 }
@@ -72,16 +71,22 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Apply model mapping if configured
 	var err error
 	if mappedModel != "" {
-		// For Gemini, update model in URL path
-		if clientType == domain.ClientTypeGemini {
+		switch {
+		case clientType == domain.ClientTypeGemini:
+			// Gemini carries the model in the URL path, not the body.
 			requestURI = updateGeminiModelInPath(requestURI, mappedModel)
-		}
-		// For other types, update model in request body
-		requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
-		if err != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in body")
-			proxyErr.Scope = domain.ScopeRequest
-			return proxyErr
+		case isMultipartForm(request):
+			// OpenAI images/edits sends multipart/form-data; the model is a form
+			// field forwarded as the client set it. Rewriting (model mapping) a
+			// multipart body is unsupported — pass through unchanged so we don't
+			// corrupt the upload by JSON-encoding it.
+		default:
+			requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
+			if err != nil {
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in body")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
 		}
 	}
 
@@ -458,6 +463,8 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 			eventChan.SendMetrics(&domain.AdapterMetrics{
 				InputTokens:          metrics.InputTokens,
 				OutputTokens:         metrics.OutputTokens,
+				InputImageTokens:     metrics.InputImageTokens,
+				OutputImageTokens:    metrics.OutputImageTokens,
 				CacheReadCount:       metrics.CacheReadCount,
 				CacheCreationCount:   metrics.CacheCreationCount,
 				Cache5mCreationCount: metrics.Cache5mCreationCount,
@@ -555,6 +562,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			eventChan.SendMetrics(&domain.AdapterMetrics{
 				InputTokens:          metrics.InputTokens,
 				OutputTokens:         metrics.OutputTokens,
+				InputImageTokens:     metrics.InputImageTokens,
+				OutputImageTokens:    metrics.OutputImageTokens,
 				CacheReadCount:       metrics.CacheReadCount,
 				CacheCreationCount:   metrics.CacheCreationCount,
 				Cache5mCreationCount: metrics.Cache5mCreationCount,
@@ -772,6 +781,16 @@ func updateModelInBody(body []byte, model string, clientType domain.ClientType) 
 
 func buildUpstreamURL(baseURL string, requestPath string) string {
 	return strings.TrimSuffix(baseURL, "/") + requestPath
+}
+
+// isMultipartForm reports whether the request body is multipart/form-data
+// (e.g. OpenAI images/edits image upload), which must not be JSON-rewritten.
+func isMultipartForm(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	ct := strings.ToLower(strings.TrimSpace(req.Header.Get("Content-Type")))
+	return strings.HasPrefix(ct, "multipart/")
 }
 
 func shouldUseClaudeAPIKey(apiKey string, clientReq *http.Request) bool {

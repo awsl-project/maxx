@@ -67,24 +67,26 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 
 	for {
 		var results []struct {
-			ID                uint64 `gorm:"column:id"`
-			ProxyRequestID    uint64 `gorm:"column:proxy_request_id"`
-			ResponseModel     string `gorm:"column:response_model"`
-			MappedModel       string `gorm:"column:mapped_model"`
-			RequestModel      string `gorm:"column:request_model"`
-			InputTokenCount   uint64 `gorm:"column:input_token_count"`
-			OutputTokenCount  uint64 `gorm:"column:output_token_count"`
-			CacheReadCount    uint64 `gorm:"column:cache_read_count"`
-			CacheWriteCount   uint64 `gorm:"column:cache_write_count"`
-			Cache5mWriteCount uint64 `gorm:"column:cache_5m_write_count"`
-			Cache1hWriteCount uint64 `gorm:"column:cache_1h_write_count"`
-			Cost              uint64 `gorm:"column:cost"`
-			Multiplier        uint64 `gorm:"column:multiplier"`
-			ModelPriceID      uint64 `gorm:"column:model_price_id"`
+			ID                    uint64 `gorm:"column:id"`
+			ProxyRequestID        uint64 `gorm:"column:proxy_request_id"`
+			ResponseModel         string `gorm:"column:response_model"`
+			MappedModel           string `gorm:"column:mapped_model"`
+			RequestModel          string `gorm:"column:request_model"`
+			InputTokenCount       uint64 `gorm:"column:input_token_count"`
+			OutputTokenCount      uint64 `gorm:"column:output_token_count"`
+			InputImageTokenCount  uint64 `gorm:"column:input_image_token_count"`
+			OutputImageTokenCount uint64 `gorm:"column:output_image_token_count"`
+			CacheReadCount        uint64 `gorm:"column:cache_read_count"`
+			CacheWriteCount       uint64 `gorm:"column:cache_write_count"`
+			Cache5mWriteCount     uint64 `gorm:"column:cache_5m_write_count"`
+			Cache1hWriteCount     uint64 `gorm:"column:cache_1h_write_count"`
+			Cost                  uint64 `gorm:"column:cost"`
+			Multiplier            uint64 `gorm:"column:multiplier"`
+			ModelPriceID          uint64 `gorm:"column:model_price_id"`
 		}
 
 		err := r.db.gorm.Table("proxy_upstream_attempts").
-			Select("id, proxy_request_id, response_model, mapped_model, request_model, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, multiplier, model_price_id").
+			Select("id, proxy_request_id, response_model, mapped_model, request_model, input_token_count, output_token_count, input_image_token_count, output_image_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, multiplier, model_price_id").
 			Where("id > ?", lastID).
 			Order("id").
 			Limit(batchSize).
@@ -102,20 +104,22 @@ func (r *ProxyUpstreamAttemptRepository) StreamForCostCalc(batchSize int, callba
 		batch := make([]*domain.AttemptCostData, len(results))
 		for i, r := range results {
 			batch[i] = &domain.AttemptCostData{
-				ID:                r.ID,
-				ProxyRequestID:    r.ProxyRequestID,
-				ResponseModel:     r.ResponseModel,
-				MappedModel:       r.MappedModel,
-				RequestModel:      r.RequestModel,
-				InputTokenCount:   r.InputTokenCount,
-				OutputTokenCount:  r.OutputTokenCount,
-				CacheReadCount:    r.CacheReadCount,
-				CacheWriteCount:   r.CacheWriteCount,
-				Cache5mWriteCount: r.Cache5mWriteCount,
-				Cache1hWriteCount: r.Cache1hWriteCount,
-				Cost:              r.Cost,
-				Multiplier:        r.Multiplier,
-				ModelPriceID:      r.ModelPriceID,
+				ID:                    r.ID,
+				ProxyRequestID:        r.ProxyRequestID,
+				ResponseModel:         r.ResponseModel,
+				MappedModel:           r.MappedModel,
+				RequestModel:          r.RequestModel,
+				InputTokenCount:       r.InputTokenCount,
+				OutputTokenCount:      r.OutputTokenCount,
+				InputImageTokenCount:  r.InputImageTokenCount,
+				OutputImageTokenCount: r.OutputImageTokenCount,
+				CacheReadCount:        r.CacheReadCount,
+				CacheWriteCount:       r.CacheWriteCount,
+				Cache5mWriteCount:     r.Cache5mWriteCount,
+				Cache1hWriteCount:     r.Cache1hWriteCount,
+				Cost:                  r.Cost,
+				Multiplier:            r.Multiplier,
+				ModelPriceID:          r.ModelPriceID,
 			}
 		}
 
@@ -372,17 +376,19 @@ func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt)
 		ResponseModel:     a.ResponseModel,
 		RequestInfo:       LongText(toJSON(a.RequestInfo)),
 		ResponseInfo:      LongText(toJSON(a.ResponseInfo)),
-		RouteID:           a.RouteID,
-		ProviderID:        a.ProviderID,
-		InputTokenCount:   a.InputTokenCount,
-		OutputTokenCount:  a.OutputTokenCount,
-		CacheReadCount:    a.CacheReadCount,
-		CacheWriteCount:   a.CacheWriteCount,
-		Cache5mWriteCount: a.Cache5mWriteCount,
-		Cache1hWriteCount: a.Cache1hWriteCount,
-		ModelPriceID:      a.ModelPriceID,
-		Multiplier:        a.Multiplier,
-		Cost:              a.Cost,
+		RouteID:               a.RouteID,
+		ProviderID:            a.ProviderID,
+		InputTokenCount:       a.InputTokenCount,
+		OutputTokenCount:      a.OutputTokenCount,
+		InputImageTokenCount:  a.InputImageTokenCount,
+		OutputImageTokenCount: a.OutputImageTokenCount,
+		CacheReadCount:        a.CacheReadCount,
+		CacheWriteCount:       a.CacheWriteCount,
+		Cache5mWriteCount:     a.Cache5mWriteCount,
+		Cache1hWriteCount:     a.Cache1hWriteCount,
+		ModelPriceID:          a.ModelPriceID,
+		Multiplier:            a.Multiplier,
+		Cost:                  a.Cost,
 	}
 }
 
@@ -404,16 +410,18 @@ func (r *ProxyUpstreamAttemptRepository) toDomain(m *ProxyUpstreamAttempt) *doma
 		ResponseModel:     m.ResponseModel,
 		RequestInfo:       fromJSON[*domain.RequestInfo](string(m.RequestInfo)),
 		ResponseInfo:      fromJSON[*domain.ResponseInfo](string(m.ResponseInfo)),
-		RouteID:           m.RouteID,
-		ProviderID:        m.ProviderID,
-		InputTokenCount:   m.InputTokenCount,
-		OutputTokenCount:  m.OutputTokenCount,
-		CacheReadCount:    m.CacheReadCount,
-		CacheWriteCount:   m.CacheWriteCount,
-		Cache5mWriteCount: m.Cache5mWriteCount,
-		Cache1hWriteCount: m.Cache1hWriteCount,
-		ModelPriceID:      m.ModelPriceID,
-		Multiplier:        m.Multiplier,
+		RouteID:               m.RouteID,
+		ProviderID:            m.ProviderID,
+		InputTokenCount:       m.InputTokenCount,
+		OutputTokenCount:      m.OutputTokenCount,
+		InputImageTokenCount:  m.InputImageTokenCount,
+		OutputImageTokenCount: m.OutputImageTokenCount,
+		CacheReadCount:        m.CacheReadCount,
+		CacheWriteCount:       m.CacheWriteCount,
+		Cache5mWriteCount:     m.Cache5mWriteCount,
+		Cache1hWriteCount:     m.Cache1hWriteCount,
+		ModelPriceID:          m.ModelPriceID,
+		Multiplier:            m.Multiplier,
 		Cost:              m.Cost,
 	}
 }

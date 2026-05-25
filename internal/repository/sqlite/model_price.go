@@ -216,6 +216,8 @@ func (r *ModelPriceRepository) ResetToDefaults() ([]*domain.ModelPrice, error) {
 			CacheReadPriceMicro:    p.CacheReadPriceMicro,
 			Cache5mWritePriceMicro: p.Cache5mWritePriceMicro,
 			Cache1hWritePriceMicro: p.Cache1hWritePriceMicro,
+			ImageInputPriceMicro:   p.ImageInputPriceMicro,
+			ImageOutputPriceMicro:  p.ImageOutputPriceMicro,
 			Has1MContext:           p.Has1MContext,
 			Context1MThreshold:     p.GetContext1MThreshold(),
 			InputPremiumNum:        p.GetInputPremiumNum(),
@@ -292,6 +294,8 @@ func pricesEqual(current *ModelPrice, next *domain.ModelPrice) bool {
 		current.CacheReadPriceMicro == next.CacheReadPriceMicro &&
 		current.Cache5mWritePriceMicro == next.Cache5mWritePriceMicro &&
 		current.Cache1hWritePriceMicro == next.Cache1hWritePriceMicro &&
+		current.ImageInputPriceMicro == next.ImageInputPriceMicro &&
+		current.ImageOutputPriceMicro == next.ImageOutputPriceMicro &&
 		current.Has1MContext == nextHas1M &&
 		current.Context1MThreshold == next.Context1MThreshold &&
 		current.InputPremiumNum == next.InputPremiumNum &&
@@ -310,6 +314,8 @@ func (r *ModelPriceRepository) toDomain(m *ModelPrice) *domain.ModelPrice {
 		CacheReadPriceMicro:    m.CacheReadPriceMicro,
 		Cache5mWritePriceMicro: m.Cache5mWritePriceMicro,
 		Cache1hWritePriceMicro: m.Cache1hWritePriceMicro,
+		ImageInputPriceMicro:   m.ImageInputPriceMicro,
+		ImageOutputPriceMicro:  m.ImageOutputPriceMicro,
 		Has1MContext:           m.Has1MContext != 0,
 		Context1MThreshold:     m.Context1MThreshold,
 		InputPremiumNum:        m.InputPremiumNum,
@@ -333,6 +339,8 @@ func (r *ModelPriceRepository) fromDomain(p *domain.ModelPrice) *ModelPrice {
 		CacheReadPriceMicro:    p.CacheReadPriceMicro,
 		Cache5mWritePriceMicro: p.Cache5mWritePriceMicro,
 		Cache1hWritePriceMicro: p.Cache1hWritePriceMicro,
+		ImageInputPriceMicro:   p.ImageInputPriceMicro,
+		ImageOutputPriceMicro:  p.ImageOutputPriceMicro,
 		Has1MContext:           has1MContext,
 		Context1MThreshold:     p.Context1MThreshold,
 		InputPremiumNum:        p.InputPremiumNum,

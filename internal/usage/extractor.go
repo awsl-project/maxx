@@ -19,6 +19,13 @@ type Metrics struct {
 	CacheReadCount       uint64 `json:"cacheReadCount"`       // Cache read/hit tokens
 	Cache5mCreationCount uint64 `json:"cache5mCreationCount"` // 5-minute TTL cache creation tokens (price: input × 1.25)
 	Cache1hCreationCount uint64 `json:"cache1hCreationCount"` // 1-hour TTL cache creation tokens (price: input × 2.0)
+
+	// Image-token breakdown for the OpenAI Images API (gpt-image-*). These are
+	// SUBSETS of InputTokens/OutputTokens (e.g. input_tokens 28 = 12 text + 16
+	// image), carried separately so pricing can charge image tokens at the image
+	// rate instead of the text rate. Zero for text models.
+	InputImageTokens  uint64 `json:"inputImageTokens,omitempty"`
+	OutputImageTokens uint64 `json:"outputImageTokens,omitempty"`
 }
 
 // IsEmpty returns true if no tokens were extracted.
@@ -200,7 +207,27 @@ func extractClaudeUsage(usage map[string]interface{}) *Metrics {
 		metrics.CacheReadCount = uint64(v)
 	}
 
+	// OpenAI Images API (gpt-image-*) returns top-level usage handled here too.
+	applyImageTokenDetails(usage, metrics)
+
 	return metrics
+}
+
+// applyImageTokenDetails pulls the image-token breakdown out of an OpenAI Images
+// API usage object: input_tokens_details.image_tokens and
+// output_tokens_details.image_tokens. Subsets of input/output tokens, billed at
+// the image rate. No-op for text models (the *_details.image_tokens are absent).
+func applyImageTokenDetails(usage map[string]interface{}, m *Metrics) {
+	if d, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
+		if v, ok := d["image_tokens"].(float64); ok {
+			m.InputImageTokens = uint64(v)
+		}
+	}
+	if d, ok := usage["output_tokens_details"].(map[string]interface{}); ok {
+		if v, ok := d["image_tokens"].(float64); ok {
+			m.OutputImageTokens = uint64(v)
+		}
+	}
 }
 
 // extractOpenAIUsage extracts metrics from OpenAI usage format.
@@ -248,6 +275,8 @@ func extractOpenAIUsage(usage map[string]interface{}) *Metrics {
 	if v, ok := usage["cache_read_input_tokens"].(float64); ok {
 		metrics.CacheReadCount = uint64(v)
 	}
+
+	applyImageTokenDetails(usage, metrics)
 
 	return metrics
 }

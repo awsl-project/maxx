@@ -326,15 +326,17 @@ type ProxyUpstreamAttempt struct {
 	ProxyRequestID    uint64 `gorm:"index"`
 	RequestInfo       LongText
 	ResponseInfo      LongText
-	RouteID           uint64
-	ProviderID        uint64
-	InputTokenCount   uint64
-	OutputTokenCount  uint64
-	CacheReadCount    uint64
-	CacheWriteCount   uint64
-	Cache5mWriteCount uint64 `gorm:"column:cache_5m_write_count"`
-	Cache1hWriteCount uint64 `gorm:"column:cache_1h_write_count"`
-	ModelPriceID      uint64 // 使用的模型价格记录ID
+	RouteID               uint64
+	ProviderID            uint64
+	InputTokenCount       uint64
+	OutputTokenCount      uint64
+	InputImageTokenCount  uint64
+	OutputImageTokenCount uint64
+	CacheReadCount        uint64
+	CacheWriteCount       uint64
+	Cache5mWriteCount     uint64 `gorm:"column:cache_5m_write_count"`
+	Cache1hWriteCount     uint64 `gorm:"column:cache_1h_write_count"`
+	ModelPriceID          uint64 // 使用的模型价格记录ID
 	Multiplier        uint64 // 倍率（10000=1倍）
 	Cost              uint64
 	IsStream          int
@@ -445,6 +447,8 @@ type ModelPrice struct {
 	CacheReadPriceMicro    uint64
 	Cache5mWritePriceMicro uint64 `gorm:"column:cache_5m_write_price_micro"`
 	Cache1hWritePriceMicro uint64 `gorm:"column:cache_1h_write_price_micro"`
+	ImageInputPriceMicro   uint64
+	ImageOutputPriceMicro  uint64
 	Has1MContext           int
 	Context1MThreshold     uint64 `gorm:"column:context_1m_threshold"`
 	InputPremiumNum        uint64

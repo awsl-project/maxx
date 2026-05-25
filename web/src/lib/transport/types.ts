@@ -1214,6 +1214,9 @@ export interface ModelPrice {
   cacheReadPriceMicro: number;
   cache5mWritePriceMicro: number;
   cache1hWritePriceMicro: number;
+  /** 图像 token 价格（gpt-image-*）；后端 omitempty，文本模型上可能缺省 */
+  imageInputPriceMicro?: number;
+  imageOutputPriceMicro?: number;
   has1mContext: boolean;
   context1mThreshold: number;
   inputPremiumNum: number;
@@ -1230,6 +1233,8 @@ export interface ModelPriceInput {
   cacheReadPriceMicro?: number;
   cache5mWritePriceMicro?: number;
   cache1hWritePriceMicro?: number;
+  imageInputPriceMicro?: number;
+  imageOutputPriceMicro?: number;
   has1mContext?: boolean;
   context1mThreshold?: number;
   inputPremiumNum?: number;
