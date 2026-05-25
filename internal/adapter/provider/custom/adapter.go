@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"regexp"
@@ -76,10 +78,17 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			// Gemini carries the model in the URL path, not the body.
 			requestURI = updateGeminiModelInPath(requestURI, mappedModel)
 		case isMultipartForm(request):
-			// OpenAI images/edits sends multipart/form-data; the model is a form
-			// field forwarded as the client set it. Rewriting (model mapping) a
-			// multipart body is unsupported — pass through unchanged so we don't
-			// corrupt the upload by JSON-encoding it.
+			// OpenAI images/edits sends multipart/form-data, so the JSON rewrite
+			// in updateModelInBody can't be used (it would corrupt the upload).
+			// Rewrite only the "model" form field and copy every other part
+			// (including the image) through unchanged, so configured model
+			// mapping still takes effect instead of being silently dropped.
+			requestBody, err = updateModelInMultipartForm(requestBody, request, mappedModel)
+			if err != nil {
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in multipart body")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
 		default:
 			requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
 			if err != nil {
@@ -777,6 +786,70 @@ func updateModelInBody(body []byte, model string, clientType domain.ClientType) 
 	}
 	req["model"] = model
 	return json.Marshal(req)
+}
+
+// updateModelInMultipartForm rewrites the "model" form field of a
+// multipart/form-data body (OpenAI images/edits) to the mapped model, copying
+// every other part — including the uploaded image — through unchanged. It
+// reuses the request's original boundary so the existing Content-Type header
+// stays valid (no header rewrite needed). If the body carries no "model" field,
+// one is appended so a configured mapping still applies.
+func updateModelInMultipartForm(body []byte, req *http.Request, model string) ([]byte, error) {
+	if req == nil {
+		return nil, fmt.Errorf("nil request for multipart model rewrite")
+	}
+	_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, err
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		return nil, fmt.Errorf("multipart body without boundary")
+	}
+
+	mr := multipart.NewReader(bytes.NewReader(body), boundary)
+	var out bytes.Buffer
+	mw := multipart.NewWriter(&out)
+	// Preserve the original boundary so the inbound Content-Type header (copied
+	// to the upstream request) still matches the re-encoded body.
+	if err := mw.SetBoundary(boundary); err != nil {
+		return nil, err
+	}
+
+	replaced := false
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		w, err := mw.CreatePart(part.Header)
+		if err != nil {
+			_ = part.Close()
+			return nil, err
+		}
+		if part.FormName() == "model" {
+			_, err = io.WriteString(w, model)
+			replaced = true
+		} else {
+			_, err = io.Copy(w, part)
+		}
+		_ = part.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !replaced {
+		if err := mw.WriteField("model", model); err != nil {
+			return nil, err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 func buildUpstreamURL(baseURL string, requestPath string) string {

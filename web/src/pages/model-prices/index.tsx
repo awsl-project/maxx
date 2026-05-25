@@ -376,6 +376,7 @@ export function ModelPricesPage() {
                   <Input
                     type="number"
                     step="0.01"
+                    min="0"
                     value={formData.imageInputPrice}
                     onChange={(e) => setFormData({ ...formData, imageInputPrice: e.target.value })}
                     className="font-mono text-sm"
@@ -386,6 +387,7 @@ export function ModelPricesPage() {
                   <Input
                     type="number"
                     step="0.01"
+                    min="0"
                     value={formData.imageOutputPrice}
                     onChange={(e) => setFormData({ ...formData, imageOutputPrice: e.target.value })}
                     className="font-mono text-sm"
