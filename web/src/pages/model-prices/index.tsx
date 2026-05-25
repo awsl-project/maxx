@@ -316,6 +316,7 @@ export function ModelPricesPage() {
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.inputPrice}
                   onChange={(e) => setFormData({ ...formData, inputPrice: e.target.value })}
                   className="font-mono"
@@ -326,6 +327,7 @@ export function ModelPricesPage() {
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.outputPrice}
                   onChange={(e) => setFormData({ ...formData, outputPrice: e.target.value })}
                   className="font-mono"
@@ -340,6 +342,7 @@ export function ModelPricesPage() {
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.cacheReadPrice}
                   onChange={(e) => setFormData({ ...formData, cacheReadPrice: e.target.value })}
                   className="font-mono text-sm"
@@ -350,6 +353,7 @@ export function ModelPricesPage() {
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.cache5mWritePrice}
                   onChange={(e) => setFormData({ ...formData, cache5mWritePrice: e.target.value })}
                   className="font-mono text-sm"
@@ -360,6 +364,7 @@ export function ModelPricesPage() {
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.cache1hWritePrice}
                   onChange={(e) => setFormData({ ...formData, cache1hWritePrice: e.target.value })}
                   className="font-mono text-sm"
