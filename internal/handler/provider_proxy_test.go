@@ -163,25 +163,47 @@ func TestProjectAPIPathAllowsExactGeminiModelList(t *testing.T) {
 
 // TestProjectAPIPathAllowsImagesEndpoints pins the contract that
 // /v1/images/generations and /v1/images/edits work under the /project/<slug>/
-// prefix. proxy_routes.go registers them at the root mux; this whitelist must
-// stay in sync, otherwise project-scoped image requests 404 with
-// "invalid project proxy path".
+// prefix and nothing else under /v1/images/ leaks through. proxy_routes.go
+// only registers those two endpoints at the root mux; this whitelist must
+// stay equally tight, otherwise project-scoped routes become more permissive
+// than the root contract.
 func TestProjectAPIPathAllowsImagesEndpoints(t *testing.T) {
 	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
 		if !isValidAPIPath(path) {
 			t.Fatalf("expected %q to be valid for project proxy URLs", path)
 		}
 	}
+	for _, path := range []string{
+		"/v1/images",
+		"/v1/images/",
+		"/v1/images/variations",
+		"/v1/images/generations/extra",
+		"/v1/images/random",
+	} {
+		if isValidAPIPath(path) {
+			t.Fatalf("did not expect %q to pass the project proxy whitelist", path)
+		}
+	}
 }
 
 // TestProviderAPIPathAllowsImagesEndpoints pins the same contract for the
-// sibling /provider/<id>/ prefix. Both whitelists must stay in sync with
-// proxy_routes.go; otherwise provider-scoped image requests 404 with
-// "invalid provider proxy path".
+// sibling /provider/<id>/ prefix: only the two registered endpoints, no
+// broader prefix match.
 func TestProviderAPIPathAllowsImagesEndpoints(t *testing.T) {
 	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
 		if !isValidProviderAPIPath(path) {
 			t.Fatalf("expected %q to be valid for provider proxy URLs", path)
+		}
+	}
+	for _, path := range []string{
+		"/v1/images",
+		"/v1/images/",
+		"/v1/images/variations",
+		"/v1/images/generations/extra",
+		"/v1/images/random",
+	} {
+		if isValidProviderAPIPath(path) {
+			t.Fatalf("did not expect %q to pass the provider proxy whitelist", path)
 		}
 	}
 }
