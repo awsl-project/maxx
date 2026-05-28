@@ -326,6 +326,12 @@ func isValidProviderAPIPath(path string) bool {
 	if path == "/v1/chat/completions" || strings.HasPrefix(path, "/v1/chat/completions/") {
 		return true
 	}
+	// OpenAI Images API (gpt-image-* generation + edits). Same sync gap as
+	// isValidAPIPath: without this branch, /provider/<id>/v1/images/generations
+	// 404s even though proxy_routes.go registers /v1/images/* at the root mux.
+	if strings.HasPrefix(path, "/v1/images/") {
+		return true
+	}
 	if path == "/responses" || strings.HasPrefix(path, "/responses/") {
 		return true
 	}

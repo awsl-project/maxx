@@ -174,6 +174,18 @@ func TestProjectAPIPathAllowsImagesEndpoints(t *testing.T) {
 	}
 }
 
+// TestProviderAPIPathAllowsImagesEndpoints pins the same contract for the
+// sibling /provider/<id>/ prefix. Both whitelists must stay in sync with
+// proxy_routes.go; otherwise provider-scoped image requests 404 with
+// "invalid provider proxy path".
+func TestProviderAPIPathAllowsImagesEndpoints(t *testing.T) {
+	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
+		if !isValidProviderAPIPath(path) {
+			t.Fatalf("expected %q to be valid for provider proxy URLs", path)
+		}
+	}
+}
+
 func TestProjectProxyRoutesGeminiModelListToModelsHandler(t *testing.T) {
 	modelsHandler := NewModelsHandler(&fakeResponseModelRepo{names: []string{"gpt-1"}}, nil, nil)
 	handler := NewProjectProxyHandler(nil, modelsHandler, &fakeProjectRepo{
