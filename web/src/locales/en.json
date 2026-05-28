@@ -591,6 +591,8 @@
       "provider": "Provider",
       "project": "Project",
       "position": "Position (lower = higher priority)",
+      "weight": "Weight (load balancing)",
+      "weightHelp": "Used by the weighted-random routing strategy. Higher = more likely to be picked. Default 1.",
       "modelMapping": "Model Mapping (Override)",
       "enabled": "Enabled",
       "selectProvider": "Select provider...",
@@ -852,7 +854,17 @@
     "newTitle": "New Routing Strategy",
     "priorityByPosition": "Priority (by position)",
     "id": "ID",
-    "noStrategies": "No strategies"
+    "noStrategies": "No strategies",
+    "description": "Choose how upstream providers are picked when more than one matches.",
+    "stickyEnabled": "Session affinity (sticky)",
+    "stickyHelp": "After a successful pick, remember the binding for a TTL window so the same session keeps hitting the same upstream (maximizes prompt cache hits). Bindings auto-invalidate when route config changes or the target enters cooldown.",
+    "stickyScope": "Affinity scope",
+    "stickyScopeToken": "By API token (coarser, better cache hits)",
+    "stickyScopeConversation": "By conversation (finer, more entries)",
+    "stickyScopeTokenHelp": "All sessions sharing one API token land on the same provider.",
+    "stickyScopeConversationHelp": "Each (token, session id) gets its own binding.",
+    "stickyTTL": "TTL (seconds)",
+    "stickyTTLHelp": "Default 1800 (30 min). Shorter = adapts faster to weight changes; longer = stickier affinity."
   },
   "documentation": {
     "title": "Documentation",

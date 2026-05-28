@@ -625,7 +625,23 @@ var (
 type RoutingStrategyConfig struct {
 	// 加权随机策略的权重配置等
 	// 根据具体策略扩展
+
+	// Sticky / session-affinity 配置（用于 weighted_random 策略；priority 下忽略）
+	// 启用后：同一 (api token[+session]) 命中过的 provider 会在 TTL 内被记住，
+	// 后续请求优先尝试它（最大化上游 prompt cache 命中率）。
+	StickyEnabled    bool                 `json:"stickyEnabled,omitempty"`
+	StickyScope      RoutingStickyScope   `json:"stickyScope,omitempty"`      // "token" | "conversation"，默认 "token"
+	StickyTTLSeconds int                  `json:"stickyTTLSeconds,omitempty"` // 默认 1800（30 分钟），<=0 取默认
 }
+
+type RoutingStickyScope string
+
+const (
+	// 按 API token 粘性：同 token 的所有 session 都打同一 provider（命中率高，亲和粒度粗）
+	RoutingStickyScopeToken RoutingStickyScope = "token"
+	// 按 conversation 粘性：(token, sessionID) 粘性（亲和粒度细，sticky 项更多）
+	RoutingStickyScopeConversation RoutingStickyScope = "conversation"
+)
 
 // 路由策略
 type RoutingStrategy struct {

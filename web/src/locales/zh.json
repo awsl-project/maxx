@@ -590,6 +590,8 @@
       "provider": "提供商",
       "project": "项目",
       "position": "位置 (数值越小优先级越高)",
+      "weight": "权重 (负载均衡)",
+      "weightHelp": "用于加权随机路由策略。值越大被选中概率越高，默认 1。",
       "modelMapping": "模型映射 (覆盖)",
       "enabled": "启用",
       "selectProvider": "选择提供商...",
@@ -851,7 +853,17 @@
     "newTitle": "新建路由策略",
     "priorityByPosition": "按位置优先级",
     "id": "ID",
-    "noStrategies": "暂无策略"
+    "noStrategies": "暂无策略",
+    "description": "在多条路由命中时选择如何分发上游 provider。",
+    "stickyEnabled": "Session 亲和（粘性）",
+    "stickyHelp": "成功命中后在 TTL 内记住绑定，让同一 session 持续打到同一 provider（最大化上游 prompt cache 命中）。路由配置变更或目标进入冷却时绑定自动失效。",
+    "stickyScope": "亲和粒度",
+    "stickyScopeToken": "按 API token（粗，命中率高）",
+    "stickyScopeConversation": "按 conversation（细，条目多）",
+    "stickyScopeTokenHelp": "同一 API token 下的所有 session 都落到同一 provider。",
+    "stickyScopeConversationHelp": "每个 (token, session id) 各自绑定。",
+    "stickyTTL": "TTL（秒）",
+    "stickyTTLHelp": "默认 1800（30 分钟）。短 = 更快响应权重变化；长 = 亲和更稳。"
   },
   "documentation": {
     "title": "文档",

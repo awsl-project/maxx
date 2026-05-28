@@ -1,14 +1,20 @@
 package router
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"math/rand"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository/cached"
+	"github.com/awsl-project/maxx/internal/sticky"
 )
 
 // MatchedRoute contains all data needed to execute a proxy request
@@ -19,6 +25,22 @@ type MatchedRoute struct {
 	RetryConfig     *domain.RetryConfig
 }
 
+// MatchResult is the output of Match. Routes are the ordered candidates the
+// dispatcher should try (first = preferred). Sticky, when non-nil, carries
+// the key the dispatcher must SETEX after a successful upstream call so the
+// affinity layer learns the binding.
+type MatchResult struct {
+	Routes []*MatchedRoute
+	Sticky *StickyWrite
+}
+
+// StickyWrite is the write-back context handed to the dispatcher. It is only
+// populated when the routing strategy has sticky enabled.
+type StickyWrite struct {
+	Key sticky.Key
+	TTL time.Duration
+}
+
 // MatchContext contains all context needed for route matching
 type MatchContext struct {
 	TenantID     uint64
@@ -26,6 +48,7 @@ type MatchContext struct {
 	ProjectID    uint64
 	RequestModel string
 	APITokenID   uint64
+	SessionID    string
 }
 
 // Router handles route matching and selection
@@ -118,8 +141,9 @@ func (r *Router) GetAdapter(providerID uint64) (provider.ProviderAdapter, bool) 
 	return a, ok
 }
 
-// Match returns matched routes for a client type and project
-func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
+// Match returns matched routes for a client type and project, plus optional
+// sticky write-back context.
+func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	tenantID := ctx.TenantID
 	clientType := ctx.ClientType
 	projectID := ctx.ProjectID
@@ -193,8 +217,13 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 	// Get routing strategy
 	strategy := r.getRoutingStrategy(tenantID, projectID)
 
-	// Sort routes by strategy
-	r.sortRoutes(filtered, strategy)
+	// Sort routes by strategy. For weighted_random we seed the RNG with the
+	// caller's (api token + session) so the same session sees a stable
+	// fallback order while different sessions diverge — this gives implicit
+	// per-session affinity without any shared state, and naturally spreads
+	// load across providers across the active session population.
+	seed := makeSessionSeed(ctx.APITokenID, ctx.SessionID)
+	r.sortRoutes(filtered, strategy, seed)
 
 	// Get default retry config
 	defaultRetry, _ := r.retryConfigRepo.GetDefault(tenantID)
@@ -251,7 +280,35 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 		return nil, domain.ErrNoRoutes
 	}
 
-	return matched, nil
+	// Sticky / session-affinity layer. Only meaningful when:
+	//   - strategy is weighted_random (priority is already deterministic; sticky
+	//     would be a no-op in steady state)
+	//   - sticky is explicitly enabled in the strategy config
+	//   - we have a stable principal (api token id) to anchor the binding to
+	//
+	// On hit (and the pointed-to provider is still in the matched set, i.e. not
+	// in cooldown and still supports the model), we prepend it; otherwise the
+	// existing seeded-weighted order stands and the dispatcher's first success
+	// will write a fresh sticky.
+	var stickyWrite *StickyWrite
+	if strategy != nil && strategy.Type == domain.RoutingStrategyWeightedRandom &&
+		strategy.Config != nil && strategy.Config.StickyEnabled && ctx.APITokenID != 0 {
+		key := sticky.Key{
+			TenantID:   tenantID,
+			ClientType: string(clientType),
+			ProjectID:  projectID,
+			PolicyVer:  policyFingerprint(filtered),
+			BaseKey:    sticky.BaseKey(strategy.Config.StickyScope, ctx.APITokenID, ctx.SessionID),
+		}
+		ttl := sticky.TTLFromConfig(strategy.Config.StickyTTLSeconds)
+		stickyWrite = &StickyWrite{Key: key, TTL: ttl}
+
+		if pinned, ok := sticky.Default().Get(context.Background(), key); ok {
+			matched = promoteByProvider(matched, pinned)
+		}
+	}
+
+	return &MatchResult{Routes: matched, Sticky: stickyWrite}, nil
 }
 
 // isModelSupported checks if a model matches any pattern in the support list
@@ -279,11 +336,11 @@ func (r *Router) getRoutingStrategy(tenantID uint64, projectID uint64) *domain.R
 	return &domain.RoutingStrategy{Type: domain.RoutingStrategyPriority}
 }
 
-func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStrategy) {
+func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStrategy, seed int64) {
 	switch strategy.Type {
 	case domain.RoutingStrategyWeightedRandom:
 		// 按权重做概率排序：权重越大，排在前面的概率越高
-		weightedShuffle(routes)
+		weightedShuffle(routes, rand.New(rand.NewSource(seed)))
 	default: // priority
 		sort.Slice(routes, func(i, j int) bool {
 			return routes[i].Position < routes[j].Position
@@ -291,9 +348,89 @@ func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStra
 	}
 }
 
+// policyFingerprint returns a short, stable hash of the routes that are in
+// scope for this Match call. Sticky entries embed it so any user-driven
+// config change (route added/removed, weight/position edited, provider
+// re-pointed) naturally invalidates all bindings — no explicit cache flush.
+//
+// Cooldown state is *not* included: cooldown is transient and already
+// handled by the matched-set filter at request time. Mixing it in would
+// invalidate sticky every time a provider blips.
+func policyFingerprint(routes []*domain.Route) string {
+	// Sort by ID for a stable hash regardless of input order. We hash IDs
+	// directly (instead of sorting routes) to avoid mutating the caller's
+	// slice ordering.
+	ids := make([]uint64, len(routes))
+	byID := make(map[uint64]*domain.Route, len(routes))
+	for i, r := range routes {
+		ids[i] = r.ID
+		byID[r.ID] = r
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	h := sha256.New()
+	var buf [8]byte
+	for _, id := range ids {
+		r := byID[id]
+		binary.LittleEndian.PutUint64(buf[:], r.ID)
+		h.Write(buf[:])
+		binary.LittleEndian.PutUint64(buf[:], r.ProviderID)
+		h.Write(buf[:])
+		binary.LittleEndian.PutUint64(buf[:], uint64(r.Position))
+		h.Write(buf[:])
+		binary.LittleEndian.PutUint64(buf[:], uint64(r.Weight))
+		h.Write(buf[:])
+		var flag byte
+		if r.IsEnabled {
+			flag = 1
+		}
+		h.Write([]byte{flag})
+	}
+	sum := h.Sum(nil)
+	// 12 hex chars (48 bits) is plenty for distinguishing config snapshots
+	// and keeps Redis keys compact.
+	return hex.EncodeToString(sum[:6])
+}
+
+// promoteByProvider moves the matched route for providerID (if any) to the
+// front, preserving the relative order of the rest. No-op if not present.
+func promoteByProvider(matched []*MatchedRoute, providerID uint64) []*MatchedRoute {
+	for i, mr := range matched {
+		if mr.Provider.ID == providerID {
+			if i == 0 {
+				return matched
+			}
+			out := make([]*MatchedRoute, 0, len(matched))
+			out = append(out, mr)
+			out = append(out, matched[:i]...)
+			out = append(out, matched[i+1:]...)
+			return out
+		}
+	}
+	return matched
+}
+
+// makeSessionSeed derives a stable seed from the caller identity so the
+// weighted shuffle becomes deterministic per (api token, session). Same
+// session → same order (implicit affinity, also same fallback chain). When
+// no session info is available we fall back to time-based randomness so
+// behavior is no worse than the previous global rand.
+func makeSessionSeed(apiTokenID uint64, sessionID string) int64 {
+	if apiTokenID == 0 && sessionID == "" {
+		return time.Now().UnixNano()
+	}
+	h := sha256.New()
+	var idBuf [8]byte
+	binary.LittleEndian.PutUint64(idBuf[:], apiTokenID)
+	h.Write(idBuf[:])
+	h.Write([]byte(sessionID))
+	sum := h.Sum(nil)
+	return int64(binary.LittleEndian.Uint64(sum[:8]))
+}
+
 // weightedShuffle 按权重做加权随机排序
 // 使用加权采样算法：每次从剩余路由中按权重概率选一个放到当前位置
-func weightedShuffle(routes []*domain.Route) {
+func weightedShuffle(routes []*domain.Route, rng *rand.Rand) {
 	n := len(routes)
 	for i := 0; i < n-1; i++ {
 		// 计算剩余路由的权重总和
@@ -307,7 +444,7 @@ func weightedShuffle(routes []*domain.Route) {
 		}
 
 		// 按权重随机选择一个
-		r := rand.Intn(totalWeight)
+		pick := rng.Intn(totalWeight)
 		cumulative := 0
 		for j := i; j < n; j++ {
 			w := routes[j].Weight
@@ -315,7 +452,7 @@ func weightedShuffle(routes []*domain.Route) {
 				w = 1
 			}
 			cumulative += w
-			if r < cumulative {
+			if pick < cumulative {
 				routes[i], routes[j] = routes[j], routes[i]
 				break
 			}

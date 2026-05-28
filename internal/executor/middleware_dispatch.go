@@ -13,6 +13,7 @@ import (
 	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/pricing"
+	"github.com/awsl-project/maxx/internal/sticky"
 )
 
 func (e *Executor) dispatch(c *flow.Ctx) {
@@ -213,6 +214,17 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				state.currentAttempt = nil
 
 				cooldown.Default().RecordSuccess(matchedRoute.Provider.ID, string(currentClientType), mappedModel)
+
+				// Sticky write-back: bind this session to the provider that
+				// just succeeded. Overwrites any previous binding (e.g. when
+				// we failed over from A → B, sticky now points at B for the
+				// next request). Errors are non-fatal — affinity is best-effort,
+				// the next call would just re-roll via weighted_random.
+				if state.stickyWrite != nil {
+					if err := sticky.Default().Set(ctx, state.stickyWrite.Key, matchedRoute.Provider.ID, state.stickyWrite.TTL); err != nil {
+						log.Printf("[Executor] sticky set failed (non-fatal): %v", err)
+					}
+				}
 
 				proxyReq.Status = "COMPLETED"
 				proxyReq.EndTime = time.Now()

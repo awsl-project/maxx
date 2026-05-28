@@ -35,6 +35,7 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
   const [providerID, setProviderID] = useState('');
   const [projectID, setProjectID] = useState(projectId !== undefined ? String(projectId) : '0');
   const [position, setPosition] = useState('1');
+  const [weight, setWeight] = useState('1');
   const [isEnabled, setIsEnabled] = useState(true);
   const [modelMapping, setModelMapping] = useState<Record<string, string>>({});
 
@@ -70,6 +71,7 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
       setProviderID(String(route.providerID));
       setProjectID(String(route.projectID));
       setPosition(String(route.position));
+      setWeight(String(route.weight ?? 1));
       setIsEnabled(route.isEnabled);
       setModelMapping(route.modelMapping || {});
     }
@@ -87,11 +89,13 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    const parsedWeight = Number(weight);
     const data = {
       clientType,
       providerID: Number(providerID),
       projectID: Number(projectID),
       position: Number(position),
+      weight: Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : 1,
       isEnabled,
       isNative: route?.isNative ?? false, // 手动创建的 Route 默认为转换路由
       retryConfigID: route?.retryConfigID ?? 0,
@@ -177,6 +181,18 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
             min="1"
             required
           />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">{t('routes.form.weight')}</label>
+          <Input
+            type="number"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            min="1"
+            step="1"
+            required
+          />
+          <p className="mt-1 text-xs text-text-secondary">{t('routes.form.weightHelp')}</p>
         </div>
       </div>
 

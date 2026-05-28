@@ -195,6 +195,7 @@ export interface Route {
   clientType: ClientType;
   providerID: number;
   position: number;
+  weight: number;
   retryConfigID: number;
   modelMapping?: Record<string, string>;
 }
@@ -226,8 +227,13 @@ export type CreateRetryConfigData = Omit<RetryConfig, 'id' | 'createdAt' | 'upda
 
 export type RoutingStrategyType = 'priority' | 'weighted_random';
 
+export type RoutingStickyScope = 'token' | 'conversation';
+
 export interface RoutingStrategyConfig {
-  // 扩展字段
+  // Sticky / session-affinity (only meaningful for weighted_random; ignored for priority)
+  stickyEnabled?: boolean;
+  stickyScope?: RoutingStickyScope;
+  stickyTTLSeconds?: number;
 }
 
 export interface RoutingStrategy {
