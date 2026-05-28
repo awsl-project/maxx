@@ -129,8 +129,18 @@ func extractFromSSE(body string) *Metrics {
 // extractUsageFromMap extracts usage metrics from a parsed JSON map.
 // Handles multiple API formats.
 func extractUsageFromMap(data map[string]interface{}) *Metrics {
-	// Try Claude/Anthropic format: { "usage": { ... } }
+	// Try top-level { "usage": { ... } }. The same key serves both OpenAI chat
+	// completions (prompt_tokens / completion_tokens) and Claude / OpenAI Images
+	// (input_tokens / output_tokens), so we dispatch by inspecting the usage
+	// map itself. OpenAI-compatible relays (linkapi, oneapi, etc.) sometimes
+	// emit *both* schemas in the same payload — typically real numbers in
+	// prompt_tokens/completion_tokens and zero-padded input_tokens/output_tokens
+	// for Claude-client compatibility. Detecting OpenAI first prevents those
+	// zero-pads from silently zeroing chat-completions billing.
 	if usage, ok := data["usage"].(map[string]interface{}); ok {
+		if isOpenAIUsage(usage) {
+			return extractOpenAIUsage(usage)
+		}
 		return extractClaudeUsage(usage)
 	}
 
@@ -159,15 +169,21 @@ func extractUsageFromMap(data map[string]interface{}) *Metrics {
 		}
 	}
 
-	// Try OpenAI choices format for some responses
-	if choices, ok := data["choices"].([]interface{}); ok && len(choices) > 0 {
-		// Usage might be at root level alongside choices
-		if usage, ok := data["usage"].(map[string]interface{}); ok {
-			return extractOpenAIUsage(usage)
-		}
-	}
-
 	return nil
+}
+
+// isOpenAIUsage reports whether a usage map uses OpenAI chat-completions naming
+// (prompt_tokens / completion_tokens). These keys are absent from Claude and
+// from the OpenAI Images API (which both use input_tokens / output_tokens), so
+// their presence is a reliable discriminator.
+func isOpenAIUsage(usage map[string]interface{}) bool {
+	if _, ok := usage["prompt_tokens"]; ok {
+		return true
+	}
+	if _, ok := usage["completion_tokens"]; ok {
+		return true
+	}
+	return false
 }
 
 // extractClaudeUsage extracts metrics from Claude/Anthropic usage format.
@@ -213,10 +229,18 @@ func extractClaudeUsage(usage map[string]interface{}) *Metrics {
 	return metrics
 }
 
-// applyImageTokenDetails pulls the image-token breakdown out of an OpenAI Images
-// API usage object: input_tokens_details.image_tokens and
-// output_tokens_details.image_tokens. Subsets of input/output tokens, billed at
-// the image rate. No-op for text models (the *_details.image_tokens are absent).
+// applyImageTokenDetails pulls the image-token breakdown out of a usage object.
+// Two parallel namings exist across OpenAI-compatible APIs:
+//
+//   - Images API (gpt-image-*): input_tokens_details.image_tokens,
+//     output_tokens_details.image_tokens.
+//   - Chat completions (e.g. gemini-2.5-flash-image / "nano-banana" relayed via
+//     OpenAI-compatible aggregators): prompt_tokens_details.image_tokens,
+//     completion_tokens_details.image_tokens.
+//
+// Both produce subsets of InputTokens/OutputTokens that pricing charges at the
+// image rate. We accept either naming and let later writes win (in practice
+// only one of each pair carries nonzero image_tokens for a given response).
 func applyImageTokenDetails(usage map[string]interface{}, m *Metrics) {
 	if d, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
 		if v, ok := d["image_tokens"].(float64); ok {
@@ -224,6 +248,16 @@ func applyImageTokenDetails(usage map[string]interface{}, m *Metrics) {
 		}
 	}
 	if d, ok := usage["output_tokens_details"].(map[string]interface{}); ok {
+		if v, ok := d["image_tokens"].(float64); ok {
+			m.OutputImageTokens = uint64(v)
+		}
+	}
+	if d, ok := usage["prompt_tokens_details"].(map[string]interface{}); ok {
+		if v, ok := d["image_tokens"].(float64); ok {
+			m.InputImageTokens = uint64(v)
+		}
+	}
+	if d, ok := usage["completion_tokens_details"].(map[string]interface{}); ok {
 		if v, ok := d["image_tokens"].(float64); ok {
 			m.OutputImageTokens = uint64(v)
 		}
@@ -237,23 +271,21 @@ func applyImageTokenDetails(usage map[string]interface{}, m *Metrics) {
 func extractOpenAIUsage(usage map[string]interface{}) *Metrics {
 	metrics := &Metrics{}
 
-	// Standard OpenAI format: prompt_tokens → Input tokens
+	// Token counts: prefer chat-completions naming (prompt_tokens /
+	// completion_tokens) over Response-API naming (input_tokens / output_tokens)
+	// when both are present. OpenAI-compatible relays often dual-emit both —
+	// typically with real numbers in prompt_tokens/completion_tokens and zero
+	// padding in input_tokens/output_tokens for Claude-client compatibility —
+	// so a naive last-wins overwrite would zero out billing.
 	if v, ok := usage["prompt_tokens"].(float64); ok {
 		metrics.InputTokens = uint64(v)
-	}
-
-	// Response API / Codex format: input_tokens (may include cached tokens)
-	if v, ok := usage["input_tokens"].(float64); ok {
+	} else if v, ok := usage["input_tokens"].(float64); ok {
 		metrics.InputTokens = uint64(v)
 	}
 
-	// Standard OpenAI format: completion_tokens → Output tokens
 	if v, ok := usage["completion_tokens"].(float64); ok {
 		metrics.OutputTokens = uint64(v)
-	}
-
-	// Response API / Codex format: output_tokens
-	if v, ok := usage["output_tokens"].(float64); ok {
+	} else if v, ok := usage["output_tokens"].(float64); ok {
 		metrics.OutputTokens = uint64(v)
 	}
 

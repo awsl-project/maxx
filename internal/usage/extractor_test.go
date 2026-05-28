@@ -299,6 +299,93 @@ func TestExtractFromResponse_GptImageEditsTokenSplit(t *testing.T) {
 	}
 }
 
+// TestExtractFromResponse_OpenAIChatCompletions pins the dispatcher contract
+// for plain OpenAI chat-completions responses. Before the fix, the top-level
+// {"usage": ...} branch unconditionally ran the Claude extractor, which only
+// looks for input_tokens / output_tokens — so prompt_tokens / completion_tokens
+// were silently dropped and the request billed at zero.
+func TestExtractFromResponse_OpenAIChatCompletions(t *testing.T) {
+	body := `{
+		"id": "chatcmpl-xyz",
+		"object": "chat.completion",
+		"model": "gpt-4o-mini",
+		"choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+		"usage": {
+			"prompt_tokens": 17,
+			"completion_tokens": 5,
+			"total_tokens": 22
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected metrics for chat-completions response, got nil")
+	}
+	if m.InputTokens != 17 || m.OutputTokens != 5 {
+		t.Errorf("tokens = in %d / out %d, want 17 / 5", m.InputTokens, m.OutputTokens)
+	}
+}
+
+// TestExtractFromResponse_OpenAIChatCompletionsZeroPadded covers the real-world
+// shape returned by OpenAI-compatible aggregators (linkapi, oneapi, etc.) that
+// dual-emit Claude-style zero-padded input_tokens / output_tokens alongside the
+// real OpenAI numbers. The dispatcher must pick OpenAI by detecting
+// prompt_tokens / completion_tokens, not silently zero out billing.
+func TestExtractFromResponse_OpenAIChatCompletionsZeroPadded(t *testing.T) {
+	body := `{
+		"object": "chat.completion",
+		"choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+		"usage": {
+			"prompt_tokens": 12,
+			"completion_tokens": 34,
+			"total_tokens": 46,
+			"input_tokens": 0,
+			"output_tokens": 0,
+			"input_tokens_details": null
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected metrics, got nil")
+	}
+	if m.InputTokens != 12 || m.OutputTokens != 34 {
+		t.Errorf("zero-padded relay should not zero billing: tokens = in %d / out %d, want 12 / 34", m.InputTokens, m.OutputTokens)
+	}
+}
+
+// TestExtractFromResponse_GeminiFlashImageViaChatCompletions covers the
+// "nano-banana" (gemini-2.5-flash-image) shape relayed through OpenAI chat
+// completions: image tokens land under completion_tokens_details.image_tokens,
+// not output_tokens_details.image_tokens like the OpenAI Images API. Without
+// this branch the image-rate price wouldn't be applied (image_tokens stays 0).
+func TestExtractFromResponse_GeminiFlashImageViaChatCompletions(t *testing.T) {
+	body := `{
+		"id": "chatcmpl-banana",
+		"object": "chat.completion",
+		"model": "gemini-2.5-flash-image",
+		"choices": [{"index": 0, "message": {"role": "assistant", "content": "![image](data:...)"}, "finish_reason": "stop"}],
+		"usage": {
+			"prompt_tokens": 7,
+			"completion_tokens": 1290,
+			"total_tokens": 1297,
+			"prompt_tokens_details": {"text_tokens": 7, "image_tokens": 0},
+			"completion_tokens_details": {"text_tokens": 0, "image_tokens": 1290}
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected metrics for banana response, got nil")
+	}
+	if m.InputTokens != 7 || m.OutputTokens != 1290 {
+		t.Errorf("tokens = in %d / out %d, want 7 / 1290", m.InputTokens, m.OutputTokens)
+	}
+	if m.OutputImageTokens != 1290 {
+		t.Errorf("OutputImageTokens = %d, want 1290 (banana image output should bill at image rate)", m.OutputImageTokens)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Benchmarks: Old (full-buffer) vs New (incremental)
 // ---------------------------------------------------------------------------
