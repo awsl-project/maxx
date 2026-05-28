@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -284,25 +285,31 @@ func TestVerifyRoutingPhase2(t *testing.T) {
 		t.Errorf("probe: cooled-down p%d received %d hits", primedProvider+1, snapP[primedProvider])
 	}
 	// With the primed provider cooled, traffic distributes between the
-	// surviving two by their weight ratio. Per-process random salt means
-	// primedProvider varies across runs, so compute expected counts
-	// dynamically. Use ±20 (~3σ for N=200, p≈0.2..0.9) per bucket to
-	// allow legitimate sampling variance.
+	// surviving providers by their weight ratio. Per-process random salt
+	// means primedProvider varies across runs, so compute expected
+	// counts dynamically and use a per-bucket 4σ tolerance (binomial
+	// std dev sqrt(N·p·(1-p))). 4σ gives a Pr(flake) ≈ 6.3e-5 per
+	// bucket per run — comfortably above the empirical noise floor
+	// regardless of which weight bucket gets cooled.
 	survivingWeight := 0
 	for i, w := range weights {
 		if i != primedProvider {
 			survivingWeight += w
 		}
 	}
+	const k = 4.0 // sigmas of tolerance
 	for i, w := range weights {
 		if i == primedProvider {
 			continue
 		}
-		expected := float64(spreadN) * float64(w) / float64(survivingWeight)
+		p := float64(w) / float64(survivingWeight)
+		expected := float64(spreadN) * p
+		sigma := math.Sqrt(float64(spreadN) * p * (1 - p))
+		tol := k * sigma
 		got := float64(snapP[i])
-		if got < expected-20 || got > expected+20 {
-			t.Errorf("probe: p%d (weight %d) got %d hits, want %.0f±20 with p%d cooled",
-				i+1, w, snapP[i], expected, primedProvider+1)
+		if got < expected-tol || got > expected+tol {
+			t.Errorf("probe: p%d (weight %d) got %d hits, want %.1f±%.1f (4σ) with p%d cooled",
+				i+1, w, snapP[i], expected, tol, primedProvider+1)
 		}
 	}
 

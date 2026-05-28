@@ -443,7 +443,7 @@ func promoteByProvider(matched []*MatchedRoute, providerID uint64) []*MatchedRou
 //     deployments are fully covered.
 //
 // Lazy resolution lets tests override via t.Setenv before the first
-// Match() call. Reset via routingSeedSaltForTest only.
+// Match() call.
 var (
 	routingSeedSalt     []byte
 	routingSeedSaltOnce sync.Once
@@ -457,11 +457,15 @@ func getRoutingSeedSalt() []byte {
 		}
 		buf := make([]byte, 32)
 		if _, err := crand.Read(buf); err != nil {
-			// crypto/rand failures are nearly impossible; fall back to a
-			// time-derived seed so we never panic at request time. This
-			// path produces an unstable per-process salt, same security
-			// properties as the normal crypto/rand path.
-			binary.LittleEndian.PutUint64(buf[:8], uint64(time.Now().UnixNano()))
+			// crypto/rand failures are nearly impossible (an unprivileged
+			// process is denied /dev/urandom and getrandom etc.). Build
+			// a time-derived fallback that still fills all 32 bytes so
+			// HMAC entropy doesn't collapse to 64 bits.
+			now := uint64(time.Now().UnixNano())
+			for i := 0; i < len(buf); i += 8 {
+				binary.LittleEndian.PutUint64(buf[i:i+8], now)
+				now = now*6364136223846793005 + 1442695040888963407 // splitmix-style step
+			}
 		}
 		routingSeedSalt = buf
 		log.Printf("[Router] MAXX_ROUTING_SEED_SALT not set — generated a per-process random salt. " +
