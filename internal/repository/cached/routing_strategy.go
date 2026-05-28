@@ -93,6 +93,18 @@ func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 	return nil
 }
 
+func (r *RoutingStrategyRepository) GetByID(tenantID uint64, id uint64) (*domain.RoutingStrategy, error) {
+	r.mu.RLock()
+	for key, s := range r.cache {
+		if s.ID == id && (tenantID == domain.TenantIDAll || key.TenantID == tenantID) {
+			r.mu.RUnlock()
+			return s, nil
+		}
+	}
+	r.mu.RUnlock()
+	return r.repo.GetByID(tenantID, id)
+}
+
 func (r *RoutingStrategyRepository) GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error) {
 	r.mu.RLock()
 	if tenantID == domain.TenantIDAll {

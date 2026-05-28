@@ -71,6 +71,7 @@ type RoutingStrategyRepository interface {
 	Create(strategy *domain.RoutingStrategy) error
 	Update(strategy *domain.RoutingStrategy) error
 	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.RoutingStrategy, error)
 	GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error)
 	List(tenantID uint64) ([]*domain.RoutingStrategy, error)
 }

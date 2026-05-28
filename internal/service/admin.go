@@ -383,7 +383,7 @@ func (s *AdminService) GetRoutingStrategies(tenantID uint64) ([]*domain.RoutingS
 }
 
 func (s *AdminService) GetRoutingStrategy(tenantID uint64, id uint64) (*domain.RoutingStrategy, error) {
-	return s.routingStrategyRepo.GetByProjectID(tenantID, id)
+	return s.routingStrategyRepo.GetByID(tenantID, id)
 }
 
 func (s *AdminService) CreateRoutingStrategy(tenantID uint64, strategy *domain.RoutingStrategy) error {
