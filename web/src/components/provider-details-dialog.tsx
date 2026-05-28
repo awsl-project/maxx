@@ -246,7 +246,7 @@ export function ProviderDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="overflow-hidden p-0 w-full max-w-lg bg-card">
+      <DialogContent showCloseButton={false} className="overflow-hidden p-0 w-full max-w-lg bg-card grid-cols-[minmax(0,1fr)]">
         {/* Header */}
         <div className="flex items-center gap-3 p-4 border-b border-border">
           <div className={cn(
@@ -260,14 +260,14 @@ export function ProviderDetailsDialog({
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold truncate">{provider.name}</h2>
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-base font-bold truncate min-w-0">{provider.name}</h2>
               {isNative ? (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">NATIVE</span>
+                <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">NATIVE</span>
               ) : (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">CONV</span>
+                <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">CONV</span>
               )}
-              <span className="text-[10px] text-muted-foreground">{provider.type}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">{provider.type}</span>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -280,12 +280,14 @@ export function ProviderDetailsDialog({
 
         {/* Provider Info */}
         <div className="px-4 py-3 text-xs text-muted-foreground flex items-center gap-4 border-b border-border/50">
-          <span className="flex items-center gap-1.5">
-            <Info size={11} />
-            {provider.config?.custom?.baseURL || provider.config?.custom?.clientBaseURL?.[clientType] || '\u2014'}
+          <span className="flex items-center gap-1.5 min-w-0">
+            <Info size={11} className="shrink-0" />
+            <span className="truncate">
+              {provider.config?.custom?.baseURL || provider.config?.custom?.clientBaseURL?.[clientType] || '\u2014'}
+            </span>
           </span>
-          <span>{clientType}</span>
-          <span>Priority #{route?.position || '\u2014'}</span>
+          <span className="shrink-0">{clientType}</span>
+          <span className="shrink-0">Priority #{route?.position || '\u2014'}</span>
         </div>
 
         {/* Cooldowns Section */}
@@ -302,7 +304,7 @@ export function ProviderDetailsDialog({
                 <div key={i} className={cn('flex items-center gap-3 p-3 rounded-xl border', reasonInfo.bgColor)}>
                   <Icon size={16} className={cn('shrink-0', reasonInfo.color)} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold">
+                    <div className="text-sm font-semibold truncate">
                       {cd.model || (isFrozen ? 'Provider' : cd.clientType || 'All')}
                     </div>
                     <div className="text-[11px] text-muted-foreground">{reasonInfo.label}</div>
