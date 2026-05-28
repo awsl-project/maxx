@@ -1,0 +1,195 @@
+package executor
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/flow"
+)
+
+// recordingAttemptRepo captures Create/Update calls so the test can assert on
+// the persisted attempt state. The real sqlite repo just writes to a DB; for
+// unit-testing ExecuteOnce we only need the create/update lifecycle.
+type recordingAttemptRepo struct {
+	created []*domain.ProxyUpstreamAttempt
+	updated []*domain.ProxyUpstreamAttempt
+	nextID  uint64
+}
+
+func (r *recordingAttemptRepo) Create(a *domain.ProxyUpstreamAttempt) error {
+	r.nextID++
+	a.ID = r.nextID
+	// Snapshot fields we care about so later Update mutations don't clobber
+	// our view of what was persisted at creation time.
+	snap := *a
+	r.created = append(r.created, &snap)
+	return nil
+}
+
+func (r *recordingAttemptRepo) Update(a *domain.ProxyUpstreamAttempt) error {
+	snap := *a
+	r.updated = append(r.updated, &snap)
+	return nil
+}
+
+func (r *recordingAttemptRepo) ListByProxyRequestID(uint64) ([]*domain.ProxyUpstreamAttempt, error) {
+	return nil, nil
+}
+
+func (r *recordingAttemptRepo) ListAll() ([]*domain.ProxyUpstreamAttempt, error) { return nil, nil }
+
+func (r *recordingAttemptRepo) CountAll() (int64, error) { return 0, nil }
+
+func (r *recordingAttemptRepo) StreamForCostCalc(int, func([]*domain.AttemptCostData) error) error {
+	return nil
+}
+
+func (r *recordingAttemptRepo) BatchUpdateCosts(map[uint64]domain.AttemptCostUpdate) error {
+	return nil
+}
+
+func (r *recordingAttemptRepo) MarkStaleAttemptsFailed() (int64, error) { return 0, nil }
+
+func (r *recordingAttemptRepo) FixFailedAttemptsWithoutEndTime() (int64, error) { return 0, nil }
+
+func (r *recordingAttemptRepo) ClearDetailOlderThan(time.Time, []string) (int64, error) {
+	return 0, nil
+}
+
+// fakeMetricsAdapter emits a single EventMetrics event then returns. Models a
+// provider adapter that successfully parsed usage from the upstream response.
+type fakeMetricsAdapter struct {
+	in, out uint64
+	err     error
+}
+
+func (a *fakeMetricsAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *fakeMetricsAdapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
+	if ch := flow.GetEventChan(c); ch != nil {
+		ch.SendMetrics(&domain.AdapterMetrics{InputTokens: a.in, OutputTokens: a.out})
+	}
+	return a.err
+}
+
+// TestExecuteOnce_PersistsAttemptAndMirrorsBilling pins the contract that
+// drives the /provider/<id>/... direct-dispatch fix: a single adapter
+// execution must produce a fully-billed attempt row and a ProxyRequest whose
+// billing fields mirror the attempt. Before ExecuteOnce existed, the bypass
+// path skipped attempt creation entirely — every request landed with
+// proxyUpstreamAttemptCount=0 and cost=0.
+func TestExecuteOnce_PersistsAttemptAndMirrorsBilling(t *testing.T) {
+	repo := &recordingAttemptRepo{}
+	e := &Executor{attemptRepo: repo}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/1/v1/chat/completions", nil).
+		WithContext(context.Background())
+	c := flow.NewCtx(httptest.NewRecorder(), req)
+
+	proxyReq := &domain.ProxyRequest{TenantID: 1, ID: 42}
+	route := &domain.Route{ID: 99, ProjectID: 0, ProviderID: 7, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{
+		ID:   7,
+		Type: "custom",
+		Config: &domain.ProviderConfig{
+			Custom: &domain.ProviderConfigCustom{
+				ClientMultiplier: map[domain.ClientType]uint64{domain.ClientTypeOpenAI: 64000},
+			},
+		},
+	}
+	adapter := &fakeMetricsAdapter{in: 7, out: 1290}
+
+	attempt, err := e.ExecuteOnce(
+		c, proxyReq, route, provider, adapter,
+		domain.ClientTypeOpenAI, "gemini-2.5-flash-image", "gemini-2.5-flash-image",
+		false, false,
+	)
+	if err != nil {
+		t.Fatalf("ExecuteOnce returned error: %v", err)
+	}
+	if attempt == nil {
+		t.Fatal("ExecuteOnce returned nil attempt")
+	}
+
+	if len(repo.created) != 1 {
+		t.Fatalf("expected exactly 1 attempt created, got %d", len(repo.created))
+	}
+	if len(repo.updated) == 0 {
+		t.Fatal("expected at least one Update call to persist final state")
+	}
+
+	if got := repo.created[0].Status; got != "IN_PROGRESS" {
+		t.Errorf("created attempt status = %q, want IN_PROGRESS", got)
+	}
+
+	if attempt.Status != "COMPLETED" {
+		t.Errorf("final attempt status = %q, want COMPLETED", attempt.Status)
+	}
+	if attempt.InputTokenCount != 7 || attempt.OutputTokenCount != 1290 {
+		t.Errorf("attempt tokens = in %d / out %d, want 7 / 1290",
+			attempt.InputTokenCount, attempt.OutputTokenCount)
+	}
+	if attempt.Multiplier != 64000 {
+		t.Errorf("attempt multiplier = %d, want 64000 (6.4× from clientMultiplier)",
+			attempt.Multiplier)
+	}
+
+	if proxyReq.ProxyUpstreamAttemptCount != 1 {
+		t.Errorf("ProxyUpstreamAttemptCount = %d, want 1",
+			proxyReq.ProxyUpstreamAttemptCount)
+	}
+	if proxyReq.FinalProxyUpstreamAttemptID != attempt.ID {
+		t.Errorf("FinalProxyUpstreamAttemptID = %d, want %d",
+			proxyReq.FinalProxyUpstreamAttemptID, attempt.ID)
+	}
+	if proxyReq.InputTokenCount != 7 || proxyReq.OutputTokenCount != 1290 {
+		t.Errorf("proxyReq tokens not mirrored: in %d / out %d, want 7 / 1290",
+			proxyReq.InputTokenCount, proxyReq.OutputTokenCount)
+	}
+	if proxyReq.Multiplier != 64000 {
+		t.Errorf("proxyReq multiplier not mirrored: %d, want 64000",
+			proxyReq.Multiplier)
+	}
+}
+
+// TestExecuteOnce_RecordsFailedAttemptWithoutMirroringCost guards the failure
+// path: when the adapter errors, the attempt row still gets persisted with
+// Status=FAILED and the multiplier is preserved (for audit), but the request's
+// billing fields stay zero — we don't bill failed upstream calls.
+func TestExecuteOnce_RecordsFailedAttemptWithoutMirroringCost(t *testing.T) {
+	repo := &recordingAttemptRepo{}
+	e := &Executor{attemptRepo: repo}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/1/v1/chat/completions", nil).
+		WithContext(context.Background())
+	c := flow.NewCtx(httptest.NewRecorder(), req)
+
+	proxyReq := &domain.ProxyRequest{TenantID: 1, ID: 42}
+	route := &domain.Route{ID: 99, ProviderID: 7, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: 7, Type: "custom"}
+	adapter := &fakeMetricsAdapter{err: &domain.ProxyError{Message: "boom"}}
+
+	attempt, err := e.ExecuteOnce(
+		c, proxyReq, route, provider, adapter,
+		domain.ClientTypeOpenAI, "m", "m", false, false,
+	)
+	if err == nil {
+		t.Fatal("expected error from failing adapter")
+	}
+	if attempt == nil || attempt.Status != "FAILED" {
+		t.Fatalf("expected attempt.Status=FAILED, got %+v", attempt)
+	}
+	if proxyReq.FinalProxyUpstreamAttemptID != 0 {
+		t.Errorf("FinalProxyUpstreamAttemptID = %d on failure path; should stay zero",
+			proxyReq.FinalProxyUpstreamAttemptID)
+	}
+	if proxyReq.Cost != 0 {
+		t.Errorf("proxyReq.Cost = %d on failure path; should stay zero", proxyReq.Cost)
+	}
+}

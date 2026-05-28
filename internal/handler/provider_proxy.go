@@ -148,7 +148,22 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		responseCapture := executor.NewResponseCapture(clientWriter)
 		originalWriter := c.Writer
 		c.Writer = responseCapture
-		err = adapter.Execute(c, provider)
+		// Route through ExecuteOnce so this bypass path gets the same attempt-
+		// record + cost-finalization treatment as the retry-driven dispatch.
+		// Without this, /provider/<id>/... requests landed in the DB with 0
+		// attempts and cost=0 / multiplier=0 / modelPriceId=0 — silently
+		// zero-billing every direct-dispatch call.
+		if h.proxyHandler != nil && h.proxyHandler.executor != nil {
+			_, err = h.proxyHandler.executor.ExecuteOnce(
+				c, proxyReq, route, provider, adapter,
+				clientType, requestModel, mappedModel, isStream, clearDetail,
+			)
+		} else {
+			// Test / partially-wired setups without an executor: fall back to a
+			// bare adapter call. Billing will be unrecorded (as before) but the
+			// request still completes.
+			err = adapter.Execute(c, provider)
+		}
 		c.Writer = originalWriter
 
 		now := time.Now()
