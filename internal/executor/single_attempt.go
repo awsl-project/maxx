@@ -118,7 +118,15 @@ func (e *Executor) ExecuteOnce(
 		attempt.RequestInfo = nil
 		attempt.ResponseInfo = nil
 	}
-	_ = e.attemptRepo.Update(attempt)
+	// Persisting the final attempt is best-effort here: adapter.Execute may
+	// already have written the upstream response to the client, so converting
+	// a late DB update failure into a returned adapter error could append an
+	// error body onto an otherwise successful response. Keep the request billing
+	// mirror below as the durable billing record; stale IN_PROGRESS attempts are
+	// handled by the existing stale-attempt cleanup path.
+	if updateErr := e.attemptRepo.Update(attempt); updateErr != nil {
+		log.Printf("[Executor] ExecuteOnce: failed to update final attempt record: %v", updateErr)
+	}
 	if e.broadcaster != nil {
 		e.broadcaster.BroadcastProxyUpstreamAttempt(attempt)
 	}

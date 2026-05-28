@@ -212,6 +212,62 @@ func TestExecuteOnce_FailsFastOnCreateError(t *testing.T) {
 	}
 }
 
+// failingUpdateAttemptRepo records a successful Create but fails the final
+// Update, matching a late persistence failure after adapter.Execute has already
+// produced an upstream response.
+type failingUpdateAttemptRepo struct {
+	recordingAttemptRepo
+	updateErr error
+}
+
+func (r *failingUpdateAttemptRepo) Update(a *domain.ProxyUpstreamAttempt) error {
+	snap := *a
+	r.recordingAttemptRepo.updated = append(r.recordingAttemptRepo.updated, &snap)
+	return r.updateErr
+}
+
+// TestExecuteOnce_FinalUpdateFailureStillMirrorsBilling documents the direct-
+// dispatch contract for a late attempt update failure. At this point the
+// adapter may already have written a successful response, so ExecuteOnce keeps
+// the parent request billing mirror rather than converting the completed
+// client response into an adapter error. The stale attempt row is left for the
+// existing stale-attempt cleanup path.
+func TestExecuteOnce_FinalUpdateFailureStillMirrorsBilling(t *testing.T) {
+	repo := &failingUpdateAttemptRepo{updateErr: errFakeRepo}
+	e := &Executor{attemptRepo: repo}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/1/v1/chat/completions", nil).
+		WithContext(context.Background())
+	c := flow.NewCtx(httptest.NewRecorder(), req)
+
+	proxyReq := &domain.ProxyRequest{TenantID: 1, ID: 42}
+	route := &domain.Route{ID: 99, ProviderID: 7, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: 7, Type: "custom"}
+	adapter := &fakeMetricsAdapter{in: 7, out: 1290}
+
+	attempt, err := e.ExecuteOnce(
+		c, proxyReq, route, provider, adapter,
+		domain.ClientTypeOpenAI, "m", "m", false, false,
+	)
+	if err != nil {
+		t.Fatalf("ExecuteOnce returned error on final Update failure: %v", err)
+	}
+	if attempt == nil || attempt.Status != "COMPLETED" {
+		t.Fatalf("expected completed in-memory attempt, got %+v", attempt)
+	}
+	if len(repo.updated) != 1 {
+		t.Fatalf("expected exactly 1 final Update attempt, got %d", len(repo.updated))
+	}
+	if proxyReq.FinalProxyUpstreamAttemptID != attempt.ID {
+		t.Errorf("FinalProxyUpstreamAttemptID = %d, want %d",
+			proxyReq.FinalProxyUpstreamAttemptID, attempt.ID)
+	}
+	if proxyReq.InputTokenCount != 7 || proxyReq.OutputTokenCount != 1290 {
+		t.Errorf("proxyReq tokens not mirrored after final Update failure: in %d / out %d, want 7 / 1290",
+			proxyReq.InputTokenCount, proxyReq.OutputTokenCount)
+	}
+}
+
 // TestExecuteOnce_RecordsFailedAttemptWithoutMirroringCost guards the failure
 // path: when the adapter errors, the attempt row still gets persisted with
 // Status=FAILED and the multiplier is preserved (for audit), but the request's
