@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -23,7 +24,8 @@ const DefaultTTL = 30 * time.Minute
 // caller can always fall back to a fresh routing decision. On the write path
 // errors are reported so callers can choose to log them.
 type Manager struct {
-	store atomic.Pointer[Store]
+	store          atomic.Pointer[Store]
+	lastGetErrorAt atomic.Int64 // unix nano of last logged Get error
 }
 
 // NewManager creates a Manager backed by the in-process memory store. Use
@@ -78,17 +80,40 @@ func (m *Manager) currentStore() Store {
 
 // Get returns the sticky provider for the key, or (0,false) if none.
 // Any error is treated as a miss; callers fall through to fresh selection.
+// Persistent errors (e.g. a chronically unreachable Redis) are surfaced as
+// rate-limited warnings so the operator notices the affinity layer is down
+// rather than silently observing degraded prompt-cache hit rates.
 func (m *Manager) Get(ctx context.Context, key Key) (uint64, bool) {
 	s := m.currentStore()
 	if s == nil {
 		return 0, false
 	}
 	id, ok, err := s.Get(ctx, key)
-	if err != nil || !ok {
+	if err != nil {
+		m.maybeLogGetError(err)
+		return 0, false
+	}
+	if !ok {
 		return 0, false
 	}
 	return id, true
 }
+
+// maybeLogGetError prints at most one Get-error log per
+// stickyErrorLogInterval — enough to make operational outages visible
+// without spamming the log when Redis is down for hours.
+func (m *Manager) maybeLogGetError(err error) {
+	now := time.Now().UnixNano()
+	last := m.lastGetErrorAt.Load()
+	if last != 0 && time.Duration(now-last) < stickyErrorLogInterval {
+		return
+	}
+	if m.lastGetErrorAt.CompareAndSwap(last, now) {
+		log.Printf("[Sticky] Get failed (best-effort, falling through to weighted_random): %v", err)
+	}
+}
+
+const stickyErrorLogInterval = time.Minute
 
 // Set records the sticky decision with the given TTL (clamped to DefaultTTL
 // when non-positive).

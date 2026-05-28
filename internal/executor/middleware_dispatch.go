@@ -225,9 +225,12 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				// time we get here the request ctx may already be Done (for
 				// streaming responses the client has disconnected just before
 				// this hook fires), which would turn every Set into a silent
-				// failure under load.
+				// failure under load. 500ms is a deliberate budget — the
+				// write is on the response tail-latency path, so a slow
+				// Redis must not stall the request; affinity is best-effort
+				// and the next request will re-roll if the write timed out.
 				if state.stickyWrite != nil {
-					stickyCtx, stickyCancel := context.WithTimeout(context.Background(), 2*time.Second)
+					stickyCtx, stickyCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 					if err := sticky.Default().Set(stickyCtx, state.stickyWrite.Key, matchedRoute.Provider.ID, state.stickyWrite.TTL); err != nil {
 						log.Printf("[Executor] sticky set failed (non-fatal): %v", err)
 					}

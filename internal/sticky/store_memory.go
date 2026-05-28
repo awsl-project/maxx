@@ -30,19 +30,26 @@ func (s *memoryStore) Get(_ context.Context, key Key) (uint64, bool, error) {
 	if !ok {
 		return 0, false, nil
 	}
-	if time.Now().After(e.expiresAt) {
-		// Lazy delete: the Redis backend gets TTL eviction for free; the
-		// memory backend would otherwise accumulate expired entries
-		// indefinitely as sessions churn. Re-check under the write lock
-		// in case a fresher Set raced in between the read above and now.
-		s.mu.Lock()
-		if cur, ok := s.entries[key]; ok && !time.Now().Before(cur.expiresAt) {
-			delete(s.entries, key)
-		}
-		s.mu.Unlock()
+	if time.Now().Before(e.expiresAt) {
+		return e.providerID, true, nil
+	}
+	// Looked expired. Take the write lock and re-check: a fresher Set may
+	// have raced in between our RUnlock and Lock. If it did, return the
+	// fresh value so the caller doesn't see a phantom miss right after a
+	// successful write. Otherwise delete the expired entry — Redis gets
+	// TTL eviction for free; the memory backend would otherwise
+	// accumulate forever as sessions churn.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, ok := s.entries[key]
+	if !ok {
 		return 0, false, nil
 	}
-	return e.providerID, true, nil
+	if time.Now().Before(cur.expiresAt) {
+		return cur.providerID, true, nil
+	}
+	delete(s.entries, key)
+	return 0, false, nil
 }
 
 func (s *memoryStore) Set(_ context.Context, key Key, providerID uint64, ttl time.Duration) error {

@@ -3,9 +3,11 @@ package router
 import (
 	"context"
 	"crypto/hmac"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"log"
 	"math/rand"
 	"os"
 	"sort"
@@ -232,10 +234,11 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	// Get default retry config
 	defaultRetry, _ := r.retryConfigRepo.GetDefault(tenantID)
 
-	// Build matched routes
+	// Build matched routes under r.mu so adapter map snapshots are stable.
+	// Release the lock as soon as the slice is built — the sticky lookup
+	// below can take up to 100ms on a degraded Redis and we don't want
+	// that blocking adapter refresh/removal on the write side.
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	var matched []*MatchedRoute
 	providers := r.providerRepo.GetAll()
 
@@ -279,6 +282,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 			RetryConfig:     retryConfig,
 		})
 	}
+	r.mu.RUnlock()
 
 	if len(matched) == 0 {
 		return nil, domain.ErrNoRoutes
@@ -428,18 +432,43 @@ func promoteByProvider(matched []*MatchedRoute, providerID uint64) []*MatchedRou
 // whichever upstream they want to target (e.g. always the cheapest, or
 // always the one with the largest prompt cache they want to poison).
 //
-// Operators can set MAXX_ROUTING_SEED_SALT to a stable secret that's the
-// same on every instance (required for multi-instance to keep affinity
-// across nodes). When unset we fall back to a hardcoded constant: the
-// salt still prevents trivial offline grinding by anyone without the
-// binary, but a determined attacker with source access can reproduce it.
-// Setting the env var is recommended for any multi-tenant deployment.
-var routingSeedSalt = func() []byte {
-	if v := os.Getenv("MAXX_ROUTING_SEED_SALT"); v != "" {
-		return []byte(v)
-	}
-	return []byte("maxx/v1/routing-seed-salt/default")
-}()
+// Resolution order, lazy on first use:
+//  1. MAXX_ROUTING_SEED_SALT env var (operator-controlled; required for
+//     full sticky-binding consistency across multi-instance deployments).
+//  2. 32 bytes from crypto/rand. Per-process random — different instances
+//     will compute different first-pick orders for the same session, but
+//     each instance still picks deterministically per session and Redis
+//     sticky writes (keyed by routes/policy, not salt) converge across
+//     instances after the first success. Single-instance and dev
+//     deployments are fully covered.
+//
+// Lazy resolution lets tests override via t.Setenv before the first
+// Match() call. Reset via routingSeedSaltForTest only.
+var (
+	routingSeedSalt     []byte
+	routingSeedSaltOnce sync.Once
+)
+
+func getRoutingSeedSalt() []byte {
+	routingSeedSaltOnce.Do(func() {
+		if v := os.Getenv("MAXX_ROUTING_SEED_SALT"); v != "" {
+			routingSeedSalt = []byte(v)
+			return
+		}
+		buf := make([]byte, 32)
+		if _, err := crand.Read(buf); err != nil {
+			// crypto/rand failures are nearly impossible; fall back to a
+			// time-derived seed so we never panic at request time. This
+			// path produces an unstable per-process salt, same security
+			// properties as the normal crypto/rand path.
+			binary.LittleEndian.PutUint64(buf[:8], uint64(time.Now().UnixNano()))
+		}
+		routingSeedSalt = buf
+		log.Printf("[Router] MAXX_ROUTING_SEED_SALT not set — generated a per-process random salt. " +
+			"For consistent first-pick behavior across multi-instance deployments, set MAXX_ROUTING_SEED_SALT to a shared secret.")
+	})
+	return routingSeedSalt
+}
 
 // makeSessionSeed derives a stable seed from the caller identity + the
 // MatchContext so the weighted shuffle becomes deterministic per session
@@ -448,21 +477,26 @@ var routingSeedSalt = func() []byte {
 // When no session anchor is available (no api token, no session id) we
 // still want determinism per tenant/client/project so distribution doesn't
 // degrade to global rand — incorporate the routing context as the anchor.
+//
+// Encoding is unambiguous by construction: every variable-length field is
+// length-prefixed (uint64 LE), every fixed-length integer is uint64 LE.
+// No clever separators, no field can collide with another's payload.
 func makeSessionSeed(ctx *MatchContext) int64 {
-	mac := hmac.New(sha256.New, routingSeedSalt)
+	mac := hmac.New(sha256.New, getRoutingSeedSalt())
 	var u64 [8]byte
-	binary.LittleEndian.PutUint64(u64[:], ctx.TenantID)
-	mac.Write(u64[:])
-	mac.Write([]byte{0})
-	binary.LittleEndian.PutUint64(u64[:], uint64(len(ctx.ClientType)))
-	mac.Write(u64[:])
-	mac.Write([]byte(ctx.ClientType))
-	binary.LittleEndian.PutUint64(u64[:], ctx.ProjectID)
-	mac.Write(u64[:])
-	binary.LittleEndian.PutUint64(u64[:], ctx.APITokenID)
-	mac.Write(u64[:])
-	mac.Write([]byte{0})
-	mac.Write([]byte(ctx.SessionID))
+	writeU64 := func(v uint64) {
+		binary.LittleEndian.PutUint64(u64[:], v)
+		mac.Write(u64[:])
+	}
+	writeBytes := func(b []byte) {
+		writeU64(uint64(len(b)))
+		mac.Write(b)
+	}
+	writeU64(ctx.TenantID)
+	writeBytes([]byte(ctx.ClientType))
+	writeU64(ctx.ProjectID)
+	writeU64(ctx.APITokenID)
+	writeBytes([]byte(ctx.SessionID))
 	sum := mac.Sum(nil)
 	return int64(binary.LittleEndian.Uint64(sum[:8]))
 }

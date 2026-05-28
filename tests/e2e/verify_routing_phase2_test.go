@@ -278,19 +278,32 @@ func TestVerifyRoutingPhase2(t *testing.T) {
 		sendOne(fmt.Sprintf("probe-%d", i))
 	}
 	snapP := hitsSnap()
-	t.Logf("verify> Probe — cooldown still on p1, %d distinct sessions: p1=%d p2=%d p3=%d (expect ~2:1 between p2 and p3)",
-		spreadN, snapP[0], snapP[1], snapP[2])
-	if snapP[0] != 0 {
-		t.Errorf("probe: cooled-down p1 received %d hits", snapP[0])
+	t.Logf("verify> Probe — cooldown on p%d (weight %d), %d distinct sessions: p1=%d p2=%d p3=%d",
+		primedProvider+1, weights[primedProvider], spreadN, snapP[0], snapP[1], snapP[2])
+	if snapP[primedProvider] != 0 {
+		t.Errorf("probe: cooled-down p%d received %d hits", primedProvider+1, snapP[primedProvider])
 	}
-	// Tighten: with p1 down, traffic over p2 (weight 2) vs p3 (weight 1)
-	// should land near 2:1. N=200 → expected ~133/67. Binomial σ ≈ 6.7;
-	// allow ±20 (≈3σ) per bucket so flakes don't fire on legitimate sampling.
-	if snapP[1] < 113 || snapP[1] > 153 {
-		t.Errorf("probe: p2 (weight 2) got %d hits, want 133±20 with p1 cooled", snapP[1])
+	// With the primed provider cooled, traffic distributes between the
+	// surviving two by their weight ratio. Per-process random salt means
+	// primedProvider varies across runs, so compute expected counts
+	// dynamically. Use ±20 (~3σ for N=200, p≈0.2..0.9) per bucket to
+	// allow legitimate sampling variance.
+	survivingWeight := 0
+	for i, w := range weights {
+		if i != primedProvider {
+			survivingWeight += w
+		}
 	}
-	if snapP[2] < 47 || snapP[2] > 87 {
-		t.Errorf("probe: p3 (weight 1) got %d hits, want 67±20 with p1 cooled", snapP[2])
+	for i, w := range weights {
+		if i == primedProvider {
+			continue
+		}
+		expected := float64(spreadN) * float64(w) / float64(survivingWeight)
+		got := float64(snapP[i])
+		if got < expected-20 || got > expected+20 {
+			t.Errorf("probe: p%d (weight %d) got %d hits, want %.0f±20 with p%d cooled",
+				i+1, w, snapP[i], expected, primedProvider+1)
+		}
 	}
 
 	// Clean up cooldown state so other tests aren't affected
