@@ -161,6 +161,19 @@ func TestProjectAPIPathAllowsExactGeminiModelList(t *testing.T) {
 	}
 }
 
+// TestProjectAPIPathAllowsImagesEndpoints pins the contract that
+// /v1/images/generations and /v1/images/edits work under the /project/<slug>/
+// prefix. proxy_routes.go registers them at the root mux; this whitelist must
+// stay in sync, otherwise project-scoped image requests 404 with
+// "invalid project proxy path".
+func TestProjectAPIPathAllowsImagesEndpoints(t *testing.T) {
+	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
+		if !isValidAPIPath(path) {
+			t.Fatalf("expected %q to be valid for project proxy URLs", path)
+		}
+	}
+}
+
 func TestProjectProxyRoutesGeminiModelListToModelsHandler(t *testing.T) {
 	modelsHandler := NewModelsHandler(&fakeResponseModelRepo{names: []string{"gpt-1"}}, nil, nil)
 	handler := NewProjectProxyHandler(nil, modelsHandler, &fakeProjectRepo{
