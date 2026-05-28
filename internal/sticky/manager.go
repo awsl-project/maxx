@@ -44,7 +44,20 @@ var defaultManager = NewManager()
 func Default() *Manager { return defaultManager }
 
 // SetCoordinator picks an appropriate Store based on the coordinator's
-// underlying implementation (Redis vs in-memory). Safe to call multiple times.
+// underlying implementation (Redis vs in-memory).
+//
+// Lifecycle expectation: this is meant to be called once at process start,
+// before any traffic is served. The atomic.Pointer swap is safe under
+// concurrent reads, but any in-flight Get/Set against the previous Store
+// continues against the *old* backend — if the old store owns connection
+// resources that need closing, the caller is responsible for ordering the
+// new store's installation before tearing the old one down. Today both the
+// memory and Redis stores share the coordinator's pool, so there is no
+// teardown to coordinate.
+//
+// The ctx is currently unused but kept in the signature for symmetry with
+// cooldown.Manager.SetCoordinator and in case a future Store needs to do
+// async initialization here.
 func (m *Manager) SetCoordinator(_ context.Context, c coordinator.Coordinator) {
 	store := StoreFor(c)
 	m.store.Store(&store)
@@ -119,7 +132,7 @@ func BaseKey(scope domain.RoutingStickyScope, apiTokenID uint64, sessionID strin
 }
 
 // TTLFromConfig returns the configured TTL or DefaultTTL when unset.
-func TTLFromConfig(seconds int) time.Duration {
+func TTLFromConfig(seconds int64) time.Duration {
 	if seconds <= 0 {
 		return DefaultTTL
 	}

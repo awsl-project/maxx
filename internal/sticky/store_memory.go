@@ -25,9 +25,21 @@ func NewMemoryStore() Store {
 
 func (s *memoryStore) Get(_ context.Context, key Key) (uint64, bool, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	e, ok := s.entries[key]
-	if !ok || time.Now().After(e.expiresAt) {
+	s.mu.RUnlock()
+	if !ok {
+		return 0, false, nil
+	}
+	if time.Now().After(e.expiresAt) {
+		// Lazy delete: the Redis backend gets TTL eviction for free; the
+		// memory backend would otherwise accumulate expired entries
+		// indefinitely as sessions churn. Re-check under the write lock
+		// in case a fresher Set raced in between the read above and now.
+		s.mu.Lock()
+		if cur, ok := s.entries[key]; ok && !time.Now().Before(cur.expiresAt) {
+			delete(s.entries, key)
+		}
+		s.mu.Unlock()
 		return 0, false, nil
 	}
 	return e.providerID, true, nil

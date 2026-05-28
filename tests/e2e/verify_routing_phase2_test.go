@@ -283,6 +283,15 @@ func TestVerifyRoutingPhase2(t *testing.T) {
 	if snapP[0] != 0 {
 		t.Errorf("probe: cooled-down p1 received %d hits", snapP[0])
 	}
+	// Tighten: with p1 down, traffic over p2 (weight 2) vs p3 (weight 1)
+	// should land near 2:1. N=200 → expected ~133/67. Binomial σ ≈ 6.7;
+	// allow ±20 (≈3σ) per bucket so flakes don't fire on legitimate sampling.
+	if snapP[1] < 113 || snapP[1] > 153 {
+		t.Errorf("probe: p2 (weight 2) got %d hits, want 133±20 with p1 cooled", snapP[1])
+	}
+	if snapP[2] < 47 || snapP[2] > 87 {
+		t.Errorf("probe: p3 (weight 1) got %d hits, want 67±20 with p1 cooled", snapP[2])
+	}
 
 	// Clean up cooldown state so other tests aren't affected
 	cooldown.Default().ClearCooldown(providerIDs[primedProvider], "", "")
@@ -333,7 +342,7 @@ func TestVerifyRoutingErrorClass(t *testing.T) {
 
 	srvA, hmA, setA := togglableMock()
 	defer srvA.Close()
-	srvB, hmB, _ := togglableMock()
+	srvB, hmB, setB := togglableMock()
 	defer srvB.Close()
 
 	pA := createProvider(t, env, "pA", srvA.URL, []string{"openai"})
@@ -384,58 +393,43 @@ func TestVerifyRoutingErrorClass(t *testing.T) {
 		return r.StatusCode
 	}
 
-	// 1) Warm-up: both healthy, observe which one sticky picks.
+	// Identify primed/spare by their roles so the test can drive either
+	// initial sticky binding symmetrically. After warm-up sticky points
+	// at one provider; we always fail *that* one and expect the dispatcher
+	// to fall through to the other.
+	type sideRefs struct {
+		name string
+		hits *hitMock
+		set  func(int)
+		id   uint64
+	}
+	a := sideRefs{name: "A", hits: hmA, set: setA, id: pA}
+	b := sideRefs{name: "B", hits: hmB, set: setB, id: pB}
+
+	// 1) Warm-up: both healthy, observe which one sticky pinned to.
 	hmA.hits.Store(0)
 	hmB.hits.Store(0)
 	if code := hit("alpha"); code != 200 {
 		t.Fatalf("warm-up status=%d", code)
 	}
-	primed := "A"
-	if hmB.hits.Load() == 1 && hmA.hits.Load() == 0 {
-		primed = "B"
+	var primed, spare sideRefs
+	switch {
+	case hmA.hits.Load() == 1 && hmB.hits.Load() == 0:
+		primed, spare = a, b
+	case hmB.hits.Load() == 1 && hmA.hits.Load() == 0:
+		primed, spare = b, a
+	default:
+		t.Fatalf("warm-up: unexpected hits A=%d B=%d", hmA.hits.Load(), hmB.hits.Load())
 	}
 	t.Logf("verify> ErrorClass warm-up — sticky pinned to p%s (A=%d B=%d)",
-		primed, hmA.hits.Load(), hmB.hits.Load())
+		primed.name, hmA.hits.Load(), hmB.hits.Load())
 
-	// 2) Flip A to 500. If sticky points to A, the next call should fail at A
-	// once then fall through to B successfully; if it points to B, we
-	// instead want a way to force the failure path. Flip B to 500 if needed.
-	if primed == "B" {
-		// Reverse roles so the failing one is the sticky-pinned one.
-		// (Sticky must be invalidated implicitly via cooldown — but we want to
-		// test pure error fallback, so we simply make B fail. After 1
-		// successful failover, sticky now points to A.)
-		// We use setA for both to keep the test self-contained: switch B.
-		hmA.hits.Store(0)
-		hmB.hits.Store(0)
-		// no way to control B with the captured setter; fail-over by failing
-		// B inline using a temp swap. We instead drive a known failure flow:
-		// kill B by closing the server; dispatch should fall back to A.
-		srvB.CloseClientConnections()
-		// In this configuration we expect the dispatch to fail-over to A on
-		// the next request. Just record the observation.
-		code := hit("alpha")
-		t.Logf("verify> ErrorClass primed=B path — closed pB conns; next request: status=%d A=%d B=%d",
-			code, hmA.hits.Load(), hmB.hits.Load())
-		// The key claim is: sticky should now point to A (after success
-		// there). We verify by sending more and observing A wins.
-		hmA.hits.Store(0)
-		hmB.hits.Store(0)
-		const reps = 10
-		for i := 0; i < reps; i++ {
-			hit("alpha")
-		}
-		t.Logf("verify> ErrorClass after recovery — %d requests for alpha: A=%d B=%d (expect all A)",
-			reps, hmA.hits.Load(), hmB.hits.Load())
-		if hmA.hits.Load() != int64(reps) {
-			t.Errorf("ErrorClass: expected sticky to re-pin to A after B failed, got A=%d B=%d",
-				hmA.hits.Load(), hmB.hits.Load())
-		}
-		return
-	}
-
-	// Primed=A path: flip A to 500
-	setA(500)
+	// 2) Flip the primed side to 500. Each subsequent request should attempt
+	// the primed provider once (since sticky still says "go there"), get a
+	// 500, fail over to the spare, succeed there, and write sticky=spare.
+	// From the second request onward, sticky points at the spare and the
+	// failing primed provider is bypassed entirely.
+	primed.set(500)
 	hmA.hits.Store(0)
 	hmB.hits.Store(0)
 	const reps = 10
@@ -443,16 +437,15 @@ func TestVerifyRoutingErrorClass(t *testing.T) {
 	for i := 0; i < reps; i++ {
 		codes[i] = hit("alpha")
 	}
-	finalAHits := hmA.hits.Load()
-	finalBHits := hmB.hits.Load()
-	t.Logf("verify> ErrorClass primed=A then A→500 — %d requests for alpha: A=%d B=%d (codes=%v)",
-		reps, finalAHits, finalBHits, codes)
+	primedHits := primed.hits.hits.Load()
+	spareHits := spare.hits.hits.Load()
+	t.Logf("verify> ErrorClass primed=%s then %s→500 — %d requests for alpha: %s=%d %s=%d (codes=%v)",
+		primed.name, primed.name, reps, primed.name, primedHits, spare.name, spareHits, codes)
 
-	if finalBHits == 0 {
-		t.Errorf("ErrorClass: B never received traffic during A's 500s; failover broken")
+	if spareHits == 0 {
+		t.Errorf("ErrorClass: spare p%s never received traffic during p%s 500s; failover broken",
+			spare.name, primed.name)
 	}
-
-	// All client requests should still return 200 because B is healthy.
 	for i, c := range codes {
 		if c != 200 {
 			t.Errorf("ErrorClass: request %d returned %d, want 200 (failover should succeed)", i, c)
@@ -460,25 +453,51 @@ func TestVerifyRoutingErrorClass(t *testing.T) {
 		}
 	}
 
-	// 3) Heal A. Subsequent requests should STILL hit B (sticky now points
-	// to B after each success there). We expect no drift back to A.
-	setA(200)
+	// 3) Heal the primed side. Subsequent requests should STILL hit the
+	// spare (sticky was rebound to it after each success); no drift back.
+	primed.set(200)
 	hmA.hits.Store(0)
 	hmB.hits.Store(0)
 	for i := 0; i < reps; i++ {
 		hit("alpha")
 	}
-	t.Logf("verify> ErrorClass A healed — %d requests for alpha: A=%d B=%d (expect all B, sticky points to B now)",
-		reps, hmA.hits.Load(), hmB.hits.Load())
-	if hmA.hits.Load() != 0 {
-		t.Errorf("ErrorClass: sticky drifted back to recovered A; A=%d B=%d", hmA.hits.Load(), hmB.hits.Load())
+	t.Logf("verify> ErrorClass p%s healed — %d requests for alpha: A=%d B=%d (expect all p%s, sticky points there now)",
+		primed.name, reps, hmA.hits.Load(), hmB.hits.Load(), spare.name)
+	if primed.hits.hits.Load() != 0 {
+		t.Errorf("ErrorClass: sticky drifted back to recovered p%s; A=%d B=%d",
+			primed.name, hmA.hits.Load(), hmB.hits.Load())
 	}
-	if hmB.hits.Load() != int64(reps) {
-		t.Errorf("ErrorClass: expected %d hits on B, got %d", reps, hmB.hits.Load())
+	if spare.hits.hits.Load() != int64(reps) {
+		t.Errorf("ErrorClass: expected %d hits on p%s, got %d", reps, spare.name, spare.hits.hits.Load())
 	}
 
-	// Cleanup: clear any cooldowns that the dispatch loop may have applied
+	// 4) Explicit 429 case. The dispatcher doesn't branch by error class
+	// today — 4xx/429/5xx all fail over the same way — but Codex review
+	// asked to make the 429 path observable so future rate-limit-specific
+	// logic doesn't silently break the contract. Sticky now points at the
+	// spare; flip it to 429 and verify the healed primed becomes the
+	// failover target.
+	cooldown.Default().ClearCooldown(primed.id, "", "")
+	cooldown.Default().ClearCooldown(spare.id, "", "")
+	spare.set(429)
+	primed.set(200)
+	hmA.hits.Store(0)
+	hmB.hits.Store(0)
+	for i := 0; i < reps; i++ {
+		hit("alpha")
+	}
+	t.Logf("verify> ErrorClass 429 probe — p%s→429, %d requests for alpha: A=%d B=%d (expect majority p%s)",
+		spare.name, reps, hmA.hits.Load(), hmB.hits.Load(), primed.name)
+	if primed.hits.hits.Load() < int64(reps-1) {
+		// One initial hit on the spare (the sticky-preferred) is expected;
+		// everything after the failover should land on the primed.
+		t.Errorf("ErrorClass 429: expected ≥%d hits on p%s after p%s→429, got A=%d B=%d",
+			reps-1, primed.name, spare.name, hmA.hits.Load(), hmB.hits.Load())
+	}
+
+	// Cleanup: clear any cooldowns the dispatch loop may have applied
 	// during the failure phase so other tests aren't affected.
+	spare.set(200)
 	cooldown.Default().ClearCooldown(pA, "", "")
 	cooldown.Default().ClearCooldown(pB, "", "")
 }

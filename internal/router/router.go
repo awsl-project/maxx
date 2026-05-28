@@ -2,10 +2,12 @@ package router
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"math/rand"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -217,12 +219,14 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	// Get routing strategy
 	strategy := r.getRoutingStrategy(tenantID, projectID)
 
-	// Sort routes by strategy. For weighted_random we seed the RNG with the
-	// caller's (api token + session) so the same session sees a stable
-	// fallback order while different sessions diverge — this gives implicit
-	// per-session affinity without any shared state, and naturally spreads
-	// load across providers across the active session population.
-	seed := makeSessionSeed(ctx.APITokenID, ctx.SessionID)
+	// Sort routes by strategy. For weighted_random we seed the RNG via an
+	// HMAC of the caller identity + routing context so the same session
+	// sees a stable fallback order while different sessions diverge —
+	// implicit per-session affinity without shared state, and natural
+	// load spread across the active session population. The HMAC salt
+	// prevents an authenticated client from grinding session ids to
+	// steer their traffic onto a specific provider.
+	seed := makeSessionSeed(ctx)
 	r.sortRoutes(filtered, strategy, seed)
 
 	// Get default retry config
@@ -303,9 +307,15 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		ttl := sticky.TTLFromConfig(strategy.Config.StickyTTLSeconds)
 		stickyWrite = &StickyWrite{Key: key, TTL: ttl}
 
-		if pinned, ok := sticky.Default().Get(context.Background(), key); ok {
+		// Bound the sticky Get: a slow/unavailable Redis must not stall the
+		// match path. On timeout/error sticky.Get returns (0,false) and we
+		// fall through to the normal weighted_random order — affinity is
+		// best-effort by design.
+		stickyCtx, stickyCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		if pinned, ok := sticky.Default().Get(stickyCtx, key); ok {
 			matched = promoteByProvider(matched, pinned)
 		}
+		stickyCancel()
 	}
 
 	return &MatchResult{Routes: matched, Sticky: stickyWrite}, nil
@@ -387,9 +397,11 @@ func policyFingerprint(routes []*domain.Route) string {
 		h.Write([]byte{flag})
 	}
 	sum := h.Sum(nil)
-	// 12 hex chars (48 bits) is plenty for distinguishing config snapshots
-	// and keeps Redis keys compact.
-	return hex.EncodeToString(sum[:6])
+	// 32 hex chars (128 bits): birthday collisions only matter past ~1.8e19
+	// distinct configs, which we will never approach. Earlier 48-bit hashes
+	// would have hit ~1.6e7 — Codex reviewer flagged this as a long-tail
+	// adversarial concern even though normal tenants never get close.
+	return hex.EncodeToString(sum[:16])
 }
 
 // promoteByProvider moves the matched route for providerID (if any) to the
@@ -410,21 +422,48 @@ func promoteByProvider(matched []*MatchedRoute, providerID uint64) []*MatchedRou
 	return matched
 }
 
-// makeSessionSeed derives a stable seed from the caller identity so the
-// weighted shuffle becomes deterministic per (api token, session). Same
-// session → same order (implicit affinity, also same fallback chain). When
-// no session info is available we fall back to time-based randomness so
-// behavior is no worse than the previous global rand.
-func makeSessionSeed(apiTokenID uint64, sessionID string) int64 {
-	if apiTokenID == 0 && sessionID == "" {
-		return time.Now().UnixNano()
+// routingSeedSalt is a process-wide secret mixed into makeSessionSeed.
+// Without it, an attacker holding any valid API token could grind through
+// X-Session-Id values offline until the seeded shuffle lands traffic on
+// whichever upstream they want to target (e.g. always the cheapest, or
+// always the one with the largest prompt cache they want to poison).
+//
+// Operators can set MAXX_ROUTING_SEED_SALT to a stable secret that's the
+// same on every instance (required for multi-instance to keep affinity
+// across nodes). When unset we fall back to a hardcoded constant: the
+// salt still prevents trivial offline grinding by anyone without the
+// binary, but a determined attacker with source access can reproduce it.
+// Setting the env var is recommended for any multi-tenant deployment.
+var routingSeedSalt = func() []byte {
+	if v := os.Getenv("MAXX_ROUTING_SEED_SALT"); v != "" {
+		return []byte(v)
 	}
-	h := sha256.New()
-	var idBuf [8]byte
-	binary.LittleEndian.PutUint64(idBuf[:], apiTokenID)
-	h.Write(idBuf[:])
-	h.Write([]byte(sessionID))
-	sum := h.Sum(nil)
+	return []byte("maxx/v1/routing-seed-salt/default")
+}()
+
+// makeSessionSeed derives a stable seed from the caller identity + the
+// MatchContext so the weighted shuffle becomes deterministic per session
+// (implicit affinity) but unpredictable to clients who don't know the salt.
+//
+// When no session anchor is available (no api token, no session id) we
+// still want determinism per tenant/client/project so distribution doesn't
+// degrade to global rand — incorporate the routing context as the anchor.
+func makeSessionSeed(ctx *MatchContext) int64 {
+	mac := hmac.New(sha256.New, routingSeedSalt)
+	var u64 [8]byte
+	binary.LittleEndian.PutUint64(u64[:], ctx.TenantID)
+	mac.Write(u64[:])
+	mac.Write([]byte{0})
+	binary.LittleEndian.PutUint64(u64[:], uint64(len(ctx.ClientType)))
+	mac.Write(u64[:])
+	mac.Write([]byte(ctx.ClientType))
+	binary.LittleEndian.PutUint64(u64[:], ctx.ProjectID)
+	mac.Write(u64[:])
+	binary.LittleEndian.PutUint64(u64[:], ctx.APITokenID)
+	mac.Write(u64[:])
+	mac.Write([]byte{0})
+	mac.Write([]byte(ctx.SessionID))
+	sum := mac.Sum(nil)
 	return int64(binary.LittleEndian.Uint64(sum[:8]))
 }
 

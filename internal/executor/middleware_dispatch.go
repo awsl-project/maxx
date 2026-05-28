@@ -220,10 +220,18 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				// we failed over from A → B, sticky now points at B for the
 				// next request). Errors are non-fatal — affinity is best-effort,
 				// the next call would just re-roll via weighted_random.
+				//
+				// Use a fresh background context with a tight timeout: by the
+				// time we get here the request ctx may already be Done (for
+				// streaming responses the client has disconnected just before
+				// this hook fires), which would turn every Set into a silent
+				// failure under load.
 				if state.stickyWrite != nil {
-					if err := sticky.Default().Set(ctx, state.stickyWrite.Key, matchedRoute.Provider.ID, state.stickyWrite.TTL); err != nil {
+					stickyCtx, stickyCancel := context.WithTimeout(context.Background(), 2*time.Second)
+					if err := sticky.Default().Set(stickyCtx, state.stickyWrite.Key, matchedRoute.Provider.ID, state.stickyWrite.TTL); err != nil {
 						log.Printf("[Executor] sticky set failed (non-fatal): %v", err)
 					}
+					stickyCancel()
 				}
 
 				proxyReq.Status = "COMPLETED"

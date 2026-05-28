@@ -56,7 +56,10 @@ func TestRedisStoreCrossInstance(t *testing.T) {
 	if err := storeB.Set(ctx, key, 11, 10*time.Second); err != nil {
 		t.Fatalf("storeB.Set: %v", err)
 	}
-	got, found, _ = storeA.Get(ctx, key)
+	got, found, err = storeA.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("storeA.Get after overwrite: %v", err)
+	}
 	if !found || got != 11 {
 		t.Errorf("overwrite from B then read from A: got=%d found=%v, want 11/true", got, found)
 	}
@@ -68,7 +71,9 @@ func TestRedisStoreCrossInstance(t *testing.T) {
 		t.Fatalf("set short ttl: %v", err)
 	}
 	mr.FastForward(500 * time.Millisecond)
-	if _, found, _ := storeB.Get(ctx, shortKey); found {
+	if _, found, err := storeB.Get(ctx, shortKey); err != nil {
+		t.Fatalf("storeB.Get after TTL: %v", err)
+	} else if found {
 		t.Errorf("TTL: expected expiry on B, still found")
 	}
 	t.Logf("verify> Probe C — TTL expiry (set on A, observe on B after fast-forward) → expired ✓")
@@ -83,7 +88,10 @@ func TestRedisStoreCrossInstance(t *testing.T) {
 	if err := storeA.Set(ctx, weirdKey, 13, time.Minute); err != nil {
 		t.Fatalf("set weird key: %v", err)
 	}
-	got, found, _ = storeB.Get(ctx, weirdKey)
+	got, found, err = storeB.Get(ctx, weirdKey)
+	if err != nil {
+		t.Fatalf("storeB.Get weirdKey: %v", err)
+	}
 	if !found || got != 13 {
 		t.Errorf("escape: got=%d found=%v, want 13/true", got, found)
 	}
@@ -116,7 +124,9 @@ func TestRedisStoreCrossInstance(t *testing.T) {
 	if err := storeA.Delete(ctx, key); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, found, _ := storeB.Get(ctx, key); found {
+	if _, found, err := storeB.Get(ctx, key); err != nil {
+		t.Fatalf("storeB.Get after Delete: %v", err)
+	} else if found {
 		t.Errorf("delete: expected miss after A.Delete, B.Get still found")
 	}
 	t.Logf("verify> Probe C — Delete on A, Get on B → miss ✓")
