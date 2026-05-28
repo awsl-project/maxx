@@ -68,7 +68,14 @@ func (e *Executor) ExecuteOnce(
 		attempt.TenantID = maxxctx.GetTenantID(c.Request.Context())
 	}
 	if err := e.attemptRepo.Create(attempt); err != nil {
+		// Fail fast: if the attempt row can't be persisted, downstream cost
+		// mirroring would write a billing row whose backing attempt doesn't
+		// exist — exactly the desync this PR is meant to prevent. The caller
+		// surfaces this as a normal failure path on the ProxyRequest, leaving
+		// proxyReq.ProxyUpstreamAttemptCount at 0 (no phantom-incremented
+		// counter).
 		log.Printf("[Executor] ExecuteOnce: failed to create attempt record: %v", err)
+		return nil, err
 	}
 
 	proxyReq.ProxyUpstreamAttemptCount++

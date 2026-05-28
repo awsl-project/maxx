@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 )
+
+var errFakeRepo = errors.New("fake repo persistence error")
 
 // recordingAttemptRepo captures Create/Update calls so the test can assert on
 // the persisted attempt state. The real sqlite repo just writes to a DB; for
@@ -155,6 +158,57 @@ func TestExecuteOnce_PersistsAttemptAndMirrorsBilling(t *testing.T) {
 	if proxyReq.Multiplier != 64000 {
 		t.Errorf("proxyReq multiplier not mirrored: %d, want 64000",
 			proxyReq.Multiplier)
+	}
+}
+
+// failingCreateAttemptRepo embeds recording behaviour but returns an error
+// from Create — to verify the bypass path's fail-fast contract when the
+// attempt row can't be persisted.
+type failingCreateAttemptRepo struct {
+	recordingAttemptRepo
+	createErr error
+}
+
+func (r *failingCreateAttemptRepo) Create(a *domain.ProxyUpstreamAttempt) error {
+	r.recordingAttemptRepo.created = append(r.recordingAttemptRepo.created, &domain.ProxyUpstreamAttempt{})
+	return r.createErr
+}
+
+// TestExecuteOnce_FailsFastOnCreateError pins the safety contract added to
+// address the desync concern: if the attempt row can't be persisted, do NOT
+// continue running the adapter (which would mirror cost onto the request
+// without any backing attempt row, leaving ProxyUpstreamAttemptCount=1 and
+// FinalProxyUpstreamAttemptID=0 — exactly the corrupt state this PR fixes).
+func TestExecuteOnce_FailsFastOnCreateError(t *testing.T) {
+	repo := &failingCreateAttemptRepo{createErr: errFakeRepo}
+	e := &Executor{attemptRepo: repo}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/1/v1/chat/completions", nil).
+		WithContext(context.Background())
+	c := flow.NewCtx(httptest.NewRecorder(), req)
+
+	proxyReq := &domain.ProxyRequest{TenantID: 1, ID: 42}
+	route := &domain.Route{ID: 99, ProviderID: 7, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: 7, Type: "custom"}
+	adapter := &fakeMetricsAdapter{in: 7, out: 1290} // would emit metrics if ever called
+
+	attempt, err := e.ExecuteOnce(
+		c, proxyReq, route, provider, adapter,
+		domain.ClientTypeOpenAI, "m", "m", false, false,
+	)
+	if err != errFakeRepo {
+		t.Fatalf("expected fail-fast Create error to be returned, got %v", err)
+	}
+	if attempt != nil {
+		t.Errorf("expected nil attempt on Create failure, got %+v", attempt)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 0 {
+		t.Errorf("ProxyUpstreamAttemptCount = %d on Create failure; should stay 0 (no phantom counter)",
+			proxyReq.ProxyUpstreamAttemptCount)
+	}
+	if proxyReq.Cost != 0 || proxyReq.Multiplier != 0 {
+		t.Errorf("proxyReq billing fields touched on Create failure: cost=%d mult=%d",
+			proxyReq.Cost, proxyReq.Multiplier)
 	}
 }
 
