@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"log"
 	"strconv"
 	"sync/atomic"
@@ -83,6 +84,11 @@ func (m *Manager) currentStore() Store {
 // Persistent errors (e.g. a chronically unreachable Redis) are surfaced as
 // rate-limited warnings so the operator notices the affinity layer is down
 // rather than silently observing degraded prompt-cache hit rates.
+//
+// Context errors (Canceled / DeadlineExceeded) are *not* logged: the
+// router wraps every Get in a 100ms timeout derived from the request ctx,
+// so a client disconnect or our own short cap shows up here as a context
+// error and would otherwise drown the genuine-Redis-down signal.
 func (m *Manager) Get(ctx context.Context, key Key) (uint64, bool) {
 	s := m.currentStore()
 	if s == nil {
@@ -90,7 +96,9 @@ func (m *Manager) Get(ctx context.Context, key Key) (uint64, bool) {
 	}
 	id, ok, err := s.Get(ctx, key)
 	if err != nil {
-		m.maybeLogGetError(err)
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			m.maybeLogGetError(err)
+		}
 		return 0, false
 	}
 	if !ok {
