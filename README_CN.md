@@ -268,6 +268,7 @@ codex
 | `MAXX_ADMIN_PASSWORD` | 启用管理员 JWT 认证。默认用户名：`admin`，密码为该变量的值 |
 | `MAXX_DSN` | 数据库连接字符串 |
 | `MAXX_DATA_DIR` | 自定义数据目录路径 |
+| `MAXX_ROUTING_SEED_SALT` | 可选共享密钥，用于 `weighted_random` 路由策略。未设置时每个进程会生成自己的随机盐——防 SessionID 枚举仍然成立，Redis sticky 绑定也会在首次成功后跨实例收敛；但相同 `(token, session)` 在 sticky 写入前的首选顺序在各实例间可能不一致。**多实例部署且需要一致首选顺序**时，请在所有实例上设置相同的值 |
 
 ### 系统设置
 

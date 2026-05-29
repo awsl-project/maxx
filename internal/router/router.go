@@ -45,8 +45,13 @@ type StickyWrite struct {
 	TTL time.Duration
 }
 
-// MatchContext contains all context needed for route matching
+// MatchContext contains all context needed for route matching.
+// Ctx is the originating request's context — Match honors its cancellation
+// when doing best-effort IO (currently just the sticky lookup). If Ctx is
+// nil we fall back to context.Background; nil is allowed so existing
+// non-proxy call sites don't have to plumb a context in.
 type MatchContext struct {
+	Ctx          context.Context
 	TenantID     uint64
 	ClientType   domain.ClientType
 	ProjectID    uint64
@@ -312,10 +317,16 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		stickyWrite = &StickyWrite{Key: key, TTL: ttl}
 
 		// Bound the sticky Get: a slow/unavailable Redis must not stall the
-		// match path. On timeout/error sticky.Get returns (0,false) and we
-		// fall through to the normal weighted_random order — affinity is
-		// best-effort by design.
-		stickyCtx, stickyCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		// match path. We derive from the caller's request context so a
+		// client cancel propagates here too; if no context was supplied,
+		// Background is the safe fallback. On timeout/error sticky.Get
+		// returns (0,false) and we fall through to the normal
+		// weighted_random order — affinity is best-effort by design.
+		parentCtx := ctx.Ctx
+		if parentCtx == nil {
+			parentCtx = context.Background()
+		}
+		stickyCtx, stickyCancel := context.WithTimeout(parentCtx, 100*time.Millisecond)
 		if pinned, ok := sticky.Default().Get(stickyCtx, key); ok {
 			matched = promoteByProvider(matched, pinned)
 		}

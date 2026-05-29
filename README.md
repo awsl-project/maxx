@@ -268,6 +268,7 @@ codex
 | `MAXX_ADMIN_PASSWORD` | Enable admin authentication with JWT. Default username: `admin`, password: the value of this variable |
 | `MAXX_DSN` | Database connection string |
 | `MAXX_DATA_DIR` | Custom data directory path |
+| `MAXX_ROUTING_SEED_SALT` | Optional shared secret for the `weighted_random` routing strategy. If unset, each process generates its own random salt — anti-grinding still holds and Redis sticky bindings still converge after the first successful request, but the pre-sticky first-pick order for the same `(token, session)` can differ across instances. Set the **same value on every instance** when you need consistent first-pick behavior in multi-instance deployments. |
 
 ### System Settings
 
