@@ -188,7 +188,26 @@ func newStrategyStickyCmd() *cobra.Command {
 		Short: "Toggle session-affinity sticky on a weighted_random strategy",
 		Long: `Convenience for the common case of flipping sticky on or off. Fetches the
 existing strategy, modifies the Config.Sticky* fields, and PUTs it back.
-For 'on', --scope and --ttl seconds can be passed (defaults: token / 1800).`,
+
+Sticky only applies to the weighted_random strategy (the priority
+strategy ignores it). With sticky on, the same (APIToken[, SessionID])
+will be routed to the provider that previously served it, while it is
+still healthy, to maximize upstream prompt-cache hits.
+
+Scopes:
+  token         every request from the same API token sticks (coarse,
+                higher hit rate, default)
+  conversation  (API token, SessionID) sticks (fine, more sticky keys)
+
+TTL is the lifetime of a sticky binding in seconds (server default 1800).`,
+		Example: `  # Turn sticky on with sensible defaults:
+  maxx-cli strategy sticky 1 on
+
+  # Per-conversation sticky with a 30-minute binding:
+  maxx-cli strategy sticky 1 on --scope conversation --ttl 1800
+
+  # Disable sticky:
+  maxx-cli strategy sticky 1 off`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := strconv.ParseUint(args[0], 10, 64)

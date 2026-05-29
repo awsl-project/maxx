@@ -230,7 +230,15 @@ func newRouteSetWeightCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set-weight ID WEIGHT",
 		Short: "Shortcut: update only the weight of a route",
-		Args:  cobra.ExactArgs(2),
+		Long: `Update only the Weight field of a route. Weight is used by the
+weighted_random routing strategy; higher value = higher chance of
+being picked. Must be >= 1. Equivalent to "route update ID --weight N".`,
+		Example: `  # Make route 7 three times as likely as a weight-1 sibling:
+  maxx-cli route set-weight 7 3
+
+  # Equal weighting (the default — 1 on every route):
+  maxx-cli route set-weight 7 1`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := strconv.ParseUint(args[0], 10, 64)
 			if err != nil {

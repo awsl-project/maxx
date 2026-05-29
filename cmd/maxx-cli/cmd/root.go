@@ -37,7 +37,18 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "maxx-cli",
 		Short:         "Configure a maxx server from the command line",
-		Long:          `maxx-cli talks to a maxx server's admin HTTP API to manage providers, API tokens, routes, routing strategies, users, invite codes, and settings.`,
+		Long: `maxx-cli talks to a maxx server's admin HTTP API to manage providers,
+API tokens, routes, routing strategies, users, invite codes, and settings.
+
+Quick start (human): run "maxx-cli login --server URL --username NAME",
+then "maxx-cli <resource> --help".
+
+Quick start (AI agent): run "maxx-cli explain" once. It prints a single
+self-contained briefing covering auth, the full command tree, output
+conventions, error semantics, and worked examples.
+
+Add -o json to any list/get/create/update to receive machine-readable
+output. Pass --dry-run to print the request body without sending it.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version.Full(),
@@ -59,6 +70,7 @@ func newRootCmd() *cobra.Command {
 		newUserCmd(),
 		newInviteCmd(),
 		newSettingsCmd(),
+		newExplainCmd(),
 	)
 	return root
 }

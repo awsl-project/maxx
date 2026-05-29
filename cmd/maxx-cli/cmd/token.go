@@ -92,6 +92,17 @@ func newTokenCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create --name NAME [--description ...] [--project-id N] [--expires-at RFC3339]",
 		Short: "Create an API token (plaintext token returned once)",
+		Long: `Create an API token. The plaintext token is in the "token" field of
+the response and IS RETURNED ONLY ONCE — save it immediately. The
+"apiToken" field contains the persisted metadata (id, prefix, etc.).`,
+		Example: `  # Plain create, no expiry:
+  maxx-cli -o json token create --name "prod-cli"
+
+  # Bound to a project, expiring in 30 days:
+  maxx-cli token create --name release-bot --project-id 4 --expires-at 2026-06-29T00:00:00Z
+
+  # Just the plaintext token, for piping:
+  maxx-cli -o json token create --name scratch | jq -r .token`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if name == "" {
 				return fmt.Errorf("--name is required")

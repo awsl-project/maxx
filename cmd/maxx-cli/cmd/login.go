@@ -27,7 +27,22 @@ func newLoginCmd() *cobra.Command {
 		Short: "Log in to a maxx server and save a context",
 		Long: `Log in with a username and password. The returned JWT is stored in the CLI
 config under the named context (default: "default"). A password may be passed
-via --password or piped on stdin; otherwise it is prompted for without echo.`,
+via --password or piped on stdin; otherwise it is prompted for without echo.
+
+The JWT lives 7 days. The CLI warns on stderr when <24h remain, and
+returns a friendly hint on 401 ("run maxx-cli login").`,
+		Example: `  # Interactive password prompt:
+  maxx-cli login --server http://localhost:9880 --username admin
+
+  # Password on the command line (visible in shell history):
+  maxx-cli login --server https://maxx.prod --username admin --password 'secret'
+
+  # Password piped (good for CI):
+  echo "$MAXX_PASSWORD" | maxx-cli login --server https://maxx.prod --username admin --password -
+
+  # Multi-server: save under a named context, then switch with "context use":
+  maxx-cli login --server https://maxx.staging --username admin --context staging
+  maxx-cli context use staging`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			conf, err := cfg.Load()
 			if err != nil {

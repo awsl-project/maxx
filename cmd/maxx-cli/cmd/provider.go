@@ -106,6 +106,19 @@ func newProviderCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create -f provider.json",
 		Short: "Create a provider from a JSON file or stdin",
+		Long: `Create one provider. Input is a JSON object matching the server's
+Provider shape; the same shape that "provider export" emits. Required
+fields are type and name; everything else is provider-type-specific.`,
+		Example: `  # Create from a file:
+  maxx-cli provider create -f my-provider.json
+
+  # Create from inline JSON (heredoc):
+  cat <<'JSON' | maxx-cli -o json provider create -f -
+  {"type":"custom","name":"Anthropic","config":{"baseUrl":"https://api.anthropic.com","apiKey":"sk-..."},"supportedClientTypes":["claude"]}
+  JSON
+
+  # Preview the request body, do not send:
+  maxx-cli --dry-run provider create -f my-provider.json`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			data, err := readJSONInput(fromFile)
 			if err != nil {
@@ -241,6 +254,20 @@ func newProviderImportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import -f providers.json",
 		Short: "Import providers from a JSON file or stdin (accepts a single object or an array)",
+		Long: `Import one or many providers from JSON. Input may be either a single
+object or an array of objects; the CLI normalises to the array form the
+server expects.`,
+		Example: `  # Bulk import from an export:
+  maxx-cli provider export --out backup.json
+  cat backup.json | maxx-cli provider import -f -
+
+  # Import a single provider (object form, also accepted):
+  cat <<'JSON' | maxx-cli provider import -f -
+  {"type":"custom","name":"Inline","supportedClientTypes":["claude"]}
+  JSON
+
+  # See what would be sent, do not import:
+  maxx-cli --dry-run provider import -f backup.json`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			data, err := readJSONInput(fromFile)
 			if err != nil {
