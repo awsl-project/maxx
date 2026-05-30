@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -154,21 +156,75 @@ func TestNewFromContextAcceptsHTTPAndHTTPS(t *testing.T) {
 	}
 }
 
-func TestExtractErrorMsgPicksKnownKeys(t *testing.T) {
-	cases := map[string]string{
-		`{"error":"oops"}`:                     "oops",
-		`{"message":"bad input"}`:              "bad input",
-		`{"detail":"forbidden"}`:               "forbidden",
-		// "error" wins over the others.
-		`{"error":"first","message":"second"}`: "first",
-		// Non-JSON: raw, trimmed.
-		`plain text\n`:                         `plain text\n`,
+// TestInsecureSkipVerifyWarnsOncePerContext verifies the sync.Once gate by
+// asking the warn function directly. It uses a unique context name so a
+// re-run of the test in the same process behaves identically.
+func TestInsecureSkipVerifyWarnsOncePerContext(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
 	}
-	for body, want := range cases {
-		got := extractErrorMsg([]byte(body))
-		if got != want && body != `plain text\n` { // raw branch keeps escapes literal
-			t.Errorf("extractErrorMsg(%q) = %q, want %q", body, got, want)
+	origStderr := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = origStderr }()
+
+	name := fmt.Sprintf("test-once-%d", time.Now().UnixNano())
+	for i := 0; i < 5; i++ {
+		warnInsecure(name)
+	}
+	_ = w.Close()
+	got, _ := io.ReadAll(r)
+	n := strings.Count(string(got), "insecureSkipVerify=true")
+	if n != 1 {
+		t.Errorf("warnInsecure printed %d times for the same context, want 1", n)
+	}
+}
+
+func TestExtractErrorMsgPicksKnownKeys(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"error", `{"error":"oops"}`, "oops"},
+		{"message", `{"message":"bad input"}`, "bad input"},
+		{"detail", `{"detail":"forbidden"}`, "forbidden"},
+		// "error" wins over the others when more than one is present.
+		{"error wins", `{"error":"first","message":"second"}`, "first"},
+		// Empty "error" falls through to the next key.
+		{"empty error falls through", `{"error":"","message":"fallback"}`, "fallback"},
+		// Non-JSON body: returned trimmed verbatim.
+		{"raw text", "plain text\n", "plain text"},
+		// Genuinely empty body.
+		{"empty", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := extractErrorMsg([]byte(c.body))
+			if got != c.want {
+				t.Errorf("extractErrorMsg(%q) = %q, want %q", c.body, got, c.want)
+			}
+		})
+	}
+}
+
+func TestResponseTooLargeReturnsExplicitError(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Stream more than the cap so the read hits the +1 byte and errors
+		// rather than silently truncating to invalid JSON.
+		oversized := make([]byte, maxResponseBytes+1024)
+		for i := range oversized {
+			oversized[i] = 'a'
 		}
+		_, _ = w.Write(oversized)
+	})
+	_, err := c.ListProviders()
+	if err == nil {
+		t.Fatal("expected error for oversized response")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("err = %v, want it to mention exceeding the cap", err)
 	}
 }
 

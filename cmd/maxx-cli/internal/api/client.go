@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/awsl-project/maxx/cmd/maxx-cli/internal/cfg"
@@ -24,11 +25,27 @@ import (
 // guard exists so a buggy or hostile server can't OOM the CLI.
 const maxResponseBytes = 32 << 20 // 32 MiB
 
+// insecureWarnedOnce tracks contexts we have already warned about so the
+// stderr message fires once per process per context name, not on every
+// command invocation.
+var insecureWarnedOnce sync.Map // map[string]*sync.Once
+
 // Client is the admin HTTP API client.
 type Client struct {
 	server string
 	token  string
 	http   *http.Client
+}
+
+// warnInsecure prints the InsecureSkipVerify reminder to stderr at most
+// once per process per context name.
+func warnInsecure(name string) {
+	v, _ := insecureWarnedOnce.LoadOrStore(name, &sync.Once{})
+	v.(*sync.Once).Do(func() {
+		fmt.Fprintf(os.Stderr,
+			"[maxx-cli] warning: context %q has insecureSkipVerify=true; TLS certificate verification is disabled\n",
+			name)
+	})
 }
 
 // NewFromContext builds a client from a CLI context.
@@ -53,11 +70,10 @@ func NewFromContext(ctx *cfg.Context) (*Client, error) {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: ctx.InsecureSkipVerify},
 	}
 	if ctx.InsecureSkipVerify {
-		// Make the security trade-off visible on every invocation, not just
-		// once at login. Agents reading our stderr will pick this up too.
-		fmt.Fprintf(os.Stderr,
-			"[maxx-cli] warning: context %q has insecureSkipVerify=true; TLS certificate verification is disabled\n",
-			ctx.Name)
+		// Make the security trade-off visible, but only once per process per
+		// context — every-invocation noise becomes invisible and pollutes
+		// pipelines (it would leak into shells that mix stderr into stdout).
+		warnInsecure(ctx.Name)
 	}
 	return &Client{
 		server: strings.TrimRight(ctx.Server, "/"),
@@ -112,7 +128,16 @@ func (c *Client) do(method, path string, body, out any) error {
 		return fmt.Errorf("request: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	// Read maxResponseBytes+1 so that hitting the cap surfaces as an
+	// explicit "too large" error instead of a confusing JSON parse failure
+	// on a silently-truncated body.
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if readErr != nil {
+		return fmt.Errorf("read response body: %w", readErr)
+	}
+	if int64(len(respBody)) > maxResponseBytes {
+		return fmt.Errorf("response from %s exceeds %d bytes", path, maxResponseBytes)
+	}
 	if resp.StatusCode >= 400 {
 		return &APIError{Status: resp.StatusCode, Message: extractErrorMsg(respBody)}
 	}
