@@ -223,6 +223,35 @@ TTL is the lifetime of a sticky binding in seconds (server default 1800).`,
 			if mode != "on" && mode != "off" {
 				return fmt.Errorf("expected on|off, got %q", mode)
 			}
+			// Pre-validate flag values so dry-run reports the same shape
+			// of error a real run would, and so the dry-run preview below
+			// reflects the actual intended state change.
+			if mode == "on" && scope != "" && scope != "token" && scope != "conversation" {
+				return fmt.Errorf("--scope must be 'token' or 'conversation'")
+			}
+			if mode == "on" && cmd.Flags().Changed("ttl") && ttlSecs < 0 {
+				return fmt.Errorf("--ttl must be >= 0")
+			}
+			// --dry-run: never contact the server (sticky's real path needs
+			// a GET to build the PUT body, but the contract is "no server
+			// contact"). Print the intent instead — the user already knows
+			// what fields they're toggling.
+			if flagDryRun {
+				switch mode {
+				case "on":
+					line := fmt.Sprintf("[dry-run] would toggle sticky=on for routing strategy %d", id)
+					if scope != "" {
+						line += fmt.Sprintf(" (scope=%s)", scope)
+					}
+					if cmd.Flags().Changed("ttl") {
+						line += fmt.Sprintf(" (ttlSeconds=%d)", ttlSecs)
+					}
+					fmt.Fprintln(cmd.OutOrStdout(), line)
+				case "off":
+					fmt.Fprintf(cmd.OutOrStdout(), "[dry-run] would toggle sticky=off for routing strategy %d\n", id)
+				}
+				return nil
+			}
 			client, _, err := authedClient()
 			if err != nil {
 				return err
@@ -237,24 +266,13 @@ TTL is the lifetime of a sticky binding in seconds (server default 1800).`,
 			if mode == "on" {
 				s.Config.StickyEnabled = true
 				if scope != "" {
-					switch scope {
-					case "token", "conversation":
-						s.Config.StickyScope = domain.RoutingStickyScope(scope)
-					default:
-						return fmt.Errorf("--scope must be 'token' or 'conversation'")
-					}
+					s.Config.StickyScope = domain.RoutingStickyScope(scope)
 				}
 				if cmd.Flags().Changed("ttl") {
-					if ttlSecs < 0 {
-						return fmt.Errorf("--ttl must be >= 0")
-					}
 					s.Config.StickyTTLSeconds = ttlSecs
 				}
 			} else {
 				s.Config.StickyEnabled = false
-			}
-			if flagDryRun {
-				return previewJSON(cmd.OutOrStdout(), fmt.Sprintf("PUT /api/admin/routing-strategies/%d", id), s)
 			}
 			updated, err := client.UpdateRoutingStrategy(id, s)
 			if err != nil {

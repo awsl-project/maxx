@@ -45,25 +45,33 @@ returns a friendly hint on 401 ("run maxx-cli login").`,
   maxx-cli login --server https://maxx.staging --username admin --context staging
   maxx-cli context use staging`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			conf, err := cfg.Load()
-			if err != nil {
-				return err
-			}
-
 			if serverURL == "" {
 				return errors.New("--server is required")
 			}
 			if username == "" {
 				return errors.New("--username is required")
 			}
-			pw, err := resolvePassword(password)
-			if err != nil {
-				return err
-			}
-
 			ctxName := contextNm
 			if ctxName == "" {
 				ctxName = "default"
+			}
+
+			// --dry-run honors the global contract: never contact the
+			// server, never read or write local config. Print the request
+			// body that would be sent and stop.
+			if flagDryRun {
+				return previewJSON(cmd.OutOrStdout(),
+					fmt.Sprintf("POST %s/api/admin/auth/login (would save context %q)", serverURL, ctxName),
+					map[string]string{"username": username, "password": "<redacted>"})
+			}
+
+			conf, err := cfg.Load()
+			if err != nil {
+				return err
+			}
+			pw, err := resolvePassword(password)
+			if err != nil {
+				return err
 			}
 			tmpCtx := &cfg.Context{
 				Name:               ctxName,
@@ -160,6 +168,10 @@ func newLogoutCmd() *cobra.Command {
 			ctx := conf.FindContext(name)
 			if ctx == nil {
 				return fmt.Errorf("context %q not found", name)
+			}
+			if flagDryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "[dry-run] would clear token from context %q\n", name)
+				return nil
 			}
 			ctx.Token = ""
 			ctx.ExpiresAt = api.JWTExpiry("") // zero time

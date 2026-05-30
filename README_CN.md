@@ -138,6 +138,40 @@ wails dev
 
 **前端开发环境要求：** Node.js 22.12.0+（22.x 线内，见 `.node-version` / `.nvmrc`）以及 pnpm 10.7.0（在 `web/package.json` 中锁定）。
 
+### 命令行管理工具（`maxx-cli`）
+
+`maxx-cli` 是一个独立的二进制，通过 maxx server 的 admin HTTP API 完成 Web UI
+能做的所有配置：providers、API tokens、routes（含 weight）、routing
+strategies（含 sticky 会话亲和）、users、invite codes、settings。面向脚本、
+CI 和 AI agent。
+
+支持的安装方式：
+
+```bash
+# 从源码（最新 release tag）：
+go install github.com/awsl-project/maxx/cmd/maxx-cli@latest
+
+# 从本地仓库：
+task install:cli      # 通过 Taskfile 安装到 $GOBIN
+
+# 官方 Docker 镜像里已预装：/usr/local/bin/maxx-cli
+docker exec <container> maxx-cli --help
+```
+
+独立 binary release 资产、Homebrew/Scoop 发布暂未提供，跟进
+[#585](https://github.com/awsl-project/maxx/pull/585)。
+
+首次使用：
+
+```bash
+maxx-cli login --server http://localhost:9880 --username admin
+maxx-cli help reference       # 完整命令树，自动生成
+maxx-cli -o json provider list
+```
+
+完整的 agent 友好简报：`maxx-cli help reference`、`maxx-cli help formatting`、
+`maxx-cli help auth-config`。
+
 ## 配置 AI 编程工具
 
 ### Claude Code

@@ -120,11 +120,17 @@ Output format
   humans and is not a stable contract.
 
 Dry run
-  --dry-run            Print "[dry-run] METHOD /path" and the JSON body that
-                       would be sent. The server is never contacted.
+  --dry-run            Preview a command without performing any side
+                       effects. The CLI never contacts the server, never
+                       writes the local config, and never deletes anything.
+                       Each command prints either "[dry-run] METHOD /path"
+                       followed by the JSON body it would send, or
+                       "[dry-run] would <local-action>" for local-only
+                       commands (e.g. context delete, logout).
 
   Useful for inspecting destructive verbs (delete, password reset, sticky
-  on/off) before running them for real.
+  on/off) before running them for real, and for sanity-checking the
+  request shape against an API spec.
 
 Confirmation prompts
   -y, --yes            Skip the y/N prompt on destructive verbs (delete

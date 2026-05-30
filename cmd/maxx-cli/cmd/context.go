@@ -101,6 +101,15 @@ func newContextDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if conf.FindContext(args[0]) == nil {
+				return fmt.Errorf("context %q not found", args[0])
+			}
+			// --dry-run prevents both the confirmation prompt and the
+			// write. The contract is "preview, never mutate".
+			if flagDryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "[dry-run] would delete context %q from config\n", args[0])
+				return nil
+			}
 			if !confirm(fmt.Sprintf("Delete context %q?", args[0])) {
 				return fmt.Errorf("aborted")
 			}
