@@ -18,16 +18,16 @@ const (
 // topic builds a help-topic command in the gh style: it has no real RunE,
 // printing the topic body as both help output and command output so both
 // `maxx-cli TOPIC` and `maxx-cli help TOPIC` work.
+//
+// Topics are intentionally NOT hidden — they show up under the "Help topics"
+// group in `--help`, which is how an AI agent discovers `help reference`.
 func topic(name, short, body string) *cobra.Command {
 	c := &cobra.Command{
 		Use:     name,
 		Short:   short,
 		Long:    body,
 		GroupID: groupTopics,
-		// Mark hidden from completion so casual `<tab>` lists don't surface
-		// topics as if they were resource commands.
-		Hidden: false,
-		Args:   cobra.NoArgs,
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_, err := io.WriteString(cmd.OutOrStdout(), body)
 			return err

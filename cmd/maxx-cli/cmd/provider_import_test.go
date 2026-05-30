@@ -51,3 +51,15 @@ func TestNormaliseProviderImportInputTolerantWhitespace(t *testing.T) {
 		t.Errorf("len = %d, want 0", len(got))
 	}
 }
+
+func TestNormaliseProviderImportInputStripsUTF8BOM(t *testing.T) {
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	input := append(bom, []byte(`{"id":1,"name":"bom","type":"custom"}`)...)
+	got, err := normaliseProviderImportInput(input)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "bom" {
+		t.Errorf("got = %+v, want one provider named 'bom'", got)
+	}
+}

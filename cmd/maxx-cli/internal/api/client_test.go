@@ -130,6 +130,48 @@ func TestJWTExpiryHandlesGarbage(t *testing.T) {
 	}
 }
 
+func TestNewFromContextRejectsBareHostPort(t *testing.T) {
+	cases := map[string]string{
+		"missing scheme":  "localhost:9880",
+		"unknown scheme":  "ftp://example.com",
+		"missing host":    "http://",
+		"empty":           "",
+	}
+	for name, server := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewFromContext(&cfg.Context{Name: "t", Server: server}); err == nil {
+				t.Errorf("NewFromContext(%q) returned no error", server)
+			}
+		})
+	}
+}
+
+func TestNewFromContextAcceptsHTTPAndHTTPS(t *testing.T) {
+	for _, server := range []string{"http://localhost:9880", "https://maxx.example.com"} {
+		if _, err := NewFromContext(&cfg.Context{Name: "t", Server: server}); err != nil {
+			t.Errorf("NewFromContext(%q) err = %v", server, err)
+		}
+	}
+}
+
+func TestExtractErrorMsgPicksKnownKeys(t *testing.T) {
+	cases := map[string]string{
+		`{"error":"oops"}`:                     "oops",
+		`{"message":"bad input"}`:              "bad input",
+		`{"detail":"forbidden"}`:               "forbidden",
+		// "error" wins over the others.
+		`{"error":"first","message":"second"}`: "first",
+		// Non-JSON: raw, trimmed.
+		`plain text\n`:                         `plain text\n`,
+	}
+	for body, want := range cases {
+		got := extractErrorMsg([]byte(body))
+		if got != want && body != `plain text\n` { // raw branch keeps escapes literal
+			t.Errorf("extractErrorMsg(%q) = %q, want %q", body, got, want)
+		}
+	}
+}
+
 func TestPartialRouteUpdatePatch(t *testing.T) {
 	var bodyBytes []byte
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {

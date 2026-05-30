@@ -86,3 +86,33 @@ func TestResourceCommandsAreGrouped(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryRootSubcommandHasAGroup catches the "forgot to set GroupID"
+// regression — a new command without a group falls into the catch-all
+// "Additional Commands" section in --help, which is exactly what the
+// gh-style layout is meant to avoid.
+func TestEveryRootSubcommandHasAGroup(t *testing.T) {
+	root := newRootCmd()
+	// Cobra registers `help` and `completion` itself, with no GroupID. They
+	// are the only legitimate ungrouped commands.
+	exempt := map[string]bool{"help": true, "completion": true}
+
+	allowed := map[string]bool{
+		groupAuth:      true,
+		groupResources: true,
+		groupTopics:    true,
+	}
+
+	for _, c := range root.Commands() {
+		if exempt[c.Name()] {
+			continue
+		}
+		if c.GroupID == "" {
+			t.Errorf("%q has no GroupID — it will land in the catch-all 'Additional Commands' section in --help", c.Name())
+			continue
+		}
+		if !allowed[c.GroupID] {
+			t.Errorf("%q has unknown GroupID %q (allowed: %v)", c.Name(), c.GroupID, allowed)
+		}
+	}
+}

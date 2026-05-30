@@ -170,7 +170,7 @@ instead, which overrides any individual flags.`,
 					if projectID < 0 {
 						return fmt.Errorf("--project-id must be >= 0")
 					}
-					patch["projectID"] = projectID
+					patch["projectID"] = uint64(projectID)
 				}
 				if cmd.Flags().Changed("client-type") {
 					patch["clientType"] = clientType
@@ -179,7 +179,7 @@ instead, which overrides any individual flags.`,
 					if providerID < 0 {
 						return fmt.Errorf("--provider-id must be >= 0")
 					}
-					patch["providerID"] = providerID
+					patch["providerID"] = uint64(providerID)
 				}
 				if cmd.Flags().Changed("position") {
 					patch["position"] = position
@@ -194,7 +194,7 @@ instead, which overrides any individual flags.`,
 					if retryConfigID < 0 {
 						return fmt.Errorf("--retry-config-id must be >= 0")
 					}
-					patch["retryConfigID"] = retryConfigID
+					patch["retryConfigID"] = uint64(retryConfigID)
 				}
 				if len(patch) == 0 {
 					return fmt.Errorf("no fields to update; pass one of --enabled/--native/--project-id/--client-type/--provider-id/--position/--weight/--retry-config-id, or use -f")

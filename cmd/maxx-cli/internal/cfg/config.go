@@ -68,8 +68,14 @@ func Load() (*Config, error) {
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		if migrated, ok, mErr := tryMigrate(path); ok {
-			return migrated, mErr
+		migrated, ok, mErr := tryMigrate(path)
+		if mErr != nil {
+			// Surface migration failures rather than silently losing the
+			// legacy file or pretending the user has no contexts.
+			return nil, mErr
+		}
+		if ok {
+			return migrated, nil
 		}
 		return &Config{}, nil
 	}
@@ -118,22 +124,45 @@ func Save(c *Config) error {
 }
 
 func saveTo(path string, c *Config) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir config dir: %w", err)
 	}
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write config: %w", err)
+	// Use a random tmp name in the same directory to avoid TOCTOU/symlink
+	// attacks via a predictable path + ".tmp" and to handle concurrent saves
+	// without colliding.
+	tmpf, err := os.CreateTemp(dir, "config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	tmpName := tmpf.Name()
+	// On any failure beyond this point, best-effort remove the tmp file so
+	// we don't leak partial writes into the config directory.
+	cleanup := func() { _ = os.Remove(tmpName) }
+	if err := tmpf.Chmod(0o600); err != nil {
+		_ = tmpf.Close()
+		cleanup()
+		return fmt.Errorf("chmod temp config: %w", err)
+	}
+	if _, err := tmpf.Write(data); err != nil {
+		_ = tmpf.Close()
+		cleanup()
+		return fmt.Errorf("write temp config: %w", err)
+	}
+	if err := tmpf.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("close temp config: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		cleanup()
 		return fmt.Errorf("rename config: %w", err)
 	}
 	// Belt-and-suspenders: enforce 0600 even on filesystems that ignore the
-	// initial WriteFile mode (e.g. some NFS mounts).
+	// initial chmod (e.g. some NFS mounts).
 	_ = os.Chmod(path, 0o600)
 	return nil
 }

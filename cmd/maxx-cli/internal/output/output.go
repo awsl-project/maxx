@@ -44,7 +44,7 @@ type Table struct {
 }
 
 // Print writes the table to w as fixed-width columns separated by 2 spaces.
-// Empty tables produce a single "(no items)" line on stderr-style output.
+// Empty tables produce a single "(no items)" line written to w.
 func (t Table) Print(w io.Writer) {
 	if len(t.Rows) == 0 {
 		fmt.Fprintln(w, "(no items)")
@@ -110,12 +110,17 @@ func FormatBool(b bool) string {
 	return "N"
 }
 
-// Truncate clips s to n runes, appending "…" if shortened.
+// Truncate clips s to n runes, appending "…" if shortened. Operates on runes
+// so multi-byte UTF-8 sequences are never split in the middle.
 func Truncate(s string, n int) string {
-	if n <= 0 || len(s) <= n {
+	if n <= 0 {
 		return s
 	}
-	return s[:n] + "…"
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "…"
 }
 
 // PrintOrJSON dispatches based on format: JSON serialises raw, table calls

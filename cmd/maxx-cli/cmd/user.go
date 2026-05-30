@@ -94,6 +94,17 @@ func newUserCreateCmd() *cobra.Command {
 			if username == "" {
 				return fmt.Errorf("--username is required")
 			}
+			// In --dry-run, never prompt — the password would be redacted
+			// before printing anyway, so reading one would just block a
+			// preview without ever reaching the server.
+			if flagDryRun {
+				safe := api.CreateUserRequest{
+					Username: username,
+					Password: "<redacted>",
+					Role:     role,
+				}
+				return previewJSON(cmd.OutOrStdout(), "POST /api/admin/users", safe)
+			}
 			pw, err := resolvePassword(password)
 			if err != nil {
 				return err
@@ -102,11 +113,6 @@ func newUserCreateCmd() *cobra.Command {
 				Username: username,
 				Password: pw,
 				Role:     role,
-			}
-			if flagDryRun {
-				safe := req
-				safe.Password = "<redacted>"
-				return previewJSON(cmd.OutOrStdout(), "POST /api/admin/users", safe)
 			}
 			client, _, err := authedClient()
 			if err != nil {
@@ -133,17 +139,25 @@ func newUserUpdateCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "update ID [--username U] [--role admin|member] [--status pending|active]",
-		Short: "Update fields of a user",
+		Short: "Update fields of a user (only flags you pass are sent)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := strconv.ParseUint(args[0], 10, 64)
 			if err != nil {
 				return fmt.Errorf("invalid id %q", args[0])
 			}
-			req := api.UpdateUserRequest{
-				Username: username,
-				Role:     role,
-				Status:   status,
+			var req api.UpdateUserRequest
+			if cmd.Flags().Changed("username") {
+				req.Username = &username
+			}
+			if cmd.Flags().Changed("role") {
+				req.Role = &role
+			}
+			if cmd.Flags().Changed("status") {
+				req.Status = &status
+			}
+			if req.Username == nil && req.Role == nil && req.Status == nil {
+				return fmt.Errorf("no fields to update; pass one of --username/--role/--status")
 			}
 			if flagDryRun {
 				return previewJSON(cmd.OutOrStdout(), fmt.Sprintf("PUT /api/admin/users/%d", id), req)
@@ -176,13 +190,14 @@ func newUserPasswordCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid id %q", args[0])
 			}
-			pw, err := resolvePassword(password)
-			if err != nil {
-				return err
-			}
+			// Don't prompt for a password we're never going to send.
 			if flagDryRun {
 				fmt.Fprintf(cmd.OutOrStdout(), "[dry-run] PUT /api/admin/users/%d/password (<redacted>)\n", id)
 				return nil
+			}
+			pw, err := resolvePassword(password)
+			if err != nil {
+				return err
 			}
 			client, _, err := authedClient()
 			if err != nil {

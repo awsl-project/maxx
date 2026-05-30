@@ -216,7 +216,7 @@ func newProviderDeleteCmd() *cobra.Command {
 func newProviderExportCmd() *cobra.Command {
 	var outFile string
 	cmd := &cobra.Command{
-		Use:   "export [-o file.json]",
+		Use:   "export [--out file.json]",
 		Short: "Export all providers as a JSON array",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, _, err := authedClient()
@@ -296,9 +296,15 @@ server expects.`,
 	return cmd
 }
 
+// utf8BOM is the byte-order mark some editors (notably Windows Notepad)
+// prepend to UTF-8 files. We strip it so those exports import cleanly.
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
 // normaliseProviderImportInput accepts either a single Provider object or an
-// array, and always returns the array form expected by the server.
+// array, and always returns the array form expected by the server. JSONL
+// (one object per line) is NOT supported — pass a JSON array instead.
 func normaliseProviderImportInput(data []byte) ([]*domain.Provider, error) {
+	data = bytes.TrimPrefix(data, utf8BOM)
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("empty input")

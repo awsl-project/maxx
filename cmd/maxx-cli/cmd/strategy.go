@@ -152,6 +152,9 @@ func newStrategyUpdateCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid id %q", args[0])
 			}
+			if fromFile == "" {
+				return fmt.Errorf("--file is required; pass a path or '-' to read JSON from stdin")
+			}
 			data, err := readJSONInput(fromFile)
 			if err != nil {
 				return err
@@ -174,7 +177,9 @@ func newStrategyUpdateCmd() *cobra.Command {
 			return output.JSON(cmd.OutOrStdout(), updated)
 		},
 	}
-	cmd.Flags().StringVarP(&fromFile, "file", "f", "-", "JSON file or '-' for stdin")
+	// Don't default to "-": that would silently block forever on a TTY if the
+	// user forgot the flag. Require the flag explicitly.
+	cmd.Flags().StringVarP(&fromFile, "file", "f", "", "JSON file path, or '-' to read from stdin (required)")
 	return cmd
 }
 

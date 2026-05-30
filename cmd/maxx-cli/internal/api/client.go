@@ -11,12 +11,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/cmd/maxx-cli/internal/cfg"
 	"github.com/awsl-project/maxx/internal/domain"
 )
+
+// maxResponseBytes caps how much we read from a single admin API response.
+// Admin payloads are small (a few MiB at most for provider exports); this
+// guard exists so a buggy or hostile server can't OOM the CLI.
+const maxResponseBytes = 32 << 20 // 32 MiB
 
 // Client is the admin HTTP API client.
 type Client struct {
@@ -30,11 +36,28 @@ func NewFromContext(ctx *cfg.Context) (*Client, error) {
 	if ctx == nil {
 		return nil, errors.New("nil context")
 	}
-	if _, err := url.Parse(ctx.Server); err != nil {
-		return nil, fmt.Errorf("invalid server URL: %w", err)
+	u, err := url.Parse(ctx.Server)
+	if err != nil {
+		return nil, fmt.Errorf("invalid server URL %q: %w", ctx.Server, err)
+	}
+	// url.Parse is permissive — "localhost:9880" parses as scheme=localhost
+	// path=9880, which produces gibberish requests. Require explicit
+	// http/https and a non-empty host so the error happens at config time.
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("invalid server URL %q: scheme must be http or https", ctx.Server)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("invalid server URL %q: missing host", ctx.Server)
 	}
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: ctx.InsecureSkipVerify},
+	}
+	if ctx.InsecureSkipVerify {
+		// Make the security trade-off visible on every invocation, not just
+		// once at login. Agents reading our stderr will pick this up too.
+		fmt.Fprintf(os.Stderr,
+			"[maxx-cli] warning: context %q has insecureSkipVerify=true; TLS certificate verification is disabled\n",
+			ctx.Name)
 	}
 	return &Client{
 		server: strings.TrimRight(ctx.Server, "/"),
@@ -89,7 +112,7 @@ func (c *Client) do(method, path string, body, out any) error {
 		return fmt.Errorf("request: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if resp.StatusCode >= 400 {
 		return &APIError{Status: resp.StatusCode, Message: extractErrorMsg(respBody)}
 	}
@@ -107,8 +130,13 @@ func extractErrorMsg(body []byte) string {
 	}
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err == nil {
-		if v, ok := m["error"].(string); ok && v != "" {
-			return v
+		// Try the common error-envelope conventions in order. Maxx itself
+		// uses "error" but other reverse-proxies/middlewares in front may
+		// use "message" or "detail" — surface whichever shows up first.
+		for _, key := range []string{"error", "message", "detail"} {
+			if v, ok := m[key].(string); ok && v != "" {
+				return v
+			}
 		}
 	}
 	return strings.TrimSpace(string(body))
@@ -331,11 +359,14 @@ func (c *Client) CreateUser(req CreateUserRequest) (*domain.User, error) {
 	return &out, c.do(http.MethodPost, "/api/admin/users", req, &out)
 }
 
-// UpdateUserRequest body for PUT /api/admin/users/{id}. Empty strings mean "no change".
+// UpdateUserRequest body for PUT /api/admin/users/{id}. nil pointer means
+// "leave field alone"; the caller is responsible for only setting fields the
+// user actually asked to change. The server treats empty/missing string
+// fields as "no change" (handleUpdateUser uses `if body.Username != ""`).
 type UpdateUserRequest struct {
-	Username string `json:"username,omitempty"`
-	Role     string `json:"role,omitempty"`
-	Status   string `json:"status,omitempty"`
+	Username *string `json:"username,omitempty"`
+	Role     *string `json:"role,omitempty"`
+	Status   *string `json:"status,omitempty"`
 }
 
 func (c *Client) UpdateUser(id uint64, req UpdateUserRequest) (*domain.User, error) {

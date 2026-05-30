@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"syscall"
@@ -108,14 +109,22 @@ returns a friendly hint on 401 ("run maxx-cli login").`,
 	return cmd
 }
 
+// maxStdinPasswordBytes guards against a misuse where someone pipes a huge
+// file into --password -; passwords are never this long in practice.
+const maxStdinPasswordBytes = 1 << 20 // 1 MiB
+
 func resolvePassword(flagValue string) (string, error) {
 	if flagValue == "-" {
-		buf := make([]byte, 4096)
-		n, err := os.Stdin.Read(buf)
-		if err != nil && n == 0 {
+		// A single os.Stdin.Read may return short for a pipe; use io.ReadAll
+		// (bounded) so we don't silently truncate the password.
+		buf, err := io.ReadAll(io.LimitReader(os.Stdin, maxStdinPasswordBytes+1))
+		if err != nil && len(buf) == 0 {
 			return "", fmt.Errorf("read password from stdin: %w", err)
 		}
-		return strings.TrimRight(string(buf[:n]), "\r\n"), nil
+		if len(buf) > maxStdinPasswordBytes {
+			return "", fmt.Errorf("password on stdin exceeds %d bytes", maxStdinPasswordBytes)
+		}
+		return strings.TrimRight(string(buf), "\r\n"), nil
 	}
 	if flagValue != "" {
 		return flagValue, nil
