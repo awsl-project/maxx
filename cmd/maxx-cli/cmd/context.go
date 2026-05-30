@@ -81,6 +81,12 @@ func newContextUseCmd() *cobra.Command {
 			if conf.FindContext(args[0]) == nil {
 				return fmt.Errorf("context %q not found", args[0])
 			}
+			// --dry-run must not write the local config; it only previews
+			// the context switch that would be persisted.
+			if flagDryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "[dry-run] would switch current context to %q\n", args[0])
+				return nil
+			}
 			conf.CurrentContext = args[0]
 			if err := cfg.Save(conf); err != nil {
 				return err

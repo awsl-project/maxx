@@ -44,6 +44,30 @@ func readConfig(t *testing.T) *cfg.Config {
 	return c
 }
 
+func TestDryRunContextUseDoesNotMutate(t *testing.T) {
+	dryRunFixture(t)
+	before := readConfig(t)
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"--dry-run", "context", "use", "test"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(out.String(), "[dry-run] would switch current context") {
+		t.Errorf("output missing dry-run preview: %q", out.String())
+	}
+	after := readConfig(t)
+	if after.CurrentContext != before.CurrentContext {
+		t.Errorf("dry-run changed CurrentContext: before=%q after=%q", before.CurrentContext, after.CurrentContext)
+	}
+	if len(after.Contexts) != len(before.Contexts) {
+		t.Errorf("dry-run changed context count: before=%d after=%d", len(before.Contexts), len(after.Contexts))
+	}
+}
+
 func TestDryRunContextDeleteDoesNotMutate(t *testing.T) {
 	dryRunFixture(t)
 	before := readConfig(t)
