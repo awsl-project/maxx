@@ -35,20 +35,11 @@ func Execute() error {
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "maxx-cli",
-		Short:         "Configure a maxx server from the command line",
-		Long: `maxx-cli talks to a maxx server's admin HTTP API to manage providers,
-API tokens, routes, routing strategies, users, invite codes, and settings.
-
-Quick start (human): run "maxx-cli login --server URL --username NAME",
-then "maxx-cli <resource> --help".
-
-Quick start (AI agent): run "maxx-cli explain" once. It prints a single
-self-contained briefing covering auth, the full command tree, output
-conventions, error semantics, and worked examples.
-
-Add -o json to any list/get/create/update to receive machine-readable
-output. Pass --dry-run to print the request body without sending it.`,
+		Use:   "maxx-cli",
+		Short: "Configure a maxx server from the command line",
+		Long: `Configure a maxx server from the command line — providers, API tokens,
+routes, routing strategies, users, invite codes, and settings.`,
+		Example:       rootExample,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version.Full(),
@@ -59,10 +50,19 @@ output. Pass --dry-run to print the request body without sending it.`,
 	root.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "skip confirmation for destructive operations")
 	root.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "print what would be sent without contacting the server")
 
-	root.AddCommand(
+	// Cobra groups (gh-style sectioning in `--help`).
+	root.AddGroup(
+		&cobra.Group{ID: groupAuth, Title: "Auth & contexts:"},
+		&cobra.Group{ID: groupResources, Title: "Resource commands:"},
+		&cobra.Group{ID: groupTopics, Title: "Help topics:"},
+	)
+
+	auth := []*cobra.Command{
 		newLoginCmd(),
 		newLogoutCmd(),
 		newContextCmd(),
+	}
+	resources := []*cobra.Command{
 		newProviderCmd(),
 		newTokenCmd(),
 		newRouteCmd(),
@@ -70,8 +70,23 @@ output. Pass --dry-run to print the request body without sending it.`,
 		newUserCmd(),
 		newInviteCmd(),
 		newSettingsCmd(),
-		newExplainCmd(),
+	}
+	for _, c := range auth {
+		c.GroupID = groupAuth
+		root.AddCommand(c)
+	}
+	for _, c := range resources {
+		c.GroupID = groupResources
+		root.AddCommand(c)
+	}
+
+	// Help topics. `reference` walks the now-fully-populated tree.
+	root.AddCommand(
+		topic("formatting", "Output formats, exit codes, --dry-run, and JSON tips", formattingTopicBody),
+		topic("auth-config", "Login, contexts, JWT lifetime, and 401 handling", authTopicBody),
+		newReferenceCmd(root),
 	)
+
 	return root
 }
 
