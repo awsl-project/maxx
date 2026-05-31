@@ -24,6 +24,9 @@ type AdapterMetrics struct {
 	CacheCreationCount   uint64
 	Cache5mCreationCount uint64
 	Cache1hCreationCount uint64
+	// 图像 token(gpt-image-*),是 Input/OutputTokens 的子集,用于按图像价位计费。
+	InputImageTokens  uint64
+	OutputImageTokens uint64
 }
 
 // AdapterEvent represents an event from adapter to executor
@@ -67,7 +70,17 @@ func (ch AdapterEventChan) SendResponseInfo(info *ResponseInfo) {
 	}
 }
 
-// SendMetrics sends metrics event
+// SendMetrics sends a metrics event into the adapter event channel.
+//
+// Best-effort delivery: if the channel buffer is full the event is dropped on
+// `default:`. Downstream consumer is the dispatch loop in
+// internal/executor/middleware_dispatch.go, which writes the metrics fields
+// onto the current attempt before pricing.FinalizeAttemptCost reads them.
+// A dropped event therefore means the attempt's token/cache fields stay 0
+// and billing falls back to "no-token → 0 cost" (see FinalizeAttemptCost
+// docs in internal/pricing/writeback.go). Acceptable under sustained back-
+// pressure but worth knowing when treating `attempt` as the post-mortem
+// source of truth for usage/cost.
 func (ch AdapterEventChan) SendMetrics(metrics *AdapterMetrics) {
 	if ch == nil || metrics == nil {
 		return

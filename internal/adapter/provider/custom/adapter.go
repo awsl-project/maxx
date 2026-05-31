@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"regexp"
@@ -25,7 +27,6 @@ import (
 // mockMode enables forwarding X-Mock-* headers to upstream (for testing).
 // Activated by setting MAXX_MOCK_MODE=1 environment variable.
 var mockMode = os.Getenv("MAXX_MOCK_MODE") == "1"
-
 
 func init() {
 	provider.RegisterAdapterFactory("custom", NewAdapter)
@@ -72,16 +73,29 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Apply model mapping if configured
 	var err error
 	if mappedModel != "" {
-		// For Gemini, update model in URL path
-		if clientType == domain.ClientTypeGemini {
+		switch {
+		case clientType == domain.ClientTypeGemini:
+			// Gemini carries the model in the URL path, not the body.
 			requestURI = updateGeminiModelInPath(requestURI, mappedModel)
-		}
-		// For other types, update model in request body
-		requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
-		if err != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in body")
-			proxyErr.Scope = domain.ScopeRequest
-			return proxyErr
+		case isMultipartForm(request):
+			// OpenAI images/edits sends multipart/form-data, so the JSON rewrite
+			// in updateModelInBody can't be used (it would corrupt the upload).
+			// Rewrite only the "model" form field and copy every other part
+			// (including the image) through unchanged, so configured model
+			// mapping still takes effect instead of being silently dropped.
+			requestBody, err = updateModelInMultipartForm(requestBody, request, mappedModel)
+			if err != nil {
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in multipart body")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
+		default:
+			requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
+			if err != nil {
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in body")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
 		}
 	}
 
@@ -458,6 +472,8 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 			eventChan.SendMetrics(&domain.AdapterMetrics{
 				InputTokens:          metrics.InputTokens,
 				OutputTokens:         metrics.OutputTokens,
+				InputImageTokens:     metrics.InputImageTokens,
+				OutputImageTokens:    metrics.OutputImageTokens,
 				CacheReadCount:       metrics.CacheReadCount,
 				CacheCreationCount:   metrics.CacheCreationCount,
 				Cache5mCreationCount: metrics.Cache5mCreationCount,
@@ -555,6 +571,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			eventChan.SendMetrics(&domain.AdapterMetrics{
 				InputTokens:          metrics.InputTokens,
 				OutputTokens:         metrics.OutputTokens,
+				InputImageTokens:     metrics.InputImageTokens,
+				OutputImageTokens:    metrics.OutputImageTokens,
 				CacheReadCount:       metrics.CacheReadCount,
 				CacheCreationCount:   metrics.CacheCreationCount,
 				Cache5mCreationCount: metrics.Cache5mCreationCount,
@@ -770,8 +788,82 @@ func updateModelInBody(body []byte, model string, clientType domain.ClientType) 
 	return json.Marshal(req)
 }
 
+// updateModelInMultipartForm rewrites the "model" form field of a
+// multipart/form-data body (OpenAI images/edits) to the mapped model, copying
+// every other part — including the uploaded image — through unchanged. It
+// reuses the request's original boundary so the existing Content-Type header
+// stays valid (no header rewrite needed). If the body carries no "model" field,
+// one is appended so a configured mapping still applies.
+func updateModelInMultipartForm(body []byte, req *http.Request, model string) ([]byte, error) {
+	if req == nil {
+		return nil, fmt.Errorf("nil request for multipart model rewrite")
+	}
+	_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, err
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		return nil, fmt.Errorf("multipart body without boundary")
+	}
+
+	mr := multipart.NewReader(bytes.NewReader(body), boundary)
+	var out bytes.Buffer
+	mw := multipart.NewWriter(&out)
+	// Preserve the original boundary so the inbound Content-Type header (copied
+	// to the upstream request) still matches the re-encoded body.
+	if err := mw.SetBoundary(boundary); err != nil {
+		return nil, err
+	}
+
+	replaced := false
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		w, err := mw.CreatePart(part.Header)
+		if err != nil {
+			_ = part.Close()
+			return nil, err
+		}
+		if part.FormName() == "model" {
+			_, err = io.WriteString(w, model)
+			replaced = true
+		} else {
+			_, err = io.Copy(w, part)
+		}
+		_ = part.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !replaced {
+		if err := mw.WriteField("model", model); err != nil {
+			return nil, err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
 func buildUpstreamURL(baseURL string, requestPath string) string {
 	return strings.TrimSuffix(baseURL, "/") + requestPath
+}
+
+// isMultipartForm reports whether the request body is multipart/form-data
+// (e.g. OpenAI images/edits image upload), which must not be JSON-rewritten.
+func isMultipartForm(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	ct := strings.ToLower(strings.TrimSpace(req.Header.Get("Content-Type")))
+	return strings.HasPrefix(ct, "multipart/")
 }
 
 func shouldUseClaudeAPIKey(apiKey string, clientReq *http.Request) bool {

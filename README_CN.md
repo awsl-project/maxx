@@ -1,38 +1,42 @@
-﻿<p align="center">
+<p align="center">
   <img src="web/public/logo.png" alt="maxx logo" width="128" height="128">
 </p>
 
 <p align="center">
-  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag" alt="Latest Release"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?branch=main&label=PR%20Checks" alt="PR Checks"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E" alt="E2E Tests"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?branch=main&label=Playwright" alt="Playwright Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag&style=flat-square" alt="Latest Release"></a>
+  <a href="https://github.com/awsl-project/maxx/pkgs/container/maxx"><img src="https://img.shields.io/badge/ghcr.io-awsl--project%2Fmaxx-blue?style=flat-square&logo=github" alt="GHCR Image"></a>
+  <a href="https://github.com/awsl-project/maxx/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/awsl-project/maxx?style=flat-square" alt="Go Version"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?event=pull_request&label=Checks&style=flat-square" alt="Checks"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E&style=flat-square" alt="E2E Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?event=pull_request&label=Playwright&style=flat-square" alt="Playwright Tests"></a>
 </p>
 
-# maxx
-
-[English](README.md) | 简体中文
-
-多提供商 AI 代理服务，内置管理界面、路由和使用追踪功能。
-
-## 预览
+<h1 align="center">maxx</h1>
 
 <p align="center">
-  <img src="web/public/preview.png" alt="maxx dashboard preview" width="960">
+  <a href="README.md">English</a> | 简体中文
+</p>
+
+<p align="center">
+  多提供商 AI 代理服务，内置管理界面、路由和使用追踪功能。
+</p>
+
+<p align="center">
+  <a href="docs/database-migrations.md">文档</a> · <a href="https://github.com/awsl-project/maxx/releases">发行版</a> · <a href="https://ghcr.io/awsl-project/maxx">Docker 镜像</a>
 </p>
 
 ## 功能特性
 
-- **多协议代理**：支持 Claude、OpenAI、Gemini 和 Codex API 格式
-- **AI 编程工具支持**：兼容 Claude Code、Codex CLI 等 AI 编程工具
-- **供应商管理**：支持自定义中转站、Antigravity (Google)、Kiro (AWS) 供应商类型
-- **智能路由**：优先级路由和加权随机路由策略
-- **多数据库**：支持 SQLite（默认）、MySQL 和 PostgreSQL
-- **使用追踪**：纳美元精度计费，支持请求倍率记录
-- **模型定价**：版本化定价，支持分层定价和缓存价格
-- **管理界面**：Web UI 支持多语言，WebSocket 实时更新
-- **性能分析**：内置 pprof 支持，便于调试
-- **备份恢复**：配置导入导出功能
+- **协议兼容**：支持 Claude、OpenAI、Gemini、Codex API 格式
+- **AI 工具友好**：兼容 Claude Code、Codex CLI 等 AI 编程工具
+- **供应商类型**：自定义中转站、Antigravity (Google)、Kiro (AWS)
+- **路由策略**：优先级路由、加权随机路由
+- **数据库**：SQLite（默认）、MySQL、PostgreSQL
+- **用量与计费**：请求记录 + 纳美元精度计费，支持倍率
+- **模型定价**：版本化定价，支持分层与缓存价格
+- **管理界面**：多语言 Web UI，WebSocket 实时更新
+- **性能分析**：内置 pprof
+- **备份恢复**：配置导入/导出
 
 ## 快速开始
 
@@ -132,7 +136,41 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
 
-**前端开发环境要求：** Node.js 22.11.0（见 `.node-version` / `.nvmrc`）以及 pnpm 10.7.0（在 `web/package.json` 中锁定）。
+**前端开发环境要求：** Node.js 22.12.0+（22.x 线内，见 `.node-version` / `.nvmrc`）以及 pnpm 10.7.0（在 `web/package.json` 中锁定）。
+
+### 命令行管理工具（`maxx-cli`）
+
+`maxx-cli` 是一个独立的二进制，通过 maxx server 的 admin HTTP API 完成 Web UI
+能做的所有配置：providers、API tokens、routes（含 weight）、routing
+strategies（含 sticky 会话亲和）、users、invite codes、settings。面向脚本、
+CI 和 AI agent。
+
+支持的安装方式：
+
+```bash
+# 从源码（最新 release tag）：
+go install github.com/awsl-project/maxx/cmd/maxx-cli@latest
+
+# 从本地仓库：
+task install:cli      # 通过 Taskfile 安装到 $GOBIN
+
+# 官方 Docker 镜像里已预装：/usr/local/bin/maxx-cli
+docker exec <container> maxx-cli --help
+```
+
+独立 binary release 资产、Homebrew/Scoop 发布暂未提供，跟进
+[#585](https://github.com/awsl-project/maxx/pull/585)。
+
+首次使用：
+
+```bash
+maxx-cli login --server http://localhost:9880 --username admin
+maxx-cli help reference       # 完整命令树，自动生成
+maxx-cli -o json provider list
+```
+
+完整的 agent 友好简报：`maxx-cli help reference`、`maxx-cli help formatting`、
+`maxx-cli help auth-config`。
 
 ## 配置 AI 编程工具
 
@@ -264,6 +302,7 @@ codex
 | `MAXX_ADMIN_PASSWORD` | 启用管理员 JWT 认证。默认用户名：`admin`，密码为该变量的值 |
 | `MAXX_DSN` | 数据库连接字符串 |
 | `MAXX_DATA_DIR` | 自定义数据目录路径 |
+| `MAXX_ROUTING_SEED_SALT` | 可选共享密钥，用于 `weighted_random` 路由策略。未设置时每个进程会生成自己的随机盐——防 SessionID 枚举仍然成立，Redis sticky 绑定也会在首次成功后跨实例收敛；但相同 `(token, session)` 在 sticky 写入前的首选顺序在各实例间可能不一致。**多实例部署且需要一致首选顺序**时，请在所有实例上设置相同的值 |
 
 ### 系统设置
 
@@ -273,7 +312,10 @@ codex
 |--------|------|--------|
 | `proxy_port` | 代理服务器端口 | `9880` |
 | `request_retention_hours` | 请求日志保留时间（小时） | `168`（7 天） |
-| `request_detail_retention_seconds` | 请求详情保留时间（秒） | `-1`（永久） |
+| `request_detail_retention_seconds` | 请求详情保留时间（秒，统一配置——split 关闭时生效） | `-1`（永久） |
+| `request_detail_retention_split_enabled` | 是否分别配置成功/失败保留时长 | `false` |
+| `request_detail_retention_seconds_success` | 成功请求详情保留时间（秒，仅 split=true 生效） | 未设置回退到统一键 |
+| `request_detail_retention_seconds_failed` | 失败请求详情保留时间（秒，仅 split=true 生效） | 未设置回退到统一键 |
 | `timezone` | 时区设置 | `Asia/Shanghai` |
 | `quota_refresh_interval` | Antigravity 配额刷新间隔（分钟） | `0`（禁用） |
 | `auto_sort_antigravity` | 自动排序 Antigravity 路由 | `false` |

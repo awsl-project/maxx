@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/bedrock" // Register bedrock adapter
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"  // Register custom adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"    // Register kiro adapter
@@ -31,7 +31,6 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/version"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
@@ -121,6 +120,14 @@ func main() {
 	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
 	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
 
+	// Wire Bedrock discovery persistence. The CLI entry point does not
+	// go through core.InitializeServerComponents (the desktop launcher
+	// does — the desktop path gets the same call from core/database.go),
+	// so it needs its own setter call; otherwise the server process
+	// leaves the repo unset and the first Bedrock request after every
+	// restart pays the full AWS discovery round-trip.
+	bedrock.SetDiscoveryRepository(sqlite.NewBedrockDiscoveryRepository(db))
+
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
 	cooldown.Default().SetFailureCountRepository(failureCountRepo)
@@ -128,11 +135,36 @@ func main() {
 		log.Printf("Warning: Failed to load cooldowns from database: %v", err)
 	}
 
-	// Generate instance ID and mark stale requests as failed
+	// Seed/load model prices + wire historical price lookup. Same rationale as the
+	// Bedrock setter above: the CLI entry point does not go through
+	// core.InitializeServerComponents (the desktop launcher does), so without this
+	// the global Calculator keeps only its built-in default prices — DB price
+	// edits, versioning and historical-snapshot recalc would all be inert until
+	// the first admin price write. Non-fatal: on error billing degrades to builtins.
+	if err := core.InitializeModelPrices(modelPriceRepo); err != nil {
+		log.Printf("Warning: Failed to initialize model prices: %v", err)
+	}
+
+	// Generate instance ID
 	instanceID := generateInstanceID()
+
+	// Setup coordinator (mode + heartbeat + cooldown wiring).
+	// 必须在 MarkStaleAsFailed 和任何会写入 proxy_requests.instance_id 的代码路径
+	// (主要是 HTTP server) 之前完成 RegisterInstance,否则其他实例可能误判本实
+	// 例为"死亡"并清理本实例刚下发的请求。
+	coordComp, err := core.SetupCoordinator(context.Background(), instanceID, false)
+	if err != nil {
+		log.Fatalf("[Startup] coordinator setup: %v", err)
+	}
+	coord := coordComp.Coordinator
+	coordCtx := coordComp.Ctx
+
 	startupStep := time.Now()
 	log.Printf("[Startup] Marking stale requests as failed...")
-	if count, err := proxyRequestRepo.MarkStaleAsFailed(instanceID); err != nil {
+	aliveInstances, err := coord.ListAliveInstances(coordCtx)
+	if err != nil {
+		log.Printf("Warning: ListAliveInstances failed: %v (skipping stale sweep)", err)
+	} else if count, err := proxyRequestRepo.MarkStaleAsFailed(aliveInstances); err != nil {
 		log.Printf("Warning: Failed to mark stale requests: %v", err)
 	} else {
 		log.Printf("[Startup] Marked %d stale requests as failed (%v)", count, time.Since(startupStep))
@@ -171,6 +203,19 @@ func main() {
 	cachedAPITokenRepo := cached.NewAPITokenRepository(apiTokenRepo)
 	cachedModelMappingRepo := cached.NewModelMappingRepository(modelMappingRepo)
 
+	// Wire cross-instance cache invalidation. AttachCachedReposToCoordinator
+	// 是 desktop launcher 也走的同一个 helper,保证两条启动路径行为一致。
+	core.AttachCachedReposToCoordinator(coordCtx, coord, &core.DatabaseRepos{
+		CachedProviderRepo:        cachedProviderRepo,
+		CachedRouteRepo:           cachedRouteRepo,
+		CachedRetryConfigRepo:     cachedRetryConfigRepo,
+		CachedRoutingStrategyRepo: cachedRoutingStrategyRepo,
+		CachedProjectRepo:         cachedProjectRepo,
+		CachedAPITokenRepo:        cachedAPITokenRepo,
+		CachedModelMappingRepo:    cachedModelMappingRepo,
+		CachedSessionRepo:         cachedSessionRepo,
+	})
+
 	// Load cached data
 	startupStep = time.Now()
 	log.Printf("[Startup] Loading caches...")
@@ -207,6 +252,32 @@ func main() {
 		log.Printf("Warning: Failed to initialize adapters: %v", err)
 	}
 	log.Printf("[Startup] Provider adapters initialized (%v)", time.Since(startupStep))
+
+	// Periodic sweep: 周期性基于活实例列表清理孤儿请求。多实例环境下,
+	// 这让活的实例能持续回收已死实例(实例突然崩溃、未走优雅关闭)留下的
+	// in-progress 请求。频率由 MAXX_PROXY_REQUEST_SWEEP_INTERVAL 控制
+	// (默认 45s,见 RFC)。
+	go func() {
+		ticker := time.NewTicker(coordComp.Config.SweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-coordCtx.Done():
+				return
+			case <-ticker.C:
+				alive, err := coord.ListAliveInstances(coordCtx)
+				if err != nil {
+					log.Printf("[Coordinator] periodic sweep: ListAlive failed: %v", err)
+					continue
+				}
+				if count, err := proxyRequestRepo.MarkStaleAsFailed(alive); err != nil {
+					log.Printf("[Coordinator] periodic sweep: MarkStaleAsFailed failed: %v", err)
+				} else if count > 0 {
+					log.Printf("[Coordinator] periodic sweep: marked %d stale requests as failed", count)
+				}
+			}
+		}
+	}()
 
 	// Start cooldown cleanup goroutine with graceful shutdown support
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
@@ -267,6 +338,7 @@ func main() {
 		Settings:           settingRepo,
 		AntigravityTaskSvc: antigravityTaskSvc,
 		CodexTaskSvc:       codexTaskSvc,
+		Coordinator:        coord,
 	})
 
 	// Ensure default tenant exists
@@ -316,11 +388,8 @@ func main() {
 	// Create project waiter for force project binding
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
-	// Create stats aggregator
-	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
-
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID, statsAggregator)
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()
@@ -440,20 +509,11 @@ func main() {
 	mux.Handle("/api/claude/", http.StripPrefix("/api", claudeHandler))
 
 	// Proxy routes - catch all AI API endpoints
-	// Claude API
-	mux.Handle("/v1/messages", proxyHandler)
-	mux.Handle("/v1/messages/", proxyHandler)
-	// OpenAI API
-	mux.Handle("/v1/chat/completions", proxyHandler)
-	// Codex API
-	mux.Handle("/responses", proxyHandler)
-	mux.Handle("/responses/", proxyHandler)
-	mux.Handle("/v1/responses", proxyHandler)
-	mux.Handle("/v1/responses/", proxyHandler)
-	// Gemini API (Google AI Studio style)
-	mux.Handle("/v1beta/models/", proxyHandler)
-	// Provider-scoped proxy routes
-	mux.Handle("/provider/", providerProxyHandler)
+	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
+		ProxyHandler:         proxyHandler,
+		ModelsHandler:        modelsHandler,
+		ProviderProxyHandler: providerProxyHandler,
+	})
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -512,6 +572,9 @@ func main() {
 
 		// Stop background cleanup task
 		cleanupCancel()
+
+		// Cleanup 内部顺序:UnregisterInstance → cancel ctx → close coordinator
+		coordComp.Cleanup()
 
 		// Stop pprof manager
 		if err := pprofMgr.Stop(shutdownCtx); err != nil {

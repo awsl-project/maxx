@@ -272,7 +272,7 @@ function ClientTypeRoutesContentInner({
     return map;
   }, [items]);
 
-  const activeItem = activeId ? itemsById.get(activeId) ?? null : null;
+  const activeItem = activeId ? (itemsById.get(activeId) ?? null) : null;
 
   const handleToggle = (item: ProviderConfigItem) => {
     if (item.route) {
@@ -285,6 +285,7 @@ function ClientTypeRoutesContentInner({
         clientType,
         providerID: item.provider.id,
         position: items.length + 1,
+        weight: 1,
         retryConfigID: 0,
       });
     }
@@ -298,6 +299,7 @@ function ClientTypeRoutesContentInner({
       clientType,
       providerID: provider.id,
       position: items.length + 1,
+      weight: 1,
       retryConfigID: 0,
     });
   };
@@ -379,10 +381,7 @@ function ClientTypeRoutesContentInner({
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
-              <SortableContext
-                items={itemIds}
-                strategy={verticalListSortingStrategy}
-              >
+              <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
                 <div className="space-y-2">
                   {items.map((item, index) => (
                     <SortableProviderRow

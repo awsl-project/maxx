@@ -511,6 +511,178 @@ type conversionTestCase struct {
 	respAssert func(t *testing.T, respBody []byte)
 }
 
+func startStrictOpenAICompatibleProxyServer(t *testing.T, captured *capturedRequest) *httptest.Server {
+	t.Helper()
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.Set(r)
+		if r.Method != http.MethodPost || r.URL.Path != "/compatible/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer ***" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "missing provider auth"}})
+			return
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(captured.Body, &body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": err.Error()}})
+			return
+		}
+		messages, ok := body["messages"].([]any)
+		if !ok || len(messages) < 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "messages missing"}})
+			return
+		}
+		if leaked := findCodexContentPartType(body); leaked != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "invalid OpenAI chat content part: " + leaked}})
+			return
+		}
+		if !gjson.GetBytes(captured.Body, "messages.0.content.1.image_url.url").Exists() {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "image_url part missing"}})
+			return
+		}
+		if got := gjson.GetBytes(captured.Body, "messages.1.content").String(); got != "previous answer" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": "assistant output_text was not normalized"}})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":      "chatcmpl-openai-compatible",
+			"object":  "chat.completion",
+			"created": 1700000000,
+			"model":   body["model"],
+			"choices": []map[string]any{{
+				"index": 0,
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "strict OpenAI-compatible provider ok",
+				},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]any{
+				"prompt_tokens":     10,
+				"completion_tokens": 4,
+				"total_tokens":      14,
+			},
+		})
+	}))
+}
+
+func findCodexContentPartType(value any) string {
+	switch v := value.(type) {
+	case map[string]any:
+		if typ, _ := v["type"].(string); typ == "input_text" || typ == "output_text" || typ == "input_image" {
+			return typ
+		}
+		for _, child := range v {
+			if leaked := findCodexContentPartType(child); leaked != "" {
+				return leaked
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if leaked := findCodexContentPartType(child); leaked != "" {
+				return leaked
+			}
+		}
+	}
+	return ""
+}
+
+func TestProxyCodexRouteToLegacyOpenAICompatibleProviderConfig(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := startStrictOpenAICompatibleProxyServer(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	legacyProviderConfig := map[string]any{
+		"name": "Legacy OpenAI Compatible Provider",
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "http://unused.invalid/base",
+				"apiKey":  "***",
+				"clientBaseURL": map[string]any{
+					"openai": mock.URL + "/compatible",
+				},
+			},
+		},
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"*"},
+	}
+	providerResp := env.AdminPost("/api/admin/providers", legacyProviderConfig)
+	AssertStatus(t, providerResp, http.StatusCreated)
+	var provider map[string]any
+	DecodeJSON(t, providerResp, &provider)
+	providerID := uint64(provider["id"].(float64))
+	createRoute(t, env, "codex", providerID)
+
+	resp := env.ProxyPost("/responses?source=codex-cli", map[string]any{
+		"model": "gpt-5-codex",
+		"input": []map[string]any{{
+			"type": "message",
+			"role": "user",
+			"content": []map[string]any{{
+				"type": "input_text",
+				"text": "describe this",
+			}, {
+				"type":      "input_image",
+				"image_url": "data:image/png;base64,Zm9v",
+			}},
+		}, {
+			"type": "message",
+			"role": "assistant",
+			"content": []map[string]any{{
+				"type": "output_text",
+				"text": "previous answer",
+			}},
+		}},
+		"max_output_tokens": 128,
+	}, map[string]string{
+		"User-Agent":    "codex_cli_rs/0.50.0 (Mac OS 26.0.1; arm64)",
+		"Authorization": "Bearer client-token-must-not-leak",
+	})
+	defer resp.Body.Close()
+	AssertStatus(t, resp, http.StatusOK)
+
+	_, path, headers, upstreamBody := captured.Get()
+	if path != "/compatible/v1/chat/completions" {
+		t.Fatalf("upstream path = %s, want /compatible/v1/chat/completions", path)
+	}
+	if got := headers.Get("Authorization"); got != "Bearer ***" {
+		t.Fatalf("Authorization = %q, want provider credential", got)
+	}
+	if strings.Contains(string(upstreamBody), "client-token-must-not-leak") {
+		t.Fatalf("client auth leaked to upstream body/headers")
+	}
+	if got := gjson.GetBytes(upstreamBody, "messages.0.content.0.type").String(); got != "text" {
+		t.Fatalf("first OpenAI content part type = %q, want text; body=%s", got, string(upstreamBody))
+	}
+	if got := gjson.GetBytes(upstreamBody, "messages.0.content.1.type").String(); got != "image_url" {
+		t.Fatalf("second OpenAI content part type = %q, want image_url; body=%s", got, string(upstreamBody))
+	}
+	if got := gjson.GetBytes(upstreamBody, "messages.1.content").String(); got != "previous answer" {
+		t.Fatalf("assistant content = %q, want previous answer; body=%s", got, string(upstreamBody))
+	}
+
+	respBody := ReadBody(t, resp)
+	if got := gjson.Get(respBody, "object").String(); got != "response" {
+		t.Fatalf("response object = %q, want response; body=%s", got, respBody)
+	}
+	if got := gjson.Get(respBody, "output.0.content.0.text").String(); got != "strict OpenAI-compatible provider ok" {
+		t.Fatalf("converted response text = %q; body=%s", got, respBody)
+	}
+}
+
 func TestProxyCrossProtocolConversions(t *testing.T) {
 	tests := []conversionTestCase{
 		// === Claude ↔ OpenAI ===
@@ -999,6 +1171,42 @@ func TestProxyAllProtocolsCoexist(t *testing.T) {
 // ============================================================
 
 func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
+	cases := []struct {
+		name               string
+		configureRetention func(t *testing.T, env *ProxyTestEnv)
+	}{
+		{
+			name: "unified retention zero",
+			configureRetention: func(t *testing.T, env *ProxyTestEnv) {
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_seconds", "0")
+			},
+		},
+		{
+			name: "split failed retention zero",
+			configureRetention: func(t *testing.T, env *ProxyTestEnv) {
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_seconds", "86400")
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_split_enabled", "true")
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_seconds_success", "86400")
+				setRequestDetailRetentionSetting(t, env, "request_detail_retention_seconds_failed", "0")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runTokenConcurrencyLimitRecordsRejectedRequest(t, tc.configureRetention)
+		})
+	}
+}
+
+func setRequestDetailRetentionSetting(t *testing.T, env *ProxyTestEnv, key, value string) {
+	t.Helper()
+	resp := env.AdminPut("/api/admin/settings/"+key, map[string]any{"value": value})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+}
+
+func runTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T, configureRetention func(t *testing.T, env *ProxyTestEnv)) {
 	blocked := make(chan struct{})
 	entered := make(chan struct{}, 1)
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1028,6 +1236,8 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 	env := NewProxyTestEnv(t)
 	providerID := createProvider(t, env, "mock-openai", mock.URL, []string{"openai"})
 	createRoute(t, env, "openai", providerID)
+
+	configureRetention(t, env)
 
 	resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
 	AssertStatus(t, resp, http.StatusOK)
@@ -1074,7 +1284,14 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 		t.Fatal("timed out waiting for first request to reach upstream")
 	}
 
-	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), map[string]string{
+	secretPayload := map[string]any{
+		"model": "gpt-4o",
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "do not persist rejected payload",
+		}},
+	}
+	resp = env.ProxyPost("/v1/chat/completions", secretPayload, map[string]string{
 		"Authorization": "Bearer " + tokenStr,
 	})
 	AssertStatus(t, resp, http.StatusTooManyRequests)
@@ -1090,6 +1307,7 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	foundRejected := false
 	foundActive := false
+	rejectedID := 0
 	for {
 		resp = env.AdminGet(fmt.Sprintf("/api/admin/requests?limit=20&apiTokenId=%d", apiTokenID))
 		AssertStatus(t, resp, http.StatusOK)
@@ -1112,6 +1330,7 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 			errorMsg, _ := request["error"].(string)
 			if status == "REJECTED" && int(statusCode) == http.StatusTooManyRequests && strings.Contains(errorMsg, "concurrent request limit") {
 				foundRejected = true
+				rejectedID = int(request["id"].(float64))
 			}
 			if status == "PENDING" || status == "IN_PROGRESS" || status == "COMPLETED" {
 				foundActive = true
@@ -1124,6 +1343,17 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 			t.Fatalf("expected rejected+active requests, got items=%v", items)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+
+	resp = env.AdminGet(fmt.Sprintf("/api/admin/requests/%d", rejectedID))
+	AssertStatus(t, resp, http.StatusOK)
+	var rejected map[string]any
+	DecodeJSON(t, resp, &rejected)
+	if rejected["requestInfo"] != nil {
+		t.Fatalf("requestInfo must be nil when retention clears failed requests, got %#v", rejected["requestInfo"])
+	}
+	if rejected["responseInfo"] != nil {
+		t.Fatalf("responseInfo must be nil when retention clears failed requests, got %#v", rejected["responseInfo"])
 	}
 
 	close(blocked)

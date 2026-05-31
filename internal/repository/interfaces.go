@@ -71,6 +71,7 @@ type RoutingStrategyRepository interface {
 	Create(strategy *domain.RoutingStrategy) error
 	Update(strategy *domain.RoutingStrategy) error
 	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.RoutingStrategy, error)
 	GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error)
 	List(tenantID uint64) ([]*domain.RoutingStrategy, error)
 }
@@ -99,7 +100,19 @@ type SessionRepository interface {
 	Touch(tenantID uint64, sessionID string, touchedAt time.Time) error
 	GetBySessionID(tenantID uint64, sessionID string) (*domain.Session, error)
 	List(tenantID uint64) ([]*domain.Session, error)
+	// ListExpiredKeys 返回 updated_at 早于 before 的 session 标识。
+	// 用于跨实例 KV 同步:DeleteOlderThan 之前先取要删的 keys,
+	// DB 删除完成后用这些 keys 同步删除 coordinator KV 上的副本,
+	// 避免其他实例仍从 KV 读到已被 hard-delete 的 session(stale read)。
+	ListExpiredKeys(before time.Time) ([]SessionKey, error)
 	DeleteOlderThan(before time.Time) (int64, error)
+}
+
+// SessionKey 是 session 的最小标识,用于 ListExpiredKeys 等只需 (tenant, session_id)
+// 的批量操作,避免拉整行 domain.Session 浪费内存/带宽。
+type SessionKey struct {
+	TenantID  uint64
+	SessionID string
 }
 
 // ProxyRequestFilter 请求列表过滤条件
@@ -128,9 +141,14 @@ type ProxyRequestRepository interface {
 	CountWithFilter(tenantID uint64, filter *ProxyRequestFilter) (int64, error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 	UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error)
-	// MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
-	// Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
-	MarkStaleAsFailed(currentInstanceID string) (int64, error)
+	// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their
+	// owning instance is no longer alive, or when start_time is older than 30 minutes.
+	//
+	// aliveInstanceIDs 必须由 coordinator.ListAliveInstances 提供。一个安全门:
+	// 当 aliveInstanceIDs 为空(说明 coordinator 异常或刚启动)时,实现应跳过
+	// 清理,绝不基于"没有活实例"的假设把所有 in-progress 请求都标记 FAILED。
+	// 这样多实例环境下后启动的实例不会误杀先启动实例的在飞请求。
+	MarkStaleAsFailed(aliveInstanceIDs []string) (int64, error)
 	// FixFailedRequestsWithoutEndTime fixes FAILED requests that have no end_time set
 	FixFailedRequestsWithoutEndTime() (int64, error)
 	// DeleteOlderThan 删除指定时间之前的请求记录
@@ -139,16 +157,17 @@ type ProxyRequestRepository interface {
 	HasRecentRequests(since time.Time) (bool, error)
 	// UpdateCost updates only the cost field of a request
 	UpdateCost(id uint64, cost uint64) error
-	// AddCost adds a delta to the cost field of a request (can be negative)
-	AddCost(id uint64, delta int64) error
-	// BatchUpdateCosts updates costs for multiple requests in a single transaction
-	BatchUpdateCosts(updates map[uint64]uint64) error
+	// UpdateCostAtomically updates the request cost AND a batch of attempt cost updates
+	// in a single transaction. Used by RecalculateRequestCost to keep
+	// proxy_requests.cost == SUM(proxy_upstream_attempts.cost) atomic.
+	UpdateCostAtomically(requestID, requestCost uint64, attemptUpdates map[uint64]domain.AttemptCostUpdate) error
 	// RecalculateCostsFromAttempts recalculates all request costs by summing their attempt costs
 	RecalculateCostsFromAttempts() (int64, error)
 	// RecalculateCostsFromAttemptsWithProgress recalculates all request costs with progress reporting via channel
 	RecalculateCostsFromAttemptsWithProgress(progress chan<- domain.Progress) (int64, error)
 	// ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
-	ClearDetailOlderThan(before time.Time) (int64, error)
+	// statuses 为空表示不按状态过滤（统一清理）；非空时仅清理 status IN (statuses) 的记录
+	ClearDetailOlderThan(before time.Time, statuses []string) (int64, error)
 }
 
 type ProxyUpstreamAttemptRepository interface {
@@ -162,16 +181,16 @@ type ProxyUpstreamAttemptRepository interface {
 	// StreamForCostCalc iterates through all attempts for cost calculation
 	// Calls the callback with batches of minimal data, returns early if callback returns error
 	StreamForCostCalc(batchSize int, callback func(batch []*domain.AttemptCostData) error) error
-	// UpdateCost updates only the cost field of an attempt
-	UpdateCost(id uint64, cost uint64) error
-	// BatchUpdateCosts updates costs for multiple attempts in a single transaction
-	BatchUpdateCosts(updates map[uint64]uint64) error
+	// BatchUpdateCosts 批量更新 attempt 的 cost 和 model_price_id。
+	// model_price_id 跟随 cost 一起更新到当前匹配的价格记录,保证审计字段与金额一致。
+	BatchUpdateCosts(updates map[uint64]domain.AttemptCostUpdate) error
 	// MarkStaleAttemptsFailed marks stale attempts as failed with proper end_time and duration
 	MarkStaleAttemptsFailed() (int64, error)
 	// FixFailedAttemptsWithoutEndTime fixes FAILED attempts that have no end_time set
 	FixFailedAttemptsWithoutEndTime() (int64, error)
 	// ClearDetailOlderThan 清理指定时间之前 attempt 的详情字段（request_info 和 response_info）
-	ClearDetailOlderThan(before time.Time) (int64, error)
+	// statuses 为空表示不按状态过滤；非空时仅清理所属 ProxyRequest.status IN (statuses) 的 attempt
+	ClearDetailOlderThan(before time.Time, statuses []string) (int64, error)
 }
 
 type SystemSettingRepository interface {
@@ -216,16 +235,6 @@ type UsageStatsRepository interface {
 	QueryDashboardData(tenantID uint64) (*domain.DashboardData, error)
 	// GetSummary 获取汇总统计数据（总计）
 	GetSummary(tenantID uint64, filter UsageStatsFilter) (*domain.UsageStatsSummary, error)
-	// GetSummaryByProvider 按 Provider 维度获取汇总统计
-	GetSummaryByProvider(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByRoute 按 Route 维度获取汇总统计
-	GetSummaryByRoute(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByProject 按 Project 维度获取汇总统计
-	GetSummaryByProject(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByAPIToken 按 APIToken 维度获取汇总统计
-	GetSummaryByAPIToken(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByClientType 按 ClientType 维度获取汇总统计
-	GetSummaryByClientType(tenantID uint64, filter UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error)
 	// DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
 	DeleteOlderThan(granularity domain.Granularity, before time.Time) (int64, error)
 	// GetLatestTimeBucket 获取指定粒度的最新时间桶
@@ -236,8 +245,6 @@ type UsageStatsRepository interface {
 	// 返回一个 channel，发送每个阶段的进度事件，channel 会在完成后关闭
 	// 调用者可以 range 遍历 channel 获取进度，或直接忽略（异步执行）
 	AggregateAndRollUp(tenantID uint64) <-chan domain.AggregateEvent
-	// ClearAndRecalculate 清空统计数据并重新从原始数据计算
-	ClearAndRecalculate(tenantID uint64) error
 	// ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
 	ClearAndRecalculateWithProgress(tenantID uint64, progress chan<- domain.Progress) error
 }
@@ -297,8 +304,10 @@ type ModelPriceRepository interface {
 	Create(price *domain.ModelPrice) error
 	// BatchCreate 批量创建价格记录
 	BatchCreate(prices []*domain.ModelPrice) error
-	// GetByID 获取指定ID的价格记录
+	// GetByID 获取指定ID的价格记录（仅未软删，用于 admin 读路径）
 	GetByID(id uint64) (*domain.ModelPrice, error)
+	// GetByIDIncludingDeleted 按 ID 取价格记录，包括已软删的历史版本（用于 attempt 历史快照反查）
+	GetByIDIncludingDeleted(id uint64) (*domain.ModelPrice, error)
 	// GetCurrentByModelID 获取模型的当前价格（最新记录），支持前缀匹配
 	GetCurrentByModelID(modelID string) (*domain.ModelPrice, error)
 	// ListCurrentPrices 获取所有模型的当前价格（用于初始化 Calculator）
@@ -361,4 +370,31 @@ type FailureCountRepository interface {
 
 	// DeleteExpired deletes failure counts where last failure was too long ago
 	DeleteExpired(olderThan int64) error
+}
+
+// BedrockDiscoveryRepository persists per-provider Bedrock discovery
+// catalogs across process restarts so the profileDiscoverer can warm its
+// in-memory cache at startup and skip the ~1-5s
+// ListInferenceProfiles + ListFoundationModels round-trip on the first
+// request. Scoped per provider: different Bedrock providers may hold
+// different IAM permissions and therefore see different catalogs.
+//
+// Rows are fingerprinted with (region, accessKeyID) so a config edit
+// that retargets the provider at a new region or IAM principal
+// invalidates the cache — the adapter would otherwise happily serve
+// profile IDs from the old region until the next TTL refresh.
+type BedrockDiscoveryRepository interface {
+	// Load returns cached entries for a provider that match the current
+	// (region, accessKeyID) pair, plus the timestamp of the most recent
+	// matching fetch. Rows that don't match are silently ignored (they
+	// will be overwritten on the next Replace). Zero entries + zero time
+	// means no usable cache; nil error.
+	Load(providerID uint64, region, accessKeyID string) ([]*domain.BedrockDiscoveryEntry, time.Time, error)
+
+	// Replace atomically swaps the stored catalog for a provider and
+	// stamps every row with the supplied (region, accessKeyID).
+	// Clears any pre-existing rows for this provider regardless of
+	// their stored region/accessKeyID, so a config edit doesn't leave
+	// orphan rows behind.
+	Replace(providerID uint64, region, accessKeyID string, entries []*domain.BedrockDiscoveryEntry, fetchedAt time.Time) error
 }

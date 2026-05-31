@@ -1,38 +1,42 @@
-﻿<p align="center">
+<p align="center">
   <img src="web/public/logo.png" alt="maxx logo" width="128" height="128">
 </p>
 
 <p align="center">
-  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag" alt="Latest Release"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?branch=main&label=PR%20Checks" alt="PR Checks"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E" alt="E2E Tests"></a>
-  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?branch=main&label=Playwright" alt="Playwright Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/releases/latest"><img src="https://img.shields.io/github/v/release/awsl-project/maxx?display_name=tag&style=flat-square" alt="Latest Release"></a>
+  <a href="https://github.com/awsl-project/maxx/pkgs/container/maxx"><img src="https://img.shields.io/badge/ghcr.io-awsl--project%2Fmaxx-blue?style=flat-square&logo=github" alt="GHCR Image"></a>
+  <a href="https://github.com/awsl-project/maxx/blob/main/go.mod"><img src="https://img.shields.io/github/go-mod/go-version/awsl-project/maxx?style=flat-square" alt="Go Version"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/lint.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/lint.yml?event=pull_request&label=Checks&style=flat-square" alt="Checks"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-test.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-test.yml?branch=main&label=E2E&style=flat-square" alt="E2E Tests"></a>
+  <a href="https://github.com/awsl-project/maxx/actions/workflows/e2e-playwright.yml"><img src="https://img.shields.io/github/actions/workflow/status/awsl-project/maxx/e2e-playwright.yml?event=pull_request&label=Playwright&style=flat-square" alt="Playwright Tests"></a>
 </p>
 
-# maxx
-
-English | [简体中文](README_CN.md)
-
-Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
-
-## Preview
+<h1 align="center">maxx</h1>
 
 <p align="center">
-  <img src="web/public/preview.png" alt="maxx dashboard preview" width="960">
+  English | <a href="README_CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  Multi-provider AI proxy with a built-in admin UI, routing, and usage tracking.
+</p>
+
+<p align="center">
+  <a href="docs/database-migrations.md">Docs</a> · <a href="#docker-recommended-for-server">Docker</a> · <a href="#desktop-app-recommended-for-personal-use">Desktop</a> · <a href="#api-endpoints">API</a>
 </p>
 
 ## Features
 
-- **Multi-Protocol Proxy**: Claude, OpenAI, Gemini, and Codex API formats
-- **AI Coding Tool Support**: Compatible with Claude Code, Codex CLI, and other AI coding tools
-- **Provider Management**: Custom relay, Antigravity (Google), Kiro (AWS) provider types
-- **Smart Routing**: Priority-based and weighted random routing strategies
-- **Multi-Database**: SQLite (default), MySQL, and PostgreSQL support
-- **Usage Tracking**: Nano-dollar precision billing with request multiplier tracking
-- **Model Pricing**: Versioned pricing with tiered and cache pricing support
-- **Admin Interface**: Web UI with multi-language support and real-time WebSocket updates
-- **Performance Profiling**: Built-in pprof support for debugging
-- **Backup & Restore**: Configuration import/export functionality
+- **Protocol Compatibility**: Claude, OpenAI, Gemini, and Codex API formats
+- **AI Tool Friendly**: Works with Claude Code, Codex CLI, and other coding agents
+- **Provider Types**: Custom relay, Antigravity (Google), Kiro (AWS)
+- **Routing**: Priority-based and weighted-random routing strategies
+- **Databases**: SQLite (default), MySQL, PostgreSQL
+- **Usage & Billing**: Request logs + nano-dollar pricing with multipliers
+- **Pricing Catalog**: Versioned, tiered, and cache pricing support
+- **Admin UI**: Multi-language Web UI with real-time WebSocket updates
+- **Profiling**: Built-in pprof support
+- **Backup**: Import/export configuration
 
 ## Quick Start
 
@@ -132,7 +136,43 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
 
-**Frontend requirements:** Node.js 22.11.0 (see `.node-version` / `.nvmrc`) and pnpm 10.7.0 (locked via `web/package.json`).
+**Frontend requirements:** Node.js 22.12.0+ within the 22.x line (see `.node-version` / `.nvmrc`) and pnpm 10.7.0 (locked via `web/package.json`).
+
+### Headless admin CLI (`maxx-cli`)
+
+`maxx-cli` is a separate binary that talks to a running maxx server's admin
+HTTP API. It covers everything the web UI does — providers, API tokens,
+routes (with weights), routing strategies (with sticky session affinity),
+users, invite codes, and settings — and is designed for scripts, CI, and
+AI agents.
+
+Supported install paths:
+
+```bash
+# From source (latest tagged release):
+go install github.com/awsl-project/maxx/cmd/maxx-cli@latest
+
+# From source (local checkout):
+task install:cli      # uses Taskfile; installs to $GOBIN
+
+# Inside the official Docker image: maxx-cli is on PATH at /usr/local/bin/maxx-cli
+docker exec <container> maxx-cli --help
+```
+
+Standalone binary release assets and Homebrew/Scoop manifests for
+`maxx-cli` are not yet published; track [#585](https://github.com/awsl-project/maxx/pull/585)
+for the follow-up.
+
+First-time usage:
+
+```bash
+maxx-cli login --server http://localhost:9880 --username admin
+maxx-cli help reference       # full command tree, auto-generated
+maxx-cli -o json provider list
+```
+
+For the full agent-friendly briefing run `maxx-cli help reference`,
+`maxx-cli help formatting`, and `maxx-cli help auth-config`.
 
 ## Configure AI Coding Tools
 
@@ -264,6 +304,7 @@ codex
 | `MAXX_ADMIN_PASSWORD` | Enable admin authentication with JWT. Default username: `admin`, password: the value of this variable |
 | `MAXX_DSN` | Database connection string |
 | `MAXX_DATA_DIR` | Custom data directory path |
+| `MAXX_ROUTING_SEED_SALT` | Optional shared secret for the `weighted_random` routing strategy. If unset, each process generates its own random salt — anti-grinding still holds and Redis sticky bindings still converge after the first successful request, but the pre-sticky first-pick order for the same `(token, session)` can differ across instances. Set the **same value on every instance** when you need consistent first-pick behavior in multi-instance deployments. |
 
 ### System Settings
 
@@ -273,7 +314,10 @@ Configurable via Admin UI:
 |---------|-------------|---------|
 | `proxy_port` | Proxy server port | `9880` |
 | `request_retention_hours` | Request log retention (hours) | `168` (7 days) |
-| `request_detail_retention_seconds` | Request detail retention (seconds) | `-1` (forever) |
+| `request_detail_retention_seconds` | Request detail retention (seconds, unified — used when split is off) | `-1` (forever) |
+| `request_detail_retention_split_enabled` | Configure success/failed retention separately | `false` |
+| `request_detail_retention_seconds_success` | Success request detail retention (seconds, only when split=true) | falls back to unified |
+| `request_detail_retention_seconds_failed` | Failed request detail retention (seconds, only when split=true) | falls back to unified |
 | `timezone` | Timezone setting | `Asia/Shanghai` |
 | `quota_refresh_interval` | Antigravity quota refresh (minutes) | `0` (disabled) |
 | `auto_sort_antigravity` | Auto-sort Antigravity routes | `false` |

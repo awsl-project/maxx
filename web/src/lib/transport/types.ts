@@ -42,6 +42,7 @@ export interface ProviderConfigCustom {
   clientBaseURL?: Partial<Record<ClientType, string>>;
   clientMultiplier?: Partial<Record<ClientType, number>>; // 10000=1倍
   modelMapping?: Record<string, string>;
+  responseModelMapping?: Record<string, string>;
 }
 
 export interface ProviderConfigAntigravity {
@@ -89,6 +90,7 @@ export interface ProviderConfigClaude {
   expiresAt?: string; // RFC3339 format
   organizationId?: string;
   modelMapping?: Record<string, string>;
+  responseModelMapping?: Record<string, string>;
 }
 
 export interface ProviderConfigBedrock {
@@ -97,6 +99,30 @@ export interface ProviderConfigBedrock {
   region?: string;
   modelPrefix?: string;
   modelMapping?: Record<string, string>;
+}
+
+// One row in the Bedrock discovery catalog: the Anthropic short name
+// clients send, the invoke-ready Bedrock ID our adapter routes to, and
+// which AWS catalog the entry was sourced from.
+export interface BedrockDiscoveredModel {
+  shortName: string;
+  bedrockId: string;
+  source: 'inference-profile' | 'foundation-model';
+}
+
+// Response payload for GET /providers/{id}/bedrock-models. Available
+// distinguishes a successful discovery with zero matches from "discovery
+// never succeeded" (usually missing IAM permission); operators should
+// treat an empty models[] differently in each case.
+export interface BedrockDiscoveredModelsResult {
+  available: boolean;
+  region: string;
+  models: BedrockDiscoveredModel[];
+  // Populated by the force-refresh endpoint (POST) when the AWS
+  // round-trip failed; the server returns the stale catalog alongside
+  // this message so the UI can show both. Empty or absent on the GET
+  // read path.
+  refreshError?: string;
 }
 
 export interface ProviderConfig {
@@ -169,6 +195,7 @@ export interface Route {
   clientType: ClientType;
   providerID: number;
   position: number;
+  weight: number;
   retryConfigID: number;
   modelMapping?: Record<string, string>;
 }
@@ -200,8 +227,13 @@ export type CreateRetryConfigData = Omit<RetryConfig, 'id' | 'createdAt' | 'upda
 
 export type RoutingStrategyType = 'priority' | 'weighted_random';
 
+export type RoutingStickyScope = 'token' | 'conversation';
+
 export interface RoutingStrategyConfig {
-  // 扩展字段
+  // Sticky / session-affinity (only meaningful for weighted_random; ignored for priority)
+  stickyEnabled?: boolean;
+  stickyScope?: RoutingStickyScope;
+  stickyTTLSeconds?: number;
 }
 
 export interface RoutingStrategy {
@@ -931,7 +963,7 @@ export interface RecalculateCostsResult {
 
 /** RecalculateCostsProgress - 成本重算进度更新 */
 export interface RecalculateCostsProgress {
-  phase: 'calculating' | 'updating_attempts' | 'updating_requests' | 'completed';
+  phase: 'calculating' | 'updating_attempts' | 'updating_requests' | 'completed' | 'failed';
   current: number;
   total: number;
   percentage: number;
@@ -1188,6 +1220,9 @@ export interface ModelPrice {
   cacheReadPriceMicro: number;
   cache5mWritePriceMicro: number;
   cache1hWritePriceMicro: number;
+  /** 图像 token 价格（gpt-image-*）；后端 omitempty，文本模型上可能缺省 */
+  imageInputPriceMicro?: number;
+  imageOutputPriceMicro?: number;
   has1mContext: boolean;
   context1mThreshold: number;
   inputPremiumNum: number;
@@ -1204,6 +1239,8 @@ export interface ModelPriceInput {
   cacheReadPriceMicro?: number;
   cache5mWritePriceMicro?: number;
   cache1hWritePriceMicro?: number;
+  imageInputPriceMicro?: number;
+  imageOutputPriceMicro?: number;
   has1mContext?: boolean;
   context1mThreshold?: number;
   inputPremiumNum?: number;

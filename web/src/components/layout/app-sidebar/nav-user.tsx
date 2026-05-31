@@ -29,6 +29,7 @@ import {
   useChangeMyPassword,
   useDeletePasskeyCredential,
   usePasskeyCredentials,
+  usePublicSettings,
   useRegisterPasskey,
 } from '@/hooks/queries';
 import type { Theme } from '@/lib/theme';
@@ -77,6 +78,7 @@ export function NavUser() {
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
   const { user, authEnabled, logout } = useAuth();
+  const publicSettings = usePublicSettings(authEnabled);
   const changePassword = useChangeMyPassword();
   const isCollapsed = !isMobile && state === 'collapsed';
 
@@ -315,11 +317,15 @@ export function NavUser() {
       ? t('users.roleAdmin')
       : t('users.roleMember')
     : t('nav.accountFallback');
-  const tenantLabel = user?.tenantName?.trim()
-    ? user.tenantName.trim()
-    : user?.tenantID && user.tenantID > 0
-      ? t('nav.tenantFallback', { id: user.tenantID })
-      : t('nav.tenantUnknown');
+  const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
+  const tenantLabel =
+    multiTenantUIEnabled && user
+      ? user.tenantName?.trim()
+        ? user.tenantName.trim()
+        : user.tenantID > 0
+          ? t('nav.tenantFallback', { id: user.tenantID })
+          : t('nav.tenantUnknown')
+      : '';
   const accountName = username || t('nav.accountFallback');
   const accountStatusLabel = authEnabled
     ? t('nav.accountStatusProtected')
@@ -328,7 +334,9 @@ export function NavUser() {
     ? [roleLabel, tenantLabel].filter(Boolean).join(' · ')
     : t('nav.accountIdentityUnknown');
   const accountIdentity = user
-    ? `${t('nav.identityMaskUser', { value: maskNumericIdentity(user.id) })} · ${t('nav.identityMaskTenant', { value: maskNumericIdentity(user.tenantID) })}`
+    ? multiTenantUIEnabled
+      ? `${t('nav.identityMaskUser', { value: maskNumericIdentity(user.id) })} · ${t('nav.identityMaskTenant', { value: maskNumericIdentity(user.tenantID) })}`
+      : t('nav.identityMaskUser', { value: maskNumericIdentity(user.id) })
     : t('nav.accountIdentityUnknown');
   const displayUser = {
     name: accountName,

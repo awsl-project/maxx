@@ -4,6 +4,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -12,12 +13,17 @@ type RouteRepository struct {
 	repo  repository.RouteRepository
 	cache []*domain.Route
 	mu    sync.RWMutex
+	bc    cacheBroadcast
 }
 
 func NewRouteRepository(repo repository.RouteRepository) *RouteRepository {
 	return &RouteRepository{
 		repo: repo,
 	}
+}
+
+func (r *RouteRepository) SetCoordinator(c coordinator.Coordinator) {
+	r.bc.attach(c, InvalidateRoute)
 }
 
 func (r *RouteRepository) Load() error {
@@ -39,6 +45,7 @@ func (r *RouteRepository) Create(route *domain.Route) error {
 	r.cache = append(r.cache, route)
 	r.sortCacheLocked()
 	r.mu.Unlock()
+	r.bc.publish(OpCreate, route.ID)
 	return nil
 }
 
@@ -55,6 +62,7 @@ func (r *RouteRepository) Update(route *domain.Route) error {
 	}
 	r.sortCacheLocked()
 	r.mu.Unlock()
+	r.bc.publish(OpUpdate, route.ID)
 	return nil
 }
 
@@ -70,6 +78,7 @@ func (r *RouteRepository) Delete(tenantID uint64, id uint64) error {
 		}
 	}
 	r.mu.Unlock()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 
@@ -90,6 +99,7 @@ func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain
 	}
 	r.sortCacheLocked()
 	r.mu.Unlock()
+	r.bc.publish(OpReload, 0) // BatchUpdatePositions 是批量,无单个 id
 	return nil
 }
 

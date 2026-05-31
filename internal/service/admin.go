@@ -10,15 +10,16 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/systemsettingcache"
-	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/awsl-project/maxx/internal/version"
 )
 
@@ -27,6 +28,20 @@ import (
 type ProviderAdapterRefresher interface {
 	RefreshAdapter(p *domain.Provider) error
 	RemoveAdapter(providerID uint64)
+	// GetAdapter returns the cached adapter for a provider, if any. Used
+	// by admin endpoints that reach into adapter-specific runtime state.
+	GetAdapter(providerID uint64) (provider.ProviderAdapter, bool)
+}
+
+// GetProviderAdapter exposes the cached adapter for a provider so HTTP
+// handlers can call adapter-specific methods (e.g. Bedrock discovery).
+// Returns nil,false when no adapter is registered yet or refresher is
+// unwired (test setups).
+func (s *AdminService) GetProviderAdapter(providerID uint64) (provider.ProviderAdapter, bool) {
+	if s.adapterRefresher == nil {
+		return nil, false
+	}
+	return s.adapterRefresher.GetAdapter(providerID)
 }
 
 // AdminService provides business logic for admin operations
@@ -369,7 +384,7 @@ func (s *AdminService) GetRoutingStrategies(tenantID uint64) ([]*domain.RoutingS
 }
 
 func (s *AdminService) GetRoutingStrategy(tenantID uint64, id uint64) (*domain.RoutingStrategy, error) {
-	return s.routingStrategyRepo.GetByProjectID(tenantID, id)
+	return s.routingStrategyRepo.GetByID(tenantID, id)
 }
 
 func (s *AdminService) CreateRoutingStrategy(tenantID uint64, strategy *domain.RoutingStrategy) error {
@@ -979,88 +994,78 @@ func (s *AdminService) RecalculateCosts() (*RecalculateCostsResult, error) {
 
 	broadcastProgress("calculating", 0, int(totalCount), fmt.Sprintf("Processing %d attempts...", totalCount))
 
-	calculator := pricing.GlobalCalculator()
 	processedCount := 0
 	const batchSize = 100
-	affectedRequestIDs := make(map[uint64]struct{})
 
 	// 2. Stream through attempts, process and update each batch immediately
 	err = s.attemptRepo.StreamForCostCalc(batchSize, func(batch []*domain.AttemptCostData) error {
-		attemptUpdates := make(map[uint64]uint64, len(batch))
+		attemptUpdates := make(map[uint64]domain.AttemptCostUpdate, len(batch))
 
 		for _, attempt := range batch {
-			// Use responseModel if available, otherwise use mappedModel or requestModel
-			model := attempt.ResponseModel
-			if model == "" {
-				model = attempt.MappedModel
+			// RecalcFromCostData 内部已经处理:历史 multiplier 保留、Cost / ModelPriceID
+			// 任一不一致都触发刷新(后者用于"金额相同但价格被替换成等额新版本"的审计链刷新)。
+			if _, update, changed := pricing.RecalcFromCostData(attempt); changed {
+				attemptUpdates[attempt.ID] = update
 			}
-			if model == "" {
-				model = attempt.RequestModel
-			}
-
-			// Build metrics from attempt data
-			metrics := &usage.Metrics{
-				InputTokens:          attempt.InputTokenCount,
-				OutputTokens:         attempt.OutputTokenCount,
-				CacheReadCount:       attempt.CacheReadCount,
-				CacheCreationCount:   attempt.CacheWriteCount,
-				Cache5mCreationCount: attempt.Cache5mWriteCount,
-				Cache1hCreationCount: attempt.Cache1hWriteCount,
-			}
-
-			// Calculate new cost
-			newCost := calculator.Calculate(model, metrics)
-
-			// Track affected request IDs
-			affectedRequestIDs[attempt.ProxyRequestID] = struct{}{}
-
-			// Track if attempt needs update
-			if newCost != attempt.Cost {
-				attemptUpdates[attempt.ID] = newCost
-			}
-
 			processedCount++
 		}
 
-		// Batch update attempt costs immediately
 		if len(attemptUpdates) > 0 {
+			// 把写入失败传播出去:吞掉的话父请求 cost 会基于内存重算值更新,
+			// 跟数据库里实际 attempt 行不一致,后续审计很难发现。
 			if err := s.attemptRepo.BatchUpdateCosts(attemptUpdates); err != nil {
-				log.Printf("[RecalculateCosts] Failed to batch update attempts: %v", err)
-			} else {
-				result.UpdatedAttempts += len(attemptUpdates)
+				return fmt.Errorf("batch update attempts: %w", err)
 			}
+			result.UpdatedAttempts += len(attemptUpdates)
 		}
 
-		// Broadcast progress
 		broadcastProgress("calculating", processedCount, int(totalCount),
 			fmt.Sprintf("Processed %d/%d attempts", processedCount, totalCount))
 
-		// Small delay to allow UI to update (WebSocket messages need time to be processed)
+		// 给 UI 一点时间消费 WebSocket 消息;否则进度条会一段段跳。
 		time.Sleep(50 * time.Millisecond)
 
 		return nil
 	})
 
 	if err != nil {
+		// Step 2 failed (attempt-cost rewrite). 把 phase 改成 failed 让 UI 不会卡在
+		// 最后一次 "calculating N/M";否则进度条会永远停在那里直到超时。
+		broadcastProgress("failed", processedCount, int(totalCount),
+			fmt.Sprintf("failed to stream attempts: %v", err))
 		return nil, fmt.Errorf("failed to stream attempts: %w", err)
 	}
 
-	// 3. Recalculate request costs from attempts (with progress via channel)
+	// 3. Recalculate request costs from attempts (with progress via channel).
+	// 记一下最后一次见到的 progress,失败时用 request 单位重放(避免 step-2 attempt 单位串台)。
 	progressChan := make(chan domain.Progress, 10)
+	var lastReqProgress domain.Progress
+	var progressMu sync.Mutex
+	progressDone := make(chan struct{})
 	go func() {
+		defer close(progressDone)
 		for progress := range progressChan {
+			progressMu.Lock()
+			lastReqProgress = progress
+			progressMu.Unlock()
 			broadcastProgress(progress.Phase, progress.Current, progress.Total, progress.Message)
 		}
 	}()
 
 	updatedRequests, err := s.proxyRequestRepo.RecalculateCostsFromAttemptsWithProgress(progressChan)
 	close(progressChan)
+	<-progressDone // 确保 goroutine drain 完成,后面读 lastReqProgress 不竞争
 
 	if err != nil {
-		log.Printf("[RecalculateCosts] Failed to recalculate request costs: %v", err)
-	} else {
-		result.UpdatedRequests = int(updatedRequests)
+		// Step 3 失败时不能继续 broadcast "completed":attempts 行已改、父 request 部分
+		// 未同步,UI 报成功会掩盖审计偏差。统一传播错误 + 发 failed phase 让运维知道。
+		// counter 单位用 step-3 自己看到的最后一次进度(request 单位),不是 step-2 的 attempt 单位 —
+		// 后者会让进度条在失败时跳回到一个无意义的位置。
+		broadcastProgress("failed", lastReqProgress.Current, lastReqProgress.Total,
+			fmt.Sprintf("failed to recalculate request costs: %v", err))
+		return nil, fmt.Errorf("failed to recalculate request costs: %w", err)
 	}
+	result.UpdatedRequests = int(updatedRequests)
 
 	broadcastProgress("updating_requests", result.UpdatedRequests, result.UpdatedRequests,
 		fmt.Sprintf("Updated %d requests", result.UpdatedRequests))
@@ -1100,49 +1105,27 @@ func (s *AdminService) RecalculateRequestCost(tenantID uint64, requestID uint64)
 		return nil, fmt.Errorf("failed to list attempts: %w", err)
 	}
 
-	calculator := pricing.GlobalCalculator()
 	var totalCost uint64
+	updates := make(map[uint64]domain.AttemptCostUpdate, len(attempts))
 
 	// 3. Recalculate cost for each attempt
 	for _, attempt := range attempts {
-		// Use responseModel if available, otherwise use mappedModel or requestModel
-		model := attempt.ResponseModel
-		if model == "" {
-			model = attempt.MappedModel
-		}
-		if model == "" {
-			model = attempt.RequestModel
-		}
-
-		// Build metrics from attempt data
-		metrics := &usage.Metrics{
-			InputTokens:          attempt.InputTokenCount,
-			OutputTokens:         attempt.OutputTokenCount,
-			CacheReadCount:       attempt.CacheReadCount,
-			CacheCreationCount:   attempt.CacheWriteCount,
-			Cache5mCreationCount: attempt.Cache5mWriteCount,
-			Cache1hCreationCount: attempt.Cache1hWriteCount,
-		}
-
-		// Calculate new cost
-		newCost := calculator.Calculate(model, metrics)
+		// RecalcFromAttempt 同时检查 Cost 和 ModelPriceID,保证价格记录被替换成等额新版本时
+		// 旧 ID 也会刷到当前匹配行(否则审计链会指向已删除/旧版价格)。
+		newCost, update, changed := pricing.RecalcFromAttempt(attempt)
 		totalCost += newCost
-
-		// Update attempt cost if changed
-		if newCost != attempt.Cost {
-			if err := s.attemptRepo.UpdateCost(attempt.ID, newCost); err != nil {
-				log.Printf("[RecalculateRequestCost] Failed to update attempt %d cost: %v", attempt.ID, err)
-				continue
-			}
-			result.UpdatedAttempts++
+		if changed {
+			updates[attempt.ID] = update
 		}
 	}
 
-	// 4. Update request cost
+	// 4. Atomic write:attempt updates + request cost 在一个事务里写,
+	// 避免 BatchUpdate 成功后 UpdateCost 失败留下"子刷父没刷"的反向 partial-state window。
 	result.NewCost = totalCost
-	if err := s.proxyRequestRepo.UpdateCost(requestID, totalCost); err != nil {
-		return nil, fmt.Errorf("failed to update request cost: %w", err)
+	if err := s.proxyRequestRepo.UpdateCostAtomically(requestID, totalCost, updates); err != nil {
+		return nil, fmt.Errorf("failed to update request and attempt costs atomically: %w", err)
 	}
+	result.UpdatedAttempts = len(updates)
 
 	result.Message = fmt.Sprintf("Recalculated request %d: %d -> %d (updated %d attempts)",
 		requestID, result.OldCost, result.NewCost, result.UpdatedAttempts)

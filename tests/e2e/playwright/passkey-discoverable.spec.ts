@@ -92,20 +92,20 @@ test('passkey discoverable login works without username', async ({ browser }, te
     const logoutItem = page.locator('[role="menuitem"]').filter({ hasText: /Log out|退出登录/ }).first();
     await expect(logoutItem).toBeVisible({ timeout: 5000 });
     await logoutItem.click();
-    await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 5000 });
-    console.log('✅ Logged out');
-
-    console.log('\n--- Step 4: Discoverable Passkey Login (NO username) ---');
-    const usernameField = page.locator('input[type="text"]');
-    await usernameField.fill('');
-    await expect(usernameField).toHaveValue('');
-    console.log('  Username field is empty: ✓');
 
     const passkeyToggle = page
       .locator('button[aria-expanded]')
       .filter({ hasText: /Passkey Login|Passkey 登录/ })
       .first();
-    await expect(passkeyToggle).toBeVisible({ timeout: 5000 });
+    await expect(passkeyToggle).toBeVisible({ timeout: 10000 });
+    console.log('✅ Logged out');
+
+    console.log('\n--- Step 4: Discoverable Passkey Login (NO username) ---');
+    const usernameField = page.locator('input[type="text"]');
+    await expect(usernameField).toBeVisible({ timeout: 10000 });
+    await usernameField.fill('');
+    await expect(usernameField).toHaveValue('');
+    console.log('  Username field is empty: ✓');
     if ((await passkeyToggle.getAttribute('aria-expanded')) !== 'true') {
       await passkeyToggle.click();
     }

@@ -61,9 +61,12 @@ const COMMON_MODELS = [
   { id: 'o1-mini', name: 'o1 Mini', provider: 'OpenAI' },
   { id: 'o1-pro', name: 'o1 Pro', provider: 'OpenAI' },
   { id: 'o3-mini', name: 'o3 Mini', provider: 'OpenAI' },
+  { id: 'gpt-5.5', name: 'GPT-5.5', provider: 'OpenAI' },
+  { id: 'gpt-5.5-pro', name: 'GPT-5.5 Pro', provider: 'OpenAI' },
   { id: 'gpt-5.3', name: 'GPT-5.3', provider: 'OpenAI' },
   { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', provider: 'OpenAI' },
   { id: 'gpt-5.4', name: 'GPT-5.4', provider: 'OpenAI' },
+  { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', provider: 'OpenAI' },
   // NVIDIA models
   { id: 'minimaxai/minimax-m2.1', name: 'MiniMax M2.1', provider: 'NVIDIA' },
   { id: 'z-ai/glm4.7', name: 'GLM 4.7', provider: 'NVIDIA' },

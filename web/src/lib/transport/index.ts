@@ -25,6 +25,7 @@ export type {
   RoutingStrategy,
   RoutingStrategyType,
   RoutingStrategyConfig,
+  RoutingStickyScope,
   CreateRoutingStrategyData,
   ProxyRequest,
   ProxyRequestStatus,
@@ -51,6 +52,8 @@ export type {
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityOAuthResult,
+  // Bedrock
+  BedrockDiscoveredModelsResult,
   // Model Mapping
   ModelMapping,
   ModelMappingInput,

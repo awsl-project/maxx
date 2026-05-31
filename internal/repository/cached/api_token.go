@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -14,6 +15,7 @@ type APITokenRepository struct {
 	cache      map[uint64]*domain.APIToken // by ID
 	tokenCache map[string]*domain.APIToken // by token (plaintext)
 	mu         sync.RWMutex
+	bc         cacheBroadcast
 }
 
 func NewAPITokenRepository(repo repository.APITokenRepository) *APITokenRepository {
@@ -24,6 +26,10 @@ func NewAPITokenRepository(repo repository.APITokenRepository) *APITokenReposito
 	}
 }
 
+func (r *APITokenRepository) SetCoordinator(c coordinator.Coordinator) {
+	r.bc.attach(c, InvalidateAPIToken)
+}
+
 func (r *APITokenRepository) Create(t *domain.APIToken) error {
 	if err := r.repo.Create(t); err != nil {
 		return err
@@ -32,6 +38,7 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 	r.cache[t.ID] = t
 	r.tokenCache[t.Token] = t
 	r.mu.Unlock()
+	r.bc.publish(OpCreate, t.ID)
 	return nil
 }
 
@@ -51,6 +58,7 @@ func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	r.cache[t.ID] = t
 	r.tokenCache[t.Token] = t
 	r.mu.Unlock()
+	r.bc.publish(OpUpdate, t.ID)
 	return nil
 }
 
@@ -70,6 +78,7 @@ func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 		delete(r.tokenCache, t.Token)
 	}
 	r.mu.Unlock()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 

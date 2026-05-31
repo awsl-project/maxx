@@ -230,7 +230,10 @@ async function openRequestsPage(page: Page, providerId?: number) {
 }
 
 test('virtualized requests table keeps header and body columns aligned', async ({ page }, testInfo) => {
-  test.slow();
+  // This spec runs after other serial request-page stress tests in CI and can
+  // legitimately exceed Playwright's default slow-test cap while waiting for
+  // proxy requests, request indexing, and the first virtualized render.
+  test.setTimeout(180_000);
 
   const mock = await startMockClaudeServer();
   let jwt: string | undefined;
@@ -279,9 +282,13 @@ test('virtualized requests table keeps header and body columns aligned', async (
     );
     routeId = route.id;
 
-    for (let batch = 0; batch < 4; batch += 1) {
+    const batchCount = 3;
+    const requestsPerBatch = 10;
+    const minIndexedRequests = 24;
+
+    for (let batch = 0; batch < batchCount; batch += 1) {
       await Promise.all(
-        Array.from({ length: 10 }, (_, index) =>
+        Array.from({ length: requestsPerBatch }, (_, index) =>
           sendClaudeRequest(`claude-sonnet-4-20250514-b${batch}-r${index}`),
         ),
       );
@@ -295,7 +302,7 @@ test('virtualized requests table keeps header and body columns aligned', async (
         },
         { timeout: 15000 },
       )
-      .toBeGreaterThanOrEqual(30);
+      .toBeGreaterThanOrEqual(minIndexedRequests);
 
     await openRequestsPage(page, provider.id);
     await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 30_000 });

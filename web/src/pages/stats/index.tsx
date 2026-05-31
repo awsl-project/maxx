@@ -42,16 +42,7 @@ import type {
   RecalculateStatsProgress,
 } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-} from 'recharts';
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 type TimeRange =
   | '1h'
@@ -431,8 +422,10 @@ export function StatsPage() {
       'recalculate_costs_progress',
       (data) => {
         setCostsProgress(data);
-        // Clear progress after completion (with a delay to show final message)
-        if (data.phase === 'completed') {
+        // Clear progress on terminal phases (completed or failed) after a brief
+        // delay so the user can read the final message. Without the 'failed'
+        // branch the button stays disabled and the progress bar hangs.
+        if (data.phase === 'completed' || data.phase === 'failed') {
           setTimeout(() => setCostsProgress(null), 3000);
         }
       },
@@ -888,7 +881,10 @@ export function StatsPage() {
             ) : chartData.length === 0 ? (
               <div className="text-center text-muted-foreground py-8">{t('common.noData')}</div>
             ) : (
-              <Card data-testid="stats-chart-card" className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <Card
+                data-testid="stats-chart-card"
+                className="border-border/50 bg-card/50 backdrop-blur-sm"
+              >
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-emerald-500" />

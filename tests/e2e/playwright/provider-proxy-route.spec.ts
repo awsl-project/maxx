@@ -8,7 +8,7 @@ import http from 'node:http';
 
 import { expect, test } from 'playwright/test';
 
-import { BASE, PASS, USER, adminAPI } from './helpers';
+import { BASE, PASS, USER, adminAPI, loginToAdminUI } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -154,12 +154,7 @@ test('provider-scoped proxy route records requests and shows provider URL in the
     const payload = JSON.parse(text);
     expect(payload.model).toBe(requestModel);
 
-    await page.goto(BASE);
-    await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-    await page.fill('input[type="text"]', USER);
-    await page.fill('input[type="password"]', PASS);
-    await page.locator('button[type="submit"]').click();
-    await expect(page.locator('body')).toContainText(/Dashboard|dashboard/, { timeout: 10000 });
+    await loginToAdminUI(page);
 
     await page.goto(`${BASE}/requests`);
     await expect(page.locator('body')).toContainText(/Requests|请求/, { timeout: 15000 });

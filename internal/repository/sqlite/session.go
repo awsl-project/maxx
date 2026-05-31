@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 	"gorm.io/gorm"
 )
 
@@ -111,6 +112,31 @@ func (r *SessionRepository) DeleteOlderThan(before time.Time) (int64, error) {
 		return 0, result.Error
 	}
 	return result.RowsAffected, nil
+}
+
+// ListExpiredKeys 返回 updated_at < before 的 session 标识。
+// 仅 SELECT tenant_id/session_id 两列,避免拉整行;调用方拿到 keys 后
+// 通常会立刻 DeleteOlderThan,所以这里没必要做分页。
+func (r *SessionRepository) ListExpiredKeys(before time.Time) ([]repository.SessionKey, error) {
+	if before.IsZero() {
+		return nil, nil
+	}
+	var rows []struct {
+		TenantID  uint64
+		SessionID string
+	}
+	if err := r.db.gorm.
+		Model(&Session{}).
+		Select("tenant_id, session_id").
+		Where("updated_at < ?", toTimestamp(before)).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]repository.SessionKey, len(rows))
+	for i, row := range rows {
+		out[i] = repository.SessionKey{TenantID: row.TenantID, SessionID: row.SessionID}
+	}
+	return out, nil
 }
 
 func (r *SessionRepository) toModel(s *domain.Session) *Session {

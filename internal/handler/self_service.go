@@ -18,6 +18,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 	"force_project_timeout":  {},
 	"auto_sort_antigravity":  {},
 	"auto_sort_codex":        {},
+	"ui_multitenant_enabled": {},
 }
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
@@ -74,6 +75,30 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.handleProviders(w, r, id)
+		case len(parts) == 4 && parts[3] == "bedrock-models":
+			// Mirror the admin endpoint (/api/admin/providers/{id}/bedrock-models)
+			// under /api/providers/{id}/bedrock-models so the frontend's
+			// default axios baseURL (/api) can read the discovery catalog
+			// without talking to the admin-only surface.
+			//
+			// GET is readable by any authenticated tenant member (same
+			// access posture as the providers list). POST forces a fresh
+			// ListInferenceProfiles + ListFoundationModels round-trip,
+			// bypassing the in-process TTL and Invalidate() rate-limit —
+			// gated on admin so a non-privileged member can't hammer it
+			// and burn the provider's AWS API quota.
+			id, ok := parseSelfServiceID(w, "provider", parts[2])
+			if !ok {
+				return
+			}
+			if r.Method == http.MethodPost && !h.requireAdmin(w, r) {
+				return
+			}
+			// Non-admin GET must not be able to trigger a ListInferenceProfiles
+			// refresh by polling past the TTL window — pass the caller's
+			// admin status through so DiscoveredModels only lazy-refreshes
+			// when an admin is on the other end.
+			serveBedrockDiscoveredModels(h.svc, w, r, id, h.isAdmin(r))
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}

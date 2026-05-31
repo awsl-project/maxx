@@ -11,6 +11,7 @@ import (
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
+	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -70,7 +71,7 @@ func (h *ProviderProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if apiPath == "/v1/models" {
+	if isModelListAPIPath(apiPath) {
 		r.URL.Path = apiPath
 		h.modelsHandler.ServeHTTP(w, r)
 		return
@@ -125,7 +126,11 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		requestModel := flow.GetRequestModel(c)
 		mappedModel := requestModel
 		isStream := flow.GetIsStream(c)
-		proxyReq := h.newProxyRequest(c, route, provider, requestModel, mappedModel, isStream)
+		clearDetail := h.proxyHandler != nil && h.proxyHandler.executor != nil && h.proxyHandler.executor.ShouldClearRequestDetailByConfig()
+		if getAPITokenDevMode(c) {
+			clearDetail = false
+		}
+		proxyReq := h.newProxyRequest(c, route, provider, requestModel, mappedModel, isStream, clearDetail)
 		if err := h.proxyRequestRepo.Create(proxyReq); err != nil {
 			log.Printf("[ProviderProxy] failed to create proxy request: %v", err)
 		}
@@ -134,10 +139,37 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		c.Set(flow.KeyOriginalClientType, clientType)
 		c.Set(flow.KeyProxyRequest, proxyReq)
 
-		responseCapture := executor.NewResponseCapture(c.Writer)
+		clientWriter := http.ResponseWriter(c.Writer)
+		modifierWriter := responsemodifier.NewResponseModifierWriter(c.Writer, provider, clientType, isStream)
+		if modifierWriter != nil {
+			clientWriter = modifierWriter
+		}
+
+		responseCapture := executor.NewResponseCapture(clientWriter)
 		originalWriter := c.Writer
 		c.Writer = responseCapture
-		err = adapter.Execute(c, provider)
+		// Route through ExecuteOnce so this bypass path gets the same attempt-
+		// record + cost-finalization treatment as the retry-driven dispatch.
+		// Without this, /provider/<id>/... requests landed in the DB with 0
+		// attempts and cost=0 / multiplier=0 / modelPriceId=0 — silently
+		// zero-billing every direct-dispatch call.
+		//
+		// Fail fast if the executor isn't wired: silently falling back to a
+		// bare adapter call would reintroduce the exact "succeeded request
+		// with no attempt/billing" condition this PR fixes whenever production
+		// is misconfigured. The /v1beta/models pre-branch above already
+		// handles the only legitimately executor-less case (model-list reads).
+		if h.proxyHandler == nil || h.proxyHandler.executor == nil {
+			err = &domain.ProxyError{
+				HTTPStatusCode: http.StatusInternalServerError,
+				Message:        "provider proxy executor not configured",
+			}
+		} else {
+			_, err = h.proxyHandler.executor.ExecuteOnce(
+				c, proxyReq, route, provider, adapter,
+				clientType, requestModel, mappedModel, isStream, clearDetail,
+			)
+		}
 		c.Writer = originalWriter
 
 		now := time.Now()
@@ -145,14 +177,28 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		proxyReq.Duration = now.Sub(proxyReq.StartTime)
 		proxyReq.StatusCode = responseCapture.StatusCode()
 		proxyReq.ResponseModel = mappedModel
-		proxyReq.ResponseInfo = &domain.ResponseInfo{
-			Status:  responseCapture.StatusCode(),
-			Headers: responseCapture.CapturedHeaders(),
-			Body:    responseCapture.Body(),
+		if !clearDetail {
+			proxyReq.ResponseInfo = &domain.ResponseInfo{
+				Status:  responseCapture.StatusCode(),
+				Headers: responseCapture.CapturedHeaders(),
+				Body:    responseCapture.Body(),
+			}
 		}
 
 		if err == nil {
+			if modifierWriter != nil {
+				err = modifierWriter.Finalize()
+				if err != nil {
+					proxyReq.Status = "FAILED"
+					proxyReq.Error = err.Error()
+					clearProxyRequestDetail(proxyReq, clearDetail)
+					_ = h.proxyRequestRepo.Update(proxyReq)
+					c.Abort()
+					return
+				}
+			}
 			proxyReq.Status = "COMPLETED"
+			clearProxyRequestDetail(proxyReq, clearDetail)
 			_ = h.proxyRequestRepo.Update(proxyReq)
 			return
 		}
@@ -172,26 +218,27 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 			writeError(responseCapture, http.StatusBadGateway, err.Error())
 			proxyReq.StatusCode = http.StatusBadGateway
 		}
+		if modifierWriter != nil {
+			if finalizeErr := modifierWriter.Finalize(); finalizeErr != nil {
+				log.Printf("[ProviderProxy] failed to finalize response modifier: %v", finalizeErr)
+			}
+		}
+		clearProxyRequestDetail(proxyReq, clearDetail)
 		_ = h.proxyRequestRepo.Update(proxyReq)
 		c.Abort()
 	}
 }
 
-func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route, provider *domain.Provider, requestModel, mappedModel string, isStream bool) *domain.ProxyRequest {
+func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route, provider *domain.Provider, requestModel, mappedModel string, isStream bool, clearDetail bool) *domain.ProxyRequest {
 	requestHeaders := flow.GetRequestHeaders(c)
 	requestURI := flow.GetRequestURI(c)
 	requestBody := flow.GetRequestBody(c)
 	apiTokenID := flow.GetAPITokenID(c)
 	projectID := flow.GetProjectID(c)
 	tenantID := maxxctx.GetTenantID(c.Request.Context())
-	devMode := false
-	if v, ok := c.Get(flow.KeyAPITokenDevMode); ok {
-		if b, ok := v.(bool); ok {
-			devMode = b
-		}
-	}
+	devMode := getAPITokenDevMode(c)
 
-	return &domain.ProxyRequest{
+	proxyReq := &domain.ProxyRequest{
 		TenantID:      tenantID,
 		RequestID:     generateProxyRequestID(),
 		SessionID:     flow.GetSessionID(c),
@@ -202,18 +249,41 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 		IsStream:      isStream,
 		Status:        "IN_PROGRESS",
 		StatusCode:    http.StatusOK,
-		RequestInfo: &domain.RequestInfo{
+		RouteID:       route.ID,
+		ProviderID:    provider.ID,
+		ProjectID:     projectID,
+		APITokenID:    apiTokenID,
+		DevMode:       devMode,
+	}
+	if !clearDetail {
+		proxyReq.RequestInfo = &domain.RequestInfo{
 			Method:  c.Request.Method,
 			Headers: flattenRequestHeaders(requestHeaders),
 			URL:     requestURI,
 			Body:    string(requestBody),
-		},
-		RouteID:    route.ID,
-		ProviderID: provider.ID,
-		ProjectID:  projectID,
-		APITokenID: apiTokenID,
-		DevMode:    devMode,
+		}
 	}
+	return proxyReq
+}
+
+func getAPITokenDevMode(c *flow.Ctx) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(flow.KeyAPITokenDevMode)
+	if !ok {
+		return false
+	}
+	b, _ := v.(bool)
+	return b
+}
+
+func clearProxyRequestDetail(req *domain.ProxyRequest, clearDetail bool) {
+	if !clearDetail || req == nil {
+		return
+	}
+	req.RequestInfo = nil
+	req.ResponseInfo = nil
 }
 
 func generateProxyRequestID() string {
@@ -263,7 +333,6 @@ func (h *ProviderProxyHandler) parseProviderPath(path string) (providerID, apiPa
 	if !isValidProviderAPIPath(apiPath) {
 		return "", "", false
 	}
-
 	return providerID, apiPath, true
 }
 
@@ -276,6 +345,13 @@ func isValidProviderAPIPath(path string) bool {
 		return true
 	}
 	if path == "/v1/chat/completions" || strings.HasPrefix(path, "/v1/chat/completions/") {
+		return true
+	}
+	// OpenAI Images API (gpt-image-* generation + edits). Mirror isValidAPIPath
+	// and proxy_routes.go: allow exactly the two registered endpoints rather
+	// than HasPrefix("/v1/images/"), so the provider-prefixed contract doesn't
+	// drift wider than the root.
+	if path == "/v1/images/generations" || path == "/v1/images/edits" {
 		return true
 	}
 	if path == "/responses" || strings.HasPrefix(path, "/responses/") {

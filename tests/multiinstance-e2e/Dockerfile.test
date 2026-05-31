@@ -1,0 +1,10 @@
+# 测试 runner 镜像:只需要 curl/jq/bash,以及和 docker 网络内 maxx-a/maxx-b 通信
+# 的能力。kill -9 maxx-a 那个测试通过 docker socket 不可行(test-runner 没装
+# docker 客户端);改用 maxx 的优雅 shutdown 行为 + heartbeat 过期实现等效场景。
+FROM alpine:3.21
+
+RUN apk add --no-cache curl jq bash coreutils
+
+WORKDIR /test
+
+CMD ["bash", "/scripts/run_tests.sh"]

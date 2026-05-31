@@ -10,7 +10,7 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 )
 
-// ModelsHandler serves GET /v1/models with a lightweight model list.
+// ModelsHandler serves model-list endpoints with a lightweight model list.
 type ModelsHandler struct {
 	responseModelRepo repository.ResponseModelRepository
 	providerRepo      repository.ProviderRepository
@@ -30,7 +30,7 @@ func NewModelsHandler(
 	}
 }
 
-// ServeHTTP handles GET /v1/models.
+// ServeHTTP handles model-list requests.
 func (h *ModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -39,9 +39,22 @@ func (h *ModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 	userAgent := r.Header.Get("User-Agent")
-	names, err := h.collectModelNamesForUserAgent(tenantID, userAgent)
+	isGeminiModels := isGeminiModelsPath(r.URL.Path)
+
+	var names []string
+	var err error
+	if isGeminiModels {
+		names, err = h.collectModelNames(tenantID)
+	} else {
+		names, err = h.collectModelNamesForUserAgent(tenantID, userAgent)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if isGeminiModels {
+		writeJSON(w, http.StatusOK, buildGeminiModelsResponse(names))
 		return
 	}
 
@@ -51,6 +64,14 @@ func (h *ModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, buildOpenAIModelsResponse(names))
+}
+
+func isModelListAPIPath(path string) bool {
+	return path == "/v1/models" || isGeminiModelsPath(path)
+}
+
+func isGeminiModelsPath(path string) bool {
+	return path == "/v1beta/models"
 }
 
 func (h *ModelsHandler) collectModelNames(tenantID uint64) ([]string, error) {
@@ -178,5 +199,30 @@ func buildClaudeModelsResponse(names []string) map[string]interface{} {
 	return map[string]interface{}{
 		"data":     data,
 		"has_more": false,
+	}
+}
+
+func buildGeminiModelsResponse(names []string) map[string]interface{} {
+	models := make([]map[string]interface{}, 0, len(names))
+	for _, name := range names {
+		modelName := name
+		if !strings.HasPrefix(modelName, "models/") {
+			modelName = "models/" + modelName
+		}
+		baseModelID := strings.TrimPrefix(modelName, "models/")
+		models = append(models, map[string]interface{}{
+			"name":                       modelName,
+			"baseModelId":                baseModelID,
+			"version":                    "",
+			"displayName":                baseModelID,
+			"description":                "",
+			"inputTokenLimit":            0,
+			"outputTokenLimit":           0,
+			"supportedGenerationMethods": []string{"generateContent", "streamGenerateContent"},
+		})
+	}
+
+	return map[string]interface{}{
+		"models": models,
 	}
 }

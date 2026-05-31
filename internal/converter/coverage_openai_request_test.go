@@ -945,3 +945,155 @@ func TestCodexToOpenAIRequestInstructions(t *testing.T) {
 		t.Fatalf("expected system message from instructions")
 	}
 }
+
+func TestCodexToOpenAIRequestNormalizesResponsesContentParts(t *testing.T) {
+	req := CodexRequest{Input: []interface{}{
+		map[string]interface{}{
+			"type": "message",
+			"role": "user",
+			"content": []interface{}{
+				map[string]interface{}{"type": "input_text", "text": "look"},
+				map[string]interface{}{"type": "input_image", "image_url": "data:image/png;base64,Zm9v"},
+			},
+		},
+		map[string]interface{}{
+			"type": "message",
+			"role": "assistant",
+			"content": []interface{}{
+				map[string]interface{}{"type": "output_text", "text": "done"},
+			},
+		},
+	}}
+	body, _ := json.Marshal(req)
+	conv := &codexToOpenAIRequest{}
+	out, err := conv.Transform(body, "gpt", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if strings.Contains(string(out), "input_text") || strings.Contains(string(out), "output_text") || strings.Contains(string(out), "input_image") {
+		t.Fatalf("Codex content part types leaked into OpenAI request: %s", string(out))
+	}
+	if !strings.Contains(string(out), `"type":"image_url"`) {
+		t.Fatalf("expected OpenAI image_url content part: %s", string(out))
+	}
+	if !strings.Contains(string(out), `"content":"done"`) {
+		t.Fatalf("expected assistant output_text to collapse to text content: %s", string(out))
+	}
+}
+
+func TestCodexToOpenAIRequestDoesNotLeakMalformedResponsesImagePart(t *testing.T) {
+	req := CodexRequest{Input: []interface{}{
+		map[string]interface{}{
+			"type": "message",
+			"role": "user",
+			"content": []interface{}{
+				map[string]interface{}{"type": "input_image"},
+			},
+		},
+	}}
+	body, _ := json.Marshal(req)
+	conv := &codexToOpenAIRequest{}
+	out, err := conv.Transform(body, "gpt", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if strings.Contains(string(out), "input_image") {
+		t.Fatalf("malformed Codex image part leaked into OpenAI request: %s", string(out))
+	}
+	if !strings.Contains(string(out), `"content":""`) {
+		t.Fatalf("expected malformed known Codex part to collapse to empty content: %s", string(out))
+	}
+}
+
+func TestCodexToOpenAIRequestNormalizesToolOutputParts(t *testing.T) {
+	req := CodexRequest{Input: []interface{}{
+		map[string]interface{}{
+			"type":    "function_call_output",
+			"call_id": "call_1",
+			"output": []interface{}{
+				map[string]interface{}{"type": "input_text", "text": "a"},
+				map[string]interface{}{"type": "output_text", "text": "b"},
+			},
+		},
+	}}
+	body, _ := json.Marshal(req)
+	conv := &codexToOpenAIRequest{}
+	out, err := conv.Transform(body, "gpt", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if strings.Contains(string(out), "input_text") || strings.Contains(string(out), "output_text") {
+		t.Fatalf("Responses tool output part type leaked into OpenAI request: %s", string(out))
+	}
+	if !strings.Contains(string(out), `"content":"ab"`) {
+		t.Fatalf("expected text-only tool output parts to collapse to string: %s", string(out))
+	}
+}
+
+func TestCodexToOpenAIRequestSkipsToolOutputWithoutCallID(t *testing.T) {
+	req := CodexRequest{Input: []interface{}{
+		map[string]interface{}{"type": "function_call_output", "output": "orphan"},
+	}}
+	body, _ := json.Marshal(req)
+	conv := &codexToOpenAIRequest{}
+	out, err := conv.Transform(body, "gpt", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if strings.Contains(string(out), `"role":"tool"`) || strings.Contains(string(out), "orphan") {
+		t.Fatalf("expected orphan tool output to be skipped: %s", string(out))
+	}
+}
+
+func TestCodexToOpenAIRequestJSONEncodesUnknownStructuredToolOutput(t *testing.T) {
+	req := CodexRequest{Input: []interface{}{
+		map[string]interface{}{
+			"type":    "function_call_output",
+			"call_id": "call_1",
+			"output": []interface{}{
+				map[string]interface{}{"unknown": "value"},
+			},
+		},
+	}}
+	body, _ := json.Marshal(req)
+	conv := &codexToOpenAIRequest{}
+	out, err := conv.Transform(body, "gpt", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if !strings.Contains(string(out), `"content":"[{\"unknown\":\"value\"}]"`) {
+		t.Fatalf("expected unknown structured tool output to be JSON encoded: %s", string(out))
+	}
+}
+
+func TestCodexToOpenAIRequestNormalizesFilesImagesAndBareTextParts(t *testing.T) {
+	req := CodexRequest{Input: []interface{}{
+		map[string]interface{}{
+			"type": "message",
+			"role": "user",
+			"content": []interface{}{
+				"prefix",
+				map[string]interface{}{"type": "input_text", "text": " body"},
+				map[string]interface{}{"type": "input_image", "image_url": "https://example.com/a.png", "detail": "low"},
+				map[string]interface{}{"type": "input_file", "file_url": "https://example.com/a.pdf", "file_data": "data"},
+			},
+		},
+	}}
+	body, _ := json.Marshal(req)
+	conv := &codexToOpenAIRequest{}
+	out, err := conv.Transform(body, "gpt", false)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	outStr := string(out)
+	for _, leaked := range []string{"input_text", "input_image", "input_file"} {
+		if strings.Contains(outStr, leaked) {
+			t.Fatalf("Responses content part type %q leaked into OpenAI request: %s", leaked, outStr)
+		}
+	}
+	for _, expected := range []string{`"text":"prefix"`, `"text":" body"`, `"type":"image_url"`, `"detail":"low"`, `"type":"file"`, `"file_id":"https://example.com/a.pdf"`, `"file_data":"data"`} {
+		if !strings.Contains(outStr, expected) {
+			t.Fatalf("expected %s in converted request: %s", expected, outStr)
+		}
+	}
+}

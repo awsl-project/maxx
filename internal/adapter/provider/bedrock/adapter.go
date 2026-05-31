@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -25,11 +28,26 @@ func init() {
 	provider.RegisterAdapterFactory("bedrock", NewAdapter)
 }
 
+// discoveryRepo is the persistence backend for the profileDiscoverer,
+// shared by every BedrockAdapter instance. Wired at process startup by
+// the binary that owns the database; stays nil in unit tests, in which
+// case discovery falls back to in-memory-only behaviour. Set once at
+// boot — reassigning under concurrent NewAdapter calls is undefined.
+var discoveryRepo repository.BedrockDiscoveryRepository
+
+// SetDiscoveryRepository wires the per-process persistence backend for
+// Bedrock discovery. Called once from main after the sqlite layer is
+// available. Passing nil disables persistence.
+func SetDiscoveryRepository(r repository.BedrockDiscoveryRepository) {
+	discoveryRepo = r
+}
+
 // BedrockAdapter handles communication with AWS Bedrock.
 type BedrockAdapter struct {
 	provider   *domain.Provider
 	httpClient *http.Client
 	creds      credentials.StaticCredentialsProvider
+	discoverer *profileDiscoverer
 }
 
 func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
@@ -37,15 +55,126 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 		return nil, fmt.Errorf("provider %s missing bedrock config", p.Name)
 	}
 	config := p.Config.Bedrock
+	creds := credentials.NewStaticCredentialsProvider(config.AccessKeyID, config.SecretAccessKey, "")
+	region := config.Region
+	if region == "" {
+		region = DefaultRegion
+	}
+	httpClient := newHTTPClient()
+	discoverer := newProfileDiscoverer(httpClient, creds, region)
+	if discoveryRepo != nil && p.ID > 0 {
+		discoverer.repo = discoveryRepo
+		discoverer.providerID = p.ID
+		// Access-key ID (not the secret) identifies the IAM principal;
+		// storing it alongside region lets loadFromStore reject rows
+		// from a previous config when the operator rotates credentials
+		// or retargets the provider at another account/region.
+		discoverer.accessKeyID = config.AccessKeyID
+		// Warm the in-memory cache from the persisted catalog so the
+		// first request doesn't pay ~1-5s of AWS round-trip latency.
+		// If the persisted FetchedAt is older than the TTL, Lookup
+		// will refresh on demand — loadFromStore only primes, it does
+		// not extend the TTL.
+		discoverer.loadFromStore()
+	}
 	return &BedrockAdapter{
 		provider:   p,
-		httpClient: newHTTPClient(),
-		creds:      credentials.NewStaticCredentialsProvider(config.AccessKeyID, config.SecretAccessKey, ""),
+		httpClient: httpClient,
+		creds:      creds,
+		discoverer: discoverer,
 	}, nil
 }
 
 func (a *BedrockAdapter) SupportedClientTypes() []domain.ClientType {
 	return []domain.ClientType{domain.ClientTypeClaude}
+}
+
+// DiscoveredModel describes one entry in the discovery catalog: the
+// client-facing short name, the invoke-ready Bedrock ID, and which
+// upstream catalog it came from. Source is either "inference-profile"
+// (cross-region, ID carries a region prefix) or "foundation-model"
+// (bare anthropic.X, single-region).
+type DiscoveredModel struct {
+	ShortName string `json:"shortName"`
+	BedrockID string `json:"bedrockId"`
+	Source    string `json:"source"`
+}
+
+// DiscoveredModelsResult is the payload returned by the admin endpoint.
+// Available distinguishes "discovery completed, the listed models are
+// what this provider can currently invoke" from "discovery never
+// succeeded — usually missing bedrock:ListInferenceProfiles IAM
+// permission"; Region echoes back where the lookup ran so the UI can
+// show it alongside the list.
+type DiscoveredModelsResult struct {
+	Available bool              `json:"available"`
+	Region    string            `json:"region"`
+	Models    []DiscoveredModel `json:"models"`
+}
+
+// RefreshDiscoveredModels forces a fresh ListInferenceProfiles +
+// ListFoundationModels round-trip, bypassing the normal TTL and the
+// Invalidate() rate-limit. Used by the admin UI's "refresh" button —
+// the operator's intent is explicit, so the rate-limit that protects
+// against error-path stampedes is not needed here. Returns the refreshed
+// catalog and any fetch error (the catalog still reflects whatever was
+// in memory when the fetch failed).
+func (a *BedrockAdapter) RefreshDiscoveredModels(ctx context.Context) (DiscoveredModelsResult, error) {
+	var refreshErr error
+	if a.discoverer != nil {
+		lookupCtx, cancel := context.WithTimeout(ctx, discoveryLookupTimeout)
+		defer cancel()
+		refreshErr = a.discoverer.ForceRefresh(lookupCtx)
+	}
+	// Refresh path already forced a fetch; pass false so DiscoveredModels
+	// doesn't do a redundant second Lookup.
+	return a.DiscoveredModels(ctx, false), refreshErr
+}
+
+// DiscoveredModels returns the current catalog. When allowRefresh is
+// true, a TTL-expiry Lookup is triggered so the caller gets a fresh
+// list if the cache is stale; when false, the in-memory snapshot is
+// returned as-is. Admin GETs pass true (they're fine paying an
+// occasional AWS round-trip); non-admin GETs from the self-service
+// surface pass false, so an anonymous poller cannot wait out the TTL
+// to force a ListInferenceProfiles call. Uses an isolated background
+// context on the refresh path so admin UI polling can't poison the
+// shared cache if the client disconnects.
+func (a *BedrockAdapter) DiscoveredModels(ctx context.Context, allowRefresh bool) DiscoveredModelsResult {
+	region := DefaultRegion
+	if a.provider != nil && a.provider.Config != nil && a.provider.Config.Bedrock != nil && a.provider.Config.Bedrock.Region != "" {
+		region = a.provider.Config.Bedrock.Region
+	}
+	result := DiscoveredModelsResult{Region: region}
+	if a.discoverer == nil {
+		return result
+	}
+
+	if allowRefresh {
+		lookupCtx, cancel := context.WithTimeout(ctx, discoveryLookupTimeout)
+		defer cancel()
+		// Force a refresh if the cache is stale. Lookup's argument is a
+		// miss-on-purpose key — we only want the side effect.
+		_, _ = a.discoverer.Lookup(lookupCtx, "__admin_refresh__")
+	}
+
+	entries := a.discoverer.Entries()
+	result.Available = a.discoverer.Available()
+	result.Models = make([]DiscoveredModel, 0, len(entries))
+	for _, e := range entries {
+		// Source is carried from the AWS catalog that produced the
+		// entry, not inferred from the ID shape — profile-shaped IDs
+		// can appear unprefixed from ListFoundationModels too.
+		result.Models = append(result.Models, DiscoveredModel{
+			ShortName: e.ShortName,
+			BedrockID: e.BedrockID,
+			Source:    e.Source,
+		})
+	}
+	sort.Slice(result.Models, func(i, j int) bool {
+		return result.Models[i].ShortName < result.Models[j].ShortName
+	})
+	return result
 }
 
 func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
@@ -79,61 +208,100 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	if mappedModel == "" {
 		mappedModel = flow.GetRequestModel(c)
 	}
-	bedrockModelID := resolveModelID(mappedModel, config.ModelMapping, modelPrefix)
+	lookup := func(name string) (string, bool) {
+		if a.discoverer == nil {
+			return "", false
+		}
+		// Decouple discovery from the request context: a client disconnect
+		// must not cancel an in-flight ListInferenceProfiles call and poison
+		// the shared cache. Give discovery its own bounded timeout.
+		discoveryCtx, cancel := context.WithTimeout(context.Background(), discoveryLookupTimeout)
+		defer cancel()
+		return a.discoverer.Lookup(discoveryCtx, name)
+	}
+	bedrockModelID, ok := resolveModelID(mappedModel, config.ModelMapping, modelPrefix, lookup)
+	if !ok {
+		return a.unresolvableModelError(mappedModel, region)
+	}
 
 	// Sanitize request body for Bedrock
 	requestBody = sanitizeRequestBody(requestBody)
 
+	// Model-specific thinking config: Opus 4.7 rejects the classic
+	// thinking.type="enabled" shape and requires adaptive. Earlier
+	// sanitize steps run without knowing the target model; this step
+	// rewrites the thinking block (and sets output_config.effort) based
+	// on the resolved Bedrock ID's short name, so classic-shape clients
+	// (e.g. Claude Code CLI) can still hit adaptive-only models.
+	if short, _, ok := extractNameAndDate(bedrockModelID); ok {
+		requestBody = AdaptThinkingForModel(requestBody, short)
+	}
+
 	// Build upstream URL
 	upstreamURL := buildBedrockURL(region, bedrockModelID, clientWantsStream)
 
-	// Create upstream request
-	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
-	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to create upstream request")
-		proxyErr.Scope = domain.ScopeEndpoint
-		proxyErr.Reason = domain.CooldownReasonServerError
-		return proxyErr
-	}
+	// Up to three attempts: two independent retry paths each fire at
+	// most once. (1) a Bedrock 400 that rejects a thinking-block
+	// envelope (signature on `thinking`, opaque `data` on
+	// `redacted_thinking`) is recoverable by stripping those blocks
+	// and replaying once. (2) a 400 rejecting temperature/top_p/top_k
+	// (extended-thinking mode) is recoverable by stripping those
+	// fields and replaying once. Cross-deployment replays produced by
+	// clients that captured a transcript against Anthropic and now
+	// hit Bedrock are the common cause; retry preserves the rest of
+	// the conversation rather than failing the whole request.
+	//
+	// Streaming requests are covered by the same path: Bedrock
+	// validates the request body before opening the response stream,
+	// so envelope rejections come back as a non-streaming HTTP 400
+	// even when the client asked for a stream — they hit this branch,
+	// not handleStreamResponse.
+	var resp *http.Response
+	thinkingRetried := false
+	samplingRetried := false
+	for {
+		var attemptErr error
+		resp, attemptErr = a.sendBedrockRequest(ctx, c, upstreamURL, requestBody, region, clientWantsStream)
+		if attemptErr != nil {
+			return attemptErr
+		}
 
-	// Set headers
-	upstreamReq.Header.Set("Content-Type", "application/json")
-	if clientWantsStream {
-		upstreamReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
-	} else {
-		upstreamReq.Header.Set("Accept", "application/json")
-	}
+		if resp.StatusCode < 400 {
+			break
+		}
 
-	// Sign request with SigV4
-	if err := signRequest(ctx, upstreamReq, requestBody, a.creds, region); err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to sign request")
-		proxyErr.Scope = domain.ScopeKey
-		proxyErr.Reason = domain.CooldownReasonAuthFailure
-		return proxyErr
-	}
-
-	// Send request info via EventChannel
-	if eventChan := flow.GetEventChan(c); eventChan != nil {
-		eventChan.SendRequestInfo(&domain.RequestInfo{
-			Method:  upstreamReq.Method,
-			URL:     upstreamURL,
-			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
-			Body:    string(requestBody),
-		})
-	}
-
-	// Execute request
-	resp, err := a.httpClient.Do(upstreamReq)
-	if err != nil {
-		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-		proxyErr.Message = "failed to connect to Bedrock"
-		return proxyErr
-	}
-	defer resp.Body.Close()
-
-	// Handle error responses
-	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if !thinkingRetried && resp.StatusCode == 400 && IsThinkingBlockEnvelopeError(body) {
+			stripped := StripThinkingBlocks(requestBody)
+			if !bytes.Equal(stripped, requestBody) {
+				// Note: the swallowed 400 is intentionally not emitted
+				// via SendResponseInfo. The executor's attempt record
+				// holds a single ResponseInfo slot, so a successful
+				// retry would overwrite the 400 anyway and the persisted
+				// trace would just look like a one-shot success. Surfacing
+				// the recovered-from error properly needs a multi-attempt
+				// schema, which is out of scope for this change.
+				requestBody = stripped
+				thinkingRetried = true
+				continue
+			}
+		}
+
+		// Bedrock sometimes rejects temperature/top_p/top_k for models that
+		// are (always-on) thinking-mode beyond the static list in
+		// thinking_policy.go. Strip and retry once so we don't need to know
+		// every adaptive-only SKU up front. Same single-attempt-slot caveat
+		// as the thinking-envelope retry above.
+		if !samplingRetried && resp.StatusCode == 400 && IsSamplingParamRejectedError(body) {
+			stripped := StripSamplingParams(requestBody)
+			if !bytes.Equal(stripped, requestBody) {
+				requestBody = stripped
+				samplingRetried = true
+				continue
+			}
+		}
 
 		if eventChan := flow.GetEventChan(c); eventChan != nil {
 			eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -143,14 +311,68 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			})
 		}
 
-		return classifyBedrockHTTPError(resp.StatusCode, body, resp.Header, mappedModel)
+		proxyErr := classifyBedrockHTTPError(resp.StatusCode, body, resp.Header, mappedModel)
+		// When the upstream rejects our model ID, AWS may have rotated legacy
+		// profiles. Invalidate the discovery cache so the *next* request
+		// reloads from ListInferenceProfiles and picks up the new mapping.
+		if a.discoverer != nil && proxyErr != nil && proxyErr.Reason == domain.CooldownReasonModelUnavailable {
+			a.discoverer.Invalidate()
+		}
+		return proxyErr
 	}
+	defer resp.Body.Close()
 
 	// Handle response
 	if clientWantsStream {
 		return a.handleStreamResponse(c, resp)
 	}
 	return a.handleNonStreamResponse(c, resp)
+}
+
+// sendBedrockRequest builds, signs, emits the request-info event for,
+// and sends one upstream HTTP request. Factored out of Execute so the
+// thinking-block retry path can replay with a fresh request without
+// duplicating the SigV4/event plumbing. Caller owns the returned
+// response body.
+func (a *BedrockAdapter) sendBedrockRequest(ctx context.Context, c *flow.Ctx, upstreamURL string, requestBody []byte, region string, clientWantsStream bool) (*http.Response, error) {
+	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
+	if err != nil {
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return nil, proxyErr
+	}
+
+	upstreamReq.Header.Set("Content-Type", "application/json")
+	if clientWantsStream {
+		upstreamReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
+	} else {
+		upstreamReq.Header.Set("Accept", "application/json")
+	}
+
+	if err := signRequest(ctx, upstreamReq, requestBody, a.creds, region); err != nil {
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to sign request")
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		return nil, proxyErr
+	}
+
+	if eventChan := flow.GetEventChan(c); eventChan != nil {
+		eventChan.SendRequestInfo(&domain.RequestInfo{
+			Method:  upstreamReq.Method,
+			URL:     upstreamURL,
+			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
+			Body:    string(requestBody),
+		})
+	}
+
+	resp, err := a.httpClient.Do(upstreamReq)
+	if err != nil {
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to Bedrock"
+		return nil, proxyErr
+	}
+	return resp, nil
 }
 
 func (a *BedrockAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response) error {
@@ -357,6 +579,30 @@ func sendFinalStreamEvents(eventChan domain.AdapterEventChan, collector *usage.S
 	}
 }
 
+// unresolvableModelError builds a ScopeModel error when the request model
+// cannot be resolved to a Bedrock ID. The message differs depending on
+// whether discovery is usable, so the operator knows whether to grant IAM
+// permission or just add a modelMapping entry.
+func (a *BedrockAdapter) unresolvableModelError(model, region string) *domain.ProxyError {
+	var msg string
+	if a.discoverer != nil && a.discoverer.Available() {
+		names := a.discoverer.Names()
+		sort.Strings(names)
+		msg = fmt.Sprintf("model %q is not available on Bedrock in region %s; available: [%s]",
+			model, region, strings.Join(names, ", "))
+	} else {
+		msg = fmt.Sprintf("cannot resolve model %q: Bedrock discovery unavailable "+
+			"(grant bedrock:ListInferenceProfiles or configure bedrock.modelMapping)", model)
+	}
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New(msg), false, msg)
+	proxyErr.Scope = domain.ScopeModel
+	proxyErr.Reason = domain.CooldownReasonModelUnavailable
+	proxyErr.Model = model
+	proxyErr.ClientType = string(domain.ClientTypeClaude)
+	proxyErr.HTTPStatusCode = http.StatusBadRequest
+	return proxyErr
+}
+
 func classifyBedrockHTTPError(statusCode int, body []byte, headers http.Header, model string) *domain.ProxyError {
 	bodyStr := string(body)
 	bodyLower := strings.ToLower(bodyStr)
@@ -379,8 +625,10 @@ func classifyBedrockHTTPError(statusCode int, body []byte, headers http.Header, 
 	case statusCode == 400:
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.Retryable = false
-		if strings.Contains(bodyLower, "validationexception") && model != "" &&
-			(strings.Contains(bodyLower, "model") || strings.Contains(bodyLower, "inference profile")) {
+		// Only upgrade to ScopeModel for genuine model-availability errors.
+		// Use specific Bedrock error patterns to avoid false positives from
+		// field validation errors that happen to mention "model".
+		if model != "" && isBedrockModelUnavailable(bodyStr) {
 			proxyErr.Scope = domain.ScopeModel
 			proxyErr.Reason = domain.CooldownReasonModelUnavailable
 			proxyErr.Model = model
@@ -439,6 +687,29 @@ func classifyBedrockHTTPError(statusCode int, body []byte, headers http.Header, 
 	}
 
 	return proxyErr
+}
+
+// isBedrockModelUnavailable checks whether a Bedrock 400 error body indicates
+// the model itself is unavailable (as opposed to a request validation error
+// that happens to mention the word "model"). This prevents false-positive
+// ScopeModel classification that would wrongly freeze the provider.
+func isBedrockModelUnavailable(body string) bool {
+	bodyLower := strings.ToLower(body)
+	// Bedrock model-access errors use specific exception types and phrases.
+	modelPatterns := []string{
+		"could not resolve the foundation model",
+		"is not authorized to perform: bedrock",
+		"you don't have access to the model",
+		"access denied for model",
+		"model identifier is invalid",
+		"inference profile",
+	}
+	for _, p := range modelPatterns {
+		if strings.Contains(bodyLower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func isRetryableStatusCode(status int) bool {

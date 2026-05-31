@@ -3,6 +3,7 @@ package cached
 import (
 	"sync"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -16,6 +17,7 @@ type RoutingStrategyRepository struct {
 	repo  repository.RoutingStrategyRepository
 	cache map[routingStrategyCacheKey]*domain.RoutingStrategy
 	mu    sync.RWMutex
+	bc    cacheBroadcast
 }
 
 func NewRoutingStrategyRepository(repo repository.RoutingStrategyRepository) *RoutingStrategyRepository {
@@ -23,6 +25,10 @@ func NewRoutingStrategyRepository(repo repository.RoutingStrategyRepository) *Ro
 		repo:  repo,
 		cache: make(map[routingStrategyCacheKey]*domain.RoutingStrategy),
 	}
+}
+
+func (r *RoutingStrategyRepository) SetCoordinator(c coordinator.Coordinator) {
+	r.bc.attach(c, InvalidateRoutingStrategy)
 }
 
 func (r *RoutingStrategyRepository) Load() error {
@@ -46,6 +52,7 @@ func (r *RoutingStrategyRepository) Create(s *domain.RoutingStrategy) error {
 	r.mu.Lock()
 	r.cache[routingStrategyCacheKey{TenantID: s.TenantID, ProjectID: s.ProjectID}] = s
 	r.mu.Unlock()
+	r.bc.publish(OpCreate, s.ID)
 	return nil
 }
 
@@ -65,6 +72,7 @@ func (r *RoutingStrategyRepository) Update(s *domain.RoutingStrategy) error {
 	}
 	r.cache[newKey] = s
 	r.mu.Unlock()
+	r.bc.publish(OpUpdate, s.ID)
 	return nil
 }
 
@@ -81,7 +89,20 @@ func (r *RoutingStrategyRepository) Delete(tenantID uint64, id uint64) error {
 		}
 	}
 	r.mu.Unlock()
+	r.bc.publish(OpDelete, id)
 	return nil
+}
+
+func (r *RoutingStrategyRepository) GetByID(tenantID uint64, id uint64) (*domain.RoutingStrategy, error) {
+	r.mu.RLock()
+	for key, s := range r.cache {
+		if s.ID == id && (tenantID == domain.TenantIDAll || key.TenantID == tenantID) {
+			r.mu.RUnlock()
+			return s, nil
+		}
+	}
+	r.mu.RUnlock()
+	return r.repo.GetByID(tenantID, id)
 }
 
 func (r *RoutingStrategyRepository) GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error) {

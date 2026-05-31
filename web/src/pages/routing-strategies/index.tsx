@@ -23,7 +23,8 @@ import {
 import { PageHeader } from '@/components/layout/page-header';
 import { Plus, Trash2, Pencil, Workflow } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { RoutingStrategy, RoutingStrategyType } from '@/lib/transport';
+import type { RoutingStrategy, RoutingStrategyType, RoutingStickyScope } from '@/lib/transport';
+import { Input } from '@/components/ui';
 import { useDialog } from '@/contexts/dialog-context';
 
 export function RoutingStrategiesPage() {
@@ -39,16 +40,25 @@ export function RoutingStrategiesPage() {
 
   const [projectID, setProjectID] = useState('0');
   const [type, setType] = useState<RoutingStrategyType>('priority');
+  const [stickyEnabled, setStickyEnabled] = useState(false);
+  const [stickyScope, setStickyScope] = useState<RoutingStickyScope>('token');
+  const [stickyTTL, setStickyTTL] = useState('1800');
 
   const resetForm = () => {
     setProjectID('0');
     setType('priority');
+    setStickyEnabled(false);
+    setStickyScope('token');
+    setStickyTTL('1800');
   };
 
   const handleEdit = (strategy: RoutingStrategy) => {
     setEditingStrategy(strategy);
     setProjectID(String(strategy.projectID));
     setType(strategy.type);
+    setStickyEnabled(strategy.config?.stickyEnabled ?? false);
+    setStickyScope(strategy.config?.stickyScope ?? 'token');
+    setStickyTTL(String(strategy.config?.stickyTTLSeconds ?? 1800));
     setShowForm(true);
   };
 
@@ -60,10 +70,21 @@ export function RoutingStrategiesPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Sticky config is only meaningful for weighted_random; collapse it to
+    // null for priority so the JSON stays clean.
+    const ttlNum = Number(stickyTTL);
+    const config =
+      type === 'weighted_random' && stickyEnabled
+        ? {
+            stickyEnabled: true,
+            stickyScope,
+            stickyTTLSeconds: Number.isFinite(ttlNum) && ttlNum > 0 ? ttlNum : 1800,
+          }
+        : null;
     const data = {
       projectID: Number(projectID),
       type,
-      config: null,
+      config,
     };
 
     if (editingStrategy) {
@@ -154,6 +175,68 @@ export function RoutingStrategiesPage() {
                       </select>
                     </div>
                   </div>
+
+                  {type === 'weighted_random' && (
+                    <div className="rounded-md border border-input bg-muted/30 p-4 space-y-4">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="stickyEnabled"
+                          checked={stickyEnabled}
+                          onChange={(e) => setStickyEnabled(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <label htmlFor="stickyEnabled" className="text-sm font-medium">
+                          {t('routingStrategies.stickyEnabled')}
+                        </label>
+                      </div>
+                      <p className="text-xs text-text-secondary">
+                        {t('routingStrategies.stickyHelp')}
+                      </p>
+                      {stickyEnabled && (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-sm font-medium">
+                              {t('routingStrategies.stickyScope')}
+                            </label>
+                            <select
+                              value={stickyScope}
+                              onChange={(e) => setStickyScope(e.target.value as RoutingStickyScope)}
+                              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none"
+                            >
+                              <option value="token">
+                                {t('routingStrategies.stickyScopeToken')}
+                              </option>
+                              <option value="conversation">
+                                {t('routingStrategies.stickyScopeConversation')}
+                              </option>
+                            </select>
+                            <p className="mt-1 text-xs text-text-secondary">
+                              {stickyScope === 'token'
+                                ? t('routingStrategies.stickyScopeTokenHelp')
+                                : t('routingStrategies.stickyScopeConversationHelp')}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-sm font-medium">
+                              {t('routingStrategies.stickyTTL')}
+                            </label>
+                            <Input
+                              type="number"
+                              value={stickyTTL}
+                              onChange={(e) => setStickyTTL(e.target.value)}
+                              min="60"
+                              step="60"
+                            />
+                            <p className="mt-1 text-xs text-text-secondary">
+                              {t('routingStrategies.stickyTTLHelp')}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex justify-end gap-2">
                     <Button type="button" variant="outline" onClick={handleCloseForm}>
                       {t('common.cancel')}

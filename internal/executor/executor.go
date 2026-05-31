@@ -14,7 +14,6 @@ import (
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/router"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
 
@@ -30,7 +29,6 @@ type Executor struct {
 	broadcaster      event.Broadcaster
 	projectWaiter    *waiter.ProjectWaiter
 	instanceID       string
-	statsAggregator  *stats.StatsAggregator
 	converter        *converter.Registry
 	engine           *flow.Engine
 	middlewares      []flow.HandlerFunc
@@ -49,7 +47,6 @@ func NewExecutor(
 	bc event.Broadcaster,
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
-	statsAggregator *stats.StatsAggregator,
 ) *Executor {
 	return &Executor{
 		router:           r,
@@ -62,7 +59,6 @@ func NewExecutor(
 		broadcaster:      bc,
 		projectWaiter:    projectWaiter,
 		instanceID:       instanceID,
-		statsAggregator:  statsAggregator,
 		converter:        converter.GetGlobalRegistry(),
 		engine:           flow.NewEngine(),
 		cooldownSem:      make(chan struct{}, 10),
@@ -216,24 +212,27 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 		DevMode:      devMode,
 	}
 
-	requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
-	requestURI := flow.GetRequestURI(c)
-	requestBody := flow.GetRequestBody(c)
-	if c.Request != nil {
-		if c.Request.Host != "" {
-			if requestHeaders == nil {
-				requestHeaders = make(map[string]string)
+	clearDetail := e.shouldClearFailedRequestDetailFor(&execState{apiTokenDevMode: devMode})
+	if !clearDetail {
+		requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
+		requestURI := flow.GetRequestURI(c)
+		requestBody := flow.GetRequestBody(c)
+		if c.Request != nil {
+			if c.Request.Host != "" {
+				if requestHeaders == nil {
+					requestHeaders = make(map[string]string)
+				}
+				requestHeaders["Host"] = c.Request.Host
 			}
-			requestHeaders["Host"] = c.Request.Host
+			proxyReq.RequestInfo = &domain.RequestInfo{
+				Method:  c.Request.Method,
+				URL:     requestURI,
+				Headers: requestHeaders,
+				Body:    string(requestBody),
+			}
 		}
-		proxyReq.RequestInfo = &domain.RequestInfo{
-			Method:  c.Request.Method,
-			URL:     requestURI,
-			Headers: requestHeaders,
-			Body:    string(requestBody),
-		}
+		proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}
 	}
-	proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}
 
 	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
 		log.Printf("[Executor] Failed to create rejected proxy request: %v", err)
@@ -334,6 +333,8 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 				if event.Metrics != nil {
 					attempt.InputTokenCount = event.Metrics.InputTokens
 					attempt.OutputTokenCount = event.Metrics.OutputTokens
+					attempt.InputImageTokenCount = event.Metrics.InputImageTokens
+					attempt.OutputImageTokenCount = event.Metrics.OutputImageTokens
 					attempt.CacheReadCount = event.Metrics.CacheReadCount
 					attempt.CacheWriteCount = event.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = event.Metrics.Cache5mCreationCount
@@ -414,6 +415,8 @@ func (e *Executor) processAdapterEventsRealtime(
 				if ev.Metrics != nil {
 					attempt.InputTokenCount = ev.Metrics.InputTokens
 					attempt.OutputTokenCount = ev.Metrics.OutputTokens
+					attempt.InputImageTokenCount = ev.Metrics.InputImageTokens
+					attempt.OutputImageTokenCount = ev.Metrics.OutputImageTokens
 					attempt.CacheReadCount = ev.Metrics.CacheReadCount
 					attempt.CacheWriteCount = ev.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = ev.Metrics.Cache5mCreationCount
@@ -439,23 +442,6 @@ func (e *Executor) processAdapterEventsRealtime(
 	}
 }
 
-// getRequestDetailRetentionSeconds 获取请求详情保留秒数
-// 返回值：-1=永久保存，0=不保存，>0=保留秒数
-func (e *Executor) getRequestDetailRetentionSeconds() int {
-	if e.settingsRepo == nil {
-		return -1 // 默认永久保存
-	}
-	val, err := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSeconds)
-	if err != nil || val == "" {
-		return -1 // 默认永久保存
-	}
-	seconds, err := strconv.Atoi(val)
-	if err != nil {
-		return -1
-	}
-	return seconds
-}
-
 // shouldClearRequestDetailFor 检查是否应该立即清理请求详情（考虑 Token 开发者模式）
 func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
 	if state != nil && state.apiTokenDevMode {
@@ -464,10 +450,88 @@ func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
 	return e.shouldClearRequestDetail()
 }
 
+// shouldClearFailedRequestDetailFor 检查已知失败状态的请求详情是否应该立即清理。
+func (e *Executor) shouldClearFailedRequestDetailFor(state *execState) bool {
+	if state != nil && state.apiTokenDevMode {
+		return false
+	}
+	return e.shouldClearFailedRequestDetail()
+}
+
 // shouldClearRequestDetail 检查是否应该立即清理请求详情（全局配置）
-// 当设置为 0 时返回 true
+//
+// 决策时机在 ingress / dispatch，此时 status 未知，因此不能按状态分别决策。
+// 语义：
+//   - split=false：当统一键 == 0 时立即清理（行为不变）
+//   - split=true：仅当 success 和 failed 两个键都解析为 0 时才立即清理
+//     （只要任一侧需要保留，就先存到 DB，后台 task 再按状态分别清理）
 func (e *Executor) shouldClearRequestDetail() bool {
-	return e.getRequestDetailRetentionSeconds() == 0
+	cfg, ok := e.requestDetailRetentionConfig()
+	if !ok {
+		return false
+	}
+	if !cfg.split {
+		return cfg.unified == 0
+	}
+	return cfg.successSec == 0 && cfg.failedSec == 0
+}
+
+// shouldClearFailedRequestDetail 检查已知失败/拒绝请求是否应该立即清理详情。
+// 对 early rejection 这类已知失败状态，可以使用 failed 桶，而不是退化成
+// “success 和 failed 都为 0 才清理”的未知状态策略。
+func (e *Executor) shouldClearFailedRequestDetail() bool {
+	cfg, ok := e.requestDetailRetentionConfig()
+	if !ok {
+		return false
+	}
+	if !cfg.split {
+		return cfg.unified == 0
+	}
+	return cfg.failedSec == 0
+}
+
+type requestDetailRetentionConfig struct {
+	unified    int
+	split      bool
+	successSec int
+	failedSec  int
+}
+
+func (e *Executor) requestDetailRetentionConfig() (requestDetailRetentionConfig, bool) {
+	if e.settingsRepo == nil {
+		return requestDetailRetentionConfig{}, false
+	}
+
+	parse := func(key string, fallback int) int {
+		v, err := e.settingsRepo.Get(key)
+		if err != nil || v == "" {
+			return fallback
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fallback
+		}
+		return n
+	}
+
+	unified := parse(domain.SettingKeyRequestDetailRetentionSeconds, -1)
+	splitVal, _ := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSplitEnabled)
+	cfg := requestDetailRetentionConfig{
+		unified:    unified,
+		split:      splitVal == "true",
+		successSec: unified,
+		failedSec:  unified,
+	}
+	if cfg.split {
+		cfg.successSec = parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified)
+		cfg.failedSec = parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified)
+	}
+	return cfg, true
+}
+
+// ShouldClearRequestDetailByConfig 检查是否应该按全局配置立即清理请求详情
+func (e *Executor) ShouldClearRequestDetailByConfig() bool {
+	return e.shouldClearRequestDetail()
 }
 
 // getProviderMultiplier 获取 Provider 针对特定 ClientType 的倍率

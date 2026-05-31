@@ -11,13 +11,13 @@ import (
 
 	client "github.com/awsl-project/maxx/internal/adapter/client"
 	"github.com/awsl-project/maxx/internal/cooldown"
+	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 	"golang.org/x/crypto/bcrypt"
 
@@ -171,12 +171,11 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 		r,
 	)
 
-	// Create project waiter and stats aggregator
+	// Create project waiter
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
-	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
 
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance", statsAggregator)
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance")
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()
@@ -206,20 +205,12 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 	// Admin API routes with authentication
 	mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
 
-	// Models endpoint
-	mux.Handle("/v1/models", modelsHandler)
-
-	// Proxy routes - all AI API endpoints
-	mux.Handle("/v1/messages", proxyHandler)
-	mux.Handle("/v1/messages/", proxyHandler)
-	mux.Handle("/v1/chat/completions", proxyHandler)
-	mux.Handle("/responses", proxyHandler)
-	mux.Handle("/responses/", proxyHandler)
-	mux.Handle("/v1/responses", proxyHandler)
-	mux.Handle("/v1/responses/", proxyHandler)
-	mux.Handle("/v1beta/models/", proxyHandler)
+	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
+		ProxyHandler:         proxyHandler,
+		ModelsHandler:        modelsHandler,
+		ProviderProxyHandler: providerProxyHandler,
+	})
 	mux.Handle("/project/", projectProxyHandler)
-	mux.Handle("/provider/", providerProxyHandler)
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

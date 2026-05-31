@@ -96,15 +96,11 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	mux.Handle("/api/codex/", http.StripPrefix("/api", components.CodexHandler))
 	mux.Handle("/api/claude/", http.StripPrefix("/api", components.ClaudeHandler))
 
-	mux.Handle("/v1/messages", components.ProxyHandler)
-	mux.Handle("/v1/messages/", components.ProxyHandler)
-	mux.Handle("/v1/chat/completions", components.ProxyHandler)
-	mux.Handle("/responses", components.ProxyHandler)
-	mux.Handle("/responses/", components.ProxyHandler)
-	mux.Handle("/v1/responses", components.ProxyHandler)
-	mux.Handle("/v1/responses/", components.ProxyHandler)
-	mux.Handle("/v1/models", components.ModelsHandler)
-	mux.Handle("/v1beta/models/", components.ProxyHandler)
+	RegisterProxyRoutes(mux, ProxyRouteHandlers{
+		ProxyHandler:         components.ProxyHandler,
+		ModelsHandler:        components.ModelsHandler,
+		ProviderProxyHandler: components.ProviderProxyHandler,
+	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -113,7 +109,6 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	})
 
 	mux.HandleFunc("/ws", components.WebSocketHub.HandleWebSocket)
-	mux.Handle("/provider/", components.ProviderProxyHandler)
 
 	if s.config.ServeStatic {
 		staticHandler := handler.NewStaticHandler()

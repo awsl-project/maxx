@@ -68,6 +68,15 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 		// Strip Claude Code identifying fields so the upstream relay's Bedrock
 		// backend won't reject the request with "invalid beta flag" etc.
 		body = bedrock.SanitizeForBedrockCompat(body)
+		// Model-aware adaptive thinking: Opus 4.7 and other adaptive-only
+		// SKUs treat every request as a thinking request and reject sampling
+		// params even when the caller never set thinking.type. The `model`
+		// field may already carry a Bedrock-qualified ID after the custom
+		// provider's model-mapping rewrite (e.g.
+		// "us.anthropic.claude-opus-4-7-20260115-v1:0"), so normalize it to
+		// the Anthropic short name first — AdaptThinkingForModel keys on
+		// "claude-opus-4-7", not on inference-profile IDs.
+		body = bedrock.AdaptThinkingForModel(body, bedrock.ShortNameForModel(modelName))
 		bedrockMode = true
 	case domain.DisguiseTypeNone:
 		// Explicit opt-out: no body transformation.
@@ -101,7 +110,10 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *do
 	// 6. Remove empty text content blocks to satisfy Anthropic validation.
 	body = sanitizeClaudeMessages(body)
 
-	// 7. Inject missing tool_results to satisfy tool_use/tool_result correspondence.
+	// 7. Fix tool_use/tool_result correspondence:
+	//    a) Remove orphaned tool_results (tool_use_id not in preceding assistant message)
+	//    b) Inject missing tool_results (tool_use without corresponding tool_result)
+	body = bedrock.RemoveOrphanedToolResults(body)
 	body = ensureToolResultCorrespondence(body)
 
 	// 8. Extract betas from body (to be added to header)

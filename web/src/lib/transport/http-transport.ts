@@ -30,6 +30,7 @@ import type {
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
+  BedrockDiscoveredModelsResult,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -549,6 +550,28 @@ export class HttpTransport implements Transport {
     const { data } = await this.client.post<AntigravityBatchValidationResult>(
       '/antigravity/validate-tokens',
       { tokenText },
+    );
+    return data;
+  }
+
+  async getBedrockDiscoveredModels(
+    providerId: number,
+  ): Promise<BedrockDiscoveredModelsResult> {
+    const { data } = await this.client.get<BedrockDiscoveredModelsResult>(
+      `/providers/${providerId}/bedrock-models`,
+    );
+    return data;
+  }
+
+  async refreshBedrockDiscoveredModels(
+    providerId: number,
+  ): Promise<BedrockDiscoveredModelsResult> {
+    // POST forces a fresh ListInferenceProfiles + ListFoundationModels
+    // round-trip, bypassing the server-side TTL. Use this only when the
+    // operator clicks the refresh button — routine page loads should
+    // stick with GET to avoid burning AWS API quota on every nav.
+    const { data } = await this.client.post<BedrockDiscoveredModelsResult>(
+      `/providers/${providerId}/bedrock-models`,
     );
     return data;
   }

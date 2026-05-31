@@ -189,6 +189,145 @@ function ProviderModelMappings({ provider }: { provider: Provider }) {
   );
 }
 
+function ResponseModelMappings({
+  mappings,
+  onChange,
+  disabled,
+}: {
+  mappings: Record<string, string>;
+  onChange: (mappings: Record<string, string>) => void;
+  disabled: boolean;
+}) {
+  const { t } = useTranslation();
+  const [newPattern, setNewPattern] = useState('');
+  const [newTarget, setNewTarget] = useState('');
+  const entries = useMemo(() => Object.entries(mappings), [mappings]);
+  const isValidTarget = (target: string) => !target.trim().includes('*');
+
+  const handleAddMapping = () => {
+    const pattern = newPattern.trim();
+    const target = newTarget.trim();
+    if (!pattern || !target || !isValidTarget(target)) return;
+
+    onChange({ ...mappings, [pattern]: target });
+    setNewPattern('');
+    setNewTarget('');
+  };
+
+  const handleUpdateMapping = (oldPattern: string, pattern: string, target: string) => {
+    const next: Record<string, string> = {};
+    for (const [key, value] of entries) {
+      if (key === oldPattern) continue;
+      next[key] = value;
+    }
+
+    const nextPattern = pattern.trim();
+    const nextTarget = target.trim();
+    if (nextTarget && !isValidTarget(nextTarget)) return;
+    if (nextPattern && nextTarget) {
+      next[nextPattern] = nextTarget;
+    }
+    onChange(next);
+  };
+
+  const handleDeleteMapping = (pattern: string) => {
+    const next: Record<string, string> = {};
+    for (const [key, value] of entries) {
+      if (key === pattern) continue;
+      next[key] = value;
+    }
+    onChange(next);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4 border-b border-border pb-2">
+        <Zap size={18} className="text-yellow-500" />
+        <h4 className="text-lg font-semibold text-foreground">
+          {t('responseModelMappings.title')}
+        </h4>
+        <span className="text-sm text-muted-foreground">({entries.length})</span>
+      </div>
+
+      <div className="bg-card border border-border rounded-xl p-4">
+        <p className="text-xs text-muted-foreground mb-4">
+          {t('responseModelMappings.pageDesc')}
+        </p>
+
+        {entries.length > 0 && (
+          <div className="space-y-2 mb-4">
+            {entries.map(([pattern, target], index) => (
+              <div key={pattern} className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-6 shrink-0">{index + 1}.</span>
+                <ModelInput
+                  value={pattern}
+                  onChange={(value) => handleUpdateMapping(pattern, value, target)}
+                  placeholder={t('responseModelMappings.matchPattern')}
+                  disabled={disabled}
+                  className="flex-1 min-w-0 h-8 text-sm"
+                />
+                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                <Input
+                  value={target}
+                  onChange={(event) => handleUpdateMapping(pattern, pattern, event.target.value)}
+                  placeholder={t('responseModelMappings.targetModel')}
+                  disabled={disabled}
+                  className="flex-1 min-w-0 h-8 text-sm"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDeleteMapping(pattern)}
+                  disabled={disabled}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {entries.length === 0 && (
+          <div className="text-center py-6 mb-4">
+            <p className="text-muted-foreground text-sm">
+              {t('responseModelMappings.noMappings')}
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 pt-4 border-t border-border">
+          <ModelInput
+            value={newPattern}
+            onChange={setNewPattern}
+            placeholder={t('responseModelMappings.matchPattern')}
+            disabled={disabled}
+            className="flex-1 min-w-0 h-8 text-sm"
+          />
+          <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+          <Input
+            value={newTarget}
+            onChange={(event) => setNewTarget(event.target.value)}
+            placeholder={t('responseModelMappings.targetModel')}
+            disabled={disabled}
+            className="flex-1 min-w-0 h-8 text-sm"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleAddMapping}
+            disabled={
+              !newPattern.trim() || !newTarget.trim() || !isValidTarget(newTarget) || disabled
+            }
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {t('common.add')}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Provider Supported Models Section
 function ProviderSupportModels({
   supportModels,
@@ -284,6 +423,7 @@ type EditFormData = {
   cloakMode?: 'auto' | 'always' | 'never';
   cloakStrictMode?: boolean;
   cloakSensitiveWords?: string;
+  responseModelMapping: Record<string, string>;
   disableErrorCooldown?: boolean;
 };
 
@@ -339,6 +479,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       cloakMode: cc?.mode || 'auto',
       cloakStrictMode: cc?.strictMode || false,
       cloakSensitiveWords: (cc?.sensitiveWords || []).join('\n'),
+      responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
     };
   });
@@ -400,6 +541,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
             disguise: currentDisguisePayload(),
+            responseModelMapping:
+              Object.keys(formData.responseModelMapping).length > 0
+                ? formData.responseModelMapping
+                : undefined,
           },
         },
         supportedClientTypes,
@@ -453,6 +598,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
             disguise: currentDisguisePayload(),
+            responseModelMapping:
+              Object.keys(formData.responseModelMapping).length > 0
+                ? formData.responseModelMapping
+                : undefined,
           },
         },
         supportedClientTypes,
@@ -779,6 +928,14 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
           {/* Provider Model Mappings */}
           <ProviderModelMappings provider={provider} />
+
+          <ResponseModelMappings
+            mappings={formData.responseModelMapping}
+            onChange={(mappings) =>
+              setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
+            }
+            disabled={saving}
+          />
 
           {saveStatus === 'error' && (
             <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">

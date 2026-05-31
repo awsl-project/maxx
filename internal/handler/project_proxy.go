@@ -58,7 +58,7 @@ func (h *ProjectProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	r.URL.Path = apiPath
 
 	// Forward to the appropriate handler
-	if apiPath == "/v1/models" {
+	if isModelListAPIPath(apiPath) {
 		h.modelsHandler.ServeHTTP(w, r)
 		return
 	}
@@ -103,6 +103,13 @@ func isValidAPIPath(path string) bool {
 	if strings.HasPrefix(path, "/v1/chat/completions") {
 		return true
 	}
+	// OpenAI Images API (gpt-image-* generation + edits). Match the exact
+	// endpoints proxy_routes.go registers at the root mux; widening this to
+	// HasPrefix("/v1/images/") would make project-prefixed routes more
+	// permissive than the root contract.
+	if path == "/v1/images/generations" || path == "/v1/images/edits" {
+		return true
+	}
 	// Codex API
 	if strings.HasPrefix(path, "/responses") {
 		return true
@@ -115,7 +122,7 @@ func isValidAPIPath(path string) bool {
 		return true
 	}
 	// Gemini API
-	if strings.HasPrefix(path, "/v1beta/models/") {
+	if path == "/v1beta/models" || strings.HasPrefix(path, "/v1beta/models/") {
 		return true
 	}
 	return false

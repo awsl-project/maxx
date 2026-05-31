@@ -27,8 +27,8 @@ type fakeProviderRepo struct {
 	err       error
 }
 
-func (f *fakeProviderRepo) Create(provider *domain.Provider) error { return nil }
-func (f *fakeProviderRepo) Update(provider *domain.Provider) error { return nil }
+func (f *fakeProviderRepo) Create(provider *domain.Provider) error  { return nil }
+func (f *fakeProviderRepo) Update(provider *domain.Provider) error  { return nil }
 func (f *fakeProviderRepo) Delete(tenantID uint64, id uint64) error { return nil }
 func (f *fakeProviderRepo) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
 	return nil, domain.ErrNotFound
@@ -146,6 +146,56 @@ func TestModelsHandlerFormats(t *testing.T) {
 	if openaiResp["object"] != "list" {
 		t.Fatalf("openai response object = %v, want list", openaiResp["object"])
 	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var geminiResp struct {
+		Models []struct {
+			Name                       string   `json:"name"`
+			BaseModelID                string   `json:"baseModelId"`
+			SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &geminiResp); err != nil {
+		t.Fatalf("invalid Gemini payload: %v", err)
+	}
+	if len(geminiResp.Models) != 1 {
+		t.Fatalf("Gemini model count = %d, want 1", len(geminiResp.Models))
+	}
+	if geminiResp.Models[0].Name != "models/gpt-1" {
+		t.Fatalf("Gemini model name = %q, want models/gpt-1", geminiResp.Models[0].Name)
+	}
+	if geminiResp.Models[0].BaseModelID != "gpt-1" {
+		t.Fatalf("Gemini baseModelId = %q, want gpt-1", geminiResp.Models[0].BaseModelID)
+	}
+	if !containsModel(geminiResp.Models[0].SupportedGenerationMethods, "generateContent") {
+		t.Fatalf("Gemini response missing generateContent support")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	req.Header.Set("User-Agent", "claude-cli/2.0")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var geminiWithClaudeUA struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &geminiWithClaudeUA); err != nil {
+		t.Fatalf("invalid Gemini payload with Claude UA: %v", err)
+	}
+	if len(geminiWithClaudeUA.Models) != 1 || geminiWithClaudeUA.Models[0].Name != "models/gpt-1" {
+		t.Fatalf("Gemini path with Claude UA returned wrong payload: %+v", geminiWithClaudeUA.Models)
+	}
 }
 
 func TestModelsHandlerPricingSupplementByUserAgent(t *testing.T) {
@@ -172,6 +222,15 @@ func TestModelsHandlerPricingSupplementByUserAgent(t *testing.T) {
 	}
 	if !containsModel(openAIIDs, "gpt-5.3") {
 		t.Fatalf("expected gpt-5.3 in openai model list")
+	}
+	if !containsModel(openAIIDs, "gpt-5.4-mini") {
+		t.Fatalf("expected gpt-5.4-mini in openai model list")
+	}
+	if !containsModel(openAIIDs, "gpt-5.5") {
+		t.Fatalf("expected gpt-5.5 in openai model list")
+	}
+	if !containsModel(openAIIDs, "gpt-5.5-pro") {
+		t.Fatalf("expected gpt-5.5-pro in openai model list")
 	}
 	if containsModel(openAIIDs, "claude-opus-4-6") {
 		t.Fatalf("did not expect claude pricing-only model in codex model list")

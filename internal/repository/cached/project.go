@@ -3,6 +3,7 @@ package cached
 import (
 	"sync"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -17,6 +18,7 @@ type ProjectRepository struct {
 	cache     map[uint64]*domain.Project
 	slugCache map[projectSlugKey]*domain.Project
 	mu        sync.RWMutex
+	bc        cacheBroadcast
 }
 
 func NewProjectRepository(repo repository.ProjectRepository) *ProjectRepository {
@@ -25,6 +27,10 @@ func NewProjectRepository(repo repository.ProjectRepository) *ProjectRepository 
 		cache:     make(map[uint64]*domain.Project),
 		slugCache: make(map[projectSlugKey]*domain.Project),
 	}
+}
+
+func (r *ProjectRepository) SetCoordinator(c coordinator.Coordinator) {
+	r.bc.attach(c, InvalidateProject)
 }
 
 func (r *ProjectRepository) Load() error {
@@ -55,6 +61,7 @@ func (r *ProjectRepository) Create(p *domain.Project) error {
 		r.slugCache[projectSlugKey{TenantID: p.TenantID, Slug: p.Slug}] = p
 	}
 	r.mu.Unlock()
+	r.bc.publish(OpCreate, p.ID)
 	return nil
 }
 
@@ -78,6 +85,7 @@ func (r *ProjectRepository) Update(p *domain.Project) error {
 		r.slugCache[projectSlugKey{TenantID: p.TenantID, Slug: p.Slug}] = p
 	}
 	r.mu.Unlock()
+	r.bc.publish(OpUpdate, p.ID)
 	return nil
 }
 
@@ -97,6 +105,7 @@ func (r *ProjectRepository) Delete(tenantID uint64, id uint64) error {
 		delete(r.slugCache, projectSlugKey{TenantID: p.TenantID, Slug: p.Slug})
 	}
 	r.mu.Unlock()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 

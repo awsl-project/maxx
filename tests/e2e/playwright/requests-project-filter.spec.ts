@@ -8,7 +8,7 @@ import http from 'node:http';
 
 import { expect, test } from 'playwright/test';
 
-import { BASE, PASS, USER, adminAPI } from './helpers';
+import { BASE, PASS, USER, adminAPI, loginToAdminUI } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -213,12 +213,7 @@ test('requests page can filter by project and persist selection', async ({ page 
     }, { timeout: 15000 }).toEqual({ alphaCount: 3, betaCount: 2 });
 
     console.log('\n--- Step 1: Browser Login ---');
-    await page.goto(BASE);
-    await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-    await page.fill('input[type="text"]', USER);
-    await page.fill('input[type="password"]', PASS);
-    await page.locator('button[type="submit"]').click();
-    await expect(page.locator('body')).toContainText(/Dashboard|dashboard/, { timeout: 10000 });
+    await loginToAdminUI(page);
     console.log('✅ Browser login success');
 
     console.log('\n--- Step 2: Navigate to Requests ---');

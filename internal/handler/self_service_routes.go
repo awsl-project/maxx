@@ -2,7 +2,7 @@ package handler
 
 import "net/http"
 
-var selfServiceRoutePatterns = []string{
+var protectedSelfServiceRoutePatterns = []string{
 	"/api/providers",
 	"/api/providers/",
 	"/api/routes",
@@ -17,8 +17,6 @@ var selfServiceRoutePatterns = []string{
 	"/api/api-tokens/",
 	"/api/model-mappings",
 	"/api/model-mappings/",
-	"/api/settings",
-	"/api/settings/",
 	"/api/proxy-status",
 	"/api/proxy-status/",
 	"/api/model-prices",
@@ -26,6 +24,16 @@ var selfServiceRoutePatterns = []string{
 	"/api/response-models",
 	"/api/response-models/",
 }
+
+var publicSelfServiceRoutePatterns = []string{
+	"/api/settings",
+	"/api/settings/",
+}
+
+var selfServiceRoutePatterns = append(
+	append([]string{}, protectedSelfServiceRoutePatterns...),
+	publicSelfServiceRoutePatterns...,
+)
 
 // RegisterSelfServiceRoutes registers the admin and self-service HTTP endpoints under /api.
 func RegisterSelfServiceRoutes(
@@ -37,7 +45,12 @@ func RegisterSelfServiceRoutes(
 	mux.Handle("/api/admin/", http.StripPrefix("/api", wrap(adminHandler)))
 
 	wrappedSelfService := http.StripPrefix("/api", wrap(selfServiceHandler))
-	for _, pattern := range selfServiceRoutePatterns {
+	for _, pattern := range protectedSelfServiceRoutePatterns {
 		mux.Handle(pattern, wrappedSelfService)
+	}
+
+	publicSelfService := http.StripPrefix("/api", NoAuthMiddleware(selfServiceHandler))
+	for _, pattern := range publicSelfServiceRoutePatterns {
+		mux.Handle(pattern, publicSelfService)
 	}
 }

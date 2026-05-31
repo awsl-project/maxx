@@ -27,6 +27,7 @@ import type {
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
+  BedrockDiscoveredModelsResult,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -170,6 +171,15 @@ export interface Transport {
   startAntigravityOAuth(): Promise<{ authURL: string; state: string }>;
   refreshAntigravityQuotas(): Promise<{ success: boolean; refreshed: number }>;
   sortAntigravityRoutes(): Promise<{ success: boolean }>;
+
+  // ===== Bedrock API =====
+  // Runtime model discovery for a Bedrock provider — the backend calls
+  // ListInferenceProfiles + ListFoundationModels with the provider's
+  // credentials and returns what's actually invocable in its region.
+  getBedrockDiscoveredModels(providerId: number): Promise<BedrockDiscoveredModelsResult>;
+  // Force a fresh AWS round-trip (bypasses the server-side TTL). Use
+  // only in response to an explicit operator refresh action.
+  refreshBedrockDiscoveredModels(providerId: number): Promise<BedrockDiscoveredModelsResult>;
 
   // ===== Model Mapping API =====
   getModelMappings(): Promise<ModelMapping[]>;

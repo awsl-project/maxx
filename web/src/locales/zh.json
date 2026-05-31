@@ -590,6 +590,8 @@
       "provider": "提供商",
       "project": "项目",
       "position": "位置 (数值越小优先级越高)",
+      "weight": "权重 (负载均衡)",
+      "weightHelp": "用于加权随机路由策略。值越大被选中概率越高，默认 1。",
       "modelMapping": "模型映射 (覆盖)",
       "enabled": "启用",
       "selectProvider": "选择提供商...",
@@ -851,7 +853,17 @@
     "newTitle": "新建路由策略",
     "priorityByPosition": "按位置优先级",
     "id": "ID",
-    "noStrategies": "暂无策略"
+    "noStrategies": "暂无策略",
+    "description": "在多条路由命中时选择如何分发上游 provider。",
+    "stickyEnabled": "Session 亲和（粘性）",
+    "stickyHelp": "成功命中后在 TTL 内记住绑定，让同一 session 持续打到同一 provider（最大化上游 prompt cache 命中）。路由配置变更或目标进入冷却时绑定自动失效。",
+    "stickyScope": "亲和粒度",
+    "stickyScopeToken": "按 API token（粗，命中率高）",
+    "stickyScopeConversation": "按 conversation（细，条目多）",
+    "stickyScopeTokenHelp": "同一 API token 下的所有 session 都落到同一 provider。",
+    "stickyScopeConversationHelp": "每个 (token, session id) 各自绑定。",
+    "stickyTTL": "TTL（秒）",
+    "stickyTTLHelp": "默认 1800（30 分钟）。短 = 更快响应权重变化；长 = 亲和更稳。"
   },
   "documentation": {
     "title": "文档",
@@ -949,6 +961,9 @@
       "en": "English",
       "zh": "简体中文"
     },
+    "ui": "界面",
+    "enableMultiTenantUI": "启用多租户界面",
+    "enableMultiTenantUIDesc": "开启后显示工作区/租户标识等多租户相关界面。",
     "forceProjectBinding": "强制项目绑定",
     "enableForceProjectBinding": "启用强制项目绑定",
     "forceProjectBindingDesc": "开启后，新会话必须选择项目才能继续执行请求",
@@ -975,6 +990,10 @@
     "retentionValidationError": "请求记录保留时间和请求会话保留时间必须是大于等于 0 的整数，请求详情保留时间必须是大于等于 -1 的整数。",
     "requestDetailRetention": "请求详情保留时间",
     "requestDetailRetentionDesc": "-1 表示永久保存，0 表示不保存详情，其他数字表示保留的秒数。仅影响请求/响应 Body 的存储，不影响统计数据。",
+    "requestDetailRetentionSplit": "分别配置成功/失败保留时长",
+    "requestDetailRetentionSplitDesc": "开启后，成功和失败请求的详情可以使用不同的保留时长。",
+    "requestDetailRetentionSuccess": "成功请求详情保留",
+    "requestDetailRetentionFailed": "失败请求详情保留",
     "timezone": "时区",
     "timezoneDesc": "用于统计数据聚合和仪表板日期计算的时区",
     "selectTimezone": "选择时区...",
@@ -1094,6 +1113,13 @@
     "scopeProvider": "供应商",
     "scopeRoute": "路由"
   },
+  "responseModelMappings": {
+    "title": "返回值模型映射",
+    "pageDesc": "仅改写 Claude API 最终返回值里的 model 字段，其他客户端协议不会生效。左侧支持通配符匹配，右侧是固定的返回模型值。",
+    "matchPattern": "返回模型匹配模式",
+    "targetModel": "映射模型",
+    "noMappings": "暂无返回值模型映射配置"
+  },
   "modelPrices": {
     "title": "模型价格",
     "description": "已配置 {{count}} 个价格",
@@ -1105,6 +1131,9 @@
     "cacheRead": "缓存读取",
     "cache5mWrite": "5分钟写入",
     "cache1hWrite": "1小时写入",
+    "imageInputPrice": "图像输入",
+    "imageOutputPrice": "图像输出",
+    "imagePricesHint": "图像模型（如 gpt-image-2）的图像 token 价格。文本模型留 0 即可——图像 token 会回退到文本输入/输出价。",
     "has1mContext": "1M 上下文定价",
     "context1mThreshold": "阈值（tokens）",
     "inputPremium": "输入溢价",

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"regexp"
 	"strings"
@@ -44,6 +46,10 @@ func (a *Adapter) Match(req *http.Request) (domain.ClientType, bool) {
 	case strings.HasPrefix(path, "/v1/responses"):
 		return domain.ClientTypeCodex, true
 	case strings.HasPrefix(path, "/v1/chat/completions"):
+		return domain.ClientTypeOpenAI, true
+	case strings.HasPrefix(path, "/v1/images/"):
+		// OpenAI Images API (generations/edits). Body carries no messages/input,
+		// so body-detection can't classify it — key off the path.
 		return domain.ClientTypeOpenAI, true
 	case strings.HasPrefix(path, "/v1beta/models/"):
 		return domain.ClientTypeGemini, true
@@ -121,28 +127,10 @@ func (a *Adapter) ExtractInfo(req *http.Request, clientType domain.ClientType) (
 }
 
 func (a *Adapter) extractModel(req *http.Request, clientType domain.ClientType, body []byte) string {
-	// For Gemini, try URL first
-	if clientType == domain.ClientTypeGemini {
-		path := req.URL.Path
-		if matches := geminiModelPattern.FindStringSubmatch(path); len(matches) > 1 {
-			return matches[1]
-		}
-		if matches := geminiInternalPattern.FindStringSubmatch(path); len(matches) > 1 {
-			return matches[1]
-		}
-	}
-
-	// Try body
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return ""
-	}
-
-	if model, ok := data["model"].(string); ok {
-		return model
-	}
-
-	return ""
+	// Delegate to the exported ExtractModel (same Gemini-URL → JSON → multipart
+	// logic) so ExtractInfo stays multipart-aware (e.g. images/edits) instead of
+	// silently returning "" for non-JSON bodies. Note the arg-order difference.
+	return a.ExtractModel(req, body, clientType)
 }
 
 func (a *Adapter) extractSessionID(req *http.Request, clientType domain.ClientType, body []byte) string {
@@ -234,6 +222,10 @@ func (a *Adapter) DetectClientType(req *http.Request, body []byte) domain.Client
 		return domain.ClientTypeCodex
 	case strings.HasPrefix(path, "/v1/chat/completions"):
 		return domain.ClientTypeOpenAI
+	case strings.HasPrefix(path, "/v1/images/"):
+		// OpenAI Images API (generations/edits). Body carries no messages/input,
+		// so body-detection can't classify it — key off the path.
+		return domain.ClientTypeOpenAI
 	case strings.HasPrefix(path, "/v1beta/models/"):
 		return domain.ClientTypeGemini
 	case strings.HasPrefix(path, "/v1internal/models/"):
@@ -300,17 +292,54 @@ func (a *Adapter) ExtractModel(req *http.Request, body []byte, clientType domain
 		}
 	}
 
-	// Try body
+	// Try JSON body (chat/completions, images/generations, messages, ...).
 	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := json.Unmarshal(body, &data); err == nil {
+		if model, ok := data["model"].(string); ok {
+			return model
+		}
 		return ""
 	}
 
-	if model, ok := data["model"].(string); ok {
+	// Non-JSON body: OpenAI images/edits is multipart/form-data with the model
+	// as a form field. Without this, edits requests would price at model="" → cost 0.
+	if model := modelFromMultipartForm(req, body); model != "" {
 		return model
 	}
 
 	return ""
+}
+
+// modelFromMultipartForm pulls the "model" form field out of a multipart/form-data
+// body (OpenAI images/edits). It reads parts sequentially and stops at "model",
+// skipping the (potentially large) uploaded image without buffering it whole.
+func modelFromMultipartForm(req *http.Request, body []byte) string {
+	if req == nil {
+		return ""
+	}
+	mediaType, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
+		return ""
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		return ""
+	}
+	mr := multipart.NewReader(bytes.NewReader(body), boundary)
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			return ""
+		}
+		if part.FormName() != "model" {
+			_ = part.Close()
+			continue
+		}
+		buf := make([]byte, 256)
+		n, _ := io.ReadFull(part, buf)
+		_ = part.Close()
+		return strings.TrimSpace(string(buf[:n]))
+	}
 }
 
 // ExtractSessionID extracts the session ID from request

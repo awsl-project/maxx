@@ -13,6 +13,7 @@ type execState struct {
 	ctx            context.Context
 	proxyReq       *domain.ProxyRequest
 	routes         []*router.MatchedRoute
+	stickyWrite    *router.StickyWrite
 	currentAttempt *domain.ProxyUpstreamAttempt
 	lastErr        error
 
