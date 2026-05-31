@@ -110,7 +110,7 @@ func (r *Router) InitAdapters() error {
 		if err != nil {
 			return err
 		}
-		r.injectProviderUpdate(a)
+		r.injectProviderUpdate(a, p)
 		r.adapters[p.ID] = a
 	}
 	return nil
@@ -126,7 +126,7 @@ func (r *Router) RefreshAdapter(p *domain.Provider) error {
 	if err != nil {
 		return err
 	}
-	r.injectProviderUpdate(a)
+	r.injectProviderUpdate(a, p)
 	r.mu.Lock()
 	r.adapters[p.ID] = a
 	r.mu.Unlock()
@@ -562,7 +562,7 @@ func (r *Router) ClearCooldown(providerID uint64) error {
 
 // injectProviderUpdate injects a provider-update callback into adapters that support it.
 // Uses duck-typing: if the adapter has SetProviderUpdateFunc, inject repo.Update.
-func (r *Router) injectProviderUpdate(a provider.ProviderAdapter) {
+func (r *Router) injectProviderUpdate(a provider.ProviderAdapter, p *domain.Provider) {
 	type providerUpdater interface {
 		SetProviderUpdateFunc(fn func(*domain.Provider) error)
 	}
@@ -572,5 +572,18 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter) {
 			return repo.Update(p)
 		})
 	}
-}
 
+	// providerReload lets the adapter re-read the freshest provider record (to
+	// pick up a token another path rotated and persisted) while holding its
+	// refresh lock.
+	type providerReloader interface {
+		SetProviderReloadFunc(fn func() (*domain.Provider, error))
+	}
+	if u, ok := a.(providerReloader); ok && p != nil {
+		repo := r.providerRepo
+		tenantID, id := p.TenantID, p.ID
+		u.SetProviderReloadFunc(func() (*domain.Provider, error) {
+			return repo.GetByID(tenantID, id)
+		})
+	}
+}

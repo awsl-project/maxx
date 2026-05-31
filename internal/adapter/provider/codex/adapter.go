@@ -51,8 +51,21 @@ type TokenCache struct {
 	ExpiresAt   time.Time
 }
 
-// ProviderUpdateFunc is a callback to persist token updates to the provider config
-type ProviderUpdateFunc func(provider *domain.Provider) error
+// ProviderUpdateFunc is a callback to persist token updates to the provider config.
+// It is a type alias (not a defined type) so the router's duck-typed
+// `SetProviderUpdateFunc(func(*domain.Provider) error)` interface — which uses the
+// literal func type — matches this method's signature exactly; a defined type
+// would silently fail the assertion and leave token persistence wired to nothing.
+type ProviderUpdateFunc = func(provider *domain.Provider) error
+
+// ProviderReloadFunc re-reads the freshest provider record (e.g. from the
+// repository). It lets the adapter pick up a token another path rotated and
+// persisted while this adapter was waiting on the refresh lock.
+//
+// It is a type alias (not a defined type) so the router's duck-typed
+// `SetProviderReloadFunc(func() (*domain.Provider, error))` interface — which
+// uses the literal func type — matches this method's signature exactly.
+type ProviderReloadFunc = func() (*domain.Provider, error)
 
 // CodexAdapter handles communication with OpenAI Codex API
 type CodexAdapter struct {
@@ -61,11 +74,18 @@ type CodexAdapter struct {
 	tokenMu        sync.RWMutex
 	httpClient     *http.Client
 	providerUpdate ProviderUpdateFunc
+	providerReload ProviderReloadFunc
 }
 
 // SetProviderUpdateFunc sets the callback for persisting provider updates
 func (a *CodexAdapter) SetProviderUpdateFunc(fn ProviderUpdateFunc) {
 	a.providerUpdate = fn
+}
+
+// SetProviderReloadFunc sets the callback used to re-read the freshest provider
+// record under the refresh lock.
+func (a *CodexAdapter) SetProviderReloadFunc(fn ProviderReloadFunc) {
+	a.providerReload = fn
 }
 
 func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
@@ -114,7 +134,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 
 	// Get access token
-	accessToken, err := a.getAccessToken(ctx)
+	accessToken, err := a.getAccessToken(ctx, false, "")
 	if err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
 		proxyErr.Scope = domain.ScopeKey
@@ -192,13 +212,11 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	if resp.StatusCode == http.StatusUnauthorized {
 		resp.Body.Close()
 
-		// Invalidate token cache
-		a.tokenMu.Lock()
-		a.tokenCache = &TokenCache{}
-		a.tokenMu.Unlock()
-
-		// Get new token
-		accessToken, err = a.getAccessToken(ctx)
+		// Force a real refresh: skip the cache and the persisted access token
+		// (the latter is the same credential the upstream just rejected). Pass
+		// the rejected token so a refresh another goroutine already completed is
+		// still accepted, and only the actually-failed token is refused.
+		accessToken, err = a.getAccessToken(ctx, true, accessToken)
 		if err != nil {
 			proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to refresh access token")
 			proxyErr.Scope = domain.ScopeKey
@@ -250,74 +268,147 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 // WarmToken pre-warms the access token cache to avoid blocking during Execute
 func (a *CodexAdapter) WarmToken(ctx context.Context) error {
-	_, err := a.getAccessToken(ctx)
+	_, err := a.getAccessToken(ctx, false, "")
 	return err
 }
 
-func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
-	// Check cache
-	a.tokenMu.RLock()
-	if a.tokenCache.AccessToken != "" {
-		if !isFallbackCodexAccessToken(a.tokenCache.AccessToken) && (a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt)) {
-			token := a.tokenCache.AccessToken
-			a.tokenMu.RUnlock()
-			return token, nil
-		}
-	}
-	a.tokenMu.RUnlock()
-
-	// Use persisted access token if present (even if expiry is unknown)
-	config := ensureCodexConfig(a.provider)
-	if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
-		var expiresAt time.Time
-		if strings.TrimSpace(config.ExpiresAt) != "" {
-			if parsed, err := time.Parse(time.RFC3339, config.ExpiresAt); err == nil {
-				expiresAt = parsed
+// getAccessToken returns a valid access token, refreshing via the OAuth
+// refresh_token when necessary. When forceRefresh is true the in-memory cache
+// and the persisted access token are bypassed entirely — used on a 401 retry
+// where the current token has just been rejected upstream. rejectedToken is the
+// token that just failed (only meaningful when forceRefresh is true): a cached
+// token equal to it is treated as stale so the forced refresh actually refreshes,
+// while a newer token minted concurrently is still accepted.
+func (a *CodexAdapter) getAccessToken(ctx context.Context, forceRefresh bool, rejectedToken string) (string, error) {
+	if !forceRefresh {
+		// Check cache
+		a.tokenMu.RLock()
+		if a.tokenCache.AccessToken != "" {
+			if !isFallbackCodexAccessToken(a.tokenCache.AccessToken) && (a.tokenCache.ExpiresAt.IsZero() || time.Now().Add(60*time.Second).Before(a.tokenCache.ExpiresAt)) {
+				token := a.tokenCache.AccessToken
+				a.tokenMu.RUnlock()
+				return token, nil
 			}
 		}
-		a.tokenMu.Lock()
-		a.tokenCache = &TokenCache{
-			AccessToken: config.AccessToken,
-			ExpiresAt:   expiresAt,
-		}
-		a.tokenMu.Unlock()
+		a.tokenMu.RUnlock()
+	}
 
-		if expiresAt.IsZero() || time.Now().Add(60*time.Second).Before(expiresAt) {
-			return config.AccessToken, nil
+	// Work against a local provider snapshot. a.provider is set once at
+	// construction and never reassigned, so it can be read without a lock; the
+	// reload-under-lock path below rebinds this local (not the shared field) to
+	// the freshest record, avoiding a data race with concurrent callers.
+	prov := a.provider
+	config := ensureCodexConfig(prov)
+
+	if !forceRefresh {
+		// Use persisted access token only if present AND still valid. Caching an
+		// expired persisted token here could clobber a fresher token that a
+		// concurrent refresh just stored, so only write the cache when usable.
+		if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
+			var expiresAt time.Time
+			if strings.TrimSpace(config.ExpiresAt) != "" {
+				if parsed, err := time.Parse(time.RFC3339, config.ExpiresAt); err == nil {
+					expiresAt = parsed
+				}
+			}
+			if expiresAt.IsZero() || time.Now().Add(60*time.Second).Before(expiresAt) {
+				a.tokenMu.Lock()
+				a.tokenCache = &TokenCache{
+					AccessToken: config.AccessToken,
+					ExpiresAt:   expiresAt,
+				}
+				a.tokenMu.Unlock()
+				return config.AccessToken, nil
+			}
 		}
 	}
 
 	// Refresh token
 	if strings.TrimSpace(config.RefreshToken) == "" {
 		log.Printf("[Codex] level=INFO trigger=fallback provider=%q provider_id=%d reason=missing_refresh_token message=%q",
-			a.provider.Name,
-			a.provider.ID,
+			prov.Name,
+			prov.ID,
 			"codex provider config missing refresh token; using placeholder local token for fallback flow",
 		)
-		fallbackToken := buildFallbackCodexAccessToken(a.provider)
+		fallbackToken := buildFallbackCodexAccessToken(prov)
 		a.tokenMu.Lock()
 		a.tokenCache = &TokenCache{AccessToken: fallbackToken}
 		a.tokenMu.Unlock()
 		config.AccessToken = fallbackToken
 		config.ExpiresAt = time.Now().Add(5 * time.Second).Format(time.RFC3339)
 		if a.providerUpdate != nil {
-			if err := a.providerUpdate(a.provider); err != nil {
+			if err := a.providerUpdate(prov); err != nil {
 				log.Printf("[Codex] failed to persist fallback token: %v", err)
 			}
 		}
 		return fallbackToken, nil
 	}
 
-	tokenResp, err := RefreshAccessToken(ctx, config.RefreshToken)
+	// Serialize refreshes per account: refresh_tokens rotate and reusing an old
+	// one is rejected upstream, so concurrent refreshes (across requests, the
+	// quota task, and the quota handler) must not run in parallel.
+	unlock := AcquireRefreshLock(RefreshLockKey(config.AccountID, config.RefreshToken))
+	defer unlock()
+
+	// Re-read the freshest provider under the lock: another path (quota task or
+	// handler, or another adapter instance) may have rotated and persisted a new
+	// token while we waited, leaving our snapshot's refresh_token stale.
+	if a.providerReload != nil {
+		if fresh, rerr := a.providerReload(); rerr == nil && fresh != nil {
+			freshCfg := ensureCodexConfig(fresh)
+			if strings.TrimSpace(freshCfg.RefreshToken) != "" {
+				prov = fresh
+				config = freshCfg
+				// If the freshly persisted access token is usable (and, on a
+				// forced refresh, differs from the rejected one), adopt it and
+				// skip a needless refresh that would rotate the token again.
+				if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) &&
+					(!forceRefresh || config.AccessToken != rejectedToken) {
+					var expiresAt time.Time
+					if strings.TrimSpace(config.ExpiresAt) != "" {
+						if parsed, perr := time.Parse(time.RFC3339, config.ExpiresAt); perr == nil {
+							expiresAt = parsed
+						}
+					}
+					if expiresAt.IsZero() || time.Now().Add(60*time.Second).Before(expiresAt) {
+						a.tokenMu.Lock()
+						a.tokenCache = &TokenCache{AccessToken: config.AccessToken, ExpiresAt: expiresAt}
+						a.tokenMu.Unlock()
+						return config.AccessToken, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Double-check: another goroutine may have produced a fresh token while we
+	// waited for the lock. Reuse it instead of spending another refresh_token.
+	// On a forced refresh, only accept a token that differs from the rejected
+	// one (otherwise it is the same credential the upstream just refused).
+	a.tokenMu.RLock()
+	cachedToken := a.tokenCache.AccessToken
+	cachedExpiry := a.tokenCache.ExpiresAt
+	a.tokenMu.RUnlock()
+	if cachedToken != "" && !isFallbackCodexAccessToken(cachedToken) &&
+		(!forceRefresh || cachedToken != rejectedToken) &&
+		(cachedExpiry.IsZero() || time.Now().Add(60*time.Second).Before(cachedExpiry)) {
+		return cachedToken, nil
+	}
+
+	tokenResp, err := RefreshAccessTokenWithRetry(ctx, config.RefreshToken, 3)
 	if err != nil {
-		if strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
+		// On a forced refresh, don't fall back to the persisted token: it was
+		// already rejected upstream and would only trigger another 401.
+		if !forceRefresh && strings.TrimSpace(config.AccessToken) != "" && !isFallbackCodexAccessToken(config.AccessToken) {
 			return config.AccessToken, nil
 		}
 		return "", err
 	}
 
-	// Calculate expiration time (with 60s buffer)
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn-60) * time.Second)
+	// Store the raw expiry; every read path already applies a 60s safety margin
+	// before treating the token as expired (avoids double-buffering, and matches
+	// how the quota refreshers persist ExpiresAt).
+	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 
 	// Update cache
 	a.tokenMu.Lock()
@@ -363,7 +454,7 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context) (string, error) {
 			}
 		}
 		// Best-effort: token already works in memory, log if DB update fails
-		if err := a.providerUpdate(a.provider); err != nil {
+		if err := a.providerUpdate(prov); err != nil {
 			log.Printf("[Codex] failed to persist refreshed token: %v", err)
 		}
 	}

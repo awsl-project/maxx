@@ -410,6 +410,17 @@ func (h *CodexHandler) RefreshProviderInfo(ctx context.Context, providerID int) 
 		return nil, fmt.Errorf("provider %s has no refresh token", provider.Name)
 	}
 
+	// Serialize per-account refresh and re-read the freshest token under the lock
+	// so this user-triggered refresh doesn't validate a refresh_token that another
+	// path (request adapter / quota task / quota handler) just rotated, which would
+	// trip refresh_token_reused.
+	unlock := codex.AcquireRefreshLock(codex.RefreshLockKey(provider.Config.Codex.AccountID, refreshToken))
+	defer unlock()
+	if fresh, ferr := h.svc.GetProvider(tenantID, uint64(providerID)); ferr == nil && fresh != nil && fresh.Config != nil && fresh.Config.Codex != nil {
+		provider = fresh
+		refreshToken = fresh.Config.Codex.RefreshToken
+	}
+
 	// Validate and refresh the token
 	result, err := codex.ValidateRefreshToken(ctx, refreshToken)
 	if err != nil {
@@ -477,48 +488,55 @@ func (h *CodexHandler) GetProviderUsage(ctx context.Context, providerID int) (*c
 
 	codexConfig := provider.Config.Codex
 
-	// Ensure we have an access token
+	// Ensure we have an access token. Refresh is needed when none is cached, or
+	// when the cached one is parseable and within 60s of expiry. A present token
+	// with unknown expiry is left as-is (matching prior behaviour).
 	accessToken := codexConfig.AccessToken
-	if accessToken == "" {
-		// Need to refresh to get an access token
+	needRefresh := accessToken == ""
+	if !needRefresh && codexConfig.ExpiresAt != "" {
+		if expiresAt, perr := time.Parse(time.RFC3339, codexConfig.ExpiresAt); perr == nil && time.Now().After(expiresAt.Add(-60*time.Second)) {
+			needRefresh = true
+		}
+	}
+	if needRefresh {
 		if codexConfig.RefreshToken == "" {
-			return nil, fmt.Errorf("provider %s has no refresh token", provider.Name)
-		}
-
-		result, err := codex.ValidateRefreshToken(ctx, codexConfig.RefreshToken)
-		if err != nil {
-			return nil, fmt.Errorf("failed to refresh token: %w", err)
-		}
-		if !result.Valid {
-			return nil, fmt.Errorf("refresh token is invalid")
-		}
-		accessToken = result.AccessToken
-
-		// Update provider with new access token
-		codexConfig.AccessToken = result.AccessToken
-		codexConfig.ExpiresAt = result.ExpiresAt
-		if result.RefreshToken != "" && result.RefreshToken != codexConfig.RefreshToken {
-			codexConfig.RefreshToken = result.RefreshToken
-		}
-		_ = h.svc.UpdateProvider(tenantID, provider) // Best effort update
-	} else {
-		// Check if access token is expired
-		if codexConfig.ExpiresAt != "" {
-			expiresAt, err := time.Parse(time.RFC3339, codexConfig.ExpiresAt)
-			if err == nil && time.Now().After(expiresAt.Add(-60*time.Second)) {
-				// Token expired or about to expire, refresh it
-				if codexConfig.RefreshToken != "" {
-					result, err := codex.ValidateRefreshToken(ctx, codexConfig.RefreshToken)
-					if err == nil && result.Valid {
-						accessToken = result.AccessToken
-						codexConfig.AccessToken = result.AccessToken
-						codexConfig.ExpiresAt = result.ExpiresAt
-						if result.RefreshToken != "" && result.RefreshToken != codexConfig.RefreshToken {
-							codexConfig.RefreshToken = result.RefreshToken
-						}
-						_ = h.svc.UpdateProvider(tenantID, provider)
-					}
+			if accessToken == "" {
+				return nil, fmt.Errorf("provider %s has no refresh token", provider.Name)
+			}
+		} else {
+			// Serialize per-account refresh and re-read the freshest token under
+			// the lock: another path (request adapter / quota task / batch
+			// handler) may have just rotated the refresh_token, so reusing our
+			// snapshot would trip refresh_token_reused.
+			unlock := codex.AcquireRefreshLock(codex.RefreshLockKey(codexConfig.AccountID, codexConfig.RefreshToken))
+			if fresh, ferr := h.svc.GetProvider(tenantID, provider.ID); ferr == nil && fresh != nil && fresh.Config != nil && fresh.Config.Codex != nil {
+				provider = fresh
+				codexConfig = fresh.Config.Codex
+			}
+			if codexConfig.AccessToken != "" && !h.isTokenExpired(codexConfig.ExpiresAt) {
+				// Another path already refreshed while we waited; reuse it.
+				accessToken = codexConfig.AccessToken
+				unlock()
+			} else {
+				result, err := codex.ValidateRefreshToken(ctx, codexConfig.RefreshToken)
+				if err != nil {
+					unlock()
+					return nil, fmt.Errorf("failed to refresh token: %w", err)
 				}
+				if !result.Valid {
+					unlock()
+					return nil, fmt.Errorf("refresh token is invalid")
+				}
+				accessToken = result.AccessToken
+
+				// Update provider with new access token
+				codexConfig.AccessToken = result.AccessToken
+				codexConfig.ExpiresAt = result.ExpiresAt
+				if result.RefreshToken != "" && result.RefreshToken != codexConfig.RefreshToken {
+					codexConfig.RefreshToken = result.RefreshToken
+				}
+				_ = h.svc.UpdateProvider(tenantID, provider) // Best effort update
+				unlock()
 			}
 		}
 	}
@@ -602,7 +620,6 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 		}
 
 		config := provider.Config.Codex
-		email := config.Email
 		identityKey := domain.CodexQuotaIdentityKey(config.Email, config.AccountID)
 
 		// 优先从数据库获取缓存的配额（无论是否过期）
@@ -622,20 +639,36 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 		// 获取或刷新 access token
 		accessToken := config.AccessToken
 		if accessToken == "" || h.isTokenExpired(config.ExpiresAt) {
-			tokenResp, err := codex.RefreshAccessToken(ctx, config.RefreshToken)
-			if err != nil {
-				// API 失败，跳过此 provider
-				continue
+			// Serialize per-account refresh and re-read the freshest token under
+			// the lock: another path (request adapter / quota task) may have just
+			// rotated the refresh_token, so the snapshot above can be stale.
+			unlock := codex.AcquireRefreshLock(codex.RefreshLockKey(config.AccountID, config.RefreshToken))
+			if fresh, ferr := h.svc.GetProvider(tenantID, provider.ID); ferr == nil && fresh != nil && fresh.Config != nil && fresh.Config.Codex != nil {
+				provider = fresh
+				config = fresh.Config.Codex
 			}
-			accessToken = tokenResp.AccessToken
+			if config.AccessToken != "" && !h.isTokenExpired(config.ExpiresAt) {
+				// Another path already refreshed while we waited; reuse it.
+				accessToken = config.AccessToken
+				unlock()
+			} else {
+				tokenResp, err := codex.RefreshAccessTokenWithRetry(ctx, config.RefreshToken, 3)
+				if err != nil {
+					// API 失败，跳过此 provider
+					unlock()
+					continue
+				}
+				accessToken = tokenResp.AccessToken
 
-			// 更新 provider config
-			config.AccessToken = tokenResp.AccessToken
-			config.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
-			if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
-				config.RefreshToken = tokenResp.RefreshToken
+				// 更新 provider config
+				config.AccessToken = tokenResp.AccessToken
+				config.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
+				if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
+					config.RefreshToken = tokenResp.RefreshToken
+				}
+				_ = h.svc.UpdateProvider(tenantID, provider)
+				unlock()
 			}
-			_ = h.svc.UpdateProvider(tenantID, provider)
 		}
 
 		// 获取配额
@@ -646,11 +679,11 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 		}
 
 		// 保存到数据库
-		if email != "" && h.quotaRepo != nil {
-			h.saveQuotaToDB(email, config.AccountID, usage.PlanType, usage, false)
+		if config.Email != "" && h.quotaRepo != nil {
+			h.saveQuotaToDB(config.Email, config.AccountID, usage.PlanType, usage, false)
 		}
 
-		result.Quotas[provider.ID] = h.usageToResponse(email, config.AccountID, usage)
+		result.Quotas[provider.ID] = h.usageToResponse(config.Email, config.AccountID, usage)
 	}
 
 	return result, nil
