@@ -109,6 +109,59 @@ func TestOllamaBackendNonStreamWrapsClaudeResponse(t *testing.T) {
 	}
 }
 
+func TestCustomBackendEmptyKeepsHTTPRelayPassthrough(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer custom-key" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode upstream request: %v", err)
+		}
+		if req["model"] != "gpt-test" {
+			t.Fatalf("upstream model = %#v", req["model"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-test","object":"chat.completion","model":"gpt-test","choices":[{"message":{"role":"assistant","content":"legacy ok"}}]}`))
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{
+		Name: "legacy custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: server.URL,
+			APIKey:  "custom-key",
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI},
+	}
+	adapter := &CustomAdapter{provider: provider}
+
+	body := []byte(`{"model":"gpt-test","messages":[{"role":"user","content":"hello"}]}`)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
+	ctx.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
+	ctx.Set(flow.KeyOriginalClientType, domain.ClientTypeOpenAI)
+	ctx.Set(flow.KeyRequestBody, body)
+	ctx.Set(flow.KeyRequestHeaders, http.Header{
+		"Content-Type":  []string{"application/json"},
+		"Authorization": []string{"Bearer inbound-key"},
+	})
+	ctx.Set(flow.KeyRequestURI, "/v1/chat/completions")
+
+	if err := adapter.Execute(ctx, provider); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "legacy ok") {
+		t.Fatalf("response body = %s", rec.Body.String())
+	}
+}
+
 func TestOllamaBackendRejectsNonClaudeClient(t *testing.T) {
 	provider := &domain.Provider{
 		Name: "local ollama",
