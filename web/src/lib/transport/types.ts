@@ -36,6 +36,7 @@ export interface ProviderConfigCustomDisguise {
 
 export interface ProviderConfigCustom {
   baseURL: string;
+  backend?: 'ollama';
   apiKey: string;
   // 伪装配置：选择把对外发包装成什么客户端。替代旧的 cloak 字段。
   disguise?: ProviderConfigCustomDisguise;

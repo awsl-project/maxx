@@ -217,6 +217,8 @@ export const quickTemplates: QuickTemplate[] = [
 ];
 
 // Client config
+export type CustomBackend = 'http' | 'ollama';
+
 export type ClientConfig = {
   id: ClientType;
   name: string;
@@ -238,6 +240,7 @@ export type ProviderFormData = {
   name: string;
   selectedTemplate: string | null;
   baseURL: string;
+  backend: CustomBackend;
   apiKey: string;
   clients: ClientConfig[];
   // Disguise: which client identity to present to the upstream relay.

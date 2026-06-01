@@ -26,7 +26,6 @@ import (
 // Activated by setting MAXX_MOCK_MODE=1 environment variable.
 var mockMode = os.Getenv("MAXX_MOCK_MODE") == "1"
 
-
 func init() {
 	provider.RegisterAdapterFactory("custom", NewAdapter)
 }
@@ -50,6 +49,10 @@ func (a *CustomAdapter) SupportedClientTypes() []domain.ClientType {
 
 func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	clientType := flow.GetClientType(c)
+	if strings.EqualFold(strings.TrimSpace(a.provider.Config.Custom.Backend), customBackendOllama) {
+		return a.executeOllama(c, provider)
+	}
+
 	mappedModel := flow.GetMappedModel(c)
 	requestBody := flow.GetRequestBody(c)
 	request := c.Request
