@@ -21,6 +21,8 @@ const (
 	customBackendOllama = "ollama"
 )
 
+var ollamaHTTPClient = &http.Client{Timeout: 10 * time.Minute}
+
 type claudeMessageRequest struct {
 	Model         string               `json:"model"`
 	Messages      []claudeInputMessage `json:"messages"`
@@ -139,8 +141,7 @@ func (a *CustomAdapter) executeOllama(c *flow.Ctx, provider *domain.Provider) er
 		})
 	}
 
-	client := &http.Client{Timeout: 10 * time.Minute}
-	resp, err := client.Do(upstreamReq)
+	resp, err := ollamaHTTPClient.Do(upstreamReq)
 	if err != nil {
 		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
 		proxyErr.Message = "failed to connect to Ollama"
@@ -426,8 +427,14 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 		return clientDisconnectedErr(err)
 	}
 
-	if eventChan != nil {
-		eventChan.SendFirstToken(time.Now().UnixMilli())
+	writeSSEError := func(message string) error {
+		return sendSSE("error", map[string]interface{}{
+			"type": "error",
+			"error": map[string]string{
+				"type":    "upstream_error",
+				"message": message,
+			},
+		})
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -435,6 +442,7 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 	inputTokens, outputTokens := 0, 0
 	responseModel := model
 	stopReason := "end_turn"
+	firstTokenSent := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -442,15 +450,26 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 		}
 		var chunk ollamaChatResponse
 		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+			message := "invalid Ollama stream chunk: " + line
+			if writeErr := writeSSEError(message); writeErr != nil {
+				return clientDisconnectedErr(writeErr)
+			}
 			return classifyOllamaHTTPError(http.StatusBadGateway, []byte(line), model)
 		}
 		if chunk.Error != "" {
+			if writeErr := writeSSEError(chunk.Error); writeErr != nil {
+				return clientDisconnectedErr(writeErr)
+			}
 			return classifyOllamaHTTPError(http.StatusBadGateway, []byte(chunk.Error), model)
 		}
 		if chunk.Model != "" {
 			responseModel = chunk.Model
 		}
 		if chunk.Message.Content != "" {
+			if eventChan != nil && !firstTokenSent {
+				eventChan.SendFirstToken(time.Now().UnixMilli())
+				firstTokenSent = true
+			}
 			if err := sendSSE("content_block_delta", map[string]interface{}{
 				"type":  "content_block_delta",
 				"index": 0,
@@ -470,6 +489,10 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		message := "failed reading Ollama stream: " + err.Error()
+		if writeErr := writeSSEError(message); writeErr != nil {
+			return clientDisconnectedErr(writeErr)
+		}
 		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed reading Ollama stream")
 		proxyErr.Scope = domain.ScopeProvider
 		proxyErr.Reason = domain.CooldownReasonNetworkError
@@ -550,6 +573,10 @@ func classifyOllamaHTTPError(status int, body []byte, model string) error {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
+	case http.StatusTooManyRequests:
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonRateLimitExceeded
+		proxyErr.Retryable = true
 	case http.StatusRequestEntityTooLarge, http.StatusBadRequest:
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.Retryable = false

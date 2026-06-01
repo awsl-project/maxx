@@ -162,6 +162,66 @@ func TestCustomBackendEmptyKeepsHTTPRelayPassthrough(t *testing.T) {
 	}
 }
 
+func TestOllamaBackendStreamEmitsSSEErrorBeforeReturning(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"model":"qwen","message":{"role":"assistant","content":"hello"}}` + "\n"))
+		_, _ = w.Write([]byte(`{"error":"boom"}` + "\n"))
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{
+		Name: "local ollama",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: server.URL,
+			Backend: customBackendOllama,
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}
+	adapter := &CustomAdapter{provider: provider}
+
+	body := []byte(`{"model":"qwen","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	ctx.Set(flow.KeyClientType, domain.ClientTypeClaude)
+	ctx.Set(flow.KeyRequestBody, body)
+
+	err := adapter.Execute(ctx, provider)
+	if err == nil {
+		t.Fatal("expected stream error")
+	}
+	bodyText := rec.Body.String()
+	if !strings.Contains(bodyText, "event: error") || !strings.Contains(bodyText, "boom") {
+		t.Fatalf("stream body missing SSE error event: %s", bodyText)
+	}
+	if !strings.Contains(bodyText, "content_block_delta") || !strings.Contains(bodyText, "hello") {
+		t.Fatalf("stream body missing prior content delta: %s", bodyText)
+	}
+}
+
+func TestClassifyOllamaHTTPErrorRateLimitIsRetryableProviderError(t *testing.T) {
+	err := classifyOllamaHTTPError(http.StatusTooManyRequests, []byte(`{"error":"rate limited"}`), "qwen")
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Fatalf("scope = %s", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonRateLimitExceeded {
+		t.Fatalf("reason = %s", proxyErr.Reason)
+	}
+	if !proxyErr.Retryable {
+		t.Fatal("expected retryable 429")
+	}
+	if proxyErr.HTTPStatusCode != http.StatusTooManyRequests {
+		t.Fatalf("HTTPStatusCode = %d", proxyErr.HTTPStatusCode)
+	}
+}
+
 func TestOllamaBackendRejectsNonClaudeClient(t *testing.T) {
 	provider := &domain.Provider{
 		Name: "local ollama",
