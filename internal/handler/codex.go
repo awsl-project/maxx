@@ -431,25 +431,27 @@ func (h *CodexHandler) RefreshProviderInfo(ctx context.Context, providerID int) 
 		return result, nil
 	}
 
-	// Update provider config with new info
-	provider.Config.Codex.Email = result.Email
-	provider.Config.Codex.Name = result.Name
-	provider.Config.Codex.Picture = result.Picture
-	provider.Config.Codex.AccessToken = result.AccessToken
-	provider.Config.Codex.ExpiresAt = result.ExpiresAt
-	provider.Config.Codex.AccountID = result.AccountID
-	provider.Config.Codex.UserID = result.UserID
-	provider.Config.Codex.PlanType = result.PlanType
-	provider.Config.Codex.SubscriptionStart = result.SubscriptionStart
-	provider.Config.Codex.SubscriptionEnd = result.SubscriptionEnd
+	// Copy-on-write: mutate a clone, not the shared provider that concurrent
+	// requests read lock-free; UpdateProvider swaps the cache pointer.
+	cp, cpCfg := codex.CloneForTokenPersist(provider)
+	cpCfg.Email = result.Email
+	cpCfg.Name = result.Name
+	cpCfg.Picture = result.Picture
+	cpCfg.AccessToken = result.AccessToken
+	cpCfg.ExpiresAt = result.ExpiresAt
+	cpCfg.AccountID = result.AccountID
+	cpCfg.UserID = result.UserID
+	cpCfg.PlanType = result.PlanType
+	cpCfg.SubscriptionStart = result.SubscriptionStart
+	cpCfg.SubscriptionEnd = result.SubscriptionEnd
 
 	// Update refresh token if a new one was issued
 	if result.RefreshToken != "" && result.RefreshToken != refreshToken {
-		provider.Config.Codex.RefreshToken = result.RefreshToken
+		cpCfg.RefreshToken = result.RefreshToken
 	}
 
 	// Save the updated provider
-	if err := h.svc.UpdateProvider(tenantID, provider); err != nil {
+	if err := h.svc.UpdateProvider(tenantID, cp); err != nil {
 		return nil, fmt.Errorf("failed to update provider: %w", err)
 	}
 
@@ -529,13 +531,16 @@ func (h *CodexHandler) GetProviderUsage(ctx context.Context, providerID int) (*c
 				}
 				accessToken = result.AccessToken
 
-				// Update provider with new access token
-				codexConfig.AccessToken = result.AccessToken
-				codexConfig.ExpiresAt = result.ExpiresAt
-				if result.RefreshToken != "" && result.RefreshToken != codexConfig.RefreshToken {
-					codexConfig.RefreshToken = result.RefreshToken
+				// Copy-on-write: mutate a clone, not the shared provider that
+				// concurrent requests read lock-free.
+				cp, cpCfg := codex.CloneForTokenPersist(provider)
+				cpCfg.AccessToken = result.AccessToken
+				cpCfg.ExpiresAt = result.ExpiresAt
+				if result.RefreshToken != "" && result.RefreshToken != cpCfg.RefreshToken {
+					cpCfg.RefreshToken = result.RefreshToken
 				}
-				_ = h.svc.UpdateProvider(tenantID, provider) // Best effort update
+				_ = h.svc.UpdateProvider(tenantID, cp) // Best effort update
+				codexConfig = cpCfg
 				unlock()
 			}
 		}
@@ -660,13 +665,16 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 				}
 				accessToken = tokenResp.AccessToken
 
-				// 更新 provider config
-				config.AccessToken = tokenResp.AccessToken
-				config.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
-				if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
-					config.RefreshToken = tokenResp.RefreshToken
+				// Copy-on-write: mutate a clone, not the shared provider that
+				// concurrent requests read lock-free.
+				cp, cpCfg := codex.CloneForTokenPersist(provider)
+				cpCfg.AccessToken = tokenResp.AccessToken
+				cpCfg.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
+				if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != cpCfg.RefreshToken {
+					cpCfg.RefreshToken = tokenResp.RefreshToken
 				}
-				_ = h.svc.UpdateProvider(tenantID, provider)
+				_ = h.svc.UpdateProvider(tenantID, cp)
+				config = cpCfg
 				unlock()
 			}
 		}

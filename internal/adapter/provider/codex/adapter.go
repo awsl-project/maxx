@@ -334,10 +334,13 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context, forceRefresh bool, re
 		a.tokenMu.Lock()
 		a.tokenCache = &TokenCache{AccessToken: fallbackToken}
 		a.tokenMu.Unlock()
-		config.AccessToken = fallbackToken
-		config.ExpiresAt = time.Now().Add(5 * time.Second).Format(time.RFC3339)
 		if a.providerUpdate != nil {
-			if err := a.providerUpdate(prov); err != nil {
+			// Copy-on-write: mutate a clone, not the shared provider that
+			// concurrent requests read lock-free; repo.Update swaps the pointer.
+			cp, cpCfg := CloneForTokenPersist(prov)
+			cpCfg.AccessToken = fallbackToken
+			cpCfg.ExpiresAt = time.Now().Add(5 * time.Second).Format(time.RFC3339)
+			if err := a.providerUpdate(cp); err != nil {
 				log.Printf("[Codex] failed to persist fallback token: %v", err)
 			}
 		}
@@ -420,41 +423,47 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context, forceRefresh bool, re
 
 	// Persist token to database if update function is set
 	if a.providerUpdate != nil {
-		config.AccessToken = tokenResp.AccessToken
-		config.ExpiresAt = expiresAt.Format(time.RFC3339)
+		// Copy-on-write: the cached repository hands out the same *Provider to
+		// every caller and the request hot path reads these fields lock-free, so
+		// mutate a clone instead of the shared struct. repo.Update atomically
+		// swaps the cache pointer; readers holding the old pointer see a
+		// consistent (if briefly stale) struct.
+		cp, cpCfg := CloneForTokenPersist(prov)
+		cpCfg.AccessToken = tokenResp.AccessToken
+		cpCfg.ExpiresAt = expiresAt.Format(time.RFC3339)
 		if tokenResp.RefreshToken != "" {
-			config.RefreshToken = tokenResp.RefreshToken
+			cpCfg.RefreshToken = tokenResp.RefreshToken
 		}
 		if tokenResp.IDToken != "" {
 			if claims, parseErr := ParseIDToken(tokenResp.IDToken); parseErr == nil && claims != nil {
 				if v := strings.TrimSpace(claims.GetAccountID()); v != "" {
-					config.AccountID = v
+					cpCfg.AccountID = v
 				}
 				if v := strings.TrimSpace(claims.GetUserID()); v != "" {
-					config.UserID = v
+					cpCfg.UserID = v
 				}
 				if v := strings.TrimSpace(claims.Email); v != "" {
-					config.Email = v
+					cpCfg.Email = v
 				}
 				if v := strings.TrimSpace(claims.Name); v != "" {
-					config.Name = v
+					cpCfg.Name = v
 				}
 				if v := strings.TrimSpace(claims.Picture); v != "" {
-					config.Picture = v
+					cpCfg.Picture = v
 				}
 				if v := strings.TrimSpace(claims.GetPlanType()); v != "" {
-					config.PlanType = v
+					cpCfg.PlanType = v
 				}
 				if v := strings.TrimSpace(claims.GetSubscriptionStart()); v != "" {
-					config.SubscriptionStart = v
+					cpCfg.SubscriptionStart = v
 				}
 				if v := strings.TrimSpace(claims.GetSubscriptionEnd()); v != "" {
-					config.SubscriptionEnd = v
+					cpCfg.SubscriptionEnd = v
 				}
 			}
 		}
 		// Best-effort: token already works in memory, log if DB update fails
-		if err := a.providerUpdate(prov); err != nil {
+		if err := a.providerUpdate(cp); err != nil {
 			log.Printf("[Codex] failed to persist refreshed token: %v", err)
 		}
 	}

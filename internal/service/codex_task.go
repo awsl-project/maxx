@@ -170,17 +170,20 @@ func (s *CodexTaskService) refreshAllQuotas(ctx context.Context) bool {
 					}
 					accessToken = tokenResp.AccessToken
 
-					// Update provider config
-					config.AccessToken = tokenResp.AccessToken
-					config.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
-					if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != config.RefreshToken {
-						config.RefreshToken = tokenResp.RefreshToken
+					// Copy-on-write: mutate a clone, not the shared provider that
+					// concurrent requests read lock-free; Update swaps the pointer.
+					cp, cpCfg := codex.CloneForTokenPersist(provider)
+					cpCfg.AccessToken = tokenResp.AccessToken
+					cpCfg.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
+					if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != cpCfg.RefreshToken {
+						cpCfg.RefreshToken = tokenResp.RefreshToken
 					}
-					if err := s.providerRepo.Update(provider); err != nil {
+					if err := s.providerRepo.Update(cp); err != nil {
 						unlock()
 						log.Printf("[CodexTask] Failed to persist refreshed token for tenant %d provider %d: %v", tenant.ID, provider.ID, err)
 						continue
 					}
+					config = cpCfg
 					unlock()
 				}
 			}
