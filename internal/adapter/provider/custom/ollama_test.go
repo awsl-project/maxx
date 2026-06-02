@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -163,6 +164,56 @@ func TestOllamaBackendStreamHandlesLargeChunk(t *testing.T) {
 	}
 	if !strings.Contains(bodyText, "message_stop") {
 		t.Fatalf("stream body missing message_stop")
+	}
+}
+
+func TestOllamaBackendStreamPingsDuringUpstreamSilence(t *testing.T) {
+	originalInterval := ollamaStreamPingInterval
+	ollamaStreamPingInterval = 10 * time.Millisecond
+	defer func() { ollamaStreamPingInterval = originalInterval }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("test server writer does not support flushing")
+		}
+		_, _ = w.Write([]byte(`{"model":"qwen","message":{"role":"assistant","content":"hello"}}` + "\n"))
+		flusher.Flush()
+		time.Sleep(35 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"model":"qwen","message":{"role":"assistant","content":" world"}}` + "\n"))
+		_, _ = w.Write([]byte(`{"model":"qwen","done":true,"done_reason":"stop","prompt_eval_count":7,"eval_count":11}` + "\n"))
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{
+		Name: "local ollama",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: server.URL,
+			Backend: customBackendOllama,
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}
+	adapter := &CustomAdapter{provider: provider}
+
+	body := []byte(`{"model":"qwen","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	ctx.Set(flow.KeyClientType, domain.ClientTypeClaude)
+	ctx.Set(flow.KeyRequestBody, body)
+
+	if err := adapter.Execute(ctx, provider); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	bodyText := rec.Body.String()
+	if !strings.Contains(bodyText, "event: ping") || !strings.Contains(bodyText, `"type":"ping"`) {
+		t.Fatalf("stream body missing ping during upstream silence: %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"text":"hello"`) || !strings.Contains(bodyText, `"text":" world"`) {
+		t.Fatalf("stream body missing ordered content deltas: %s", bodyText)
+	}
+	if !strings.Contains(bodyText, "message_stop") {
+		t.Fatalf("stream body missing message_stop: %s", bodyText)
 	}
 }
 

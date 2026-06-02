@@ -24,6 +24,7 @@ const (
 )
 
 var ollamaHTTPClient = &http.Client{Timeout: 10 * time.Minute}
+var ollamaStreamPingInterval = 15 * time.Second
 
 type claudeMessageRequest struct {
 	Model         string               `json:"model"`
@@ -90,6 +91,11 @@ type ollamaChatResponse struct {
 	PromptEvalCount int           `json:"prompt_eval_count,omitempty"`
 	EvalCount       int           `json:"eval_count,omitempty"`
 	Error           string        `json:"error,omitempty"`
+}
+
+type ollamaStreamLineResult struct {
+	line string
+	err  error
 }
 
 type ollamaOptionsConfig struct {
@@ -396,6 +402,10 @@ func (a *CustomAdapter) handleOllamaNonStreamResponse(c *flow.Ctx, resp *http.Re
 }
 
 func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Response, claudeReq *claudeMessageRequest, model string) error {
+	ctx := context.Background()
+	if c.Request != nil {
+		ctx = c.Request.Context()
+	}
 	eventChan := flow.GetEventChan(c)
 	if eventChan != nil {
 		eventChan.SendResponseInfo(&domain.ResponseInfo{Status: resp.StatusCode, Headers: flattenHeaders(resp.Header), Body: "[streaming]"})
@@ -461,13 +471,39 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 		})
 	}
 
-	lineReader := newOllamaLineReader(resp.Body)
+	done := make(chan struct{})
+	defer close(done)
+	lineResults := readOllamaStreamLines(ctx, resp.Body, done)
+	var pingTicker *time.Ticker
+	var pingC <-chan time.Time
+	if ollamaStreamPingInterval > 0 {
+		pingTicker = time.NewTicker(ollamaStreamPingInterval)
+		defer pingTicker.Stop()
+		pingC = pingTicker.C
+	}
 	inputTokens, outputTokens := 0, 0
 	responseModel := model
 	stopReason := "end_turn"
 	firstTokenSent := false
 	for {
-		line, readErr := lineReader.readLine()
+		var line string
+		var readErr error
+		select {
+		case <-ctx.Done():
+			return clientDisconnectedErr(ctx.Err())
+		case <-pingC:
+			if err := sendSSE("ping", map[string]string{"type": "ping"}); err != nil {
+				return clientDisconnectedErr(err)
+			}
+			continue
+		case result, ok := <-lineResults:
+			if !ok {
+				readErr = io.EOF
+			} else {
+				line = result.line
+				readErr = result.err
+			}
+		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
 				break
@@ -551,6 +587,29 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 	}
 	_ = claudeReq
 	return nil
+}
+
+func readOllamaStreamLines(ctx context.Context, body io.Reader, done <-chan struct{}) <-chan ollamaStreamLineResult {
+	out := make(chan ollamaStreamLineResult, 1)
+	go func() {
+		defer close(out)
+		lineReader := newOllamaLineReader(body)
+		for {
+			line, err := lineReader.readLine()
+			result := ollamaStreamLineResult{line: line, err: err}
+			select {
+			case out <- result:
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return out
 }
 
 type ollamaLineReader struct {
