@@ -62,6 +62,15 @@ export function CustomConfigStep() {
         !!formData.cloakStrictMode,
         formData.cloakSensitiveWords || '',
       );
+      const ollamaNumCtx = Number.parseInt(formData.ollamaNumCtx || '', 10);
+      const ollamaKeepAlive = (formData.ollamaKeepAlive || '').trim();
+      const ollamaConfig =
+        formData.backend === 'ollama'
+          ? {
+              numCtx: Number.isFinite(ollamaNumCtx) && ollamaNumCtx > 0 ? ollamaNumCtx : undefined,
+              keepAlive: ollamaKeepAlive || undefined,
+            }
+          : undefined;
 
       const data: CreateProviderData = {
         type: 'custom',
@@ -72,6 +81,7 @@ export function CustomConfigStep() {
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+            ollama: ollamaConfig,
             apiKey: formData.apiKey,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
@@ -233,6 +243,44 @@ export function CustomConfigStep() {
                   </div>
                 </div>
               </div>
+
+              {formData.backend === 'ollama' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 rounded-xl border border-border bg-muted/30 p-4">
+                  <div>
+                    <label className="text-sm font-medium text-foreground block mb-2">
+                      {t('provider.ollamaNumCtx')}
+                    </label>
+                    <Input
+                      type="number"
+                      min={1024}
+                      step={1024}
+                      value={formData.ollamaNumCtx || ''}
+                      onChange={(e) => updateFormData({ ollamaNumCtx: e.target.value })}
+                      placeholder="32768"
+                      className="w-full font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('provider.ollamaNumCtxDesc')}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-foreground block mb-2">
+                      {t('provider.ollamaKeepAlive')}
+                    </label>
+                    <Input
+                      type="text"
+                      value={formData.ollamaKeepAlive || ''}
+                      onChange={(e) => updateFormData({ ollamaKeepAlive: e.target.value })}
+                      placeholder="5m, 30m, 1h"
+                      className="w-full font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('provider.ollamaKeepAliveDesc')}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 

@@ -117,8 +117,61 @@ func (e *Executor) mapModel(tenantID uint64, requestModel string, route *domain.
 		}
 	}
 
+	// Provider-local mappings are stored inside provider config by the custom
+	// provider form/templates. They are lower precedence than database mappings
+	// but must still apply to both generic routes and provider-scoped proxy URLs.
+	for pattern, target := range providerConfigModelMapping(provider) {
+		if domain.MatchWildcard(pattern, requestModel) {
+			return target
+		}
+	}
+
 	// No mapping, use original
 	return requestModel
+}
+
+func providerConfigModelMapping(provider *domain.Provider) map[string]string {
+	if provider == nil || provider.Config == nil {
+		return nil
+	}
+	switch provider.Type {
+	case "custom":
+		if provider.Config.Custom != nil {
+			return provider.Config.Custom.ModelMapping
+		}
+	case "antigravity":
+		if provider.Config.Antigravity != nil {
+			return provider.Config.Antigravity.ModelMapping
+		}
+	case "bedrock":
+		if provider.Config.Bedrock != nil {
+			return provider.Config.Bedrock.ModelMapping
+		}
+	case "kiro":
+		if provider.Config.Kiro != nil {
+			return provider.Config.Kiro.ModelMapping
+		}
+	case "codex":
+		if provider.Config.Codex != nil {
+			return provider.Config.Codex.ModelMapping
+		}
+	case "claude":
+		if provider.Config.Claude != nil {
+			return provider.Config.Claude.ModelMapping
+		}
+	}
+	return nil
+}
+
+// MapModel resolves the effective upstream model for a concrete route/provider.
+// Provider-scoped proxy requests bypass the normal route-match dispatch loop, so
+// they call this explicitly to keep model mapping semantics identical to the
+// generic proxy path.
+func (e *Executor) MapModel(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) string {
+	if e == nil {
+		return requestModel
+	}
+	return e.mapModel(tenantID, requestModel, route, provider, clientType, projectID, apiTokenID)
 }
 
 func (e *Executor) getRetryConfig(tenantID uint64, config *domain.RetryConfig) *domain.RetryConfig {

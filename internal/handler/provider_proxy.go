@@ -125,6 +125,9 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 
 		requestModel := flow.GetRequestModel(c)
 		mappedModel := requestModel
+		if h.proxyHandler != nil && h.proxyHandler.executor != nil {
+			mappedModel = h.proxyHandler.executor.MapModel(tenantID, requestModel, route, provider, clientType, flow.GetProjectID(c), flow.GetAPITokenID(c))
+		}
 		isStream := flow.GetIsStream(c)
 		clearDetail := h.proxyHandler != nil && h.proxyHandler.executor != nil && h.proxyHandler.executor.ShouldClearRequestDetailByConfig()
 		if getAPITokenDevMode(c) {

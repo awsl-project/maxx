@@ -36,6 +36,8 @@ const initialFormData: ProviderFormData = {
   selectedTemplate: null,
   baseURL: '',
   backend: 'http',
+  ollamaNumCtx: '32768',
+  ollamaKeepAlive: '',
   apiKey: '',
   clients: [...defaultClients],
   disguiseType: 'claude-code',

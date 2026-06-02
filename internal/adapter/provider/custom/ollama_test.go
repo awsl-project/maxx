@@ -22,7 +22,7 @@ func TestBuildOllamaChatRequestFromClaude(t *testing.T) {
 		"stop_sequences":["STOP"]
 	}`)
 
-	got, _, err := buildOllamaChatRequest(body, "")
+	got, _, err := buildOllamaChatRequest(body, "", ollamaOptionsConfig{NumCtx: 65536, KeepAlive: "30m"})
 	if err != nil {
 		t.Fatalf("buildOllamaChatRequest: %v", err)
 	}
@@ -37,6 +37,23 @@ func TestBuildOllamaChatRequestFromClaude(t *testing.T) {
 	}
 	if got.Options["num_predict"] != 128 {
 		t.Fatalf("num_predict = %#v", got.Options["num_predict"])
+	}
+	if got.Options["num_ctx"] != 65536 {
+		t.Fatalf("num_ctx = %#v", got.Options["num_ctx"])
+	}
+	if got.KeepAlive != "30m" {
+		t.Fatalf("keep_alive = %q", got.KeepAlive)
+	}
+}
+
+func TestResolveOllamaOptionsDefaultsAndOverrides(t *testing.T) {
+	if got := resolveOllamaOptions(nil); got.NumCtx != defaultOllamaNumCtx {
+		t.Fatalf("default num ctx = %d", got.NumCtx)
+	}
+	provider := &domain.Provider{Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{Ollama: &domain.ProviderConfigCustomOllama{NumCtx: 8192, KeepAlive: "10m"}}}}
+	got := resolveOllamaOptions(provider)
+	if got.NumCtx != 8192 || got.KeepAlive != "10m" {
+		t.Fatalf("options = %#v", got)
 	}
 }
 
@@ -54,6 +71,9 @@ func TestOllamaBackendNonStreamWrapsClaudeResponse(t *testing.T) {
 		}
 		if len(req.Messages) != 1 || req.Messages[0].Role != "user" || req.Messages[0].Content != "hello" {
 			t.Fatalf("upstream messages = %#v", req.Messages)
+		}
+		if req.Options["num_ctx"] != float64(defaultOllamaNumCtx) {
+			t.Fatalf("upstream num_ctx = %#v", req.Options["num_ctx"])
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"model":"qwen2.5-coder:14b","message":{"role":"assistant","content":"world"},"done":true,"prompt_eval_count":3,"eval_count":5}`))
@@ -106,6 +126,43 @@ func TestOllamaBackendNonStreamWrapsClaudeResponse(t *testing.T) {
 	}
 	if resp.Usage.InputTokens != 3 || resp.Usage.OutputTokens != 5 {
 		t.Fatalf("unexpected usage: %#v", resp.Usage)
+	}
+}
+
+func TestOllamaBackendStreamHandlesLargeChunk(t *testing.T) {
+	large := strings.Repeat("x", 5*1024*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"model":"qwen","message":{"role":"assistant","content":"` + large + `"}}` + "\n"))
+		_, _ = w.Write([]byte(`{"model":"qwen","done":true,"done_reason":"stop","prompt_eval_count":7,"eval_count":11}` + "\n"))
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{
+		Name: "local ollama",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: server.URL,
+			Backend: customBackendOllama,
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}
+	adapter := &CustomAdapter{provider: provider}
+
+	body := []byte(`{"model":"qwen","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	ctx.Set(flow.KeyClientType, domain.ClientTypeClaude)
+	ctx.Set(flow.KeyRequestBody, body)
+
+	if err := adapter.Execute(ctx, provider); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	bodyText := rec.Body.String()
+	if !strings.Contains(bodyText, "content_block_delta") || !strings.Contains(bodyText, strings.Repeat("x", 1024)) {
+		t.Fatalf("stream body missing large content delta")
+	}
+	if !strings.Contains(bodyText, "message_stop") {
+		t.Fatalf("stream body missing message_stop")
 	}
 }
 
@@ -219,6 +276,17 @@ func TestClassifyOllamaHTTPErrorRateLimitIsRetryableProviderError(t *testing.T) 
 	}
 	if proxyErr.HTTPStatusCode != http.StatusTooManyRequests {
 		t.Fatalf("HTTPStatusCode = %d", proxyErr.HTTPStatusCode)
+	}
+}
+
+func TestClassifyOllamaHTTPErrorExtractsJSONErrorMessage(t *testing.T) {
+	err := classifyOllamaHTTPError(http.StatusBadRequest, []byte(`{"error":"context length exceeded"}`), "qwen")
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if !strings.Contains(proxyErr.Message, "context length exceeded") {
+		t.Fatalf("message = %q", proxyErr.Message)
 	}
 }
 
