@@ -217,6 +217,51 @@ func TestOllamaBackendStreamPingsDuringUpstreamSilence(t *testing.T) {
 	}
 }
 
+func TestOllamaBackendStreamConvertsToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"model":"qwen","message":{"role":"assistant","tool_calls":[{"function":{"name":"Read","arguments":{"file_path":"tasklib/utils.py"}}}]}}` + "\n"))
+		_, _ = w.Write([]byte(`{"model":"qwen","done":true,"done_reason":"stop","prompt_eval_count":7,"eval_count":11}` + "\n"))
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{
+		Name: "local ollama",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: server.URL,
+			Backend: customBackendOllama,
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}
+	adapter := &CustomAdapter{provider: provider}
+
+	body := []byte(`{"model":"qwen","stream":true,"messages":[{"role":"user","content":"inspect the file"}],"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}}}}]}`)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	ctx.Set(flow.KeyClientType, domain.ClientTypeClaude)
+	ctx.Set(flow.KeyRequestBody, body)
+
+	if err := adapter.Execute(ctx, provider); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	bodyText := rec.Body.String()
+	for _, want := range []string{
+		`"type":"tool_use"`,
+		`"name":"Read"`,
+		`"type":"input_json_delta"`,
+		`\"file_path\":\"tasklib/utils.py\"`,
+		`"stop_reason":"tool_use"`,
+		"message_stop",
+	} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("stream body missing %s: %s", want, bodyText)
+		}
+	}
+}
+
 func TestCustomBackendEmptyKeepsHTTPRelayPassthrough(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {

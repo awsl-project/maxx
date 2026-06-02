@@ -485,6 +485,21 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 	responseModel := model
 	stopReason := "end_turn"
 	firstTokenSent := false
+	textBlockOpen := true
+	nextBlockIndex := 1
+	closeTextBlock := func() error {
+		if !textBlockOpen {
+			return nil
+		}
+		textBlockOpen = false
+		return sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": 0})
+	}
+	sendFirstTokenOnce := func() {
+		if eventChan != nil && !firstTokenSent {
+			eventChan.SendFirstToken(time.Now().UnixMilli())
+			firstTokenSent = true
+		}
+	}
 	for {
 		var line string
 		var readErr error
@@ -539,10 +554,7 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 			responseModel = chunk.Model
 		}
 		if chunk.Message.Content != "" {
-			if eventChan != nil && !firstTokenSent {
-				eventChan.SendFirstToken(time.Now().UnixMilli())
-				firstTokenSent = true
-			}
+			sendFirstTokenOnce()
 			if err := sendSSE("content_block_delta", map[string]interface{}{
 				"type":  "content_block_delta",
 				"index": 0,
@@ -551,18 +563,59 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 				return clientDisconnectedErr(err)
 			}
 		}
+		if len(chunk.Message.ToolCalls) > 0 {
+			if err := closeTextBlock(); err != nil {
+				return clientDisconnectedErr(err)
+			}
+			for _, call := range chunk.Message.ToolCalls {
+				name := strings.TrimSpace(call.Function.Name)
+				if name == "" {
+					continue
+				}
+				sendFirstTokenOnce()
+				index := nextBlockIndex
+				nextBlockIndex++
+				partialJSON := strings.TrimSpace(string(call.Function.Arguments))
+				if partialJSON == "" || !json.Valid([]byte(partialJSON)) {
+					partialJSON = "{}"
+				}
+				if err := sendSSE("content_block_start", map[string]interface{}{
+					"type":  "content_block_start",
+					"index": index,
+					"content_block": map[string]interface{}{
+						"type":  "tool_use",
+						"id":    "toolu_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+						"name":  name,
+						"input": map[string]interface{}{},
+					},
+				}); err != nil {
+					return clientDisconnectedErr(err)
+				}
+				if err := sendSSE("content_block_delta", map[string]interface{}{
+					"type":  "content_block_delta",
+					"index": index,
+					"delta": map[string]string{"type": "input_json_delta", "partial_json": partialJSON},
+				}); err != nil {
+					return clientDisconnectedErr(err)
+				}
+				if err := sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": index}); err != nil {
+					return clientDisconnectedErr(err)
+				}
+				stopReason = "tool_use"
+			}
+		}
 		if chunk.PromptEvalCount > 0 {
 			inputTokens = chunk.PromptEvalCount
 		}
 		if chunk.EvalCount > 0 {
 			outputTokens = chunk.EvalCount
 		}
-		if chunk.DoneReason != "" {
+		if chunk.DoneReason != "" && stopReason != "tool_use" {
 			stopReason = ollamaStopReasonToClaude(chunk.DoneReason)
 		}
 	}
 
-	if err := sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": 0}); err != nil {
+	if err := closeTextBlock(); err != nil {
 		return clientDisconnectedErr(err)
 	}
 	if err := sendSSE("message_delta", map[string]interface{}{
