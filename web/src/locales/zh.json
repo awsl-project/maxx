@@ -1271,6 +1271,7 @@
     "unfreeze": "解冻",
     "configure": "配置提供商",
     "configureDescription": "设置您的自定义提供商连接",
+    "configureOllamaDescription": "配置本地 Ollama 连接，并通过 maxx 的 Claude-compatible 入口使用",
     "create": "创建提供商",
     "edit": "编辑提供商",
     "editDescription": "更新您的自定义提供商设置",
@@ -1466,6 +1467,10 @@
     "custom": {
       "name": "自定义提供商",
       "description": "配置您自己的 API 端点"
+    },
+    "ollama": {
+      "name": "Ollama",
+      "description": "本地 Ollama /api/chat，通过 Claude-compatible 入口访问"
     },
     "templates": {
       "88code": {

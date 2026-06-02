@@ -24,6 +24,7 @@ import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import { useCooldownsContext } from '@/contexts/cooldowns-context';
 import { Button, Switch } from '@/components/ui';
 import { getProviderColor, type ProviderType } from '@/lib/theme';
+import { getProviderDisplayType } from '@/pages/providers/types';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { CooldownTimer } from '@/components/cooldown-timer';
@@ -240,6 +241,7 @@ export function ProviderDetailsDialog({
 
   const { provider, enabled, route, isNative } = item;
   const color = getProviderColor(provider.type as ProviderType);
+  const providerTypeLabel = getProviderDisplayType(provider);
 
   const activeCooldowns = cooldowns; // already filtered by hook
   const isInCooldown = activeCooldowns.length > 0;
@@ -267,7 +269,7 @@ export function ProviderDetailsDialog({
               ) : (
                 <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">CONV</span>
               )}
-              <span className="shrink-0 text-[10px] text-muted-foreground">{provider.type}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">{providerTypeLabel}</span>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">

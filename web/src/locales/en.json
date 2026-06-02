@@ -1272,6 +1272,7 @@
     "unfreeze": "Unfreeze",
     "configure": "Configure Provider",
     "configureDescription": "Set up your custom provider connection",
+    "configureOllamaDescription": "Configure a local Ollama connection through maxx's Claude-compatible endpoint",
     "create": "Create Provider",
     "edit": "Edit Provider",
     "editDescription": "Update your custom provider settings",
@@ -1468,6 +1469,10 @@
     "custom": {
       "name": "Custom Provider",
       "description": "Configure your own API endpoint"
+    },
+    "ollama": {
+      "name": "Ollama",
+      "description": "Local Ollama /api/chat through the Claude-compatible endpoint"
     },
     "templates": {
       "88code": {
