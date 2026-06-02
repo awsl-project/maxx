@@ -11,7 +11,7 @@ import {
   Sparkles,
   ChevronLeft,
 } from 'lucide-react';
-import { quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
+import { defaultClients, quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
 import { Button } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useTranslation } from 'react-i18next';
@@ -27,7 +27,21 @@ export function SelectTypeStep() {
   const { t } = useTranslation();
 
   const handleSelectType = (type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude') => {
-    updateFormData({ type, ...(type === 'custom' ? { backend: 'http' as const } : {}) });
+    updateFormData({
+      type,
+      ...(type === 'custom'
+        ? {
+            selectedTemplate: null,
+            name: '',
+            baseURL: '',
+            backend: 'http' as const,
+            apiKey: '',
+            clients: [...defaultClients],
+            modelMappings: undefined,
+            logo: undefined,
+          }
+        : {}),
+    });
     if (type === 'antigravity') {
       goToAntigravity();
     } else if (type === 'bedrock') {
@@ -72,7 +86,9 @@ export function SelectTypeStep() {
       updateFormData({
         selectedTemplate: templateId,
         name: template.name,
+        baseURL: '',
         backend: 'http',
+        apiKey: '',
         clients: updatedClients,
         modelMappings: template.modelMappings,
         logo: template.logoUrl,
