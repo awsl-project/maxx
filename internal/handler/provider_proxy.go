@@ -260,7 +260,7 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 			Method:  c.Request.Method,
 			Headers: flattenRequestHeaders(requestHeaders),
 			URL:     requestURI,
-			Body:    string(requestBody),
+			Body:    domain.RequestBodySnapshot(requestBody, requestHeaders.Get("Content-Type"), devMode),
 		}
 	}
 	return proxyReq

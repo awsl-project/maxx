@@ -214,7 +214,8 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 
 	clearDetail := e.shouldClearFailedRequestDetailFor(&execState{apiTokenDevMode: devMode})
 	if !clearDetail {
-		requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
+		rawHeaders := flow.GetRequestHeaders(c)
+		requestHeaders := flattenHeaders(rawHeaders)
 		requestURI := flow.GetRequestURI(c)
 		requestBody := flow.GetRequestBody(c)
 		if c.Request != nil {
@@ -228,7 +229,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 				Method:  c.Request.Method,
 				URL:     requestURI,
 				Headers: requestHeaders,
-				Body:    string(requestBody),
+				Body:    domain.RequestBodySnapshot(requestBody, rawHeaders.Get("Content-Type"), devMode),
 			}
 		}
 		proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}

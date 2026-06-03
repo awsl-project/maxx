@@ -51,10 +51,25 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	return nil
 }
 
+// Update 持久化一次状态/计量变更。
+//
+// OOM 关键:一次请求的生命周期里 Update 会被调用 5~10 次(route_match、
+// dispatch 中途、egress、超时收尾)。request_info 持有完整请求体(可达数十
+// MB),它在 Create 时写入后**永不变更**;若每次 Update 都走 toModel 把它
+// 重新 json.Marshal 一遍,就是 profile 里 2.58 GB cum 的主因。这里用
+// toModelMeta 完全不编码 request_info,并 Omit 掉该列(保留库中已有值);
+// response_info 仅在确有响应详情(非 nil)时才编码并写入一次,否则同样
+// Omit。clearDetail 路径下这两个字段全程为 nil、库中本就为空,跳过写入安全。
 func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	p.UpdatedAt = time.Now()
-	model := r.toModel(p)
-	return r.db.gorm.Save(model).Error
+	model := r.toModelMeta(p)
+	omit := []string{"request_info"}
+	if p.ResponseInfo != nil {
+		model.ResponseInfo = LongText(toJSON(p.ResponseInfo))
+	} else {
+		omit = append(omit, "response_info")
+	}
+	return r.db.gorm.Omit(omit...).Save(model).Error
 }
 
 func (r *ProxyRequestRepository) GetByID(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {
@@ -180,6 +195,7 @@ func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *reposi
 // 这个宽限期覆盖以下场景:
 //   - 新启动的实例完成 RegisterInstance 之前可能已经下发了少量请求
 //   - 实例 ID 一时未来得及同步到 coordinator(网络抖动)
+//
 // 选 60s 与心跳 TTL 对齐;单实例重启场景下,旧 in-progress 请求等 60s 后被清理,
 // 远好于原行为(立刻杀)和过保守行为(等 30min)之间。
 const deadInstanceGraceMillis = int64(60 * 1000)
@@ -617,6 +633,17 @@ func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses
 }
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
+	m := r.toModelMeta(p)
+	m.RequestInfo = LongText(toJSON(p.RequestInfo))
+	m.ResponseInfo = LongText(toJSON(p.ResponseInfo))
+	return m
+}
+
+// toModelMeta 构造除 request_info/response_info 两个大字段外的所有列。
+// 这两个字段的 JSON 编码是 OOM 的主要来源(请求体可达数十 MB,且 Update
+// 在一次请求生命周期里会被调用多次),Create 走 toModel 一次性编码,Update
+// 路径据此按需决定是否编码,避免对状态/计量类更新重复序列化大 body。
+func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyRequest {
 	return &ProxyRequest{
 		BaseModel: BaseModel{
 			ID:        p.ID,
@@ -637,8 +664,6 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 		IsStream:                    boolToInt(p.IsStream),
 		Status:                      p.Status,
 		StatusCode:                  p.StatusCode,
-		RequestInfo:                 LongText(toJSON(p.RequestInfo)),
-		ResponseInfo:                LongText(toJSON(p.ResponseInfo)),
 		Error:                       LongText(p.Error),
 		ProxyUpstreamAttemptCount:   p.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,
