@@ -142,8 +142,11 @@ func trimTrailingPartialRune(b []byte) []byte {
 		if !utf8.RuneStart(b[start]) {
 			continue
 		}
-		if r, size := utf8.DecodeRune(b[start:]); r != utf8.RuneError && start+size == len(b) {
-			return b // 末尾 rune 完整
+		// DecodeRune 对非法/残缺编码返回 (RuneError, 1),而对一个**合法编码**的
+		// U+FFFD 本身返回 (RuneError, 3)。故"残缺"的判据是 size==1 的 RuneError,
+		// 不能只看 r==RuneError——否则末尾一个合法的 3 字节 U+FFFD 会被误当残缺丢掉。
+		if r, size := utf8.DecodeRune(b[start:]); !(r == utf8.RuneError && size == 1) && start+size == len(b) {
+			return b // 末尾 rune 完整(含合法编码的 U+FFFD)
 		}
 		return b[:start] // 末尾 rune 残缺,去掉
 	}

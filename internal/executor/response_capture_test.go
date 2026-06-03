@@ -74,6 +74,27 @@ func TestResponseCaptureUnboundedOptOut(t *testing.T) {
 	}
 }
 
+// TestResponseCaptureTruncationKeepsLegitReplacementChar 锁住边界:截断恰好落在
+// 一个**合法编码**的 U+FFFD(3 字节 EF BF BD)末尾时,它是完整 rune,必须保留,
+// 不能因为 DecodeRune 返回 RuneError 就被 trimTrailingPartialRune 误当残缺丢掉。
+func TestResponseCaptureTruncationKeepsLegitReplacementChar(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	rc := NewResponseCapture(recorder)
+	rc.maxBytes = 3 // 恰好容下一个完整的 U+FFFD
+
+	payload := "�xx" // 3 字节合法 U+FFFD + 2 字节,共 5 字节 > 3
+	if _, err := rc.Write([]byte(payload)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	body := rc.Body()
+	if !strings.HasPrefix(body, "�…") {
+		t.Fatalf("legit trailing U+FFFD should be kept, got %q", body)
+	}
+	if !strings.Contains(body, "5 bytes total") {
+		t.Fatalf("snapshot missing accurate total: %q", body)
+	}
+}
+
 // shortWriter 模拟底层 ResponseWriter 短写(只接受前 accept 字节)并返回 err。
 type shortWriter struct {
 	http.ResponseWriter
