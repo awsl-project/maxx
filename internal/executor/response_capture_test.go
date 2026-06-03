@@ -130,6 +130,15 @@ func TestResponseCaptureTruncationKeepsValidUTF8(t *testing.T) {
 	if !utf8.ValidString(body) {
 		t.Fatalf("snapshot is not valid UTF-8: %q", body)
 	}
+	// 被切断的第二个 "你" 必须被整体丢弃,而不是替换成 U+FFFD("�")——后者会把
+	// 前缀撑过上限,正是 trimTrailingPartialRune 要避免的。只断言 ValidString 不够
+	// (替换后仍是合法 UTF-8),这里把"丢弃而非替换"的契约钉死。
+	if strings.ContainsRune(body, '�') {
+		t.Fatalf("truncated partial rune should be dropped, not replaced with U+FFFD: %q", body)
+	}
+	if !strings.HasPrefix(body, "你…") {
+		t.Fatalf("expected dropped-rune prefix %q, got %q", "你…", body)
+	}
 	if !strings.Contains(body, "9 bytes total") {
 		t.Fatalf("snapshot missing accurate total: %q", body)
 	}
