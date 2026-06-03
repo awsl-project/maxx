@@ -12,7 +12,7 @@ func TestUploadLimiterGatesOnlyLargeRequests(t *testing.T) {
 
 	// 小请求永不门控,且不占名额。
 	for i := 0; i < 100; i++ {
-		release, ok := l.acquire(context.Background(), 512)
+		release, ok := l.acquire(context.Background(), 512, "")
 		if !ok {
 			t.Fatalf("small request must never be gated")
 		}
@@ -26,20 +26,20 @@ func TestUploadLimiterGatesOnlyLargeRequests(t *testing.T) {
 func TestUploadLimiterBoundsConcurrency(t *testing.T) {
 	l := newUploadLimiter(1<<10, 2, 0, 0) // 并发上限 2,等不到立即失败
 
-	r1, ok1 := l.acquire(context.Background(), 1<<20)
-	r2, ok2 := l.acquire(context.Background(), 1<<20)
+	r1, ok1 := l.acquire(context.Background(), 1<<20, "")
+	r2, ok2 := l.acquire(context.Background(), 1<<20, "")
 	if !ok1 || !ok2 {
 		t.Fatalf("first two large requests should acquire slots")
 	}
 
 	// 第三个大请求拿不到名额(无等待)→ 应被拒。
-	if _, ok3 := l.acquire(context.Background(), 1<<20); ok3 {
+	if _, ok3 := l.acquire(context.Background(), 1<<20, ""); ok3 {
 		t.Fatalf("third concurrent large request must be shed when slots are full")
 	}
 
 	// 释放一个后,又能拿到。
 	r1()
-	r3, ok3 := l.acquire(context.Background(), 1<<20)
+	r3, ok3 := l.acquire(context.Background(), 1<<20, "")
 	if !ok3 {
 		t.Fatalf("slot should be available after release")
 	}
@@ -49,7 +49,7 @@ func TestUploadLimiterBoundsConcurrency(t *testing.T) {
 
 func TestUploadLimiterWaitsThenSucceeds(t *testing.T) {
 	l := newUploadLimiter(1<<10, 1, 0, 500*time.Millisecond)
-	r1, ok1 := l.acquire(context.Background(), 1<<20)
+	r1, ok1 := l.acquire(context.Background(), 1<<20, "")
 	if !ok1 {
 		t.Fatalf("first large request should acquire")
 	}
@@ -58,7 +58,7 @@ func TestUploadLimiterWaitsThenSucceeds(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		r1()
 	}()
-	r2, ok2 := l.acquire(context.Background(), 1<<20)
+	r2, ok2 := l.acquire(context.Background(), 1<<20, "")
 	if !ok2 {
 		t.Fatalf("second request should acquire after slot is freed within timeout")
 	}
@@ -67,7 +67,7 @@ func TestUploadLimiterWaitsThenSucceeds(t *testing.T) {
 
 func TestUploadLimiterRespectsContextCancel(t *testing.T) {
 	l := newUploadLimiter(1<<10, 1, 0, 10*time.Second)
-	r1, _ := l.acquire(context.Background(), 1<<20)
+	r1, _ := l.acquire(context.Background(), 1<<20, "")
 	defer r1()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,12 +76,35 @@ func TestUploadLimiterRespectsContextCancel(t *testing.T) {
 		cancel()
 	}()
 	start := time.Now()
-	if _, ok := l.acquire(ctx, 1<<20); ok {
+	if _, ok := l.acquire(ctx, 1<<20, ""); ok {
 		t.Fatalf("acquire should fail when context is cancelled while waiting")
 	}
 	if time.Since(start) > 2*time.Second {
 		t.Fatalf("cancel should unblock acquire promptly, not wait full timeout")
 	}
+}
+
+func TestUploadLimiterGatesUnknownLengthBinaryUploads(t *testing.T) {
+	// 阈值 1KiB,并发上限 1,无等待。
+	l := newUploadLimiter(1<<10, 1, 0, 0)
+
+	// Content-Length 未知(chunked, -1)+ 普通文本:不门控(避免误拦)。
+	if r, ok := l.acquire(context.Background(), -1, "application/json"); !ok {
+		t.Fatalf("unknown-length text request must not be gated")
+	} else {
+		r()
+	}
+
+	// Content-Length 未知 + multipart 上传:按 content-type 兜底纳入门控,占用名额。
+	r1, ok1 := l.acquire(context.Background(), -1, "multipart/form-data; boundary=x")
+	if !ok1 {
+		t.Fatalf("unknown-length multipart upload should acquire a slot")
+	}
+	// 名额已满,第二个未知长度二进制上传应被拒。
+	if _, ok2 := l.acquire(context.Background(), -1, "image/png"); ok2 {
+		t.Fatalf("second unknown-length binary upload must be gated when slot full")
+	}
+	r1()
 }
 
 func TestUploadLimiterHardCap(t *testing.T) {
@@ -103,7 +126,7 @@ func TestUploadLimiterDisabledByDefaultConcurrency(t *testing.T) {
 		t.Fatalf("maxConcurrency<=0 must disable concurrency gating")
 	}
 	// 任意大请求都放行。
-	if _, ok := l.acquire(context.Background(), 1<<30); !ok {
+	if _, ok := l.acquire(context.Background(), 1<<30, ""); !ok {
 		t.Fatalf("gating disabled => always admit")
 	}
 }

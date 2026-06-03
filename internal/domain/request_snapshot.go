@@ -2,8 +2,25 @@ package domain
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 )
+
+// requestSnapshotMaxBytes 限制写入 RequestInfo.Body 的快照最大字节数。即便是
+// 文本/JSON,超过此上限也只存占位——Content-Type 由客户端控制,攻击者可伪装成
+// 非二进制类型携带超大 body,unbounded string(body) 会撑爆 DB TEXT 列和内存
+// (CodeRabbit & Codex review 指出的兜底缺口)。0 表示不限。
+// 经 MAXX_REQUEST_SNAPSHOT_MAX_BYTES 调整,默认 256 KiB:正常对话请求足够保留
+// 完整审计,异常超大 body 才被截断成占位。
+var requestSnapshotMaxBytes = func() int {
+	if v := strings.TrimSpace(os.Getenv("MAXX_REQUEST_SNAPSHOT_MAX_BYTES")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return 256 << 10
+}()
 
 // RequestBodySnapshot 决定写入 RequestInfo.Body 的请求体快照内容。
 //
@@ -21,14 +38,23 @@ func RequestBodySnapshot(body []byte, contentType string, devMode bool) string {
 	if devMode {
 		return string(body)
 	}
-	if isBinaryUploadContentType(contentType) {
+	if IsBinaryUploadContentType(contentType) {
 		return fmt.Sprintf("<%s, %d bytes, body omitted>", contentTypeToken(contentType), len(body))
+	}
+	// 文本/JSON 兜底:超过快照上限的也只存占位,挡住伪装成非二进制类型的超大 body。
+	if requestSnapshotMaxBytes > 0 && len(body) > requestSnapshotMaxBytes {
+		label := contentTypeToken(contentType)
+		if label == "binary" { // 非二进制路径下空 content-type 标成 text 更贴切
+			label = "text"
+		}
+		return fmt.Sprintf("<%s, %d bytes, body omitted (over snapshot cap %d)>", label, len(body), requestSnapshotMaxBytes)
 	}
 	return string(body)
 }
 
-// isBinaryUploadContentType 判断 content-type 是否为不值得存进快照的二进制上传。
-func isBinaryUploadContentType(contentType string) bool {
+// IsBinaryUploadContentType 判断 content-type 是否为不值得存进快照的二进制上传。
+// 导出供 handler 的大上传门控按 content-type 兜底判定分块上传(无 Content-Length)。
+func IsBinaryUploadContentType(contentType string) bool {
 	ct := strings.ToLower(strings.TrimSpace(contentType))
 	switch {
 	case strings.HasPrefix(ct, "multipart/"),

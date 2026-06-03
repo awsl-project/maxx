@@ -1,11 +1,71 @@
 package sqlite
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
+
+// TestProxyUpstreamAttemptUpdatePreservesRequestInfo 锁定 OOM 优化对 attempt 的同等不变量:
+// request_info 在 Create 时写入后,状态类 Update 不能把它清空(Update 走 toModelMeta+Omit,
+// 不重新 marshal 完整请求体——profile 里 1.19 GB cum 的来源);response_info 仅在非 nil 时落库。
+func TestProxyUpstreamAttemptUpdatePreservesRequestInfo(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	attRepo := NewProxyUpstreamAttemptRepository(db)
+
+	att := &domain.ProxyUpstreamAttempt{
+		TenantID:       1,
+		Status:         "IN_PROGRESS",
+		ProxyRequestID: 100,
+		RequestModel:   "claude-sonnet-4-5",
+		RequestInfo:    &domain.RequestInfo{Method: "POST", URL: "u", Body: "the-request-body"},
+	}
+	if err := attRepo.Create(att); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+
+	reload := func() *ProxyUpstreamAttempt {
+		var m ProxyUpstreamAttempt
+		if err := attRepo.db.gorm.First(&m, att.ID).Error; err != nil {
+			t.Fatalf("reload: %v", err)
+		}
+		return &m
+	}
+
+	// 状态类 Update(不带 RequestInfo/ResponseInfo):request_info 必须保留。
+	att.Status = "COMPLETED"
+	att.RequestInfo = nil
+	if err := attRepo.Update(att); err != nil {
+		t.Fatalf("status update: %v", err)
+	}
+	if got := reload(); !strings.Contains(string(got.RequestInfo), "the-request-body") {
+		t.Fatalf("request_info wiped by status-only attempt Update: %q", got.RequestInfo)
+	}
+
+	// 终态填了 response_info 后,再 nil Update 不得清空已有 response_info。
+	att.ResponseInfo = &domain.ResponseInfo{Status: 200, Body: "the-response-body"}
+	if err := attRepo.Update(att); err != nil {
+		t.Fatalf("set response: %v", err)
+	}
+	att.ResponseInfo = nil
+	att.Status = "FAILED"
+	if err := attRepo.Update(att); err != nil {
+		t.Fatalf("nil-response update: %v", err)
+	}
+	got := reload()
+	if !strings.Contains(string(got.ResponseInfo), "the-response-body") {
+		t.Fatalf("existing response_info wiped by nil-ResponseInfo attempt Update: %q", got.ResponseInfo)
+	}
+	if !strings.Contains(string(got.RequestInfo), "the-request-body") {
+		t.Fatalf("request_info lost on attempt Update: %q", got.RequestInfo)
+	}
+}
 
 // TestStreamForCostCalc_IncludesMultiplier 确保 backfill 流式读取路径会把
 // 历史 Multiplier 带出来。这是 PR1 修复 backfill 倍率丢失 bug 的关键前提:

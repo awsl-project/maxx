@@ -243,6 +243,19 @@ func TestProxyRequestUpdatePreservesRequestInfo(t *testing.T) {
 	if got.Status != "COMPLETED" {
 		t.Fatalf("status not updated: %q", got.Status)
 	}
+
+	// 3) 关键不变量(CodeRabbit 指出):response_info 已落真实值后,再来一次
+	//    ResponseInfo==nil 的状态类 Update,必须 Omit 掉 response_info、不能把已有值清空。
+	req.Status = "FAILED"
+	req.ResponseInfo = nil
+	if err := repo.Update(req); err != nil {
+		t.Fatalf("status update after response set: %v", err)
+	}
+	if got := reload(); !strings.Contains(string(got.ResponseInfo), "the-response-body") {
+		t.Fatalf("existing response_info wiped by nil-ResponseInfo Update: %q", got.ResponseInfo)
+	} else if got.Status != "FAILED" {
+		t.Fatalf("status not updated on nil-ResponseInfo Update: %q", got.Status)
+	}
 }
 
 // seedRequestWithDetail 创建一条带有 request/response 详情的记录，并把 created_at 强制回拨到指定时间
