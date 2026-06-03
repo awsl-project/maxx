@@ -24,7 +24,6 @@ const (
 )
 
 var ollamaHTTPClient = &http.Client{Timeout: 10 * time.Minute}
-var ollamaStreamPingInterval = 15 * time.Second
 
 type claudeMessageRequest struct {
 	Model         string               `json:"model"`
@@ -91,11 +90,6 @@ type ollamaChatResponse struct {
 	PromptEvalCount int           `json:"prompt_eval_count,omitempty"`
 	EvalCount       int           `json:"eval_count,omitempty"`
 	Error           string        `json:"error,omitempty"`
-}
-
-type ollamaStreamLineResult struct {
-	line string
-	err  error
 }
 
 type ollamaOptionsConfig struct {
@@ -402,10 +396,6 @@ func (a *CustomAdapter) handleOllamaNonStreamResponse(c *flow.Ctx, resp *http.Re
 }
 
 func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Response, claudeReq *claudeMessageRequest, model string) error {
-	ctx := context.Background()
-	if c.Request != nil {
-		ctx = c.Request.Context()
-	}
 	eventChan := flow.GetEventChan(c)
 	if eventChan != nil {
 		eventChan.SendResponseInfo(&domain.ResponseInfo{Status: resp.StatusCode, Headers: flattenHeaders(resp.Header), Body: "[streaming]"})
@@ -471,54 +461,13 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 		})
 	}
 
-	done := make(chan struct{})
-	defer close(done)
-	lineResults := readOllamaStreamLines(ctx, resp.Body, done)
-	var pingTicker *time.Ticker
-	var pingC <-chan time.Time
-	if ollamaStreamPingInterval > 0 {
-		pingTicker = time.NewTicker(ollamaStreamPingInterval)
-		defer pingTicker.Stop()
-		pingC = pingTicker.C
-	}
+	lineReader := newOllamaLineReader(resp.Body)
 	inputTokens, outputTokens := 0, 0
 	responseModel := model
 	stopReason := "end_turn"
 	firstTokenSent := false
-	textBlockOpen := true
-	nextBlockIndex := 1
-	closeTextBlock := func() error {
-		if !textBlockOpen {
-			return nil
-		}
-		textBlockOpen = false
-		return sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": 0})
-	}
-	sendFirstTokenOnce := func() {
-		if eventChan != nil && !firstTokenSent {
-			eventChan.SendFirstToken(time.Now().UnixMilli())
-			firstTokenSent = true
-		}
-	}
 	for {
-		var line string
-		var readErr error
-		select {
-		case <-ctx.Done():
-			return clientDisconnectedErr(ctx.Err())
-		case <-pingC:
-			if err := sendSSE("ping", map[string]string{"type": "ping"}); err != nil {
-				return clientDisconnectedErr(err)
-			}
-			continue
-		case result, ok := <-lineResults:
-			if !ok {
-				readErr = io.EOF
-			} else {
-				line = result.line
-				readErr = result.err
-			}
-		}
+		line, readErr := lineReader.readLine()
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
 				break
@@ -554,7 +503,10 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 			responseModel = chunk.Model
 		}
 		if chunk.Message.Content != "" {
-			sendFirstTokenOnce()
+			if eventChan != nil && !firstTokenSent {
+				eventChan.SendFirstToken(time.Now().UnixMilli())
+				firstTokenSent = true
+			}
 			if err := sendSSE("content_block_delta", map[string]interface{}{
 				"type":  "content_block_delta",
 				"index": 0,
@@ -563,59 +515,18 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 				return clientDisconnectedErr(err)
 			}
 		}
-		if len(chunk.Message.ToolCalls) > 0 {
-			if err := closeTextBlock(); err != nil {
-				return clientDisconnectedErr(err)
-			}
-			for _, call := range chunk.Message.ToolCalls {
-				name := strings.TrimSpace(call.Function.Name)
-				if name == "" {
-					continue
-				}
-				sendFirstTokenOnce()
-				index := nextBlockIndex
-				nextBlockIndex++
-				partialJSON := strings.TrimSpace(string(call.Function.Arguments))
-				if partialJSON == "" || !json.Valid([]byte(partialJSON)) {
-					partialJSON = "{}"
-				}
-				if err := sendSSE("content_block_start", map[string]interface{}{
-					"type":  "content_block_start",
-					"index": index,
-					"content_block": map[string]interface{}{
-						"type":  "tool_use",
-						"id":    "toolu_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-						"name":  name,
-						"input": map[string]interface{}{},
-					},
-				}); err != nil {
-					return clientDisconnectedErr(err)
-				}
-				if err := sendSSE("content_block_delta", map[string]interface{}{
-					"type":  "content_block_delta",
-					"index": index,
-					"delta": map[string]string{"type": "input_json_delta", "partial_json": partialJSON},
-				}); err != nil {
-					return clientDisconnectedErr(err)
-				}
-				if err := sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": index}); err != nil {
-					return clientDisconnectedErr(err)
-				}
-				stopReason = "tool_use"
-			}
-		}
 		if chunk.PromptEvalCount > 0 {
 			inputTokens = chunk.PromptEvalCount
 		}
 		if chunk.EvalCount > 0 {
 			outputTokens = chunk.EvalCount
 		}
-		if chunk.DoneReason != "" && stopReason != "tool_use" {
+		if chunk.DoneReason != "" {
 			stopReason = ollamaStopReasonToClaude(chunk.DoneReason)
 		}
 	}
 
-	if err := closeTextBlock(); err != nil {
+	if err := sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": 0}); err != nil {
 		return clientDisconnectedErr(err)
 	}
 	if err := sendSSE("message_delta", map[string]interface{}{
@@ -640,29 +551,6 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 	}
 	_ = claudeReq
 	return nil
-}
-
-func readOllamaStreamLines(ctx context.Context, body io.Reader, done <-chan struct{}) <-chan ollamaStreamLineResult {
-	out := make(chan ollamaStreamLineResult, 1)
-	go func() {
-		defer close(out)
-		lineReader := newOllamaLineReader(body)
-		for {
-			line, err := lineReader.readLine()
-			result := ollamaStreamLineResult{line: line, err: err}
-			select {
-			case out <- result:
-			case <-done:
-				return
-			case <-ctx.Done():
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return out
 }
 
 type ollamaLineReader struct {
