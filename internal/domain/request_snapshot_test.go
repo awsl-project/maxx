@@ -57,8 +57,8 @@ func TestRequestBodySnapshot(t *testing.T) {
 		if len(got) >= len(huge) {
 			t.Fatalf("oversized body must not be stored verbatim (got %d bytes)", len(got))
 		}
-		if !contains(got, "body omitted") {
-			t.Fatalf("expected truncation placeholder, got %q", got)
+		if !strings.Contains(got, "body truncated") {
+			t.Fatalf("expected truncation placeholder, got len=%d", len(got))
 		}
 	})
 
@@ -69,5 +69,3 @@ func TestRequestBodySnapshot(t *testing.T) {
 		}
 	})
 }
-
-func contains(s, sub string) bool { return strings.Contains(s, sub) }

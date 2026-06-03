@@ -40,23 +40,30 @@ func RequestBodySnapshot(body []byte, contentType string, devMode bool) string {
 	if devMode {
 		return string(body)
 	}
-	if IsBinaryUploadContentType(contentType) {
+	if isBinaryUploadContentType(contentType) {
 		return fmt.Sprintf("<%s, %d bytes, body omitted>", contentTypeToken(contentType), len(body))
 	}
-	// 文本/JSON 兜底:超过快照上限的也只存占位,挡住伪装成非二进制类型的超大 body。
+	// 文本/JSON 兜底:超过快照上限的只保留前缀 + 占位,挡住伪装成非二进制类型的
+	// 超大 body 撑爆 DB,同时保留开头(model、首条 message 等)的部分审计价值。
 	if requestSnapshotMaxBytes > 0 && len(body) > requestSnapshotMaxBytes {
 		label := contentTypeToken(contentType)
 		if label == "binary" { // 非二进制路径下空 content-type 标成 text 更贴切
 			label = "text"
 		}
-		return fmt.Sprintf("<%s, %d bytes, body omitted (over snapshot cap %d)>", label, len(body), requestSnapshotMaxBytes)
+		preview := body
+		if len(preview) > snapshotPreviewBytes {
+			preview = preview[:snapshotPreviewBytes]
+		}
+		return fmt.Sprintf("%s…<%s, %d bytes total, body truncated (over snapshot cap %d)>", preview, label, len(body), requestSnapshotMaxBytes)
 	}
 	return string(body)
 }
 
-// IsBinaryUploadContentType 判断 content-type 是否为不值得存进快照的二进制上传。
-// 导出供 handler 的大上传门控按 content-type 兜底判定分块上传(无 Content-Length)。
-func IsBinaryUploadContentType(contentType string) bool {
+// snapshotPreviewBytes 是非二进制超限 body 在占位前保留的前缀字节数,留作部分审计。
+const snapshotPreviewBytes = 256
+
+// isBinaryUploadContentType 判断 content-type 是否为不值得存进快照的二进制上传。
+func isBinaryUploadContentType(contentType string) bool {
 	ct := strings.ToLower(strings.TrimSpace(contentType))
 	switch {
 	case strings.HasPrefix(ct, "multipart/"),

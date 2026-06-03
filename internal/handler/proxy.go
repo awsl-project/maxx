@@ -117,14 +117,13 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	// 代价是被泄洪的请求即使本是 SSE,拿到的也是 HTTP 层 413/429 而非 SSE 错误事件——
 	// 此时 body 还没读、client type 还不知道,无法构造对应协议的错误,可接受。
 	if h.uploadLimiter != nil {
-		contentType := r.Header.Get("Content-Type")
 		if h.uploadLimiter.tooLarge(r.ContentLength) {
 			log.Printf("[Proxy] rejecting over-limit upload: %s %s (len=%d > %d)", r.Method, r.URL.Path, r.ContentLength, h.uploadLimiter.maxBytes)
 			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 			c.Abort()
 			return
 		}
-		release, ok := h.uploadLimiter.acquire(r.Context(), r.ContentLength, contentType)
+		release, ok := h.uploadLimiter.acquire(r.Context(), r.ContentLength)
 		if !ok {
 			log.Printf("[Proxy] large-upload slot unavailable, shedding request: %s %s (len=%d)", r.Method, r.URL.Path, r.ContentLength)
 			writeRateLimitError(w, "server busy: too many concurrent large uploads, please retry", 5)

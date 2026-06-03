@@ -6,8 +6,6 @@ import (
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/awsl-project/maxx/internal/domain"
 )
 
 // 大上传准入控制(admission control)。
@@ -90,29 +88,31 @@ func (l *uploadLimiter) tooLarge(contentLength int64) bool {
 	return contentLength > 0 && contentLength > l.maxBytes
 }
 
-// isLarge 判断该请求是否达到"大上传"阈值、需要纳入并发门控。
-func (l *uploadLimiter) isLarge(contentLength int64, contentType string) bool {
-	if l == nil || l.sem == nil || l.thresholdBytes <= 0 {
+// isLarge 判断该请求是否需要纳入大上传并发门控。
+//
+// Content-Length 未知(chunked, <0)时无法预判体积,**保守按大上传门控**——否则
+// 客户端只要不带 Content-Length(分块传输)就能绕过并发闸,无论 body 多大都不
+// 受限,这是 CodeRabbit & Codex 都指出的 OOM 缺口。空 body(==0)不门控。
+// 已知长度则按阈值判断。
+func (l *uploadLimiter) isLarge(contentLength int64) bool {
+	if l == nil || l.sem == nil {
 		return false
 	}
-	if contentLength >= l.thresholdBytes {
+	if contentLength < 0 {
 		return true
 	}
-	// Content-Length 未知(chunked / -1)时按大小判断不了,但二进制/multipart 上传
-	// 往往就是大 body;按 content-type 兜底纳入门控,堵住分块上传绕过闸门的洞
-	// (Codex review 指出)。普通无 Content-Length 的文本请求仍不门控,避免误拦。
-	if contentLength < 0 && domain.IsBinaryUploadContentType(contentType) {
-		return true
+	if l.thresholdBytes <= 0 {
+		return false
 	}
-	return false
+	return contentLength >= l.thresholdBytes
 }
 
 // acquire 为大上传申请一个并发名额。
 //   - 非大上传 / 门控关闭:立即放行,release 为 no-op。
 //   - 名额可用:占用并返回 release(请求结束时调用)。
 //   - 名额满且在 waitTimeout 内未释放,或 ctx 取消:返回 ok=false,调用方应让客户端稍后重试。
-func (l *uploadLimiter) acquire(ctx context.Context, contentLength int64, contentType string) (release func(), ok bool) {
-	if !l.isLarge(contentLength, contentType) {
+func (l *uploadLimiter) acquire(ctx context.Context, contentLength int64) (release func(), ok bool) {
+	if !l.isLarge(contentLength) {
 		return func() {}, true
 	}
 	// 先尝试无等待获取,常态走这条快路径。
