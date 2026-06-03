@@ -47,9 +47,13 @@ func TestRequestBodySnapshot(t *testing.T) {
 		}
 	})
 
+	// 以下两个用例固定快照上限,不依赖 env 派生的包级变量,保证 hermetic
+	//(否则设了 MAXX_REQUEST_SNAPSHOT_MAX_BYTES=0 时会误失败)。
+	const testCap = 1024
 	t.Run("oversized non-binary body is truncated to placeholder", func(t *testing.T) {
+		defer withSnapshotCap(testCap)()
 		// 伪装成 JSON 的超大 body:超过快照上限也必须只存占位,不得 string(body) 入库。
-		huge := make([]byte, requestSnapshotMaxBytes+1)
+		huge := make([]byte, testCap*4)
 		for i := range huge {
 			huge[i] = 'a'
 		}
@@ -63,9 +67,17 @@ func TestRequestBodySnapshot(t *testing.T) {
 	})
 
 	t.Run("dev_mode keeps oversized non-binary body", func(t *testing.T) {
-		huge := make([]byte, requestSnapshotMaxBytes+1)
+		defer withSnapshotCap(testCap)()
+		huge := make([]byte, testCap*4)
 		if got := RequestBodySnapshot(huge, "application/json", true); len(got) != len(huge) {
 			t.Fatalf("dev_mode must retain full body even when oversized")
 		}
 	})
+}
+
+// withSnapshotCap 临时覆盖快照上限,返回恢复函数(defer 调用)。
+func withSnapshotCap(n int) func() {
+	old := requestSnapshotMaxBytes
+	requestSnapshotMaxBytes = n
+	return func() { requestSnapshotMaxBytes = old }
 }

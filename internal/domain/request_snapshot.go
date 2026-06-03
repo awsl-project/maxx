@@ -50,9 +50,14 @@ func RequestBodySnapshot(body []byte, contentType string, devMode bool) string {
 		if label == "binary" { // 非二进制路径下空 content-type 标成 text 更贴切
 			label = "text"
 		}
+		// 前缀长度不超过快照上限本身,避免运维把上限调到 <256 时占位反而超过上限。
+		previewLen := snapshotPreviewBytes
+		if requestSnapshotMaxBytes < previewLen {
+			previewLen = requestSnapshotMaxBytes
+		}
 		preview := body
-		if len(preview) > snapshotPreviewBytes {
-			preview = preview[:snapshotPreviewBytes]
+		if len(preview) > previewLen {
+			preview = preview[:previewLen]
 		}
 		return fmt.Sprintf("%s…<%s, %d bytes total, body truncated (over snapshot cap %d)>", preview, label, len(body), requestSnapshotMaxBytes)
 	}
