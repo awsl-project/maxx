@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -69,6 +71,46 @@ func TestResponseCaptureUnboundedOptOut(t *testing.T) {
 	}
 	if got := rc.Body(); got != payload {
 		t.Fatalf("unbounded snapshot truncated unexpectedly: len=%d", len(got))
+	}
+}
+
+// shortWriter 模拟底层 ResponseWriter 短写(只接受前 accept 字节)并返回 err。
+type shortWriter struct {
+	http.ResponseWriter
+	accept int
+	err    error
+}
+
+func (s *shortWriter) Write(b []byte) (int, error) {
+	n := len(b)
+	if n > s.accept {
+		n = s.accept
+	}
+	written, _ := s.ResponseWriter.Write(b[:n])
+	return written, s.err
+}
+
+// TestResponseCaptureCapturesOnlyAcceptedBytes 锁住短写/出错契约:底层只接受
+// b[:n] 时,快照与 total 都只计入 n 字节,且 n/err 原样透传给调用方——不能把
+// 没真正发出去的字节记进审计快照。
+func TestResponseCaptureCapturesOnlyAcceptedBytes(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	sw := &shortWriter{ResponseWriter: recorder, accept: 3, err: io.ErrShortWrite}
+	rc := NewResponseCapture(sw)
+	rc.maxBytes = 1024
+
+	n, err := rc.Write([]byte("abcdef"))
+	if n != 3 || err != io.ErrShortWrite {
+		t.Fatalf("passthrough wrong: n=%d err=%v, want n=3 err=ErrShortWrite", n, err)
+	}
+	if rc.total != 3 {
+		t.Fatalf("total should count only accepted bytes, got %d", rc.total)
+	}
+	if got := rc.Body(); got != "abc" {
+		t.Fatalf("snapshot should only contain accepted bytes, got %q", got)
+	}
+	if got := recorder.Body.String(); got != "abc" {
+		t.Fatalf("client got %q, want only accepted bytes %q", got, "abc")
 	}
 }
 

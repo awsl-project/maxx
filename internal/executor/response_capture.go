@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // responseSnapshotMaxBytes 限制 ResponseCapture 缓冲(进而写入 ResponseInfo.Body)
@@ -28,6 +29,11 @@ var responseSnapshotMaxBytes = func() int {
 
 // ResponseCapture wraps http.ResponseWriter to capture the response
 // This allows us to record the actual response sent to the client
+//
+// 并发约定:与 http.ResponseWriter 本身一致,假定由单个请求处理 goroutine 串行
+// 写入;StatusCode()/Body()/CapturedHeaders() 在响应写完后(dispatch 收尾)读取,
+// 不与 Write 并发。故 body/total/truncated 不加锁——这也与本类型加上界改造前的
+// 行为一致(原本就直接用非并发安全的 bytes.Buffer)。
 type ResponseCapture struct {
 	http.ResponseWriter
 	statusCode int
@@ -113,16 +119,35 @@ func (rc *ResponseCapture) StatusCode() int {
 // so the stored detail signals it is partial rather than silently incomplete.
 // 注:截断时返回值是「上限以内前缀 + 固定占位尾巴」,因此略大于 maxBytes 一个常量;
 // 目的是防 OOM / 防撑爆 DB TEXT 列,不是字节级硬上限。按字节截断可能切断多字节
-// 字符,故前缀经 ToValidUTF8 清洗,避免快照里出现非法 UTF-8(与请求侧一致)。
+// 字符:先丢掉末尾被切断的不完整 rune(而非让 ToValidUTF8 把它替换成 3 字节的 �
+// 反而把快照撑过上限),再对内部残留的非法字节做清洗,保持前缀 ~maxBytes。
 func (rc *ResponseCapture) Body() string {
 	if !rc.truncated {
 		return rc.body.String()
 	}
-	prefix := strings.ToValidUTF8(rc.body.String(), "�")
+	prefix := strings.ToValidUTF8(string(trimTrailingPartialRune(rc.body.Bytes())), "�")
 	return fmt.Sprintf(
 		"%s…<response body truncated, %d bytes total, snapshot cap %d>",
 		prefix, rc.total, rc.maxBytes,
 	)
+}
+
+// trimTrailingPartialRune 丢掉 b 末尾因按字节截断而残缺的最后一个 UTF-8 rune。
+// 一个合法 rune 至多 utf8.UTFMax 字节,故从末尾回溯至多这么多字节找到最后一个
+// rune 起始字节:若该 rune 完整则原样返回,残缺则连同它一起去掉。全是续字节
+// (畸形数据)则不动,交由调用方的 ToValidUTF8 兜底。
+func trimTrailingPartialRune(b []byte) []byte {
+	for i := 0; i < utf8.UTFMax && i < len(b); i++ {
+		start := len(b) - 1 - i
+		if !utf8.RuneStart(b[start]) {
+			continue
+		}
+		if r, size := utf8.DecodeRune(b[start:]); r != utf8.RuneError && start+size == len(b) {
+			return b // 末尾 rune 完整
+		}
+		return b[:start] // 末尾 rune 残缺,去掉
+	}
+	return b
 }
 
 // CapturedHeaders returns the headers that were set
