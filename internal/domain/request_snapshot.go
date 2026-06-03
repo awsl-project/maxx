@@ -59,7 +59,9 @@ func RequestBodySnapshot(body []byte, contentType string, devMode bool) string {
 		if len(preview) > previewLen {
 			preview = preview[:previewLen]
 		}
-		return fmt.Sprintf("%s…<%s, %d bytes total, body truncated (over snapshot cap %d)>", preview, label, len(body), requestSnapshotMaxBytes)
+		// 前缀按文本渲染:非二进制类型理论上仍可能含非法 UTF-8 字节,替换成 � 避免占位串里出现乱码。
+		safePreview := strings.ToValidUTF8(string(preview), "�")
+		return fmt.Sprintf("%s…<%s, %d bytes total, body truncated (over snapshot cap %d)>", safePreview, label, len(body), requestSnapshotMaxBytes)
 	}
 	return string(body)
 }

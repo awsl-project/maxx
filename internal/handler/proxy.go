@@ -145,6 +145,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	}
 	body, err := io.ReadAll(bodyReader)
 	if err != nil {
+		_ = r.Body.Close()
 		writeError(w, http.StatusBadRequest, "failed to read request body")
 		c.Abort()
 		return
