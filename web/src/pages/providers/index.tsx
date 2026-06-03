@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/layout/page-header';
-import { isOllamaCustomProvider, PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
+import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CodexQuotasProvider } from '@/contexts/codex-quotas-context';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -133,8 +133,7 @@ export function ProvidersPage() {
       const query = searchQuery.toLowerCase();
       const config = PROVIDER_TYPE_CONFIGS[p.type as ProviderTypeKey];
       const displayInfo = config?.getDisplayInfo(p) || '';
-      const backend = isOllamaCustomProvider(p) ? 'ollama' : '';
-      return p.name.toLowerCase().includes(query) || displayInfo.toLowerCase().includes(query) || backend.includes(query);
+      return p.name.toLowerCase().includes(query) || displayInfo.toLowerCase().includes(query);
     });
 
     filteredProviders?.forEach((p) => {

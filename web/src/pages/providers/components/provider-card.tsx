@@ -4,7 +4,7 @@ import { ClientIcon } from '@/components/icons/client-icons';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import type { Provider } from '@/lib/transport';
-import { ANTIGRAVITY_COLOR, isOllamaCustomProvider } from '../types';
+import { ANTIGRAVITY_COLOR } from '../types';
 import { useCooldowns } from '@/hooks/use-cooldowns';
 
 interface ProviderCardProps {
@@ -142,7 +142,6 @@ export function CustomProviderCard({ provider, onClick, streamingCount }: Provid
   const modelCooldowns = providerCooldowns.filter((cd) => cd.model);
   const worstCooldown = providerCooldowns[0];
   const isFrozenOrLimited = healthLevel === 'frozen' || healthLevel === 'limited';
-  const isOllama = isOllamaCustomProvider(provider);
 
   const getDisplayUrl = () => {
     if (provider.config?.custom?.baseURL) return provider.config.custom.baseURL;
@@ -228,14 +227,7 @@ export function CustomProviderCard({ provider, onClick, streamingCount }: Provid
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <h4 className="text-sm font-medium text-foreground truncate">{provider.name}</h4>
-              {isOllama && (
-                <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
-                  Ollama
-                </span>
-              )}
-            </div>
+            <h4 className="text-sm font-medium text-foreground truncate">{provider.name}</h4>
             <ChevronRight
               size={16}
               className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"

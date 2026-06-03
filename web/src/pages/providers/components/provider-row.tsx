@@ -13,7 +13,7 @@ import type {
   KiroQuotaData,
   CodexQuotaData,
 } from '@/lib/transport';
-import { getProviderTypeConfig, isOllamaCustomProvider } from '../types';
+import { getProviderTypeConfig } from '../types';
 import { cn } from '@/lib/utils';
 import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-context';
 import { useCodexQuotaFromContext } from '@/contexts/codex-quotas-context';
@@ -208,7 +208,6 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
   const typeConfig = getProviderTypeConfig(provider.type);
   const color = typeConfig.color;
   const displayInfo = typeConfig.getDisplayInfo(provider);
-  const isOllama = isOllamaCustomProvider(provider);
 
   const isAntigravity = provider.type === 'antigravity';
   const isKiro = provider.type === 'kiro';
@@ -322,11 +321,6 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
       <div className="relative z-10 flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <h3 className="text-[15px] font-bold text-foreground truncate">{provider.name}</h3>
-          {isOllama && (
-            <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-provider-custom/10 text-provider-custom border border-provider-custom/20">
-              Ollama
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-3">
           {/* 对于 Antigravity，显示 Claude 和 Imagen Quota */}

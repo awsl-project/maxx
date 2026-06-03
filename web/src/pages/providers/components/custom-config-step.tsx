@@ -112,11 +112,7 @@ export function CustomConfigStep() {
       <PageHeader
         icon={<ChevronLeft className="cursor-pointer" onClick={goToSelectType} />}
         title={t('provider.configure')}
-        description={
-          formData.backend === 'ollama'
-            ? t('provider.configureOllamaDescription')
-            : t('provider.configureDescription')
-        }
+        description={t('provider.configureDescription')}
       >
         <Button onClick={goToProviders} variant={'secondary'}>
           {t('common.cancel')}

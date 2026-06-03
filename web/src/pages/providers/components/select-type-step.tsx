@@ -1,5 +1,4 @@
 import {
-  Bot,
   Server,
   Wand2,
   Layers,
@@ -11,7 +10,7 @@ import {
   Sparkles,
   ChevronLeft,
 } from 'lucide-react';
-import { defaultClients, quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
+import { quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
 import { Button } from '@/components/ui';
 import { PageHeader } from '@/components/layout/page-header';
 import { useTranslation } from 'react-i18next';
@@ -22,26 +21,10 @@ export function SelectTypeStep() {
   const { formData, updateFormData } = useProviderForm();
   const { goToCustomConfig, goToAntigravity, goToKiro, goToCodex, goToClaude, goToBedrock, goToProviders } =
     useProviderNavigation();
-  const isPlainCustomSelected =
-    formData.type === 'custom' && formData.backend !== 'ollama' && !!formData.name.trim();
   const { t } = useTranslation();
 
   const handleSelectType = (type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude') => {
-    updateFormData({
-      type,
-      ...(type === 'custom'
-        ? {
-            selectedTemplate: null,
-            name: '',
-            baseURL: '',
-            backend: 'http' as const,
-            apiKey: '',
-            clients: [...defaultClients],
-            modelMappings: undefined,
-            logo: undefined,
-          }
-        : {}),
-    });
+    updateFormData({ type });
     if (type === 'antigravity') {
       goToAntigravity();
     } else if (type === 'bedrock') {
@@ -53,25 +36,6 @@ export function SelectTypeStep() {
     } else if (type === 'claude') {
       goToClaude();
     }
-  };
-
-  const handleSelectOllama = () => {
-    updateFormData({
-      type: 'custom',
-      selectedTemplate: null,
-      name: 'Ollama',
-      baseURL: 'http://127.0.0.1:11434',
-      backend: 'ollama',
-      apiKey: '',
-      clients: formData.clients.map((client) => ({
-        ...client,
-        enabled: client.id === 'claude',
-        urlOverride: '',
-      })),
-      modelMappings: [{ pattern: 'claude-*', target: 'llama3.1:8b' }],
-      logo: undefined,
-    });
-    goToCustomConfig();
   };
 
   const handleApplyTemplate = (templateId: string) => {
@@ -86,9 +50,7 @@ export function SelectTypeStep() {
       updateFormData({
         selectedTemplate: templateId,
         name: template.name,
-        baseURL: '',
         backend: 'http',
-        apiKey: '',
         clients: updatedClients,
         modelMappings: template.modelMappings,
         logo: template.logoUrl,
@@ -280,7 +242,7 @@ export function SelectTypeStep() {
                 onClick={() => handleSelectType('custom')}
                 variant="ghost"
                 className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                  isPlainCustomSelected
+                  formData.type === 'custom'
                     ? 'border-provider-custom bg-provider-custom/10 shadow-sm'
                     : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
                 }`}
@@ -299,36 +261,7 @@ export function SelectTypeStep() {
                     </p>
                   </div>
 
-                  {isPlainCustomSelected && (
-                    <CheckCircle2 className="size-5 text-provider-custom shrink-0 self-center animate-in zoom-in-50 duration-200" />
-                  )}
-                </div>
-              </Button>
-
-              <Button
-                onClick={handleSelectOllama}
-                variant="ghost"
-                className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                  formData.type === 'custom' && formData.backend === 'ollama'
-                    ? 'border-provider-custom bg-provider-custom/10 shadow-sm'
-                    : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
-                }`}
-              >
-                <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
-                  <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-custom/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
-                    <Bot className="size-5 md:size-6 text-provider-custom" />
-                  </div>
-
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">
-                      {t('addProvider.ollama.name')}
-                    </h3>
-                    <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
-                      {t('addProvider.ollama.description')}
-                    </p>
-                  </div>
-
-                  {formData.type === 'custom' && formData.backend === 'ollama' && (
+                  {formData.type === 'custom' && (
                     <CheckCircle2 className="size-5 text-provider-custom shrink-0 self-center animate-in zoom-in-50 duration-200" />
                   )}
                 </div>
@@ -337,7 +270,7 @@ export function SelectTypeStep() {
           </div>
 
           {/* Section: Templates (Custom only) */}
-          {formData.type === 'custom' && formData.backend !== 'ollama' && (
+          {formData.type === 'custom' && (
             <div className="space-y-3 sm:space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
               <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
                 <h3 className="text-base sm:text-lg font-semibold text-foreground">
