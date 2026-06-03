@@ -30,7 +30,9 @@ var requestSnapshotMaxBytes = func() int {
 // content-type + 大小占位即可。
 //
 // devMode 请求保留完整 body 方便调试,与 clearDetail 的 dev_mode 豁免一致。
-// 普通文本/JSON(对话请求)始终原样保留,不按大小截断,避免丢失审计价值。
+// 普通文本/JSON(对话请求)在 requestSnapshotMaxBytes 以内原样保留以保审计价值;
+// 超过上限的(含伪装成非二进制类型的超大 body)同样截断成占位。该阈值远大于正常
+// 对话体积,日常请求不受影响。
 //
 // 放在 domain 包是因为 executor 与 handler 两条接入路径都要构造 RequestInfo,
 // 这里集中策略避免两处实现漂移。
