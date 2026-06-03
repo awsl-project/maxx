@@ -249,8 +249,6 @@ export type ProviderFormData = {
   selectedTemplate: string | null;
   baseURL: string;
   backend: CustomBackend;
-  ollamaNumCtx?: string;
-  ollamaKeepAlive?: string;
   apiKey: string;
   clients: ClientConfig[];
   // Disguise: which client identity to present to the upstream relay.

@@ -111,17 +111,3 @@ func TestMatchModelMapping(t *testing.T) {
 		})
 	}
 }
-
-func TestProviderConfigModelMappingCustom(t *testing.T) {
-	provider := &domain.Provider{
-		Type: "custom",
-		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
-			ModelMapping: map[string]string{"*sonnet*": "minimax-m3:cloud"},
-		}},
-	}
-
-	mapping := providerConfigModelMapping(provider)
-	if mapping["*sonnet*"] != "minimax-m3:cloud" {
-		t.Fatalf("mapping = %#v", mapping)
-	}
-}

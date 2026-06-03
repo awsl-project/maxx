@@ -24,9 +24,6 @@ type ProviderConfigCustom struct {
 	// requests to Ollama /api/chat and wraps responses back to Claude format.
 	Backend string `json:"backend,omitempty"`
 
-	// Ollama contains options for the native Ollama /api/chat backend.
-	Ollama *ProviderConfigCustomOllama `json:"ollama,omitempty"`
-
 	// API Key
 	APIKey string `json:"apiKey"`
 
@@ -51,14 +48,6 @@ type ProviderConfigCustom struct {
 
 	// ResponseModel 映射: UpstreamResponseModel → ClientResponseModel
 	ResponseModelMapping map[string]string `json:"responseModelMapping,omitempty"`
-}
-
-type ProviderConfigCustomOllama struct {
-	// NumCtx sets Ollama options.num_ctx. Zero uses the adapter default.
-	NumCtx int `json:"numCtx,omitempty"`
-
-	// KeepAlive forwards Ollama keep_alive, for example "5m" or "30m".
-	KeepAlive string `json:"keepAlive,omitempty"`
 }
 
 // Disguise type constants. Use these instead of magic strings when dispatching

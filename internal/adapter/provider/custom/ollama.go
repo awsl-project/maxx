@@ -18,9 +18,7 @@ import (
 )
 
 const (
-	customBackendOllama      = "ollama"
-	defaultOllamaNumCtx      = 32768
-	maxOllamaStreamLineBytes = 64 * 1024 * 1024
+	customBackendOllama = "ollama"
 )
 
 var ollamaHTTPClient = &http.Client{Timeout: 10 * time.Minute}
@@ -48,12 +46,11 @@ type claudeInputTool struct {
 }
 
 type ollamaChatRequest struct {
-	Model     string                 `json:"model"`
-	Messages  []ollamaMessage        `json:"messages"`
-	Tools     []ollamaTool           `json:"tools,omitempty"`
-	Stream    bool                   `json:"stream"`
-	Options   map[string]interface{} `json:"options,omitempty"`
-	KeepAlive string                 `json:"keep_alive,omitempty"`
+	Model    string                 `json:"model"`
+	Messages []ollamaMessage        `json:"messages"`
+	Tools    []ollamaTool           `json:"tools,omitempty"`
+	Stream   bool                   `json:"stream"`
+	Options  map[string]interface{} `json:"options,omitempty"`
 }
 
 type ollamaMessage struct {
@@ -92,11 +89,6 @@ type ollamaChatResponse struct {
 	Error           string        `json:"error,omitempty"`
 }
 
-type ollamaOptionsConfig struct {
-	NumCtx    int
-	KeepAlive string
-}
-
 func (a *CustomAdapter) executeOllama(c *flow.Ctx, provider *domain.Provider) error {
 	clientType := flow.GetClientType(c)
 	if clientType != domain.ClientTypeClaude {
@@ -112,7 +104,7 @@ func (a *CustomAdapter) executeOllama(c *flow.Ctx, provider *domain.Provider) er
 		ctx = c.Request.Context()
 	}
 
-	ollamaReq, claudeReq, err := buildOllamaChatRequest(requestBody, mappedModel, resolveOllamaOptions(provider))
+	ollamaReq, claudeReq, err := buildOllamaChatRequest(requestBody, mappedModel)
 	if err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, err.Error())
 		proxyErr.Scope = domain.ScopeRequest
@@ -171,19 +163,7 @@ func (a *CustomAdapter) executeOllama(c *flow.Ctx, provider *domain.Provider) er
 	return a.handleOllamaNonStreamResponse(c, resp, claudeReq, ollamaReq.Model)
 }
 
-func resolveOllamaOptions(provider *domain.Provider) ollamaOptionsConfig {
-	options := ollamaOptionsConfig{NumCtx: defaultOllamaNumCtx}
-	if provider == nil || provider.Config == nil || provider.Config.Custom == nil || provider.Config.Custom.Ollama == nil {
-		return options
-	}
-	if provider.Config.Custom.Ollama.NumCtx > 0 {
-		options.NumCtx = provider.Config.Custom.Ollama.NumCtx
-	}
-	options.KeepAlive = strings.TrimSpace(provider.Config.Custom.Ollama.KeepAlive)
-	return options
-}
-
-func buildOllamaChatRequest(body []byte, mappedModel string, ollamaOptions ollamaOptionsConfig) (*ollamaChatRequest, *claudeMessageRequest, error) {
+func buildOllamaChatRequest(body []byte, mappedModel string) (*ollamaChatRequest, *claudeMessageRequest, error) {
 	var req claudeMessageRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, nil, fmt.Errorf("invalid Claude request body: %w", err)
@@ -217,9 +197,6 @@ func buildOllamaChatRequest(body []byte, mappedModel string, ollamaOptions ollam
 	}
 
 	options := map[string]interface{}{}
-	if ollamaOptions.NumCtx > 0 {
-		options["num_ctx"] = ollamaOptions.NumCtx
-	}
 	if req.MaxTokens > 0 {
 		options["num_predict"] = req.MaxTokens
 	}
@@ -234,12 +211,11 @@ func buildOllamaChatRequest(body []byte, mappedModel string, ollamaOptions ollam
 	}
 
 	return &ollamaChatRequest{
-		Model:     model,
-		Messages:  messages,
-		Tools:     convertClaudeToolsToOllama(req.Tools),
-		Stream:    req.Stream,
-		Options:   options,
-		KeepAlive: ollamaOptions.KeepAlive,
+		Model:    model,
+		Messages: messages,
+		Tools:    convertClaudeToolsToOllama(req.Tools),
+		Stream:   req.Stream,
+		Options:  options,
 	}, &req, nil
 }
 
@@ -461,27 +437,14 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 		})
 	}
 
-	lineReader := newOllamaLineReader(resp.Body)
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	inputTokens, outputTokens := 0, 0
 	responseModel := model
 	stopReason := "end_turn"
 	firstTokenSent := false
-	for {
-		line, readErr := lineReader.readLine()
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				break
-			}
-			message := "failed reading Ollama stream: " + readErr.Error()
-			if writeErr := writeSSEError(message); writeErr != nil {
-				return clientDisconnectedErr(writeErr)
-			}
-			proxyErr := domain.NewProxyErrorWithMessage(readErr, true, "failed reading Ollama stream")
-			proxyErr.Scope = domain.ScopeProvider
-			proxyErr.Reason = domain.CooldownReasonNetworkError
-			return proxyErr
-		}
-		line = strings.TrimSpace(line)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
@@ -525,6 +488,16 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 			stopReason = ollamaStopReasonToClaude(chunk.DoneReason)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		message := "failed reading Ollama stream: " + err.Error()
+		if writeErr := writeSSEError(message); writeErr != nil {
+			return clientDisconnectedErr(writeErr)
+		}
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed reading Ollama stream")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
+	}
 
 	if err := sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": 0}); err != nil {
 		return clientDisconnectedErr(err)
@@ -551,34 +524,6 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 	}
 	_ = claudeReq
 	return nil
-}
-
-type ollamaLineReader struct {
-	r *bufio.Reader
-}
-
-func newOllamaLineReader(r io.Reader) *ollamaLineReader {
-	return &ollamaLineReader{r: bufio.NewReaderSize(r, 64*1024)}
-}
-
-func (r *ollamaLineReader) readLine() (string, error) {
-	var out strings.Builder
-	for {
-		part, err := r.r.ReadString('\n')
-		if out.Len()+len(part) > maxOllamaStreamLineBytes {
-			return "", fmt.Errorf("Ollama stream line exceeds %d bytes", maxOllamaStreamLineBytes)
-		}
-		out.WriteString(part)
-		if err != nil {
-			if errors.Is(err, io.EOF) && out.Len() > 0 {
-				return out.String(), nil
-			}
-			return "", err
-		}
-		if strings.HasSuffix(part, "\n") {
-			return out.String(), nil
-		}
-	}
 }
 
 func ollamaMessageToClaudeContent(message ollamaMessage) []map[string]interface{} {
@@ -613,7 +558,7 @@ func ollamaStopReasonToClaude(reason string) string {
 }
 
 func classifyOllamaHTTPError(status int, body []byte, model string) error {
-	msg := extractOllamaErrorMessage(body)
+	msg := strings.TrimSpace(string(body))
 	if msg == "" {
 		msg = http.StatusText(status)
 	}
@@ -645,26 +590,6 @@ func classifyOllamaHTTPError(status int, body []byte, model string) error {
 		}
 	}
 	return proxyErr
-}
-
-func extractOllamaErrorMessage(body []byte) string {
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 {
-		return ""
-	}
-	var parsed struct {
-		Error   string `json:"error"`
-		Message string `json:"message"`
-	}
-	if json.Unmarshal(trimmed, &parsed) == nil {
-		if strings.TrimSpace(parsed.Error) != "" {
-			return strings.TrimSpace(parsed.Error)
-		}
-		if strings.TrimSpace(parsed.Message) != "" {
-			return strings.TrimSpace(parsed.Message)
-		}
-	}
-	return strings.TrimSpace(string(trimmed))
 }
 
 func clientDisconnectedErr(err error) error {

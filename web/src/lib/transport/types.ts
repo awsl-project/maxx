@@ -37,7 +37,6 @@ export interface ProviderConfigCustomDisguise {
 export interface ProviderConfigCustom {
   baseURL: string;
   backend?: 'ollama';
-  ollama?: ProviderConfigCustomOllama;
   apiKey: string;
   // 伪装配置：选择把对外发包装成什么客户端。替代旧的 cloak 字段。
   disguise?: ProviderConfigCustomDisguise;
@@ -45,11 +44,6 @@ export interface ProviderConfigCustom {
   clientMultiplier?: Partial<Record<ClientType, number>>; // 10000=1倍
   modelMapping?: Record<string, string>;
   responseModelMapping?: Record<string, string>;
-}
-
-export interface ProviderConfigCustomOllama {
-  numCtx?: number;
-  keepAlive?: string;
 }
 
 export interface ProviderConfigAntigravity {
