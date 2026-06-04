@@ -20,7 +20,9 @@ import {
   Ban,
   CalendarRange,
   X,
+  Clock,
 } from 'lucide-react';
+import { format as formatDate } from 'date-fns';
 import type {
   APIToken,
   Project,
@@ -45,7 +47,10 @@ import {
   SelectGroup,
   SelectLabel,
   Input,
+  Button,
 } from '@/components/ui';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -72,15 +77,11 @@ const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
 
-function dateTimeLocalToISOString(value: string): string | undefined {
-  if (!value) {
+function dateToISOString(value: Date | undefined): string | undefined {
+  if (!value || !Number.isFinite(value.getTime())) {
     return undefined;
   }
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) {
-    return undefined;
-  }
-  return date.toISOString();
+  return value.toISOString();
 }
 
 function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'>): boolean {
@@ -236,8 +237,8 @@ export function RequestsPage() {
   );
   // Status 过滤器
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
-  const [startDateTime, setStartDateTime] = useState('');
-  const [endDateTime, setEndDateTime] = useState('');
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -249,11 +250,8 @@ export function RequestsPage() {
   const activeTokenId = filterMode === 'token' ? selectedTokenId : undefined;
   const activeProjectId = filterMode === 'project' ? selectedProjectId : undefined;
 
-  const activeStartTime = useMemo(
-    () => dateTimeLocalToISOString(startDateTime),
-    [startDateTime],
-  );
-  const activeEndTime = useMemo(() => dateTimeLocalToISOString(endDateTime), [endDateTime]);
+  const activeStartTime = useMemo(() => dateToISOString(startDate), [startDate]);
+  const activeEndTime = useMemo(() => dateToISOString(endDate), [endDate]);
 
   const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
   const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
@@ -576,14 +574,14 @@ export function RequestsPage() {
     scrollContainerRef.current?.scrollTo({ top: 0 });
   };
 
-  const handleTimeRangeChange = (nextStartDateTime: string, nextEndDateTime: string) => {
-    setStartDateTime(nextStartDateTime);
-    setEndDateTime(nextEndDateTime);
+  const handleTimeRangeChange = (nextStart: Date | undefined, nextEnd: Date | undefined) => {
+    setStartDate(nextStart);
+    setEndDate(nextEnd);
     scrollContainerRef.current?.scrollTo({ top: 0 });
   };
 
   const handleClearTimeRange = () => {
-    handleTimeRangeChange('', '');
+    handleTimeRangeChange(undefined, undefined);
   };
 
   const handleOpenRequest = useCallback(
@@ -671,8 +669,8 @@ export function RequestsPage() {
         {/* Status Filter */}
         <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
         <TimeRangeFilter
-          startDateTime={startDateTime}
-          endDateTime={endDateTime}
+          startDate={startDate}
+          endDate={endDate}
           onChange={handleTimeRangeChange}
           onClear={handleClearTimeRange}
         />
@@ -1482,53 +1480,106 @@ function ProjectFilter({
   );
 }
 
+function DateTimePicker({
+  value,
+  onChange,
+  label,
+}: {
+  value: Date | undefined;
+  onChange: (date: Date | undefined) => void;
+  label: string;
+}) {
+  const handleDateSelect = (day: Date | undefined) => {
+    if (!day) {
+      onChange(undefined);
+      return;
+    }
+    const next = value ? new Date(value) : new Date(day);
+    next.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
+    onChange(next);
+  };
+
+  const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const [hours, minutes] = e.target.value.split(':').map(Number);
+    const next = value ? new Date(value) : new Date();
+    next.setHours(hours, minutes, 0, 0);
+    onChange(next);
+  };
+
+  const timeValue = value
+    ? `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`
+    : '';
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        className={cn(
+          'flex h-8 items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2 text-xs transition-colors hover:bg-muted',
+          !value && 'text-muted-foreground',
+        )}
+      >
+        <CalendarRange size={13} className="shrink-0 text-muted-foreground" />
+        <span>{value ? formatDate(value, 'MM/dd HH:mm') : label}</span>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={value}
+          onSelect={handleDateSelect}
+          initialFocus
+        />
+        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+          <Clock size={14} className="text-muted-foreground" />
+          <Input
+            type="time"
+            value={timeValue}
+            onChange={handleTimeChange}
+            className="h-7 w-24 border-border/50 text-xs"
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function TimeRangeFilter({
-  startDateTime,
-  endDateTime,
+  startDate,
+  endDate,
   onChange,
   onClear,
 }: {
-  startDateTime: string;
-  endDateTime: string;
-  onChange: (startDateTime: string, endDateTime: string) => void;
+  startDate: Date | undefined;
+  endDate: Date | undefined;
+  onChange: (startDate: Date | undefined, endDate: Date | undefined) => void;
   onClear: () => void;
 }) {
   const { t } = useTranslation();
-  const hasValue = startDateTime !== '' || endDateTime !== '';
+  const hasValue = startDate !== undefined || endDate !== undefined;
 
   return (
-    <div className="flex h-8 max-w-full items-center gap-1 rounded-lg border border-border/50 bg-muted/30 px-1.5">
-      <CalendarRange size={14} className="shrink-0 text-muted-foreground" />
-      <Input
-        type="datetime-local"
-        value={startDateTime}
-        aria-label={t('requests.timeFrom')}
-        title={t('requests.timeFrom')}
-        onChange={(event) => onChange(event.target.value, endDateTime)}
-        className="h-6 w-[8.5rem] border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0 sm:w-[9.8rem]"
+    <div className="flex items-center gap-1">
+      <DateTimePicker
+        value={startDate}
+        onChange={(d) => onChange(d, endDate)}
+        label={t('requests.timeFrom')}
       />
       <span className="text-xs text-muted-foreground">-</span>
-      <Input
-        type="datetime-local"
-        value={endDateTime}
-        aria-label={t('requests.timeTo')}
-        title={t('requests.timeTo')}
-        onChange={(event) => onChange(startDateTime, event.target.value)}
-        className="h-6 w-[8.5rem] border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0 sm:w-[9.8rem]"
+      <DateTimePicker
+        value={endDate}
+        onChange={(d) => onChange(startDate, d)}
+        label={t('requests.timeTo')}
       />
-      <button
-        type="button"
-        onClick={onClear}
-        disabled={!hasValue}
-        title={t('requests.clearTimeRange')}
-        aria-label={t('requests.clearTimeRange')}
-        className={cn(
-          'grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors',
-          hasValue ? 'hover:bg-muted hover:text-foreground' : 'cursor-not-allowed opacity-40',
-        )}
-      >
-        <X size={13} />
-      </button>
+      {hasValue && (
+        <button
+          type="button"
+          onClick={onClear}
+          title={t('requests.clearTimeRange')}
+          aria-label={t('requests.clearTimeRange')}
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X size={13} />
+        </button>
+      )}
     </div>
   );
 }

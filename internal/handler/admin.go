@@ -952,6 +952,10 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 					}
 					filter.EndTime = endTime
 				}
+				if filter.StartTime != nil && filter.EndTime != nil && filter.EndTime.Before(*filter.StartTime) {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endTime must be greater than or equal to startTime"})
+					return
+				}
 			}
 
 			result, err := h.svc.GetProxyRequestsCursor(tenantID, limit, before, after, filter)
@@ -1028,6 +1032,10 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 				return
 			}
 			filter.EndTime = endTime
+		}
+		if filter.StartTime != nil && filter.EndTime != nil && filter.EndTime.Before(*filter.StartTime) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endTime must be greater than or equal to startTime"})
+			return
 		}
 	}
 
