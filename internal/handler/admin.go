@@ -825,67 +825,7 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// ProxyRequest handlers
-// Routes: /admin/requests, /admin/requests/count, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts, /admin/requests/{id}/recalculate-cost
-func parseProxyRequestFilter(r *http.Request) (*repository.ProxyRequestFilter, error) {
-	query := r.URL.Query()
-	filter := &repository.ProxyRequestFilter{}
-
-	if providerID, err := parseUintQuery(query.Get("providerId"), "providerId"); err != nil {
-		return nil, err
-	} else if providerID != nil {
-		filter.ProviderID = providerID
-	}
-
-	if status := query.Get("status"); status != "" {
-		filter.Status = &status
-	}
-
-	if apiTokenID, err := parseUintQuery(query.Get("apiTokenId"), "apiTokenId"); err != nil {
-		return nil, err
-	} else if apiTokenID != nil {
-		filter.APITokenID = apiTokenID
-	}
-
-	if projectID, err := parseUintQuery(query.Get("projectId"), "projectId"); err != nil {
-		return nil, err
-	} else if projectID != nil {
-		filter.ProjectID = projectID
-	}
-
-	if startTime, err := parseTimeQuery(query.Get("startTime"), "startTime"); err != nil {
-		return nil, err
-	} else if startTime != nil {
-		filter.StartTime = startTime
-	}
-
-	if endTime, err := parseTimeQuery(query.Get("endTime"), "endTime"); err != nil {
-		return nil, err
-	} else if endTime != nil {
-		filter.EndTime = endTime
-	}
-
-	if filter.StartTime != nil && filter.EndTime != nil && filter.EndTime.Before(*filter.StartTime) {
-		return nil, errors.New("endTime must be greater than or equal to startTime")
-	}
-
-	if filter.IsEmpty() {
-		return nil, nil
-	}
-	return filter, nil
-}
-
-func parseUintQuery(raw, name string) (*uint64, error) {
-	if raw == "" {
-		return nil, nil
-	}
-	value, err := strconv.ParseUint(raw, 10, 64)
-	if err != nil {
-		return nil, errors.New("invalid " + name)
-	}
-	return &value, nil
-}
-
+// parseTimeQuery parses a time query parameter as either a 13-digit millisecond timestamp or RFC3339.
 func parseTimeQuery(raw, name string) (*time.Time, error) {
 	if raw == "" {
 		return nil, nil
@@ -907,6 +847,8 @@ func parseTimeQuery(raw, name string) (*time.Time, error) {
 	return nil, errors.New("invalid " + name + ": expected millisecond timestamp or RFC3339")
 }
 
+// ProxyRequest handlers
+// Routes: /admin/requests, /admin/requests/count, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts, /admin/requests/{id}/recalculate-cost
 func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
 	// Check for count endpoint: /admin/requests/count
 	if len(parts) > 2 && parts[2] == "count" {
@@ -956,10 +898,60 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 				after, _ = strconv.ParseUint(a, 10, 64)
 			}
 
-			filter, err := parseProxyRequestFilter(r)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
+			// 构建过滤条件
+			var filter *repository.ProxyRequestFilter
+			providerIDStr := r.URL.Query().Get("providerId")
+			statusStr := r.URL.Query().Get("status")
+			apiTokenIDStr := r.URL.Query().Get("apiTokenId")
+			projectIDStr := r.URL.Query().Get("projectId")
+			startTimeStr := r.URL.Query().Get("startTime")
+			endTimeStr := r.URL.Query().Get("endTime")
+
+			if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" || startTimeStr != "" || endTimeStr != "" {
+				filter = &repository.ProxyRequestFilter{}
+				if providerIDStr != "" {
+					providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid providerId"})
+						return
+					}
+					filter.ProviderID = &providerID
+				}
+				if statusStr != "" {
+					filter.Status = &statusStr
+				}
+				if apiTokenIDStr != "" {
+					apiTokenID, err := strconv.ParseUint(apiTokenIDStr, 10, 64)
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid apiTokenId"})
+						return
+					}
+					filter.APITokenID = &apiTokenID
+				}
+				if projectIDStr != "" {
+					projectID, err := strconv.ParseUint(projectIDStr, 10, 64)
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid projectId"})
+						return
+					}
+					filter.ProjectID = &projectID
+				}
+				if startTimeStr != "" {
+					startTime, err := parseTimeQuery(startTimeStr, "startTime")
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+						return
+					}
+					filter.StartTime = startTime
+				}
+				if endTimeStr != "" {
+					endTime, err := parseTimeQuery(endTimeStr, "endTime")
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+						return
+					}
+					filter.EndTime = endTime
+				}
 			}
 
 			result, err := h.svc.GetProxyRequestsCursor(tenantID, limit, before, after, filter)
@@ -983,10 +975,60 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 
-	filter, err := parseProxyRequestFilter(r)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
+	// 解析过滤参数
+	var filter *repository.ProxyRequestFilter
+	providerIDStr := r.URL.Query().Get("providerId")
+	statusStr := r.URL.Query().Get("status")
+	apiTokenIDStr := r.URL.Query().Get("apiTokenId")
+	projectIDStr := r.URL.Query().Get("projectId")
+	startTimeStr := r.URL.Query().Get("startTime")
+	endTimeStr := r.URL.Query().Get("endTime")
+
+	if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" || startTimeStr != "" || endTimeStr != "" {
+		filter = &repository.ProxyRequestFilter{}
+		if providerIDStr != "" {
+			providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid providerId"})
+				return
+			}
+			filter.ProviderID = &providerID
+		}
+		if statusStr != "" {
+			filter.Status = &statusStr
+		}
+		if apiTokenIDStr != "" {
+			apiTokenID, err := strconv.ParseUint(apiTokenIDStr, 10, 64)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid apiTokenId"})
+				return
+			}
+			filter.APITokenID = &apiTokenID
+		}
+		if projectIDStr != "" {
+			projectID, err := strconv.ParseUint(projectIDStr, 10, 64)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid projectId"})
+				return
+			}
+			filter.ProjectID = &projectID
+		}
+		if startTimeStr != "" {
+			startTime, err := parseTimeQuery(startTimeStr, "startTime")
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			filter.StartTime = startTime
+		}
+		if endTimeStr != "" {
+			endTime, err := parseTimeQuery(endTimeStr, "endTime")
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			filter.EndTime = endTime
+		}
 	}
 
 	count, err := h.svc.GetProxyRequestsCountWithFilter(tenantID, filter)
