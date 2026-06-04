@@ -28,6 +28,8 @@ type claudeMessageRequest struct {
 	Messages      []claudeInputMessage `json:"messages"`
 	System        json.RawMessage      `json:"system,omitempty"`
 	Tools         []claudeInputTool    `json:"tools,omitempty"`
+	ToolChoice    *claudeToolChoice    `json:"tool_choice,omitempty"`
+	Thinking      *claudeThinking      `json:"thinking,omitempty"`
 	MaxTokens     int                  `json:"max_tokens,omitempty"`
 	Temperature   *float64             `json:"temperature,omitempty"`
 	StopSequences []string             `json:"stop_sequences,omitempty"`
@@ -45,10 +47,20 @@ type claudeInputTool struct {
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 
+type claudeToolChoice struct {
+	Type string `json:"type"`
+	Name string `json:"name,omitempty"`
+}
+
+type claudeThinking struct {
+	Type string `json:"type"`
+}
+
 type ollamaChatRequest struct {
 	Model    string                 `json:"model"`
 	Messages []ollamaMessage        `json:"messages"`
 	Tools    []ollamaTool           `json:"tools,omitempty"`
+	Think    *bool                  `json:"think,omitempty"`
 	Stream   bool                   `json:"stream"`
 	Options  map[string]interface{} `json:"options,omitempty"`
 }
@@ -56,6 +68,9 @@ type ollamaChatRequest struct {
 type ollamaMessage struct {
 	Role      string           `json:"role"`
 	Content   string           `json:"content,omitempty"`
+	Thinking  string           `json:"thinking,omitempty"`
+	Images    []string         `json:"images,omitempty"`
+	ToolName  string           `json:"tool_name,omitempty"`
 	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -184,16 +199,13 @@ func buildOllamaChatRequest(body []byte, mappedModel string) (*ollamaChatRequest
 		messages = append(messages, ollamaMessage{Role: "system", Content: systemText})
 	}
 
+	toolNamesByID := map[string]string{}
 	for _, msg := range req.Messages {
-		role := strings.ToLower(strings.TrimSpace(msg.Role))
-		if role != "user" && role != "assistant" && role != "system" {
-			return nil, nil, fmt.Errorf("unsupported Claude message role for Ollama backend: %s", msg.Role)
-		}
-		text, err := claudeContentToText(msg.Content)
+		converted, err := claudeMessageToOllamaMessages(msg, toolNamesByID)
 		if err != nil {
 			return nil, nil, err
 		}
-		messages = append(messages, ollamaMessage{Role: role, Content: text})
+		messages = append(messages, converted...)
 	}
 
 	options := map[string]interface{}{}
@@ -213,7 +225,8 @@ func buildOllamaChatRequest(body []byte, mappedModel string) (*ollamaChatRequest
 	return &ollamaChatRequest{
 		Model:    model,
 		Messages: messages,
-		Tools:    convertClaudeToolsToOllama(req.Tools),
+		Tools:    convertClaudeToolsToOllama(req.Tools, req.ToolChoice),
+		Think:    convertClaudeThinkingToOllama(req.Thinking),
 		Stream:   req.Stream,
 		Options:  options,
 	}, &req, nil
@@ -226,23 +239,51 @@ func claudeSystemToText(raw json.RawMessage) (string, error) {
 	return claudeContentToText(raw)
 }
 
-func claudeContentToText(raw json.RawMessage) (string, error) {
+func claudeMessageToOllamaMessages(msg claudeInputMessage, toolNamesByID map[string]string) ([]ollamaMessage, error) {
+	role := strings.ToLower(strings.TrimSpace(msg.Role))
+	if role != "user" && role != "assistant" && role != "system" {
+		return nil, fmt.Errorf("unsupported Claude message role for Ollama backend: %s", msg.Role)
+	}
+
+	content, images, toolCalls, toolResults, thinking, err := claudeContentToOllamaParts(msg.Content, role, toolNamesByID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ollamaMessage, 0, 1+len(toolResults))
+	if content != "" || thinking != "" || len(images) > 0 || len(toolCalls) > 0 || len(toolResults) == 0 {
+		out = append(out, ollamaMessage{Role: role, Content: content, Thinking: thinking, Images: images, ToolCalls: toolCalls})
+	}
+	out = append(out, toolResults...)
+	return out, nil
+}
+
+type claudeToolResultPart struct {
+	ToolUseID string
+	Content   string
+}
+
+func claudeContentToOllamaParts(raw json.RawMessage, role string, toolNamesByID map[string]string) (string, []string, []ollamaToolCall, []ollamaMessage, string, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" {
-		return "", nil
+		return "", nil, nil, nil, "", nil
 	}
 
 	var s string
 	if err := json.Unmarshal(trimmed, &s); err == nil {
-		return s, nil
+		return s, nil, nil, nil, "", nil
 	}
 
 	var blocks []map[string]json.RawMessage
 	if err := json.Unmarshal(trimmed, &blocks); err != nil {
-		return "", fmt.Errorf("unsupported Claude content shape for Ollama backend")
+		return "", nil, nil, nil, "", fmt.Errorf("unsupported Claude content shape for Ollama backend")
 	}
 
 	parts := make([]string, 0, len(blocks))
+	images := []string{}
+	toolCalls := []ollamaToolCall{}
+	toolResults := []ollamaMessage{}
+	thinkingParts := []string{}
 	for _, block := range blocks {
 		var blockType string
 		_ = json.Unmarshal(block["type"], &blockType)
@@ -253,36 +294,124 @@ func claudeContentToText(raw json.RawMessage) (string, error) {
 			if strings.TrimSpace(text) != "" {
 				parts = append(parts, text)
 			}
-		case "tool_result":
-			var toolUseID string
-			_ = json.Unmarshal(block["tool_use_id"], &toolUseID)
-			text, err := claudeContentToText(block["content"])
-			if err != nil {
-				var fallback string
-				if json.Unmarshal(block["content"], &fallback) == nil {
-					text = fallback
-				} else {
-					text = string(block["content"])
-				}
+		case "thinking":
+			var text string
+			_ = json.Unmarshal(block["thinking"], &text)
+			if strings.TrimSpace(text) != "" {
+				thinkingParts = append(thinkingParts, text)
 			}
-			if toolUseID != "" {
-				parts = append(parts, "Tool result "+toolUseID+":\n"+text)
-			} else {
-				parts = append(parts, text)
+		case "redacted_thinking":
+			// Anthropic redacted thinking cannot be replayed to Ollama. Drop it
+			// rather than leaking an opaque provider-specific blob into content.
+		case "image":
+			image, err := claudeImageBlockToOllama(block)
+			if err != nil {
+				return "", nil, nil, nil, "", err
+			}
+			if image != "" {
+				images = append(images, image)
 			}
 		case "tool_use":
-			// Preserve assistant-side tool call history as text so Ollama keeps context
-			// without pretending it has Claude's native content-block protocol.
-			parts = append(parts, string(mustJSON(block)))
-		case "image", "document":
-			return "", fmt.Errorf("Ollama custom backend does not support Claude %s content", blockType)
+			call, id, name, err := claudeToolUseBlockToOllama(block)
+			if err != nil {
+				return "", nil, nil, nil, "", err
+			}
+			if id != "" && name != "" {
+				toolNamesByID[id] = name
+			}
+			toolCalls = append(toolCalls, call)
+		case "tool_result":
+			result, err := claudeToolResultBlockToText(block)
+			if err != nil {
+				return "", nil, nil, nil, "", err
+			}
+			toolName := toolNamesByID[result.ToolUseID]
+			if toolName == "" {
+				toolName = result.ToolUseID
+			}
+			toolResults = append(toolResults, ollamaMessage{Role: "tool", Content: result.Content, ToolName: toolName})
+		case "document":
+			return "", nil, nil, nil, "", fmt.Errorf("Ollama custom backend does not support Claude document content")
 		default:
 			if len(block) > 0 {
 				parts = append(parts, string(mustJSON(block)))
 			}
 		}
 	}
+	return strings.Join(parts, "\n\n"), images, toolCalls, toolResults, strings.Join(thinkingParts, "\n\n"), nil
+}
+
+func claudeContentToText(raw json.RawMessage) (string, error) {
+	content, _, _, toolResults, thinking, err := claudeContentToOllamaParts(raw, "", map[string]string{})
+	if err != nil {
+		return "", err
+	}
+	parts := []string{}
+	if content != "" {
+		parts = append(parts, content)
+	}
+	if thinking != "" {
+		parts = append(parts, thinking)
+	}
+	for _, result := range toolResults {
+		if result.ToolName != "" {
+			parts = append(parts, "Tool result "+result.ToolName+":\n"+result.Content)
+		} else {
+			parts = append(parts, result.Content)
+		}
+	}
 	return strings.Join(parts, "\n\n"), nil
+}
+
+func claudeImageBlockToOllama(block map[string]json.RawMessage) (string, error) {
+	var source map[string]json.RawMessage
+	if err := json.Unmarshal(block["source"], &source); err != nil {
+		return "", fmt.Errorf("invalid Claude image source for Ollama backend")
+	}
+	var sourceType string
+	_ = json.Unmarshal(source["type"], &sourceType)
+	switch strings.ToLower(strings.TrimSpace(sourceType)) {
+	case "base64":
+		var data string
+		_ = json.Unmarshal(source["data"], &data)
+		if strings.TrimSpace(data) == "" {
+			return "", fmt.Errorf("Claude image base64 source missing data for Ollama backend")
+		}
+		return data, nil
+	case "url":
+		return "", fmt.Errorf("Ollama custom backend does not support Claude image URL sources; use base64 image data")
+	default:
+		return "", fmt.Errorf("unsupported Claude image source type for Ollama backend: %s", sourceType)
+	}
+}
+
+func claudeToolUseBlockToOllama(block map[string]json.RawMessage) (ollamaToolCall, string, string, error) {
+	var id, name string
+	_ = json.Unmarshal(block["id"], &id)
+	_ = json.Unmarshal(block["name"], &name)
+	if strings.TrimSpace(name) == "" {
+		return ollamaToolCall{}, id, name, fmt.Errorf("Claude tool_use missing name for Ollama backend")
+	}
+	args := block["input"]
+	if len(bytes.TrimSpace(args)) == 0 {
+		args = json.RawMessage(`{}`)
+	}
+	return ollamaToolCall{Function: ollamaToolCallFunction{Name: name, Arguments: args}}, id, name, nil
+}
+
+func claudeToolResultBlockToText(block map[string]json.RawMessage) (claudeToolResultPart, error) {
+	var toolUseID string
+	_ = json.Unmarshal(block["tool_use_id"], &toolUseID)
+	text, err := claudeContentToText(block["content"])
+	if err != nil {
+		var fallback string
+		if json.Unmarshal(block["content"], &fallback) == nil {
+			text = fallback
+		} else {
+			text = string(block["content"])
+		}
+	}
+	return claudeToolResultPart{ToolUseID: toolUseID, Content: text}, nil
 }
 
 func mustJSON(v interface{}) []byte {
@@ -293,13 +422,20 @@ func mustJSON(v interface{}) []byte {
 	return b
 }
 
-func convertClaudeToolsToOllama(tools []claudeInputTool) []ollamaTool {
-	if len(tools) == 0 {
+func convertClaudeToolsToOllama(tools []claudeInputTool, choice *claudeToolChoice) []ollamaTool {
+	if len(tools) == 0 || (choice != nil && strings.EqualFold(strings.TrimSpace(choice.Type), "none")) {
 		return nil
 	}
 	out := make([]ollamaTool, 0, len(tools))
+	forceName := ""
+	if choice != nil && strings.EqualFold(strings.TrimSpace(choice.Type), "tool") {
+		forceName = strings.TrimSpace(choice.Name)
+	}
 	for _, tool := range tools {
 		if strings.TrimSpace(tool.Name) == "" {
+			continue
+		}
+		if forceName != "" && tool.Name != forceName {
 			continue
 		}
 		params := tool.InputSchema
@@ -316,6 +452,14 @@ func convertClaudeToolsToOllama(tools []claudeInputTool) []ollamaTool {
 		})
 	}
 	return out
+}
+
+func convertClaudeThinkingToOllama(thinking *claudeThinking) *bool {
+	if thinking == nil {
+		return nil
+	}
+	enabled := strings.EqualFold(strings.TrimSpace(thinking.Type), "enabled")
+	return &enabled
 }
 
 func (a *CustomAdapter) handleOllamaNonStreamResponse(c *flow.Ctx, resp *http.Response, claudeReq *claudeMessageRequest, model string) error {
@@ -416,16 +560,6 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 	}); err != nil {
 		return clientDisconnectedErr(err)
 	}
-	if err := sendSSE("content_block_start", map[string]interface{}{
-		"type":  "content_block_start",
-		"index": 0,
-		"content_block": map[string]string{
-			"type": "text",
-			"text": "",
-		},
-	}); err != nil {
-		return clientDisconnectedErr(err)
-	}
 
 	writeSSEError := func(message string) error {
 		return sendSSE("error", map[string]interface{}{
@@ -443,6 +577,79 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 	responseModel := model
 	stopReason := "end_turn"
 	firstTokenSent := false
+	blockIndex := 0
+	textBlockOpen := false
+	contentOrToolSent := false
+
+	startTextBlock := func() error {
+		if textBlockOpen {
+			return nil
+		}
+		if err := sendSSE("content_block_start", map[string]interface{}{
+			"type":  "content_block_start",
+			"index": blockIndex,
+			"content_block": map[string]string{
+				"type": "text",
+				"text": "",
+			},
+		}); err != nil {
+			return err
+		}
+		textBlockOpen = true
+		contentOrToolSent = true
+		return nil
+	}
+	stopTextBlock := func() error {
+		if !textBlockOpen {
+			return nil
+		}
+		if err := sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": blockIndex}); err != nil {
+			return err
+		}
+		textBlockOpen = false
+		blockIndex++
+		return nil
+	}
+	emitToolCall := func(call ollamaToolCall) error {
+		if err := stopTextBlock(); err != nil {
+			return err
+		}
+		name := strings.TrimSpace(call.Function.Name)
+		if name == "" {
+			name = "tool"
+		}
+		toolID := "toolu_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+		if err := sendSSE("content_block_start", map[string]interface{}{
+			"type":  "content_block_start",
+			"index": blockIndex,
+			"content_block": map[string]interface{}{
+				"type":  "tool_use",
+				"id":    toolID,
+				"name":  name,
+				"input": map[string]interface{}{},
+			},
+		}); err != nil {
+			return err
+		}
+		partialJSON := "{}"
+		if len(bytes.TrimSpace(call.Function.Arguments)) > 0 {
+			partialJSON = string(call.Function.Arguments)
+		}
+		if err := sendSSE("content_block_delta", map[string]interface{}{
+			"type":  "content_block_delta",
+			"index": blockIndex,
+			"delta": map[string]string{"type": "input_json_delta", "partial_json": partialJSON},
+		}); err != nil {
+			return err
+		}
+		if err := sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": blockIndex}); err != nil {
+			return err
+		}
+		blockIndex++
+		contentOrToolSent = true
+		return nil
+	}
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -470,11 +677,23 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 				eventChan.SendFirstToken(time.Now().UnixMilli())
 				firstTokenSent = true
 			}
+			if err := startTextBlock(); err != nil {
+				return clientDisconnectedErr(err)
+			}
 			if err := sendSSE("content_block_delta", map[string]interface{}{
 				"type":  "content_block_delta",
-				"index": 0,
+				"index": blockIndex,
 				"delta": map[string]string{"type": "text_delta", "text": chunk.Message.Content},
 			}); err != nil {
+				return clientDisconnectedErr(err)
+			}
+		}
+		for _, call := range chunk.Message.ToolCalls {
+			if eventChan != nil && !firstTokenSent {
+				eventChan.SendFirstToken(time.Now().UnixMilli())
+				firstTokenSent = true
+			}
+			if err := emitToolCall(call); err != nil {
 				return clientDisconnectedErr(err)
 			}
 		}
@@ -499,7 +718,12 @@ func (a *CustomAdapter) handleOllamaStreamResponse(c *flow.Ctx, resp *http.Respo
 		return proxyErr
 	}
 
-	if err := sendSSE("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": 0}); err != nil {
+	if !contentOrToolSent {
+		if err := startTextBlock(); err != nil {
+			return clientDisconnectedErr(err)
+		}
+	}
+	if err := stopTextBlock(); err != nil {
 		return clientDisconnectedErr(err)
 	}
 	if err := sendSSE("message_delta", map[string]interface{}{

@@ -386,6 +386,101 @@ func geminiRequest() map[string]any {
 
 // --- Passthrough Tests ---
 
+func newMockOllamaUpstream(t *testing.T, captured *capturedRequest) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.Set(r)
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected Ollama path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"qwen3-coder-next:cloud","message":{"role":"assistant","content":"ollama claude ok"},"done":true,"done_reason":"stop","prompt_eval_count":11,"eval_count":7}`))
+	}))
+}
+
+func createOllamaProvider(t *testing.T, env *ProxyTestEnv, name, baseURL string) uint64 {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/providers", map[string]any{
+		"name": name,
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": baseURL,
+				"backend": "ollama",
+			},
+		},
+		"supportedClientTypes": []string{"claude"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Failed to create Ollama provider %s: status=%d body=%s", name, resp.StatusCode, body)
+	}
+	var result struct {
+		ID uint64 `json:"id"`
+	}
+	DecodeJSON(t, resp, &result)
+	return result.ID
+}
+
+func TestProxyClaudeToCustomOllamaBackendEndToEnd(t *testing.T) {
+	env := NewProxyTestEnv(t)
+
+	captured := &capturedRequest{}
+	mock := newMockOllamaUpstream(t, captured)
+	defer mock.Close()
+
+	providerID := createOllamaProvider(t, env, "mock-ollama", mock.URL)
+	createRoute(t, env, "claude", providerID)
+
+	resp := env.ProxyPost("/v1/messages", map[string]any{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 32,
+		"thinking":   map[string]any{"type": "enabled", "budget_tokens": 16},
+		"system":     []map[string]any{{"type": "text", "text": "be precise"}},
+		"tools": []map[string]any{{
+			"name":         "lookup",
+			"description":  "lookup docs",
+			"input_schema": map[string]any{"type": "object", "properties": map[string]any{"q": map[string]any{"type": "string"}}},
+		}},
+		"messages": []map[string]any{
+			{"role": "user", "content": []map[string]any{{"type": "text", "text": "use the tool"}}},
+			{"role": "assistant", "content": []map[string]any{{"type": "tool_use", "id": "toolu_1", "name": "lookup", "input": map[string]any{"q": "ollama"}}}},
+			{"role": "user", "content": []map[string]any{{"type": "tool_result", "tool_use_id": "toolu_1", "content": "docs say OK"}}},
+		},
+	}, nil)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	if gjson.GetBytes(body, "type").String() != "message" || gjson.GetBytes(body, "content.0.text").String() != "ollama claude ok" {
+		t.Fatalf("unexpected Claude response: %s", body)
+	}
+	if gjson.GetBytes(body, "usage.input_tokens").Int() != 11 || gjson.GetBytes(body, "usage.output_tokens").Int() != 7 {
+		t.Fatalf("usage was not mapped from Ollama: %s", body)
+	}
+
+	_, path, _, upBody := captured.Get()
+	if path != "/api/chat" {
+		t.Fatalf("upstream path = %s", path)
+	}
+	if gjson.GetBytes(upBody, "model").String() != "claude-sonnet-4-20250514" {
+		t.Fatalf("upstream model = %s body=%s", gjson.GetBytes(upBody, "model").String(), upBody)
+	}
+	if !gjson.GetBytes(upBody, "think").Bool() {
+		t.Fatalf("upstream think not enabled: %s", upBody)
+	}
+	if gjson.GetBytes(upBody, "tools.0.function.name").String() != "lookup" {
+		t.Fatalf("upstream tools not mapped: %s", upBody)
+	}
+	if gjson.GetBytes(upBody, "messages.2.tool_calls.0.function.name").String() != "lookup" {
+		t.Fatalf("assistant tool_use not mapped to Ollama tool_calls: %s", upBody)
+	}
+	if gjson.GetBytes(upBody, "messages.3.role").String() != "tool" || gjson.GetBytes(upBody, "messages.3.tool_name").String() != "lookup" {
+		t.Fatalf("tool_result not mapped to Ollama tool message: %s", upBody)
+	}
+}
+
 func TestProxyClaudePassthrough(t *testing.T) {
 	captured := &capturedRequest{}
 	mock := newMockClaudeUpstream(t, captured)

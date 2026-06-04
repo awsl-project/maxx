@@ -246,3 +246,119 @@ func TestOllamaBackendRejectsNonClaudeClient(t *testing.T) {
 		t.Fatalf("expected request-scoped proxy error, got %#v", err)
 	}
 }
+
+func TestBuildOllamaChatRequestPreservesClaudeToolHistoryThinkingAndImages(t *testing.T) {
+	body := []byte(`{
+		"model":"qwen3-coder-next:cloud",
+		"thinking":{"type":"enabled","budget_tokens":128},
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"call the tool"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aW1hZ2U="}}]},
+			{"role":"assistant","content":[{"type":"thinking","thinking":"need a lookup"},{"type":"tool_use","id":"toolu_1","name":"lookup","input":{"q":"ollama"}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"result text"}]}
+		],
+		"tools":[{"name":"lookup","input_schema":{"type":"object","properties":{"q":{"type":"string"}}}}]
+	}`)
+
+	got, _, err := buildOllamaChatRequest(body, "")
+	if err != nil {
+		t.Fatalf("buildOllamaChatRequest: %v", err)
+	}
+	if got.Think == nil || !*got.Think {
+		t.Fatalf("think = %#v, want enabled", got.Think)
+	}
+	if len(got.Messages) != 3 {
+		t.Fatalf("messages = %#v", got.Messages)
+	}
+	if got.Messages[0].Role != "user" || got.Messages[0].Content != "call the tool" || len(got.Messages[0].Images) != 1 || got.Messages[0].Images[0] != "aW1hZ2U=" {
+		t.Fatalf("unexpected user message: %#v", got.Messages[0])
+	}
+	if got.Messages[1].Role != "assistant" || got.Messages[1].Thinking != "need a lookup" || len(got.Messages[1].ToolCalls) != 1 {
+		t.Fatalf("unexpected assistant tool call: %#v", got.Messages[1])
+	}
+	if got.Messages[1].ToolCalls[0].Function.Name != "lookup" || string(got.Messages[1].ToolCalls[0].Function.Arguments) != `{"q":"ollama"}` {
+		t.Fatalf("unexpected tool call: %#v", got.Messages[1].ToolCalls[0])
+	}
+	if got.Messages[2].Role != "tool" || got.Messages[2].ToolName != "lookup" || got.Messages[2].Content != "result text" {
+		t.Fatalf("unexpected tool result: %#v", got.Messages[2])
+	}
+}
+
+func TestBuildOllamaChatRequestRespectsClaudeToolChoiceNoneAndForcedTool(t *testing.T) {
+	bodyNone := []byte(`{
+		"model":"qwen",
+		"tool_choice":{"type":"none"},
+		"tools":[{"name":"lookup","input_schema":{"type":"object"}}],
+		"messages":[{"role":"user","content":"hello"}]
+	}`)
+	gotNone, _, err := buildOllamaChatRequest(bodyNone, "")
+	if err != nil {
+		t.Fatalf("build none: %v", err)
+	}
+	if len(gotNone.Tools) != 0 {
+		t.Fatalf("tools with tool_choice none = %#v", gotNone.Tools)
+	}
+
+	bodyForced := []byte(`{
+		"model":"qwen",
+		"tool_choice":{"type":"tool","name":"second"},
+		"tools":[{"name":"first","input_schema":{"type":"object"}},{"name":"second","input_schema":{"type":"object"}}],
+		"messages":[{"role":"user","content":"hello"}]
+	}`)
+	gotForced, _, err := buildOllamaChatRequest(bodyForced, "")
+	if err != nil {
+		t.Fatalf("build forced: %v", err)
+	}
+	if len(gotForced.Tools) != 1 || gotForced.Tools[0].Function.Name != "second" {
+		t.Fatalf("forced tools = %#v", gotForced.Tools)
+	}
+}
+
+func TestOllamaBackendStreamEmitsClaudeToolUseEvents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"model":"qwen","message":{"role":"assistant","tool_calls":[{"function":{"name":"lookup","arguments":{"q":"ollama"}}}]},"done":false}` + "\n"))
+		_, _ = w.Write([]byte(`{"model":"qwen","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":9,"eval_count":4}` + "\n"))
+	}))
+	defer server.Close()
+
+	provider := &domain.Provider{
+		Name: "local ollama",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: server.URL,
+			Backend: customBackendOllama,
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}
+	adapter := &CustomAdapter{provider: provider}
+
+	body := []byte(`{"model":"qwen","stream":true,"messages":[{"role":"user","content":"use lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
+	ctx.Set(flow.KeyClientType, domain.ClientTypeClaude)
+	ctx.Set(flow.KeyRequestBody, body)
+
+	if err := adapter.Execute(ctx, provider); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	stream := rec.Body.String()
+	if !strings.Contains(stream, `"type":"tool_use"`) || !strings.Contains(stream, `"name":"lookup"`) {
+		t.Fatalf("stream missing tool_use block: %s", stream)
+	}
+	if !strings.Contains(stream, `"type":"input_json_delta"`) || !strings.Contains(stream, `"partial_json":"{\"q\":\"ollama\"}"`) {
+		t.Fatalf("stream missing tool input delta: %s", stream)
+	}
+	if !strings.Contains(stream, "event: message_stop") {
+		t.Fatalf("stream missing message_stop: %s", stream)
+	}
+}
+
+func TestBuildOllamaChatRequestRejectsClaudeImageURL(t *testing.T) {
+	body := []byte(`{
+		"model":"qwen",
+		"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}}]}]
+	}`)
+	_, _, err := buildOllamaChatRequest(body, "")
+	if err == nil || !strings.Contains(err.Error(), "image URL") {
+		t.Fatalf("expected image URL rejection, got %v", err)
+	}
+}
