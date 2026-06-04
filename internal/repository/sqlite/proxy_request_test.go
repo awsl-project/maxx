@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 )
 
 func TestDetailCleanupBatchParams(t *testing.T) {
@@ -184,6 +185,57 @@ func TestProxyRequestListCursorBeforeCursorDoesNotRepeatOrSkipRecords(t *testing
 	}
 	if fmt.Sprint(combined) != fmt.Sprint(expectedCombined) {
 		t.Fatalf("expected combined pages %v, got %v", expectedCombined, combined)
+	}
+}
+
+func TestProxyRequestListCursorAndCountFilterByCreatedAtRange(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	base := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
+	requests := []*domain.ProxyRequest{
+		buildTestProxyRequest("COMPLETED", 1),
+		buildTestProxyRequest("COMPLETED", 2),
+		buildTestProxyRequest("COMPLETED", 3),
+		buildTestProxyRequest("COMPLETED", 4),
+	}
+
+	for i, request := range requests {
+		if err := repo.Create(request); err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+		createdAt := base.Add(time.Duration(i) * time.Hour).UnixMilli()
+		if err := db.gorm.Model(&ProxyRequest{}).Where("id = ?", request.ID).Update("created_at", createdAt).Error; err != nil {
+			t.Fatalf("Failed to update created_at: %v", err)
+		}
+	}
+
+	start := base.Add(1 * time.Hour)
+	end := base.Add(2 * time.Hour)
+	filter := &repository.ProxyRequestFilter{
+		StartTime: &start,
+		EndTime:   &end,
+	}
+
+	items, err := repo.ListCursor(1, 10, 0, 0, filter)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	expected := []uint64{requests[2].ID, requests[1].ID}
+	if got := collectRequestIDs(items); fmt.Sprint(got) != fmt.Sprint(expected) {
+		t.Fatalf("expected filtered ids %v, got %v", expected, got)
+	}
+
+	count, err := repo.CountWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("CountWithFilter failed: %v", err)
+	}
+	if count != int64(len(expected)) {
+		t.Fatalf("expected filtered count %d, got %d", len(expected), count)
 	}
 }
 

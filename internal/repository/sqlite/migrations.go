@@ -486,6 +486,46 @@ var migrations = []Migration{
 			}
 		},
 	},
+	{
+		Version:     16,
+		Description: "Add proxy request created_at index for time-range search",
+		Up: func(db *gorm.DB) error {
+			var rowCount int64
+			if err := db.Raw("SELECT COUNT(*) FROM proxy_requests").Scan(&rowCount).Error; err != nil {
+				log.Printf("[Migration v16] could not count proxy_requests (%v); skipping index build. Apply manually if needed.", err)
+				return nil
+			}
+
+			if rowCount > detailCleanupIndexRowThreshold {
+				log.Printf("[Migration v16] SKIPPING idx_proxy_requests_created_at_id build: proxy_requests has %d rows (> %d threshold). "+
+					"Apply manually during a maintenance window: CREATE INDEX idx_proxy_requests_created_at_id ON proxy_requests(created_at, id);",
+					rowCount, detailCleanupIndexRowThreshold)
+				return nil
+			}
+
+			switch db.Dialector.Name() {
+			case "mysql":
+				err := db.Exec("CREATE INDEX idx_proxy_requests_created_at_id ON proxy_requests(created_at, id)").Error
+				if isMySQLDuplicateIndexError(err) {
+					return nil
+				}
+				return err
+			default:
+				return db.Exec("CREATE INDEX IF NOT EXISTS idx_proxy_requests_created_at_id ON proxy_requests(created_at, id)").Error
+			}
+		},
+		Down: func(db *gorm.DB) error {
+			switch db.Dialector.Name() {
+			case "mysql":
+				if err := db.Exec("DROP INDEX idx_proxy_requests_created_at_id ON proxy_requests").Error; err != nil && !isMySQLMissingIndexError(err) {
+					log.Printf("[Migration] Warning: rollback v16 failed: %v", err)
+				}
+				return nil
+			default:
+				return db.Exec("DROP INDEX IF EXISTS idx_proxy_requests_created_at_id").Error
+			}
+		},
+	},
 }
 
 // runDetailClearedColumnMigration 显式添加 detail_cleared 列到两张大表,带 threshold-skip。

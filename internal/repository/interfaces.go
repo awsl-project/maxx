@@ -122,6 +122,21 @@ type ProxyRequestFilter struct {
 	Status     *string // 状态，nil 表示不过滤
 	APITokenID *uint64 // API Token ID，nil 表示不过滤
 	ProjectID  *uint64 // Project ID，nil 表示不过滤
+	StartTime  *time.Time
+	EndTime    *time.Time
+}
+
+func (f *ProxyRequestFilter) IsEmpty() bool {
+	if f == nil {
+		return true
+	}
+	return f.TenantID == nil &&
+		f.ProviderID == nil &&
+		f.Status == nil &&
+		f.APITokenID == nil &&
+		f.ProjectID == nil &&
+		f.StartTime == nil &&
+		f.EndTime == nil
 }
 
 type ProxyRequestRepository interface {

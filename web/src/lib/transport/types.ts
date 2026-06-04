@@ -373,6 +373,10 @@ export interface CursorPaginationParams {
   apiTokenId?: number;
   /** 按 Project ID 过滤 */
   projectId?: number;
+  /** 按创建时间起点过滤（ISO 字符串或毫秒时间戳字符串） */
+  startTime?: string;
+  /** 按创建时间终点过滤（ISO 字符串或毫秒时间戳字符串） */
+  endTime?: string;
 }
 
 /** 游标分页响应 */

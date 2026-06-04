@@ -11,7 +11,16 @@ import {
   useProjects,
   useVisibleAPITokens,
 } from '@/hooks/queries';
-import { Activity, RefreshCw, Loader2, CheckCircle, AlertTriangle, Ban } from 'lucide-react';
+import {
+  Activity,
+  RefreshCw,
+  Loader2,
+  CheckCircle,
+  AlertTriangle,
+  Ban,
+  CalendarRange,
+  X,
+} from 'lucide-react';
 import type {
   APIToken,
   Project,
@@ -35,6 +44,7 @@ import {
   SelectValue,
   SelectGroup,
   SelectLabel,
+  Input,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
@@ -61,6 +71,17 @@ const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
+
+function dateTimeLocalToISOString(value: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return undefined;
+  }
+  return date.toISOString();
+}
 
 function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'>): boolean {
   return request.status === 'FAILED' && request.error.trim() === 'Server restarted';
@@ -215,6 +236,8 @@ export function RequestsPage() {
   );
   // Status 过滤器
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
+  const [startDateTime, setStartDateTime] = useState('');
+  const [endDateTime, setEndDateTime] = useState('');
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -225,6 +248,28 @@ export function RequestsPage() {
   const activeProviderId = filterMode === 'provider' ? selectedProviderId : undefined;
   const activeTokenId = filterMode === 'token' ? selectedTokenId : undefined;
   const activeProjectId = filterMode === 'project' ? selectedProjectId : undefined;
+  const [debouncedStartDateTime, setDebouncedStartDateTime] = useState('');
+  const [debouncedEndDateTime, setDebouncedEndDateTime] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedStartDateTime(startDateTime);
+      setDebouncedEndDateTime(endDateTime);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [startDateTime, endDateTime]);
+
+  const requestFilter = useMemo(
+    () => ({
+      providerId: activeProviderId,
+      status: selectedStatus,
+      apiTokenId: activeTokenId,
+      projectId: activeProjectId,
+      startTime: dateTimeLocalToISOString(debouncedStartDateTime),
+      endTime: dateTimeLocalToISOString(debouncedEndDateTime),
+    }),
+    [activeProviderId, selectedStatus, activeTokenId, activeProjectId, debouncedStartDateTime, debouncedEndDateTime],
+  );
 
   const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
   const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
@@ -243,19 +288,10 @@ export function RequestsPage() {
 
   // 使用 Infinite Query
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isFetching, refetch } =
-    useInfiniteProxyRequests(
-      activeProviderId,
-      selectedStatus,
-      activeTokenId,
-      activeProjectId,
-      requestsQueryEnabled,
-    );
+    useInfiniteProxyRequests(requestFilter, requestsQueryEnabled);
 
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(
-    activeProviderId,
-    selectedStatus,
-    activeTokenId,
-    activeProjectId,
+    requestFilter,
     requestsQueryEnabled,
   );
 
@@ -543,6 +579,16 @@ export function RequestsPage() {
     scrollContainerRef.current?.scrollTo({ top: 0 });
   };
 
+  const handleTimeRangeChange = (nextStartDateTime: string, nextEndDateTime: string) => {
+    setStartDateTime(nextStartDateTime);
+    setEndDateTime(nextEndDateTime);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  };
+
+  const handleClearTimeRange = () => {
+    handleTimeRangeChange('', '');
+  };
+
   const handleOpenRequest = useCallback(
     (id: number) => {
       navigate(`/requests/${id}`);
@@ -627,6 +673,12 @@ export function RequestsPage() {
         )}
         {/* Status Filter */}
         <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
+        <TimeRangeFilter
+          startDateTime={startDateTime}
+          endDateTime={endDateTime}
+          onChange={handleTimeRangeChange}
+          onClear={handleClearTimeRange}
+        />
         <button
           onClick={handleRefresh}
           disabled={isFetching || waitingFilterValidation}
@@ -1430,6 +1482,57 @@ function ProjectFilter({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+function TimeRangeFilter({
+  startDateTime,
+  endDateTime,
+  onChange,
+  onClear,
+}: {
+  startDateTime: string;
+  endDateTime: string;
+  onChange: (startDateTime: string, endDateTime: string) => void;
+  onClear: () => void;
+}) {
+  const { t } = useTranslation();
+  const hasValue = startDateTime !== '' || endDateTime !== '';
+
+  return (
+    <div className="flex h-8 max-w-full items-center gap-1 rounded-lg border border-border/50 bg-muted/30 px-1.5">
+      <CalendarRange size={14} className="shrink-0 text-muted-foreground" />
+      <Input
+        type="datetime-local"
+        value={startDateTime}
+        aria-label={t('requests.timeFrom')}
+        title={t('requests.timeFrom')}
+        onChange={(event) => onChange(event.target.value, endDateTime)}
+        className="h-6 w-[8.5rem] border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0 sm:w-[9.8rem]"
+      />
+      <span className="text-xs text-muted-foreground">-</span>
+      <Input
+        type="datetime-local"
+        value={endDateTime}
+        aria-label={t('requests.timeTo')}
+        title={t('requests.timeTo')}
+        onChange={(event) => onChange(startDateTime, event.target.value)}
+        className="h-6 w-[8.5rem] border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0 sm:w-[9.8rem]"
+      />
+      <button
+        type="button"
+        onClick={onClear}
+        disabled={!hasValue}
+        title={t('requests.clearTimeRange')}
+        aria-label={t('requests.clearTimeRange')}
+        className={cn(
+          'grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors',
+          hasValue ? 'hover:bg-muted hover:text-foreground' : 'cursor-not-allowed opacity-40',
+        )}
+      >
+        <X size={13} />
+      </button>
+    </div>
   );
 }
 

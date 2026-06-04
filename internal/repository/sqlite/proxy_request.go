@@ -91,6 +91,31 @@ func (r *ProxyRequestRepository) List(tenantID uint64, limit, offset int) ([]*do
 	return r.toDomainList(models), nil
 }
 
+func applyProxyRequestFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
+	if filter == nil {
+		return query
+	}
+	if filter.ProviderID != nil {
+		query = query.Where("provider_id = ?", *filter.ProviderID)
+	}
+	if filter.Status != nil {
+		query = query.Where("status = ?", *filter.Status)
+	}
+	if filter.APITokenID != nil {
+		query = query.Where("api_token_id = ?", *filter.APITokenID)
+	}
+	if filter.ProjectID != nil {
+		query = query.Where("project_id = ?", *filter.ProjectID)
+	}
+	if filter.StartTime != nil {
+		query = query.Where("created_at >= ?", toTimestamp(*filter.StartTime))
+	}
+	if filter.EndTime != nil {
+		query = query.Where("created_at <= ?", toTimestamp(*filter.EndTime))
+	}
+	return query
+}
+
 // ListCursor 基于游标的分页查询，比 OFFSET 更高效
 // before: 获取 id < before 的记录 (向后翻页)
 // after: 获取 id > after 的记录 (向前翻页/获取新数据)
@@ -107,21 +132,7 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 		baseQuery = baseQuery.Where("id < ?", before)
 	}
 
-	// 应用过滤条件
-	if filter != nil {
-		if filter.ProviderID != nil {
-			baseQuery = baseQuery.Where("provider_id = ?", *filter.ProviderID)
-		}
-		if filter.Status != nil {
-			baseQuery = baseQuery.Where("status = ?", *filter.Status)
-		}
-		if filter.APITokenID != nil {
-			baseQuery = baseQuery.Where("api_token_id = ?", *filter.APITokenID)
-		}
-		if filter.ProjectID != nil {
-			baseQuery = baseQuery.Where("project_id = ?", *filter.ProjectID)
-		}
-	}
+	baseQuery = applyProxyRequestFilter(baseQuery, filter)
 
 	orderBy := "id DESC"
 	if after > 0 {
@@ -163,27 +174,13 @@ func (r *ProxyRequestRepository) Count(tenantID uint64) (int64, error) {
 // CountWithFilter 带过滤条件的计数
 func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
 	// 如果没有过滤条件且没有 tenantID 过滤，使用缓存的总数
-	if tenantID == domain.TenantIDAll && (filter == nil || (filter.ProviderID == nil && filter.Status == nil && filter.APITokenID == nil && filter.ProjectID == nil)) {
+	if tenantID == domain.TenantIDAll && (filter == nil || filter.IsEmpty()) {
 		return atomic.LoadInt64(&r.count), nil
 	}
 
 	// 有过滤条件时需要查询数据库
 	var count int64
-	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID)
-	if filter != nil {
-		if filter.ProviderID != nil {
-			query = query.Where("provider_id = ?", *filter.ProviderID)
-		}
-		if filter.Status != nil {
-			query = query.Where("status = ?", *filter.Status)
-		}
-		if filter.APITokenID != nil {
-			query = query.Where("api_token_id = ?", *filter.APITokenID)
-		}
-		if filter.ProjectID != nil {
-			query = query.Where("project_id = ?", *filter.ProjectID)
-		}
-	}
+	query := applyProxyRequestFilter(tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID), filter)
 	if err := query.Count(&count).Error; err != nil {
 		return 0, err
 	}
