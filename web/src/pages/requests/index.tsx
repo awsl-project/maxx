@@ -248,28 +248,12 @@ export function RequestsPage() {
   const activeProviderId = filterMode === 'provider' ? selectedProviderId : undefined;
   const activeTokenId = filterMode === 'token' ? selectedTokenId : undefined;
   const activeProjectId = filterMode === 'project' ? selectedProjectId : undefined;
-  const [debouncedStartDateTime, setDebouncedStartDateTime] = useState('');
-  const [debouncedEndDateTime, setDebouncedEndDateTime] = useState('');
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedStartDateTime(startDateTime);
-      setDebouncedEndDateTime(endDateTime);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [startDateTime, endDateTime]);
-
-  const requestFilter = useMemo(
-    () => ({
-      providerId: activeProviderId,
-      status: selectedStatus,
-      apiTokenId: activeTokenId,
-      projectId: activeProjectId,
-      startTime: dateTimeLocalToISOString(debouncedStartDateTime),
-      endTime: dateTimeLocalToISOString(debouncedEndDateTime),
-    }),
-    [activeProviderId, selectedStatus, activeTokenId, activeProjectId, debouncedStartDateTime, debouncedEndDateTime],
+  const activeStartTime = useMemo(
+    () => dateTimeLocalToISOString(startDateTime),
+    [startDateTime],
   );
+  const activeEndTime = useMemo(() => dateTimeLocalToISOString(endDateTime), [endDateTime]);
 
   const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
   const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
@@ -288,10 +272,23 @@ export function RequestsPage() {
 
   // 使用 Infinite Query
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isFetching, refetch } =
-    useInfiniteProxyRequests(requestFilter, requestsQueryEnabled);
+    useInfiniteProxyRequests(
+      activeProviderId,
+      selectedStatus,
+      activeTokenId,
+      activeProjectId,
+      activeStartTime,
+      activeEndTime,
+      requestsQueryEnabled,
+    );
 
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(
-    requestFilter,
+    activeProviderId,
+    selectedStatus,
+    activeTokenId,
+    activeProjectId,
+    activeStartTime,
+    activeEndTime,
     requestsQueryEnabled,
   );
 

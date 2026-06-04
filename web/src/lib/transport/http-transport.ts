@@ -411,32 +411,32 @@ export class HttpTransport implements Transport {
     return data ?? { items: [], hasMore: false };
   }
 
-  async getProxyRequestsCount(filter?: {
-    providerId?: number;
-    status?: string;
-    apiTokenId?: number;
-    projectId?: number;
-    startTime?: string;
-    endTime?: string;
-  }): Promise<number> {
+  async getProxyRequestsCount(
+    providerId?: number,
+    status?: string,
+    apiTokenId?: number,
+    projectId?: number,
+    startTime?: string,
+    endTime?: string,
+  ): Promise<number> {
     const params: Record<string, string> = {};
-    if (filter?.providerId !== undefined) {
-      params.providerId = String(filter.providerId);
+    if (providerId !== undefined) {
+      params.providerId = String(providerId);
     }
-    if (filter?.status !== undefined) {
-      params.status = filter.status;
+    if (status !== undefined) {
+      params.status = status;
     }
-    if (filter?.apiTokenId !== undefined) {
-      params.apiTokenId = String(filter.apiTokenId);
+    if (apiTokenId !== undefined) {
+      params.apiTokenId = String(apiTokenId);
     }
-    if (filter?.projectId !== undefined) {
-      params.projectId = String(filter.projectId);
+    if (projectId !== undefined) {
+      params.projectId = String(projectId);
     }
-    if (filter?.startTime !== undefined) {
-      params.startTime = filter.startTime;
+    if (startTime !== undefined) {
+      params.startTime = startTime;
     }
-    if (filter?.endTime !== undefined) {
-      params.endTime = filter.endTime;
+    if (endTime !== undefined) {
+      params.endTime = endTime;
     }
     const { data } = await this.adminClient.get<number>('/requests/count', { params });
     return data ?? 0;

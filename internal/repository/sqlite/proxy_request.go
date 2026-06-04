@@ -91,31 +91,6 @@ func (r *ProxyRequestRepository) List(tenantID uint64, limit, offset int) ([]*do
 	return r.toDomainList(models), nil
 }
 
-func applyProxyRequestFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
-	if filter == nil {
-		return query
-	}
-	if filter.ProviderID != nil {
-		query = query.Where("provider_id = ?", *filter.ProviderID)
-	}
-	if filter.Status != nil {
-		query = query.Where("status = ?", *filter.Status)
-	}
-	if filter.APITokenID != nil {
-		query = query.Where("api_token_id = ?", *filter.APITokenID)
-	}
-	if filter.ProjectID != nil {
-		query = query.Where("project_id = ?", *filter.ProjectID)
-	}
-	if filter.StartTime != nil {
-		query = query.Where("created_at >= ?", toTimestamp(*filter.StartTime))
-	}
-	if filter.EndTime != nil {
-		query = query.Where("created_at <= ?", toTimestamp(*filter.EndTime))
-	}
-	return query
-}
-
 // ListCursor 基于游标的分页查询，比 OFFSET 更高效
 // before: 获取 id < before 的记录 (向后翻页)
 // after: 获取 id > after 的记录 (向前翻页/获取新数据)
@@ -132,7 +107,27 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 		baseQuery = baseQuery.Where("id < ?", before)
 	}
 
-	baseQuery = applyProxyRequestFilter(baseQuery, filter)
+	// 应用过滤条件
+	if filter != nil {
+		if filter.ProviderID != nil {
+			baseQuery = baseQuery.Where("provider_id = ?", *filter.ProviderID)
+		}
+		if filter.Status != nil {
+			baseQuery = baseQuery.Where("status = ?", *filter.Status)
+		}
+		if filter.APITokenID != nil {
+			baseQuery = baseQuery.Where("api_token_id = ?", *filter.APITokenID)
+		}
+		if filter.ProjectID != nil {
+			baseQuery = baseQuery.Where("project_id = ?", *filter.ProjectID)
+		}
+		if filter.StartTime != nil {
+			baseQuery = baseQuery.Where("created_at >= ?", toTimestamp(*filter.StartTime))
+		}
+		if filter.EndTime != nil {
+			baseQuery = baseQuery.Where("created_at <= ?", toTimestamp(*filter.EndTime))
+		}
+	}
 
 	orderBy := "id DESC"
 	if after > 0 {
@@ -180,7 +175,27 @@ func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *reposi
 
 	// 有过滤条件时需要查询数据库
 	var count int64
-	query := applyProxyRequestFilter(tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID), filter)
+	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID)
+	if filter != nil {
+		if filter.ProviderID != nil {
+			query = query.Where("provider_id = ?", *filter.ProviderID)
+		}
+		if filter.Status != nil {
+			query = query.Where("status = ?", *filter.Status)
+		}
+		if filter.APITokenID != nil {
+			query = query.Where("api_token_id = ?", *filter.APITokenID)
+		}
+		if filter.ProjectID != nil {
+			query = query.Where("project_id = ?", *filter.ProjectID)
+		}
+		if filter.StartTime != nil {
+			query = query.Where("created_at >= ?", toTimestamp(*filter.StartTime))
+		}
+		if filter.EndTime != nil {
+			query = query.Where("created_at <= ?", toTimestamp(*filter.EndTime))
+		}
+	}
 	if err := query.Count(&count).Error; err != nil {
 		return 0, err
 	}

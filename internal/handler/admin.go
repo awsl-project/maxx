@@ -891,6 +891,10 @@ func parseTimeQuery(raw, name string) (*time.Time, error) {
 		return nil, nil
 	}
 	if millis, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		digits := len(strings.TrimLeft(raw, "-"))
+		if digits != 13 {
+			return nil, errors.New("invalid " + name + ": expected 13-digit millisecond timestamp or RFC3339")
+		}
 		t := time.UnixMilli(millis).UTC()
 		return &t, nil
 	}

@@ -13,40 +13,33 @@ import {
 } from '@/lib/transport';
 import { prioritizeActiveRequests } from '@/lib/request-order';
 
-export interface RequestFilterParams {
-  providerId?: number;
-  status?: string;
-  apiTokenId?: number;
-  projectId?: number;
-  startTime?: string;
-  endTime?: string;
-}
-
 /** Query key factory for proxy request related queries. */
 export const requestKeys = {
   all: ['requests'] as const,
   lists: () => [...requestKeys.all, 'list'] as const,
   list: (params?: CursorPaginationParams) => [...requestKeys.lists(), params] as const,
-  infinite: (filter?: RequestFilterParams) =>
-    [...requestKeys.all, 'infinite', filter ?? {}] as const,
-  count: (filter?: RequestFilterParams) => ['requestsCount', filter ?? {}] as const,
+  infinite: (providerId?: number, status?: string, apiTokenId?: number, projectId?: number, startTime?: string, endTime?: string) =>
+    [...requestKeys.all, 'infinite', providerId, status, apiTokenId, projectId, startTime, endTime] as const,
   details: () => [...requestKeys.all, 'detail'] as const,
   detail: (id: number) => [...requestKeys.details(), id] as const,
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
 };
 
-function matchesRequestFilter(request: ProxyRequest, filter?: RequestFilterParams): boolean {
-  if (!filter) return true;
-  if (filter.providerId !== undefined && request.providerID !== filter.providerId) return false;
-  if (filter.status !== undefined && request.status !== filter.status) return false;
-  if (filter.apiTokenId !== undefined && request.apiTokenID !== filter.apiTokenId) return false;
-  if (filter.projectId !== undefined && request.projectID !== filter.projectId) return false;
+function matchesRequestTimeRange(
+  request: ProxyRequest,
+  startTime?: string,
+  endTime?: string,
+): boolean {
   const createdAtMs = new Date(request.createdAt).getTime();
-  if (!Number.isFinite(createdAtMs)) return true;
-  if (filter.startTime !== undefined && createdAtMs < new Date(filter.startTime).getTime())
+  if (!Number.isFinite(createdAtMs)) {
+    return true;
+  }
+  if (startTime !== undefined && createdAtMs < new Date(startTime).getTime()) {
     return false;
-  if (filter.endTime !== undefined && createdAtMs > new Date(filter.endTime).getTime())
+  }
+  if (endTime !== undefined && createdAtMs > new Date(endTime).getTime()) {
     return false;
+  }
   return true;
 }
 
@@ -62,14 +55,27 @@ export function useProxyRequests(params?: CursorPaginationParams) {
  * Fetches proxy requests using infinite scroll pagination.
  * Uses staleTime to avoid redundant refetches within a short window.
  */
-export function useInfiniteProxyRequests(filter?: RequestFilterParams, enabled = true) {
+export function useInfiniteProxyRequests(
+  providerId?: number,
+  status?: string,
+  apiTokenId?: number,
+  projectId?: number,
+  startTime?: string,
+  endTime?: string,
+  enabled = true,
+) {
   return useInfiniteQuery({
-    queryKey: requestKeys.infinite(filter),
+    queryKey: requestKeys.infinite(providerId, status, apiTokenId, projectId, startTime, endTime),
     queryFn: ({ pageParam }) =>
       getTransport().getProxyRequests({
         limit: 100,
         before: pageParam,
-        ...filter,
+        providerId,
+        status,
+        apiTokenId,
+        projectId,
+        startTime,
+        endTime,
       }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastId : undefined),
     initialPageParam: undefined as number | undefined,
@@ -82,10 +88,19 @@ export function useInfiniteProxyRequests(filter?: RequestFilterParams, enabled =
  * Fetches the total count of proxy requests matching the given filters.
  * Polls every 10s as a safety net for missed WebSocket events.
  */
-export function useProxyRequestsCount(filter?: RequestFilterParams, enabled = true) {
+export function useProxyRequestsCount(
+  providerId?: number,
+  status?: string,
+  apiTokenId?: number,
+  projectId?: number,
+  startTime?: string,
+  endTime?: string,
+  enabled = true,
+) {
   return useQuery({
-    queryKey: requestKeys.count(filter),
-    queryFn: () => getTransport().getProxyRequestsCount(filter),
+    queryKey: ['requestsCount', providerId, status, apiTokenId, projectId, startTime, endTime] as const,
+    queryFn: () =>
+      getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId, startTime, endTime),
     enabled,
     staleTime: 5_000,
     refetchInterval: enabled ? 10_000 : false,
@@ -188,7 +203,7 @@ export function useProxyRequestUpdates() {
         .findAll({ queryKey: [...requestKeys.all, 'infinite'] })
         .filter((q) => q.getObserversCount() > 0);
       const countQueries = queryCache
-        .findAll({ queryKey: requestKeys.count() })
+        .findAll({ queryKey: ['requestsCount'] })
         .filter((q) => q.getObserversCount() > 0);
 
       let invalidateDashboard = false;
@@ -223,9 +238,31 @@ export function useProxyRequestUpdates() {
         for (const query of listQueries) {
           const queryKey = query.queryKey as ReturnType<typeof requestKeys.list>;
           const params = queryKey[2] as CursorPaginationParams | undefined;
+          const filterProviderId = params?.providerId;
+          const filterStatus = params?.status;
+          const filterAPITokenId = params?.apiTokenId;
+          const filterProjectId = params?.projectId;
+          const filterStartTime = params?.startTime;
+          const filterEndTime = params?.endTime;
 
-          const matchesFilter = (request: ProxyRequest) =>
-            matchesRequestFilter(request, params);
+          const matchesFilter = (request: ProxyRequest) => {
+            if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
+              return false;
+            }
+            if (filterStatus !== undefined && request.status !== filterStatus) {
+              return false;
+            }
+            if (filterAPITokenId !== undefined && request.apiTokenID !== filterAPITokenId) {
+              return false;
+            }
+            if (filterProjectId !== undefined && request.projectID !== filterProjectId) {
+              return false;
+            }
+            if (!matchesRequestTimeRange(request, filterStartTime, filterEndTime)) {
+              return false;
+            }
+            return true;
+          };
 
           queryClient.setQueryData<CursorPaginationResult<ProxyRequest>>(queryKey, (old) => {
             if (!old || !old.items) return old;
@@ -281,10 +318,31 @@ export function useProxyRequestUpdates() {
         // 更新 Infinite Queries（仅更新正在被观察的 query）
         for (const query of infiniteQueries) {
           const queryKey = query.queryKey as ReturnType<typeof requestKeys.infinite>;
-          const f = queryKey[2] as RequestFilterParams;
+          const filterProviderId = queryKey[2] as number | undefined;
+          const filterStatus = queryKey[3] as string | undefined;
+          const filterAPITokenId = queryKey[4] as number | undefined;
+          const filterProjectId = queryKey[5] as number | undefined;
+          const filterStartTime = queryKey[6] as string | undefined;
+          const filterEndTime = queryKey[7] as string | undefined;
 
-          const matchesFilter = (request: ProxyRequest) =>
-            matchesRequestFilter(request, f);
+          const matchesFilter = (request: ProxyRequest) => {
+            if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
+              return false;
+            }
+            if (filterStatus !== undefined && request.status !== filterStatus) {
+              return false;
+            }
+            if (filterAPITokenId !== undefined && request.apiTokenID !== filterAPITokenId) {
+              return false;
+            }
+            if (filterProjectId !== undefined && request.projectID !== filterProjectId) {
+              return false;
+            }
+            if (!matchesRequestTimeRange(request, filterStartTime, filterEndTime)) {
+              return false;
+            }
+            return true;
+          };
 
           queryClient.setQueryData<{
             pages: CursorPaginationResult<ProxyRequest>[];
@@ -349,9 +407,25 @@ export function useProxyRequestUpdates() {
 
           if (looksLikeRecentRequest) {
             for (const query of countQueries) {
-              const countKey = query.queryKey as ReturnType<typeof requestKeys.count>;
-              const cf = countKey[1] as RequestFilterParams;
-              if (!matchesRequestFilter(updatedRequest, cf)) {
+              const filterProviderId = query.queryKey[1] as number | undefined;
+              const filterStatus = query.queryKey[2] as string | undefined;
+              const filterAPITokenId = query.queryKey[3] as number | undefined;
+              const filterProjectId = query.queryKey[4] as number | undefined;
+              const filterStartTime = query.queryKey[5] as string | undefined;
+              const filterEndTime = query.queryKey[6] as string | undefined;
+              if (filterProviderId !== undefined && updatedRequest.providerID !== filterProviderId) {
+                continue;
+              }
+              if (filterStatus !== undefined && updatedRequest.status !== filterStatus) {
+                continue;
+              }
+              if (filterAPITokenId !== undefined && updatedRequest.apiTokenID !== filterAPITokenId) {
+                continue;
+              }
+              if (filterProjectId !== undefined && updatedRequest.projectID !== filterProjectId) {
+                continue;
+              }
+              if (!matchesRequestTimeRange(updatedRequest, filterStartTime, filterEndTime)) {
                 continue;
               }
               queryClient.setQueryData<number>(query.queryKey, (old) => (old ?? 0) + 1);
@@ -431,7 +505,7 @@ export function useProxyRequestUpdates() {
       void queryClient.refetchQueries({ queryKey: requestKeys.lists(), type: 'active' });
       void queryClient.refetchQueries({ queryKey: [...requestKeys.all, 'infinite'], type: 'active' });
       void queryClient.refetchQueries({ queryKey: requestKeys.details(), type: 'active' });
-      void queryClient.refetchQueries({ queryKey: requestKeys.count(), type: 'active' });
+      void queryClient.refetchQueries({ queryKey: ['requestsCount'], type: 'active' });
       void queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' });
       void queryClient.refetchQueries({ queryKey: ['providers', 'stats'], type: 'active' });
       void queryClient.refetchQueries({ queryKey: ['cooldowns'], type: 'active' });
