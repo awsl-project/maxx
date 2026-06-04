@@ -47,7 +47,6 @@ import {
   SelectGroup,
   SelectLabel,
   Input,
-  Button,
 } from '@/components/ui';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -1526,7 +1525,7 @@ function DateTimePicker({
           mode="single"
           selected={value}
           onSelect={handleDateSelect}
-          initialFocus
+          autoFocus
         />
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
           <Clock size={14} className="text-muted-foreground" />
