@@ -148,6 +148,25 @@ func TestCORSMiddlewareDisallowedPreflightFallsThrough(t *testing.T) {
 	}
 }
 
+func TestCORSMiddlewareVaryOriginForDisallowedOrigin(t *testing.T) {
+	// Even a disallowed origin must get Vary: Origin (but no Allow-Origin) so a
+	// cache can't reuse this no-CORS response for an allowlisted origin.
+	h := CORSMiddleware(ParseCORSOrigins("https://ui.example.com"), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("disallowed origin should have no Allow-Origin, got %q", got)
+	}
+	if !containsStr(rec.Header().Values("Vary"), "Origin") {
+		t.Fatalf("disallowed-origin response Vary=%v missing Origin", rec.Header().Values("Vary"))
+	}
+}
+
 func containsStr(s []string, want string) bool {
 	for _, v := range s {
 		if v == want {

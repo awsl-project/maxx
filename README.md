@@ -289,7 +289,7 @@ codex
 | OpenAI | `POST /v1/chat/completions` |
 | Codex | `POST /v1/responses` |
 | Gemini | `POST /v1beta/models/{model}:generateContent` |
-| Project Proxy | `/{project-slug}/v1/messages` (etc.) |
+| Project Proxy | `/project/{project-slug}/v1/messages` (etc.) |
 | Admin API | `/api/admin/*` |
 | WebSocket | `ws://localhost:9880/ws` |
 | Health Check | `GET /health` |

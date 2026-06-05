@@ -4,7 +4,7 @@ import { ChevronDownIcon, ServerIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getBackendUrl, setBackendUrl } from '@/lib/backend-config';
+import { getBackendUrl, setBackendUrl, BackendStorageError } from '@/lib/backend-config';
 
 interface BackendAddressControlProps {
   /** When true, render expanded by default (e.g. on a settings page). */
@@ -32,8 +32,12 @@ export function BackendAddressControl({
   const apply = (next: string) => {
     try {
       setBackendUrl(next);
-    } catch {
-      setError(t('backendAddress.invalid'));
+    } catch (err) {
+      setError(
+        err instanceof BackendStorageError
+          ? t('backendAddress.storageError')
+          : t('backendAddress.invalid'),
+      );
       return;
     }
     // Reload so the transport singleton is rebuilt with the new config.
@@ -104,9 +108,7 @@ export function BackendAddressControl({
       >
         <ServerIcon className="size-3.5" />
         <span>{t('backendAddress.advanced')}</span>
-        <ChevronDownIcon
-          className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
+        <ChevronDownIcon className={`size-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && body}
     </div>

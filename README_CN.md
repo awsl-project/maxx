@@ -287,7 +287,7 @@ codex
 | OpenAI | `POST /v1/chat/completions` |
 | Codex | `POST /v1/responses` |
 | Gemini | `POST /v1beta/models/{model}:generateContent` |
-| 项目代理 | `/{project-slug}/v1/messages` (等) |
+| 项目代理 | `/project/{project-slug}/v1/messages` (等) |
 | 管理 API | `/api/admin/*` |
 | WebSocket | `ws://localhost:9880/ws` |
 | 健康检查 | `GET /health` |

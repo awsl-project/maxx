@@ -1,5 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { buildTransportConfig, getBackendUrl, setBackendUrl } from './backend-config';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  BackendStorageError,
+  buildTransportConfig,
+  getBackendUrl,
+  setBackendUrl,
+} from './backend-config';
 
 const BACKEND_KEY = 'maxx_backend_url';
 const AUTH_KEY = 'maxx-admin-token';
@@ -40,6 +45,19 @@ describe('setBackendUrl normalization', () => {
   it('rejects non-http(s) URLs', () => {
     expect(() => setBackendUrl('ftp://api.example.com')).toThrow();
     expect(() => setBackendUrl('not a url')).toThrow();
+  });
+
+  it('throws a distinct BackendStorageError when storage is unavailable', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage denied');
+    });
+    try {
+      expect(() => setBackendUrl('https://api.example.com')).toThrow(BackendStorageError);
+      // A genuinely invalid URL still throws the plain validation error, not storage.
+      expect(() => setBackendUrl('not a url')).not.toThrow(BackendStorageError);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('clearing reverts to same-origin default', () => {

@@ -1515,6 +1515,7 @@
     "save": "Save & reconnect",
     "reset": "Reset to default",
     "invalid": "Enter a valid http(s) URL",
-    "corsHint": "The backend must allow this origin via MAXX_CORS_ALLOW_ORIGINS."
+    "corsHint": "The backend must allow this origin via MAXX_CORS_ALLOW_ORIGINS.",
+    "storageError": "Could not save: browser storage is unavailable (e.g. private mode)."
   }
 }

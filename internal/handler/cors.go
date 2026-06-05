@@ -73,6 +73,12 @@ func CORSMiddleware(cfg CORSConfig, next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+		// Advertise that the response varies by Origin whenever one is present —
+		// even for disallowed origins — so a shared cache never reuses a no-CORS
+		// response for an allowlisted origin (or vice versa).
+		if origin != "" {
+			w.Header().Add("Vary", "Origin")
+		}
 		allowed := origin != "" && cfg.allows(origin)
 		isPreflight := r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != ""
 
@@ -80,7 +86,6 @@ func CORSMiddleware(cfg CORSConfig, next http.Handler) http.Handler {
 			// Reflect the concrete origin (even for "*") so the response stays
 			// valid if a caller later adds credentials, and so Vary is honored.
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Add("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 
 			reqHeaders := r.Header.Get("Access-Control-Request-Headers")

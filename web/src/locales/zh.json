@@ -1513,6 +1513,7 @@
     "save": "保存并重新连接",
     "reset": "恢复默认",
     "invalid": "请输入有效的 http(s) URL",
-    "corsHint": "后端需通过 MAXX_CORS_ALLOW_ORIGINS 允许此来源。"
+    "corsHint": "后端需通过 MAXX_CORS_ALLOW_ORIGINS 允许此来源。",
+    "storageError": "无法保存：浏览器存储不可用（如隐私模式）。"
   }
 }

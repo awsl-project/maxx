@@ -19,6 +19,21 @@ const STORAGE_KEY = 'maxx_backend_url';
 // imported) to avoid an import cycle: auth-context → transport → backend-config.
 const AUTH_TOKEN_KEY = 'maxx-admin-token';
 
+/**
+ * Thrown when persisting the backend URL fails because storage is unavailable
+ * (e.g. private mode, locked-down environments) — as opposed to the URL being
+ * invalid. Lets the UI surface a distinct, accurate error.
+ */
+export class BackendStorageError extends Error {
+  constructor(cause?: unknown) {
+    super('Failed to persist backend URL: storage unavailable');
+    this.name = 'BackendStorageError';
+    if (cause !== undefined) {
+      (this as { cause?: unknown }).cause = cause;
+    }
+  }
+}
+
 /** Build-time fallback (empty string when unset). */
 const BUILD_TIME_BACKEND_URL: string =
   (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() ?? '';
@@ -57,16 +72,26 @@ export function setBackendUrl(raw: string): string {
   const previous = getBackendUrl();
   const trimmed = raw.trim();
 
-  if (!trimmed) {
-    localStorage.removeItem(STORAGE_KEY);
-  } else {
-    // Validate: must be a parseable absolute http(s) URL.
-    const parsed = new URL(trimmed);
+  // Validate before touching storage so a bad URL never half-applies.
+  let normalized: string | null = null;
+  if (trimmed) {
+    const parsed = new URL(trimmed); // throws on an unparseable URL
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error('Backend URL must use http or https');
     }
-    const normalized = (parsed.origin + parsed.pathname).replace(/\/+$/, '');
-    localStorage.setItem(STORAGE_KEY, normalized);
+    normalized = (parsed.origin + parsed.pathname).replace(/\/+$/, '');
+  }
+
+  // Storage failures (private mode, locked-down env) are a distinct error from
+  // an invalid URL, so the UI can report them accurately rather than as "invalid".
+  try {
+    if (normalized === null) {
+      localStorage.removeItem(STORAGE_KEY);
+    } else {
+      localStorage.setItem(STORAGE_KEY, normalized);
+    }
+  } catch (err) {
+    throw new BackendStorageError(err);
   }
 
   const current = getBackendUrl();
