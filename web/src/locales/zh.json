@@ -626,7 +626,15 @@
     },
     "noRoutesForClient": "未为 {{client}} 配置路由",
     "addRouteToGetStarted": "在下方添加路由以开始使用",
-    "availableProviders": "可用提供方"
+    "availableProviders": "可用提供方",
+    "strategyLabel": "路由策略",
+    "strategyInherited": "继承自全局",
+    "strategyDefault": "默认",
+    "strategyConfigure": "配置",
+    "strategyPriorityHint": "拖动各行以设置优先级顺序。",
+    "strategyWeightedHint": "按权重随机排序——可调整每条路由的权重。",
+    "weight": "权重",
+    "weightTooltip": "权重越大被选中的概率越高(加权随机策略)。"
   },
   "console": {
     "title": "控制台",

@@ -627,7 +627,15 @@
     },
     "noRoutesForClient": "No routes configured for {{client}}",
     "addRouteToGetStarted": "Add a route below to get started",
-    "availableProviders": "Available Providers"
+    "availableProviders": "Available Providers",
+    "strategyLabel": "Routing strategy",
+    "strategyInherited": "inherited from Global",
+    "strategyDefault": "default",
+    "strategyConfigure": "Configure",
+    "strategyPriorityHint": "Drag rows to set the priority order.",
+    "strategyWeightedHint": "Order is weighted-random — adjust each route's weight.",
+    "weight": "Weight",
+    "weightTooltip": "Higher weight = higher chance of being picked (weighted_random strategy)."
   },
   "console": {
     "title": "Console",

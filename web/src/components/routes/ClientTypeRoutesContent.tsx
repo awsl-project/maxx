@@ -5,7 +5,8 @@
 
 import { useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, RefreshCw, Zap } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Plus, RefreshCw, Zap, Workflow, Settings2 } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -32,19 +33,21 @@ import {
   useUpdateRoutePositions,
   useProviderStats,
   useProxyRequestUpdates,
+  useRoutingStrategies,
   routeKeys,
 } from '@/hooks/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import { getClientName, getClientColor } from '@/components/icons/client-icons';
 import { getProviderColor, type ProviderType } from '@/lib/theme';
-import type { ClientType, Provider, ProviderStats } from '@/lib/transport';
+import type { ClientType, Provider, ProviderStats, RoutingStrategyType } from '@/lib/transport';
 import {
   SortableProviderRow,
   ProviderRowContent,
 } from '@/pages/client-routes/components/provider-row';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
-import { Button } from '../ui';
+import { Button, Badge, buttonVariants } from '../ui';
+import { cn } from '@/lib/utils';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CooldownsProvider } from '@/contexts/cooldowns-context';
 
@@ -102,6 +105,56 @@ interface ClientTypeRoutesContentProps {
   searchQuery?: string; // Optional search query from parent
 }
 
+// Small banner above the routes list telling the user which routing strategy is
+// actually in effect for this scope (project-specific, else inherited global,
+// else the priority default) and what that means for ordering. Mirrors the
+// backend resolution order in router.getRoutingStrategy.
+function RoutingStrategyBanner({
+  type,
+  inherited,
+  isDefault,
+}: {
+  type: RoutingStrategyType;
+  inherited: boolean;
+  isDefault: boolean;
+}) {
+  const { t } = useTranslation();
+  const isWeighted = type === 'weighted_random';
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5">
+      <Workflow className="h-4 w-4 text-cyan-500 shrink-0" />
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        {t('routes.strategyLabel')}
+      </span>
+      <Badge variant={isWeighted ? 'warning' : 'info'}>
+        {isWeighted
+          ? t('routingStrategies.weightedRandom')
+          : t('routingStrategies.priorityByPosition')}
+      </Badge>
+      {inherited && (
+        <span className="text-[11px] text-muted-foreground/70">
+          ({t('routes.strategyInherited')})
+        </span>
+      )}
+      {isDefault && (
+        <span className="text-[11px] text-muted-foreground/70">
+          ({t('routes.strategyDefault')})
+        </span>
+      )}
+      <span className="text-[11px] text-muted-foreground min-w-0 flex-1 break-words">
+        {isWeighted ? t('routes.strategyWeightedHint') : t('routes.strategyPriorityHint')}
+      </span>
+      <Link
+        to="/routing-strategies"
+        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-7 shrink-0 text-xs')}
+      >
+        <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+        {t('routes.strategyConfigure')}
+      </Link>
+    </div>
+  );
+}
+
 // Wrapper component that provides the AntigravityQuotasProvider and CooldownsProvider
 export function ClientTypeRoutesContent(props: ClientTypeRoutesContentProps) {
   return (
@@ -141,6 +194,22 @@ function ClientTypeRoutesContentInner({
 
   const { data: allRoutes, isLoading: routesLoading } = useRoutes();
   const { data: providers = [], isLoading: providersLoading } = useProviders();
+  const { data: strategies = [] } = useRoutingStrategies();
+
+  // Resolve the effective strategy for this scope, mirroring the backend's
+  // order: project-specific first, then the global (projectID 0) strategy,
+  // then the built-in priority default.
+  const strategyInfo = useMemo(() => {
+    const own = strategies.find((s) => s.projectID === projectID);
+    const global = strategies.find((s) => s.projectID === 0);
+    const resolved = own ?? global;
+    return {
+      type: (resolved?.type ?? 'priority') as RoutingStrategyType,
+      inherited: !own && !!global && projectID !== 0,
+      isDefault: !resolved,
+    };
+  }, [strategies, projectID]);
+  const isWeighted = strategyInfo.type === 'weighted_random';
 
   const createRoute = useCreateRoute();
   const toggleRoute = useToggleRoute();
@@ -373,6 +442,13 @@ function ClientTypeRoutesContentInner({
     <div className="flex flex-col h-full min-h-0">
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-[1400px] space-y-6">
+          {/* Effective routing strategy for this scope */}
+          <RoutingStrategyBanner
+            type={strategyInfo.type}
+            inherited={strategyInfo.inherited}
+            isDefault={strategyInfo.isDefault}
+          />
+
           {/* Routes List */}
           {items.length > 0 ? (
             <DndContext
@@ -394,6 +470,7 @@ function ClientTypeRoutesContentInner({
                       }
                       stats={stableProviderStats[item.provider.id]}
                       isToggling={toggleRoute.isPending || createRoute.isPending}
+                      showWeight={isWeighted}
                       onToggle={() => handleToggle(item)}
                       onDelete={item.route ? () => handleDeleteRoute(item.route!.id) : undefined}
                     />
