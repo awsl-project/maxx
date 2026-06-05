@@ -240,13 +240,16 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Build upstream URL
 	upstreamURL := buildBedrockURL(region, bedrockModelID, clientWantsStream)
 
-	// Up to three attempts: two independent retry paths each fire at
+	// Up to four attempts: three independent retry paths each fire at
 	// most once. (1) a Bedrock 400 that rejects a thinking-block
 	// envelope (signature on `thinking`, opaque `data` on
 	// `redacted_thinking`) is recoverable by stripping those blocks
 	// and replaying once. (2) a 400 rejecting temperature/top_p/top_k
 	// (extended-thinking mode) is recoverable by stripping those
-	// fields and replaying once. Cross-deployment replays produced by
+	// fields and replaying once. (3) a 400 rejecting
+	// thinking.type="enabled" for an adaptive-only model is recoverable
+	// by rewriting to thinking.type="adaptive" and moving the budget
+	// signal into output_config.effort. Cross-deployment replays produced by
 	// clients that captured a transcript against Anthropic and now
 	// hit Bedrock are the common cause; retry preserves the rest of
 	// the conversation rather than failing the whole request.
@@ -259,6 +262,7 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	var resp *http.Response
 	thinkingRetried := false
 	samplingRetried := false
+	adaptiveRetried := false
 	for {
 		var attemptErr error
 		resp, attemptErr = a.sendBedrockRequest(ctx, c, upstreamURL, requestBody, region, clientWantsStream)
@@ -299,6 +303,18 @@ func (a *BedrockAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			if !bytes.Equal(stripped, requestBody) {
 				requestBody = stripped
 				samplingRetried = true
+				continue
+			}
+		}
+
+		// Discovery/model tables can lag Bedrock capability changes. If AWS
+		// says this exact model no longer accepts the classic thinking shape,
+		// trust the runtime validation and replay with adaptive thinking.
+		if !adaptiveRetried && resp.StatusCode == 400 && IsClassicThinkingRejectedError(body) {
+			rewritten := RewriteClassicThinkingToAdaptive(requestBody)
+			if !bytes.Equal(rewritten, requestBody) {
+				requestBody = rewritten
+				adaptiveRetried = true
 				continue
 			}
 		}
@@ -764,4 +780,3 @@ func newHTTPClient() *http.Client {
 		Timeout:   600 * time.Second,
 	}
 }
-

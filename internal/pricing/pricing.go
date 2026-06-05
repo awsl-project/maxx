@@ -22,6 +22,11 @@ type ModelPricing struct {
 	Cache5mWritePriceMicro uint64 `json:"cache5mWritePriceMicro,omitempty"` // 5分钟缓存（默认 input * 5/4）
 	Cache1hWritePriceMicro uint64 `json:"cache1hWritePriceMicro,omitempty"` // 1小时缓存（默认 input * 2）
 
+	// 图像 token 价格 (microUSD/M)，图像生成模型（gpt-image-*）专用，0 表示无独立
+	// 图像价位（图像 token 回退到 Input/OutputPriceMicro）
+	ImageInputPriceMicro  uint64 `json:"imageInputPriceMicro,omitempty"`  // 图像输入
+	ImageOutputPriceMicro uint64 `json:"imageOutputPriceMicro,omitempty"` // 图像输出
+
 	// 1M Context Window 分层定价 (Claude Sonnet 4/4.5)
 	Has1MContext       bool   `json:"has1mContext"`                 // 是否支持 1M context
 	Context1MThreshold uint64 `json:"context1mThreshold,omitempty"` // 阈值（默认 200,000）
@@ -119,20 +124,7 @@ func (p *ModelPricing) GetContext1MThreshold() uint64 {
 	return 200000
 }
 
-// GetInputPremiumFraction 获取超阈值input倍率（分数）
-// 默认 2/1 = 2.0
-func (p *ModelPricing) GetInputPremiumFraction() (num, denom uint64) {
-	num, denom = p.InputPremiumNum, p.InputPremiumDenom
-	if num == 0 {
-		num = 2
-	}
-	if denom == 0 {
-		denom = 1
-	}
-	return
-}
-
-// GetInputPremiumNum 获取超阈值input倍率分子（默认2）
+// GetInputPremiumNum 获取超阈值 input 倍率分子(默认 2)
 func (p *ModelPricing) GetInputPremiumNum() uint64 {
 	if p.InputPremiumNum > 0 {
 		return p.InputPremiumNum
@@ -140,7 +132,7 @@ func (p *ModelPricing) GetInputPremiumNum() uint64 {
 	return 2
 }
 
-// GetInputPremiumDenom 获取超阈值input倍率分母（默认1）
+// GetInputPremiumDenom 获取超阈值 input 倍率分母(默认 1)
 func (p *ModelPricing) GetInputPremiumDenom() uint64 {
 	if p.InputPremiumDenom > 0 {
 		return p.InputPremiumDenom
@@ -148,20 +140,7 @@ func (p *ModelPricing) GetInputPremiumDenom() uint64 {
 	return 1
 }
 
-// GetOutputPremiumFraction 获取超阈值output倍率（分数）
-// 默认 3/2 = 1.5
-func (p *ModelPricing) GetOutputPremiumFraction() (num, denom uint64) {
-	num, denom = p.OutputPremiumNum, p.OutputPremiumDenom
-	if num == 0 {
-		num = 3
-	}
-	if denom == 0 {
-		denom = 2
-	}
-	return
-}
-
-// GetOutputPremiumNum 获取超阈值output倍率分子（默认3）
+// GetOutputPremiumNum 获取超阈值 output 倍率分子(默认 3)
 func (p *ModelPricing) GetOutputPremiumNum() uint64 {
 	if p.OutputPremiumNum > 0 {
 		return p.OutputPremiumNum
@@ -169,7 +148,7 @@ func (p *ModelPricing) GetOutputPremiumNum() uint64 {
 	return 3
 }
 
-// GetOutputPremiumDenom 获取超阈值output倍率分母（默认2）
+// GetOutputPremiumDenom 获取超阈值 output 倍率分母(默认 2)
 func (p *ModelPricing) GetOutputPremiumDenom() uint64 {
 	if p.OutputPremiumDenom > 0 {
 		return p.OutputPremiumDenom
@@ -189,6 +168,8 @@ func ConvertToDBPrices(pt *PriceTable) []*domain.ModelPrice {
 			CacheReadPriceMicro:    mp.CacheReadPriceMicro,
 			Cache5mWritePriceMicro: mp.Cache5mWritePriceMicro,
 			Cache1hWritePriceMicro: mp.Cache1hWritePriceMicro,
+			ImageInputPriceMicro:   mp.ImageInputPriceMicro,
+			ImageOutputPriceMicro:  mp.ImageOutputPriceMicro,
 			Has1MContext:           mp.Has1MContext,
 			Context1MThreshold:     mp.Context1MThreshold,
 			InputPremiumNum:        mp.InputPremiumNum,

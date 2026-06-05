@@ -22,6 +22,9 @@ func RegisterProxyRoutes(mux *http.ServeMux, handlers ProxyRouteHandlers) {
 		mux.Handle("/v1/messages/", handlers.ProxyHandler)
 		// OpenAI API
 		mux.Handle("/v1/chat/completions", handlers.ProxyHandler)
+		// OpenAI Images API (gpt-image-* generation + edits)
+		mux.Handle("/v1/images/generations", handlers.ProxyHandler)
+		mux.Handle("/v1/images/edits", handlers.ProxyHandler)
 		// Codex API
 		mux.Handle("/responses", handlers.ProxyHandler)
 		mux.Handle("/responses/", handlers.ProxyHandler)

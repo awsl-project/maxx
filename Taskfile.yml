@@ -66,6 +66,16 @@ tasks:
     cmds:
       - go build -ldflags '{{.LDFLAGS}}' -o maxx cmd/maxx/main.go
 
+  build:cli:
+    desc: Build the maxx-cli headless admin client
+    cmds:
+      - go build -ldflags '{{.LDFLAGS}}' -o maxx-cli ./cmd/maxx-cli
+
+  install:cli:
+    desc: Install maxx-cli to $GOBIN
+    cmds:
+      - go install -ldflags '{{.LDFLAGS}}' ./cmd/maxx-cli
+
   test:e2e:
     desc: Run E2E tests
     cmds:
@@ -89,7 +99,7 @@ tasks:
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -f maxx
+      - rm -f maxx maxx-cli
       - rm -rf web/dist
 
   version:

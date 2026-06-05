@@ -56,6 +56,17 @@ func (r *RoutingStrategyRepository) GetByProjectID(tenantID uint64, projectID ui
 	return r.toDomain(&model), nil
 }
 
+func (r *RoutingStrategyRepository) GetByID(tenantID uint64, id uint64) (*domain.RoutingStrategy, error) {
+	var model RoutingStrategy
+	if err := tenantScope(r.db.gorm, tenantID).Where("id = ? AND deleted_at = 0", id).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return r.toDomain(&model), nil
+}
+
 func (r *RoutingStrategyRepository) List(tenantID uint64) ([]*domain.RoutingStrategy, error) {
 	var models []RoutingStrategy
 	if err := tenantScope(r.db.gorm, tenantID).Where("deleted_at = 0").Order("id").Find(&models).Error; err != nil {

@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"log"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
@@ -40,10 +42,57 @@ type BackgroundTaskDeps struct {
 	Settings           repository.SystemSettingRepository
 	AntigravityTaskSvc *service.AntigravityTaskService
 	CodexTaskSvc       *service.CodexTaskService
+
+	// Coordinator 可选。提供时,数据维护类清理任务(retention purge / detail cleanup)
+	// 只在 leader 实例上跑——多副本共享同一 RDS 时,6 副本同时清理会把 IOPS 放大 6 倍互相 race。
+	// 选举规则:对活实例 ID 排序,字典序最小的是 leader。简单、无外部依赖、TTL=heartbeat。
+	// Coordinator=nil 时退化为"总是 leader"(单实例 / 老路径)。
+	Coordinator coordinator.Coordinator
+}
+
+// leaderCheckTimeout 限制 coordinator 查询活实例列表的耗时;超时则保守退化为"非 leader",
+// 宁可这一轮不跑也不要让 coordinator 异常拖住后台任务。
+const leaderCheckTimeout = 2 * time.Second
+
+// isCleanupLeader 判断当前实例是否应当跑数据维护清理任务。
+//
+//   - Coordinator 为 nil → 单实例部署,总是 leader。
+//   - Coordinator.ListAliveInstances 失败/超时 → 保守返回 false。coordinator 不可用时
+//     宁可不清理也不要 6 副本一起跑(回到反馈中提到的 IOPS race 老问题)。
+//   - 选举:排序后最小 ID 是 leader,与本实例 ID 比较。
+//     无锁、无任期、无 split-brain 保护——清理任务幂等(再跑一次只是重复 WHERE 没行可清),
+//     即使瞬时两实例都自认 leader 也只是少量重复 IOPS,不会数据错乱。
+func (d *BackgroundTaskDeps) isCleanupLeader() bool {
+	if d.Coordinator == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), leaderCheckTimeout)
+	defer cancel()
+	alive, err := d.Coordinator.ListAliveInstances(ctx)
+	if err != nil {
+		log.Printf("[Task] leader check: ListAliveInstances failed (%v); skipping this tick", err)
+		return false
+	}
+	if len(alive) == 0 {
+		// 包括本实例都没注册的极端情况——保守跳过。
+		return false
+	}
+	sort.Strings(alive)
+	return alive[0] == d.Coordinator.InstanceID()
 }
 
 // StartBackgroundTasks 启动所有后台任务
 func StartBackgroundTasks(deps BackgroundTaskDeps) {
+	// 启动时校验:多副本部署日志一行,方便运维判断生效模式。
+	if deps.Coordinator != nil {
+		log.Printf("[Task] cleanup leader gating enabled (instance=%s)", deps.Coordinator.InstanceID())
+	} else {
+		log.Printf("[Task] cleanup leader gating disabled (single-instance mode)")
+	}
+	// 启动时校验:MySQL 上 detail-cleanup 索引若缺失,稳态 SELECT 会全表扫,
+	// 配合大 batch 反而把 IOPS 放大。打印明显告警 + manual SQL,让运维不至于错过。
+	deps.checkDetailCleanupIndexHealth()
+	deps.checkDetailClearedColumnHealth()
 	// 统计聚合任务（每 30 秒）- 聚合原始数据并自动 rollup 到各粒度
 	go func() {
 		time.Sleep(5 * time.Second) // 初始延迟
@@ -86,8 +135,161 @@ func StartBackgroundTasks(deps BackgroundTaskDeps) {
 	log.Println("[Task] Background tasks started (aggregation:30s, cleanup:1h, detail-cleanup:dynamic)")
 }
 
+// checkDetailClearedColumnHealth 在所有 dialect 上验证 v15 detail_cleared 列是否就绪。
+//
+// 背景:v15 migration 在 proxy_requests / proxy_upstream_attempts 行数 > 500k 时跳过
+// ADD COLUMN(避免大表升级阻塞写入)。如果运维忽略 manual SQL,稳态 ClearDetailOlderThan
+// 的 SELECT 会引用不存在的列 → 每个 tick 都报错 → cleanup 功能直接挂掉(不是变慢)。
+// 启动时探测列是否存在,缺失则置位 flag,sentinel-aware 的清理代码退化到 v13/v14 legacy
+// 谓词(`request_info IS NOT NULL OR response_info IS NOT NULL`),保证功能正常。
+//
+// 检查为 best-effort:DB 字段为 nil(测试场景)直接跳过。任一表缺列即视为 missing。
+func (d *BackgroundTaskDeps) checkDetailClearedColumnHealth() {
+	if d.DB == nil {
+		return
+	}
+	// 列类型与 migration v15 的 dialect 分支保持一致——否则运维复制 manual SQL 时
+	// Postgres 上 TINYINT 直接 1064 语法错(awsl233777 在 PR #568 catch)。
+	columnType := "TINYINT"
+	if d.DB.Dialector() == "postgres" {
+		columnType = "SMALLINT"
+	}
+	tables := []string{"proxy_requests", "proxy_upstream_attempts"}
+	missing := false
+	for _, table := range tables {
+		exists, err := detailClearedColumnExists(d.DB, table)
+		if err != nil {
+			log.Printf("[Task] WARNING: failed to probe %s.detail_cleared (%v); assuming missing", table, err)
+			missing = true
+			break
+		}
+		if !exists {
+			missing = true
+			log.Printf("[Task] WARNING: %s.detail_cleared column missing — cleanup will use legacy IS NOT NULL predicate (slow but functional). Apply manually:\n"+
+				"  ALTER TABLE %s ADD COLUMN detail_cleared %s NOT NULL DEFAULT 0;", table, table, columnType)
+			break
+		}
+	}
+	sqlite.SetDetailClearedColumnMissing(missing)
+	if !missing {
+		log.Printf("[Task] detail_cleared sentinel column present on both tables (fast path enabled)")
+	}
+}
+
+// detailClearedColumnExists 跨 dialect 探测列是否存在。
+//
+// 注意 Postgres 分支:不能 fall through 到 SQLite PRAGMA 路径。Postgres 会以
+// SQLSTATE 42601 拒绝 PRAGMA 并 abort 当前事务,后续查询全部失败(multiinstance CI 抓到)。
+func detailClearedColumnExists(db *sqlite.DB, table string) (bool, error) {
+	switch db.Dialector() {
+	case "mysql":
+		var n int64
+		err := db.GormDB().Raw(`
+			SELECT COUNT(*) FROM information_schema.COLUMNS
+			WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'detail_cleared'
+		`, table).Scan(&n).Error
+		return n > 0, err
+	case "postgres":
+		var n int64
+		err := db.GormDB().Raw(`
+			SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = ? AND column_name = 'detail_cleared'
+		`, table).Scan(&n).Error
+		return n > 0, err
+	default:
+		// SQLite
+		rows, err := db.GormDB().Raw("PRAGMA table_info(" + table + ")").Rows()
+		if err != nil {
+			return false, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dflt any
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+				return false, err
+			}
+			if name == "detail_cleared" {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+}
+
+// checkDetailCleanupIndexHealth 在 MySQL 上验证 detail-cleanup 索引是否就绪。
+//
+// 三档状态:
+//   - v14 (_v2) 索引存在 → fast path (1000/20ms)。生产 EXPLAIN filtered ~99%,
+//     是 PR 设计目标。
+//   - 仅 v13 旧索引 (_no _v2) → degraded。v13 的 (created_at, id) 列序对清理
+//     SELECT filtered 只有 ~10%,在大表上把 1000 batch 跑成全扫等价物。退到保守批次
+//     200/50ms,并打印 manual v14 SQL。maintainer awsl233777 在 PR #566 catch 的关键
+//     场景:v13 自动建成 + v14 threshold-skip 时,以前 health check 把它当作就绪,
+//     会用错配的 fast path。
+//   - 都不存在 → 最强警告 + 保守批次。
+//
+// 检查为 best-effort:DB 字段为 nil(测试场景)或非 MySQL(SQLite 用 partial index)
+// 直接跳过。INFORMATION_SCHEMA 查询失败也不阻塞启动——这只是健康提示,不是 gate。
+func (d *BackgroundTaskDeps) checkDetailCleanupIndexHealth() {
+	if d.DB == nil || d.DB.Dialector() != "mysql" {
+		return
+	}
+	type indexRow struct {
+		IndexName string `gorm:"column:index_name"`
+	}
+	var rows []indexRow
+	err := d.DB.GormDB().Raw(`
+		SELECT DISTINCT index_name FROM information_schema.STATISTICS
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'proxy_requests'
+		  AND index_name IN ('idx_proxy_requests_detail_cleanup', 'idx_proxy_requests_detail_cleanup_v2')
+	`).Scan(&rows).Error
+	if err != nil {
+		log.Printf("[Task] WARNING: failed to verify detail-cleanup index health: %v", err)
+		return
+	}
+	hasV13, hasV14 := false, false
+	for _, r := range rows {
+		switch r.IndexName {
+		case "idx_proxy_requests_detail_cleanup":
+			hasV13 = true
+		case "idx_proxy_requests_detail_cleanup_v2":
+			hasV14 = true
+		}
+	}
+	switch {
+	case hasV14:
+		sqlite.SetDetailCleanupIndexMissing(false)
+		log.Printf("[Task] MySQL detail-cleanup v14 index present (fast path enabled)")
+	case hasV13:
+		// v13 索引存在但 v14 缺失。v13 列序只让 ~10% 行有效过滤,大 batch 等同全扫。
+		// 退到保守批次,并提示运维补 v14。
+		sqlite.SetDetailCleanupIndexMissing(true)
+		log.Printf("[Task] WARNING: MySQL proxy_requests has only the v13 detail-cleanup index "+
+			"(created_at, id). v14 reorder is the actual perf fix; cleanup batch falls back to "+
+			"conservative size (200/50ms) until you apply:\n"+
+			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);\n"+
+			"  -- then optionally:\n"+
+			"  -- DROP INDEX idx_proxy_requests_detail_cleanup ON proxy_requests;")
+	default:
+		sqlite.SetDetailCleanupIndexMissing(true)
+		log.Printf("[Task] WARNING: MySQL proxy_requests has NO detail-cleanup index. "+
+			"Cleanup batch falls back to conservative size (200/50ms) until you apply:\n"+
+			"  CREATE INDEX idx_proxy_requests_detail_cleanup_v2 ON proxy_requests(status, dev_mode, created_at, id);")
+	}
+}
+
 // runCleanupTasks 清理任务：清理过期数据
+//
+// 多实例:仅在 leader 实例上跑。usage_stats / proxy_requests / sessions 是共享存储,
+// 6 副本同时跑只会把 IOPS 放大 6 倍且互相 race。leader gate 失败时跳过这一轮。
 func (d *BackgroundTaskDeps) runCleanupTasks() {
+	if !d.isCleanupLeader() {
+		return
+	}
 	// 1. 清理过期的分钟数据（保留 1 天）
 	before := time.Now().UTC().AddDate(0, 0, -1)
 	_, _ = d.UsageStats.DeleteOlderThan(domain.GranularityMinute, before)
@@ -311,7 +513,12 @@ func (d *BackgroundTaskDeps) runRequestDetailCleanup() {
 			continue
 		}
 
-		d.cleanupOldRequestDetails()
+		// 多实例:仅在 leader 上跑 detail cleanup。详见 isCleanupLeader 注释。
+		// 注意 sleep 调度仍然继续——非 leader 也要按相同 cadence 重新评估,
+		// 一旦 leader 切换不会延迟到下一个长间隔。
+		if d.isCleanupLeader() {
+			d.cleanupOldRequestDetails()
+		}
 
 		// 取所有 >0 side 的最小值；任一 side == 0 则锁到 10s
 		var seconds int

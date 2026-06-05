@@ -979,6 +979,55 @@ func TestSumStats(t *testing.T) {
 	}
 }
 
+func TestSummarize_Empty(t *testing.T) {
+	got := Summarize(nil)
+	if got == nil {
+		t.Fatal("Summarize(nil) returned nil, want zero-value summary")
+	}
+	if got.TotalRequests != 0 || got.SuccessRate != 0 {
+		t.Errorf("empty summary should be all zeros, got %+v", got)
+	}
+}
+
+func TestSummarize(t *testing.T) {
+	in := []*domain.UsageStats{
+		{
+			TotalRequests:      10,
+			SuccessfulRequests: 8,
+			FailedRequests:     2,
+			InputTokens:        1000,
+			OutputTokens:       500,
+			CacheRead:          100,
+			CacheWrite:         50,
+			Cost:               10000,
+		},
+		{
+			TotalRequests:      5,
+			SuccessfulRequests: 5,
+			InputTokens:        500,
+			OutputTokens:       250,
+			CacheRead:          50,
+			CacheWrite:         25,
+			Cost:               5000,
+		},
+	}
+	got := Summarize(in)
+	if got.TotalRequests != 15 || got.SuccessfulRequests != 13 || got.FailedRequests != 2 {
+		t.Errorf("requests: %+v", got)
+	}
+	if got.TotalInputTokens != 1500 || got.TotalOutputTokens != 750 {
+		t.Errorf("tokens: %+v", got)
+	}
+	if got.TotalCacheRead != 150 || got.TotalCacheWrite != 75 || got.TotalCost != 15000 {
+		t.Errorf("cache/cost: %+v", got)
+	}
+	// 13/15 = 86.666...% — 这里既验证 SuccessRate 计算位置,也防止以后改成 float32 之类的精度回退。
+	wantRate := 13.0 / 15.0 * 100
+	if got.SuccessRate != wantRate {
+		t.Errorf("SuccessRate = %v, want %v", got.SuccessRate, wantRate)
+	}
+}
+
 func TestGroupByProvider_Empty(t *testing.T) {
 	result := GroupByProvider(nil)
 	if len(result) != 0 {
@@ -1611,5 +1660,382 @@ func TestFullAggregationPipeline_MultipleModels(t *testing.T) {
 	}
 	if sonnetStats.Cost != 1000 {
 		t.Errorf("sonnet cost = %d, want 1000", sonnetStats.Cost)
+	}
+}
+
+func TestTopModelsByRequests_Empty(t *testing.T) {
+	if got := TopModelsByRequests(nil, 3); len(got) != 0 {
+		t.Errorf("nil input → %v, want empty", got)
+	}
+	if got := TopModelsByRequests([]*domain.UsageStats{}, 3); len(got) != 0 {
+		t.Errorf("empty input → %v, want empty", got)
+	}
+}
+
+func TestTopModelsByRequests_ZeroLimit(t *testing.T) {
+	in := []*domain.UsageStats{{Model: "a", TotalRequests: 10}}
+	if got := TopModelsByRequests(in, 0); len(got) != 0 {
+		t.Errorf("limit=0 → %v, want empty", got)
+	}
+	if got := TopModelsByRequests(in, -1); len(got) != 0 {
+		t.Errorf("limit=-1 → %v, want empty", got)
+	}
+}
+
+func TestTopModelsByRequests_IgnoresEmptyModel(t *testing.T) {
+	in := []*domain.UsageStats{
+		{Model: "", TotalRequests: 100, InputTokens: 1000},
+		{Model: "real", TotalRequests: 10, InputTokens: 100},
+	}
+	got := TopModelsByRequests(in, 5)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1 (empty model ignored)", len(got))
+	}
+	if got[0].Model != "real" {
+		t.Errorf("model = %q, want real", got[0].Model)
+	}
+}
+
+func TestTopModelsByRequests_AggregatesAcrossBuckets(t *testing.T) {
+	in := []*domain.UsageStats{
+		{Model: "claude", TotalRequests: 10, InputTokens: 100, OutputTokens: 50, CacheRead: 5, CacheWrite: 2},
+		{Model: "claude", TotalRequests: 5, InputTokens: 50, OutputTokens: 25},
+		{Model: "gpt", TotalRequests: 20, InputTokens: 200},
+	}
+	got := TopModelsByRequests(in, 5)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	// gpt is top: 20 > 15
+	if got[0].Model != "gpt" || got[0].Requests != 20 || got[0].Tokens != 200 {
+		t.Errorf("top = %+v, want gpt/20/200", got[0])
+	}
+	// claude aggregated: 15 req, tokens = 100+50+50+25+5+2 = 232
+	if got[1].Model != "claude" || got[1].Requests != 15 || got[1].Tokens != 232 {
+		t.Errorf("second = %+v, want claude/15/232", got[1])
+	}
+}
+
+func TestTopModelsByRequests_HonorsLimit(t *testing.T) {
+	in := []*domain.UsageStats{
+		{Model: "a", TotalRequests: 1},
+		{Model: "b", TotalRequests: 2},
+		{Model: "c", TotalRequests: 3},
+		{Model: "d", TotalRequests: 4},
+		{Model: "e", TotalRequests: 5},
+	}
+	got := TopModelsByRequests(in, 3)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3", len(got))
+	}
+	// Top 3 by requests desc: e=5, d=4, c=3
+	wantOrder := []string{"e", "d", "c"}
+	for i, w := range wantOrder {
+		if got[i].Model != w {
+			t.Errorf("got[%d].Model = %q, want %q", i, got[i].Model, w)
+		}
+	}
+}
+
+func TestDailyCounts_Empty(t *testing.T) {
+	got := DailyCounts(nil, time.UTC)
+	if len(got) != 0 {
+		t.Errorf("nil input → %v, want empty", got)
+	}
+	got = DailyCounts([]*domain.UsageStats{}, time.UTC)
+	if len(got) != 0 {
+		t.Errorf("empty input → %v, want empty", got)
+	}
+}
+
+func TestDailyCounts_SkipsZeroRequestRows(t *testing.T) {
+	// 一行 TotalRequests=0 不应该产生热力图条目(原 dashboard 在输出阶段 if count > 0 过滤掉)。
+	day := time.Date(2024, 3, 5, 0, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: day, TotalRequests: 0},
+	}
+	got := DailyCounts(in, time.UTC)
+	if len(got) != 0 {
+		t.Errorf("zero-request row → %v, want empty", got)
+	}
+}
+
+func TestDailyCounts_AggregatesByDate(t *testing.T) {
+	// 同一日期多条 stats(不同 provider/model 等维度)应累加。
+	day := time.Date(2024, 3, 5, 0, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: day, ProviderID: 1, TotalRequests: 5},
+		{TimeBucket: day, ProviderID: 2, TotalRequests: 3},
+		{TimeBucket: day.Add(2 * time.Hour), ProviderID: 1, TotalRequests: 7}, // 同一天不同小时
+		{TimeBucket: day.AddDate(0, 0, 1), TotalRequests: 11},                 // 第二天
+	}
+	got := DailyCounts(in, time.UTC)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2 days", len(got))
+	}
+	if got[0].Date != "2024-03-05" || got[0].Count != 15 {
+		t.Errorf("day[0] = %+v, want {2024-03-05, 15}", got[0])
+	}
+	if got[1].Date != "2024-03-06" || got[1].Count != 11 {
+		t.Errorf("day[1] = %+v, want {2024-03-06, 11}", got[1])
+	}
+}
+
+func TestDailyCounts_SortedAscending(t *testing.T) {
+	in := []*domain.UsageStats{
+		{TimeBucket: time.Date(2024, 3, 7, 0, 0, 0, 0, time.UTC), TotalRequests: 1},
+		{TimeBucket: time.Date(2024, 3, 5, 0, 0, 0, 0, time.UTC), TotalRequests: 1},
+		{TimeBucket: time.Date(2024, 3, 6, 0, 0, 0, 0, time.UTC), TotalRequests: 1},
+	}
+	got := DailyCounts(in, time.UTC)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3", len(got))
+	}
+	want := []string{"2024-03-05", "2024-03-06", "2024-03-07"}
+	for i, w := range want {
+		if got[i].Date != w {
+			t.Errorf("got[%d].Date = %q, want %q (must sort ascending)", i, got[i].Date, w)
+		}
+	}
+}
+
+func TestDailyCounts_TimezoneAffectsDateBoundary(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Skip("Asia/Shanghai not available")
+	}
+	// 2024-03-04 23:00 UTC = 2024-03-05 07:00 Shanghai → 同一桶在两个时区下日期不同。
+	utcEvening := time.Date(2024, 3, 4, 23, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: utcEvening, TotalRequests: 5},
+	}
+	gotUTC := DailyCounts(in, time.UTC)
+	if len(gotUTC) != 1 || gotUTC[0].Date != "2024-03-04" {
+		t.Errorf("UTC: got %v, want one entry on 2024-03-04", gotUTC)
+	}
+	gotShanghai := DailyCounts(in, shanghai)
+	if len(gotShanghai) != 1 || gotShanghai[0].Date != "2024-03-05" {
+		t.Errorf("Shanghai: got %v, want one entry on 2024-03-05", gotShanghai)
+	}
+}
+
+func TestHourlyTrend_Empty(t *testing.T) {
+	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+	got := HourlyTrend(nil, start, time.UTC)
+	if len(got) != 24 {
+		t.Fatalf("len = %d, want exactly 24 buckets even for empty input", len(got))
+	}
+	for i, p := range got {
+		if p.Requests != 0 {
+			t.Errorf("bucket[%d] = %d, want 0 (no data → all zeros)", i, p.Requests)
+		}
+	}
+	// Order check: first bucket label should match `start` truncated to hour.
+	if got[0].Hour != "10:00" {
+		t.Errorf("got[0].Hour = %q, want 10:00", got[0].Hour)
+	}
+	if got[23].Hour != "09:00" {
+		t.Errorf("got[23].Hour = %q, want 09:00 (24h later wraps)", got[23].Hour)
+	}
+}
+
+func TestHourlyTrend_NonHourAlignedStartTruncates(t *testing.T) {
+	// start = 10:30; hour-aligned start should be 10:00.
+	start := time.Date(2024, 1, 17, 10, 30, 0, 0, time.UTC)
+	got := HourlyTrend(nil, start, time.UTC)
+	if got[0].Hour != "10:00" {
+		t.Errorf("got[0].Hour = %q, want 10:00 (start truncates to hour)", got[0].Hour)
+	}
+}
+
+func TestHourlyTrend_AccumulatesByHour(t *testing.T) {
+	// hour-granularity stats: TimeBucket is hour-aligned (matches Query output).
+	// Two rows in the same hour bucket — sharded by another dimension — should sum.
+	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: start, ProviderID: 1, TotalRequests: 5},               // "10:00"
+		{TimeBucket: start, ProviderID: 2, TotalRequests: 3},               // "10:00" — same bucket, different provider
+		{TimeBucket: start.Add(1 * time.Hour), TotalRequests: 7},           // "11:00"
+		{TimeBucket: start.Add(23 * time.Hour), TotalRequests: 1},          // "09:00" (next day, last bucket)
+	}
+	got := HourlyTrend(in, start, time.UTC)
+	if got[0].Requests != 8 {
+		t.Errorf("got[0] = %d, want 8 (5+3 in same hour, different providers)", got[0].Requests)
+	}
+	if got[1].Requests != 7 {
+		t.Errorf("got[1] = %d, want 7", got[1].Requests)
+	}
+	if got[23].Requests != 1 {
+		t.Errorf("got[23] = %d, want 1", got[23].Requests)
+	}
+	if got[2].Requests != 0 {
+		t.Errorf("got[2] = %d, want 0 (no data → zero-fill)", got[2].Requests)
+	}
+}
+
+// TestHourlyTrend_DoesNotPolluteAcross24h 验证 review 指出的 collision bug 已修:
+// 之前 helper 按 "HH:MM" 作 key,跨天的同 wall-clock 时间(如 1/17 10:00 和 1/18 10:00)
+// 会被错误折叠到同一桶。现在按 hour-aligned UnixMilli 作 key,只有真正落在窗口
+// [start, start+24h) 内的桶才匹配;窗口外的同 HH:MM stat 应被丢弃。
+func TestHourlyTrend_DoesNotPolluteAcross24h(t *testing.T) {
+	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		// 同一 HH:MM=10:00,但日期是下一天 — 应被忽略,不应污染 start 那个桶。
+		{TimeBucket: time.Date(2024, 1, 18, 10, 0, 0, 0, time.UTC), TotalRequests: 99},
+		// 同一 HH:MM=10:00,但日期是上一天 — 也应被忽略。
+		{TimeBucket: time.Date(2024, 1, 16, 10, 0, 0, 0, time.UTC), TotalRequests: 50},
+	}
+	got := HourlyTrend(in, start, time.UTC)
+	// 所有 24 桶都应为 0(没有任何 stat 落在 [1/17 10:00, 1/18 10:00) 这个窗口里)。
+	for i, p := range got {
+		if p.Requests != 0 {
+			t.Errorf("got[%d] = %d, want 0 (跨日的 HH:MM=10:00 stat 不能污染窗口内的桶)", i, p.Requests)
+		}
+	}
+}
+
+func TestHourlyTrend_NilLocationDefaultsUTC(t *testing.T) {
+	start := time.Date(2024, 1, 17, 10, 0, 0, 0, time.UTC)
+	// nil loc 不应 panic(原实现 t.In(nil) 会 panic)。
+	got := HourlyTrend(nil, start, nil)
+	if len(got) != 24 {
+		t.Fatalf("nil loc: len = %d, want 24", len(got))
+	}
+	if got[0].Hour != "10:00" {
+		t.Errorf("nil loc: got[0].Hour = %q, want 10:00 (默认 UTC)", got[0].Hour)
+	}
+}
+
+func TestDailyCounts_NilLocationDefaultsUTC(t *testing.T) {
+	// nil loc 不应 panic。
+	in := []*domain.UsageStats{
+		{TimeBucket: time.Date(2024, 3, 5, 12, 0, 0, 0, time.UTC), TotalRequests: 10},
+	}
+	got := DailyCounts(in, nil)
+	if len(got) != 1 {
+		t.Fatalf("nil loc: len = %d, want 1", len(got))
+	}
+	if got[0].Date != "2024-03-05" {
+		t.Errorf("nil loc: got[0].Date = %q, want 2024-03-05 (默认 UTC)", got[0].Date)
+	}
+}
+
+// TestHourlyTrend_FractionalHourOffsetTZAlignsToStorageGrid 锁住 R3 修复后的行为:
+// 桶/key 的对齐方式跟 stats 存储用的 TruncateToGranularity(Hour, loc) 一致。
+// Asia/Kathmandu(UTC+05:45)的存储网格是 absolute UTC hour(因为 Truncate 是 UTC-aligned),
+// 在 Kathmandu 下渲染就是 ":45" 这种分钟。这是 storage-grid 真实就在这,helper 不应假装它在 ":00"。
+func TestHourlyTrend_FractionalHourOffsetTZAlignsToStorageGrid(t *testing.T) {
+	kathmandu, err := time.LoadLocation("Asia/Kathmandu")
+	if err != nil {
+		t.Skip("Asia/Kathmandu not available")
+	}
+	// 模拟一个已经存进 DB 的 hour-stat:它必然是 absolute-UTC-hour 对齐 (= Kathmandu ":45" wall-clock)。
+	utcHour := time.Date(2024, 1, 17, 21, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: utcHour, TotalRequests: 7}, // 在 Kathmandu 显示为 02:45
+	}
+	// start 跟 stat 在同一时刻(用 UTC hour) — bucket[0] 应落在这里。
+	got := HourlyTrend(in, utcHour, kathmandu)
+	if got[0].Requests != 7 {
+		t.Errorf("got[0].Requests = %d, want 7 (stat 跟 bucket[0] 在同一存储网格上)", got[0].Requests)
+	}
+	// 渲染出 ":45" 是真实的 storage-grid 偏移,不是 bug。
+	if got[0].Hour != "02:45" {
+		t.Errorf("got[0].Hour = %q, want 02:45 (Kathmandu 的 hour-bucket 网格落在 :45 分钟)", got[0].Hour)
+	}
+	if got[1].Hour != "03:45" {
+		t.Errorf("got[1].Hour = %q, want 03:45 (下一桶 +1h)", got[1].Hour)
+	}
+}
+
+// TestHourlyTrend_DSTFallBackNoCollision 验证 R3 review 指出的 DST fall-back collision bug 已修:
+// 2024-11-03 在 America/New_York 时区:01:00 EDT (05:00 UTC) 和 01:00 EST (06:00 UTC) 是两个真实
+// 不同的小时桶,中间相隔 1 小时。R2 版本的 truncateHourInLoc 会通过 time.Date(...,1,0,0,0,NY)
+// 把两者折叠到同一个 UnixMilli (EDT 的那个),导致 chart 上 02:00 桶被错误地占用、01:00 桶被双倍。
+//
+// 新版用绝对 UnixMilli 作 key,加 1h 一次就走 1h 真实时间;两个 01:00 NY 桶 → 两个 distinct key,
+// 数据正确分开;chart 上会有两个相邻 "01:00" 标签(这是 wall-clock 渲染的固有歧义,无法消除)。
+func TestHourlyTrend_DSTFallBackNoCollision(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("America/New_York not available")
+	}
+	// 在 NY fall-back 那天(2024-11-03)从午夜开始一个 24h 窗口。
+	// 这一天 NY 局部时间有 25 个小时(02:00 EDT 在 01:00 EST 之前再多 1 小时);窗口包含两个 "01:00"。
+	start := time.Date(2024, 11, 3, 0, 0, 0, 0, ny)
+	t1 := time.Date(2024, 11, 3, 5, 0, 0, 0, time.UTC) // 01:00 EDT
+	t2 := time.Date(2024, 11, 3, 6, 0, 0, 0, time.UTC) // 01:00 EST
+	in := []*domain.UsageStats{
+		{TimeBucket: t1, TotalRequests: 11},
+		{TimeBucket: t2, TotalRequests: 22},
+	}
+	got := HourlyTrend(in, start, ny)
+
+	// 验证:t1 和 t2 都精确落到了自己的桶,没有合并、没有覆盖、也没有跑到 02:00 桶。
+	var t1Slot, t2Slot int = -1, -1
+	for i, p := range got {
+		if p.Requests == 11 {
+			t1Slot = i
+		}
+		if p.Requests == 22 {
+			t2Slot = i
+		}
+	}
+	if t1Slot < 0 || t2Slot < 0 {
+		t.Fatalf("two DST hours collapsed; got = %+v", got)
+	}
+	if t1Slot == t2Slot {
+		t.Fatalf("01:00 EDT 和 01:00 EST 落到了同一个 slot[%d] — bucket key collision 未修", t1Slot)
+	}
+	if t2Slot != t1Slot+1 {
+		t.Errorf("两个 DST hour 应相邻 (相差 1 小时绝对时间); t1@%d t2@%d", t1Slot, t2Slot)
+	}
+	// 渲染上,这两个相邻 slot 都会显示 "01:00" — 这是 wall-clock 的固有歧义,锁住一下提醒未来读者。
+	if got[t1Slot].Hour != "01:00" || got[t2Slot].Hour != "01:00" {
+		t.Errorf("DST fall-back 渲染:两个相邻 slot 都该贴 01:00 标签; got %q / %q", got[t1Slot].Hour, got[t2Slot].Hour)
+	}
+	// 任何其他 slot 都不应混到这两个 stat 的请求量
+	for i, p := range got {
+		if i == t1Slot || i == t2Slot {
+			continue
+		}
+		if p.Requests != 0 {
+			t.Errorf("slot[%d] = %d, 应为 0 (DST stat 不应跨桶污染)", i, p.Requests)
+		}
+	}
+}
+
+func TestHourlyTrend_RespectsTimezone(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Skip("Asia/Shanghai not available")
+	}
+	// start = 02:00 UTC = 10:00 Shanghai.
+	// In Shanghai, the bucket label for that hour is "10:00".
+	start := time.Date(2024, 1, 17, 2, 0, 0, 0, time.UTC)
+	in := []*domain.UsageStats{
+		{TimeBucket: start, TotalRequests: 42},
+	}
+	gotUTC := HourlyTrend(in, start, time.UTC)
+	if gotUTC[0].Hour != "02:00" || gotUTC[0].Requests != 42 {
+		t.Errorf("UTC[0] = %+v, want {02:00, 42}", gotUTC[0])
+	}
+	gotShanghai := HourlyTrend(in, start, shanghai)
+	if gotShanghai[0].Hour != "10:00" || gotShanghai[0].Requests != 42 {
+		t.Errorf("Shanghai[0] = %+v, want {10:00, 42}", gotShanghai[0])
+	}
+}
+
+func TestTopModelsByRequests_TiesAreDeterministic(t *testing.T) {
+	// All models tied on requests; expect alphabetical order so result is stable.
+	in := []*domain.UsageStats{
+		{Model: "zeta", TotalRequests: 5},
+		{Model: "alpha", TotalRequests: 5},
+		{Model: "mid", TotalRequests: 5},
+	}
+	got := TopModelsByRequests(in, 3)
+	if got[0].Model != "alpha" || got[1].Model != "mid" || got[2].Model != "zeta" {
+		t.Errorf("tie order = [%s, %s, %s], want [alpha, mid, zeta]",
+			got[0].Model, got[1].Model, got[2].Model)
 	}
 }

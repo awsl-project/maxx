@@ -13,7 +13,7 @@ import (
 	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/pricing"
-	"github.com/awsl-project/maxx/internal/usage"
+	"github.com/awsl-project/maxx/internal/sticky"
 )
 
 func (e *Executor) dispatch(c *flow.Ctx) {
@@ -193,30 +193,14 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			eventChan.Close()
 			<-eventDone
 
+			multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
+
 			if err == nil {
 				attemptRecord.EndTime = time.Now()
 				attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 				attemptRecord.Status = "COMPLETED"
 
-				if attemptRecord.InputTokenCount > 0 || attemptRecord.OutputTokenCount > 0 {
-					metrics := &usage.Metrics{
-						InputTokens:          attemptRecord.InputTokenCount,
-						OutputTokens:         attemptRecord.OutputTokenCount,
-						CacheReadCount:       attemptRecord.CacheReadCount,
-						CacheCreationCount:   attemptRecord.CacheWriteCount,
-						Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
-						Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
-					}
-					pricingModel := attemptRecord.ResponseModel
-					if pricingModel == "" {
-						pricingModel = attemptRecord.MappedModel
-					}
-					multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
-					result := pricing.GlobalCalculator().CalculateWithResult(pricingModel, metrics, multiplier)
-					attemptRecord.Cost = result.Cost
-					attemptRecord.ModelPriceID = result.ModelPriceID
-					attemptRecord.Multiplier = result.Multiplier
-				}
+				pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 
 				if clearDetail {
 					attemptRecord.RequestInfo = nil
@@ -231,12 +215,32 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 
 				cooldown.Default().RecordSuccess(matchedRoute.Provider.ID, string(currentClientType), mappedModel)
 
+				// Sticky write-back: bind this session to the provider that
+				// just succeeded. Overwrites any previous binding (e.g. when
+				// we failed over from A → B, sticky now points at B for the
+				// next request). Errors are non-fatal — affinity is best-effort,
+				// the next call would just re-roll via weighted_random.
+				//
+				// Use a fresh background context with a tight timeout: by the
+				// time we get here the request ctx may already be Done (for
+				// streaming responses the client has disconnected just before
+				// this hook fires), which would turn every Set into a silent
+				// failure under load. 500ms is a deliberate budget — the
+				// write is on the response tail-latency path, so a slow
+				// Redis must not stall the request; affinity is best-effort
+				// and the next request will re-roll if the write timed out.
+				if state.stickyWrite != nil {
+					stickyCtx, stickyCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+					if err := sticky.Default().Set(stickyCtx, state.stickyWrite.Key, matchedRoute.Provider.ID, state.stickyWrite.TTL); err != nil {
+						log.Printf("[Executor] sticky set failed (non-fatal): %v", err)
+					}
+					stickyCancel()
+				}
+
 				proxyReq.Status = "COMPLETED"
 				proxyReq.EndTime = time.Now()
 				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 				proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
-				proxyReq.ModelPriceID = attemptRecord.ModelPriceID
-				proxyReq.Multiplier = attemptRecord.Multiplier
 				proxyReq.ResponseModel = mappedModel
 
 				if !clearDetail {
@@ -248,15 +252,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				}
 				proxyReq.StatusCode = responseCapture.StatusCode()
 
-				if metrics := usage.ExtractFromResponse(responseCapture.Body()); metrics != nil {
-					proxyReq.InputTokenCount = metrics.InputTokens
-					proxyReq.OutputTokenCount = metrics.OutputTokens
-					proxyReq.CacheReadCount = metrics.CacheReadCount
-					proxyReq.CacheWriteCount = metrics.CacheCreationCount
-					proxyReq.Cache5mWriteCount = metrics.Cache5mCreationCount
-					proxyReq.Cache1hWriteCount = metrics.Cache1hCreationCount
-				}
-				proxyReq.Cost = attemptRecord.Cost
+				pricing.MirrorCostToRequest(proxyReq, attemptRecord)
 				proxyReq.TTFT = attemptRecord.TTFT
 
 				clearProxyRequestDetail(proxyReq, clearDetail)
@@ -281,25 +277,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				attemptRecord.Status = "FAILED"
 			}
 
-			if attemptRecord.InputTokenCount > 0 || attemptRecord.OutputTokenCount > 0 {
-				metrics := &usage.Metrics{
-					InputTokens:          attemptRecord.InputTokenCount,
-					OutputTokens:         attemptRecord.OutputTokenCount,
-					CacheReadCount:       attemptRecord.CacheReadCount,
-					CacheCreationCount:   attemptRecord.CacheWriteCount,
-					Cache5mCreationCount: attemptRecord.Cache5mWriteCount,
-					Cache1hCreationCount: attemptRecord.Cache1hWriteCount,
-				}
-				pricingModel := attemptRecord.ResponseModel
-				if pricingModel == "" {
-					pricingModel = attemptRecord.MappedModel
-				}
-				multiplier := getProviderMultiplier(matchedRoute.Provider, clientType)
-				result := pricing.GlobalCalculator().CalculateWithResult(pricingModel, metrics, multiplier)
-				attemptRecord.Cost = result.Cost
-				attemptRecord.ModelPriceID = result.ModelPriceID
-				attemptRecord.Multiplier = result.Multiplier
-			}
+			pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 
 			if clearDetail {
 				attemptRecord.RequestInfo = nil
@@ -313,8 +291,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			state.currentAttempt = nil
 
 			proxyReq.FinalProxyUpstreamAttemptID = attemptRecord.ID
-			proxyReq.ModelPriceID = attemptRecord.ModelPriceID
-			proxyReq.Multiplier = attemptRecord.Multiplier
 
 			if responseCapture.Body() != "" {
 				proxyReq.StatusCode = responseCapture.StatusCode()
@@ -325,16 +301,8 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 						Body:    responseCapture.Body(),
 					}
 				}
-				if metrics := usage.ExtractFromResponse(responseCapture.Body()); metrics != nil {
-					proxyReq.InputTokenCount = metrics.InputTokens
-					proxyReq.OutputTokenCount = metrics.OutputTokens
-					proxyReq.CacheReadCount = metrics.CacheReadCount
-					proxyReq.CacheWriteCount = metrics.CacheCreationCount
-					proxyReq.Cache5mWriteCount = metrics.Cache5mCreationCount
-					proxyReq.Cache1hWriteCount = metrics.Cache1hCreationCount
-				}
 			}
-			proxyReq.Cost = attemptRecord.Cost
+			pricing.MirrorCostToRequest(proxyReq, attemptRecord)
 			proxyReq.TTFT = attemptRecord.TTFT
 
 			clearProxyRequestDetail(proxyReq, clearDetail)

@@ -161,6 +161,53 @@ func TestProjectAPIPathAllowsExactGeminiModelList(t *testing.T) {
 	}
 }
 
+// TestProjectAPIPathAllowsImagesEndpoints pins the contract that
+// /v1/images/generations and /v1/images/edits work under the /project/<slug>/
+// prefix and nothing else under /v1/images/ leaks through. proxy_routes.go
+// only registers those two endpoints at the root mux; this whitelist must
+// stay equally tight, otherwise project-scoped routes become more permissive
+// than the root contract.
+func TestProjectAPIPathAllowsImagesEndpoints(t *testing.T) {
+	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
+		if !isValidAPIPath(path) {
+			t.Fatalf("expected %q to be valid for project proxy URLs", path)
+		}
+	}
+	for _, path := range []string{
+		"/v1/images",
+		"/v1/images/",
+		"/v1/images/variations",
+		"/v1/images/generations/extra",
+		"/v1/images/random",
+	} {
+		if isValidAPIPath(path) {
+			t.Fatalf("did not expect %q to pass the project proxy whitelist", path)
+		}
+	}
+}
+
+// TestProviderAPIPathAllowsImagesEndpoints pins the same contract for the
+// sibling /provider/<id>/ prefix: only the two registered endpoints, no
+// broader prefix match.
+func TestProviderAPIPathAllowsImagesEndpoints(t *testing.T) {
+	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
+		if !isValidProviderAPIPath(path) {
+			t.Fatalf("expected %q to be valid for provider proxy URLs", path)
+		}
+	}
+	for _, path := range []string{
+		"/v1/images",
+		"/v1/images/",
+		"/v1/images/variations",
+		"/v1/images/generations/extra",
+		"/v1/images/random",
+	} {
+		if isValidProviderAPIPath(path) {
+			t.Fatalf("did not expect %q to pass the provider proxy whitelist", path)
+		}
+	}
+}
+
 func TestProjectProxyRoutesGeminiModelListToModelsHandler(t *testing.T) {
 	modelsHandler := NewModelsHandler(&fakeResponseModelRepo{names: []string{"gpt-1"}}, nil, nil)
 	handler := NewProjectProxyHandler(nil, modelsHandler, &fakeProjectRepo{

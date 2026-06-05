@@ -1,9 +1,12 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
@@ -323,6 +326,92 @@ func TestCleanupOldRequestDetails_SplitMode(t *testing.T) {
 			t.Error("default -1 should retain")
 		}
 	})
+}
+
+// fakeCoordinator implements coordinator.Coordinator just enough for isCleanupLeader tests.
+// All non-leader methods return zero values; only InstanceID + ListAliveInstances behavior matters here.
+type fakeCoordinator struct {
+	id    string
+	alive []string
+	err   error
+}
+
+func (f *fakeCoordinator) InstanceID() string                                       { return f.id }
+func (f *fakeCoordinator) Publish(context.Context, string, []byte) error            { return nil }
+func (f *fakeCoordinator) Subscribe(context.Context, string) (<-chan coordinator.Message, error) {
+	return nil, nil
+}
+func (f *fakeCoordinator) Get(context.Context, string) ([]byte, error)                { return nil, nil }
+func (f *fakeCoordinator) Set(context.Context, string, []byte, time.Duration) error   { return nil }
+func (f *fakeCoordinator) Del(context.Context, string) error                          { return nil }
+func (f *fakeCoordinator) RegisterInstance(context.Context, time.Duration) error      { return nil }
+func (f *fakeCoordinator) RefreshInstance(context.Context, time.Duration) error       { return nil }
+func (f *fakeCoordinator) UnregisterInstance(context.Context) error                   { return nil }
+func (f *fakeCoordinator) ListAliveInstances(context.Context) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	// 返回新切片,模拟真实实现(memory/redis 都是新切片)。防御性 copy 让 isCleanupLeader 的
+	// sort.Strings 不会污染 fixture。
+	out := make([]string, len(f.alive))
+	copy(out, f.alive)
+	return out, nil
+}
+func (f *fakeCoordinator) Close() error { return nil }
+
+func TestIsCleanupLeader(t *testing.T) {
+	tests := []struct {
+		name    string
+		coord   coordinator.Coordinator
+		wantLed bool
+	}{
+		{"nil coordinator → always leader (single-instance fallback)", nil, true},
+		{"only self alive", &fakeCoordinator{id: "a", alive: []string{"a"}}, true},
+		{"self is smallest of many", &fakeCoordinator{id: "a", alive: []string{"c", "a", "b"}}, true},
+		{"self is not smallest", &fakeCoordinator{id: "b", alive: []string{"c", "a", "b"}}, false},
+		{"list returns error → conservative non-leader", &fakeCoordinator{id: "a", err: errors.New("boom")}, false},
+		{"empty alive list → conservative non-leader", &fakeCoordinator{id: "a", alive: nil}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := &BackgroundTaskDeps{Coordinator: tt.coord}
+			if got := deps.isCleanupLeader(); got != tt.wantLed {
+				t.Errorf("isCleanupLeader() = %v, want %v", got, tt.wantLed)
+			}
+		})
+	}
+}
+
+func TestCheckDetailCleanupIndexHealth_NilDBNoPanic(t *testing.T) {
+	// 测试调用方未提供 DB 时(常见于 unit test 场景),health check 必须安全 no-op。
+	deps := &BackgroundTaskDeps{}
+	deps.checkDetailCleanupIndexHealth() // must not panic
+}
+
+func TestCheckDetailCleanupIndexHealth_SQLiteSkipped(t *testing.T) {
+	// SQLite 用 partial index,index_name 与 MySQL 不同;health check 必须直接跳过
+	// 而不是对着 SQLite 的 sqlite_master 跑 information_schema 查询。
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	deps := &BackgroundTaskDeps{DB: db}
+	deps.checkDetailCleanupIndexHealth() // must not error/panic on non-MySQL
+}
+
+func TestRunCleanupTasksSkipsWhenNotLeader(t *testing.T) {
+	sessionRepo := &fakeSessionRepo{}
+	deps := BackgroundTaskDeps{
+		SessionRepo: sessionRepo,
+		Settings:    &fakeSettingRepo{},
+		// id="b" 不是最小,leader 应判为 "a"
+		Coordinator: &fakeCoordinator{id: "b", alive: []string{"a", "b"}},
+	}
+	deps.runCleanupTasks()
+	if sessionRepo.deleteCalls != 0 {
+		t.Fatalf("non-leader instance should not run cleanup, got %d delete calls", sessionRepo.deleteCalls)
+	}
 }
 
 func TestCleanupOldSessionsRespectsDisabledSetting(t *testing.T) {

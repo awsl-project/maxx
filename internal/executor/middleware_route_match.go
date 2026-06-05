@@ -21,12 +21,14 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 	}
 
 	proxyReq := state.proxyReq
-	routes, err := e.router.Match(&router.MatchContext{
+	result, err := e.router.Match(&router.MatchContext{
+		Ctx:          state.ctx,
 		TenantID:     state.tenantID,
 		ClientType:   state.clientType,
 		ProjectID:    state.projectID,
 		RequestModel: state.requestModel,
 		APITokenID:   state.apiTokenID,
+		SessionID:    state.sessionID,
 	})
 	if err != nil {
 		proxyReq.Status = "FAILED"
@@ -47,7 +49,7 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 		return
 	}
 
-	if len(routes) == 0 {
+	if len(result.Routes) == 0 {
 		proxyReq.Status = "FAILED"
 		proxyReq.Error = "no routes configured"
 		proxyReq.EndTime = time.Now()
@@ -73,7 +75,8 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 	if e.broadcaster != nil {
 		e.broadcaster.BroadcastProxyRequest(proxyReq)
 	}
-	state.routes = routes
+	state.routes = result.Routes
+	state.stickyWrite = result.Sticky
 
 	c.Next()
 }

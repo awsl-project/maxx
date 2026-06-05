@@ -8,6 +8,7 @@ import (
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/repository/cached"
+	"github.com/awsl-project/maxx/internal/sticky"
 )
 
 // CoordinatorComponents 是 SetupCoordinator 的输出。
@@ -50,6 +51,7 @@ func SetupCoordinator(parentCtx context.Context, instanceID string, forceStandal
 	coordinator.StartHeartbeat(coordCtx, coord, cfg.InstanceTTL)
 
 	cooldown.Default().SetCoordinator(coordCtx, coord)
+	sticky.Default().SetCoordinator(coordCtx, coord)
 
 	cleanup := func() {
 		// 顺序很重要:先 Unregister 让其他实例感知到本实例下线,

@@ -31,7 +31,6 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/version"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
@@ -134,6 +133,16 @@ func main() {
 	cooldown.Default().SetFailureCountRepository(failureCountRepo)
 	if err := cooldown.Default().LoadFromDatabase(); err != nil {
 		log.Printf("Warning: Failed to load cooldowns from database: %v", err)
+	}
+
+	// Seed/load model prices + wire historical price lookup. Same rationale as the
+	// Bedrock setter above: the CLI entry point does not go through
+	// core.InitializeServerComponents (the desktop launcher does), so without this
+	// the global Calculator keeps only its built-in default prices — DB price
+	// edits, versioning and historical-snapshot recalc would all be inert until
+	// the first admin price write. Non-fatal: on error billing degrades to builtins.
+	if err := core.InitializeModelPrices(modelPriceRepo); err != nil {
+		log.Printf("Warning: Failed to initialize model prices: %v", err)
 	}
 
 	// Generate instance ID
@@ -329,6 +338,7 @@ func main() {
 		Settings:           settingRepo,
 		AntigravityTaskSvc: antigravityTaskSvc,
 		CodexTaskSvc:       codexTaskSvc,
+		Coordinator:        coord,
 	})
 
 	// Ensure default tenant exists
@@ -378,11 +388,8 @@ func main() {
 	// Create project waiter for force project binding
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
-	// Create stats aggregator
-	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
-
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID, statsAggregator)
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()

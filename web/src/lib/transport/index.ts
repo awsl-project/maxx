@@ -25,6 +25,7 @@ export type {
   RoutingStrategy,
   RoutingStrategyType,
   RoutingStrategyConfig,
+  RoutingStickyScope,
   CreateRoutingStrategyData,
   ProxyRequest,
   ProxyRequestStatus,

@@ -98,7 +98,7 @@ func (e *Executor) ingress(c *flow.Ctx) {
 		IsStream:     state.isStream,
 		Status:       "PENDING",
 		APITokenID:   state.apiTokenID,
-		DevMode:     state.apiTokenDevMode,
+		DevMode:      state.apiTokenDevMode,
 	}
 
 	clearDetail := e.shouldClearRequestDetailFor(state)
@@ -118,7 +118,7 @@ func (e *Executor) ingress(c *flow.Ctx) {
 				Method:  c.Request.Method,
 				URL:     requestURI,
 				Headers: headers,
-				Body:    string(requestBody),
+				Body:    domain.RequestBodySnapshot(requestBody, requestHeaders.Get("Content-Type"), state.apiTokenDevMode),
 			}
 		}
 	}

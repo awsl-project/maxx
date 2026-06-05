@@ -18,7 +18,6 @@ import (
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 	"golang.org/x/crypto/bcrypt"
 
@@ -172,12 +171,11 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 		r,
 	)
 
-	// Create project waiter and stats aggregator
+	// Create project waiter
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
-	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
 
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance", statsAggregator)
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance")
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()

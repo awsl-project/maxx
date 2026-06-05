@@ -416,6 +416,8 @@ export class HttpTransport implements Transport {
     status?: string,
     apiTokenId?: number,
     projectId?: number,
+    startTime?: string,
+    endTime?: string,
   ): Promise<number> {
     const params: Record<string, string> = {};
     if (providerId !== undefined) {
@@ -429,6 +431,12 @@ export class HttpTransport implements Transport {
     }
     if (projectId !== undefined) {
       params.projectId = String(projectId);
+    }
+    if (startTime !== undefined) {
+      params.startTime = startTime;
+    }
+    if (endTime !== undefined) {
+      params.endTime = endTime;
     }
     const { data } = await this.adminClient.get<number>('/requests/count', { params });
     return data ?? 0;

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -37,6 +38,7 @@ type ProxyHandler struct {
 	trackerMu     sync.RWMutex
 	engine        *flow.Engine
 	extra         []flow.HandlerFunc
+	uploadLimiter *uploadLimiter
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -52,6 +54,7 @@ func NewProxyHandler(
 		sessionRepo:   sessionRepo,
 		tokenAuth:     tokenAuth,
 		engine:        flow.NewEngine(),
+		uploadLimiter: newUploadLimiterFromEnv(),
 	}
 	h.engine.Use(h.ingress)
 	return h
@@ -107,13 +110,52 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/v1")
 	}
 
-	body, err := io.ReadAll(r.Body)
+	// 大上传准入控制:在把 body 读进内存之前先门控,避免大量并发大上传同时挤爆堆。
+	// 名额持有到本函数返回(c.Next 同步跑完整个请求链路后),覆盖 body 在内存的整个生命周期。
+	//
+	// 刻意放在 stream 检测/鉴权之前:目的就是在做任何工作、读任何 body 之前廉价地泄洪。
+	// 代价是被泄洪的请求即使本是 SSE,拿到的也是 HTTP 层 413/429 而非 SSE 错误事件——
+	// 此时 body 还没读、client type 还不知道,无法构造对应协议的错误,可接受。
+	if h.uploadLimiter != nil {
+		if h.uploadLimiter.tooLarge(r.ContentLength) {
+			log.Printf("[Proxy] rejecting over-limit upload: %s %s (len=%d > %d)", r.Method, r.URL.Path, r.ContentLength, h.uploadLimiter.maxBytes)
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			c.Abort()
+			return
+		}
+		release, ok := h.uploadLimiter.acquire(r.Context(), r.ContentLength)
+		if !ok {
+			log.Printf("[Proxy] large-upload slot unavailable, shedding request: %s %s (len=%d)", r.Method, r.URL.Path, r.ContentLength)
+			writeRateLimitError(w, "server busy: too many concurrent large uploads, please retry", 5)
+			c.Abort()
+			return
+		}
+		defer release()
+	}
+
+	// 硬上限兜底:Content-Length 未知(chunked)时 tooLarge 预判不到,读取时用 LimitReader 封顶。
+	// +1 用于区分"恰好等于上限"与"超过上限";maxBytes 接近 MaxInt64 时跳过 +1 防溢出成负数。
+	var bodyReader io.Reader = r.Body
+	if h.uploadLimiter != nil && h.uploadLimiter.maxBytes > 0 {
+		limit := h.uploadLimiter.maxBytes
+		if limit < math.MaxInt64 {
+			limit++
+		}
+		bodyReader = io.LimitReader(r.Body, limit)
+	}
+	body, err := io.ReadAll(bodyReader)
 	if err != nil {
+		_ = r.Body.Close()
 		writeError(w, http.StatusBadRequest, "failed to read request body")
 		c.Abort()
 		return
 	}
 	_ = r.Body.Close()
+	if h.uploadLimiter != nil && h.uploadLimiter.maxBytes > 0 && int64(len(body)) > h.uploadLimiter.maxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		c.Abort()
+		return
+	}
 
 	// Normalize OpenAI Responses payloads sent to chat/completions
 	if strings.HasPrefix(r.URL.Path, "/v1/chat/completions") {
@@ -154,7 +196,12 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
-	originalBody := bytes.Clone(body)
+	// originalBody 与 body 内容一致且 body 全程不被就地修改:converter / normalize /
+	// InjectCodexUserAgent 都返回新切片,dispatch 里的格式转换也写到局部变量而非
+	// state.requestBody。因此别名共享即可,无需再 bytes.Clone 出一整份副本(每个请求
+	// 体可达数十 MB,这份拷贝纯属浪费)。真正需要独立副本的下游(converting_writer)
+	// 已自行 Clone。
+	originalBody := body
 
 	c.Set(flow.KeyClientType, clientType)
 	c.Set(flow.KeySessionID, sessionID)

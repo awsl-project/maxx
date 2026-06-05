@@ -307,6 +307,13 @@ type ProxyRequest struct {
 	ProjectID                   uint64 `gorm:"index"`
 	APITokenID                  uint64
 	DevMode                     int `gorm:"default:0"`
+	// detail_cleared 列**故意不放在 struct 上**:
+	//
+	// 该列由 migration v15 raw SQL 添加,带有 500k 行 threshold-skip 保护。
+	// 如果放在这里,GORM AutoMigrate 在 v15 之前就会跑 ADD COLUMN,绕过 threshold
+	// 守护——46GB 大表上 MySQL 5.7 INPLACE 重写可达小时级。
+	// 代码通过 .Updates(map[string]any{"detail_cleared": 1}) 和 raw WHERE 访问该列,
+	// 不需要 struct 字段。详见 ClearDetailOlderThan 与 runDetailClearedColumnMigration。
 }
 
 func (ProxyRequest) TableName() string { return "proxy_requests" }
@@ -319,15 +326,17 @@ type ProxyUpstreamAttempt struct {
 	ProxyRequestID    uint64 `gorm:"index"`
 	RequestInfo       LongText
 	ResponseInfo      LongText
-	RouteID           uint64
-	ProviderID        uint64
-	InputTokenCount   uint64
-	OutputTokenCount  uint64
-	CacheReadCount    uint64
-	CacheWriteCount   uint64
-	Cache5mWriteCount uint64 `gorm:"column:cache_5m_write_count"`
-	Cache1hWriteCount uint64 `gorm:"column:cache_1h_write_count"`
-	ModelPriceID      uint64 // 使用的模型价格记录ID
+	RouteID               uint64
+	ProviderID            uint64
+	InputTokenCount       uint64
+	OutputTokenCount      uint64
+	InputImageTokenCount  uint64
+	OutputImageTokenCount uint64
+	CacheReadCount        uint64
+	CacheWriteCount       uint64
+	Cache5mWriteCount     uint64 `gorm:"column:cache_5m_write_count"`
+	Cache1hWriteCount     uint64 `gorm:"column:cache_1h_write_count"`
+	ModelPriceID          uint64 // 使用的模型价格记录ID
 	Multiplier        uint64 // 倍率（10000=1倍）
 	Cost              uint64
 	IsStream          int
@@ -338,6 +347,7 @@ type ProxyUpstreamAttempt struct {
 	RequestModel      string `gorm:"size:128"`
 	MappedModel       string `gorm:"size:128"`
 	ResponseModel     string `gorm:"size:128"`
+	// detail_cleared 列同样不在 struct 上,理由见 ProxyRequest.detail_cleared 注释。
 }
 
 func (ProxyUpstreamAttempt) TableName() string { return "proxy_upstream_attempts" }
@@ -437,6 +447,8 @@ type ModelPrice struct {
 	CacheReadPriceMicro    uint64
 	Cache5mWritePriceMicro uint64 `gorm:"column:cache_5m_write_price_micro"`
 	Cache1hWritePriceMicro uint64 `gorm:"column:cache_1h_write_price_micro"`
+	ImageInputPriceMicro   uint64
+	ImageOutputPriceMicro  uint64
 	Has1MContext           int
 	Context1MThreshold     uint64 `gorm:"column:context_1m_threshold"`
 	InputPremiumNum        uint64

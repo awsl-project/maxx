@@ -196,6 +196,7 @@ export interface Route {
   clientType: ClientType;
   providerID: number;
   position: number;
+  weight: number;
   retryConfigID: number;
   modelMapping?: Record<string, string>;
 }
@@ -227,8 +228,13 @@ export type CreateRetryConfigData = Omit<RetryConfig, 'id' | 'createdAt' | 'upda
 
 export type RoutingStrategyType = 'priority' | 'weighted_random';
 
+export type RoutingStickyScope = 'token' | 'conversation';
+
 export interface RoutingStrategyConfig {
-  // 扩展字段
+  // Sticky / session-affinity (only meaningful for weighted_random; ignored for priority)
+  stickyEnabled?: boolean;
+  stickyScope?: RoutingStickyScope;
+  stickyTTLSeconds?: number;
 }
 
 export interface RoutingStrategy {
@@ -367,6 +373,10 @@ export interface CursorPaginationParams {
   apiTokenId?: number;
   /** 按 Project ID 过滤 */
   projectId?: number;
+  /** 按创建时间起点过滤（ISO 字符串或毫秒时间戳字符串） */
+  startTime?: string;
+  /** 按创建时间终点过滤（ISO 字符串或毫秒时间戳字符串） */
+  endTime?: string;
 }
 
 /** 游标分页响应 */
@@ -958,7 +968,7 @@ export interface RecalculateCostsResult {
 
 /** RecalculateCostsProgress - 成本重算进度更新 */
 export interface RecalculateCostsProgress {
-  phase: 'calculating' | 'updating_attempts' | 'updating_requests' | 'completed';
+  phase: 'calculating' | 'updating_attempts' | 'updating_requests' | 'completed' | 'failed';
   current: number;
   total: number;
   percentage: number;
@@ -1215,6 +1225,9 @@ export interface ModelPrice {
   cacheReadPriceMicro: number;
   cache5mWritePriceMicro: number;
   cache1hWritePriceMicro: number;
+  /** 图像 token 价格（gpt-image-*）；后端 omitempty，文本模型上可能缺省 */
+  imageInputPriceMicro?: number;
+  imageOutputPriceMicro?: number;
   has1mContext: boolean;
   context1mThreshold: number;
   inputPremiumNum: number;
@@ -1231,6 +1244,8 @@ export interface ModelPriceInput {
   cacheReadPriceMicro?: number;
   cache5mWritePriceMicro?: number;
   cache1hWritePriceMicro?: number;
+  imageInputPriceMicro?: number;
+  imageOutputPriceMicro?: number;
   has1mContext?: boolean;
   context1mThreshold?: number;
   inputPremiumNum?: number;

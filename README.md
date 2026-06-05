@@ -138,6 +138,42 @@ wails dev
 
 **Frontend requirements:** Node.js 22.12.0+ within the 22.x line (see `.node-version` / `.nvmrc`) and pnpm 10.7.0 (locked via `web/package.json`).
 
+### Headless admin CLI (`maxx-cli`)
+
+`maxx-cli` is a separate binary that talks to a running maxx server's admin
+HTTP API. It covers everything the web UI does — providers, API tokens,
+routes (with weights), routing strategies (with sticky session affinity),
+users, invite codes, and settings — and is designed for scripts, CI, and
+AI agents.
+
+Supported install paths:
+
+```bash
+# From source (latest tagged release):
+go install github.com/awsl-project/maxx/cmd/maxx-cli@latest
+
+# From source (local checkout):
+task install:cli      # uses Taskfile; installs to $GOBIN
+
+# Inside the official Docker image: maxx-cli is on PATH at /usr/local/bin/maxx-cli
+docker exec <container> maxx-cli --help
+```
+
+Standalone binary release assets and Homebrew/Scoop manifests for
+`maxx-cli` are not yet published; track [#585](https://github.com/awsl-project/maxx/pull/585)
+for the follow-up.
+
+First-time usage:
+
+```bash
+maxx-cli login --server http://localhost:9880 --username admin
+maxx-cli help reference       # full command tree, auto-generated
+maxx-cli -o json provider list
+```
+
+For the full agent-friendly briefing run `maxx-cli help reference`,
+`maxx-cli help formatting`, and `maxx-cli help auth-config`.
+
 ## Configure AI Coding Tools
 
 ### Claude Code
@@ -268,6 +304,7 @@ codex
 | `MAXX_ADMIN_PASSWORD` | Enable admin authentication with JWT. Default username: `admin`, password: the value of this variable |
 | `MAXX_DSN` | Database connection string |
 | `MAXX_DATA_DIR` | Custom data directory path |
+| `MAXX_ROUTING_SEED_SALT` | Optional shared secret for the `weighted_random` routing strategy. If unset, each process generates its own random salt — anti-grinding still holds and Redis sticky bindings still converge after the first successful request, but the pre-sticky first-pick order for the same `(token, session)` can differ across instances. Set the **same value on every instance** when you need consistent first-pick behavior in multi-instance deployments. |
 
 ### System Settings
 

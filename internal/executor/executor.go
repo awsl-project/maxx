@@ -14,7 +14,6 @@ import (
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/router"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
 
@@ -30,7 +29,6 @@ type Executor struct {
 	broadcaster      event.Broadcaster
 	projectWaiter    *waiter.ProjectWaiter
 	instanceID       string
-	statsAggregator  *stats.StatsAggregator
 	converter        *converter.Registry
 	engine           *flow.Engine
 	middlewares      []flow.HandlerFunc
@@ -49,7 +47,6 @@ func NewExecutor(
 	bc event.Broadcaster,
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
-	statsAggregator *stats.StatsAggregator,
 ) *Executor {
 	return &Executor{
 		router:           r,
@@ -62,7 +59,6 @@ func NewExecutor(
 		broadcaster:      bc,
 		projectWaiter:    projectWaiter,
 		instanceID:       instanceID,
-		statsAggregator:  statsAggregator,
 		converter:        converter.GetGlobalRegistry(),
 		engine:           flow.NewEngine(),
 		cooldownSem:      make(chan struct{}, 10),
@@ -218,7 +214,8 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 
 	clearDetail := e.shouldClearFailedRequestDetailFor(&execState{apiTokenDevMode: devMode})
 	if !clearDetail {
-		requestHeaders := flattenHeaders(flow.GetRequestHeaders(c))
+		rawHeaders := flow.GetRequestHeaders(c)
+		requestHeaders := flattenHeaders(rawHeaders)
 		requestURI := flow.GetRequestURI(c)
 		requestBody := flow.GetRequestBody(c)
 		if c.Request != nil {
@@ -232,7 +229,7 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 				Method:  c.Request.Method,
 				URL:     requestURI,
 				Headers: requestHeaders,
-				Body:    string(requestBody),
+				Body:    domain.RequestBodySnapshot(requestBody, rawHeaders.Get("Content-Type"), devMode),
 			}
 		}
 		proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}
@@ -337,6 +334,8 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 				if event.Metrics != nil {
 					attempt.InputTokenCount = event.Metrics.InputTokens
 					attempt.OutputTokenCount = event.Metrics.OutputTokens
+					attempt.InputImageTokenCount = event.Metrics.InputImageTokens
+					attempt.OutputImageTokenCount = event.Metrics.OutputImageTokens
 					attempt.CacheReadCount = event.Metrics.CacheReadCount
 					attempt.CacheWriteCount = event.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = event.Metrics.Cache5mCreationCount
@@ -417,6 +416,8 @@ func (e *Executor) processAdapterEventsRealtime(
 				if ev.Metrics != nil {
 					attempt.InputTokenCount = ev.Metrics.InputTokens
 					attempt.OutputTokenCount = ev.Metrics.OutputTokens
+					attempt.InputImageTokenCount = ev.Metrics.InputImageTokens
+					attempt.OutputImageTokenCount = ev.Metrics.OutputImageTokens
 					attempt.CacheReadCount = ev.Metrics.CacheReadCount
 					attempt.CacheWriteCount = ev.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = ev.Metrics.Cache5mCreationCount

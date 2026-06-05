@@ -71,6 +71,7 @@ type RoutingStrategyRepository interface {
 	Create(strategy *domain.RoutingStrategy) error
 	Update(strategy *domain.RoutingStrategy) error
 	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.RoutingStrategy, error)
 	GetByProjectID(tenantID uint64, projectID uint64) (*domain.RoutingStrategy, error)
 	List(tenantID uint64) ([]*domain.RoutingStrategy, error)
 }
@@ -121,6 +122,21 @@ type ProxyRequestFilter struct {
 	Status     *string // 状态，nil 表示不过滤
 	APITokenID *uint64 // API Token ID，nil 表示不过滤
 	ProjectID  *uint64 // Project ID，nil 表示不过滤
+	StartTime  *time.Time
+	EndTime    *time.Time
+}
+
+func (f *ProxyRequestFilter) IsEmpty() bool {
+	if f == nil {
+		return true
+	}
+	return f.TenantID == nil &&
+		f.ProviderID == nil &&
+		f.Status == nil &&
+		f.APITokenID == nil &&
+		f.ProjectID == nil &&
+		f.StartTime == nil &&
+		f.EndTime == nil
 }
 
 type ProxyRequestRepository interface {
@@ -156,10 +172,10 @@ type ProxyRequestRepository interface {
 	HasRecentRequests(since time.Time) (bool, error)
 	// UpdateCost updates only the cost field of a request
 	UpdateCost(id uint64, cost uint64) error
-	// AddCost adds a delta to the cost field of a request (can be negative)
-	AddCost(id uint64, delta int64) error
-	// BatchUpdateCosts updates costs for multiple requests in a single transaction
-	BatchUpdateCosts(updates map[uint64]uint64) error
+	// UpdateCostAtomically updates the request cost AND a batch of attempt cost updates
+	// in a single transaction. Used by RecalculateRequestCost to keep
+	// proxy_requests.cost == SUM(proxy_upstream_attempts.cost) atomic.
+	UpdateCostAtomically(requestID, requestCost uint64, attemptUpdates map[uint64]domain.AttemptCostUpdate) error
 	// RecalculateCostsFromAttempts recalculates all request costs by summing their attempt costs
 	RecalculateCostsFromAttempts() (int64, error)
 	// RecalculateCostsFromAttemptsWithProgress recalculates all request costs with progress reporting via channel
@@ -180,10 +196,9 @@ type ProxyUpstreamAttemptRepository interface {
 	// StreamForCostCalc iterates through all attempts for cost calculation
 	// Calls the callback with batches of minimal data, returns early if callback returns error
 	StreamForCostCalc(batchSize int, callback func(batch []*domain.AttemptCostData) error) error
-	// UpdateCost updates only the cost field of an attempt
-	UpdateCost(id uint64, cost uint64) error
-	// BatchUpdateCosts updates costs for multiple attempts in a single transaction
-	BatchUpdateCosts(updates map[uint64]uint64) error
+	// BatchUpdateCosts 批量更新 attempt 的 cost 和 model_price_id。
+	// model_price_id 跟随 cost 一起更新到当前匹配的价格记录,保证审计字段与金额一致。
+	BatchUpdateCosts(updates map[uint64]domain.AttemptCostUpdate) error
 	// MarkStaleAttemptsFailed marks stale attempts as failed with proper end_time and duration
 	MarkStaleAttemptsFailed() (int64, error)
 	// FixFailedAttemptsWithoutEndTime fixes FAILED attempts that have no end_time set
@@ -235,16 +250,6 @@ type UsageStatsRepository interface {
 	QueryDashboardData(tenantID uint64) (*domain.DashboardData, error)
 	// GetSummary 获取汇总统计数据（总计）
 	GetSummary(tenantID uint64, filter UsageStatsFilter) (*domain.UsageStatsSummary, error)
-	// GetSummaryByProvider 按 Provider 维度获取汇总统计
-	GetSummaryByProvider(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByRoute 按 Route 维度获取汇总统计
-	GetSummaryByRoute(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByProject 按 Project 维度获取汇总统计
-	GetSummaryByProject(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByAPIToken 按 APIToken 维度获取汇总统计
-	GetSummaryByAPIToken(tenantID uint64, filter UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error)
-	// GetSummaryByClientType 按 ClientType 维度获取汇总统计
-	GetSummaryByClientType(tenantID uint64, filter UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error)
 	// DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
 	DeleteOlderThan(granularity domain.Granularity, before time.Time) (int64, error)
 	// GetLatestTimeBucket 获取指定粒度的最新时间桶
@@ -255,8 +260,6 @@ type UsageStatsRepository interface {
 	// 返回一个 channel，发送每个阶段的进度事件，channel 会在完成后关闭
 	// 调用者可以 range 遍历 channel 获取进度，或直接忽略（异步执行）
 	AggregateAndRollUp(tenantID uint64) <-chan domain.AggregateEvent
-	// ClearAndRecalculate 清空统计数据并重新从原始数据计算
-	ClearAndRecalculate(tenantID uint64) error
 	// ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
 	ClearAndRecalculateWithProgress(tenantID uint64, progress chan<- domain.Progress) error
 }
@@ -316,8 +319,10 @@ type ModelPriceRepository interface {
 	Create(price *domain.ModelPrice) error
 	// BatchCreate 批量创建价格记录
 	BatchCreate(prices []*domain.ModelPrice) error
-	// GetByID 获取指定ID的价格记录
+	// GetByID 获取指定ID的价格记录（仅未软删，用于 admin 读路径）
 	GetByID(id uint64) (*domain.ModelPrice, error)
+	// GetByIDIncludingDeleted 按 ID 取价格记录，包括已软删的历史版本（用于 attempt 历史快照反查）
+	GetByIDIncludingDeleted(id uint64) (*domain.ModelPrice, error)
 	// GetCurrentByModelID 获取模型的当前价格（最新记录），支持前缀匹配
 	GetCurrentByModelID(modelID string) (*domain.ModelPrice, error)
 	// ListCurrentPrices 获取所有模型的当前价格（用于初始化 Calculator）

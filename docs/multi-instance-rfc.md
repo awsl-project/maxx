@@ -73,10 +73,31 @@ boot, you keep getting Redis errors until Redis recovers."
 | `MAXX_PROXY_REQUEST_SWEEP_INTERVAL`         | `45s`         | stale-request sweep period                        |
 | `MAXX_COOLDOWN_GEN_SYNC_INTERVAL`           | `2s`          | per-provider generation re-check throttle         |
 | `MAXX_COORDINATOR_RECONNECT_INTERVAL`       | `5s`          | degraded-mode reconnect cadence                   |
+| `MAXX_ROUTING_SEED_SALT`                    | `""`          | shared HMAC salt for weighted_random first-pick   |
 
 Legacy `MAXX_REDIS_URL` is retained as an alias for
 `MAXX_COORDINATOR_REDIS_URL` for backward compatibility with the original
 draft of this work.
+
+`MAXX_ROUTING_SEED_SALT` is **optional but recommended** in multi-instance
+deployments using the `weighted_random` routing strategy. Each instance
+falls back to a per-process random 32-byte salt when the variable is
+unset. Anti-grinding (a client cannot brute-force `X-Session-Id` to
+steer themselves onto a specific upstream) still holds in either mode,
+because the salt is never exposed. Redis sticky bindings remain
+consistent across instances as soon as the first dispatch succeeds —
+sticky reads the provider ID directly from Redis without re-shuffling.
+The visible difference between "shared salt" and "per-process salt" is
+only the **pre-sticky first pick** for the same `(token, session)`:
+without a shared salt, instance A and instance B may pick a different
+provider on the first request; whichever instance's pick succeeds first
+writes the sticky binding, and both instances converge for the rest of
+the session's lifetime.
+
+Set the same `MAXX_ROUTING_SEED_SALT` value on every instance if you
+want first-pick consistency before sticky writes land — useful for
+debugging hot-spot reports or making cold-start behavior reproducible
+across the fleet.
 
 ## Stale request reclamation
 

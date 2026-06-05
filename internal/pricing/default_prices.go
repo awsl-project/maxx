@@ -306,6 +306,22 @@ func initDefaultPrices() *PriceTable {
 		CacheReadPriceMicro: 75_000,    // $0.075/M
 	})
 
+	// ========== GPT Image 系列 ==========
+	// gpt-image-2 (图像生成, 按 token 计费, 口径对齐 LiteLLM):
+	//   文本输入 $5/M, 图像输入 $8/M, 文本输出 $10/M, 图像输出 $30/M, 缓存文本输入 $1.25/M。
+	// 响应 usage 把 input/output token 拆成 text/image 两类(input_tokens_details /
+	// output_tokens_details),计算器据此分别按文本价/图像价计。
+	// 注: LiteLLM 还有缓存图像输入 $2/M 一档,但响应未单独暴露缓存图像 token 数,故未建模
+	// (缓存命中统一走 CacheReadPriceMicro=$1.25)。
+	pt.Set(&ModelPricing{
+		ModelID:               "gpt-image-2",
+		InputPriceMicro:       5_000_000,  // $5.00/M  text input
+		OutputPriceMicro:      10_000_000, // $10.00/M text output
+		ImageInputPriceMicro:  8_000_000,  // $8.00/M  image input
+		ImageOutputPriceMicro: 30_000_000, // $30.00/M image output
+		CacheReadPriceMicro:   1_250_000,  // $1.25/M  cached text input
+	})
+
 	// ========== GPT-4o 系列 ==========
 	// gpt-4o: input=$2.50, output=$10, cache_read=$1.25
 	pt.Set(&ModelPricing{

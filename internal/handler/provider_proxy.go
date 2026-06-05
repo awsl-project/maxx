@@ -148,7 +148,28 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		responseCapture := executor.NewResponseCapture(clientWriter)
 		originalWriter := c.Writer
 		c.Writer = responseCapture
-		err = adapter.Execute(c, provider)
+		// Route through ExecuteOnce so this bypass path gets the same attempt-
+		// record + cost-finalization treatment as the retry-driven dispatch.
+		// Without this, /provider/<id>/... requests landed in the DB with 0
+		// attempts and cost=0 / multiplier=0 / modelPriceId=0 — silently
+		// zero-billing every direct-dispatch call.
+		//
+		// Fail fast if the executor isn't wired: silently falling back to a
+		// bare adapter call would reintroduce the exact "succeeded request
+		// with no attempt/billing" condition this PR fixes whenever production
+		// is misconfigured. The /v1beta/models pre-branch above already
+		// handles the only legitimately executor-less case (model-list reads).
+		if h.proxyHandler == nil || h.proxyHandler.executor == nil {
+			err = &domain.ProxyError{
+				HTTPStatusCode: http.StatusInternalServerError,
+				Message:        "provider proxy executor not configured",
+			}
+		} else {
+			_, err = h.proxyHandler.executor.ExecuteOnce(
+				c, proxyReq, route, provider, adapter,
+				clientType, requestModel, mappedModel, isStream, clearDetail,
+			)
+		}
 		c.Writer = originalWriter
 
 		now := time.Now()
@@ -239,7 +260,7 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 			Method:  c.Request.Method,
 			Headers: flattenRequestHeaders(requestHeaders),
 			URL:     requestURI,
-			Body:    string(requestBody),
+			Body:    domain.RequestBodySnapshot(requestBody, requestHeaders.Get("Content-Type"), devMode),
 		}
 	}
 	return proxyReq
@@ -324,6 +345,13 @@ func isValidProviderAPIPath(path string) bool {
 		return true
 	}
 	if path == "/v1/chat/completions" || strings.HasPrefix(path, "/v1/chat/completions/") {
+		return true
+	}
+	// OpenAI Images API (gpt-image-* generation + edits). Mirror isValidAPIPath
+	// and proxy_routes.go: allow exactly the two registered endpoints rather
+	// than HasPrefix("/v1/images/"), so the provider-prefixed contract doesn't
+	// drift wider than the root.
+	if path == "/v1/images/generations" || path == "/v1/images/edits" {
 		return true
 	}
 	if path == "/responses" || strings.HasPrefix(path, "/responses/") {
