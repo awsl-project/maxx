@@ -108,4 +108,19 @@ describe('buildTransportConfig', () => {
     setBackendUrl('http://localhost:9880');
     expect(buildTransportConfig()?.wsURL).toBe('ws://localhost:9880/ws');
   });
+
+  it('normalizes the build-time VITE_BACKEND_URL through the same contract', () => {
+    // No runtime override; the build-time fallback carries query/hash + trailing slash.
+    vi.stubEnv('VITE_BACKEND_URL', 'https://api.example.com/?x=1#frag');
+    try {
+      expect(getBackendUrl()).toBe('https://api.example.com');
+      expect(buildTransportConfig()).toEqual({
+        baseURL: 'https://api.example.com/api',
+        adminBaseURL: 'https://api.example.com/api/admin',
+        wsURL: 'wss://api.example.com/ws',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

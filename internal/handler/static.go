@@ -197,8 +197,10 @@ func serveFromCache(w http.ResponseWriter, r *http.Request, cached *staticFileCa
 	// Set content type
 	w.Header().Set("Content-Type", cached.contentType)
 
-	// Always set Vary header to ensure caches differentiate by Accept-Encoding
-	w.Header().Set("Vary", "Accept-Encoding")
+	// Always advertise that the response varies by Accept-Encoding. Use Add (not
+	// Set) so we append to — rather than overwrite — any Vary value an upstream
+	// middleware already wrote (e.g. CORSMiddleware's Vary: Origin).
+	w.Header().Add("Vary", "Accept-Encoding")
 
 	// Check if client accepts gzip and we have gzipped content
 	if cached.gzipped != nil && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {

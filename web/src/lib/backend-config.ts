@@ -34,13 +34,45 @@ export class BackendStorageError extends Error {
   }
 }
 
-/** Build-time fallback (empty string when unset). */
-const BUILD_TIME_BACKEND_URL: string =
-  (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() ?? '';
+/** Build-time fallback (empty string when unset). Read lazily so it can be tested. */
+function buildTimeBackendUrl(): string {
+  return (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() ?? '';
+}
 
 /**
- * Returns the configured backend base origin (no trailing slash), or an empty
- * string when the UI should use its own origin (same-origin default).
+ * Normalizes a backend URL to `origin + pathname` (query and hash dropped,
+ * trailing slashes stripped) so that later appending "/api" or "/ws" never
+ * yields a malformed URL. A sub-path is preserved to support a backend behind a
+ * reverse-proxy prefix (e.g. https://example.com/maxx). Empty input → "".
+ *
+ * @throws Error if the (non-empty) input is not a valid absolute http(s) URL.
+ */
+function normalizeBackendUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return '';
+  }
+  const parsed = new URL(trimmed); // throws on an unparseable URL
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Backend URL must use http or https');
+  }
+  return (parsed.origin + parsed.pathname).replace(/\/+$/, '');
+}
+
+/** Like normalizeBackendUrl but returns "" instead of throwing on bad input. */
+function normalizeBackendUrlSafe(raw: string): string {
+  try {
+    return normalizeBackendUrl(raw);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Returns the configured backend base (origin, plus any reverse-proxy sub-path),
+ * or an empty string when the UI should use its own origin (same-origin default).
+ * The runtime override and the build-time VITE_BACKEND_URL fallback share the
+ * same normalization, so both honor the identical URL contract.
  */
 export function getBackendUrl(): string {
   let stored = '';
@@ -49,8 +81,7 @@ export function getBackendUrl(): string {
   } catch {
     // localStorage may be unavailable (private mode / SSR); fall through.
   }
-  const value = stored || BUILD_TIME_BACKEND_URL;
-  return value.replace(/\/+$/, '');
+  return normalizeBackendUrlSafe(stored || buildTimeBackendUrl());
 }
 
 /**
@@ -70,22 +101,15 @@ export function getBackendUrl(): string {
  */
 export function setBackendUrl(raw: string): string {
   const previous = getBackendUrl();
-  const trimmed = raw.trim();
 
-  // Validate before touching storage so a bad URL never half-applies.
-  let normalized: string | null = null;
-  if (trimmed) {
-    const parsed = new URL(trimmed); // throws on an unparseable URL
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error('Backend URL must use http or https');
-    }
-    normalized = (parsed.origin + parsed.pathname).replace(/\/+$/, '');
-  }
+  // Validate/normalize before touching storage so a bad URL never half-applies.
+  // Shared with getBackendUrl() so runtime and build-time values are identical.
+  const normalized = normalizeBackendUrl(raw); // throws on an invalid URL; "" for empty
 
   // Storage failures (private mode, locked-down env) are a distinct error from
   // an invalid URL, so the UI can report them accurately rather than as "invalid".
   try {
-    if (normalized === null) {
+    if (!normalized) {
       localStorage.removeItem(STORAGE_KEY);
     } else {
       localStorage.setItem(STORAGE_KEY, normalized);

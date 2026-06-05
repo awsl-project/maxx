@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/fstest"
 )
 
 func TestParseCORSOrigins(t *testing.T) {
@@ -164,6 +165,34 @@ func TestCORSMiddlewareVaryOriginForDisallowedOrigin(t *testing.T) {
 	}
 	if !containsStr(rec.Header().Values("Vary"), "Origin") {
 		t.Fatalf("disallowed-origin response Vary=%v missing Origin", rec.Header().Values("Vary"))
+	}
+}
+
+func TestCORSPreservesVaryWithStaticHandler(t *testing.T) {
+	// The static handler writes Vary: Accept-Encoding. Wrapped by CORSMiddleware,
+	// the response for an allowed origin must keep BOTH Origin (from CORS) and
+	// Accept-Encoding (from static) — i.e. static.go must Add, not Set. Uses the
+	// real NewStaticHandler so a regression in static.go is caught here.
+	prev := StaticFS
+	StaticFS = fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<!doctype html>")}}
+	t.Cleanup(func() { StaticFS = prev })
+
+	h := CORSMiddleware(ParseCORSOrigins("https://ui.example.com"), NewStaticHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/index.html", nil)
+	req.Header.Set("Origin", "https://ui.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	vary := rec.Header().Values("Vary")
+	if !containsStr(vary, "Origin") {
+		t.Fatalf("Vary lost Origin (static handler overwrote it): %v", vary)
+	}
+	if !containsStr(vary, "Accept-Encoding") {
+		t.Fatalf("Vary missing Accept-Encoding: %v", vary)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://ui.example.com" {
+		t.Fatalf("Allow-Origin = %q, want reflected origin", got)
 	}
 }
 
