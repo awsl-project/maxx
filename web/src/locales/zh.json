@@ -1501,5 +1501,18 @@
     "requestModel": "请求模型",
     "mappedModel": "映射模型",
     "emptyHint": "暂无模型映射。添加映射以在发送到上游前转换请求模型。"
+  },
+  "backendAddress": {
+    "title": "后端地址",
+    "description": "将此界面连接到其他来源的后端。留空则使用提供此页面的同一服务器。",
+    "advanced": "连接设置",
+    "label": "后端 URL",
+    "placeholder": "https://api.example.com",
+    "current": "当前：{{value}}",
+    "sameOrigin": "同源（默认）",
+    "save": "保存并重新连接",
+    "reset": "恢复默认",
+    "invalid": "请输入有效的 http(s) URL",
+    "corsHint": "后端需通过 MAXX_CORS_ALLOW_ORIGINS 允许此来源。"
   }
 }

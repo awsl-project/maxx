@@ -5,6 +5,7 @@ import {
   ChevronDownIcon,
   FingerprintIcon,
 } from 'lucide-react';
+import { BackendAddressControl } from '@/components/backend-address-control';
 import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
 import { FieldError } from '@/components/field-error';
 import { PasswordInput } from '@/components/password-input';
@@ -654,6 +655,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                     </TabsContent>
                   )}
                 </Tabs>
+
+                <div className="border-t border-border/60 pt-4">
+                  <BackendAddressControl />
+                </div>
               </CardContent>
             </Card>
           </section>

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/core"
+	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/version"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -224,6 +225,7 @@ func (a *LauncherApp) startServerAsync() {
 		Components:  components,
 		SettingRepo: dbRepos.SettingRepo,
 		ServeStatic: true, // 关键：启用静态文件服务
+		CORS:        handler.ParseCORSOrigins(os.Getenv("MAXX_CORS_ALLOW_ORIGINS")),
 	}
 
 	server, err := core.NewManagedServer(serverConfig)

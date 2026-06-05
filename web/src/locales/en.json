@@ -1503,5 +1503,18 @@
     "requestModel": "Request Model",
     "mappedModel": "Mapped Model",
     "emptyHint": "No model mappings configured. Add mappings to transform request models before sending to upstream."
+  },
+  "backendAddress": {
+    "title": "Backend address",
+    "description": "Connect this UI to a backend on a different origin. Leave empty to use the same server that served this page.",
+    "advanced": "Connection settings",
+    "label": "Backend URL",
+    "placeholder": "https://api.example.com",
+    "current": "Current: {{value}}",
+    "sameOrigin": "same origin (default)",
+    "save": "Save & reconnect",
+    "reset": "Reset to default",
+    "invalid": "Enter a valid http(s) URL",
+    "corsHint": "The backend must allow this origin via MAXX_CORS_ALLOW_ORIGINS."
   }
 }

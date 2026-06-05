@@ -8,6 +8,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import type { Transport, TransportType } from './interface';
 import { initializeTransport, getTransport, isTransportReady, getTransportType } from './factory';
+import { buildTransportConfig } from '../backend-config';
 
 /**
  * Transport Context 的值类型
@@ -101,7 +102,7 @@ export function TransportProvider({
 
     console.log('[TransportProvider] Initializing transport...');
 
-    initializeTransport()
+    initializeTransport(buildTransportConfig())
       .then((transport) => {
         if (!cancelled) {
           const type = getTransportType()!;
