@@ -109,3 +109,39 @@ describe('buildTransportConfig', () => {
     expect(buildTransportConfig()?.wsURL).toBe('ws://localhost:9880/ws');
   });
 });
+
+describe('VITE_BACKEND_URL build-time fallback normalization', () => {
+  it('normalizes a VITE_BACKEND_URL that contains query and hash', async () => {
+    // Re-import the module with a stubbed env so the module-level constant is
+    // re-evaluated. vi.resetModules() clears the module registry, and
+    // vi.stubEnv sets import.meta.env before the fresh import runs.
+    vi.stubEnv('VITE_BACKEND_URL', 'https://api.example.com?x=1#frag');
+    vi.resetModules();
+    const mod = await import('./backend-config');
+
+    // No localStorage override → falls back to BUILD_TIME_BACKEND_URL.
+    localStorage.clear();
+    const backend = mod.getBackendUrl();
+    expect(backend).toBe('https://api.example.com');
+
+    const cfg = mod.buildTransportConfig();
+    expect(cfg).not.toBeUndefined();
+    expect(cfg!.baseURL).toBe('https://api.example.com/api');
+    expect(cfg!.wsURL).toBe('wss://api.example.com/ws');
+
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('normalizes a VITE_BACKEND_URL with trailing slash', async () => {
+    vi.stubEnv('VITE_BACKEND_URL', 'https://api.example.com/');
+    vi.resetModules();
+    const mod = await import('./backend-config');
+
+    localStorage.clear();
+    expect(mod.getBackendUrl()).toBe('https://api.example.com');
+
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+});
