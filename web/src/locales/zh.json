@@ -1504,7 +1504,7 @@
   },
   "backendAddress": {
     "title": "后端地址",
-    "description": "将此界面连接到其他来源的后端。留空则使用提供此页面的同一服务器。",
+    "description": "将此界面连接到其他来源的后端。留空则使用默认后端（页面自身来源，或构建时配置的默认值）。",
     "advanced": "连接设置",
     "label": "后端 URL",
     "placeholder": "https://api.example.com",

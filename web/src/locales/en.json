@@ -1506,7 +1506,7 @@
   },
   "backendAddress": {
     "title": "Backend address",
-    "description": "Connect this UI to a backend on a different origin. Leave empty to use the same server that served this page.",
+    "description": "Connect this UI to a backend on a different origin. Leave empty to use the default backend (the page's own origin, or the build-time default if one was configured).",
     "advanced": "Connection settings",
     "label": "Backend URL",
     "placeholder": "https://api.example.com",
