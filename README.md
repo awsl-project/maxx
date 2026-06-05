@@ -347,6 +347,12 @@ MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com maxx
 MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com,http://localhost:3000 maxx
 ```
 
+> ⚠️ **CORS is not a substitute for authentication.** `*` lets *any* website read
+> and call your API from a browser, including the admin API. Only use `*` for
+> trusted/local setups, and always set `MAXX_ADMIN_PASSWORD` so the admin API
+> requires a token. Prefer listing explicit origins over `*`. maxx logs a warning
+> at startup if `*` is combined with an unauthenticated admin API.
+
 **2. Point the UI at the backend.** Open the Web UI and either:
 
 - On the **login screen**, expand **Connection settings** and enter the backend URL (e.g. `https://api.example.com`); or

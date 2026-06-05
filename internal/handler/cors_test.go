@@ -17,6 +17,9 @@ func TestParseCORSOrigins(t *testing.T) {
 		{"*", []string{"*"}, true},
 		{"https://a.com, https://b.com ", []string{"https://a.com", "https://b.com"}, true},
 		{"https://a.com,,", []string{"https://a.com"}, true},
+		// Trailing slashes are stripped so they match the slash-less Origin header.
+		{"https://a.com/", []string{"https://a.com"}, true},
+		{"https://a.com/// , https://b.com/", []string{"https://a.com", "https://b.com"}, true},
 	}
 	for _, c := range cases {
 		got := ParseCORSOrigins(c.raw)
@@ -98,4 +101,58 @@ func TestCORSMiddlewarePreflightShortCircuits(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://anything.example.com" {
 		t.Fatalf("wildcard Allow-Origin = %q, want reflected origin", got)
 	}
+	// Preflight responses must vary on the request headers/method they reflect.
+	vary := rec.Header().Values("Vary")
+	for _, want := range []string{"Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"} {
+		if !containsStr(vary, want) {
+			t.Fatalf("preflight Vary=%v missing %q", vary, want)
+		}
+	}
+}
+
+func TestParseCORSOriginsTrailingSlashMatches(t *testing.T) {
+	// A configured origin with a trailing slash still matches the slash-less
+	// Origin header the browser sends.
+	h := CORSMiddleware(ParseCORSOrigins("https://ui.example.com/"), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("Origin", "https://ui.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://ui.example.com" {
+		t.Fatalf("Allow-Origin = %q, want match despite configured trailing slash", got)
+	}
+}
+
+func TestCORSMiddlewareDisallowedPreflightFallsThrough(t *testing.T) {
+	// A preflight from a disallowed origin must NOT be short-circuited with 204;
+	// it falls through to the next handler with no CORS headers so the browser
+	// blocks it and the real route status is preserved.
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	h := CORSMiddleware(ParseCORSOrigins("https://ui.example.com"), next)
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/admin/providers", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	req.Header.Set("Access-Control-Request-Method", "DELETE")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTeapot {
+		t.Fatalf("disallowed preflight status = %d, want pass-through 418", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("disallowed preflight should have no Allow-Origin, got %q", got)
+	}
+}
+
+func containsStr(s []string, want string) bool {
+	for _, v := range s {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }

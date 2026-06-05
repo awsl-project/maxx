@@ -573,6 +573,12 @@ func main() {
 	corsConfig := handler.ParseCORSOrigins(os.Getenv("MAXX_CORS_ALLOW_ORIGINS"))
 	if corsConfig.Enabled() {
 		log.Printf("CORS: allowing origins %v", corsConfig.AllowOrigins)
+		// A wildcard origin makes every route — including the admin API —
+		// readable from any website. CORS is not a substitute for auth, so warn
+		// loudly when "*" is combined with an unauthenticated admin API.
+		if corsConfig.HasWildcard() && os.Getenv("MAXX_ADMIN_PASSWORD") == "" {
+			log.Printf("WARNING: MAXX_CORS_ALLOW_ORIGINS=* with no MAXX_ADMIN_PASSWORD — any website can read/modify the admin API from a browser. Set MAXX_ADMIN_PASSWORD or list explicit trusted origins instead of '*'.")
+		}
 	}
 	loggedMux := handler.CORSMiddleware(corsConfig, handler.LoggingMiddleware(mux))
 

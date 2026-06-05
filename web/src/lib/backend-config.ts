@@ -15,6 +15,10 @@ import type { TransportConfig } from './transport/interface';
 
 const STORAGE_KEY = 'maxx_backend_url';
 
+// Must match AUTH_TOKEN_KEY in lib/auth-context.ts. Duplicated here (rather than
+// imported) to avoid an import cycle: auth-context → transport → backend-config.
+const AUTH_TOKEN_KEY = 'maxx-admin-token';
+
 /** Build-time fallback (empty string when unset). */
 const BUILD_TIME_BACKEND_URL: string =
   (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() ?? '';
@@ -36,23 +40,45 @@ export function getBackendUrl(): string {
 
 /**
  * Persists a backend URL override. Pass an empty/whitespace string to clear it
- * and revert to the same-origin default. Returns the normalized value stored.
+ * and revert to the build-time / same-origin default. Returns the normalized
+ * effective backend after the change.
+ *
+ * The input is normalized to `origin + pathname` (query and hash are dropped,
+ * trailing slashes stripped) so that later appending "/api" never yields a
+ * malformed URL. A sub-path is preserved to support a backend hosted behind a
+ * reverse-proxy prefix (e.g. https://example.com/maxx).
+ *
+ * When the effective backend actually changes, the stored admin token is
+ * cleared so a session minted by one backend is never replayed against another.
  *
  * @throws Error if the provided value is not a valid absolute http(s) URL.
  */
 export function setBackendUrl(raw: string): string {
-  const trimmed = raw.trim().replace(/\/+$/, '');
+  const previous = getBackendUrl();
+  const trimmed = raw.trim();
+
   if (!trimmed) {
     localStorage.removeItem(STORAGE_KEY);
-    return '';
+  } else {
+    // Validate: must be a parseable absolute http(s) URL.
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('Backend URL must use http or https');
+    }
+    const normalized = (parsed.origin + parsed.pathname).replace(/\/+$/, '');
+    localStorage.setItem(STORAGE_KEY, normalized);
   }
-  // Validate: must be an absolute http(s) URL.
-  const parsed = new URL(trimmed);
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('Backend URL must use http or https');
+
+  const current = getBackendUrl();
+  if (current !== previous) {
+    // Don't carry one backend's credentials over to another origin.
+    try {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    } catch {
+      // ignore storage errors
+    }
   }
-  localStorage.setItem(STORAGE_KEY, trimmed);
-  return trimmed;
+  return current;
 }
 
 /**

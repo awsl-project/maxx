@@ -340,6 +340,8 @@ MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com maxx
 MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com,http://localhost:3000 maxx
 ```
 
+> ⚠️ **CORS 不能替代鉴权。** `*` 会让*任意*网站都能从浏览器读取并调用你的 API（包括管理 API）。只在受信/本地环境用 `*`，并务必设置 `MAXX_ADMIN_PASSWORD` 让管理 API 需要 token。尽量列举明确来源而非 `*`。当 `*` 与未鉴权的管理 API 同时出现时，maxx 启动时会打印告警。
+
 **2. 让 UI 指向后端。** 打开 Web UI，二选一：
 
 - 在**登录页**展开 **连接设置**，填入后端地址（如 `https://api.example.com`）；或
