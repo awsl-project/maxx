@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BackendStorageError,
   buildTransportConfig,
@@ -107,5 +107,43 @@ describe('buildTransportConfig', () => {
   it('derives a ws:// URL from an http backend', () => {
     setBackendUrl('http://localhost:9880');
     expect(buildTransportConfig()?.wsURL).toBe('ws://localhost:9880/ws');
+  });
+});
+
+describe('VITE_BACKEND_URL build-time fallback', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    localStorage.clear();
+  });
+
+  it('ignores a non-http(s) VITE_BACKEND_URL (ftp://) and returns undefined', async () => {
+    vi.stubEnv('VITE_BACKEND_URL', 'ftp://api.example.com');
+    vi.resetModules();
+    const { buildTransportConfig: btc } = await import('./backend-config');
+    // No localStorage override, no valid build-time URL → same-origin default.
+    expect(btc()).toBeUndefined();
+  });
+
+  it('uses a valid https VITE_BACKEND_URL as the fallback', async () => {
+    vi.stubEnv('VITE_BACKEND_URL', 'https://api.example.com');
+    vi.resetModules();
+    const { buildTransportConfig: btc } = await import('./backend-config');
+    expect(btc()).toEqual({
+      baseURL: 'https://api.example.com/api',
+      adminBaseURL: 'https://api.example.com/api/admin',
+      wsURL: 'wss://api.example.com/ws',
+    });
+  });
+
+  it('normalizes VITE_BACKEND_URL by dropping query/hash and trailing slashes', async () => {
+    vi.stubEnv('VITE_BACKEND_URL', 'https://api.example.com/maxx/?x=1#frag');
+    vi.resetModules();
+    const { buildTransportConfig: btc } = await import('./backend-config');
+    expect(btc()).toEqual({
+      baseURL: 'https://api.example.com/maxx/api',
+      adminBaseURL: 'https://api.example.com/maxx/api/admin',
+      wsURL: 'wss://api.example.com/maxx/ws',
+    });
   });
 });

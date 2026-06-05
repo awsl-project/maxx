@@ -34,13 +34,34 @@ export class BackendStorageError extends Error {
   }
 }
 
-/** Build-time fallback (empty string when unset). */
-const BUILD_TIME_BACKEND_URL: string =
-  (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() ?? '';
+/**
+ * Normalizes a raw backend URL string the same way setBackendUrl() does:
+ * validates the protocol is http(s), drops query/hash, strips trailing slashes.
+ * Returns an empty string for invalid, empty, or non-http(s) inputs so callers
+ * can treat the result as "no override" (same-origin default).
+ */
+function normalizeBackendUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return '';
+    }
+    return (parsed.origin + parsed.pathname).replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+/** Build-time fallback (empty string when unset or invalid). */
+const BUILD_TIME_BACKEND_URL: string = normalizeBackendUrl(
+  (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? '',
+);
 
 /**
  * Returns the configured backend base origin (no trailing slash), or an empty
- * string when the UI should use its own origin (same-origin default).
+
  */
 export function getBackendUrl(): string {
   let stored = '';
