@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/fstest"
 )
 
 func TestParseCORSOrigins(t *testing.T) {
@@ -164,6 +165,41 @@ func TestCORSMiddlewareVaryOriginForDisallowedOrigin(t *testing.T) {
 	}
 	if !containsStr(rec.Header().Values("Vary"), "Origin") {
 		t.Fatalf("disallowed-origin response Vary=%v missing Origin", rec.Header().Values("Vary"))
+	}
+}
+
+func TestCORSMiddlewareVaryPreservedThroughStaticHandler(t *testing.T) {
+	// Regression test: serveFromCache used to call w.Header().Set("Vary",
+	// "Accept-Encoding") which silently dropped the "Origin" entry that
+	// CORSMiddleware had already added.  After the fix (Set → Add) both
+	// values must appear in the response Vary header for an allowed origin
+	// requesting a static file.
+	const index = "<!doctype html><title>test</title>"
+	prev := StaticFS
+	StaticFS = fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte(index)},
+	}
+	defer func() { StaticFS = prev }()
+
+	staticHandler := NewStaticHandler()
+	h := CORSMiddleware(ParseCORSOrigins("https://ui.example.com"), staticHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://ui.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 from static handler, got %d", rec.Code)
+	}
+	vary := rec.Header().Values("Vary")
+	for _, want := range []string{"Origin", "Accept-Encoding"} {
+		if !containsStr(vary, want) {
+			t.Fatalf("static handler response Vary=%v missing %q — CORSMiddleware Vary was overwritten", vary, want)
+		}
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://ui.example.com" {
+		t.Fatalf("Allow-Origin=%q, want reflected origin", got)
 	}
 }
 
