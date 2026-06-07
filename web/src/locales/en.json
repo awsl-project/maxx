@@ -635,7 +635,12 @@
     "strategyPriorityHint": "Drag rows to set the priority order.",
     "strategyWeightedHint": "Order is weighted-random — adjust each route's weight.",
     "weight": "Weight",
-    "weightTooltip": "Higher weight = higher chance of being picked (weighted_random strategy)."
+    "weightTooltip": "Higher weight = higher chance of being picked (weighted_random strategy).",
+    "affinityOn": "Affinity on",
+    "affinityOff": "Affinity off",
+    "affinityScopeToken": "by token",
+    "affinityScopeConversation": "by conversation",
+    "affinityTooltip": "Session affinity (sticky): under weighted_random, a session keeps hitting the same provider within the TTL to maximize prompt-cache hits. Configure it on the Routing strategies page."
   },
   "console": {
     "title": "Console",

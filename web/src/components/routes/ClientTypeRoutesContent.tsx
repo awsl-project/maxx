@@ -6,7 +6,7 @@
 import { useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { Plus, RefreshCw, Zap, Workflow, Settings2 } from 'lucide-react';
+import { Plus, RefreshCw, Zap, Workflow, Settings2, Pin } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -40,7 +40,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import { getClientName, getClientColor } from '@/components/icons/client-icons';
 import { getProviderColor, type ProviderType } from '@/lib/theme';
-import type { ClientType, Provider, ProviderStats, RoutingStrategyType } from '@/lib/transport';
+import type {
+  ClientType,
+  Provider,
+  ProviderStats,
+  RoutingStrategyType,
+  RoutingStickyScope,
+} from '@/lib/transport';
 import {
   SortableProviderRow,
   ProviderRowContent,
@@ -109,14 +115,30 @@ interface ClientTypeRoutesContentProps {
 // actually in effect for this scope (project-specific, else inherited global,
 // else the priority default) and what that means for ordering. Mirrors the
 // backend resolution order in router.getRoutingStrategy.
+// Render a sticky TTL as a compact, human-friendly duration (1800 → "30m",
+// 3600 → "1h", 90 → "90s"). Non-positive values fall back to the 30m default
+// the backend applies (sticky.TTLFromConfig).
+function formatTtl(seconds: number): string {
+  const s = seconds > 0 ? seconds : 1800;
+  if (s % 3600 === 0) return `${s / 3600}h`;
+  if (s % 60 === 0) return `${s / 60}m`;
+  return `${s}s`;
+}
+
 function RoutingStrategyBanner({
   type,
   inherited,
   isDefault,
+  stickyEnabled,
+  stickyScope,
+  stickyTTLSeconds,
 }: {
   type: RoutingStrategyType;
   inherited: boolean;
   isDefault: boolean;
+  stickyEnabled: boolean;
+  stickyScope: RoutingStickyScope;
+  stickyTTLSeconds: number;
 }) {
   const { t } = useTranslation();
   const isWeighted = type === 'weighted_random';
@@ -131,6 +153,27 @@ function RoutingStrategyBanner({
           ? t('routingStrategies.weightedRandom')
           : t('routingStrategies.priorityByPosition')}
       </Badge>
+      {/* Session affinity only takes effect under weighted_random, so only
+          surface its state there — otherwise the badge would be misleading. */}
+      {isWeighted &&
+        (stickyEnabled ? (
+          <Badge variant="success" title={t('routes.affinityTooltip')}>
+            <Pin className="mr-1 h-3 w-3" />
+            {t('routes.affinityOn')}
+            <span className="ml-1 font-normal opacity-80">
+              ·{' '}
+              {stickyScope === 'conversation'
+                ? t('routes.affinityScopeConversation')
+                : t('routes.affinityScopeToken')}{' '}
+              · {formatTtl(stickyTTLSeconds)}
+            </span>
+          </Badge>
+        ) : (
+          <Badge variant="outline" title={t('routes.affinityTooltip')}>
+            <Pin className="mr-1 h-3 w-3 opacity-50" />
+            {t('routes.affinityOff')}
+          </Badge>
+        ))}
       {inherited && (
         <span className="text-[11px] text-muted-foreground/70">
           ({t('routes.strategyInherited')})
@@ -203,10 +246,17 @@ function ClientTypeRoutesContentInner({
     const own = strategies.find((s) => s.projectID === projectID);
     const global = strategies.find((s) => s.projectID === 0);
     const resolved = own ?? global;
+    const cfg = resolved?.config ?? null;
     return {
       type: (resolved?.type ?? 'priority') as RoutingStrategyType,
       inherited: !own && !!global && projectID !== 0,
       isDefault: !resolved,
+      // Sticky / session-affinity is only honoured under weighted_random
+      // (priority is already deterministic — see router.go). Surface it so the
+      // effect of the routes' weights is understood in context.
+      stickyEnabled: !!cfg?.stickyEnabled,
+      stickyScope: cfg?.stickyScope ?? 'token',
+      stickyTTLSeconds: cfg?.stickyTTLSeconds ?? 1800,
     };
   }, [strategies, projectID]);
   const isWeighted = strategyInfo.type === 'weighted_random';
@@ -447,6 +497,9 @@ function ClientTypeRoutesContentInner({
             type={strategyInfo.type}
             inherited={strategyInfo.inherited}
             isDefault={strategyInfo.isDefault}
+            stickyEnabled={strategyInfo.stickyEnabled}
+            stickyScope={strategyInfo.stickyScope}
+            stickyTTLSeconds={strategyInfo.stickyTTLSeconds}
           />
 
           {/* Routes List */}
