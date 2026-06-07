@@ -19,7 +19,7 @@ import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-co
 import { useCooldownsContext } from '@/contexts/cooldowns-context';
 import { useUpdateRoute } from '@/hooks/queries';
 import { ProviderDetailsDialog } from '@/components/provider-details-dialog';
-import { useEffect, useState, memo } from 'react';
+import { useEffect, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 // Inline weight editor, shown on each route row only when the effective routing
@@ -31,6 +31,10 @@ function RouteWeightControlBase({ route }: { route: Route }) {
   const updateRoute = useUpdateRoute();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(String(route.weight ?? 1));
+  // Set by Escape so the blur it triggers cancels instead of committing. A ref
+  // (not state) because blur fires synchronously within the keydown handler,
+  // before any state update from this render would be visible to commit().
+  const cancelRef = useRef(false);
 
   // Keep the input in sync with server state, but never clobber what the user
   // is mid-edit typing.
@@ -40,6 +44,11 @@ function RouteWeightControlBase({ route }: { route: Route }) {
 
   const commit = () => {
     setEditing(false);
+    if (cancelRef.current) {
+      cancelRef.current = false;
+      setValue(String(route.weight ?? 1));
+      return;
+    }
     let n = parseInt(value, 10);
     if (!Number.isFinite(n) || n < 1) n = 1;
     setValue(String(n));
@@ -69,8 +78,7 @@ function RouteWeightControlBase({ route }: { route: Route }) {
           if (e.key === 'Enter') {
             (e.target as HTMLInputElement).blur();
           } else if (e.key === 'Escape') {
-            setEditing(false);
-            setValue(String(route.weight ?? 1));
+            cancelRef.current = true;
             (e.target as HTMLInputElement).blur();
           }
         }}

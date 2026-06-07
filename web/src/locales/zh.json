@@ -634,7 +634,7 @@
     "strategyPriorityHint": "拖动各行以设置优先级顺序。",
     "strategyWeightedHint": "按权重随机排序——可调整每条路由的权重。",
     "weight": "权重",
-    "weightTooltip": "权重越大被选中的概率越高(加权随机策略)。",
+    "weightTooltip": "权重越大被选中的概率越高（加权随机策略）。",
     "affinityOn": "已开启亲和",
     "affinityOff": "亲和关闭",
     "affinityScopeToken": "按 token",
