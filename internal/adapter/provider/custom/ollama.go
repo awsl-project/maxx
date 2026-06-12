@@ -151,7 +151,7 @@ func (a *CustomAdapter) executeOllama(c *flow.Ctx, provider *domain.Provider) er
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
-			Headers: flattenHeaders(upstreamReq.Header),
+			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
 			Body:    string(payload),
 		})
 	}

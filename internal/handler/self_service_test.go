@@ -804,7 +804,7 @@ func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenSecret(t *test
 		projectRepo:  &selfServiceProjectRepo{},
 	})
 
-	body := `{"name":"renamed-private-provider","type":"custom","excludeFromExport":true,"config":{"custom":{"baseURL":"https://new.example.com","apiKey":""}},"supportedClientTypes":["openai"]}`
+	body := `{"name":"renamed-private-provider","type":"custom","excludeFromExport":false,"config":{"custom":{"baseURL":"https://new.example.com","apiKey":""}},"supportedClientTypes":["openai"]}`
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
 
@@ -814,6 +814,9 @@ func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenSecret(t *test
 	if got := providerRepo.providers[0].Config.Custom.APIKey; got != "secret-api-key" {
 		t.Fatalf("stored API key = %q, want preserved secret", got)
 	}
+	if !providerRepo.providers[0].ExcludeFromExport {
+		t.Fatalf("stored excludeFromExport = false, want existing write-only mode to remain locked")
+	}
 
 	var provider domain.Provider
 	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
@@ -821,6 +824,9 @@ func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenSecret(t *test
 	}
 	if provider.Config == nil || provider.Config.Custom == nil {
 		t.Fatalf("provider config missing: %+v", provider)
+	}
+	if !provider.ExcludeFromExport {
+		t.Fatalf("response excludeFromExport = false, want existing write-only mode to remain locked")
 	}
 	if provider.Config.Custom.APIKey != "" {
 		t.Fatalf("update response leaked preserved API key: %+v", provider.Config.Custom)

@@ -229,7 +229,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
-			Headers: flattenHeaders(upstreamReq.Header),
+			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
 			Body:    string(requestBody),
 		})
 	}
@@ -374,7 +374,7 @@ func (a *CustomAdapter) retryWithFixer(
 			eventChan.SendRequestInfo(&domain.RequestInfo{
 				Method:  retryReq.Method,
 				URL:     retryReq.URL.String(),
-				Headers: flattenHeaders(retryReq.Header),
+				Headers: sanitizeHeadersForEvent(retryReq.Header),
 				Body:    string(fixedBody),
 			})
 		}
@@ -993,6 +993,36 @@ func flattenHeaders(h http.Header) map[string]string {
 		}
 	}
 	return result
+}
+
+// sanitizeHeadersForEvent returns a header map safe for request event logging,
+// redacting upstream credentials that may be injected from provider config.
+func sanitizeHeadersForEvent(h http.Header) map[string]string {
+	result := flattenHeaders(h)
+	for key := range result {
+		if isSensitiveEventHeader(key) {
+			result[key] = "[REDACTED]"
+		}
+	}
+	return result
+}
+
+func isSensitiveEventHeader(key string) bool {
+	switch strings.ToLower(key) {
+	case "authorization",
+		"proxy-authorization",
+		"x-api-key",
+		"x-goog-api-key",
+		"api-key",
+		"anthropic-api-key",
+		"openai-api-key",
+		"x-amz-security-token",
+		"cookie",
+		"set-cookie":
+		return true
+	default:
+		return false
+	}
 }
 
 // Headers to filter out - only privacy/proxy related, NOT application headers like anthropic-version

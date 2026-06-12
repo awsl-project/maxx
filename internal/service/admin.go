@@ -151,6 +151,7 @@ func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider
 	if err != nil {
 		return err
 	}
+	preserveExcludedProviderWriteOnlyMode(existing, provider)
 	preserveEmptyProviderSecrets(existing, provider)
 
 	// Auto-set SupportedClientTypes based on provider type
@@ -179,6 +180,13 @@ func (s *AdminService) DeleteProvider(tenantID uint64, id uint64) error {
 		s.adapterRefresher.RemoveAdapter(id)
 	}
 	return s.providerRepo.Delete(tenantID, id)
+}
+
+func preserveExcludedProviderWriteOnlyMode(existing, incoming *domain.Provider) {
+	if existing == nil || incoming == nil || !existing.ExcludeFromExport {
+		return
+	}
+	incoming.ExcludeFromExport = true
 }
 
 func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
