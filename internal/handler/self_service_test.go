@@ -647,6 +647,11 @@ func newSelfServiceAdminRequest(method, path string) *http.Request {
 	return withSelfServiceContext(req, domain.UserRoleAdmin)
 }
 
+func newSelfServiceAdminRequestWithBody(method, path, body string) *http.Request {
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	return withSelfServiceContext(req, domain.UserRoleAdmin)
+}
+
 func withSelfServiceContext(req *http.Request, role domain.UserRole) *http.Request {
 	ctx := maxxctx.WithTenantID(req.Context(), 1)
 	ctx = maxxctx.WithUserID(ctx, 9)
@@ -732,6 +737,93 @@ func TestSelfServiceHandler_GetProvider_AdminKeepsSecrets(t *testing.T) {
 	}
 	if provider.Config == nil || provider.Config.Custom == nil || provider.Config.Custom.APIKey != "secret-api-key" {
 		t.Fatalf("admin provider config = %+v, want unredacted secret", provider.Config)
+	}
+}
+
+func TestSelfServiceHandler_GetProvider_AdminHidesExcludedProviderSecrets(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{
+			providers: []*domain.Provider{
+				{
+					ID:                1,
+					TenantID:          1,
+					Name:              "private-provider",
+					Type:              "custom",
+					ExcludeFromExport: true,
+					Config: &domain.ProviderConfig{
+						Custom: &domain.ProviderConfigCustom{
+							BaseURL: "https://example.com",
+							APIKey:  "secret-api-key",
+						},
+					},
+				},
+			},
+		},
+		projectRepo: &selfServiceProjectRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequest(http.MethodGet, "/providers/1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config == nil || provider.Config.Custom == nil {
+		t.Fatalf("provider config missing: %+v", provider)
+	}
+	if provider.Config.Custom.APIKey != "" {
+		t.Fatalf("excluded provider API key leaked to admin: %+v", provider.Config.Custom)
+	}
+}
+
+func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenSecret(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{
+		providers: []*domain.Provider{
+			{
+				ID:                1,
+				TenantID:          1,
+				Name:              "private-provider",
+				Type:              "custom",
+				ExcludeFromExport: true,
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{
+						BaseURL: "https://example.com",
+						APIKey:  "secret-api-key",
+					},
+				},
+			},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"renamed-private-provider","type":"custom","excludeFromExport":true,"config":{"custom":{"baseURL":"https://new.example.com","apiKey":""}},"supportedClientTypes":["openai"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := providerRepo.providers[0].Config.Custom.APIKey; got != "secret-api-key" {
+		t.Fatalf("stored API key = %q, want preserved secret", got)
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config == nil || provider.Config.Custom == nil {
+		t.Fatalf("provider config missing: %+v", provider)
+	}
+	if provider.Config.Custom.APIKey != "" {
+		t.Fatalf("update response leaked preserved API key: %+v", provider.Config.Custom)
 	}
 }
 

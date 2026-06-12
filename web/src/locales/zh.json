@@ -1320,7 +1320,8 @@
     "apiKey": "API 密钥",
     "apiKeyEdit": "API 密钥（留空保持当前值）",
     "apiKeyOptional": "API 密钥（可选）",
-    "apiKeyExcludedHint": "该提供商已设置为“不导出此提供商配置”。您仍可在这里轮换 API 密钥，但当前提供商及其配置不会被包含在提供商导出或系统备份中。",
+    "apiKeyExcludedHint": "该提供商已设置为“不导出此提供商配置”。已保存的 API 密钥不会在编辑页回显；留空保存会保持当前密钥，输入新值则轮换。",
+    "keyPlaceholderWriteOnly": "已隐藏，留空保持当前密钥",
     "optionalUrlNote": "如果下面设置了客户端特定的 URL，则此项为可选。",
     "namePlaceholder": "例如：Production OpenAI",
     "endpointPlaceholder": "https://api.openai.com/v1",
@@ -1347,7 +1348,8 @@
     "disableErrorCooldown": "禁用错误冷冻",
     "disableErrorCooldownDesc": "开启后，错误将不再触发自动冷冻；手动冷冻与上游明确冷冻时间仍会生效。",
     "excludeFromExport": "不导出此提供商配置",
-    "excludeFromExportDesc": "开启后，此提供商及其配置不会被包含在提供商导出或系统备份中。仅影响当前提供商，不影响 API Token、系统设置等其他数据的导出。"
+    "excludeFromExportDesc": "开启后，此提供商及其配置不会被包含在提供商导出或系统备份中；保存后的提供商密钥也不会在编辑页回显，只能重新输入轮换。",
+    "excludeFromExportLockedDesc": "该提供商已进入密钥隐藏模式。为了避免通过关闭开关读回旧密钥，当前开关不可直接关闭。"
   },
   "cooldown": {
     "title": "冷却保护中",

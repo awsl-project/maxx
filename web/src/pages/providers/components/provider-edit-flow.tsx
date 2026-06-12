@@ -257,9 +257,7 @@ function ResponseModelMappings({
       </div>
 
       <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">
-          {t('responseModelMappings.pageDesc')}
-        </p>
+        <p className="text-xs text-muted-foreground mb-4">{t('responseModelMappings.pageDesc')}</p>
 
         {entries.length > 0 && (
           <div className="space-y-2 mb-4">
@@ -296,9 +294,7 @@ function ResponseModelMappings({
 
         {entries.length === 0 && (
           <div className="text-center py-6 mb-4">
-            <p className="text-muted-foreground text-sm">
-              {t('responseModelMappings.noMappings')}
-            </p>
+            <p className="text-muted-foreground text-sm">{t('responseModelMappings.noMappings')}</p>
           </div>
         )}
 
@@ -433,6 +429,7 @@ type EditFormData = {
   cloakSensitiveWords?: string;
   responseModelMapping: Record<string, string>;
   disableErrorCooldown?: boolean;
+  excludeFromExport?: boolean;
 };
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
@@ -466,16 +463,17 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     // before the migration continue to display their previous settings.
     const customCfg = provider.config?.custom as
       | (NonNullable<typeof provider.config>['custom'] & {
-          cloak?: { mode?: 'auto' | 'always' | 'never'; strictMode?: boolean; sensitiveWords?: string[] };
+          cloak?: {
+            mode?: 'auto' | 'always' | 'never';
+            strictMode?: boolean;
+            sensitiveWords?: string[];
+          };
         })
       | undefined;
     const disguise = customCfg?.disguise;
     const legacyCloak = customCfg?.cloak;
     // Default disguiseType: 'claude-code' (preserves legacy auto-cloak behavior).
-    const disguiseType = (disguise?.type ?? 'claude-code') as
-      | 'none'
-      | 'claude-code'
-      | 'bedrock';
+    const disguiseType = (disguise?.type ?? 'claude-code') as 'none' | 'claude-code' | 'bedrock';
     const cc = disguise?.claudeCode ?? legacyCloak;
     return {
       name: provider.name,
@@ -490,8 +488,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       cloakSensitiveWords: (cc?.sensitiveWords || []).join('\n'),
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
+      excludeFromExport: !!provider.excludeFromExport,
     };
   });
+  const secretsAreWriteOnly = !!provider.excludeFromExport || !!formData.excludeFromExport;
 
   const updateClient = (clientId: ClientType, updates: Partial<ClientConfig>) => {
     setFormData((prev) => ({
@@ -546,7 +546,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
-            apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
+            apiKey: formData.apiKey.trim() || '',
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -559,7 +559,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
-        excludeFromExport: !!provider.excludeFromExport,
+        excludeFromExport: !!formData.excludeFromExport,
       };
 
       await updateProvider.mutateAsync({ id: Number(provider.id), data });
@@ -604,7 +604,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
-            apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
+            apiKey: formData.apiKey.trim() || provider.config?.custom?.apiKey || '',
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -617,7 +617,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
-        excludeFromExport: !!provider.excludeFromExport,
+        excludeFromExport: !!formData.excludeFromExport,
       };
 
       const newProvider = await createProvider.mutateAsync(data);
@@ -890,26 +890,30 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   </label>
                   <div className="relative">
                     <Input
-                      type={showApiKey ? 'text' : 'password'}
+                      type={showApiKey && !secretsAreWriteOnly ? 'text' : 'password'}
                       value={formData.apiKey}
                       onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
                       placeholder={
-                        formData.backend === 'ollama'
-                          ? t('provider.keyPlaceholderOptional')
-                          : t('provider.keyPlaceholder')
+                        secretsAreWriteOnly
+                          ? t('provider.keyPlaceholderWriteOnly')
+                          : formData.backend === 'ollama'
+                            ? t('provider.keyPlaceholderOptional')
+                            : t('provider.keyPlaceholder')
                       }
                       className="w-full pr-10"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      aria-label={showApiKey ? t('common.hide') : t('common.show')}
-                    >
-                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                    {!secretsAreWriteOnly && (
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label={showApiKey ? t('common.hide') : t('common.show')}
+                      >
+                        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    )}
                   </div>
-                  {provider.excludeFromExport && (
+                  {secretsAreWriteOnly && (
                     <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
                       {t('provider.apiKeyExcludedHint')}
                     </div>
@@ -962,6 +966,31 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 checked={!!formData.disableErrorCooldown}
                 onCheckedChange={(checked) =>
                   setFormData((prev) => ({ ...prev, disableErrorCooldown: checked }))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+              {t('provider.excludeFromExport')}
+            </h3>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.excludeFromExportDesc')}
+                </p>
+                {provider.excludeFromExport && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {t('provider.excludeFromExportLockedDesc')}
+                  </p>
+                )}
+              </div>
+              <Switch
+                checked={!!formData.excludeFromExport}
+                disabled={!!provider.excludeFromExport}
+                onCheckedChange={(checked) =>
+                  setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
                 }
               />
             </div>

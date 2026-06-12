@@ -233,7 +233,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 				return
 			}
-			if !isAdmin {
+			if shouldSanitizeProviderSecrets(provider, isAdmin) {
 				provider = sanitizeProvider(provider)
 			}
 			writeJSON(w, http.StatusOK, provider)
@@ -245,9 +245,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 			writeSelfServiceInternalError(w, "GetProviders failed", err)
 			return
 		}
-		if !isAdmin {
-			providers = sanitizeProviders(providers)
-		}
+		providers = sanitizeProvidersForRole(providers, isAdmin)
 		if providers == nil {
 			providers = []*domain.Provider{}
 		}
@@ -265,7 +263,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 			writeSelfServiceInternalError(w, "CreateProvider failed", err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, provider)
+		writeJSON(w, http.StatusCreated, sanitizeProviderAfterMutation(&provider))
 	case http.MethodPut:
 		if !h.requireAdmin(w, r) {
 			return
@@ -292,7 +290,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 			writeSelfServiceInternalError(w, "UpdateProvider failed", err)
 			return
 		}
-		writeJSON(w, http.StatusOK, provider)
+		writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(&provider))
 	case http.MethodDelete:
 		if !h.requireAdmin(w, r) {
 			return
@@ -994,6 +992,11 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 		antigravity.RefreshToken = ""
 		config.Antigravity = &antigravity
 	}
+	if config.Bedrock != nil {
+		bedrock := *config.Bedrock
+		bedrock.SecretAccessKey = ""
+		config.Bedrock = &bedrock
+	}
 	if config.Kiro != nil {
 		kiro := *config.Kiro
 		kiro.RefreshToken = ""
@@ -1023,6 +1026,35 @@ func sanitizeProviders(providers []*domain.Provider) []*domain.Provider {
 	sanitized := make([]*domain.Provider, 0, len(providers))
 	for _, provider := range providers {
 		sanitized = append(sanitized, sanitizeProvider(provider))
+	}
+	return sanitized
+}
+
+func shouldSanitizeProviderSecrets(provider *domain.Provider, isAdmin bool) bool {
+	if provider == nil {
+		return false
+	}
+	return !isAdmin || provider.ExcludeFromExport
+}
+
+func sanitizeProviderAfterMutation(provider *domain.Provider) *domain.Provider {
+	if provider == nil || !provider.ExcludeFromExport {
+		return provider
+	}
+	return sanitizeProvider(provider)
+}
+
+func sanitizeProvidersForRole(providers []*domain.Provider, isAdmin bool) []*domain.Provider {
+	if len(providers) == 0 {
+		return providers
+	}
+	sanitized := make([]*domain.Provider, 0, len(providers))
+	for _, provider := range providers {
+		if shouldSanitizeProviderSecrets(provider, isAdmin) {
+			sanitized = append(sanitized, sanitizeProvider(provider))
+			continue
+		}
+		sanitized = append(sanitized, provider)
 	}
 	return sanitized
 }

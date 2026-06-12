@@ -182,14 +182,14 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 				return
 			}
-			writeJSON(w, http.StatusOK, provider)
+			writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(provider))
 		} else {
 			providers, err := h.svc.GetProviders(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusOK, providers)
+			writeJSON(w, http.StatusOK, sanitizeProvidersForRole(providers, true))
 		}
 	case http.MethodPost:
 		var provider domain.Provider
@@ -201,7 +201,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusCreated, provider)
+		writeJSON(w, http.StatusCreated, sanitizeProviderAfterMutation(&provider))
 	case http.MethodPut:
 		if id == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
@@ -228,7 +228,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, provider)
+		writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(&provider))
 	case http.MethodDelete:
 		if id == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})

@@ -1321,7 +1321,8 @@
     "apiKey": "API Key",
     "apiKeyEdit": "API Key (leave empty to keep current)",
     "apiKeyOptional": "API Key (optional)",
-    "apiKeyExcludedHint": "This provider is set to \"Do not export this provider\". You can still rotate the API key here, but this provider and its configuration will not be included in provider exports or system backups.",
+    "apiKeyExcludedHint": "This provider is set to \"Do not export this provider\". Saved API keys are not revealed on the edit page; leave this empty to keep the current key, or enter a new value to rotate it.",
+    "keyPlaceholderWriteOnly": "Hidden; leave empty to keep the current key",
     "optionalUrlNote": "Optional if client-specific URLs are set below.",
     "namePlaceholder": "e.g. Production OpenAI",
     "endpointPlaceholder": "https://api.openai.com/v1",
@@ -1348,7 +1349,8 @@
     "disableErrorCooldown": "Disable Error Cooldown",
     "disableErrorCooldownDesc": "When enabled, errors won't trigger automatic cooldown. Manual freezes and explicit cooldown times still apply.",
     "excludeFromExport": "Do not export this provider",
-    "excludeFromExportDesc": "When enabled, this provider and its configuration will not be included in provider exports or system backups. This only affects the current provider and does not reduce the export of other data such as API tokens or system settings."
+    "excludeFromExportDesc": "When enabled, this provider and its configuration will not be included in provider exports or system backups, and saved provider secrets will not be revealed on the edit page. Enter a new value to rotate a secret.",
+    "excludeFromExportLockedDesc": "This provider is already in hidden-secret mode. To avoid exposing the old secret by toggling this off, the switch cannot be disabled directly."
   },
   "cooldown": {
     "title": "Cooldown Protection",
