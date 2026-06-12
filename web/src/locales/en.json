@@ -1335,6 +1335,7 @@
     "cloning": "Cloning...",
     "cloneSuffix": " (Copy)",
     "cloneSuccess": "Cloned \"{{name}}\" successfully.",
+    "cloneWriteOnlyRequiresKey": "Enter a new API key before cloning this hidden-secret provider.",
     "delete": "Delete",
     "cancel": "Cancel",
     "none": "None",

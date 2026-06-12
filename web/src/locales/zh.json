@@ -1334,6 +1334,7 @@
     "cloning": "克隆中...",
     "cloneSuffix": "（副本）",
     "cloneSuccess": "已成功克隆「{{name}}」。",
+    "cloneWriteOnlyRequiresKey": "克隆该隐藏密钥提供商前，请先输入新的 API 密钥。",
     "delete": "删除",
     "cancel": "取消",
     "none": "无",

@@ -439,6 +439,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const [cloning, setCloning] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [cloneError, setCloneError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const createProvider = useCreateProvider();
   const updateProvider = useUpdateProvider();
@@ -576,6 +577,12 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const handleClone = async () => {
     if (!isValid() || cloning) return;
 
+    setCloneError(null);
+    if (secretsAreWriteOnly && !formData.apiKey.trim()) {
+      setCloneError(t('provider.cloneWriteOnlyRequiresKey'));
+      return;
+    }
+
     setCloning(true);
 
     try {
@@ -604,7 +611,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
-            apiKey: formData.apiKey.trim() || provider.config?.custom?.apiKey || '',
+            apiKey:
+              formData.apiKey.trim() ||
+              (secretsAreWriteOnly ? '' : provider.config?.custom?.apiKey) ||
+              '',
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -892,7 +902,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     <Input
                       type={showApiKey && !secretsAreWriteOnly ? 'text' : 'password'}
                       value={formData.apiKey}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
+                      onChange={(e) => {
+                        setCloneError(null);
+                        setFormData((prev) => ({ ...prev, apiKey: e.target.value }));
+                      }}
                       placeholder={
                         secretsAreWriteOnly
                           ? t('provider.keyPlaceholderWriteOnly')
@@ -916,6 +929,11 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   {secretsAreWriteOnly && (
                     <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
                       {t('provider.apiKeyExcludedHint')}
+                    </div>
+                  )}
+                  {cloneError && (
+                    <div className="mt-2 p-3 bg-error/10 border border-error/30 rounded-lg text-xs text-error">
+                      {cloneError}
                     </div>
                   )}
                 </div>
