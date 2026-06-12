@@ -8,7 +8,7 @@ import {
   Sparkles,
   Gem,
   Github,
-  ChevronsUp,
+  Settings2,
   RefreshCw,
   LogOut,
   KeyRound,
@@ -29,6 +29,7 @@ import {
   useChangeMyPassword,
   useDeletePasskeyCredential,
   usePasskeyCredentials,
+  usePublicSettings,
   useRegisterPasskey,
 } from '@/hooks/queries';
 import type { Theme } from '@/lib/theme';
@@ -77,6 +78,7 @@ export function NavUser() {
   const { transport } = useTransport();
   const { theme, setTheme } = useTheme();
   const { user, authEnabled, logout } = useAuth();
+  const publicSettings = usePublicSettings(authEnabled);
   const changePassword = useChangeMyPassword();
   const isCollapsed = !isMobile && state === 'collapsed';
 
@@ -315,11 +317,15 @@ export function NavUser() {
       ? t('users.roleAdmin')
       : t('users.roleMember')
     : t('nav.accountFallback');
-  const tenantLabel = user?.tenantName?.trim()
-    ? user.tenantName.trim()
-    : user?.tenantID && user.tenantID > 0
-      ? t('nav.tenantFallback', { id: user.tenantID })
-      : t('nav.tenantUnknown');
+  const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
+  const tenantLabel =
+    multiTenantUIEnabled && user
+      ? user.tenantName?.trim()
+        ? user.tenantName.trim()
+        : user.tenantID > 0
+          ? t('nav.tenantFallback', { id: user.tenantID })
+          : t('nav.tenantUnknown')
+      : '';
   const accountName = username || t('nav.accountFallback');
   const accountStatusLabel = authEnabled
     ? t('nav.accountStatusProtected')
@@ -328,7 +334,9 @@ export function NavUser() {
     ? [roleLabel, tenantLabel].filter(Boolean).join(' · ')
     : t('nav.accountIdentityUnknown');
   const accountIdentity = user
-    ? `${t('nav.identityMaskUser', { value: maskNumericIdentity(user.id) })} · ${t('nav.identityMaskTenant', { value: maskNumericIdentity(user.tenantID) })}`
+    ? multiTenantUIEnabled
+      ? `${t('nav.identityMaskUser', { value: maskNumericIdentity(user.id) })} · ${t('nav.identityMaskTenant', { value: maskNumericIdentity(user.tenantID) })}`
+      : t('nav.identityMaskUser', { value: maskNumericIdentity(user.id) })
     : t('nav.accountIdentityUnknown');
   const displayUser = {
     name: accountName,
@@ -340,295 +348,323 @@ export function NavUser() {
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
   const menuDisplayName = displayUser.name || 'Maxx';
   const menuDisplayFallback = menuDisplayName.slice(0, 2).toUpperCase();
-  const accountTitle = [displayUser.name, displayUser.subtitle, displayUser.identity]
-    .filter(Boolean)
-    .join(' · ');
+  const accountTitle = displayUser.name || undefined;
+  const footerActionButtonClass =
+    'inline-flex h-9 w-full items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 transition-colors hover:bg-sidebar-accent';
+  const settingsMenuContent = (
+    <DropdownMenuContent
+      className="!w-72 rounded-lg max-w-sm !min-w-0"
+      style={{ width: '18rem' }}
+      side={isMobile ? 'bottom' : 'right'}
+      align="end"
+      sideOffset={4}
+    >
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>
+          <div className="flex items-start gap-2 w-full">
+            <Avatar className="h-8 w-8 rounded-lg">
+              <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
+              <AvatarFallback className="rounded-lg">{menuDisplayFallback}</AvatarFallback>
+            </Avatar>
+            <div className="grid flex-1 text-left text-sm leading-tight gap-0.5">
+              <div className="flex items-center gap-2">
+                <span className="truncate font-medium">{menuDisplayName}</span>
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {displayUser.status}
+                </span>
+              </div>
+              <span className="truncate text-xs text-muted-foreground">{displayUser.subtitle}</span>
+              <span className="truncate text-[10px] text-muted-foreground/80">
+                {displayUser.identity}
+              </span>
+            </div>
+          </div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+      </DropdownMenuGroup>
+
+      {authEnabled && (
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-xs text-muted-foreground">
+            {t('nav.account')}
+          </DropdownMenuLabel>
+          <DropdownMenuItem onClick={logout}>
+            <ArrowLeftRight />
+            <span>{t('nav.switchAccount')}</span>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      )}
+
+      {authEnabled && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              {t('nav.security')}
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => {
+                setPasskeyError('');
+                setPasskeySuccess('');
+                setShowPasskeyDialog(true);
+              }}
+            >
+              <ShieldAlert />
+              <span>{t('nav.managePasskeys')}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                resetPasswordDialogState();
+                setShowPasswordDialog(true);
+              }}
+            >
+              <KeyRound />
+              <span>{t('nav.changePassword')}</span>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </>
+      )}
+
+      <DropdownMenuSeparator />
+      <DropdownMenuGroup>
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {t('nav.system')}
+        </DropdownMenuLabel>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            {theme === 'light' ? (
+              <Sun />
+            ) : theme === 'dark' ? (
+              <Moon />
+            ) : theme === 'hermes' || theme === 'tiffany' ? (
+              <Sparkles />
+            ) : (
+              <Laptop />
+            )}
+            <span>{t('nav.theme')}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('settings.themeDefault')}
+                </DropdownMenuLabel>
+                <DropdownMenuRadioItem value="light" closeOnClick>
+                  <Sun />
+                  <span>{t('settings.theme.light')}</span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="dark" closeOnClick>
+                  <Moon />
+                  <span>{t('settings.theme.dark')}</span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="system" closeOnClick>
+                  <Laptop />
+                  <span>{t('settings.theme.system')}</span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('settings.themeLuxury')}
+                </DropdownMenuLabel>
+                <DropdownMenuRadioItem value="hermes" closeOnClick>
+                  <Sparkles className="text-orange-500" />
+                  <span>{t('settings.theme.hermes')}</span>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="tiffany" closeOnClick>
+                  <Gem className="text-cyan-500" />
+                  <span>{t('settings.theme.tiffany')}</span>
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+        <DropdownMenuItem onClick={handleRestartServer}>
+          <RefreshCw />
+          <span>{t('nav.restartServer')}</span>
+        </DropdownMenuItem>
+      </DropdownMenuGroup>
+
+      {authEnabled && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={logout}>
+            <LogOut />
+            <span>{t('nav.logout')}</span>
+          </DropdownMenuItem>
+        </>
+      )}
+    </DropdownMenuContent>
+  );
 
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <div
           className={cn(
-            'flex items-center gap-2 rounded-xl border border-sidebar-border/70 bg-sidebar/70 p-1.5 backdrop-blur-sm',
-            isCollapsed ? 'flex-col' : 'justify-between',
+            'rounded-xl border border-sidebar-border/70 bg-sidebar/70 backdrop-blur-sm',
+            isCollapsed ? 'flex flex-col items-center gap-2 p-1.5' : 'space-y-2 p-2',
           )}
         >
-          <a
-            href="https://github.com/awsl-project/maxx"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            title="GitHub"
-          >
-            <Github className="h-4 w-4" />
-          </a>
-
-          <button
-            type="button"
-            onClick={handleToggleLanguage}
-            title={`${t('nav.language')}: ${currentLanguageLabel}`}
-            className={cn(
-              'inline-flex items-center rounded-full border border-sidebar-border/70 bg-sidebar-accent/40 p-0.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-              isCollapsed ? 'h-8 w-8 justify-center' : 'h-8 px-1 gap-1',
-            )}
-          >
-            {isCollapsed ? (
-              <span className="text-[11px] font-semibold uppercase">
-                {currentLanguage === 'zh' ? '中' : 'EN'}
-              </span>
-            ) : (
-              <>
-                <span className="inline-flex items-center rounded-full bg-sidebar/70 p-0.5">
-                  <span
-                    className={cn(
-                      'rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase transition-colors',
-                      currentLanguage === 'zh'
-                        ? 'bg-sidebar text-sidebar-foreground shadow-sm'
-                        : 'text-sidebar-foreground/55',
-                    )}
-                  >
-                    中
-                  </span>
-                  <span
-                    className={cn(
-                      'rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase transition-colors',
-                      currentLanguage === 'en'
-                        ? 'bg-sidebar text-sidebar-foreground shadow-sm'
-                        : 'text-sidebar-foreground/55',
-                    )}
-                  >
-                    EN
-                  </span>
-                </span>
-              </>
-            )}
-          </button>
-
           {isCollapsed ? (
-            <Tooltip>
-              <TooltipTrigger
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={(props) => (
+                    <button
+                      {...props}
+                      type="button"
+                      className={cn(
+                        'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                        props.className,
+                      )}
+                    >
+                      <Avatar className="h-7 w-7 rounded-lg">
+                        <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                        <AvatarFallback className="rounded-lg text-[10px] font-semibold">
+                          {displayUserFallback}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                  )}
+                />
+                <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
+                  <span className="text-xs font-medium">{displayUser.name}</span>
+                </TooltipContent>
+              </Tooltip>
+
+              <a
+                href="https://github.com/awsl-project/maxx"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                title="GitHub"
+              >
+                <Github className="h-4 w-4" />
+              </a>
+
+              <button
+                type="button"
+                onClick={handleToggleLanguage}
+                title={`${t('nav.language')}: ${currentLanguageLabel}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-[11px] font-semibold uppercase text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+              >
+                {currentLanguage === 'zh' ? '中' : 'EN'}
+              </button>
+            </>
+          ) : (
+            <>
+              <div
+                className="flex min-w-0 items-center gap-3 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/15 px-3 py-2"
+                title={accountTitle}
+              >
+                <Avatar className="h-9 w-9 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/30">
+                  <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
+                  <AvatarFallback className="rounded-lg text-xs font-semibold">
+                    {displayUserFallback}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-sidebar-foreground">
+                    {displayUser.name}
+                  </span>
+                  <span className="block truncate text-xs text-sidebar-foreground/60">
+                    {displayUser.subtitle}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 items-center gap-1.5" data-footer-actions="true">
+                <a
+                  href="https://github.com/awsl-project/maxx"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-footer-action="github"
+                  aria-label="GitHub"
+                  title="GitHub"
+                  className={cn(
+                    footerActionButtonClass,
+                    'text-sidebar-foreground/80 hover:text-sidebar-accent-foreground',
+                  )}
+                >
+                  <Github className="h-4 w-4" />
+                </a>
+
+                <button
+                  type="button"
+                  data-footer-action="language"
+                  aria-label={`${t('nav.language')}: ${currentLanguageLabel}`}
+                  title={`${t('nav.language')}: ${currentLanguageLabel}`}
+                  onClick={handleToggleLanguage}
+                  className={cn(footerActionButtonClass, 'px-2 text-sidebar-foreground')}
+                >
+                  <span className="inline-flex items-center rounded-full bg-sidebar/70 p-0.5">
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase transition-colors',
+                        currentLanguage === 'zh'
+                          ? 'bg-sidebar text-sidebar-foreground shadow-sm'
+                          : 'text-sidebar-foreground/55',
+                      )}
+                    >
+                      中
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase transition-colors',
+                        currentLanguage === 'en'
+                          ? 'bg-sidebar text-sidebar-foreground shadow-sm'
+                          : 'text-sidebar-foreground/55',
+                      )}
+                    >
+                      EN
+                    </span>
+                  </span>
+                </button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={(props) => (
+                      <button
+                        {...props}
+                        type="button"
+                        data-footer-action="settings"
+                        aria-label={t('nav.settings')}
+                        title={t('nav.settings')}
+                        className={cn(
+                          footerActionButtonClass,
+                          'text-sidebar-foreground/80 hover:text-sidebar-accent-foreground',
+                          props.className,
+                        )}
+                      >
+                        <Settings2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  />
+                  {settingsMenuContent}
+                </DropdownMenu>
+              </div>
+            </>
+          )}
+
+          {isCollapsed && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
                 render={(props) => (
                   <button
                     {...props}
                     type="button"
+                    title={t('nav.settings')}
                     className={cn(
-                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/40 text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                       props.className,
                     )}
                   >
-                    <Avatar className="h-6 w-6 rounded-lg">
-                      <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                      <AvatarFallback className="rounded-lg text-[10px]">
-                        {displayUserFallback}
-                      </AvatarFallback>
-                    </Avatar>
+                    <Settings2 className="h-4 w-4" />
                   </button>
                 )}
               />
-              <TooltipContent side={isMobile ? 'top' : 'right'} align="center">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium">{displayUser.name}</span>
-                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {displayUser.status}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">{displayUser.subtitle}</div>
-                  <div className="text-[10px] text-muted-foreground/80">{displayUser.identity}</div>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <div
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 px-2 py-1.5"
-              title={accountTitle}
-            >
-              <Avatar className="h-7 w-7 rounded-lg">
-                <AvatarImage src={displayUser.avatar} alt={displayUser.name} />
-                <AvatarFallback className="rounded-lg text-[10px]">
-                  {displayUserFallback}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="block truncate text-xs font-medium">{displayUser.name}</span>
-                  <span className="rounded-full bg-sidebar px-1.5 py-0.5 text-[9px] font-medium text-sidebar-foreground/75">
-                    {displayUser.status}
-                  </span>
-                </div>
-                <span className="block truncate text-[11px] text-sidebar-foreground/75">
-                  {displayUser.subtitle}
-                </span>
-                <span className="block truncate text-[10px] text-sidebar-foreground/55">
-                  {displayUser.identity}
-                </span>
-              </div>
-            </div>
+              {settingsMenuContent}
+            </DropdownMenu>
           )}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={(props) => (
-                <button
-                  {...props}
-                  type="button"
-                  title="Menu"
-                  className={cn(
-                    'inline-flex h-8 w-8 items-center justify-center rounded-lg text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                    props.className,
-                  )}
-                >
-                  <ChevronsUp className="h-4 w-4" />
-                </button>
-              )}
-            />
-            <DropdownMenuContent
-              className="!w-72 rounded-lg max-w-sm !min-w-0"
-              style={{ width: '18rem' }}
-              side={isMobile ? 'bottom' : 'right'}
-              align="end"
-              sideOffset={4}
-            >
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>
-                  <div className="flex items-start gap-2 w-full">
-                    <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
-                      <AvatarFallback className="rounded-lg">{menuDisplayFallback}</AvatarFallback>
-                    </Avatar>
-                    <div className="grid flex-1 text-left text-sm leading-tight gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">{menuDisplayName}</span>
-                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                          {displayUser.status}
-                        </span>
-                      </div>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {displayUser.subtitle}
-                      </span>
-                      <span className="truncate text-[10px] text-muted-foreground/80">
-                        {displayUser.identity}
-                      </span>
-                    </div>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-              </DropdownMenuGroup>
-
-              {authEnabled && (
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    {t('nav.account')}
-                  </DropdownMenuLabel>
-                  <DropdownMenuItem onClick={logout}>
-                    <ArrowLeftRight />
-                    <span>{t('nav.switchAccount')}</span>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              )}
-
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      {t('nav.security')}
-                    </DropdownMenuLabel>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setPasskeyError('');
-                        setPasskeySuccess('');
-                        setShowPasskeyDialog(true);
-                      }}
-                    >
-                      <ShieldAlert />
-                      <span>{t('nav.managePasskeys')}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        resetPasswordDialogState();
-                        setShowPasswordDialog(true);
-                      }}
-                    >
-                      <KeyRound />
-                      <span>{t('nav.changePassword')}</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </>
-              )}
-
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {t('nav.system')}
-                </DropdownMenuLabel>
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    {theme === 'light' ? (
-                      <Sun />
-                    ) : theme === 'dark' ? (
-                      <Moon />
-                    ) : theme === 'hermes' || theme === 'tiffany' ? (
-                      <Sparkles />
-                    ) : (
-                      <Laptop />
-                    )}
-                    <span>{t('nav.theme')}</span>
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuPortal>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuRadioGroup
-                        value={theme}
-                        onValueChange={(v) => setTheme(v as Theme)}
-                      >
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                          {t('settings.themeDefault')}
-                        </DropdownMenuLabel>
-                        <DropdownMenuRadioItem value="light" closeOnClick>
-                          <Sun />
-                          <span>{t('settings.theme.light')}</span>
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="dark" closeOnClick>
-                          <Moon />
-                          <span>{t('settings.theme.dark')}</span>
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="system" closeOnClick>
-                          <Laptop />
-                          <span>{t('settings.theme.system')}</span>
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                          {t('settings.themeLuxury')}
-                        </DropdownMenuLabel>
-                        <DropdownMenuRadioItem value="hermes" closeOnClick>
-                          <Sparkles className="text-orange-500" />
-                          <span>{t('settings.theme.hermes')}</span>
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="tiffany" closeOnClick>
-                          <Gem className="text-cyan-500" />
-                          <span>{t('settings.theme.tiffany')}</span>
-                        </DropdownMenuRadioItem>
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuPortal>
-                </DropdownMenuSub>
-                <DropdownMenuItem onClick={handleRestartServer}>
-                  <RefreshCw />
-                  <span>{t('nav.restartServer')}</span>
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-
-              {authEnabled && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>
-                    <LogOut />
-                    <span>{t('nav.logout')}</span>
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </SidebarMenuItem>
 

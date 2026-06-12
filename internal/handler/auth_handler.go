@@ -651,9 +651,9 @@ func (h *AuthHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"authEnabled": h.authEnabled,
 	}
 
-	// If authenticated, return user info
+	// If authenticated, return user info (only when auth is enabled)
 	authHeader := r.Header.Get(AuthHeader)
-	if strings.HasPrefix(authHeader, "Bearer ") {
+	if h.authEnabled && strings.HasPrefix(authHeader, "Bearer ") {
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 		if claims, valid := h.authMiddleware.ValidateToken(token); valid {
 			userInfo := map[string]any{

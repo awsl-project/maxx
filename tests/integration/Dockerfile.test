@@ -1,0 +1,16 @@
+# Test runner image with Claude Code CLI
+FROM node:22-alpine
+
+# Install dependencies
+RUN apk add --no-cache curl jq bash
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
+
+WORKDIR /test
+
+# Copy test scripts
+COPY scripts/ /scripts/
+
+# Run tests
+CMD ["bash", "/scripts/run_tests.sh"]

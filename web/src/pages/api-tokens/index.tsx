@@ -88,6 +88,7 @@ export function APITokensPage() {
     expiresAt?: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedTokenId, setCopiedTokenId] = useState<number | null>(null);
   const [codexConfigDialog, setCodexConfigDialog] = useState<CodexConfigDialogState | null>(null);
   const [copiedCodexSection, setCopiedCodexSection] = useState<'configToml' | 'authJson' | null>(
     null,
@@ -401,10 +402,24 @@ export function APITokensPage() {
                               size="sm"
                               className="h-6 w-6 p-0"
                               onClick={async () => {
-                                await navigator.clipboard.writeText(token.token);
+                                try {
+                                  await navigator.clipboard.writeText(token.token);
+                                  setCopiedTokenId(token.id);
+                                  setTimeout(() => {
+                                    setCopiedTokenId((current) =>
+                                      current === token.id ? null : current,
+                                    );
+                                  }, 2000);
+                                } catch (error) {
+                                  console.error('Failed to copy API token.', error);
+                                }
                               }}
                             >
-                              <Copy className="h-3 w-3" />
+                              {copiedTokenId === token.id ? (
+                                <Check className="h-3 w-3 text-green-500" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
                             </Button>
                           </div>
                         </TableCell>

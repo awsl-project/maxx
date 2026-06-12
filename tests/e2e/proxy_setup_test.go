@@ -11,14 +11,13 @@ import (
 
 	client "github.com/awsl-project/maxx/internal/adapter/client"
 	"github.com/awsl-project/maxx/internal/cooldown"
+	"github.com/awsl-project/maxx/internal/core"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
-	"github.com/awsl-project/maxx/internal/health"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 	"golang.org/x/crypto/bcrypt"
 
@@ -39,28 +38,14 @@ type ProxyTestEnv struct {
 	Token  string // Admin JWT token
 }
 
-type ProxyTestEnvOptions struct {
-	AttemptBudget *executor.AttemptBudget
-}
-
 // NewProxyTestEnv creates a test environment that includes the proxy handler,
 // suitable for end-to-end proxy integration testing.
 func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
-	return newProxyTestEnv(t, ProxyTestEnvOptions{})
-}
-
-func NewProxyTestEnvWithAttemptBudget(t *testing.T, budget executor.AttemptBudget) *ProxyTestEnv {
-	return newProxyTestEnv(t, ProxyTestEnvOptions{
-		AttemptBudget: &budget,
-	})
-}
-
-func newProxyTestEnv(t *testing.T, opts ProxyTestEnvOptions) *ProxyTestEnv {
 	t.Helper()
 
 	// Clear global cooldown state from previous tests (singleton is shared across tests)
 	for i := uint64(1); i <= 10; i++ {
-		cooldown.Default().ClearCooldown(i, "")
+		cooldown.Default().ClearCooldown(i, "", "")
 	}
 
 	dsn := fmt.Sprintf("file:proxytest_%d?mode=memory&cache=shared&_pragma=journal_mode(WAL)&_pragma=busy_timeout(30000)", time.Now().UnixNano())
@@ -144,10 +129,9 @@ func newProxyTestEnv(t *testing.T, opts ProxyTestEnvOptions) *ProxyTestEnv {
 
 	// Create WebSocket hub
 	wsHub := handler.NewWebSocketHub()
-	providerHealthTracker := health.NewTracker()
 
 	// Create Router (for proxy pipeline)
-	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo, providerHealthTracker)
+	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo)
 
 	// Create admin service with Router as adapter refresher
 	adminService := service.NewAdminService(
@@ -187,15 +171,11 @@ func newProxyTestEnv(t *testing.T, opts ProxyTestEnvOptions) *ProxyTestEnv {
 		r,
 	)
 
-	// Create project waiter and stats aggregator
+	// Create project waiter
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
-	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
 
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance", statsAggregator, providerHealthTracker)
-	if opts.AttemptBudget != nil {
-		requestExecutor.SetAttemptBudget(*opts.AttemptBudget)
-	}
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, "test-instance")
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()
@@ -213,6 +193,8 @@ func newProxyTestEnv(t *testing.T, opts ProxyTestEnvOptions) *ProxyTestEnv {
 
 	// Create models handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
+	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, modelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo)
 
 	// Setup routes (mirroring main.go)
 	mux := http.NewServeMux()
@@ -223,18 +205,12 @@ func newProxyTestEnv(t *testing.T, opts ProxyTestEnvOptions) *ProxyTestEnv {
 	// Admin API routes with authentication
 	mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
 
-	// Models endpoint
-	mux.Handle("/v1/models", modelsHandler)
-
-	// Proxy routes - all AI API endpoints
-	mux.Handle("/v1/messages", proxyHandler)
-	mux.Handle("/v1/messages/", proxyHandler)
-	mux.Handle("/v1/chat/completions", proxyHandler)
-	mux.Handle("/responses", proxyHandler)
-	mux.Handle("/responses/", proxyHandler)
-	mux.Handle("/v1/responses", proxyHandler)
-	mux.Handle("/v1/responses/", proxyHandler)
-	mux.Handle("/v1beta/models/", proxyHandler)
+	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
+		ProxyHandler:         proxyHandler,
+		ModelsHandler:        modelsHandler,
+		ProviderProxyHandler: providerProxyHandler,
+	})
+	mux.Handle("/project/", projectProxyHandler)
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +279,21 @@ func (e *ProxyTestEnv) doRequest(method, path string, body any, token string) *h
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatalf("Request failed: %v", err)
+	}
+	return resp
+}
+
+// AdminGet sends an authenticated GET request to the given path.
+func (e *ProxyTestEnv) AdminGet(path string) *http.Response {
+	e.t.Helper()
+	req, err := http.NewRequest(http.MethodGet, e.URL(path), nil)
+	if err != nil {
+		e.t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+e.Token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.t.Fatalf("Request failed: %v", err)

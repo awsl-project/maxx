@@ -34,8 +34,8 @@ func TestCodexToOpenAIResponse_ToolCallsFinishReason(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(got.Choices) == 0 || got.Choices[0].FinishReason != "stop" {
-		t.Fatalf("expected finish_reason stop, got %#v", got.Choices)
+	if len(got.Choices) == 0 || got.Choices[0].FinishReason != "tool_calls" {
+		t.Fatalf("expected finish_reason tool_calls, got %#v", got.Choices)
 	}
 }
 

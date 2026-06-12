@@ -10,6 +10,7 @@ export function useProviderNavigation() {
     goToKiro: () => navigate('/providers/create/kiro'),
     goToCodex: () => navigate('/providers/create/codex'),
     goToClaude: () => navigate('/providers/create/claude'),
+    goToBedrock: () => navigate('/providers/create/bedrock'),
     goToProviders: () => navigate('/providers'),
     goBack: () => navigate(-1),
   };

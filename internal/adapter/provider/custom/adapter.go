@@ -7,17 +7,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
+	"github.com/awsl-project/maxx/internal/adapter/provider/custom/error_fixer"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
 )
+
+// mockMode enables forwarding X-Mock-* headers to upstream (for testing).
+// Activated by setting MAXX_MOCK_MODE=1 environment variable.
+var mockMode = os.Getenv("MAXX_MOCK_MODE") == "1"
 
 func init() {
 	provider.RegisterAdapterFactory("custom", NewAdapter)
@@ -42,6 +51,10 @@ func (a *CustomAdapter) SupportedClientTypes() []domain.ClientType {
 
 func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	clientType := flow.GetClientType(c)
+	if strings.EqualFold(strings.TrimSpace(a.provider.Config.Custom.Backend), customBackendOllama) {
+		return a.executeOllama(c, provider)
+	}
+
 	mappedModel := flow.GetMappedModel(c)
 	requestBody := flow.GetRequestBody(c)
 	request := c.Request
@@ -64,14 +77,29 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Apply model mapping if configured
 	var err error
 	if mappedModel != "" {
-		// For Gemini, update model in URL path
-		if clientType == domain.ClientTypeGemini {
+		switch {
+		case clientType == domain.ClientTypeGemini:
+			// Gemini carries the model in the URL path, not the body.
 			requestURI = updateGeminiModelInPath(requestURI, mappedModel)
-		}
-		// For other types, update model in request body
-		requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
-		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to update model in body")
+		case isMultipartForm(request):
+			// OpenAI images/edits sends multipart/form-data, so the JSON rewrite
+			// in updateModelInBody can't be used (it would corrupt the upload).
+			// Rewrite only the "model" form field and copy every other part
+			// (including the image) through unchanged, so configured model
+			// mapping still takes effect instead of being silently dropped.
+			requestBody, err = updateModelInMultipartForm(requestBody, request, mappedModel)
+			if err != nil {
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in multipart body")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
+		default:
+			requestBody, err = updateModelInBody(requestBody, mappedModel, clientType)
+			if err != nil {
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to update model in body")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
 		}
 	}
 
@@ -85,7 +113,10 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to create upstream request")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return proxyErr
 	}
 
 	// Set headers based on client type
@@ -93,22 +124,71 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	switch clientType {
 	case domain.ClientTypeClaude:
 		// Claude: Following CLIProxyAPI pattern
-		// 1. Process body first (get extraBetas, inject cloaking/cache_control)
-		apiKey := a.provider.Config.Custom.APIKey
+		// 1. Process body first (apply disguise + structural fixes, return extra betas)
+		customCfg := a.provider.Config.Custom
+		apiKey := customCfg.APIKey
 		clientUA := ""
 		if request != nil {
 			clientUA = request.Header.Get("User-Agent")
 		}
 		var extraBetas []string
-		requestBody, extraBetas = processClaudeRequestBody(requestBody, clientUA, a.provider.Config.Custom.Cloak)
+		requestBody, extraBetas = processClaudeRequestBody(requestBody, clientUA, customCfg)
 		useAPIKey := shouldUseClaudeAPIKey(apiKey, request)
 		isOAuthToken = isClaudeOAuthToken(apiKey)
 		if isOAuthToken {
 			requestBody = applyClaudeToolPrefix(requestBody, claudeToolPrefix)
 		}
 
-		// 2. Set headers (streaming only if requested)
-		applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)
+		// 2. Set headers — pick variant based on the effective disguise type
+		// (ResolveDisguise migrates the legacy `cloak` JSON field on the way in).
+		//   bedrock      — strip Claude Code identity entirely (applyBedrockCompatHeaders)
+		//   none         — raw forwarding: copy client headers, override auth only
+		//   claude-code  — inject Claude Code identity headers (legacy default)
+		//   "" / nil     — same as claude-code (backward compatibility)
+		effectiveDisguise := customCfg.ResolveDisguise()
+		disguiseType := ""
+		if effectiveDisguise != nil {
+			disguiseType = strings.ToLower(strings.TrimSpace(effectiveDisguise.Type))
+		}
+		switch disguiseType {
+		case domain.DisguiseTypeBedrock:
+			applyBedrockCompatHeaders(upstreamReq, request, apiKey, stream)
+		case domain.DisguiseTypeNone:
+			// Raw forwarding: copy client headers, then override auth with the
+			// provider's key. This preserves whatever the inbound client sent
+			// without injecting any Claude Code fingerprints.
+			originalHeaders := flow.GetRequestHeaders(c)
+			upstreamReq.Header = make(http.Header)
+			copyHeadersFiltered(upstreamReq.Header, originalHeaders)
+
+			// processClaudeRequestBody always strips body-side `betas` into
+			// extraBetas. The legacy claude-code header path re-merges them
+			// into Anthropic-Beta; raw forwarding mode has to do it here too,
+			// otherwise body beta flags silently disappear before reaching
+			// upstream.
+			if len(extraBetas) > 0 {
+				upstreamReq.Header.Set(
+					"Anthropic-Beta",
+					mergeBetaList(upstreamReq.Header.Get("Anthropic-Beta"), extraBetas),
+				)
+			}
+
+			// We're inside `case domain.ClientTypeClaude:`, so the upstream is
+			// always a Claude-format endpoint regardless of what the inbound
+			// client looked like. setClaudeAuthForURL handles all three concerns
+			// in one call:
+			//
+			//   - clears every stale source credential header
+			//     (Authorization / x-api-key / x-goog-api-key) so a converted
+			//     OpenAI-, Codex- or Gemini-origin request can't leak its source
+			//     auth alongside the provider key
+			//   - writes the URL-appropriate Claude auth (x-api-key for direct
+			//     api.anthropic.com, Authorization: Bearer for every other host)
+			//   - is a no-op when apiKey is empty
+			setClaudeAuthForURL(upstreamReq, apiKey, useAPIKey)
+		default:
+			applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)
+		}
 
 		// 3. Update request body and ContentLength (IMPORTANT: body was modified)
 		upstreamReq.Body = io.NopCloser(bytes.NewReader(requestBody))
@@ -133,6 +213,17 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		}
 	}
 
+	// Forward X-Mock-* headers from client request to upstream (test mode only)
+	if mockMode && request != nil {
+		for key, values := range request.Header {
+			if strings.HasPrefix(strings.ToLower(key), "x-mock-") {
+				for _, v := range values {
+					upstreamReq.Header.Set(key, v)
+				}
+			}
+		}
+	}
+
 	// Send request info via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
@@ -149,11 +240,10 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-		proxyErr.IsNetworkError = true
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to upstream"
 		return proxyErr
 	}
-	resp.Body = flow.WrapResponseBody(c, resp.Body)
 	defer resp.Body.Close()
 
 	// Check for error response
@@ -161,11 +251,19 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Decompress error response if needed (Claude requests use Accept-Encoding)
 		reader, decompErr := decompressResponse(resp)
 		if decompErr != nil {
-			return domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
+			proxyErr := domain.NewProxyErrorWithMessage(decompErr, false, "failed to decompress error response")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 		defer reader.Close()
 
 		body, _ := io.ReadAll(reader)
+
+		// Try error fixers: if a fixer matches, fix the request and retry once
+		if retryErr := a.retryWithFixer(c, ctx, resp, body, clientType, upstreamReq, requestBody, isOAuthToken, client); retryErr == nil {
+			return nil
+		}
+
 		// Send error response info via EventChannel
 		if eventChan := flow.GetEventChan(c); eventChan != nil {
 			eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -175,35 +273,32 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			})
 		}
 
-		proxyErr := domain.NewProxyErrorWithMessage(
-			fmt.Errorf("upstream error: %s", string(body)),
-			isRetryableStatusCode(resp.StatusCode),
-			fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-		)
-
-		// Set status code and check if it's a server error (5xx)
-		proxyErr.HTTPStatusCode = resp.StatusCode
-		proxyErr.IsServerError = resp.StatusCode >= 500 && resp.StatusCode < 600
-
-		// Parse rate limit info for 429 errors
-		if resp.StatusCode == http.StatusTooManyRequests {
-			rateLimitInfo := parseRateLimitInfo(resp, body, clientType)
-			if rateLimitInfo != nil {
-				proxyErr.RateLimitInfo = rateLimitInfo
-				applyRateLimitRetryHints(proxyErr, resp, rateLimitInfo)
-			}
-		}
-
+		proxyErr := classifyHTTPError(resp.StatusCode, body, resp.Header, clientType, flow.GetMappedModel(c))
 		return proxyErr
 	}
 
 	// Handle response
 	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
 	// Adapters simply pass through the upstream response
+	var handleErr error
 	if stream {
-		return a.handleStreamResponse(c, resp, clientType, isOAuthToken)
+		handleErr = a.handleStreamResponse(c, resp, clientType, isOAuthToken)
+	} else {
+		handleErr = a.handleNonStreamResponse(c, resp, clientType, isOAuthToken)
 	}
-	return a.handleNonStreamResponse(c, resp, clientType, isOAuthToken)
+	if handleErr == nil {
+		return nil
+	}
+
+	// For SSE errors detected before any data was sent to client,
+	// try error fixers (e.g. upstream rejects cache_control via SSE error event)
+	if proxyErr, ok := handleErr.(*domain.ProxyError); ok && proxyErr.Message != "" {
+		if retryErr := a.retryWithFixer(c, ctx, nil, []byte(proxyErr.Message), clientType, upstreamReq, requestBody, isOAuthToken, client); retryErr == nil {
+			return nil
+		}
+	}
+
+	return handleErr
 }
 
 func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
@@ -213,6 +308,116 @@ func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {
 		}
 	}
 	return false
+}
+
+// maxFixerRounds is an absolute safety limit for fixer retry rounds.
+const maxFixerRounds = 5
+
+// retryWithFixer tries to find matching error fixers and retries the request.
+// If the retry produces a NEW error (different fixers match), it continues retrying.
+// If the same set of fixers matches again (no progress), it stops immediately.
+// Returns nil if retry succeeded, non-nil error otherwise (including no fixer found).
+// resp may be nil for SSE errors.
+func (a *CustomAdapter) retryWithFixer(
+	c *flow.Ctx,
+	ctx context.Context,
+	resp *http.Response,
+	errBody []byte,
+	clientType domain.ClientType,
+	origReq *http.Request,
+	origBody []byte,
+	isOAuthToken bool,
+	client *http.Client,
+) error {
+	currentResp := resp
+	currentErrBody := errBody
+	currentReq := origReq
+	currentBody := origBody
+	appliedFixers := make(map[string]bool)
+
+	for round := 0; round < maxFixerRounds; round++ {
+		fixers := error_fixer.FindFixers(currentResp, currentErrBody, clientType)
+		if len(fixers) == 0 {
+			if round == 0 {
+				return fmt.Errorf("no fixer matched")
+			}
+			return fmt.Errorf("retry failed with status %d (no fixer for new error)", currentResp.StatusCode)
+		}
+
+		// Check if any fixer is new (not yet applied)
+		hasNew := false
+		for _, fixer := range fixers {
+			if !appliedFixers[fixer.Name()] {
+				hasNew = true
+				break
+			}
+		}
+		if !hasNew {
+			// All matched fixers have already been applied — no progress, stop
+			return fmt.Errorf("retry failed: fixers %v already applied but error persists", fixerNames(fixers))
+		}
+
+		// Apply all matching fixers and record them
+		retryReq := currentReq.Clone(ctx)
+		fixedBody := currentBody
+		for _, fixer := range fixers {
+			log.Printf("[custom] error fixer %q matched (round %d)", fixer.Name(), round+1)
+			retryReq, fixedBody = fixer.FixRequest(retryReq, fixedBody)
+			appliedFixers[fixer.Name()] = true
+		}
+
+		// Set the fixed body on the request
+		retryReq.Body = io.NopCloser(bytes.NewReader(fixedBody))
+		retryReq.ContentLength = int64(len(fixedBody))
+
+		if eventChan := flow.GetEventChan(c); eventChan != nil {
+			eventChan.SendRequestInfo(&domain.RequestInfo{
+				Method:  retryReq.Method,
+				URL:     retryReq.URL.String(),
+				Headers: flattenHeaders(retryReq.Header),
+				Body:    string(fixedBody),
+			})
+		}
+
+		retryResp, err := client.Do(retryReq)
+		if err != nil {
+			return err
+		}
+
+		if retryResp.StatusCode < 400 {
+			// Success — handle the response
+			defer retryResp.Body.Close()
+			if isStreamRequest(fixedBody) {
+				return a.handleStreamResponse(c, retryResp, clientType, isOAuthToken)
+			}
+			return a.handleNonStreamResponse(c, retryResp, clientType, isOAuthToken)
+		}
+
+		// Still failing — read the new error body for next round
+		reader, decompErr := decompressResponse(retryResp)
+		if decompErr != nil {
+			retryResp.Body.Close()
+			return fmt.Errorf("retry failed with status %d", retryResp.StatusCode)
+		}
+		newErrBody, _ := io.ReadAll(reader)
+		reader.Close()
+		retryResp.Body.Close()
+
+		currentResp = retryResp
+		currentErrBody = newErrBody
+		currentReq = retryReq
+		currentBody = fixedBody
+	}
+
+	return fmt.Errorf("retry exhausted after %d rounds", maxFixerRounds)
+}
+
+func fixerNames(fixers []error_fixer.ErrorFixer) []string {
+	names := make([]string, len(fixers))
+	for i, f := range fixers {
+		names[i] = f.Name()
+	}
+	return names
 }
 
 func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
@@ -227,13 +432,18 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 	defer reader.Close()
 
 	body, err := io.ReadAll(reader)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 	// Claude API sometimes returns gzip without Content-Encoding header
 	if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
@@ -266,6 +476,8 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 			eventChan.SendMetrics(&domain.AdapterMetrics{
 				InputTokens:          metrics.InputTokens,
 				OutputTokens:         metrics.OutputTokens,
+				InputImageTokens:     metrics.InputImageTokens,
+				OutputImageTokens:    metrics.OutputImageTokens,
 				CacheReadCount:       metrics.CacheReadCount,
 				CacheCreationCount:   metrics.CacheCreationCount,
 				Cache5mCreationCount: metrics.Cache5mCreationCount,
@@ -295,7 +507,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	// Decompress response body if needed
 	reader, err := decompressResponse(resp)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to decompress response")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 	defer reader.Close()
 
@@ -328,7 +542,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
@@ -359,6 +575,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			eventChan.SendMetrics(&domain.AdapterMetrics{
 				InputTokens:          metrics.InputTokens,
 				OutputTokens:         metrics.OutputTokens,
+				InputImageTokens:     metrics.InputImageTokens,
+				OutputImageTokens:    metrics.OutputImageTokens,
 				CacheReadCount:       metrics.CacheReadCount,
 				CacheCreationCount:   metrics.CacheCreationCount,
 				Cache5mCreationCount: metrics.Cache5mCreationCount,
@@ -401,11 +619,14 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 				if t, ok := errObj["type"].(string); ok {
 					errType = t
 				}
-				return domain.NewProxyErrorWithMessage(
+				proxyErr := domain.NewProxyErrorWithMessage(
 					fmt.Errorf("SSE error (code=%d): %s", code, msg),
 					isRetryableSSEError(code, errType, msg),
 					msg,
 				)
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonServerError
+				return proxyErr
 			}
 		}
 
@@ -431,7 +652,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					isRetryableSSEError(code, errType, msg),
 					msg,
 				)
-				proxyErr.IsServerError = errType == "internal_error" || errType == "server_error"
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonServerError
 				return proxyErr
 			}
 		}
@@ -449,7 +671,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 		select {
 		case <-ctx.Done():
 			sendFinalEvents() // Try to extract tokens before returning
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		default:
 		}
 
@@ -502,7 +726,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					if writeErr != nil {
 						// Client disconnected
 						sendFinalEvents()
-						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+						proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+						proxyErr.Scope = domain.ScopeRequest
+						return proxyErr
 					}
 					flusher.Flush()
 
@@ -527,7 +753,9 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			// Upstream connection closed - check if client is still connected
 			if ctx.Err() != nil {
 				sendFinalEvents()
-				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 			sendFinalEvents()
 			// Return SSE error if one was detected during streaming
@@ -564,8 +792,82 @@ func updateModelInBody(body []byte, model string, clientType domain.ClientType) 
 	return json.Marshal(req)
 }
 
+// updateModelInMultipartForm rewrites the "model" form field of a
+// multipart/form-data body (OpenAI images/edits) to the mapped model, copying
+// every other part — including the uploaded image — through unchanged. It
+// reuses the request's original boundary so the existing Content-Type header
+// stays valid (no header rewrite needed). If the body carries no "model" field,
+// one is appended so a configured mapping still applies.
+func updateModelInMultipartForm(body []byte, req *http.Request, model string) ([]byte, error) {
+	if req == nil {
+		return nil, fmt.Errorf("nil request for multipart model rewrite")
+	}
+	_, params, err := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, err
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		return nil, fmt.Errorf("multipart body without boundary")
+	}
+
+	mr := multipart.NewReader(bytes.NewReader(body), boundary)
+	var out bytes.Buffer
+	mw := multipart.NewWriter(&out)
+	// Preserve the original boundary so the inbound Content-Type header (copied
+	// to the upstream request) still matches the re-encoded body.
+	if err := mw.SetBoundary(boundary); err != nil {
+		return nil, err
+	}
+
+	replaced := false
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		w, err := mw.CreatePart(part.Header)
+		if err != nil {
+			_ = part.Close()
+			return nil, err
+		}
+		if part.FormName() == "model" {
+			_, err = io.WriteString(w, model)
+			replaced = true
+		} else {
+			_, err = io.Copy(w, part)
+		}
+		_ = part.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !replaced {
+		if err := mw.WriteField("model", model); err != nil {
+			return nil, err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
 func buildUpstreamURL(baseURL string, requestPath string) string {
 	return strings.TrimSuffix(baseURL, "/") + requestPath
+}
+
+// isMultipartForm reports whether the request body is multipart/form-data
+// (e.g. OpenAI images/edits image upload), which must not be JSON-rewritten.
+func isMultipartForm(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	ct := strings.ToLower(strings.TrimSpace(req.Header.Get("Content-Type")))
+	return strings.HasPrefix(ct, "multipart/")
 }
 
 func shouldUseClaudeAPIKey(apiKey string, clientReq *http.Request) bool {
@@ -776,36 +1078,106 @@ func copyResponseHeaders(dst, src http.Header) {
 	}
 }
 
-// parseRateLimitInfo parses rate limit information from 429 responses
-// Supports multiple API formats: OpenAI, Anthropic, Gemini, etc.
-func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.ClientType) *domain.RateLimitInfo {
-	var resetTime time.Time
-	var rateLimitType = "rate_limit_exceeded"
-
-	// Method 1: Parse Retry-After header
-	if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-		// Try as seconds
-		if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
-			resetTime = time.Now().Add(time.Duration(seconds) * time.Second)
-		} else if t, err := http.ParseTime(retryAfter); err == nil {
-			resetTime = t
-		}
-	}
-
-	// Method 2: Parse response body
+// classifyHTTPError creates a structured ProxyError from an HTTP error response.
+// It determines Scope (what's broken) and Reason (why) from status code and body.
+func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientType domain.ClientType, model string) *domain.ProxyError {
 	bodyStr := string(body)
 	bodyLower := strings.ToLower(bodyStr)
 
-	// Detect rate limit type from message
-	if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "exceeded your") {
-		rateLimitType = "quota_exhausted"
-	} else if strings.Contains(bodyLower, "per minute") || strings.Contains(bodyLower, "rpm") || strings.Contains(bodyLower, "tpm") {
-		rateLimitType = "rate_limit_exceeded"
-	} else if strings.Contains(bodyLower, "concurrent") {
-		rateLimitType = "concurrent_limit"
+	proxyErr := &domain.ProxyError{
+		Err:            fmt.Errorf("upstream error: %s", bodyStr),
+		Message:        fmt.Sprintf("upstream returned status %d", statusCode),
+		HTTPStatusCode: statusCode,
+		Retryable:      isRetryableStatusCode(statusCode),
 	}
 
-	// Try to parse structured error response
+	// Parse Retry-After header (used by several branches)
+	if retryAfter, until := parseRetryAfterHeader(headers.Get("Retry-After")); retryAfter > 0 {
+		proxyErr.RetryAfter = retryAfter
+		proxyErr.CooldownUntil = until
+	}
+
+	switch {
+	// 401 — invalid key / expired token
+	case statusCode == 401:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	// 403 — check if model-specific or account-level
+	case statusCode == 403:
+		if containsAny(bodyLower, "model", "access denied for model", "permission denied for model") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonAuthFailure
+		}
+		proxyErr.Retryable = false
+
+	// 404 — model not found
+	case statusCode == 404:
+		if containsAny(bodyLower, "model", "not found") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+			proxyErr.Retryable = false
+		} else {
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	// 400, 408, 413, 422 — request-level errors
+	case statusCode == 400 || statusCode == 408 || statusCode == 413 || statusCode == 422:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+
+	// 429 — rate limit (need to disambiguate)
+	case statusCode == 429:
+		proxyErr.Retryable = true
+		proxyErr.ClientType = string(clientType)
+		classify429Error(proxyErr, body, bodyLower, headers, model)
+
+	// 503 — check if model overloaded or full outage
+	case statusCode == 503:
+		if containsAny(bodyLower, "model", "overloaded", "capacity") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonServerError
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	// 500, 502, 504 — provider-level server errors
+	case statusCode >= 500:
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+
+	// Other 4xx — request-level
+	default:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+	}
+
+	return proxyErr
+}
+
+// classify429Error determines the scope and reason for 429 rate limit errors.
+func classify429Error(proxyErr *domain.ProxyError, body []byte, bodyLower string, headers http.Header, model string) {
+	// Default to key-level rate limit
+	proxyErr.Scope = domain.ScopeKey
+	proxyErr.Reason = domain.CooldownReasonRateLimitExceeded
+
+	// Check for quota exhaustion
+	if containsAny(bodyLower, "quota", "exceeded your", "insufficient_quota") {
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+	} else if containsAny(bodyLower, "concurrent") {
+		proxyErr.Reason = domain.CooldownReasonConcurrentLimit
+	}
+
+	// Try to parse structured error for more detail
 	var errResp struct {
 		Error struct {
 			Message string `json:"message"`
@@ -813,72 +1185,40 @@ func parseRateLimitInfo(resp *http.Response, body []byte, clientType domain.Clie
 			Code    string `json:"code"`
 		} `json:"error"`
 	}
-
 	if json.Unmarshal(body, &errResp) == nil {
-		// OpenAI/Anthropic style
-		if errResp.Error.Type == "rate_limit_error" || errResp.Error.Code == "rate_limit_exceeded" {
-			// Try to extract time from message
+		if errResp.Error.Type == "insufficient_quota" || errResp.Error.Code == "insufficient_quota" {
+			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		}
+		// Extract time from message if no Retry-After header
+		if proxyErr.CooldownUntil == nil {
 			if t := extractTimeFromMessage(errResp.Error.Message); !t.IsZero() {
-				resetTime = t
+				proxyErr.CooldownUntil = &t
 			}
 		}
-		if errResp.Error.Type == "insufficient_quota" || errResp.Error.Code == "insufficient_quota" {
-			rateLimitType = "quota_exhausted"
-		}
 	}
 
-	if resetTime.IsZero() {
+	// Try structured reset time fields
+	if proxyErr.CooldownUntil == nil {
 		if t := extractStructuredResetTime(body); !t.IsZero() {
-			resetTime = t
+			proxyErr.CooldownUntil = &t
 		}
 	}
 
-	// If no reset time found, use default based on type
-	if resetTime.IsZero() {
-		switch rateLimitType {
-		case "quota_exhausted":
-			// Default to 1 hour for quota exhaustion
-			resetTime = time.Now().Add(1 * time.Hour)
-		case "concurrent_limit":
-			// Short cooldown for concurrent limits
-			resetTime = time.Now().Add(10 * time.Second)
-		default:
-			// Default to 1 minute for rate limits
-			resetTime = time.Now().Add(1 * time.Minute)
-		}
-	}
-
-	return &domain.RateLimitInfo{
-		Type:             rateLimitType,
-		QuotaResetTime:   resetTime,
-		RetryHintMessage: bodyStr,
-		ClientType:       string(clientType), // Cooldown applies to specific client type
+	// Per-model rate limit detection (if body mentions specific model)
+	if containsAny(bodyLower, "model", "tokens per minute", "tpm") {
+		proxyErr.Scope = domain.ScopeModel
+		proxyErr.Model = model
 	}
 }
 
-func applyRateLimitRetryHints(proxyErr *domain.ProxyError, resp *http.Response, rateLimitInfo *domain.RateLimitInfo) {
-	if proxyErr == nil || resp == nil {
-		return
-	}
-
-	if retryAfter, until := parseRetryAfterHeader(resp.Header.Get("Retry-After")); retryAfter > 0 {
-		proxyErr.RetryAfter = retryAfter
-		if until != nil {
-			proxyErr.CooldownUntil = until
+// containsAny returns true if s contains any of the substrings.
+func containsAny(s string, substrs ...string) bool {
+	for _, sub := range substrs {
+		if strings.Contains(s, sub) {
+			return true
 		}
 	}
-
-	if rateLimitInfo != nil && !rateLimitInfo.QuotaResetTime.IsZero() {
-		until := rateLimitInfo.QuotaResetTime
-		if proxyErr.CooldownUntil == nil {
-			proxyErr.CooldownUntil = &until
-		}
-		if proxyErr.RetryAfter <= 0 {
-			if retryAfter := time.Until(until); retryAfter > 0 {
-				proxyErr.RetryAfter = retryAfter
-			}
-		}
-	}
+	return false
 }
 
 func parseRetryAfterHeader(value string) (time.Duration, *time.Time) {

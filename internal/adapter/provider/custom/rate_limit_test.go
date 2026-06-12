@@ -8,16 +8,11 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
-func TestApplyRateLimitRetryHintsUsesRetryAfterHeader(t *testing.T) {
-	proxyErr := &domain.ProxyError{}
-	resp := &http.Response{Header: make(http.Header)}
-	resp.Header.Set("Retry-After", "3")
-	now := time.Now()
-	rateLimitInfo := &domain.RateLimitInfo{
-		QuotaResetTime: now.Add(10 * time.Second),
-	}
+func TestClassifyHTTPError429UsesRetryAfterHeader(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Retry-After", "3")
 
-	applyRateLimitRetryHints(proxyErr, resp, rateLimitInfo)
+	proxyErr := classifyHTTPError(429, []byte(`{"error":{"message":"rate limited"}}`), headers, domain.ClientTypeOpenAI, "gpt-4")
 
 	if proxyErr.RetryAfter < 3*time.Second || proxyErr.RetryAfter > 4*time.Second {
 		t.Fatalf("RetryAfter = %v, want about 3s", proxyErr.RetryAfter)
@@ -25,9 +20,49 @@ func TestApplyRateLimitRetryHintsUsesRetryAfterHeader(t *testing.T) {
 	if proxyErr.CooldownUntil == nil {
 		t.Fatal("CooldownUntil should be set")
 	}
-	untilDelta := proxyErr.CooldownUntil.Sub(now)
-	if untilDelta < 2*time.Second || untilDelta > 4*time.Second {
-		t.Fatalf("CooldownUntil delta = %v, want derived from Retry-After header", untilDelta)
+	if proxyErr.Scope != domain.ScopeKey {
+		t.Fatalf("Scope = %v, want ScopeKey", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonRateLimitExceeded {
+		t.Fatalf("Reason = %v, want CooldownReasonRateLimitExceeded", proxyErr.Reason)
+	}
+}
+
+func TestClassifyHTTPError429QuotaExhausted(t *testing.T) {
+	headers := make(http.Header)
+	body := []byte(`{"error":{"message":"You exceeded your current quota","type":"insufficient_quota","code":"insufficient_quota"}}`)
+
+	proxyErr := classifyHTTPError(429, body, headers, domain.ClientTypeOpenAI, "gpt-4")
+
+	if proxyErr.Reason != domain.CooldownReasonQuotaExhausted {
+		t.Fatalf("Reason = %v, want CooldownReasonQuotaExhausted", proxyErr.Reason)
+	}
+}
+
+func TestClassifyHTTPError401AuthFailure(t *testing.T) {
+	headers := make(http.Header)
+	proxyErr := classifyHTTPError(401, []byte(`{"error":{"message":"invalid api key"}}`), headers, domain.ClientTypeOpenAI, "gpt-4")
+
+	if proxyErr.Scope != domain.ScopeKey {
+		t.Fatalf("Scope = %v, want ScopeKey", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonAuthFailure {
+		t.Fatalf("Reason = %v, want CooldownReasonAuthFailure", proxyErr.Reason)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("401 should not be retryable")
+	}
+}
+
+func TestClassifyHTTPError503ModelOverloaded(t *testing.T) {
+	headers := make(http.Header)
+	proxyErr := classifyHTTPError(503, []byte(`{"error":{"message":"model is overloaded"}}`), headers, domain.ClientTypeClaude, "claude-3")
+
+	if proxyErr.Scope != domain.ScopeModel {
+		t.Fatalf("Scope = %v, want ScopeModel", proxyErr.Scope)
+	}
+	if proxyErr.Model != "claude-3" {
+		t.Fatalf("Model = %v, want claude-3", proxyErr.Model)
 	}
 }
 

@@ -1,10 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import {
   Snowflake,
-  Clock,
   AlertCircle,
   Server,
   Wifi,
@@ -12,18 +10,18 @@ import {
   Ban,
   HelpCircle,
   X,
-  Thermometer,
-  Calendar,
   Activity,
+  Lock,
 } from 'lucide-react';
 import type { Cooldown } from '@/lib/transport/types';
-import { useCooldownsContext } from '@/contexts/cooldowns-context';
+import { CooldownTimer } from '@/components/cooldown-timer';
 
 interface CooldownDetailsDialogProps {
-  cooldown: Cooldown | null;
+  providerName: string;
+  cooldowns: Cooldown[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onClear: () => void;
+  onClear: (options?: { clientType?: string; model?: string }) => void;
   isClearing: boolean;
   onDisable: () => void;
   isDisabling: boolean;
@@ -72,6 +70,27 @@ const getReasonInfo = (t: TFunction) => ({
     color: 'text-orange-400',
     bgColor: 'bg-orange-400/10 border-orange-400/20',
   },
+  auth_failure: {
+    label: t('provider.reasons.authFailure', 'Auth Failure'),
+    description: t('provider.reasons.authFailureDesc', 'API key 无效或账号被封禁'),
+    icon: Lock,
+    color: 'text-red-400',
+    bgColor: 'bg-red-400/10 border-red-400/20',
+  },
+  model_unavailable: {
+    label: t('provider.reasons.modelUnavailable', 'Model Unavailable'),
+    description: t('provider.reasons.modelUnavailableDesc', '模型不存在或无访问权限'),
+    icon: Ban,
+    color: 'text-gray-400',
+    bgColor: 'bg-gray-400/10 border-gray-400/20',
+  },
+  manual: {
+    label: t('provider.reasons.manual', 'Manual Freeze'),
+    description: t('provider.reasons.manualDesc', '管理员手动冻结'),
+    icon: Snowflake,
+    color: 'text-blue-400',
+    bgColor: 'bg-blue-400/10 border-blue-400/20',
+  },
   unknown: {
     label: t('provider.reasons.unknown'),
     description: t('provider.reasons.unknownDesc', '因未知原因进入冷却状态'),
@@ -82,7 +101,8 @@ const getReasonInfo = (t: TFunction) => ({
 });
 
 export function CooldownDetailsDialog({
-  cooldown,
+  providerName,
+  cooldowns,
   open,
   onOpenChange,
   onClear,
@@ -90,50 +110,14 @@ export function CooldownDetailsDialog({
   onDisable,
   isDisabling,
 }: CooldownDetailsDialogProps) {
-  const { t, i18n } = useTranslation();
-  const REASON_INFO = getReasonInfo(t);
-  // 获取 formatRemaining 函数用于实时倒计时
-  const { formatRemaining } = useCooldownsContext();
+  const { t } = useTranslation();
 
-  // 计算初始倒计时值
-  const getInitialCountdown = useCallback(() => {
-    return cooldown ? formatRemaining(cooldown) : '';
-  }, [cooldown, formatRemaining]);
+  if (cooldowns.length === 0) return null;
 
-  // 实时倒计时状态
-  const [liveCountdown, setLiveCountdown] = useState<string>(getInitialCountdown);
-
-  // 每秒更新倒计时
-  useEffect(() => {
-    if (!cooldown) return;
-
-    // 每秒更新
-    const interval = setInterval(() => {
-      setLiveCountdown(formatRemaining(cooldown));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [cooldown, formatRemaining]);
-
-  if (!cooldown) return null;
-
-  const reasonInfo = REASON_INFO[cooldown.reason] || REASON_INFO.unknown;
-  const Icon = reasonInfo.icon;
-
-  const formatUntilTime = (until: string) => {
-    const date = new Date(until);
-    return date.toLocaleString(i18n.resolvedLanguage ?? i18n.language, {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-  };
-
-  const untilDateStr = formatUntilTime(cooldown.until);
-  const [datePart, timePart] = untilDateStr.split(' ');
+  // Group cooldowns by scope
+  const providerLevel = cooldowns.filter((cd) => !cd.clientType && !cd.model);
+  const keyLevel = cooldowns.filter((cd) => cd.clientType && !cd.model);
+  const modelLevel = cooldowns.filter((cd) => !!cd.model);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -155,128 +139,137 @@ export function CooldownDetailsDialog({
               <Snowflake size={28} className="text-cyan-400 animate-spin-slow" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-text-primary">{t('cooldown.title')}</h2>
+              <h2 className="text-xl font-bold text-text-primary">{providerName}</h2>
               <p className="text-xs text-cyan-500/80 font-medium uppercase tracking-wider mt-1">
-                Frozen Protocol Active
+                {cooldowns.length} active cooldown{cooldowns.length > 1 ? 's' : ''}
               </p>
             </div>
           </div>
         </div>
 
         {/* Body Content */}
-        <div className="px-6 pb-6 space-y-5">
-          {/* Provider Card */}
-          <div className="flex items-center gap-4 p-3 rounded-xl bg-muted border border-border">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Target Provider
-                </span>
-                {cooldown.clientType && (
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent text-muted-foreground">
-                    {cooldown.clientType}
-                  </span>
-                )}
-              </div>
-              <div className="font-semibold text-foreground truncate">
-                Provider #{cooldown.providerID}
-              </div>
-            </div>
-          </div>
+        <div className="px-6 pb-6 space-y-4">
+          {providerLevel.length > 0 && (
+            <CooldownGroup
+              label="Provider-level"
+              cooldowns={providerLevel}
+              onClear={onClear}
+              isClearing={isClearing}
+            />
+          )}
+          {keyLevel.length > 0 && (
+            <CooldownGroup
+              label="Key-level"
+              cooldowns={keyLevel}
+              onClear={onClear}
+              isClearing={isClearing}
+            />
+          )}
+          {modelLevel.length > 0 && (
+            <CooldownGroup
+              label={`Model-level (${modelLevel.length})`}
+              cooldowns={modelLevel}
+              onClear={onClear}
+              isClearing={isClearing}
+            />
+          )}
 
-          {/* Reason Section */}
-          <div className={`rounded-xl border p-4 ${reasonInfo.bgColor}`}>
-            <div className="flex gap-4">
-              <div className={`mt-0.5 shrink-0 ${reasonInfo.color}`}>
-                <Icon size={20} />
-              </div>
-              <div>
-                <h3 className={`text-sm font-bold ${reasonInfo.color} mb-1`}>{reasonInfo.label}</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {reasonInfo.description}
-                </p>
-              </div>
-            </div>
-          </div>
+          {/* Disable route button */}
+          <button
+            onClick={onDisable}
+            disabled={isDisabling || isClearing}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-border bg-muted hover:bg-accent px-4 py-3 text-sm font-medium text-muted-foreground transition-colors disabled:opacity-50"
+          >
+            {isDisabling ? (
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+            ) : (
+              <Ban size={16} />
+            )}
+            {isDisabling ? t('cooldown.disabling') : t('cooldown.disableRoute')}
+          </button>
 
-          {/* Timer Section */}
-          <div className="grid grid-cols-2 gap-3">
-            {/* Countdown */}
-            <div className="col-span-2 relative overflow-hidden rounded-xl bg-linear-to-br from-cyan-950/30 to-transparent border border-cyan-500/20 p-5 flex flex-col items-center justify-center group">
-              <div className="absolute inset-0 bg-cyan-400/5 opacity-50 group-hover:opacity-100 transition-opacity" />
-              <div className="relative flex items-center gap-1.5 text-cyan-500 mb-1">
-                <Thermometer size={14} />
-                <span className="text-[10px] font-bold uppercase tracking-widest">Remaining</span>
-              </div>
-              <div className="relative font-mono text-4xl font-bold text-cyan-400 tracking-widest tabular-nums drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]">
-                {liveCountdown}
-              </div>
-            </div>
-
-            {/* Time Details */}
-            <div className="p-3 rounded-xl bg-muted border border-border flex flex-col items-center justify-center gap-1">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold flex items-center gap-1.5">
-                <Clock size={10} /> Resume
-              </span>
-              <div className="font-mono text-sm font-semibold text-foreground">{timePart}</div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-muted border border-border flex flex-col items-center justify-center gap-1">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold flex items-center gap-1.5">
-                <Calendar size={10} /> Date
-              </span>
-              <div className="font-mono text-sm font-semibold text-foreground">{datePart}</div>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="space-y-3 pt-2">
-            <button
-              onClick={onClear}
-              disabled={isClearing || isDisabling}
-              className="w-full relative overflow-hidden rounded-xl p-[1px] group disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-[1.01] active:scale-[0.99]"
-            >
-              <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl" />
-              <div className="relative flex items-center justify-center gap-2 rounded-[11px] bg-card group-hover:bg-transparent px-4 py-3 transition-colors">
-                {isClearing ? (
-                  <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    <span className="text-sm font-bold text-white">Thawing...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap
-                      size={16}
-                      className="text-cyan-400 group-hover:text-white transition-colors"
-                    />
-                    <span className="text-sm font-bold text-cyan-400 group-hover:text-white transition-colors">
-                      {t('cooldown.forceThaw')}
-                    </span>
-                  </>
-                )}
-              </div>
-            </button>
-
-            <button
-              onClick={onDisable}
-              disabled={isDisabling || isClearing}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-border bg-muted hover:bg-accent px-4 py-3 text-sm font-medium text-muted-foreground transition-colors disabled:opacity-50"
-            >
-              {isDisabling ? (
-                <div className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-t-current" />
-              ) : (
-                <Ban size={16} />
-              )}
-              {isDisabling ? t('cooldown.disabling') : t('cooldown.disableRoute')}
-            </button>
-
-            <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-2.5 text-[11px] text-muted-foreground">
-              <Activity size={12} className="mt-0.5 shrink-0" />
-              <p>{t('cooldown.forceThawWarning')}</p>
-            </div>
+          <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-2.5 text-[11px] text-muted-foreground">
+            <Activity size={12} className="mt-0.5 shrink-0" />
+            <p>{t('cooldown.forceThawWarning')}</p>
           </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CooldownGroup({
+  label,
+  cooldowns,
+  onClear,
+  isClearing,
+}: {
+  label: string;
+  cooldowns: Cooldown[];
+  onClear: (options?: { clientType?: string; model?: string }) => void;
+  isClearing: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+        {label}
+      </div>
+      {cooldowns.map((cd) => (
+        <CooldownEntry
+          key={`${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}
+          cooldown={cd}
+          onClear={() => onClear({ clientType: cd.clientType || undefined, model: cd.model || undefined })}
+          isClearing={isClearing}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CooldownEntry({
+  cooldown,
+  onClear,
+  isClearing,
+}: {
+  cooldown: Cooldown;
+  onClear: () => void;
+  isClearing: boolean;
+}) {
+  const { t } = useTranslation();
+  const REASON_INFO = getReasonInfo(t);
+  const reasonInfo = REASON_INFO[cooldown.reason] || REASON_INFO.unknown;
+  const Icon = reasonInfo.icon;
+
+  return (
+    <div className={`flex items-center gap-3 p-3 rounded-xl border ${reasonInfo.bgColor}`}>
+      <Icon size={16} className={`shrink-0 ${reasonInfo.color}`} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-sm font-medium ${reasonInfo.color}`}>{reasonInfo.label}</span>
+          {cooldown.model && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent text-muted-foreground truncate max-w-[200px]">
+              {cooldown.model}
+            </span>
+          )}
+          {cooldown.clientType && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent text-muted-foreground">
+              {cooldown.clientType}
+            </span>
+          )}
+        </div>
+      </div>
+      <CooldownTimer
+        cooldown={cooldown}
+        className="text-xs font-mono tabular-nums shrink-0"
+      />
+      <button
+        onClick={onClear}
+        disabled={isClearing}
+        className="p-1 rounded hover:bg-accent shrink-0 disabled:opacity-50"
+        title={t('cooldown.forceThaw')}
+      >
+        <X size={14} className="text-muted-foreground" />
+      </button>
+    </div>
   );
 }

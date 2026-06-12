@@ -88,56 +88,59 @@ func TestInviteCodeConsume_Concurrent(t *testing.T) {
 	db := newInviteTestDB(t)
 	repo := NewInviteCodeRepository(db)
 
-	code := &domain.InviteCode{
-		TenantID:   1,
-		CodeHash:   "hash-concurrent",
-		CodePrefix: "HASH",
-		Status:     domain.InviteCodeStatusActive,
-		MaxUses:    1,
-		UsedCount:  0,
-	}
-	if err := repo.Create(code); err != nil {
-		t.Fatalf("create code: %v", err)
-	}
-
-	var wg sync.WaitGroup
-	results := make(chan error, 10)
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, err := repo.Consume(1, "hash-concurrent", time.Now())
-			results <- err
-		}()
-	}
-	wg.Wait()
-	close(results)
-
-	successes := 0
-	failures := 0
-	for err := range results {
-		if err == nil {
-			successes++
-			continue
+	for round := 0; round < 25; round++ {
+		codeHash := fmt.Sprintf("hash-concurrent-%d", round)
+		code := &domain.InviteCode{
+			TenantID:   1,
+			CodeHash:   codeHash,
+			CodePrefix: "HASH",
+			Status:     domain.InviteCodeStatusActive,
+			MaxUses:    1,
+			UsedCount:  0,
 		}
-		failures++
-		if !errors.Is(err, domain.ErrInviteCodeExhausted) {
-			t.Fatalf("unexpected consume error: %v", err)
+		if err := repo.Create(code); err != nil {
+			t.Fatalf("round %d create code: %v", round, err)
 		}
-	}
-	if successes+failures != 10 {
-		t.Fatalf("total results = %d, want 10", successes+failures)
-	}
-	if successes != 1 {
-		t.Fatalf("success = %d, want 1", successes)
-	}
 
-	updated, err := repo.GetByID(1, code.ID)
-	if err != nil {
-		t.Fatalf("get code: %v", err)
-	}
-	if updated.UsedCount != 1 {
-		t.Fatalf("usedCount = %d, want 1", updated.UsedCount)
+		var wg sync.WaitGroup
+		results := make(chan error, 10)
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := repo.Consume(1, codeHash, time.Now())
+				results <- err
+			}()
+		}
+		wg.Wait()
+		close(results)
+
+		successes := 0
+		failures := 0
+		for err := range results {
+			if err == nil {
+				successes++
+				continue
+			}
+			failures++
+			if !errors.Is(err, domain.ErrInviteCodeExhausted) {
+				t.Fatalf("round %d unexpected consume error: %v", round, err)
+			}
+		}
+		if successes+failures != 10 {
+			t.Fatalf("round %d total results = %d, want 10", round, successes+failures)
+		}
+		if successes != 1 {
+			t.Fatalf("round %d success = %d, want 1", round, successes)
+		}
+
+		updated, err := repo.GetByID(1, code.ID)
+		if err != nil {
+			t.Fatalf("round %d get code: %v", round, err)
+		}
+		if updated.UsedCount != 1 {
+			t.Fatalf("round %d usedCount = %d, want 1", round, updated.UsedCount)
+		}
 	}
 }
 

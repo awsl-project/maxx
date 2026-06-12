@@ -18,7 +18,7 @@ export const proxyKeys = {
 export function useProxyStatus() {
   return useQuery({
     queryKey: proxyKeys.status(),
-    queryFn: () => getTransport().getProxyStatus(),
+    queryFn: () => getTransport().getPublicProxyStatus(),
     staleTime: Infinity, // Proxy 状态不会变化
   });
 }

@@ -30,9 +30,12 @@ var webDistAssets embed.FS
 var appCtx context.Context
 
 func main() {
-	// Set embedded static files for HTTP server
+	// Set embedded static files for HTTP server only when a built frontend is embedded.
+	// CI/backend-only test runs may include only a placeholder to satisfy go:embed.
 	if subFS, err := fs.Sub(webDistAssets, "web/dist"); err == nil {
-		handler.StaticFS = subFS
+		if _, statErr := fs.Stat(subFS, "index.html"); statErr == nil {
+			handler.StaticFS = subFS
+		}
 	}
 
 	// Create desktop app instance

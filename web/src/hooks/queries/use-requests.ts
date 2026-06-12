@@ -13,19 +13,37 @@ import {
 } from '@/lib/transport';
 import { prioritizeActiveRequests } from '@/lib/request-order';
 
-// Query Keys
+/** Query key factory for proxy request related queries. */
 export const requestKeys = {
   all: ['requests'] as const,
   lists: () => [...requestKeys.all, 'list'] as const,
   list: (params?: CursorPaginationParams) => [...requestKeys.lists(), params] as const,
-  infinite: (providerId?: number, status?: string, apiTokenId?: number, projectId?: number) =>
-    [...requestKeys.all, 'infinite', providerId, status, apiTokenId, projectId] as const,
+  infinite: (providerId?: number, status?: string, apiTokenId?: number, projectId?: number, startTime?: string, endTime?: string) =>
+    [...requestKeys.all, 'infinite', providerId, status, apiTokenId, projectId, startTime, endTime] as const,
   details: () => [...requestKeys.all, 'detail'] as const,
   detail: (id: number) => [...requestKeys.details(), id] as const,
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
 };
 
-// 获取 ProxyRequests (游标分页)
+function matchesRequestTimeRange(
+  request: ProxyRequest,
+  startTime?: string,
+  endTime?: string,
+): boolean {
+  const createdAtMs = new Date(request.createdAt).getTime();
+  if (!Number.isFinite(createdAtMs)) {
+    return true;
+  }
+  if (startTime !== undefined && createdAtMs < new Date(startTime).getTime()) {
+    return false;
+  }
+  if (endTime !== undefined && createdAtMs > new Date(endTime).getTime()) {
+    return false;
+  }
+  return true;
+}
+
+/** Fetches proxy requests with cursor-based pagination. */
 export function useProxyRequests(params?: CursorPaginationParams) {
   return useQuery({
     queryKey: requestKeys.list(params),
@@ -33,16 +51,21 @@ export function useProxyRequests(params?: CursorPaginationParams) {
   });
 }
 
-// 获取 ProxyRequests (无限滚动)
+/**
+ * Fetches proxy requests using infinite scroll pagination.
+ * Uses staleTime to avoid redundant refetches within a short window.
+ */
 export function useInfiniteProxyRequests(
   providerId?: number,
   status?: string,
   apiTokenId?: number,
   projectId?: number,
+  startTime?: string,
+  endTime?: string,
   enabled = true,
 ) {
   return useInfiniteQuery({
-    queryKey: requestKeys.infinite(providerId, status, apiTokenId, projectId),
+    queryKey: requestKeys.infinite(providerId, status, apiTokenId, projectId, startTime, endTime),
     queryFn: ({ pageParam }) =>
       getTransport().getProxyRequests({
         limit: 100,
@@ -51,29 +74,41 @@ export function useInfiniteProxyRequests(
         status,
         apiTokenId,
         projectId,
+        startTime,
+        endTime,
       }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastId : undefined),
     initialPageParam: undefined as number | undefined,
     enabled,
+    staleTime: 5_000,
   });
 }
 
-// 获取 ProxyRequests 总数
+/**
+ * Fetches the total count of proxy requests matching the given filters.
+ * Polls every 10s as a safety net for missed WebSocket events.
+ */
 export function useProxyRequestsCount(
   providerId?: number,
   status?: string,
   apiTokenId?: number,
   projectId?: number,
+  startTime?: string,
+  endTime?: string,
   enabled = true,
 ) {
   return useQuery({
-    queryKey: ['requestsCount', providerId, status, apiTokenId, projectId] as const,
-    queryFn: () => getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId),
+    queryKey: ['requestsCount', providerId, status, apiTokenId, projectId, startTime, endTime] as const,
+    queryFn: () =>
+      getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId, startTime, endTime),
     enabled,
+    staleTime: 5_000,
+    refetchInterval: enabled ? 10_000 : false,
+    refetchIntervalInBackground: false,
   });
 }
 
-// 获取单个 ProxyRequest
+/** Fetches a single proxy request by ID. */
 export function useProxyRequest(id: number) {
   return useQuery({
     queryKey: requestKeys.detail(id),
@@ -82,7 +117,7 @@ export function useProxyRequest(id: number) {
   });
 }
 
-// 获取 ProxyRequest 的 Attempts
+/** Fetches upstream attempts for a given proxy request. */
 export function useProxyUpstreamAttempts(proxyRequestId: number) {
   return useQuery({
     queryKey: requestKeys.attempts(proxyRequestId),
@@ -206,6 +241,9 @@ export function useProxyRequestUpdates() {
           const filterProviderId = params?.providerId;
           const filterStatus = params?.status;
           const filterAPITokenId = params?.apiTokenId;
+          const filterProjectId = params?.projectId;
+          const filterStartTime = params?.startTime;
+          const filterEndTime = params?.endTime;
 
           const matchesFilter = (request: ProxyRequest) => {
             if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
@@ -215,6 +253,12 @@ export function useProxyRequestUpdates() {
               return false;
             }
             if (filterAPITokenId !== undefined && request.apiTokenID !== filterAPITokenId) {
+              return false;
+            }
+            if (filterProjectId !== undefined && request.projectID !== filterProjectId) {
+              return false;
+            }
+            if (!matchesRequestTimeRange(request, filterStartTime, filterEndTime)) {
               return false;
             }
             return true;
@@ -278,6 +322,8 @@ export function useProxyRequestUpdates() {
           const filterStatus = queryKey[3] as string | undefined;
           const filterAPITokenId = queryKey[4] as number | undefined;
           const filterProjectId = queryKey[5] as number | undefined;
+          const filterStartTime = queryKey[6] as string | undefined;
+          const filterEndTime = queryKey[7] as string | undefined;
 
           const matchesFilter = (request: ProxyRequest) => {
             if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
@@ -290,6 +336,9 @@ export function useProxyRequestUpdates() {
               return false;
             }
             if (filterProjectId !== undefined && request.projectID !== filterProjectId) {
+              return false;
+            }
+            if (!matchesRequestTimeRange(request, filterStartTime, filterEndTime)) {
               return false;
             }
             return true;
@@ -349,20 +398,21 @@ export function useProxyRequestUpdates() {
           });
         }
 
-        // 新请求时乐观更新 count（增加保护：避免因“未观察详情缓存”导致重复 +1）
+        // 新请求时乐观更新 count。重连后首个看到的增量可能已经是 COMPLETED，
+        // 不能只盯 PENDING，否则会把断线窗口内完成的新请求漏掉。
         if (!isKnown) {
           const startTimeMs = new Date(updatedRequest.startTime).getTime();
-          const looksLikeNewRequest =
-            updatedRequest.status === 'PENDING' &&
-            Number.isFinite(startTimeMs) &&
-            Date.now() - startTimeMs < 15_000;
+          const looksLikeRecentRequest =
+            Number.isFinite(startTimeMs) && Date.now() - startTimeMs < 15_000;
 
-          if (looksLikeNewRequest) {
+          if (looksLikeRecentRequest) {
             for (const query of countQueries) {
               const filterProviderId = query.queryKey[1] as number | undefined;
               const filterStatus = query.queryKey[2] as string | undefined;
               const filterAPITokenId = query.queryKey[3] as number | undefined;
               const filterProjectId = query.queryKey[4] as number | undefined;
+              const filterStartTime = query.queryKey[5] as string | undefined;
+              const filterEndTime = query.queryKey[6] as string | undefined;
               if (filterProviderId !== undefined && updatedRequest.providerID !== filterProviderId) {
                 continue;
               }
@@ -373,6 +423,9 @@ export function useProxyRequestUpdates() {
                 continue;
               }
               if (filterProjectId !== undefined && updatedRequest.projectID !== filterProjectId) {
+                continue;
+              }
+              if (!matchesRequestTimeRange(updatedRequest, filterStartTime, filterEndTime)) {
                 continue;
               }
               queryClient.setQueryData<number>(query.queryKey, (old) => (old ?? 0) + 1);

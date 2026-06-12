@@ -7,12 +7,29 @@ import {
   useProxyRequestUpdates,
   useProxyRequestsCount,
   useProviders,
+  usePublicSettings,
   useProjects,
-  useAPITokens,
-  useSettings,
+  useVisibleAPITokens,
 } from '@/hooks/queries';
-import { Activity, RefreshCw, Loader2, CheckCircle, AlertTriangle, Ban } from 'lucide-react';
-import type { APIToken, Project, ProxyRequest, ProxyRequestStatus, Provider } from '@/lib/transport';
+import {
+  Activity,
+  RefreshCw,
+  Loader2,
+  CheckCircle,
+  AlertTriangle,
+  Ban,
+  CalendarRange,
+  X,
+  Clock,
+} from 'lucide-react';
+import { format as formatDate } from 'date-fns';
+import type {
+  APIToken,
+  Project,
+  ProxyRequest,
+  ProxyRequestStatus,
+  Provider,
+} from '@/lib/transport';
 import { ClientIcon } from '@/components/icons/client-icons';
 import {
   Table,
@@ -29,10 +46,14 @@ import {
   SelectValue,
   SelectGroup,
   SelectLabel,
+  Input,
 } from '@/components/ui';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useAuth } from '@/lib/auth-context';
 import { calculateVirtualRange } from './virtual-range';
 
 type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
@@ -55,6 +76,18 @@ const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
 
+function dateToISOString(value: Date | undefined): string | undefined {
+  if (!value || !Number.isFinite(value.getTime())) {
+    return undefined;
+  }
+  return value.toISOString();
+}
+
+function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'>): boolean {
+  return request.status === 'FAILED' && request.error.trim() === 'Server restarted';
+}
+
+/** Reads a positive numeric value from localStorage, returning undefined if absent or invalid. */
 function readStoredNumber(key: string): number | undefined {
   if (typeof window === 'undefined') {
     return undefined;
@@ -70,6 +103,85 @@ function readStoredNumber(key: string): number | undefined {
   return parsed;
 }
 
+function readStoredNumberWithLegacy(key: string, legacyKey?: string): number | undefined {
+  const scopedValue = readStoredNumber(key);
+  if (scopedValue !== undefined || !legacyKey) {
+    return scopedValue;
+  }
+  return readStoredNumber(legacyKey);
+}
+
+function readStoredFilterMode(key: string, legacyKey?: string): RequestFilterMode {
+  if (typeof window === 'undefined') {
+    return 'token';
+  }
+  const stored = window.localStorage.getItem(key);
+  if (stored === 'provider' || stored === 'project') {
+    return stored;
+  }
+  if (stored === 'token') {
+    return 'token';
+  }
+  if (legacyKey) {
+    const legacyStored = window.localStorage.getItem(legacyKey);
+    if (legacyStored === 'provider' || legacyStored === 'project') {
+      return legacyStored;
+    }
+  }
+  return 'token';
+}
+
+function migrateLegacyRequestFilterValue(scopedKey: string, legacyKey: string): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const scopedValue = window.localStorage.getItem(scopedKey);
+  const legacyValue = window.localStorage.getItem(legacyKey);
+
+  if (scopedValue !== null || legacyValue === null) {
+    return;
+  }
+
+  window.localStorage.setItem(scopedKey, legacyValue);
+  window.localStorage.removeItem(legacyKey);
+}
+
+function migrateLegacyRequestFilters({
+  modeKey,
+  providerKey,
+  tokenKey,
+  projectKey,
+}: {
+  modeKey: string;
+  providerKey: string;
+  tokenKey: string;
+  projectKey: string;
+}) {
+  migrateLegacyRequestFilterValue(modeKey, REQUEST_FILTER_MODE_STORAGE_KEY);
+  migrateLegacyRequestFilterValue(providerKey, REQUEST_PROVIDER_FILTER_STORAGE_KEY);
+  migrateLegacyRequestFilterValue(tokenKey, REQUEST_TOKEN_FILTER_STORAGE_KEY);
+  migrateLegacyRequestFilterValue(projectKey, REQUEST_PROJECT_FILTER_STORAGE_KEY);
+}
+
+function removeLegacyRequestFilters() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.removeItem(REQUEST_FILTER_MODE_STORAGE_KEY);
+  window.localStorage.removeItem(REQUEST_PROVIDER_FILTER_STORAGE_KEY);
+  window.localStorage.removeItem(REQUEST_TOKEN_FILTER_STORAGE_KEY);
+  window.localStorage.removeItem(REQUEST_PROJECT_FILTER_STORAGE_KEY);
+}
+
+function buildScopedStorageKey(baseKey: string, tenantID?: number, userID?: number): string {
+  if (!tenantID || !userID) {
+    return `${baseKey}:anonymous`;
+  }
+  return `${baseKey}:tenant-${tenantID}:user-${userID}`;
+}
+
+/** Maps each proxy request status to its corresponding badge variant. */
 export const statusVariant: Record<
   ProxyRequestStatus,
   'default' | 'success' | 'warning' | 'danger' | 'info'
@@ -82,34 +194,50 @@ export const statusVariant: Record<
   REJECTED: 'danger',
 };
 
+/** Main requests monitoring page with filtering, infinite scroll, and real-time updates. */
 export function RequestsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
+
+  const filterModeStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_FILTER_MODE_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
+  const providerFilterStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_PROVIDER_FILTER_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
+  const tokenFilterStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_TOKEN_FILTER_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
+  const projectFilterStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_PROJECT_FILTER_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
 
   // 过滤维度（默认令牌）
-  const [filterMode, setFilterMode] = useState<RequestFilterMode>(() => {
-    if (typeof window === 'undefined') {
-      return 'token';
-    }
-    const stored = window.localStorage.getItem(REQUEST_FILTER_MODE_STORAGE_KEY);
-    if (stored === 'provider' || stored === 'project') return stored;
-    return 'token';
-  });
+  const [filterMode, setFilterMode] = useState<RequestFilterMode>(() =>
+    readStoredFilterMode(filterModeStorageKey, REQUEST_FILTER_MODE_STORAGE_KEY),
+  );
   // Provider 过滤器
   const [selectedProviderId, setSelectedProviderId] = useState<number | undefined>(() =>
-    readStoredNumber(REQUEST_PROVIDER_FILTER_STORAGE_KEY),
+    readStoredNumberWithLegacy(providerFilterStorageKey, REQUEST_PROVIDER_FILTER_STORAGE_KEY),
   );
   // Token 过滤器
   const [selectedTokenId, setSelectedTokenId] = useState<number | undefined>(() =>
-    readStoredNumber(REQUEST_TOKEN_FILTER_STORAGE_KEY),
+    readStoredNumberWithLegacy(tokenFilterStorageKey, REQUEST_TOKEN_FILTER_STORAGE_KEY),
   );
   // Project 过滤器
   const [selectedProjectId, setSelectedProjectId] = useState<number | undefined>(() =>
-    readStoredNumber(REQUEST_PROJECT_FILTER_STORAGE_KEY),
+    readStoredNumberWithLegacy(projectFilterStorageKey, REQUEST_PROJECT_FILTER_STORAGE_KEY),
   );
   // Status 过滤器
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -121,10 +249,13 @@ export function RequestsPage() {
   const activeTokenId = filterMode === 'token' ? selectedTokenId : undefined;
   const activeProjectId = filterMode === 'project' ? selectedProjectId : undefined;
 
+  const activeStartTime = useMemo(() => dateToISOString(startDate), [startDate]);
+  const activeEndTime = useMemo(() => dateToISOString(endDate), [endDate]);
+
   const { data: providers = [], isSuccess: providersIsSuccess } = useProviders();
   const { data: projects = [], isSuccess: projectsIsSuccess } = useProjects();
-  const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useAPITokens();
-  const { data: settings } = useSettings();
+  const { data: apiTokens = [], isSuccess: apiTokensIsSuccess } = useVisibleAPITokens();
+  const { data: settings } = usePublicSettings();
 
   const waitingProviderFilterValidation =
     filterMode === 'provider' && selectedProviderId !== undefined && !providersIsSuccess;
@@ -132,24 +263,29 @@ export function RequestsPage() {
     filterMode === 'token' && selectedTokenId !== undefined && !apiTokensIsSuccess;
   const waitingProjectFilterValidation =
     filterMode === 'project' && selectedProjectId !== undefined && !projectsIsSuccess;
-  const requestsQueryEnabled = !waitingProviderFilterValidation && !waitingTokenFilterValidation && !waitingProjectFilterValidation;
+  const waitingFilterValidation =
+    waitingProviderFilterValidation || waitingTokenFilterValidation || waitingProjectFilterValidation;
+  const requestsQueryEnabled = !waitingFilterValidation;
 
   // 使用 Infinite Query
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-    isFetching,
-    refetch,
-  } = useInfiniteProxyRequests(activeProviderId, selectedStatus, activeTokenId, activeProjectId, requestsQueryEnabled);
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isFetching, refetch } =
+    useInfiniteProxyRequests(
+      activeProviderId,
+      selectedStatus,
+      activeTokenId,
+      activeProjectId,
+      activeStartTime,
+      activeEndTime,
+      requestsQueryEnabled,
+    );
 
   const { data: totalCount, refetch: refetchCount } = useProxyRequestsCount(
     activeProviderId,
     selectedStatus,
     activeTokenId,
     activeProjectId,
+    activeStartTime,
+    activeEndTime,
     requestsQueryEnabled,
   );
 
@@ -179,7 +315,11 @@ export function RequestsPage() {
   const allRequests = useMemo(() => {
     return data?.pages.flatMap((page) => page.items) ?? [];
   }, [data]);
-  const showLoadingState = (isLoading || isFetching || !requestsQueryEnabled) && allRequests.length === 0;
+  // Show spinner on initial load, manual refresh with empty list, or while
+  // waiting for filter dependencies. When switching filters with existing cache,
+  // stale-while-revalidate keeps old data visible, avoiding a jarring flash.
+  const showLoadingState =
+    (isLoading || isFetching || waitingFilterValidation) && allRequests.length === 0;
   const hasRenderedRequests = allRequests.length > 0;
 
   const activeCount = useMemo(() => {
@@ -193,8 +333,7 @@ export function RequestsPage() {
   // 高频实时更新时，仅保留可视区域附近的桌面行，减少表格重排和重绘成本。
   const shouldVirtualizeDesktop =
     !isMobile && allRequests.length >= REQUESTS_VIRTUALIZE_THRESHOLD && viewportHeight > 0;
-  const desktopColumnCount =
-    14 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
+  const desktopColumnCount = 14 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
   const desktopVirtualRange = useMemo(() => {
     if (!shouldVirtualizeDesktop) {
       return {
@@ -205,28 +344,14 @@ export function RequestsPage() {
       };
     }
 
-    return calculateVirtualRange(
-      allRequests.length,
-      scrollTop,
-      viewportHeight,
-      desktopRowHeight,
-    );
-  }, [
-    allRequests.length,
-    desktopRowHeight,
-    scrollTop,
-    shouldVirtualizeDesktop,
-    viewportHeight,
-  ]);
+    return calculateVirtualRange(allRequests.length, scrollTop, viewportHeight, desktopRowHeight);
+  }, [allRequests.length, desktopRowHeight, scrollTop, shouldVirtualizeDesktop, viewportHeight]);
   const desktopVisibleRequests = useMemo(() => {
     if (!shouldVirtualizeDesktop) {
       return allRequests;
     }
 
-    return allRequests.slice(
-      desktopVirtualRange.startIndex,
-      desktopVirtualRange.endIndex,
-    );
+    return allRequests.slice(desktopVirtualRange.startIndex, desktopVirtualRange.endIndex);
   }, [allRequests, desktopVirtualRange, shouldVirtualizeDesktop]);
 
   // 全局 tick：仅在有“传输中”请求时更新，避免每行一个定时器导致重渲染风暴
@@ -281,13 +406,7 @@ export function RequestsPage() {
     if (nextHeight > 0 && Math.abs(nextHeight - desktopRowHeight) > 1) {
       setDesktopRowHeight(nextHeight);
     }
-  }, [
-    apiTokenAuthEnabled,
-    desktopRowHeight,
-    desktopVisibleRequests,
-    hasProjects,
-    isMobile,
-  ]);
+  }, [apiTokenAuthEnabled, desktopRowHeight, desktopVisibleRequests, hasProjects, isMobile]);
 
   // IntersectionObserver 触底检测
   useEffect(() => {
@@ -308,44 +427,77 @@ export function RequestsPage() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   useEffect(() => {
+    migrateLegacyRequestFilters({
+      modeKey: filterModeStorageKey,
+      providerKey: providerFilterStorageKey,
+      tokenKey: tokenFilterStorageKey,
+      projectKey: projectFilterStorageKey,
+    });
+
+    setFilterMode(readStoredFilterMode(filterModeStorageKey, REQUEST_FILTER_MODE_STORAGE_KEY));
+    setSelectedProviderId(
+      readStoredNumberWithLegacy(providerFilterStorageKey, REQUEST_PROVIDER_FILTER_STORAGE_KEY),
+    );
+    setSelectedTokenId(
+      readStoredNumberWithLegacy(tokenFilterStorageKey, REQUEST_TOKEN_FILTER_STORAGE_KEY),
+    );
+    setSelectedProjectId(
+      readStoredNumberWithLegacy(projectFilterStorageKey, REQUEST_PROJECT_FILTER_STORAGE_KEY),
+    );
+    setSelectedStatus(undefined);
+  }, [
+    filterModeStorageKey,
+    projectFilterStorageKey,
+    providerFilterStorageKey,
+    tokenFilterStorageKey,
+  ]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
-    window.localStorage.setItem(REQUEST_FILTER_MODE_STORAGE_KEY, filterMode);
-  }, [filterMode]);
+    window.localStorage.setItem(filterModeStorageKey, filterMode);
+    removeLegacyRequestFilters();
+  }, [filterMode, filterModeStorageKey]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
     if (selectedProviderId === undefined) {
+      window.localStorage.removeItem(providerFilterStorageKey);
       window.localStorage.removeItem(REQUEST_PROVIDER_FILTER_STORAGE_KEY);
       return;
     }
-    window.localStorage.setItem(REQUEST_PROVIDER_FILTER_STORAGE_KEY, String(selectedProviderId));
-  }, [selectedProviderId]);
+    window.localStorage.setItem(providerFilterStorageKey, String(selectedProviderId));
+    window.localStorage.removeItem(REQUEST_PROVIDER_FILTER_STORAGE_KEY);
+  }, [providerFilterStorageKey, selectedProviderId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
     if (selectedTokenId === undefined) {
+      window.localStorage.removeItem(tokenFilterStorageKey);
       window.localStorage.removeItem(REQUEST_TOKEN_FILTER_STORAGE_KEY);
       return;
     }
-    window.localStorage.setItem(REQUEST_TOKEN_FILTER_STORAGE_KEY, String(selectedTokenId));
-  }, [selectedTokenId]);
+    window.localStorage.setItem(tokenFilterStorageKey, String(selectedTokenId));
+    window.localStorage.removeItem(REQUEST_TOKEN_FILTER_STORAGE_KEY);
+  }, [selectedTokenId, tokenFilterStorageKey]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
     if (selectedProjectId === undefined) {
+      window.localStorage.removeItem(projectFilterStorageKey);
       window.localStorage.removeItem(REQUEST_PROJECT_FILTER_STORAGE_KEY);
       return;
     }
-    window.localStorage.setItem(REQUEST_PROJECT_FILTER_STORAGE_KEY, String(selectedProjectId));
-  }, [selectedProjectId]);
+    window.localStorage.setItem(projectFilterStorageKey, String(selectedProjectId));
+    window.localStorage.removeItem(REQUEST_PROJECT_FILTER_STORAGE_KEY);
+  }, [projectFilterStorageKey, selectedProjectId]);
 
   useEffect(() => {
     if (!providersIsSuccess || selectedProviderId === undefined) {
@@ -421,6 +573,16 @@ export function RequestsPage() {
     scrollContainerRef.current?.scrollTo({ top: 0 });
   };
 
+  const handleTimeRangeChange = (nextStart: Date | undefined, nextEnd: Date | undefined) => {
+    setStartDate(nextStart);
+    setEndDate(nextEnd);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  };
+
+  const handleClearTimeRange = () => {
+    handleTimeRangeChange(undefined, undefined);
+  };
+
   const handleOpenRequest = useCallback(
     (id: number) => {
       navigate(`/requests/${id}`);
@@ -435,71 +597,37 @@ export function RequestsPage() {
     <TableHeader className="bg-card/80 backdrop-blur-md sticky top-0 z-10 shadow-sm border-b border-border">
       <TableRow className="hover:bg-transparent border-none text-sm">
         <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
-        <TableHead className="w-[120px] pr-4 font-medium">
-          {t('requests.client')}
-        </TableHead>
-        <TableHead className="min-w-[250px] font-medium">
-          {t('requests.model')}
-        </TableHead>
+        <TableHead className="w-[120px] pr-4 font-medium">{t('requests.client')}</TableHead>
+        <TableHead className="min-w-[250px] font-medium">{t('requests.model')}</TableHead>
         {hasProjects && (
-          <TableHead className="w-[100px] font-medium">
-            {t('requests.project')}
-          </TableHead>
+          <TableHead className="w-[100px] font-medium">{t('requests.project')}</TableHead>
         )}
         {apiTokenAuthEnabled && (
-          <TableHead className="w-[100px] font-medium">
-            {t('requests.token')}
-          </TableHead>
+          <TableHead className="w-[100px] font-medium">{t('requests.token')}</TableHead>
         )}
-        <TableHead className="min-w-[100px] font-medium">
-          {t('requests.provider')}
-        </TableHead>
+        <TableHead className="min-w-[100px] font-medium">{t('requests.provider')}</TableHead>
         <TableHead className="w-[100px] font-medium">{t('common.status')}</TableHead>
-        <TableHead className="w-[60px] text-center font-medium">
-          {t('requests.code')}
-        </TableHead>
-        <TableHead
-          className="w-[60px] text-center font-medium"
-          title={t('requests.ttft')}
-        >
+        <TableHead className="w-[60px] text-center font-medium">{t('requests.code')}</TableHead>
+        <TableHead className="w-[60px] text-center font-medium" title={t('requests.ttft')}>
           TTFT
         </TableHead>
-        <TableHead className="w-[80px] text-center font-medium">
-          {t('requests.duration')}
-        </TableHead>
-        <TableHead
-          className="w-[45px] text-center font-medium"
-          title={t('requests.attempts')}
-        >
+        <TableHead className="w-[80px] text-center font-medium">{t('requests.duration')}</TableHead>
+        <TableHead className="w-[45px] text-center font-medium" title={t('requests.attempts')}>
           {t('requests.attShort')}
         </TableHead>
-        <TableHead
-          className="w-[65px] text-center font-medium"
-          title={t('requests.inputTokens')}
-        >
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.inputTokens')}>
           {t('requests.inShort')}
         </TableHead>
-        <TableHead
-          className="w-[65px] text-center font-medium"
-          title={t('requests.outputTokens')}
-        >
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.outputTokens')}>
           {t('requests.outShort')}
         </TableHead>
-        <TableHead
-          className="w-[65px] text-center font-medium"
-          title={t('requests.cacheRead')}
-        >
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheRead')}>
           {t('requests.cacheRShort')}
         </TableHead>
-        <TableHead
-          className="w-[65px] text-center font-medium"
-          title={t('requests.cacheWrite')}
-        >
+        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheWrite')}>
           {t('requests.cacheWShort')}
         </TableHead>
-        <TableHead className="w-[80px] text-center font-medium">
-          {t('requests.cost')}
-        </TableHead>
+        <TableHead className="w-[80px] text-center font-medium">{t('requests.cost')}</TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -513,7 +641,11 @@ export function RequestsPage() {
         description={t('requests.description', { count: total })}
       >
         {/* Filter Mode + Dynamic Target Filter */}
-        <FilterModeSelect mode={filterMode} hasProjects={hasProjects} onSelect={handleFilterModeChange} />
+        <FilterModeSelect
+          mode={filterMode}
+          hasProjects={hasProjects}
+          onSelect={handleFilterModeChange}
+        />
         {filterMode === 'provider' ? (
           <ProviderFilter
             providers={providers}
@@ -535,14 +667,20 @@ export function RequestsPage() {
         )}
         {/* Status Filter */}
         <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
+        <TimeRangeFilter
+          startDate={startDate}
+          endDate={endDate}
+          onChange={handleTimeRangeChange}
+          onClear={handleClearTimeRange}
+        />
         <button
           onClick={handleRefresh}
-          disabled={isFetching || !requestsQueryEnabled}
+          disabled={isFetching || waitingFilterValidation}
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
             'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
             'text-muted-foreground hover:text-foreground',
-            (isFetching || !requestsQueryEnabled) && 'opacity-50 cursor-not-allowed',
+            (isFetching || waitingFilterValidation) && 'opacity-50 cursor-not-allowed',
           )}
         >
           <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
@@ -597,16 +735,15 @@ export function RequestsPage() {
                 <Table>
                   {desktopTableHeader}
                   <TableBody>
-                    {shouldVirtualizeDesktop &&
-                      desktopVirtualRange.topSpacerHeight > 0 && (
-                        <tr aria-hidden="true">
-                          <td
-                            colSpan={desktopColumnCount}
-                            className="border-0 p-0"
-                            style={{ height: `${desktopVirtualRange.topSpacerHeight}px` }}
-                          />
-                        </tr>
-                      )}
+                    {shouldVirtualizeDesktop && desktopVirtualRange.topSpacerHeight > 0 && (
+                      <tr aria-hidden="true">
+                        <td
+                          colSpan={desktopColumnCount}
+                          className="border-0 p-0"
+                          style={{ height: `${desktopVirtualRange.topSpacerHeight}px` }}
+                        />
+                      </tr>
+                    )}
                     {desktopVisibleRequests.map((req) => (
                       <MemoLogRow
                         key={req.id}
@@ -621,16 +758,15 @@ export function RequestsPage() {
                         onOpenRequest={handleOpenRequest}
                       />
                     ))}
-                    {shouldVirtualizeDesktop &&
-                      desktopVirtualRange.bottomSpacerHeight > 0 && (
-                        <tr aria-hidden="true">
-                          <td
-                            colSpan={desktopColumnCount}
-                            className="border-0 p-0"
-                            style={{ height: `${desktopVirtualRange.bottomSpacerHeight}px` }}
-                          />
-                        </tr>
-                      )}
+                    {shouldVirtualizeDesktop && desktopVirtualRange.bottomSpacerHeight > 0 && (
+                      <tr aria-hidden="true">
+                        <td
+                          colSpan={desktopColumnCount}
+                          className="border-0 p-0"
+                          style={{ height: `${desktopVirtualRange.bottomSpacerHeight}px` }}
+                        />
+                      </tr>
+                    )}
                   </TableBody>
                 </Table>
                 {/* 触底加载指示器 */}
@@ -808,6 +944,7 @@ function LogRow({
 }: LogRowProps) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
   const isFailed = request.status === 'FAILED';
+  const isServerRestarted = isServerRestartedFailure(request);
   const isPendingBinding =
     request.status === 'PENDING' &&
     forceProjectBinding &&
@@ -868,12 +1005,14 @@ function LogRow({
 
   return (
     <TableRow
+      data-server-restarted-request={isServerRestarted ? 'true' : undefined}
       data-request-row="true"
       onClick={handleClick}
       className={cn(
         'cursor-pointer group transition-colors',
         // 保持原有的行样式与动画 class，虚拟列表只负责裁剪渲染数量。
         'even:bg-foreground/[0.03]',
+        isServerRestarted && 'line-through decoration-red-300/80 decoration-2 opacity-70',
         // Base hover effect (stronger background change)
         !isRecent && !isFailed && !isPending && !isPendingBinding && 'hover:bg-accent/50',
 
@@ -882,7 +1021,11 @@ function LogRow({
 
         // Pending binding state - Amber background with left border
         isPendingBinding &&
-          cn('bg-amber-500/10 even:bg-amber-500/15', 'hover:bg-amber-500/25', 'border-l-2 border-l-amber-500'),
+          cn(
+            'bg-amber-500/10 even:bg-amber-500/15',
+            'hover:bg-amber-500/25',
+            'border-l-2 border-l-amber-500',
+          ),
 
         // 桌面端虚拟列表已经限制了 DOM 行数，这里恢复原始跑马灯样式。
         isPending && !isPendingBinding && 'animate-marquee-row',
@@ -1040,27 +1183,24 @@ function LogRow({
   );
 }
 
-const MemoLogRow = memo(
-  LogRow,
-  (prev: Readonly<LogRowProps>, next: Readonly<LogRowProps>) => {
-    if (prev.request !== next.request) return false;
-    if (prev.providerName !== next.providerName) return false;
-    if (prev.projectName !== next.projectName) return false;
-    if (prev.tokenName !== next.tokenName) return false;
-    if (prev.showProjectColumn !== next.showProjectColumn) return false;
-    if (prev.showTokenColumn !== next.showTokenColumn) return false;
-    if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
-    if (prev.onOpenRequest !== next.onOpenRequest) return false;
+const MemoLogRow = memo(LogRow, (prev: Readonly<LogRowProps>, next: Readonly<LogRowProps>) => {
+  if (prev.request !== next.request) return false;
+  if (prev.providerName !== next.providerName) return false;
+  if (prev.projectName !== next.projectName) return false;
+  if (prev.tokenName !== next.tokenName) return false;
+  if (prev.showProjectColumn !== next.showProjectColumn) return false;
+  if (prev.showTokenColumn !== next.showTokenColumn) return false;
+  if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
+  if (prev.onOpenRequest !== next.onOpenRequest) return false;
 
-    const prevPending = prev.request.status === 'PENDING' || prev.request.status === 'IN_PROGRESS';
-    const nextPending = next.request.status === 'PENDING' || next.request.status === 'IN_PROGRESS';
-    if (prevPending || nextPending) {
-      return prev.nowMs === next.nowMs;
-    }
+  const prevPending = prev.request.status === 'PENDING' || prev.request.status === 'IN_PROGRESS';
+  const nextPending = next.request.status === 'PENDING' || next.request.status === 'IN_PROGRESS';
+  if (prevPending || nextPending) {
+    return prev.nowMs === next.nowMs;
+  }
 
-    return true;
-  },
-);
+  return true;
+});
 
 // Mobile Request Card Component
 type MobileRequestCardProps = {
@@ -1072,6 +1212,7 @@ type MobileRequestCardProps = {
 function MobileRequestCard({ request, providerName, onOpenRequest }: MobileRequestCardProps) {
   const isPending = request.status === 'PENDING' || request.status === 'IN_PROGRESS';
   const isFailed = request.status === 'FAILED';
+  const isServerRestarted = isServerRestartedFailure(request);
   const handleClick = useCallback(() => onOpenRequest(request.id), [onOpenRequest, request.id]);
 
   const formatTime = (dateStr: string) => {
@@ -1101,11 +1242,13 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
 
   return (
     <div
+      data-server-restarted-request={isServerRestarted ? 'true' : undefined}
       onClick={handleClick}
       className={cn(
         'px-4 py-2.5 border-b border-border cursor-pointer active:bg-accent/50 transition-colors',
         isFailed && 'bg-red-500/10',
         isPending && 'bg-blue-500/5',
+        isServerRestarted && 'line-through decoration-red-300/80 decoration-2 opacity-70',
       )}
     >
       {/* Row 1: Client + Model + Status */}
@@ -1173,9 +1316,7 @@ function FilterModeSelect({
       <SelectContent>
         <SelectItem value="token">{t('requests.filterByToken')}</SelectItem>
         <SelectItem value="provider">{t('requests.filterByProvider')}</SelectItem>
-        {hasProjects && (
-          <SelectItem value="project">{t('requests.filterByProject')}</SelectItem>
-        )}
+        {hasProjects && <SelectItem value="project">{t('requests.filterByProject')}</SelectItem>}
       </SelectContent>
     </Select>
   );
@@ -1335,6 +1476,110 @@ function ProjectFilter({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+function DateTimePicker({
+  value,
+  onChange,
+  label,
+}: {
+  value: Date | undefined;
+  onChange: (date: Date | undefined) => void;
+  label: string;
+}) {
+  const handleDateSelect = (day: Date | undefined) => {
+    if (!day) {
+      onChange(undefined);
+      return;
+    }
+    const next = value ? new Date(value) : new Date(day);
+    next.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
+    onChange(next);
+  };
+
+  const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const [hours, minutes] = e.target.value.split(':').map(Number);
+    const next = value ? new Date(value) : new Date();
+    next.setHours(hours, minutes, 0, 0);
+    onChange(next);
+  };
+
+  const timeValue = value
+    ? `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`
+    : '';
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        className={cn(
+          'flex h-8 items-center gap-1.5 rounded-md border border-border/50 bg-muted/30 px-2 text-xs transition-colors hover:bg-muted',
+          !value && 'text-muted-foreground',
+        )}
+      >
+        <CalendarRange size={13} className="shrink-0 text-muted-foreground" />
+        <span>{value ? formatDate(value, 'MM/dd HH:mm') : label}</span>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={value}
+          onSelect={handleDateSelect}
+          autoFocus
+        />
+        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+          <Clock size={14} className="text-muted-foreground" />
+          <Input
+            type="time"
+            value={timeValue}
+            onChange={handleTimeChange}
+            className="h-7 w-24 border-border/50 text-xs"
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TimeRangeFilter({
+  startDate,
+  endDate,
+  onChange,
+  onClear,
+}: {
+  startDate: Date | undefined;
+  endDate: Date | undefined;
+  onChange: (startDate: Date | undefined, endDate: Date | undefined) => void;
+  onClear: () => void;
+}) {
+  const { t } = useTranslation();
+  const hasValue = startDate !== undefined || endDate !== undefined;
+
+  return (
+    <div className="flex items-center gap-1">
+      <DateTimePicker
+        value={startDate}
+        onChange={(d) => onChange(d, endDate)}
+        label={t('requests.timeFrom')}
+      />
+      <span className="text-xs text-muted-foreground">-</span>
+      <DateTimePicker
+        value={endDate}
+        onChange={(d) => onChange(startDate, d)}
+        label={t('requests.timeTo')}
+      />
+      {hasValue && (
+        <button
+          type="button"
+          onClick={onClear}
+          title={t('requests.clearTimeRange')}
+          aria-label={t('requests.clearTimeRange')}
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X size={13} />
+        </button>
+      )}
+    </div>
   );
 }
 

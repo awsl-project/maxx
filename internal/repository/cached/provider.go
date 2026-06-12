@@ -3,6 +3,7 @@ package cached
 import (
 	"sync"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -11,6 +12,7 @@ type ProviderRepository struct {
 	repo  repository.ProviderRepository
 	cache map[uint64]*domain.Provider
 	mu    sync.RWMutex
+	bc    cacheBroadcast
 }
 
 func NewProviderRepository(repo repository.ProviderRepository) *ProviderRepository {
@@ -18,6 +20,12 @@ func NewProviderRepository(repo repository.ProviderRepository) *ProviderReposito
 		repo:  repo,
 		cache: make(map[uint64]*domain.Provider),
 	}
+}
+
+// SetCoordinator wires a coordinator for cross-instance cache invalidation.
+// Safe to call once after construction. nil c is a no-op.
+func (r *ProviderRepository) SetCoordinator(c coordinator.Coordinator) {
+	r.bc.attach(c, InvalidateProvider)
 }
 
 func (r *ProviderRepository) Load() error {
@@ -41,6 +49,7 @@ func (r *ProviderRepository) Create(p *domain.Provider) error {
 	r.mu.Lock()
 	r.cache[p.ID] = p
 	r.mu.Unlock()
+	r.bc.publish(OpCreate, p.ID)
 	return nil
 }
 
@@ -51,6 +60,7 @@ func (r *ProviderRepository) Update(p *domain.Provider) error {
 	r.mu.Lock()
 	r.cache[p.ID] = p
 	r.mu.Unlock()
+	r.bc.publish(OpUpdate, p.ID)
 	return nil
 }
 
@@ -63,6 +73,7 @@ func (r *ProviderRepository) Delete(tenantID uint64, id uint64) error {
 	r.mu.Lock()
 	delete(r.cache, id)
 	r.mu.Unlock()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 

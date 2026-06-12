@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -8,23 +9,24 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
-	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"  // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/codex"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
-	"github.com/awsl-project/maxx/internal/health"
+	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -53,6 +55,7 @@ type DatabaseRepos struct {
 	CodexQuotaRepo            repository.CodexQuotaRepository
 	CooldownRepo              repository.CooldownRepository
 	FailureCountRepo          repository.FailureCountRepository
+	BedrockDiscoveryRepo      repository.BedrockDiscoveryRepository
 	CachedProviderRepo        *cached.ProviderRepository
 	CachedRouteRepo           *cached.RouteRepository
 	CachedRetryConfigRepo     *cached.RetryConfigRepository
@@ -74,27 +77,33 @@ type DatabaseRepos struct {
 
 // ServerComponents 包含服务器运行所需的所有组件
 type ServerComponents struct {
-	Router              *router.Router
-	WebSocketHub        *handler.WebSocketHub
-	WailsBroadcaster    *event.WailsBroadcaster
-	Executor            *executor.Executor
-	ClientAdapter       *client.Adapter
-	AdminService        *service.AdminService
-	ProxyHandler        *handler.ProxyHandler
-	ModelsHandler       *handler.ModelsHandler
-	AdminHandler        *handler.AdminHandler
-	AntigravityHandler  *handler.AntigravityHandler
-	KiroHandler         *handler.KiroHandler
-	CodexHandler        *handler.CodexHandler
-	CodexOAuthServer    *CodexOAuthServer
-	ClaudeHandler       *handler.ClaudeHandler
-	ClaudeOAuthServer   *ClaudeOAuthServer
-	ProjectProxyHandler *handler.ProjectProxyHandler
-	RequestTracker      *RequestTracker
-	PprofManager        *PprofManager
-	AuthMiddleware      *handler.AuthMiddleware
-	AuthHandler         *handler.AuthHandler
-	BackupService       *service.BackupService
+	Router               *router.Router
+	WebSocketHub         *handler.WebSocketHub
+	WailsBroadcaster     *event.WailsBroadcaster
+	Executor             *executor.Executor
+	ClientAdapter        *client.Adapter
+	AdminService         *service.AdminService
+	ProxyHandler         *handler.ProxyHandler
+	ModelsHandler        *handler.ModelsHandler
+	AdminHandler         *handler.AdminHandler
+	SelfServiceHandler   *handler.SelfServiceHandler
+	AntigravityHandler   *handler.AntigravityHandler
+	KiroHandler          *handler.KiroHandler
+	CodexHandler         *handler.CodexHandler
+	CodexOAuthServer     *CodexOAuthServer
+	ClaudeHandler        *handler.ClaudeHandler
+	ClaudeOAuthServer    *ClaudeOAuthServer
+	ProjectProxyHandler  *handler.ProjectProxyHandler
+	ProviderProxyHandler *handler.ProviderProxyHandler
+	RequestTracker       *RequestTracker
+	PprofManager         *PprofManager
+	AuthMiddleware       *handler.AuthMiddleware
+	AuthHandler          *handler.AuthHandler
+	BackupService        *service.BackupService
+
+	// Coordinator wiring (desktop launcher 与 cmd/maxx 共用此字段)
+	Coordinator        coordinator.Coordinator
+	CoordinatorCleanup func()
 }
 
 // InitializeDatabase 初始化数据库和所有仓库
@@ -127,6 +136,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 	codexQuotaRepo := sqlite.NewCodexQuotaRepository(db)
 	cooldownRepo := sqlite.NewCooldownRepository(db)
 	failureCountRepo := sqlite.NewFailureCountRepository(db)
+	bedrockDiscoveryRepo := sqlite.NewBedrockDiscoveryRepository(db)
 	apiTokenRepo := sqlite.NewAPITokenRepository(db)
 	modelMappingRepo := sqlite.NewModelMappingRepository(db)
 	usageStatsRepo := sqlite.NewUsageStatsRepository(db)
@@ -163,6 +173,7 @@ func InitializeDatabase(config *DatabaseConfig) (*DatabaseRepos, error) {
 		CodexQuotaRepo:            codexQuotaRepo,
 		CooldownRepo:              cooldownRepo,
 		FailureCountRepo:          failureCountRepo,
+		BedrockDiscoveryRepo:      bedrockDiscoveryRepo,
 		CachedProviderRepo:        cachedProviderRepo,
 		CachedRouteRepo:           cachedRouteRepo,
 		CachedRetryConfigRepo:     cachedRetryConfigRepo,
@@ -202,8 +213,36 @@ func InitializeServerComponents(
 		log.Printf("[Core] Warning: Failed to load cooldowns from database: %v", err)
 	}
 
+	// Wire Bedrock discovery persistence here (not in cmd/maxx/main.go)
+	// so both the CLI entrypoint and the desktop/Wails launcher — which
+	// shares this InitializeServerComponents path — benefit from the
+	// rehydrated catalog. Without this, desktop-mode restarts would pay
+	// the ~1-5s ListInferenceProfiles cold-start on the first Bedrock
+	// request even though the rows are on disk.
+	bedrock.SetDiscoveryRepository(repos.BedrockDiscoveryRepo)
+
+	// Setup coordinator. Desktop launcher 强制 standalone:multi-instance
+	// 部署对桌面应用没意义,即使环境变量被意外设置也忽略。
+	coordComp, err := SetupCoordinator(context.Background(), instanceID, true)
+	if err != nil {
+		return nil, fmt.Errorf("setup coordinator: %w", err)
+	}
+	// 如果后续 component 初始化失败,需要释放 coordinator 资源
+	// (heartbeat goroutine、Redis 连接等)。成功路径在最后置 setupOK=true,
+	// 让 defer 跳过 cleanup。
+	setupOK := false
+	defer func() {
+		if !setupOK {
+			coordComp.Cleanup()
+		}
+	}()
+	AttachCachedReposToCoordinator(coordComp.Ctx, coordComp.Coordinator, repos)
+
 	log.Printf("[Core] Marking stale requests as failed")
-	if count, err := repos.ProxyRequestRepo.MarkStaleAsFailed(instanceID); err != nil {
+	alive, err := coordComp.Coordinator.ListAliveInstances(coordComp.Ctx)
+	if err != nil {
+		log.Printf("[Core] Warning: ListAliveInstances failed: %v (skipping stale sweep)", err)
+	} else if count, err := repos.ProxyRequestRepo.MarkStaleAsFailed(alive); err != nil {
 		log.Printf("[Core] Warning: Failed to mark stale requests: %v", err)
 	} else if count > 0 {
 		log.Printf("[Core] Marked %d stale requests as failed", count)
@@ -250,19 +289,17 @@ func InitializeServerComponents(
 	}
 
 	// Initialize model prices and load into Calculator
-	if err := initializeModelPrices(repos.ModelPriceRepo); err != nil {
+	if err := InitializeModelPrices(repos.ModelPriceRepo); err != nil {
 		log.Printf("[Core] Warning: Failed to initialize model prices: %v", err)
 	}
 
 	log.Printf("[Core] Creating router")
-	providerHealthTracker := health.NewTracker()
 	r := router.NewRouter(
 		repos.CachedRouteRepo,
 		repos.CachedProviderRepo,
 		repos.CachedRoutingStrategyRepo,
 		repos.CachedRetryConfigRepo,
 		repos.CachedProjectRepo,
-		providerHealthTracker,
 	)
 
 	log.Printf("[Core] Initializing provider adapters")
@@ -299,18 +336,40 @@ func InitializeServerComponents(
 	log.Printf("[Core] Creating project waiter")
 	projectWaiter := waiter.NewProjectWaiter(repos.CachedSessionRepo, repos.SettingRepo, wailsBroadcaster)
 
-	log.Printf("[Core] Creating stats aggregator")
-	statsAggregator := stats.NewStatsAggregator(repos.UsageStatsRepo)
-
 	log.Printf("[Core] Configuring converter settings")
 	converter.SetGlobalSettingsGetter(func() (*converter.GlobalSettings, error) {
 		val, err := repos.SettingRepo.Get(domain.SettingKeyCodexInstructionsEnabled)
-		if err != nil || val == "" {
+		if err != nil {
+			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyCodexInstructionsEnabled, err)
+		}
+		if val == "" {
 			return &converter.GlobalSettings{}, nil
 		}
 		enabled := strings.EqualFold(strings.TrimSpace(val), "true")
 		return &converter.GlobalSettings{CodexInstructionsEnabled: enabled}, nil
 	})
+	payloadoverride.SetGlobalSettingsGetter(func() (*payloadoverride.GlobalSettings, error) {
+		val, err := repos.SettingRepo.Get(domain.SettingKeyPayloadOverrideRules)
+		if err != nil {
+			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyPayloadOverrideRules, err)
+		}
+		if strings.TrimSpace(val) == "" {
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		if err := payloadoverride.ValidateRulesJSON(val); err != nil {
+			log.Printf("[Core] Warning: Ignoring invalid payload override rules: %v", err)
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		rules, err := payloadoverride.ParseRules(val)
+		if err != nil {
+			log.Printf("[Core] Warning: Failed to parse payload override rules: %v", err)
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		return &payloadoverride.GlobalSettings{Rules: rules}, nil
+	})
+	if _, err := payloadoverride.ReloadGlobalSettings(); err != nil {
+		log.Printf("[Core] Warning: Failed to warm payload override cache: %v", err)
+	}
 
 	log.Printf("[Core] Creating executor")
 	exec := executor.NewExecutor(
@@ -324,8 +383,6 @@ func InitializeServerComponents(
 		wailsBroadcaster,
 		projectWaiter,
 		instanceID,
-		statsAggregator,
-		providerHealthTracker,
 	)
 
 	log.Printf("[Core] Creating client adapter")
@@ -402,6 +459,7 @@ func InitializeServerComponents(
 		repos.CachedModelMappingRepo,
 	)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
+	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
 	adminHandler.SetUserRepo(repos.UserRepo)
 	adminHandler.SetAuthEnabled(authEnabled)
 	antigravityHandler := handler.NewAntigravityHandler(adminService, repos.AntigravityQuotaRepo, wailsBroadcaster)
@@ -419,30 +477,35 @@ func InitializeServerComponents(
 	proxyHandler.SetRequestTracker(requestTracker)
 
 	components := &ServerComponents{
-		Router:              r,
-		WebSocketHub:        wsHub,
-		WailsBroadcaster:    wailsBroadcaster,
-		Executor:            exec,
-		ClientAdapter:       clientAdapter,
-		AdminService:        adminService,
-		ProxyHandler:        proxyHandler,
-		ModelsHandler:       modelsHandler,
-		AdminHandler:        adminHandler,
-		AntigravityHandler:  antigravityHandler,
-		KiroHandler:         kiroHandler,
-		CodexHandler:        codexHandler,
-		CodexOAuthServer:    codexOAuthServer,
-		ClaudeHandler:       claudeHandler,
-		ClaudeOAuthServer:   claudeOAuthServer,
-		ProjectProxyHandler: projectProxyHandler,
-		RequestTracker:      requestTracker,
-		PprofManager:        pprofMgr,
-		AuthMiddleware:      authMiddleware,
-		AuthHandler:         authHandler,
-		BackupService:       backupService,
+		Router:               r,
+		WebSocketHub:         wsHub,
+		WailsBroadcaster:     wailsBroadcaster,
+		Executor:             exec,
+		ClientAdapter:        clientAdapter,
+		AdminService:         adminService,
+		ProxyHandler:         proxyHandler,
+		ModelsHandler:        modelsHandler,
+		AdminHandler:         adminHandler,
+		SelfServiceHandler:   selfServiceHandler,
+		AntigravityHandler:   antigravityHandler,
+		KiroHandler:          kiroHandler,
+		CodexHandler:         codexHandler,
+		CodexOAuthServer:     codexOAuthServer,
+		ClaudeHandler:        claudeHandler,
+		ClaudeOAuthServer:    claudeOAuthServer,
+		ProjectProxyHandler:  projectProxyHandler,
+		ProviderProxyHandler: handler.NewProviderProxyHandler(proxyHandler, modelsHandler, repos.CachedProviderRepo, repos.CachedRouteRepo, repos.ProxyRequestRepo),
+		RequestTracker:       requestTracker,
+		PprofManager:         pprofMgr,
+		AuthMiddleware:       authMiddleware,
+		AuthHandler:          authHandler,
+		BackupService:        backupService,
+		Coordinator:          coordComp.Coordinator,
+		CoordinatorCleanup:   coordComp.Cleanup,
 	}
 
 	log.Printf("[Core] Server components initialized successfully")
+	setupOK = true // 跳过 defer 中的 cleanup,coordinator 现在归 launcher 管
 	return components, nil
 }
 
@@ -454,10 +517,14 @@ func CloseDatabase(repos *DatabaseRepos) error {
 	return nil
 }
 
-// initializeModelPrices 初始化模型价格
-// 如果数据库为空，从内置默认价格表导入
-// 然后加载到全局 Calculator
-func initializeModelPrices(repo repository.ModelPriceRepository) error {
+// InitializeModelPrices 初始化模型价格:
+//   - 数据库为空时从内置默认价格表 seed
+//   - 把当前价加载到全局 Calculator
+//   - 注入历史价反查(按 attempt.ModelPriceID 还原当时价做重算)
+//
+// 导出供 CLI 入口(cmd/maxx)装配——它不走 InitializeServerComponents,否则
+// 启动后 Calculator 只有内置默认价,DB 改价/版本化/历史重算全部失效。
+func InitializeModelPrices(repo repository.ModelPriceRepository) error {
 	// 检查是否有价格记录
 	count, err := repo.Count()
 	if err != nil {
@@ -479,6 +546,9 @@ func initializeModelPrices(repo repository.ModelPriceRepository) error {
 	}
 
 	pricing.GlobalCalculator().LoadFromDatabase(prices)
+	// 注入历史价反查:重算路径在 attempt.ModelPriceID 指向已软删行时,
+	// 走这条回 DB 取当时的价格快照。
+	pricing.GlobalCalculator().SetHistoricalLookup(repo.GetByIDIncludingDeleted)
 	return nil
 }
 

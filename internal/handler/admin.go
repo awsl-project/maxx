@@ -2,12 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -165,6 +167,10 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		h.handleProvidersImport(w, r)
 		return
 	}
+	if id > 0 && strings.HasSuffix(path, "/bedrock-models") {
+		h.handleBedrockDiscoveredModels(w, r, id)
+		return
+	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 
@@ -236,6 +242,76 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+// handleBedrockDiscoveredModels surfaces the runtime discovery catalog
+// for one Bedrock provider. The response answers "what Claude models can
+// this provider actually invoke right now" — built from
+// ListInferenceProfiles + ListFoundationModels against the provider's
+// real credentials — so operators don't have to maintain a local alias
+// table. Available=false means discovery hasn't succeeded (typically
+// missing bedrock:ListInferenceProfiles IAM permission).
+func (h *AdminHandler) handleBedrockDiscoveredModels(w http.ResponseWriter, r *http.Request, id uint64) {
+	// Admin surface: callers are always admin, so GET may trigger a
+	// lazy AWS refresh on TTL expiry.
+	serveBedrockDiscoveredModels(h.svc, w, r, id, true)
+}
+
+// serveBedrockDiscoveredModels is the shared GET/POST handler for the
+// Bedrock discovery catalog surface, used by both the admin
+// (/api/admin/providers/{id}/bedrock-models) and self-service
+// (/api/providers/{id}/bedrock-models) paths. The self-service path is
+// what the frontend's default axios baseURL of /api actually hits —
+// without this shared handler, the admin-only registration used to 404
+// under non-admin deployments.
+//
+// GET returns the current catalog (triggers a lazy refresh on TTL
+// expiry). POST forces an immediate fetch bypassing the TTL and the
+// Invalidate() rate-limit — used by the admin UI's refresh button.
+func serveBedrockDiscoveredModels(svc *service.AdminService, w http.ResponseWriter, r *http.Request, id uint64, allowLazyRefresh bool) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	tenantID := maxxctx.GetTenantID(r.Context())
+	p, err := svc.GetProvider(tenantID, id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+	if p.Type != "bedrock" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider is not a bedrock provider"})
+		return
+	}
+	adapter, ok := svc.GetProviderAdapter(id)
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "adapter not initialized"})
+		return
+	}
+	bedrockA, ok := adapter.(*bedrock.BedrockAdapter)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "bedrock adapter type mismatch"})
+		return
+	}
+	if r.Method == http.MethodPost {
+		// POST always returns the same shape — available/region/models
+		// plus refreshError (empty string on success). Keeping the key
+		// present regardless of outcome means the UI doesn't have to
+		// branch on its existence.
+		result, refreshErr := bedrockA.RefreshDiscoveredModels(r.Context())
+		errStr := ""
+		if refreshErr != nil {
+			errStr = refreshErr.Error()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"available":    result.Available,
+			"region":       result.Region,
+			"models":       result.Models,
+			"refreshError": errStr,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, bedrockA.DiscoveredModels(r.Context(), allowLazyRefresh))
 }
 
 // handleProvidersExport exports all providers as JSON
@@ -363,7 +439,11 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 		}
 		if v, ok := updates["weight"]; ok {
 			if f, ok := v.(float64); ok {
-				existing.Weight = int(f)
+				w := int(f)
+				if w <= 0 {
+					w = 1
+				}
+				existing.Weight = w
 			}
 		}
 		if v, ok := updates["retryConfigID"]; ok {
@@ -745,6 +825,28 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// parseTimeQuery parses a time query parameter as either a 13-digit millisecond timestamp or RFC3339.
+func parseTimeQuery(raw, name string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	if millis, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		digits := len(strings.TrimLeft(raw, "-"))
+		if digits != 13 {
+			return nil, errors.New("invalid " + name + ": expected 13-digit millisecond timestamp or RFC3339")
+		}
+		t := time.UnixMilli(millis).UTC()
+		return &t, nil
+	}
+	for _, format := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(format, raw); err == nil {
+			utc := t.UTC()
+			return &utc, nil
+		}
+	}
+	return nil, errors.New("invalid " + name + ": expected millisecond timestamp or RFC3339")
+}
+
 // ProxyRequest handlers
 // Routes: /admin/requests, /admin/requests/count, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts, /admin/requests/{id}/recalculate-cost
 func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
@@ -802,8 +904,10 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 			statusStr := r.URL.Query().Get("status")
 			apiTokenIDStr := r.URL.Query().Get("apiTokenId")
 			projectIDStr := r.URL.Query().Get("projectId")
+			startTimeStr := r.URL.Query().Get("startTime")
+			endTimeStr := r.URL.Query().Get("endTime")
 
-			if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" {
+			if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" || startTimeStr != "" || endTimeStr != "" {
 				filter = &repository.ProxyRequestFilter{}
 				if providerIDStr != "" {
 					providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
@@ -831,6 +935,26 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 						return
 					}
 					filter.ProjectID = &projectID
+				}
+				if startTimeStr != "" {
+					startTime, err := parseTimeQuery(startTimeStr, "startTime")
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+						return
+					}
+					filter.StartTime = startTime
+				}
+				if endTimeStr != "" {
+					endTime, err := parseTimeQuery(endTimeStr, "endTime")
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+						return
+					}
+					filter.EndTime = endTime
+				}
+				if filter.StartTime != nil && filter.EndTime != nil && filter.EndTime.Before(*filter.StartTime) {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endTime must be greater than or equal to startTime"})
+					return
 				}
 			}
 
@@ -861,8 +985,10 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 	statusStr := r.URL.Query().Get("status")
 	apiTokenIDStr := r.URL.Query().Get("apiTokenId")
 	projectIDStr := r.URL.Query().Get("projectId")
+	startTimeStr := r.URL.Query().Get("startTime")
+	endTimeStr := r.URL.Query().Get("endTime")
 
-	if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" {
+	if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" || startTimeStr != "" || endTimeStr != "" {
 		filter = &repository.ProxyRequestFilter{}
 		if providerIDStr != "" {
 			providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
@@ -890,6 +1016,26 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 				return
 			}
 			filter.ProjectID = &projectID
+		}
+		if startTimeStr != "" {
+			startTime, err := parseTimeQuery(startTimeStr, "startTime")
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			filter.StartTime = startTime
+		}
+		if endTimeStr != "" {
+			endTime, err := parseTimeQuery(endTimeStr, "endTime")
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			filter.EndTime = endTime
+		}
+		if filter.StartTime != nil && filter.EndTime != nil && filter.EndTime.Before(*filter.StartTime) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endTime must be greater than or equal to startTime"})
+			return
 		}
 	}
 
@@ -986,7 +1132,11 @@ func (h *AdminHandler) handleSettings(w http.ResponseWriter, r *http.Request, pa
 			return
 		}
 		if err := h.svc.UpdateSetting(key, body.Value); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, domain.ErrInvalidInput) {
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"key": key, "value": body.Value})
@@ -1089,7 +1239,7 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			if _, owned := providerNames[key.ProviderID]; !owned {
 				continue
 			}
-			info := cm.GetCooldownInfo(key.ProviderID, key.ClientType, providerNames[key.ProviderID])
+			info := cm.GetCooldownInfo(key.ProviderID, key.ClientType, key.Model, providerNames[key.ProviderID])
 			if info != nil {
 				result = append(result, info)
 			}
@@ -1110,13 +1260,14 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 		var body struct {
 			UntilTime  string `json:"untilTime"`  // RFC3339 format
 			ClientType string `json:"clientType"` // Optional, defaults to empty (global)
+			Model      string `json:"model"`      // Optional, empty = all models
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			log.Printf("[Cooldown] PUT /cooldowns/%d: failed to decode body: %v", providerID, err)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		log.Printf("[Cooldown] PUT /cooldowns/%d: received untilTime=%s, clientType=%s", providerID, body.UntilTime, body.ClientType)
+		log.Printf("[Cooldown] PUT /cooldowns/%d: received untilTime=%s, clientType=%s, model=%s", providerID, body.UntilTime, body.ClientType, body.Model)
 		until, err := time.Parse(time.RFC3339, body.UntilTime)
 		if err != nil {
 			log.Printf("[Cooldown] PUT /cooldowns/%d: failed to parse untilTime: %v", providerID, err)
@@ -1124,7 +1275,7 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			return
 		}
 		log.Printf("[Cooldown] PUT /cooldowns/%d: setting cooldown until %v", providerID, until)
-		cm.SetCooldownUntil(providerID, body.ClientType, until)
+		cm.SetCooldownUntil(providerID, body.ClientType, body.Model, until)
 		log.Printf("[Cooldown] PUT /cooldowns/%d: cooldown set successfully", providerID)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "cooldown set"})
 
@@ -1138,8 +1289,10 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 			return
 		}
-		// Clear all cooldowns for this provider (both global and client-type-specific)
-		cm.ClearCooldown(providerID, "")
+		// Clear cooldowns for this provider; optionally filter by clientType and model
+		clientType := r.URL.Query().Get("clientType")
+		model := r.URL.Query().Get("model")
+		cm.ClearCooldown(providerID, clientType, model)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "cooldown cleared"})
 
 	default:

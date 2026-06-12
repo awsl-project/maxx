@@ -17,6 +17,7 @@ export type ProviderType =
   | 'mistral'
   | 'custom'
   | 'antigravity'
+  | 'bedrock'
   | 'kiro'
   | 'codex'
   | 'claude';

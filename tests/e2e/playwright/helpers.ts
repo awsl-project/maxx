@@ -47,12 +47,31 @@ export async function waitForDashboard(page: Page, timeout = 10000) {
   await expect.poll(async () => /dashboard/i.test(await bodyText(page)), { timeout }).toBe(true);
 }
 
+export async function enableMultiTenantUIForE2E() {
+  const token = await loginToAdminAPI();
+  await adminAPI('PUT', '/settings/ui_multitenant_enabled', { value: 'true' }, token);
+}
+
 export async function loginToAdminUI(page: Page) {
+  await enableMultiTenantUIForE2E();
   await page.goto(BASE);
-  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-  await page.fill('input[type="text"]', USER);
-  await page.fill('input[type="password"]', PASS);
-  await page.locator('button[type="submit"]').click();
+
+  const passwordInput = page.locator('input[type="password"]');
+  const passwordVisible = await passwordInput
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (passwordVisible) {
+    const usernameInput = page.locator('input[type="text"]');
+    const usernameVisible = await usernameInput.isVisible().catch(() => false);
+    if (usernameVisible) {
+      await usernameInput.fill(USER);
+    }
+    await passwordInput.fill(PASS);
+    await page.locator('button[type="submit"]').click();
+  }
+
   await waitForDashboard(page);
 }
 

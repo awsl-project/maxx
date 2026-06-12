@@ -30,6 +30,7 @@ import type {
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
+  BedrockDiscoveredModelsResult,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -76,10 +77,15 @@ import type {
   ModelPriceInput,
 } from './types';
 
+type TransportRuntimeConfig = Required<Omit<TransportConfig, 'adminBaseURL'>> & {
+  adminBaseURL: string;
+};
+
 export class HttpTransport implements Transport {
   private client: AxiosInstance;
+  private adminClient: AxiosInstance;
   private ws: WebSocket | null = null;
-  private config: Required<TransportConfig>;
+  private config: TransportRuntimeConfig;
   private eventListeners: Map<WSMessageType, Set<EventCallback>> = new Map();
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -89,40 +95,141 @@ export class HttpTransport implements Transport {
   private connectTimeoutMs = 5000;
 
   constructor(config: TransportConfig = {}) {
+    const requestedBaseURL = (config.baseURL ?? '/api').replace(/\/+$/, '') || '/api';
+    const adminBaseURL =
+      (config.adminBaseURL ?? `${requestedBaseURL}/admin`).replace(/\/+$/, '') ||
+      `${requestedBaseURL}/admin`;
+
     this.config = {
-      baseURL: config.baseURL ?? '/api/admin',
+      baseURL: requestedBaseURL,
+      adminBaseURL,
       wsURL:
         config.wsURL ?? `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`,
       reconnectInterval: config.reconnectInterval ?? 3000,
       maxReconnectAttempts: config.maxReconnectAttempts ?? 10,
     };
 
-    this.client = axios.create({
-      baseURL: this.config.baseURL,
+    this.client = this.createClient(this.config.baseURL);
+    this.adminClient = this.createClient(this.config.adminBaseURL);
+  }
+
+  private createClient(baseURL: string): AxiosInstance {
+    const client = axios.create({
+      baseURL,
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    // Add request interceptor to include auth header
-    this.client.interceptors.request.use((config) => {
+    client.interceptors.request.use((config) => {
       if (this.authToken) {
         config.headers['Authorization'] = `Bearer ${this.authToken}`;
       }
       return config;
     });
+
+    return client;
+  }
+
+  private formatUnexpectedResponseData(data: unknown): string {
+    if (typeof data === 'string') {
+      return data;
+    }
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return String(data);
+    }
+  }
+
+  private isPlainObject(data: unknown): data is Record<string, unknown> {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return false;
+    }
+
+    const prototype = Object.getPrototypeOf(data);
+    return prototype === Object.prototype || prototype === null;
+  }
+
+  private describeUnexpectedResponseType(data: unknown): string {
+    if (Array.isArray(data)) {
+      return `array(length=${data.length})`;
+    }
+    if (data === null) {
+      return 'null';
+    }
+    if (typeof data === 'string') {
+      return `string(length=${data.length})`;
+    }
+    if (typeof data === 'object') {
+      return 'object';
+    }
+    return typeof data;
+  }
+
+  private shouldLogUnexpectedResponseDetails(): boolean {
+    return import.meta.env.DEV || import.meta.env.MODE === 'development';
+  }
+
+  private debugUnexpectedResponse(resource: string, expectedType: string, data: unknown): void {
+    if (!this.shouldLogUnexpectedResponseDetails()) {
+      return;
+    }
+
+    console.debug('[HttpTransport] Unexpected response payload', {
+      resource,
+      expectedType,
+      receivedType: this.describeUnexpectedResponseType(data),
+      data: this.formatUnexpectedResponseData(data),
+    });
+  }
+
+  private expectArray<T>(data: unknown, resource: string): T[] {
+    if (Array.isArray(data)) {
+      return data as T[];
+    }
+    this.debugUnexpectedResponse(resource, 'array', data);
+    throw new Error(
+      `[HttpTransport] Expected array response for ${resource}, received: ${this.describeUnexpectedResponseType(data)}`,
+    );
+  }
+
+  private expectObject<T>(data: unknown, resource: string): T {
+    if (this.isPlainObject(data)) {
+      return data as T;
+    }
+    this.debugUnexpectedResponse(resource, 'object', data);
+    throw new Error(
+      `[HttpTransport] Expected object response for ${resource}, received: ${this.describeUnexpectedResponseType(data)}`,
+    );
+  }
+
+  private expectStringRecord(data: unknown, resource: string): Record<string, string> {
+    const record = this.expectObject<Record<string, unknown>>(data, resource);
+    const validatedEntries = Object.entries(record).map(([key, value]) => {
+      if (typeof value !== 'string') {
+        this.debugUnexpectedResponse(`${resource}.${key}`, 'string', value);
+        throw new Error(
+          `[HttpTransport] Expected string value for ${resource}.${key}, received: ${this.describeUnexpectedResponseType(value)}`,
+        );
+      }
+
+      return [key, value] as const;
+    });
+
+    return Object.fromEntries(validatedEntries);
   }
 
   // ===== Provider API =====
 
   async getProviders(): Promise<Provider[]> {
     const { data } = await this.client.get<Provider[]>('/providers');
-    return data ?? [];
+    return this.expectArray<Provider>(data, '/providers');
   }
 
   async getProvider(id: number): Promise<Provider> {
     const { data } = await this.client.get<Provider>(`/providers/${id}`);
-    return data;
+    return this.expectObject<Provider>(data, `/providers/${id}`);
   }
 
   async createProvider(payload: CreateProviderData): Promise<Provider> {
@@ -141,7 +248,7 @@ export class HttpTransport implements Transport {
 
   async exportProviders(): Promise<Provider[]> {
     const { data } = await this.client.get<Provider[]>('/providers/export');
-    return data ?? [];
+    return this.expectArray<Provider>(data, '/providers/export');
   }
 
   async importProviders(providers: Provider[]): Promise<ImportResult> {
@@ -153,17 +260,17 @@ export class HttpTransport implements Transport {
 
   async getProjects(): Promise<Project[]> {
     const { data } = await this.client.get<Project[]>('/projects');
-    return data ?? [];
+    return this.expectArray<Project>(data, '/projects');
   }
 
   async getProject(id: number): Promise<Project> {
     const { data } = await this.client.get<Project>(`/projects/${id}`);
-    return data;
+    return this.expectObject<Project>(data, `/projects/${id}`);
   }
 
   async getProjectBySlug(slug: string): Promise<Project> {
     const { data } = await this.client.get<Project>(`/projects/by-slug/${slug}`);
-    return data;
+    return this.expectObject<Project>(data, `/projects/by-slug/${slug}`);
   }
 
   async createProject(payload: CreateProjectData): Promise<Project> {
@@ -184,7 +291,7 @@ export class HttpTransport implements Transport {
 
   async getRoutes(): Promise<Route[]> {
     const { data } = await this.client.get<Route[]>('/routes');
-    return data ?? [];
+    return this.expectArray<Route>(data, '/routes');
   }
 
   async getRoute(id: number): Promise<Route> {
@@ -213,15 +320,15 @@ export class HttpTransport implements Transport {
   // ===== Session API =====
 
   async getSessions(): Promise<Session[]> {
-    const { data } = await this.client.get<Session[]>('/sessions');
-    return data ?? [];
+    const { data } = await this.adminClient.get<Session[]>('/sessions');
+    return this.expectArray<Session>(data, '/sessions');
   }
 
   async updateSessionProject(
     sessionID: string,
     projectID: number,
   ): Promise<{ session: Session; updatedRequests: number }> {
-    const { data } = await this.client.put<{
+    const { data } = await this.adminClient.put<{
       session: Session;
       updatedRequests: number;
     }>(`/sessions/${encodeURIComponent(sessionID)}/project`, { projectID });
@@ -229,7 +336,7 @@ export class HttpTransport implements Transport {
   }
 
   async rejectSession(sessionID: string): Promise<Session> {
-    const { data } = await this.client.post<Session>(
+    const { data } = await this.adminClient.post<Session>(
       `/sessions/${encodeURIComponent(sessionID)}/reject`,
     );
     return data;
@@ -239,7 +346,7 @@ export class HttpTransport implements Transport {
 
   async getRetryConfigs(): Promise<RetryConfig[]> {
     const { data } = await this.client.get<RetryConfig[]>('/retry-configs');
-    return data ?? [];
+    return this.expectArray<RetryConfig>(data, '/retry-configs');
   }
 
   async getRetryConfig(id: number): Promise<RetryConfig> {
@@ -264,17 +371,17 @@ export class HttpTransport implements Transport {
   // ===== RoutingStrategy API =====
 
   async getRoutingStrategies(): Promise<RoutingStrategy[]> {
-    const { data } = await this.client.get<RoutingStrategy[]>('/routing-strategies');
-    return data ?? [];
+    const { data } = await this.adminClient.get<RoutingStrategy[]>('/routing-strategies');
+    return this.expectArray<RoutingStrategy>(data, '/routing-strategies');
   }
 
   async getRoutingStrategy(id: number): Promise<RoutingStrategy> {
-    const { data } = await this.client.get<RoutingStrategy>(`/routing-strategies/${id}`);
+    const { data } = await this.adminClient.get<RoutingStrategy>(`/routing-strategies/${id}`);
     return data;
   }
 
   async createRoutingStrategy(payload: CreateRoutingStrategyData): Promise<RoutingStrategy> {
-    const { data } = await this.client.post<RoutingStrategy>('/routing-strategies', payload);
+    const { data } = await this.adminClient.post<RoutingStrategy>('/routing-strategies', payload);
     return data;
   }
 
@@ -282,12 +389,15 @@ export class HttpTransport implements Transport {
     id: number,
     payload: Partial<RoutingStrategy>,
   ): Promise<RoutingStrategy> {
-    const { data } = await this.client.put<RoutingStrategy>(`/routing-strategies/${id}`, payload);
+    const { data } = await this.adminClient.put<RoutingStrategy>(
+      `/routing-strategies/${id}`,
+      payload,
+    );
     return data;
   }
 
   async deleteRoutingStrategy(id: number): Promise<void> {
-    await this.client.delete(`/routing-strategies/${id}`);
+    await this.adminClient.delete(`/routing-strategies/${id}`);
   }
 
   // ===== ProxyRequest API =====
@@ -295,7 +405,7 @@ export class HttpTransport implements Transport {
   async getProxyRequests(
     params?: CursorPaginationParams,
   ): Promise<CursorPaginationResult<ProxyRequest>> {
-    const { data } = await this.client.get<CursorPaginationResult<ProxyRequest>>('/requests', {
+    const { data } = await this.adminClient.get<CursorPaginationResult<ProxyRequest>>('/requests', {
       params,
     });
     return data ?? { items: [], hasMore: false };
@@ -306,6 +416,8 @@ export class HttpTransport implements Transport {
     status?: string,
     apiTokenId?: number,
     projectId?: number,
+    startTime?: string,
+    endTime?: string,
   ): Promise<number> {
     const params: Record<string, string> = {};
     if (providerId !== undefined) {
@@ -320,12 +432,18 @@ export class HttpTransport implements Transport {
     if (projectId !== undefined) {
       params.projectId = String(projectId);
     }
-    const { data } = await this.client.get<number>('/requests/count', { params });
+    if (startTime !== undefined) {
+      params.startTime = startTime;
+    }
+    if (endTime !== undefined) {
+      params.endTime = endTime;
+    }
+    const { data } = await this.adminClient.get<number>('/requests/count', { params });
     return data ?? 0;
   }
 
   async getActiveProxyRequests(): Promise<ProxyRequest[]> {
-    const { data } = await this.client.get<ProxyRequest[]>('/requests/active');
+    const { data } = await this.adminClient.get<ProxyRequest[]>('/requests/active');
     // Ensure we always return an array
     if (!data || !Array.isArray(data)) {
       return [];
@@ -334,12 +452,12 @@ export class HttpTransport implements Transport {
   }
 
   async getProxyRequest(id: number): Promise<ProxyRequest> {
-    const { data } = await this.client.get<ProxyRequest>(`/requests/${id}`);
+    const { data } = await this.adminClient.get<ProxyRequest>(`/requests/${id}`);
     return data;
   }
 
   async getProxyUpstreamAttempts(proxyRequestId: number): Promise<ProxyUpstreamAttempt[]> {
-    const { data } = await this.client.get<ProxyUpstreamAttempt[]>(
+    const { data } = await this.adminClient.get<ProxyUpstreamAttempt[]>(
       `/requests/${proxyRequestId}/attempts`,
     );
     return data ?? [];
@@ -348,14 +466,19 @@ export class HttpTransport implements Transport {
   // ===== Proxy Status API =====
 
   async getProxyStatus(): Promise<ProxyStatus> {
+    const { data } = await this.adminClient.get<ProxyStatus>('/proxy-status');
+    return this.expectObject<ProxyStatus>(data, '/admin/proxy-status');
+  }
+
+  async getPublicProxyStatus(): Promise<ProxyStatus> {
     const { data } = await this.client.get<ProxyStatus>('/proxy-status');
-    return data;
+    return this.expectObject<ProxyStatus>(data, '/proxy-status');
   }
 
   // ===== System API =====
 
   async restartServer(): Promise<void> {
-    await this.client.post('/restart');
+    await this.adminClient.post('/restart');
   }
 
   // ===== Provider Stats API =====
@@ -375,31 +498,39 @@ export class HttpTransport implements Transport {
 
   // ===== Settings API =====
 
-  async getSettings(): Promise<Record<string, string>> {
+  async getPublicSettings(): Promise<Record<string, string>> {
     const { data } = await this.client.get<Record<string, string>>('/settings');
-    return data ?? {};
+    return this.expectStringRecord(data, '/settings');
+  }
+
+  async getAdminSettings(): Promise<Record<string, string>> {
+    const { data } = await this.adminClient.get<Record<string, string>>('/settings');
+    return this.expectStringRecord(data, '/admin/settings');
   }
 
   async getSetting(key: string): Promise<{ key: string; value: string }> {
-    const { data } = await this.client.get<{ key: string; value: string }>(`/settings/${key}`);
+    const { data } = await this.adminClient.get<{ key: string; value: string }>(`/settings/${key}`);
     return data;
   }
 
   async updateSetting(key: string, value: string): Promise<{ key: string; value: string }> {
-    const { data } = await this.client.put<{ key: string; value: string }>(`/settings/${key}`, {
-      value,
-    });
+    const { data } = await this.adminClient.put<{ key: string; value: string }>(
+      `/settings/${key}`,
+      {
+        value,
+      },
+    );
     return data;
   }
 
   async deleteSetting(key: string): Promise<void> {
-    await this.client.delete(`/settings/${key}`);
+    await this.adminClient.delete(`/settings/${key}`);
   }
 
   // ===== Logs API =====
 
   async getLogs(limit = 100): Promise<{ lines: string[]; count: number }> {
-    const { data } = await this.client.get<{ lines: string[]; count: number }>('/logs', {
+    const { data } = await this.adminClient.get<{ lines: string[]; count: number }>('/logs', {
       params: { limit },
     });
     return data ?? { lines: [], count: 0 };
@@ -408,25 +539,47 @@ export class HttpTransport implements Transport {
   // ===== Antigravity API =====
 
   async validateAntigravityToken(refreshToken: string): Promise<AntigravityTokenValidationResult> {
-    const { data } = await axios.post<AntigravityTokenValidationResult>(
-      '/api/antigravity/validate-token',
+    const { data } = await this.client.post<AntigravityTokenValidationResult>(
+      '/antigravity/validate-token',
       { refreshToken },
     );
     return data;
   }
 
   async validateAntigravityTokens(tokens: string[]): Promise<AntigravityBatchValidationResult> {
-    const { data } = await axios.post<AntigravityBatchValidationResult>(
-      '/api/antigravity/validate-tokens',
+    const { data } = await this.client.post<AntigravityBatchValidationResult>(
+      '/antigravity/validate-tokens',
       { tokens },
     );
     return data;
   }
 
   async validateAntigravityTokenText(tokenText: string): Promise<AntigravityBatchValidationResult> {
-    const { data } = await axios.post<AntigravityBatchValidationResult>(
-      '/api/antigravity/validate-tokens',
+    const { data } = await this.client.post<AntigravityBatchValidationResult>(
+      '/antigravity/validate-tokens',
       { tokenText },
+    );
+    return data;
+  }
+
+  async getBedrockDiscoveredModels(
+    providerId: number,
+  ): Promise<BedrockDiscoveredModelsResult> {
+    const { data } = await this.client.get<BedrockDiscoveredModelsResult>(
+      `/providers/${providerId}/bedrock-models`,
+    );
+    return data;
+  }
+
+  async refreshBedrockDiscoveredModels(
+    providerId: number,
+  ): Promise<BedrockDiscoveredModelsResult> {
+    // POST forces a fresh ListInferenceProfiles + ListFoundationModels
+    // round-trip, bypassing the server-side TTL. Use this only when the
+    // operator clicks the refresh button — routine page loads should
+    // stick with GET to avoid burning AWS API quota on every nav.
+    const { data } = await this.client.post<BedrockDiscoveredModelsResult>(
+      `/providers/${providerId}/bedrock-models`,
     );
     return data;
   }
@@ -436,36 +589,36 @@ export class HttpTransport implements Transport {
     forceRefresh?: boolean,
   ): Promise<AntigravityQuotaData> {
     const params = forceRefresh ? { refresh: 'true' } : undefined;
-    const { data } = await axios.get<AntigravityQuotaData>(
-      `/api/antigravity/providers/${providerId}/quota`,
+    const { data } = await this.client.get<AntigravityQuotaData>(
+      `/antigravity/providers/${providerId}/quota`,
       { params },
     );
     return data;
   }
 
   async getAntigravityBatchQuotas(): Promise<Record<number, AntigravityQuotaData>> {
-    const { data } = await axios.get<{ quotas: Record<number, AntigravityQuotaData> }>(
-      '/api/antigravity/providers/quotas',
+    const { data } = await this.client.get<{ quotas: Record<number, AntigravityQuotaData> }>(
+      '/antigravity/providers/quotas',
     );
     return data.quotas;
   }
 
   async startAntigravityOAuth(): Promise<{ authURL: string; state: string }> {
-    const { data } = await axios.post<{ authURL: string; state: string }>(
-      '/api/antigravity/oauth/start',
+    const { data } = await this.client.post<{ authURL: string; state: string }>(
+      '/antigravity/oauth/start',
     );
     return data;
   }
 
   async refreshAntigravityQuotas(): Promise<{ success: boolean; refreshed: number }> {
-    const { data } = await axios.post<{ success: boolean; refreshed: number }>(
-      '/api/antigravity/refresh-quotas',
+    const { data } = await this.client.post<{ success: boolean; refreshed: number }>(
+      '/antigravity/refresh-quotas',
     );
     return data;
   }
 
   async sortAntigravityRoutes(): Promise<{ success: boolean }> {
-    const { data } = await axios.post<{ success: boolean }>('/api/antigravity/sort-routes');
+    const { data } = await this.client.post<{ success: boolean }>('/antigravity/sort-routes');
     return data;
   }
 
@@ -473,7 +626,7 @@ export class HttpTransport implements Transport {
 
   async getModelMappings(): Promise<ModelMapping[]> {
     const { data } = await this.client.get<ModelMapping[]>('/model-mappings');
-    return data ?? [];
+    return this.expectArray<ModelMapping>(data, '/model-mappings');
   }
 
   async createModelMapping(input: ModelMappingInput): Promise<ModelMapping> {
@@ -501,29 +654,31 @@ export class HttpTransport implements Transport {
   // ===== Kiro API =====
 
   async validateKiroSocialToken(refreshToken: string): Promise<KiroTokenValidationResult> {
-    const { data } = await axios.post<KiroTokenValidationResult>(
-      '/api/kiro/validate-social-token',
+    const { data } = await this.client.post<KiroTokenValidationResult>(
+      '/kiro/validate-social-token',
       { refreshToken },
     );
     return data;
   }
 
   async getKiroProviderQuota(providerId: number): Promise<KiroQuotaData> {
-    const { data } = await axios.get<KiroQuotaData>(`/api/kiro/providers/${providerId}/quota`);
+    const { data } = await this.client.get<KiroQuotaData>(`/kiro/providers/${providerId}/quota`);
     return data;
   }
 
   // ===== Codex API =====
 
   async validateCodexToken(refreshToken: string): Promise<CodexTokenValidationResult> {
-    const { data } = await axios.post<CodexTokenValidationResult>('/api/codex/validate-token', {
+    const { data } = await this.client.post<CodexTokenValidationResult>('/codex/validate-token', {
       refreshToken,
     });
     return data;
   }
 
   async startCodexOAuth(): Promise<{ authURL: string; state: string }> {
-    const { data } = await axios.post<{ authURL: string; state: string }>('/api/codex/oauth/start');
+    const { data } = await this.client.post<{ authURL: string; state: string }>(
+      '/codex/oauth/start',
+    );
     return data;
   }
 
@@ -531,56 +686,58 @@ export class HttpTransport implements Transport {
     code: string,
     state: string,
   ): Promise<import('./types').CodexOAuthResult> {
-    const { data } = await axios.post<import('./types').CodexOAuthResult>(
-      '/api/codex/oauth/exchange',
+    const { data } = await this.client.post<import('./types').CodexOAuthResult>(
+      '/codex/oauth/exchange',
       { code, state },
     );
     return data;
   }
 
   async refreshCodexProviderInfo(providerId: number): Promise<CodexTokenValidationResult> {
-    const { data } = await axios.post<CodexTokenValidationResult>(
-      `/api/codex/provider/${providerId}/refresh`,
+    const { data } = await this.client.post<CodexTokenValidationResult>(
+      `/codex/provider/${providerId}/refresh`,
     );
     return data;
   }
 
   async getCodexProviderUsage(providerId: number): Promise<CodexUsageResponse> {
-    const { data } = await axios.get<CodexUsageResponse>(`/api/codex/provider/${providerId}/usage`);
+    const { data } = await this.client.get<CodexUsageResponse>(
+      `/codex/provider/${providerId}/usage`,
+    );
     return data;
   }
 
   async getCodexBatchQuotas(): Promise<Record<number, CodexQuotaData>> {
-    const { data } = await axios.get<{ quotas: Record<number, CodexQuotaData> }>(
-      '/api/codex/providers/quotas',
+    const { data } = await this.client.get<{ quotas: Record<number, CodexQuotaData> }>(
+      '/codex/providers/quotas',
     );
     return data.quotas ?? {};
   }
 
   async refreshCodexQuotas(): Promise<{ success: boolean; refreshed: boolean }> {
-    const { data } = await axios.post<{ success: boolean; refreshed: boolean }>(
-      '/api/codex/refresh-quotas',
+    const { data } = await this.client.post<{ success: boolean; refreshed: boolean }>(
+      '/codex/refresh-quotas',
     );
     return data;
   }
 
   async sortCodexRoutes(): Promise<{ success: boolean }> {
-    const { data } = await axios.post<{ success: boolean }>('/api/codex/sort-routes');
+    const { data } = await this.client.post<{ success: boolean }>('/codex/sort-routes');
     return data;
   }
 
   // ===== Claude API =====
 
   async validateClaudeToken(refreshToken: string): Promise<ClaudeTokenValidationResult> {
-    const { data } = await axios.post<ClaudeTokenValidationResult>('/api/claude/validate-token', {
+    const { data } = await this.client.post<ClaudeTokenValidationResult>('/claude/validate-token', {
       refreshToken,
     });
     return data;
   }
 
   async startClaudeOAuth(): Promise<{ authURL: string; state: string }> {
-    const { data } = await axios.post<{ authURL: string; state: string }>(
-      '/api/claude/oauth/start',
+    const { data } = await this.client.post<{ authURL: string; state: string }>(
+      '/claude/oauth/start',
     );
     return data;
   }
@@ -589,16 +746,16 @@ export class HttpTransport implements Transport {
     code: string,
     state: string,
   ): Promise<import('./types').ClaudeOAuthResult> {
-    const { data } = await axios.post<import('./types').ClaudeOAuthResult>(
-      '/api/claude/oauth/exchange',
+    const { data } = await this.client.post<import('./types').ClaudeOAuthResult>(
+      '/claude/oauth/exchange',
       { code, state },
     );
     return data;
   }
 
   async refreshClaudeProviderInfo(providerId: number): Promise<ClaudeTokenValidationResult> {
-    const { data } = await axios.post<ClaudeTokenValidationResult>(
-      `/api/claude/provider/${providerId}/refresh`,
+    const { data } = await this.client.post<ClaudeTokenValidationResult>(
+      `/claude/provider/${providerId}/refresh`,
     );
     return data;
   }
@@ -606,27 +763,31 @@ export class HttpTransport implements Transport {
   // ===== Cooldown API =====
 
   async getCooldowns(): Promise<Cooldown[]> {
-    const { data } = await this.client.get<Cooldown[]>('/cooldowns');
-    return data ?? [];
+    const { data } = await this.adminClient.get<Cooldown[]>('/cooldowns');
+    return this.expectArray<Cooldown>(data, '/cooldowns');
   }
 
-  async clearCooldown(providerId: number): Promise<void> {
-    await this.client.delete(`/cooldowns/${providerId}`);
+  async clearCooldown(providerId: number, options?: { clientType?: string; model?: string }): Promise<void> {
+    const searchParams = new URLSearchParams();
+    if (options?.clientType) searchParams.set('clientType', options.clientType);
+    if (options?.model) searchParams.set('model', options.model);
+    const qs = searchParams.toString();
+    await this.adminClient.delete(`/cooldowns/${providerId}${qs ? `?${qs}` : ''}`);
   }
 
-  async setCooldown(providerId: number, untilTime: string, clientType?: string): Promise<void> {
-    await this.client.put(`/cooldowns/${providerId}`, { untilTime, clientType });
+  async setCooldown(providerId: number, untilTime: string, clientType?: string, model?: string): Promise<void> {
+    await this.adminClient.put(`/cooldowns/${providerId}`, { untilTime, clientType, model });
   }
 
   // ===== Auth API =====
 
   async getAuthStatus(): Promise<AuthStatus> {
-    const { data } = await this.client.get<AuthStatus>('/auth/status');
+    const { data } = await this.adminClient.get<AuthStatus>('/auth/status');
     return data;
   }
 
   async login(username: string, password: string): Promise<AuthLoginResult> {
-    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/login', {
+    const { data } = await this.adminClient.post<AuthLoginResult>('/auth/login', {
       username,
       password,
     });
@@ -634,8 +795,8 @@ export class HttpTransport implements Transport {
   }
 
   async startPasskeyLogin(username?: string): Promise<PasskeyLoginOptionsResult> {
-    const { data } = await axios.post<PasskeyLoginOptionsResult>(
-      '/api/admin/auth/passkey/login/options',
+    const { data } = await this.adminClient.post<PasskeyLoginOptionsResult>(
+      '/auth/passkey/login/options',
       { username: username || '' },
     );
     return data;
@@ -645,7 +806,7 @@ export class HttpTransport implements Transport {
     sessionID: string,
     credential: AuthenticationResponseJSON,
   ): Promise<AuthLoginResult> {
-    const { data } = await axios.post<AuthLoginResult>('/api/admin/auth/passkey/login/verify', {
+    const { data } = await this.adminClient.post<AuthLoginResult>('/auth/passkey/login/verify', {
       sessionID,
       credential,
     });
@@ -653,7 +814,7 @@ export class HttpTransport implements Transport {
   }
 
   async startPasskeyRegistration(): Promise<PasskeyRegistrationOptionsResult> {
-    const { data } = await this.client.post<PasskeyRegistrationOptionsResult>(
+    const { data } = await this.adminClient.post<PasskeyRegistrationOptionsResult>(
       '/auth/passkey/register/options',
     );
     return data;
@@ -663,7 +824,7 @@ export class HttpTransport implements Transport {
     sessionID: string,
     credential: RegistrationResponseJSON,
   ): Promise<PasskeyRegisterResult> {
-    const { data } = await this.client.post<PasskeyRegisterResult>(
+    const { data } = await this.adminClient.post<PasskeyRegisterResult>(
       '/auth/passkey/register/verify',
       { sessionID, credential },
     );
@@ -671,14 +832,15 @@ export class HttpTransport implements Transport {
   }
 
   async listPasskeyCredentials(): Promise<PasskeyCredential[]> {
-    const { data } = await this.client.get<{ success: boolean; credentials?: PasskeyCredential[] }>(
-      '/auth/passkey/credentials',
-    );
+    const { data } = await this.adminClient.get<{
+      success: boolean;
+      credentials?: PasskeyCredential[];
+    }>('/auth/passkey/credentials');
     return data?.credentials ?? [];
   }
 
   async deletePasskeyCredential(id: string): Promise<void> {
-    await this.client.delete(`/auth/passkey/credentials/${encodeURIComponent(id)}`);
+    await this.adminClient.delete(`/auth/passkey/credentials/${encodeURIComponent(id)}`);
   }
 
   async register(
@@ -686,7 +848,7 @@ export class HttpTransport implements Transport {
     password: string,
     tenantID?: number,
   ): Promise<AuthRegisterResult> {
-    const { data } = await this.client.post<AuthRegisterResult>('/auth/register', {
+    const { data } = await this.adminClient.post<AuthRegisterResult>('/auth/register', {
       username,
       password,
       tenantID,
@@ -695,7 +857,7 @@ export class HttpTransport implements Transport {
   }
 
   async apply(username: string, password: string, inviteCode: string): Promise<ApplyResult> {
-    const { data } = await this.client.post<ApplyResult>('/auth/apply', {
+    const { data } = await this.adminClient.post<ApplyResult>('/auth/apply', {
       username,
       password,
       inviteCode,
@@ -704,7 +866,7 @@ export class HttpTransport implements Transport {
   }
 
   async changeMyPassword(oldPassword: string, newPassword: string): Promise<ChangePasswordResult> {
-    const { data } = await this.client.put<ChangePasswordResult>('/auth/password', {
+    const { data } = await this.adminClient.put<ChangePasswordResult>('/auth/password', {
       oldPassword,
       newPassword,
     });
@@ -722,92 +884,97 @@ export class HttpTransport implements Transport {
   // ===== User API =====
 
   async getUsers(): Promise<User[]> {
-    const { data } = await this.client.get<User[]>('/users');
-    return data ?? [];
+    const { data } = await this.adminClient.get<User[]>('/users');
+    return this.expectArray<User>(data, '/users');
   }
 
   async getUser(id: number): Promise<User> {
-    const { data } = await this.client.get<User>(`/users/${id}`);
+    const { data } = await this.adminClient.get<User>(`/users/${id}`);
     return data;
   }
 
   async createUser(payload: CreateUserData): Promise<User> {
-    const { data } = await this.client.post<User>('/users', payload);
+    const { data } = await this.adminClient.post<User>('/users', payload);
     return data;
   }
 
   async updateUser(id: number, payload: UpdateUserData): Promise<User> {
-    const { data } = await this.client.put<User>(`/users/${id}`, payload);
+    const { data } = await this.adminClient.put<User>(`/users/${id}`, payload);
     return data;
   }
 
   async deleteUser(id: number): Promise<void> {
-    await this.client.delete(`/users/${id}`);
+    await this.adminClient.delete(`/users/${id}`);
   }
 
   async updatePassword(userId: number, password: string): Promise<void> {
-    await this.client.put(`/users/${userId}/password`, { password });
+    await this.adminClient.put(`/users/${userId}/password`, { password });
   }
 
   async approveUser(id: number): Promise<User> {
-    const { data } = await this.client.put<User>(`/users/${id}/approve`);
+    const { data } = await this.adminClient.put<User>(`/users/${id}/approve`);
     return data;
   }
 
   // ===== API Token API =====
 
-  async getAPITokens(): Promise<APIToken[]> {
-    const { data } = await this.client.get<APIToken[]>('/api-tokens');
-    return data ?? [];
+  async getAdminAPITokens(): Promise<APIToken[]> {
+    const { data } = await this.adminClient.get<APIToken[]>('/api-tokens');
+    return this.expectArray<APIToken>(data, '/api-tokens');
   }
 
-  async getAPIToken(id: number): Promise<APIToken> {
-    const { data } = await this.client.get<APIToken>(`/api-tokens/${id}`);
-    return data;
+  async getAdminAPIToken(id: number): Promise<APIToken> {
+    const { data } = await this.adminClient.get<APIToken>(`/api-tokens/${id}`);
+    return this.expectObject<APIToken>(data, `/api-tokens/${id}`);
+  }
+
+  async getVisibleAPITokens(): Promise<APIToken[]> {
+    const { data } = await this.client.get<APIToken[]>('/api-tokens');
+    return this.expectArray<APIToken>(data, '/api-tokens');
   }
 
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {
-    const { data } = await this.client.post<APITokenCreateResult>('/api-tokens', payload);
+    const { data } = await this.adminClient.post<APITokenCreateResult>('/api-tokens', payload);
     return data;
   }
 
   async updateAPIToken(id: number, payload: Partial<APIToken>): Promise<APIToken> {
-    const { data } = await this.client.put<APIToken>(`/api-tokens/${id}`, payload);
+    const { data } = await this.adminClient.put<APIToken>(`/api-tokens/${id}`, payload);
     return data;
   }
 
   async deleteAPIToken(id: number): Promise<void> {
-    await this.client.delete(`/api-tokens/${id}`);
+    await this.adminClient.delete(`/api-tokens/${id}`);
   }
 
   // ===== Invite Code API =====
 
   async getInviteCodes(): Promise<InviteCode[]> {
-    const { data } = await this.client.get<InviteCode[]>('/invite-codes');
-    return data ?? [];
+    const { data } = await this.adminClient.get<InviteCode[]>('/invite-codes');
+    return this.expectArray<InviteCode>(data, '/invite-codes');
   }
 
   async getInviteCode(id: number): Promise<InviteCode> {
-    const { data } = await this.client.get<InviteCode>(`/invite-codes/${id}`);
+    const { data } = await this.adminClient.get<InviteCode>(`/invite-codes/${id}`);
     return data;
   }
 
   async createInviteCodes(payload: CreateInviteCodeData): Promise<InviteCodeCreateResult> {
-    const { data } = await this.client.post<InviteCodeCreateResult>('/invite-codes', payload);
+    const { data } = await this.adminClient.post<InviteCodeCreateResult>('/invite-codes', payload);
     return data;
   }
 
   async updateInviteCode(id: number, payload: UpdateInviteCodeData): Promise<InviteCode> {
-    const { data } = await this.client.put<InviteCode>(`/invite-codes/${id}`, payload);
+    const { data } = await this.adminClient.put<InviteCode>(`/invite-codes/${id}`, payload);
     return data;
   }
 
   async deleteInviteCode(id: number): Promise<void> {
-    await this.client.delete(`/invite-codes/${id}`);
+    await this.adminClient.delete(`/invite-codes/${id}`);
   }
 
   async getInviteCodeUsages(id: number): Promise<InviteCodeUsage[]> {
-    const { data } = await this.client.get<InviteCodeUsage[]>(`/invite-codes/${id}/usages`);
+    const { data } = await this.adminClient.get<InviteCodeUsage[]>(`/invite-codes/${id}/usages`);
     return data ?? [];
   }
 
@@ -827,23 +994,23 @@ export class HttpTransport implements Transport {
 
     const query = params.toString();
     const url = query ? `/usage-stats?${query}` : '/usage-stats';
-    const { data } = await this.client.get<UsageStats[]>(url);
-    return data ?? [];
+    const { data } = await this.adminClient.get<UsageStats[]>(url);
+    return this.expectArray<UsageStats>(data, '/usage-stats');
   }
 
   async recalculateUsageStats(): Promise<void> {
-    await this.client.post('/usage-stats/recalculate');
+    await this.adminClient.post('/usage-stats/recalculate');
   }
 
   async recalculateCosts(): Promise<RecalculateCostsResult> {
-    const { data } = await this.client.post<RecalculateCostsResult>(
+    const { data } = await this.adminClient.post<RecalculateCostsResult>(
       '/usage-stats/recalculate-costs',
     );
     return data;
   }
 
   async recalculateRequestCost(requestId: number): Promise<RecalculateRequestCostResult> {
-    const { data } = await this.client.post<RecalculateRequestCostResult>(
+    const { data } = await this.adminClient.post<RecalculateRequestCostResult>(
       `/requests/${requestId}/recalculate-cost`,
     );
     return data;
@@ -852,7 +1019,7 @@ export class HttpTransport implements Transport {
   // ===== Dashboard API =====
 
   async getDashboardData(): Promise<DashboardData> {
-    const { data } = await this.client.get<DashboardData>('/dashboard');
+    const { data } = await this.adminClient.get<DashboardData>('/dashboard');
     return data;
   }
 
@@ -860,13 +1027,13 @@ export class HttpTransport implements Transport {
 
   async getResponseModels(): Promise<string[]> {
     const { data } = await this.client.get<string[]>('/response-models');
-    return data ?? [];
+    return this.expectArray<string>(data, '/response-models');
   }
 
   // ===== Backup API =====
 
   async exportBackup(): Promise<BackupFile> {
-    const { data } = await this.client.get<BackupFile>('/backup/export');
+    const { data } = await this.adminClient.get<BackupFile>('/backup/export');
     return data;
   }
 
@@ -880,14 +1047,14 @@ export class HttpTransport implements Transport {
 
     const query = params.toString();
     const url = query ? `/backup/import?${query}` : '/backup/import';
-    const { data } = await this.client.post<BackupImportResult>(url, backup);
+    const { data } = await this.adminClient.post<BackupImportResult>(url, backup);
     return data;
   }
 
   // ===== Pricing API =====
 
   async getPricing(): Promise<PriceTable> {
-    const { data } = await this.client.get<PriceTable>('/pricing');
+    const { data } = await this.adminClient.get<PriceTable>('/pricing');
     return data;
   }
 
@@ -895,7 +1062,7 @@ export class HttpTransport implements Transport {
 
   async getModelPrices(): Promise<ModelPrice[]> {
     const { data } = await this.client.get<ModelPrice[]>('/model-prices');
-    return data;
+    return this.expectArray<ModelPrice>(data, '/model-prices');
   }
 
   async getModelPrice(id: number): Promise<ModelPrice> {
@@ -904,21 +1071,21 @@ export class HttpTransport implements Transport {
   }
 
   async createModelPrice(input: ModelPriceInput): Promise<ModelPrice> {
-    const { data } = await this.client.post<ModelPrice>('/model-prices', input);
+    const { data } = await this.adminClient.post<ModelPrice>('/model-prices', input);
     return data;
   }
 
   async updateModelPrice(id: number, input: ModelPriceInput): Promise<ModelPrice> {
-    const { data } = await this.client.put<ModelPrice>(`/model-prices/${id}`, input);
+    const { data } = await this.adminClient.put<ModelPrice>(`/model-prices/${id}`, input);
     return data;
   }
 
   async deleteModelPrice(id: number): Promise<void> {
-    await this.client.delete(`/model-prices/${id}`);
+    await this.adminClient.delete(`/model-prices/${id}`);
   }
 
   async resetModelPricesToDefaults(): Promise<ModelPrice[]> {
-    const { data } = await this.client.post<ModelPrice[]>('/model-prices/reset');
+    const { data } = await this.adminClient.post<ModelPrice[]>('/model-prices/reset');
     return data;
   }
 

@@ -1,8 +1,15 @@
 package router
 
 import (
-	"math"
+	"context"
+	"crypto/hmac"
+	crand "crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"log"
 	"math/rand"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -10,8 +17,8 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
-	"github.com/awsl-project/maxx/internal/health"
 	"github.com/awsl-project/maxx/internal/repository/cached"
+	"github.com/awsl-project/maxx/internal/sticky"
 )
 
 // MatchedRoute contains all data needed to execute a proxy request
@@ -22,13 +29,35 @@ type MatchedRoute struct {
 	RetryConfig     *domain.RetryConfig
 }
 
-// MatchContext contains all context needed for route matching
+// MatchResult is the output of Match. Routes are the ordered candidates the
+// dispatcher should try (first = preferred). Sticky, when non-nil, carries
+// the key the dispatcher must SETEX after a successful upstream call so the
+// affinity layer learns the binding.
+type MatchResult struct {
+	Routes []*MatchedRoute
+	Sticky *StickyWrite
+}
+
+// StickyWrite is the write-back context handed to the dispatcher. It is only
+// populated when the routing strategy has sticky enabled.
+type StickyWrite struct {
+	Key sticky.Key
+	TTL time.Duration
+}
+
+// MatchContext contains all context needed for route matching.
+// Ctx is the originating request's context — Match honors its cancellation
+// when doing best-effort IO (currently just the sticky lookup). If Ctx is
+// nil we fall back to context.Background; nil is allowed so existing
+// non-proxy call sites don't have to plumb a context in.
 type MatchContext struct {
+	Ctx          context.Context
 	TenantID     uint64
 	ClientType   domain.ClientType
 	ProjectID    uint64
 	RequestModel string
 	APITokenID   uint64
+	SessionID    string
 }
 
 // Router handles route matching and selection
@@ -40,14 +69,11 @@ type Router struct {
 	projectRepo         *cached.ProjectRepository
 
 	// Adapter cache
-	adapters  map[uint64]provider.ProviderAdapter
-	mu        sync.RWMutex
-	shuffle   *rand.Rand
-	shuffleMu sync.Mutex
+	adapters map[uint64]provider.ProviderAdapter
+	mu       sync.RWMutex
 
 	// Cooldown manager
 	cooldownManager *cooldown.Manager
-	healthTracker   health.ProviderTracker
 }
 
 // NewRouter creates a new router
@@ -57,7 +83,6 @@ func NewRouter(
 	routingStrategyRepo *cached.RoutingStrategyRepository,
 	retryConfigRepo *cached.RetryConfigRepository,
 	projectRepo *cached.ProjectRepository,
-	healthTracker health.ProviderTracker,
 ) *Router {
 	return &Router{
 		routeRepo:           routeRepo,
@@ -67,8 +92,6 @@ func NewRouter(
 		projectRepo:         projectRepo,
 		adapters:            make(map[uint64]provider.ProviderAdapter),
 		cooldownManager:     cooldown.Default(),
-		healthTracker:       healthTracker,
-		shuffle:             rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -117,8 +140,19 @@ func (r *Router) RemoveAdapter(providerID uint64) {
 	r.mu.Unlock()
 }
 
-// Match returns matched routes for a client type and project
-func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
+// GetAdapter returns the cached adapter for a provider, if any. Used by
+// admin endpoints that need to reach into adapter-specific state (e.g.
+// Bedrock runtime model discovery).
+func (r *Router) GetAdapter(providerID uint64) (provider.ProviderAdapter, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.adapters[providerID]
+	return a, ok
+}
+
+// Match returns matched routes for a client type and project, plus optional
+// sticky write-back context.
+func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	tenantID := ctx.TenantID
 	clientType := ctx.ClientType
 	projectID := ctx.ProjectID
@@ -192,19 +226,24 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 	// Get routing strategy
 	strategy := r.getRoutingStrategy(tenantID, projectID)
 
-	// priority 路由先排顺序；weighted_random 在构建 matched 后再与健康分一起做联合排序，
-	// 避免被后续 health reorder 退化成确定性排序。
-	if strategy.Type != domain.RoutingStrategyWeightedRandom || r.healthTracker == nil {
-		r.sortRoutes(filtered, strategy)
-	}
+	// Sort routes by strategy. For weighted_random we seed the RNG via an
+	// HMAC of the caller identity + routing context so the same session
+	// sees a stable fallback order while different sessions diverge —
+	// implicit per-session affinity without shared state, and natural
+	// load spread across the active session population. The HMAC salt
+	// prevents an authenticated client from grinding session ids to
+	// steer their traffic onto a specific provider.
+	seed := makeSessionSeed(ctx)
+	r.sortRoutes(filtered, strategy, seed)
 
 	// Get default retry config
 	defaultRetry, _ := r.retryConfigRepo.GetDefault(tenantID)
 
-	// Build matched routes
+	// Build matched routes under r.mu so adapter map snapshots are stable.
+	// Release the lock as soon as the slice is built — the sticky lookup
+	// below can take up to 100ms on a degraded Redis and we don't want
+	// that blocking adapter refresh/removal on the write side.
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	var matched []*MatchedRoute
 	providers := r.providerRepo.GetAll()
 
@@ -214,11 +253,8 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 			continue
 		}
 
-		// Skip providers in cooldown
-		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType)) {
-			continue
-		}
-		if r.healthTracker != nil && r.healthTracker.IsCircuitOpen(route.ProviderID, string(clientType)) {
+		// Skip providers in cooldown (checks provider, key, and model-level cooldowns)
+		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType), requestModel) {
 			continue
 		}
 
@@ -251,31 +287,53 @@ func (r *Router) Match(ctx *MatchContext) ([]*MatchedRoute, error) {
 			RetryConfig:     retryConfig,
 		})
 	}
+	r.mu.RUnlock()
 
 	if len(matched) == 0 {
 		return nil, domain.ErrNoRoutes
 	}
 
-	if r.healthTracker != nil {
-		scores := make(map[uint64]float64, len(matched))
-		for _, matchedRoute := range matched {
-			scores[matchedRoute.Provider.ID] = r.healthTracker.Score(matchedRoute.Provider.ID, string(clientType))
+	// Sticky / session-affinity layer. Only meaningful when:
+	//   - strategy is weighted_random (priority is already deterministic; sticky
+	//     would be a no-op in steady state)
+	//   - sticky is explicitly enabled in the strategy config
+	//   - we have a stable principal (api token id) to anchor the binding to
+	//
+	// On hit (and the pointed-to provider is still in the matched set, i.e. not
+	// in cooldown and still supports the model), we prepend it; otherwise the
+	// existing seeded-weighted order stands and the dispatcher's first success
+	// will write a fresh sticky.
+	var stickyWrite *StickyWrite
+	if strategy != nil && strategy.Type == domain.RoutingStrategyWeightedRandom &&
+		strategy.Config != nil && strategy.Config.StickyEnabled && ctx.APITokenID != 0 {
+		key := sticky.Key{
+			TenantID:   tenantID,
+			ClientType: string(clientType),
+			ProjectID:  projectID,
+			PolicyVer:  policyFingerprint(filtered),
+			BaseKey:    sticky.BaseKey(strategy.Config.StickyScope, ctx.APITokenID, ctx.SessionID),
 		}
-		if strategy.Type == domain.RoutingStrategyWeightedRandom {
-			r.sortMatchedWeightedRandomWithHealth(matched, scores)
-		} else {
-			sort.SliceStable(matched, func(i, j int) bool {
-				left := scores[matched[i].Provider.ID]
-				right := scores[matched[j].Provider.ID]
-				if left == right {
-					return false
-				}
-				return left > right
-			})
+		ttl := sticky.TTLFromConfig(strategy.Config.StickyTTLSeconds)
+		stickyWrite = &StickyWrite{Key: key, TTL: ttl}
+
+		// Bound the sticky Get: a slow/unavailable Redis must not stall the
+		// match path. We derive from the caller's request context so a
+		// client cancel propagates here too; if no context was supplied,
+		// Background is the safe fallback. On timeout/error sticky.Get
+		// returns (0,false) and we fall through to the normal
+		// weighted_random order — affinity is best-effort by design.
+		parentCtx := ctx.Ctx
+		if parentCtx == nil {
+			parentCtx = context.Background()
 		}
+		stickyCtx, stickyCancel := context.WithTimeout(parentCtx, 100*time.Millisecond)
+		if pinned, ok := sticky.Default().Get(stickyCtx, key); ok {
+			matched = promoteByProvider(matched, pinned)
+		}
+		stickyCancel()
 	}
 
-	return matched, nil
+	return &MatchResult{Routes: matched, Sticky: stickyWrite}, nil
 }
 
 // isModelSupported checks if a model matches any pattern in the support list
@@ -303,10 +361,11 @@ func (r *Router) getRoutingStrategy(tenantID uint64, projectID uint64) *domain.R
 	return &domain.RoutingStrategy{Type: domain.RoutingStrategyPriority}
 }
 
-func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStrategy) {
+func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStrategy, seed int64) {
 	switch strategy.Type {
 	case domain.RoutingStrategyWeightedRandom:
-		r.sortRoutesWeightedRandom(routes)
+		// 按权重做概率排序：权重越大，排在前面的概率越高
+		weightedShuffle(routes, rand.New(rand.NewSource(seed)))
 	default: // priority
 		sort.Slice(routes, func(i, j int) bool {
 			return routes[i].Position < routes[j].Position
@@ -314,102 +373,179 @@ func (r *Router) sortRoutes(routes []*domain.Route, strategy *domain.RoutingStra
 	}
 }
 
-func (r *Router) sortRoutesWeightedRandom(routes []*domain.Route) {
-	if len(routes) < 2 {
-		return
+// policyFingerprint returns a short, stable hash of the routes that are in
+// scope for this Match call. Sticky entries embed it so any user-driven
+// config change (route added/removed, weight/position edited, provider
+// re-pointed) naturally invalidates all bindings — no explicit cache flush.
+//
+// Cooldown state is *not* included: cooldown is transient and already
+// handled by the matched-set filter at request time. Mixing it in would
+// invalidate sticky every time a provider blips.
+func policyFingerprint(routes []*domain.Route) string {
+	// Sort by ID for a stable hash regardless of input order. We hash IDs
+	// directly (instead of sorting routes) to avoid mutating the caller's
+	// slice ordering.
+	ids := make([]uint64, len(routes))
+	byID := make(map[uint64]*domain.Route, len(routes))
+	for i, r := range routes {
+		ids[i] = r.ID
+		byID[r.ID] = r
 	}
-	if r.shuffle == nil {
-		r.shuffle = rand.New(rand.NewSource(time.Now().UnixNano()))
-	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
-	type weightedRoute struct {
-		route *domain.Route
-		key   float64
-	}
-
-	weighted := make([]weightedRoute, 0, len(routes))
-	r.shuffleMu.Lock()
-	for _, route := range routes {
-		weight := route.Weight
-		if weight <= 0 {
-			weight = 1
+	h := sha256.New()
+	var buf [8]byte
+	for _, id := range ids {
+		r := byID[id]
+		binary.LittleEndian.PutUint64(buf[:], r.ID)
+		h.Write(buf[:])
+		binary.LittleEndian.PutUint64(buf[:], r.ProviderID)
+		h.Write(buf[:])
+		binary.LittleEndian.PutUint64(buf[:], uint64(r.Position))
+		h.Write(buf[:])
+		binary.LittleEndian.PutUint64(buf[:], uint64(r.Weight))
+		h.Write(buf[:])
+		var flag byte
+		if r.IsEnabled {
+			flag = 1
 		}
-		u := r.shuffle.Float64()
-		if u <= 0 {
-			u = math.SmallestNonzeroFloat64
-		}
-		weighted = append(weighted, weightedRoute{
-			route: route,
-			key:   math.Pow(u, 1/float64(weight)),
-		})
+		h.Write([]byte{flag})
 	}
-	r.shuffleMu.Unlock()
-
-	sort.SliceStable(weighted, func(i, j int) bool {
-		return weighted[i].key > weighted[j].key
-	})
-	for i := range routes {
-		routes[i] = weighted[i].route
-	}
+	sum := h.Sum(nil)
+	// 32 hex chars (128 bits): birthday collisions only matter past ~1.8e19
+	// distinct configs, which we will never approach. Earlier 48-bit hashes
+	// would have hit ~1.6e7 — Codex reviewer flagged this as a long-tail
+	// adversarial concern even though normal tenants never get close.
+	return hex.EncodeToString(sum[:16])
 }
 
-func (r *Router) sortMatchedWeightedRandomWithHealth(matched []*MatchedRoute, scores map[uint64]float64) {
-	if len(matched) < 2 {
-		return
-	}
-	if r.shuffle == nil {
-		r.shuffle = rand.New(rand.NewSource(time.Now().UnixNano()))
-	}
-
-	type weightedMatch struct {
-		route *MatchedRoute
-		key   float64
-	}
-
-	weighted := make([]weightedMatch, 0, len(matched))
-	r.shuffleMu.Lock()
-	for _, matchedRoute := range matched {
-		weight := matchedRoute.Route.Weight
-		if weight <= 0 {
-			weight = 1
+// promoteByProvider moves the matched route for providerID (if any) to the
+// front, preserving the relative order of the rest. No-op if not present.
+func promoteByProvider(matched []*MatchedRoute, providerID uint64) []*MatchedRoute {
+	for i, mr := range matched {
+		if mr.Provider.ID == providerID {
+			if i == 0 {
+				return matched
+			}
+			out := make([]*MatchedRoute, 0, len(matched))
+			out = append(out, mr)
+			out = append(out, matched[:i]...)
+			out = append(out, matched[i+1:]...)
+			return out
 		}
-		effectiveWeight := float64(weight) * healthWeightMultiplier(scores[matchedRoute.Provider.ID])
-		if effectiveWeight <= 0 {
-			effectiveWeight = math.SmallestNonzeroFloat64
-		}
-		u := r.shuffle.Float64()
-		if u <= 0 {
-			u = math.SmallestNonzeroFloat64
-		}
-		weighted = append(weighted, weightedMatch{
-			route: matchedRoute,
-			key:   math.Pow(u, 1/effectiveWeight),
-		})
 	}
-	r.shuffleMu.Unlock()
-
-	sort.SliceStable(weighted, func(i, j int) bool {
-		return weighted[i].key > weighted[j].key
-	})
-	for i := range matched {
-		matched[i] = weighted[i].route
-	}
+	return matched
 }
 
-func healthWeightMultiplier(score float64) float64 {
-	const (
-		scale    = 300.0
-		maxScore = 1500.0
-		minScore = -1500.0
-	)
+// routingSeedSalt is a process-wide secret mixed into makeSessionSeed.
+// Without it, an attacker holding any valid API token could grind through
+// X-Session-Id values offline until the seeded shuffle lands traffic on
+// whichever upstream they want to target (e.g. always the cheapest, or
+// always the one with the largest prompt cache they want to poison).
+//
+// Resolution order, lazy on first use:
+//  1. MAXX_ROUTING_SEED_SALT env var (operator-controlled; required for
+//     full sticky-binding consistency across multi-instance deployments).
+//  2. 32 bytes from crypto/rand. Per-process random — different instances
+//     will compute different first-pick orders for the same session, but
+//     each instance still picks deterministically per session and Redis
+//     sticky writes (keyed by routes/policy, not salt) converge across
+//     instances after the first success. Single-instance and dev
+//     deployments are fully covered.
+//
+// Lazy resolution lets tests override via t.Setenv before the first
+// Match() call.
+var (
+	routingSeedSalt     []byte
+	routingSeedSaltOnce sync.Once
+)
 
-	switch {
-	case score > maxScore:
-		score = maxScore
-	case score < minScore:
-		score = minScore
+func getRoutingSeedSalt() []byte {
+	routingSeedSaltOnce.Do(func() {
+		if v := os.Getenv("MAXX_ROUTING_SEED_SALT"); v != "" {
+			routingSeedSalt = []byte(v)
+			return
+		}
+		buf := make([]byte, 32)
+		if _, err := crand.Read(buf); err != nil {
+			// crypto/rand failures are nearly impossible (an unprivileged
+			// process is denied /dev/urandom and getrandom etc.). Build
+			// a time-derived fallback that still fills all 32 bytes so
+			// HMAC entropy doesn't collapse to 64 bits.
+			now := uint64(time.Now().UnixNano())
+			for i := 0; i < len(buf); i += 8 {
+				binary.LittleEndian.PutUint64(buf[i:i+8], now)
+				now = now*6364136223846793005 + 1442695040888963407 // splitmix-style step
+			}
+		}
+		routingSeedSalt = buf
+		log.Printf("[Router] MAXX_ROUTING_SEED_SALT not set — generated a per-process random salt. " +
+			"For consistent first-pick behavior across multi-instance deployments, set MAXX_ROUTING_SEED_SALT to a shared secret.")
+	})
+	return routingSeedSalt
+}
+
+// makeSessionSeed derives a stable seed from the caller identity + the
+// MatchContext so the weighted shuffle becomes deterministic per session
+// (implicit affinity) but unpredictable to clients who don't know the salt.
+//
+// When no session anchor is available (no api token, no session id) we
+// still want determinism per tenant/client/project so distribution doesn't
+// degrade to global rand — incorporate the routing context as the anchor.
+//
+// Encoding is unambiguous by construction: every variable-length field is
+// length-prefixed (uint64 LE), every fixed-length integer is uint64 LE.
+// No clever separators, no field can collide with another's payload.
+func makeSessionSeed(ctx *MatchContext) int64 {
+	mac := hmac.New(sha256.New, getRoutingSeedSalt())
+	var u64 [8]byte
+	writeU64 := func(v uint64) {
+		binary.LittleEndian.PutUint64(u64[:], v)
+		mac.Write(u64[:])
 	}
-	return math.Exp(score / scale)
+	writeBytes := func(b []byte) {
+		writeU64(uint64(len(b)))
+		mac.Write(b)
+	}
+	writeU64(ctx.TenantID)
+	writeBytes([]byte(ctx.ClientType))
+	writeU64(ctx.ProjectID)
+	writeU64(ctx.APITokenID)
+	writeBytes([]byte(ctx.SessionID))
+	sum := mac.Sum(nil)
+	return int64(binary.LittleEndian.Uint64(sum[:8]))
+}
+
+// weightedShuffle 按权重做加权随机排序
+// 使用加权采样算法：每次从剩余路由中按权重概率选一个放到当前位置
+func weightedShuffle(routes []*domain.Route, rng *rand.Rand) {
+	n := len(routes)
+	for i := 0; i < n-1; i++ {
+		// 计算剩余路由的权重总和
+		totalWeight := 0
+		for j := i; j < n; j++ {
+			w := routes[j].Weight
+			if w <= 0 {
+				w = 1
+			}
+			totalWeight += w
+		}
+
+		// 按权重随机选择一个
+		pick := rng.Intn(totalWeight)
+		cumulative := 0
+		for j := i; j < n; j++ {
+			w := routes[j].Weight
+			if w <= 0 {
+				w = 1
+			}
+			cumulative += w
+			if pick < cumulative {
+				routes[i], routes[j] = routes[j], routes[i]
+				break
+			}
+		}
+	}
 }
 
 // GetCooldowns returns all active cooldowns
@@ -420,7 +556,7 @@ func (r *Router) GetCooldowns() ([]*domain.Cooldown, error) {
 // ClearCooldown clears cooldown for a specific provider
 // Clears all cooldowns (global + per-client-type) for the provider
 func (r *Router) ClearCooldown(providerID uint64) error {
-	r.cooldownManager.ClearCooldown(providerID, "")
+	r.cooldownManager.ClearCooldown(providerID, "", "")
 	return nil
 }
 
@@ -437,3 +573,4 @@ func (r *Router) injectProviderUpdate(a provider.ProviderAdapter) {
 		})
 	}
 }
+

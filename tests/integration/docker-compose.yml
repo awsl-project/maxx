@@ -1,0 +1,32 @@
+services:
+  maxx:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: maxx-test
+    environment:
+      - MAXX_ADMIN_PASSWORD=test-admin-password
+    ports:
+      - "19880:9880"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9880/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: maxx-test-runner
+    depends_on:
+      maxx:
+        condition: service_healthy
+    env_file:
+      - ../../.env
+    environment:
+      - MAXX_URL=http://maxx:9880
+      - MAXX_ADMIN_PASSWORD=test-admin-password
+    volumes:
+      - ./scripts:/scripts:ro

@@ -31,6 +31,7 @@ import {
 import { Button, Switch } from '@/components/ui';
 import { ModelInput } from '@/components/ui/model-input';
 import { CLAUDE_COLOR } from '../types';
+import { ProviderProxyURLCard } from './provider-proxy-url-card';
 
 interface ClaudeProviderViewProps {
   provider: Provider;
@@ -299,6 +300,8 @@ export function ClaudeProviderView({ provider, onDelete, onClose }: ClaudeProvid
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-7xl space-y-8">
+          <ProviderProxyURLCard provider={provider} />
+
           {/* Info Card */}
           <div className="bg-muted rounded-xl p-6 border border-border">
             <div className="flex items-start justify-between gap-6">

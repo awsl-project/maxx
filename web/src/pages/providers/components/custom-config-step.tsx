@@ -7,10 +7,18 @@ import { ClientsConfigSection } from './clients-config-section';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderForm } from '../context/provider-form-context';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
+import { buildDisguisePayload } from '../utils/disguise';
 
 export function CustomConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
@@ -28,13 +36,6 @@ export function CustomConfigStep() {
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
   const createModelMapping = useCreateModelMapping();
-
-  const parseSensitiveWords = (value: string): string[] => {
-    return value
-      .split(/[\n,]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  };
 
   const handleSave = async () => {
     if (!isValid()) return;
@@ -55,6 +56,13 @@ export function CustomConfigStep() {
         }
       });
 
+      const disguise = buildDisguisePayload(
+        formData.disguiseType,
+        formData.cloakMode,
+        !!formData.cloakStrictMode,
+        formData.cloakSensitiveWords || '',
+      );
+
       const data: CreateProviderData = {
         type: 'custom',
         name: formData.name,
@@ -63,20 +71,12 @@ export function CustomConfigStep() {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           custom: {
             baseURL: formData.baseURL,
+            backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey: formData.apiKey,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
-            cloak:
-              formData.cloakMode !== 'auto' ||
-              formData.cloakStrictMode ||
-              parseSensitiveWords(formData.cloakSensitiveWords || '').length > 0
-                ? {
-                    mode: formData.cloakMode,
-                    strictMode: formData.cloakStrictMode,
-                    sensitiveWords: parseSensitiveWords(formData.cloakSensitiveWords || ''),
-                  }
-                : undefined,
+            disguise,
           },
         },
         supportedClientTypes,
@@ -150,6 +150,31 @@ export function CustomConfigStep() {
                   className="w-full"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-2">
+                  {t('provider.customBackend')}
+                </label>
+                <Select
+                  value={formData.backend}
+                  onValueChange={(backend) =>
+                    updateFormData({ backend: backend === 'ollama' ? 'ollama' : 'http' })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
+                    <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formData.backend === 'ollama'
+                    ? t('provider.customBackendOllamaDesc')
+                    : t('provider.customBackendHttpDesc')}
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
@@ -174,7 +199,11 @@ export function CustomConfigStep() {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Key size={14} />
-                      <span>{t('provider.apiKey')}</span>
+                      <span>
+                        {formData.backend === 'ollama'
+                          ? t('provider.apiKeyOptional')
+                          : t('provider.apiKey')}
+                      </span>
                     </div>
                   </label>
                   <div className="relative">
@@ -182,7 +211,11 @@ export function CustomConfigStep() {
                       type={showApiKey ? 'text' : 'password'}
                       value={formData.apiKey}
                       onChange={(e) => updateFormData({ apiKey: e.target.value })}
-                      placeholder={t('provider.keyPlaceholder')}
+                      placeholder={
+                        formData.backend === 'ollama'
+                          ? t('provider.keyPlaceholderOptional')
+                          : t('provider.keyPlaceholder')
+                      }
                       className="w-full pr-10"
                     />
                     <button
@@ -206,16 +239,19 @@ export function CustomConfigStep() {
             <ClientsConfigSection
               clients={formData.clients}
               onUpdateClient={updateClient}
-              cloak={{
-                mode: formData.cloakMode || 'auto',
-                strictMode: !!formData.cloakStrictMode,
-                sensitiveWords: formData.cloakSensitiveWords || '',
+              disguise={{
+                type: formData.disguiseType ?? 'claude-code',
+                claudeCodeMode: formData.cloakMode ?? 'auto',
+                claudeCodeStrictMode: !!formData.cloakStrictMode,
+                claudeCodeSensitiveWords: formData.cloakSensitiveWords ?? '',
               }}
-              onUpdateCloak={(updates) =>
+              onUpdateDisguise={(updates) =>
                 updateFormData({
-                  cloakMode: updates?.mode ?? formData.cloakMode,
-                  cloakStrictMode: updates?.strictMode ?? formData.cloakStrictMode,
-                  cloakSensitiveWords: updates?.sensitiveWords ?? formData.cloakSensitiveWords,
+                  disguiseType: updates?.type ?? formData.disguiseType,
+                  cloakMode: updates?.claudeCodeMode ?? formData.cloakMode,
+                  cloakStrictMode: updates?.claudeCodeStrictMode ?? formData.cloakStrictMode,
+                  cloakSensitiveWords:
+                    updates?.claudeCodeSensitiveWords ?? formData.cloakSensitiveWords,
                 })
               }
             />

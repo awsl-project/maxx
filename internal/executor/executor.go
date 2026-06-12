@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,10 +12,8 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/awsl-project/maxx/internal/health"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/router"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
 
@@ -30,13 +29,10 @@ type Executor struct {
 	broadcaster      event.Broadcaster
 	projectWaiter    *waiter.ProjectWaiter
 	instanceID       string
-	statsAggregator  *stats.StatsAggregator
 	converter        *converter.Registry
 	engine           *flow.Engine
 	middlewares      []flow.HandlerFunc
 	cooldownSem      chan struct{} // semaphore to limit concurrent cooldown update goroutines
-	attemptBudget    AttemptBudget
-	healthTracker    health.ProviderTracker
 }
 
 // NewExecutor creates a new executor
@@ -51,8 +47,6 @@ func NewExecutor(
 	bc event.Broadcaster,
 	projectWaiter *waiter.ProjectWaiter,
 	instanceID string,
-	statsAggregator *stats.StatsAggregator,
-	healthTracker health.ProviderTracker,
 ) *Executor {
 	return &Executor{
 		router:           r,
@@ -65,43 +59,14 @@ func NewExecutor(
 		broadcaster:      bc,
 		projectWaiter:    projectWaiter,
 		instanceID:       instanceID,
-		statsAggregator:  statsAggregator,
 		converter:        converter.GetGlobalRegistry(),
 		engine:           flow.NewEngine(),
 		cooldownSem:      make(chan struct{}, 10),
-		attemptBudget:    DefaultAttemptBudget(),
-		healthTracker:    healthTracker,
 	}
 }
 
 func (e *Executor) Use(handlers ...flow.HandlerFunc) {
 	e.middlewares = append(e.middlewares, handlers...)
-}
-
-func (e *Executor) SetAttemptBudget(budget AttemptBudget) {
-	e.attemptBudget = budget
-}
-
-func (e *Executor) clearSuccessCooldowns(providerID uint64, currentClientType domain.ClientType, originalClientType domain.ClientType) {
-	if providerID == 0 {
-		return
-	}
-
-	seen := make(map[string]struct{}, 2)
-	clearFor := func(clientType domain.ClientType) {
-		if clientType == "" {
-			return
-		}
-		key := string(clientType)
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		cooldown.Default().RecordSuccess(providerID, key)
-	}
-
-	clearFor(currentClientType)
-	clearFor(originalClientType)
 }
 
 // Execute runs the executor middleware chain with a new flow context.
@@ -116,7 +81,9 @@ func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http
 // ExecuteWith runs the executor middleware chain using an existing flow context.
 func (e *Executor) ExecuteWith(c *flow.Ctx) error {
 	if c == nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "flow context missing")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "flow context missing")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 	ctx := context.Background()
 	if v, ok := c.Get(flow.KeyProxyContext); ok {
@@ -203,68 +170,120 @@ func flattenHeaders(h http.Header) map[string]string {
 	return result
 }
 
+// RecordRejectedProxyRequest persists an early-rejected request so the requests page
+// can explain why the token saw an immediate 429 before dispatching upstream.
+func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIToken, statusCode int, errMsg string) {
+	if e == nil || c == nil {
+		return
+	}
+
+	tenantID := domain.DefaultTenantID
+	apiTokenID := uint64(0)
+	projectID := flow.GetProjectID(c)
+	devMode := false
+	if apiToken != nil {
+		if apiToken.TenantID > 0 {
+			tenantID = apiToken.TenantID
+		}
+		apiTokenID = apiToken.ID
+		devMode = apiToken.DevMode
+		if projectID == 0 {
+			projectID = apiToken.ProjectID
+		}
+	}
+
+	now := time.Now()
+	proxyReq := &domain.ProxyRequest{
+		TenantID:     tenantID,
+		InstanceID:   e.instanceID,
+		RequestID:    generateRequestID(),
+		SessionID:    flow.GetSessionID(c),
+		ClientType:   flow.GetClientType(c),
+		ProjectID:    projectID,
+		RequestModel: flow.GetRequestModel(c),
+		StartTime:    now,
+		EndTime:      now,
+		Duration:     0,
+		IsStream:     flow.GetIsStream(c),
+		Status:       "REJECTED",
+		StatusCode:   statusCode,
+		Error:        errMsg,
+		APITokenID:   apiTokenID,
+		DevMode:      devMode,
+	}
+
+	clearDetail := e.shouldClearFailedRequestDetailFor(&execState{apiTokenDevMode: devMode})
+	if !clearDetail {
+		rawHeaders := flow.GetRequestHeaders(c)
+		requestHeaders := flattenHeaders(rawHeaders)
+		requestURI := flow.GetRequestURI(c)
+		requestBody := flow.GetRequestBody(c)
+		if c.Request != nil {
+			if c.Request.Host != "" {
+				if requestHeaders == nil {
+					requestHeaders = make(map[string]string)
+				}
+				requestHeaders["Host"] = c.Request.Host
+			}
+			proxyReq.RequestInfo = &domain.RequestInfo{
+				Method:  c.Request.Method,
+				URL:     requestURI,
+				Headers: requestHeaders,
+				Body:    domain.RequestBodySnapshot(requestBody, rawHeaders.Get("Content-Type"), devMode),
+			}
+		}
+		proxyReq.ResponseInfo = &domain.ResponseInfo{Status: statusCode}
+	}
+
+	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
+		log.Printf("[Executor] Failed to create rejected proxy request: %v", err)
+		return
+	}
+	if e.broadcaster != nil {
+		e.broadcaster.BroadcastProxyRequest(proxyReq)
+	}
+}
+
 // handleCooldown processes cooldown information from ProxyError and sets provider cooldown
-// Priority: 1) Explicit time from API, 2) Policy-based calculation based on failure reason
-func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.Provider, clientType domain.ClientType, originalClientType domain.ClientType) {
-	selectedClientType := proxyErr.CooldownClientType
-	if proxyErr.RateLimitInfo != nil && proxyErr.RateLimitInfo.ClientType != "" {
-		selectedClientType = proxyErr.RateLimitInfo.ClientType
+func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.Provider, clientType domain.ClientType, model string) {
+	if proxyErr.Scope == domain.ScopeRequest {
+		return // no cooldown for request-level errors
 	}
+
+	selectedClientType := proxyErr.ClientType
 	if selectedClientType == "" {
-		if originalClientType != "" {
-			selectedClientType = string(originalClientType)
-		} else {
-			selectedClientType = string(clientType)
-		}
+		selectedClientType = string(clientType)
 	}
 
-	// Determine cooldown reason and explicit time
-	var reason cooldown.CooldownReason
+	// Map domain CooldownReason to cooldown package CooldownReason
+	reason := cooldown.CooldownReason(proxyErr.Reason)
+
+	// Use explicit cooldown time if provided, otherwise let policy decide
 	var explicitUntil *time.Time
-
-	// Priority 1: Check for explicit cooldown time from API
 	if proxyErr.CooldownUntil != nil {
-		// Has explicit time from API (e.g., from CooldownUntil field)
 		explicitUntil = proxyErr.CooldownUntil
-		reason = cooldown.ReasonQuotaExhausted // Default, may be overridden below
-		if proxyErr.RateLimitInfo != nil {
-			reason = mapRateLimitTypeToReason(proxyErr.RateLimitInfo.Type)
-		}
-	} else if proxyErr.RateLimitInfo != nil && !proxyErr.RateLimitInfo.QuotaResetTime.IsZero() {
-		// Has explicit quota reset time from API
-		explicitUntil = &proxyErr.RateLimitInfo.QuotaResetTime
-		reason = mapRateLimitTypeToReason(proxyErr.RateLimitInfo.Type)
 	} else if proxyErr.RetryAfter > 0 {
-		// Has Retry-After duration from API
-		untilTime := time.Now().Add(proxyErr.RetryAfter)
-		explicitUntil = &untilTime
-		reason = cooldown.ReasonRateLimit
-	} else if proxyErr.IsServerError {
-		// Server error (5xx) - no explicit time, use policy
-		reason = cooldown.ReasonServerError
-		explicitUntil = nil
-	} else if proxyErr.IsNetworkError {
-		// Network error - no explicit time, use policy
-		reason = cooldown.ReasonNetworkError
-		explicitUntil = nil
-	} else {
-		// Unknown error type - use policy
-		reason = cooldown.ReasonUnknown
-		explicitUntil = nil
+		t := time.Now().Add(proxyErr.RetryAfter)
+		explicitUntil = &t
 	}
 
-	// Record failure and apply cooldown
-	// If explicitUntil is not nil, it will be used directly
-	// Otherwise, cooldown duration is calculated based on policy and failure count
-	cooldown.Default().RecordFailure(provider.ID, selectedClientType, reason, explicitUntil)
+	// Determine model for cooldown key
+	cooldownModel := ""
+	if proxyErr.Scope == domain.ScopeModel {
+		cooldownModel = proxyErr.Model
+		if cooldownModel == "" {
+			cooldownModel = model // fallback to the request's mapped model
+		}
+	}
+
+	cooldown.Default().RecordFailure(provider.ID, selectedClientType, cooldownModel, reason, proxyErr.Scope, explicitUntil)
 
 	// If there's an async update channel, listen for updates (bounded by semaphore)
 	if proxyErr.CooldownUpdateChan != nil {
 		select {
 		case e.cooldownSem <- struct{}{}:
-			go e.handleAsyncCooldownUpdate(proxyErr.CooldownUpdateChan, provider, selectedClientType)
+			go e.handleAsyncCooldownUpdate(proxyErr.CooldownUpdateChan, provider, selectedClientType, cooldownModel)
 		default:
-			// Semaphore full, skip async cooldown update to prevent goroutine leak
 		}
 	}
 }
@@ -273,30 +292,15 @@ func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown
 }
 
-// mapRateLimitTypeToReason maps RateLimitInfo.Type to CooldownReason
-func mapRateLimitTypeToReason(rateLimitType string) cooldown.CooldownReason {
-	switch rateLimitType {
-	case "quota_exhausted":
-		return cooldown.ReasonQuotaExhausted
-	case "rate_limit_exceeded":
-		return cooldown.ReasonRateLimit
-	case "concurrent_limit":
-		return cooldown.ReasonConcurrentLimit
-	default:
-		return cooldown.ReasonRateLimit // Default to rate limit
-	}
-}
-
 // handleAsyncCooldownUpdate listens for async cooldown updates from providers
-func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider *domain.Provider, clientType string) {
+func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider *domain.Provider, clientType string, model string) {
 	defer func() { <-e.cooldownSem }()
 	select {
 	case newCooldownTime := <-updateChan:
 		if !newCooldownTime.IsZero() {
-			cooldown.Default().UpdateCooldown(provider.ID, clientType, newCooldownTime)
+			cooldown.Default().UpdateCooldown(provider.ID, clientType, model, newCooldownTime)
 		}
 	case <-time.After(15 * time.Second):
-		// Timeout waiting for update
 	}
 }
 
@@ -330,6 +334,8 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 				if event.Metrics != nil {
 					attempt.InputTokenCount = event.Metrics.InputTokens
 					attempt.OutputTokenCount = event.Metrics.OutputTokens
+					attempt.InputImageTokenCount = event.Metrics.InputImageTokens
+					attempt.OutputImageTokenCount = event.Metrics.OutputImageTokens
 					attempt.CacheReadCount = event.Metrics.CacheReadCount
 					attempt.CacheWriteCount = event.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = event.Metrics.Cache5mCreationCount
@@ -359,7 +365,6 @@ func (e *Executor) processAdapterEventsRealtime(
 	attempt *domain.ProxyUpstreamAttempt,
 	done chan struct{},
 	clearDetail bool,
-	watchdog *attemptWatchdog,
 ) {
 	defer close(done)
 
@@ -411,6 +416,8 @@ func (e *Executor) processAdapterEventsRealtime(
 				if ev.Metrics != nil {
 					attempt.InputTokenCount = ev.Metrics.InputTokens
 					attempt.OutputTokenCount = ev.Metrics.OutputTokens
+					attempt.InputImageTokenCount = ev.Metrics.InputImageTokens
+					attempt.OutputImageTokenCount = ev.Metrics.OutputImageTokens
 					attempt.CacheReadCount = ev.Metrics.CacheReadCount
 					attempt.CacheWriteCount = ev.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = ev.Metrics.Cache5mCreationCount
@@ -427,9 +434,6 @@ func (e *Executor) processAdapterEventsRealtime(
 					// Calculate TTFT as duration from start time to first token time
 					firstTokenTime := time.UnixMilli(ev.FirstTokenTime)
 					attempt.TTFT = firstTokenTime.Sub(attempt.StartTime)
-					if watchdog != nil {
-						watchdog.NoteFirstByte()
-					}
 					dirty = true
 				}
 			}
@@ -437,23 +441,6 @@ func (e *Executor) processAdapterEventsRealtime(
 			flush()
 		}
 	}
-}
-
-// getRequestDetailRetentionSeconds 获取请求详情保留秒数
-// 返回值：-1=永久保存，0=不保存，>0=保留秒数
-func (e *Executor) getRequestDetailRetentionSeconds() int {
-	if e.settingsRepo == nil {
-		return -1 // 默认永久保存
-	}
-	val, err := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSeconds)
-	if err != nil || val == "" {
-		return -1 // 默认永久保存
-	}
-	seconds, err := strconv.Atoi(val)
-	if err != nil {
-		return -1
-	}
-	return seconds
 }
 
 // shouldClearRequestDetailFor 检查是否应该立即清理请求详情（考虑 Token 开发者模式）
@@ -464,10 +451,88 @@ func (e *Executor) shouldClearRequestDetailFor(state *execState) bool {
 	return e.shouldClearRequestDetail()
 }
 
+// shouldClearFailedRequestDetailFor 检查已知失败状态的请求详情是否应该立即清理。
+func (e *Executor) shouldClearFailedRequestDetailFor(state *execState) bool {
+	if state != nil && state.apiTokenDevMode {
+		return false
+	}
+	return e.shouldClearFailedRequestDetail()
+}
+
 // shouldClearRequestDetail 检查是否应该立即清理请求详情（全局配置）
-// 当设置为 0 时返回 true
+//
+// 决策时机在 ingress / dispatch，此时 status 未知，因此不能按状态分别决策。
+// 语义：
+//   - split=false：当统一键 == 0 时立即清理（行为不变）
+//   - split=true：仅当 success 和 failed 两个键都解析为 0 时才立即清理
+//     （只要任一侧需要保留，就先存到 DB，后台 task 再按状态分别清理）
 func (e *Executor) shouldClearRequestDetail() bool {
-	return e.getRequestDetailRetentionSeconds() == 0
+	cfg, ok := e.requestDetailRetentionConfig()
+	if !ok {
+		return false
+	}
+	if !cfg.split {
+		return cfg.unified == 0
+	}
+	return cfg.successSec == 0 && cfg.failedSec == 0
+}
+
+// shouldClearFailedRequestDetail 检查已知失败/拒绝请求是否应该立即清理详情。
+// 对 early rejection 这类已知失败状态，可以使用 failed 桶，而不是退化成
+// “success 和 failed 都为 0 才清理”的未知状态策略。
+func (e *Executor) shouldClearFailedRequestDetail() bool {
+	cfg, ok := e.requestDetailRetentionConfig()
+	if !ok {
+		return false
+	}
+	if !cfg.split {
+		return cfg.unified == 0
+	}
+	return cfg.failedSec == 0
+}
+
+type requestDetailRetentionConfig struct {
+	unified    int
+	split      bool
+	successSec int
+	failedSec  int
+}
+
+func (e *Executor) requestDetailRetentionConfig() (requestDetailRetentionConfig, bool) {
+	if e.settingsRepo == nil {
+		return requestDetailRetentionConfig{}, false
+	}
+
+	parse := func(key string, fallback int) int {
+		v, err := e.settingsRepo.Get(key)
+		if err != nil || v == "" {
+			return fallback
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fallback
+		}
+		return n
+	}
+
+	unified := parse(domain.SettingKeyRequestDetailRetentionSeconds, -1)
+	splitVal, _ := e.settingsRepo.Get(domain.SettingKeyRequestDetailRetentionSplitEnabled)
+	cfg := requestDetailRetentionConfig{
+		unified:    unified,
+		split:      splitVal == "true",
+		successSec: unified,
+		failedSec:  unified,
+	}
+	if cfg.split {
+		cfg.successSec = parse(domain.SettingKeyRequestDetailRetentionSecondsSuccess, unified)
+		cfg.failedSec = parse(domain.SettingKeyRequestDetailRetentionSecondsFailed, unified)
+	}
+	return cfg, true
+}
+
+// ShouldClearRequestDetailByConfig 检查是否应该按全局配置立即清理请求详情
+func (e *Executor) ShouldClearRequestDetailByConfig() bool {
+	return e.shouldClearRequestDetail()
 }
 
 // getProviderMultiplier 获取 Provider 针对特定 ClientType 的倍率

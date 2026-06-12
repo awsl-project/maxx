@@ -220,6 +220,20 @@ func initDefaultPrices() *PriceTable {
 	})
 
 	// ========== GPT 5.x 系列 ==========
+	// gpt-5.5: input=$5, output=$30; cache_read 使用默认 input/10
+	pt.Set(&ModelPricing{
+		ModelID:          "gpt-5.5",
+		InputPriceMicro:  5_000_000,  // $5.00/M
+		OutputPriceMicro: 30_000_000, // $30.00/M
+	})
+
+	// gpt-5.5-pro: input=$30, output=$180; 官方未列 cached input 价格
+	pt.Set(&ModelPricing{
+		ModelID:          "gpt-5.5-pro",
+		InputPriceMicro:  30_000_000,  // $30.00/M
+		OutputPriceMicro: 180_000_000, // $180.00/M
+	})
+
 	// gpt-5.1: input=$1.25, cache_read=$0.125, output=$10
 	pt.Set(&ModelPricing{
 		ModelID:             "gpt-5.1",
@@ -282,6 +296,30 @@ func initDefaultPrices() *PriceTable {
 		InputPriceMicro:     2_500_000,  // $2.50/M
 		OutputPriceMicro:    15_000_000, // $15.00/M
 		CacheReadPriceMicro: 250_000,    // $0.25/M
+	})
+
+	// gpt-5.4-mini: input=$0.75, cache_read=$0.075, output=$4.50
+	pt.Set(&ModelPricing{
+		ModelID:             "gpt-5.4-mini",
+		InputPriceMicro:     750_000,   // $0.75/M
+		OutputPriceMicro:    4_500_000, // $4.50/M
+		CacheReadPriceMicro: 75_000,    // $0.075/M
+	})
+
+	// ========== GPT Image 系列 ==========
+	// gpt-image-2 (图像生成, 按 token 计费, 口径对齐 LiteLLM):
+	//   文本输入 $5/M, 图像输入 $8/M, 文本输出 $10/M, 图像输出 $30/M, 缓存文本输入 $1.25/M。
+	// 响应 usage 把 input/output token 拆成 text/image 两类(input_tokens_details /
+	// output_tokens_details),计算器据此分别按文本价/图像价计。
+	// 注: LiteLLM 还有缓存图像输入 $2/M 一档,但响应未单独暴露缓存图像 token 数,故未建模
+	// (缓存命中统一走 CacheReadPriceMicro=$1.25)。
+	pt.Set(&ModelPricing{
+		ModelID:               "gpt-image-2",
+		InputPriceMicro:       5_000_000,  // $5.00/M  text input
+		OutputPriceMicro:      10_000_000, // $10.00/M text output
+		ImageInputPriceMicro:  8_000_000,  // $8.00/M  image input
+		ImageOutputPriceMicro: 30_000_000, // $30.00/M image output
+		CacheReadPriceMicro:   1_250_000,  // $1.25/M  cached text input
 	})
 
 	// ========== GPT-4o 系列 ==========

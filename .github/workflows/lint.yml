@@ -1,13 +1,21 @@
-name: Lint
+name: PR Checks
 
 on:
   pull_request:
     branches: [main]
     paths:
+      - '.github/workflows/lint.yml'
+      - '.node-version'
       - 'web/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'tests/**'
+      - 'go.mod'
+      - 'go.sum'
 
 jobs:
-  lint:
+  frontend:
+    name: Frontend Checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,3 +50,26 @@ jobs:
 
       - name: Run type check
         run: pnpm run typecheck
+
+      - name: Run production build
+        run: pnpm run build
+
+  backend:
+    name: Backend Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run go vet
+        run: go vet ./cmd/... ./internal/...
+
+      - name: Run unit tests
+        run: go test -count=1 -timeout 600s ./cmd/... ./internal/...
+
+      - name: Build backend
+        run: go build -o /tmp/maxx-ci-build ./cmd/maxx

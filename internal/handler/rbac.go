@@ -9,13 +9,13 @@ import (
 
 // memberAllowedResources defines resources that member role can access (GET only)
 var memberAllowedResources = map[string]bool{
-	"dashboard":     true,
-	"requests":      true,
-	"sessions":      true,
-	"usage-stats":   true,
-	"proxy-status":  true,
-	"cooldowns":     true,
-	"logs":          true,
+	"dashboard":    true,
+	"requests":     true,
+	"sessions":     true,
+	"usage-stats":  true,
+	"proxy-status": true,
+	"cooldowns":    true,
+	"logs":         true,
 }
 
 // CheckRBAC checks if the current user has permission for the given resource and method
@@ -35,10 +35,6 @@ func CheckRBAC(r *http.Request, resource string) bool {
 
 	// Member can only GET certain resources
 	if role == string(domain.UserRoleMember) {
-		// Members can manage invite codes
-		if resource == "invite-codes" {
-			return true
-		}
 		if r.Method != http.MethodGet {
 			return false
 		}

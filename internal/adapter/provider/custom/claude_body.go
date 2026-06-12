@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
@@ -34,30 +35,72 @@ var claudeCLIUserAgentPattern = regexp.MustCompile(`(?i)^claude-cli/\d+\.\d+\.\d
 var claudeBillingCCHPattern = regexp.MustCompile(`(?i)\bcch=[^;]*;\s*`)
 
 // processClaudeRequestBody processes Claude request body before sending to upstream.
+// The Disguise field on the custom config selects the body transformation mode:
+//   - nil / Type=="" / Type=="claude-code" — applyCloaking (legacy default; auto-detects
+//     Claude Code clients via UA and injects system prompt + fake user_id when needed)
+//   - Type=="none"                         — no disguise body transform (structural
+//     fixes for cache_control / tool_results / etc still run)
+//   - Type=="bedrock"                      — strip Claude Code identity via
+//     bedrock.SanitizeForBedrockCompat so relays whose backend is AWS Bedrock accept the body
+//
 // Following CLIProxyAPI order:
-// 1. strip volatile billing cch fields from system text
-// 2. applyCloaking (system prompt injection, fake user_id, sensitive word obfuscation)
-// 3. disableThinkingIfToolChoiceForced
-// 4. ensureMinThinkingBudget
-// 5. ensureCacheControl (auto-inject if missing)
-// 6. sanitizeClaudeMessages (fix empty text content blocks)
-// 7. ensureToolResultCorrespondence (inject missing tool_results)
-// 8. extractAndRemoveBetas
+//  1. strip volatile billing cch fields from system text
+//  2. apply disguise (claude-code OR bedrock OR none)
+//  3. disableThinkingIfToolChoiceForced
+//  4. ensureMinThinkingBudget
+//  5. ensureCacheControl (auto-inject if missing)
+//  6. sanitizeClaudeMessages (fix empty text content blocks)
+//  7. ensureToolResultCorrespondence (inject missing tool_results)
+//  8. extractAndRemoveBetas
+//
 // Returns processed body and extra betas for header.
-func processClaudeRequestBody(body []byte, clientUserAgent string, cloakCfg *domain.ProviderConfigCustomCloak) ([]byte, []string) {
+func processClaudeRequestBody(body []byte, clientUserAgent string, customCfg *domain.ProviderConfigCustom) ([]byte, []string) {
 	modelName := gjson.GetBytes(body, "model").String()
 
 	// 1. Strip volatile billing cch fields to keep cache keys stable.
 	body = stripVolatileClaudeBillingCCH(body)
 
-	// 2. Apply cloaking (system prompt injection, fake user_id, sensitive word obfuscation)
-	body = applyCloaking(body, clientUserAgent, modelName, cloakCfg)
+	// 2. Apply disguise transformation.
+	disguise := disguiseFromCustomConfig(customCfg)
+	bedrockMode := false
+	switch strings.ToLower(strings.TrimSpace(disguiseType(disguise))) {
+	case domain.DisguiseTypeBedrock:
+		// Strip Claude Code identifying fields so the upstream relay's Bedrock
+		// backend won't reject the request with "invalid beta flag" etc.
+		body = bedrock.SanitizeForBedrockCompat(body)
+		// Model-aware adaptive thinking: Opus 4.7 and other adaptive-only
+		// SKUs treat every request as a thinking request and reject sampling
+		// params even when the caller never set thinking.type. The `model`
+		// field may already carry a Bedrock-qualified ID after the custom
+		// provider's model-mapping rewrite (e.g.
+		// "us.anthropic.claude-opus-4-7-20260115-v1:0"), so normalize it to
+		// the Anthropic short name first — AdaptThinkingForModel keys on
+		// "claude-opus-4-7", not on inference-profile IDs.
+		body = bedrock.AdaptThinkingForModel(body, bedrock.ShortNameForModel(modelName))
+		bedrockMode = true
+	case domain.DisguiseTypeNone:
+		// Explicit opt-out: no body transformation.
+	default:
+		// "" / "claude-code" / unknown / nil — keep legacy claude-code cloak default.
+		var ccOpts *domain.DisguiseClaudeCodeOptions
+		if disguise != nil {
+			ccOpts = disguise.ClaudeCode
+		}
+		body = applyCloaking(body, clientUserAgent, modelName, ccOpts)
+	}
 
 	// 3. Disable thinking if tool_choice forces tool use
 	body = disableThinkingIfToolChoiceForced(body)
 
 	// 4. Ensure minimum thinking budget if present
 	body = ensureMinThinkingBudget(body)
+
+	// 4b. For bedrock disguise: re-check the `max_tokens > thinking.budget_tokens`
+	// invariant. ensureMinThinkingBudget may have just raised budget_tokens to 1024,
+	// which can violate Bedrock's constraint even though the body looked valid at step 2.
+	if bedrockMode {
+		body = bedrock.EnsureMaxTokensAboveThinkingBudget(body)
+	}
 
 	// 5. Auto-inject cache_control if missing (CLIProxyAPI behavior)
 	if countCacheControls(body) == 0 {
@@ -67,7 +110,10 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, cloakCfg *dom
 	// 6. Remove empty text content blocks to satisfy Anthropic validation.
 	body = sanitizeClaudeMessages(body)
 
-	// 7. Inject missing tool_results to satisfy tool_use/tool_result correspondence.
+	// 7. Fix tool_use/tool_result correspondence:
+	//    a) Remove orphaned tool_results (tool_use_id not in preceding assistant message)
+	//    b) Inject missing tool_results (tool_use without corresponding tool_result)
+	body = bedrock.RemoveOrphanedToolResults(body)
 	body = ensureToolResultCorrespondence(body)
 
 	// 8. Extract betas from body (to be added to header)
@@ -75,6 +121,20 @@ func processClaudeRequestBody(body []byte, clientUserAgent string, cloakCfg *dom
 	extraBetas, body = extractAndRemoveBetas(body)
 
 	return body, extraBetas
+}
+
+// disguiseFromCustomConfig returns the effective disguise for a custom config,
+// migrating any legacy `cloak` field via ResolveDisguise().
+func disguiseFromCustomConfig(cfg *domain.ProviderConfigCustom) *domain.ProviderConfigCustomDisguise {
+	return cfg.ResolveDisguise()
+}
+
+// disguiseType returns the Type field of a Disguise or "" if nil.
+func disguiseType(d *domain.ProviderConfigCustomDisguise) string {
+	if d == nil {
+		return ""
+	}
+	return d.Type
 }
 
 // sanitizeClaudeMessages removes invalid empty text blocks from messages content.
@@ -348,15 +408,15 @@ func stripVolatileClaudeBillingCCHAtPath(body []byte, path string) []byte {
 
 // applyCloaking applies cloaking transformations based on config and client.
 // Cloaking includes: system prompt injection, fake user ID, sensitive word obfuscation.
-func applyCloaking(body []byte, clientUserAgent string, model string, cloakCfg *domain.ProviderConfigCustomCloak) []byte {
+func applyCloaking(body []byte, clientUserAgent string, model string, opts *domain.DisguiseClaudeCodeOptions) []byte {
 	var cloakMode string
 	var strictMode bool
 	var sensitiveWords []string
 
-	if cloakCfg != nil {
-		cloakMode = strings.TrimSpace(cloakCfg.Mode)
-		strictMode = cloakCfg.StrictMode
-		sensitiveWords = cloakCfg.SensitiveWords
+	if opts != nil {
+		cloakMode = strings.TrimSpace(opts.Mode)
+		strictMode = opts.StrictMode
+		sensitiveWords = opts.SensitiveWords
 	}
 
 	// Default mode is "auto"

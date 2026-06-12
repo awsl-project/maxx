@@ -131,7 +131,10 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 		// Get access token
 		accessToken, err := a.getAccessToken(ctx)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonAuthFailure
+			return proxyErr
 		}
 
 		// [SessionID Support] Extract metadata.user_id from original request for sessionId (like Antigravity-Manager)
@@ -151,7 +154,9 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 			)
 			geminiBody, effectiveMappedModel, hasThinking, err = TransformClaudeToGemini(requestBody, mappedModel, actualStream, sessionID, GlobalSignatureCache())
 			if err != nil {
-				return domain.NewProxyErrorWithMessage(err, true, fmt.Sprintf("failed to transform Claude request: %v", err))
+				proxyErr := domain.NewProxyErrorWithMessage(err, false, fmt.Sprintf("failed to transform Claude request: %v", err))
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 			mappedModel = effectiveMappedModel
 
@@ -195,7 +200,9 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 			}
 			upstreamBody, err = wrapV1InternalRequest(geminiBody, projectID, requestModel, mappedModel, sessionID, toolsForConfig)
 			if err != nil {
-				return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, true, "failed to wrap request for v1internal")
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to wrap request for v1internal")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 		}
 
@@ -235,11 +242,10 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					if hasNextEndpoint(idx, len(baseURLs)) {
 						continue
 					}
-					proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-					proxyErr.IsNetworkError = true // Mark as network error (connection timeout, DNS failure, etc.)
+					proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+					proxyErr.Message = "failed to connect to upstream"
 					return proxyErr
 				}
-				resp.Body = flow.WrapResponseBody(c, resp.Body)
 
 				// Check for 401 (token expired) and retry once
 				if resp.StatusCode == http.StatusUnauthorized {
@@ -253,13 +259,19 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					// Get new token
 					accessToken, err = a.getAccessToken(ctx)
 					if err != nil {
-						return domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+						proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to refresh access token")
+						proxyErr.Scope = domain.ScopeKey
+						proxyErr.Reason = domain.CooldownReasonAuthFailure
+						return proxyErr
 					}
 
 					// Retry request with only required headers
 					upstreamReq, reqErr = http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(upstreamBody))
 					if reqErr != nil {
-						return domain.NewProxyErrorWithMessage(reqErr, false, "failed to create upstream request after token refresh")
+						proxyErr := domain.NewProxyErrorWithMessage(reqErr, false, "failed to create upstream request after token refresh")
+						proxyErr.Scope = domain.ScopeEndpoint
+						proxyErr.Reason = domain.CooldownReasonServerError
+						return proxyErr
 					}
 					upstreamReq.Header.Set("Content-Type", "application/json")
 					upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
@@ -270,11 +282,10 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						if hasNextEndpoint(idx, len(baseURLs)) {
 							continue
 						}
-						proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream after token refresh")
-						proxyErr.IsNetworkError = true // Mark as network error
+						proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+						proxyErr.Message = "failed to connect to upstream after token refresh"
 						return proxyErr
 					}
-					resp.Body = flow.WrapResponseBody(c, resp.Body)
 				}
 
 				// Check for error response
@@ -291,10 +302,12 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					}
 
 					// Check for RESOURCE_EXHAUSTED (429) and extract cooldown info
-					var rateLimitInfo *domain.RateLimitInfo
+					var cooldownScope domain.ErrorScope
+					var cooldownReason domain.CooldownReason
+					var cooldownUntil *time.Time
 					var cooldownUpdateChan chan time.Time
 					if resp.StatusCode == http.StatusTooManyRequests {
-						rateLimitInfo, cooldownUpdateChan = a.parseRateLimitInfo(ctx, body, provider)
+						cooldownScope, cooldownReason, cooldownUntil, cooldownUpdateChan = a.parseRateLimitInfo(ctx, body, provider)
 					}
 
 					// Parse retry info for 429/5xx responses (like Antigravity-Manager)
@@ -330,9 +343,19 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 					)
 
-					// Set status code and check if it's a server error (5xx)
+					// Set status code and classify error scope/reason
 					proxyErr.HTTPStatusCode = resp.StatusCode
-					proxyErr.IsServerError = resp.StatusCode >= 500 && resp.StatusCode < 600
+					if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+						proxyErr.Scope = domain.ScopeKey
+						proxyErr.Reason = domain.CooldownReasonAuthFailure
+						proxyErr.Retryable = false
+					} else if resp.StatusCode >= 500 && resp.StatusCode < 600 {
+						proxyErr.Scope = domain.ScopeProvider
+						proxyErr.Reason = domain.CooldownReasonServerError
+					} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+						proxyErr.Scope = domain.ScopeRequest
+						proxyErr.Retryable = false
+					}
 
 					// Set retry info on error for upstream handling
 					if retryAfter > 0 {
@@ -340,8 +363,10 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					}
 
 					// Set rate limit info for cooldown handling
-					if rateLimitInfo != nil {
-						proxyErr.RateLimitInfo = rateLimitInfo
+					if cooldownReason != "" {
+						proxyErr.Scope = cooldownScope
+						proxyErr.Reason = cooldownReason
+						proxyErr.CooldownUntil = cooldownUntil
 						proxyErr.CooldownUpdateChan = cooldownUpdateChan
 					}
 
@@ -354,7 +379,9 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						// Manager uses a small fixed delay before retrying.
 						select {
 						case <-ctx.Done():
-							return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+							proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+							proxyErr.Scope = domain.ScopeRequest
+							return proxyErr
 						case <-time.After(200 * time.Millisecond):
 						}
 
@@ -377,7 +404,9 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						if attempt+1 < antigravityRetryAttempts {
 							delay := antigravityNoCapacityRetryDelay(attempt)
 							if err := antigravityWait(ctx, delay); err != nil {
-								return domain.NewProxyErrorWithMessage(err, false, "client disconnected")
+								proxyErr := domain.NewProxyErrorWithMessage(err, false, "client disconnected")
+								proxyErr.Scope = domain.ScopeRequest
+								return proxyErr
 							}
 							break
 						}
@@ -408,11 +437,17 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 			if proxyErr, ok := lastErr.(*domain.ProxyError); ok {
 				return proxyErr
 			}
-			return domain.NewProxyErrorWithMessage(lastErr, true, "all upstream endpoints failed")
+			proxyErr := domain.NewProxyErrorWithMessage(lastErr, true, "all upstream endpoints failed")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+			return proxyErr
 		}
 	}
 
-	return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "all upstream endpoints failed")
+	proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "all upstream endpoints failed")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+	return proxyErr
 }
 
 // WarmToken pre-warms the access token cache to avoid blocking during Execute
@@ -664,7 +699,10 @@ func (a *AntigravityAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Res
 	w := c.Writer
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 
 	// Unwrap v1internal response wrapper (extract "response" field)
@@ -704,13 +742,17 @@ func (a *AntigravityAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Res
 		requestModel := flow.GetRequestModel(c)
 		responseBody, err = convertGeminiToClaudeResponse(unwrappedBody, requestModel)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 	case domain.ClientTypeOpenAI:
 		responseBody, err = converter.GetGlobalRegistry().TransformResponse(
 			domain.ClientTypeGemini, domain.ClientTypeOpenAI, unwrappedBody)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 	default:
 		// Gemini native
@@ -751,7 +793,9 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Use specialized Claude SSE handler for Claude clients
@@ -822,7 +866,9 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 		select {
 		case <-ctx.Done():
 			sendFinalEvents()
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		default:
 		}
 
@@ -873,7 +919,9 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 					if writeErr != nil {
 						// Client disconnected
 						sendFinalEvents()
-						return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+						proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+						proxyErr.Scope = domain.ScopeRequest
+						return proxyErr
 					}
 					flusher.Flush()
 
@@ -908,7 +956,9 @@ func (a *AntigravityAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Respon
 					}
 				}
 				sendFinalEvents()
-				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 			// Ensure Claude clients get termination events
 			if isClaudeClient && claudeState != nil {
@@ -964,7 +1014,9 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 		// Check context before reading
 		select {
 		case <-ctx.Done():
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		default:
 		}
 
@@ -1000,7 +1052,10 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 			if err == io.EOF {
 				break
 			}
-			return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream stream")
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream stream")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 	}
 
@@ -1044,16 +1099,24 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 
 	if isClaudeClient {
 		if claudeSSE.Len() == 0 {
-			return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "empty upstream stream response")
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "empty upstream stream response")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 		collected, collectErr := collectClaudeSSEToJSON(claudeSSE.String())
 		if collectErr != nil {
-			return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to collect streamed response")
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to collect streamed response")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		}
 		responseBody = collected
 	} else {
 		if unwrappedSSE.Len() == 0 {
-			return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "empty upstream stream response")
+			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "empty upstream stream response")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 		geminiWrapped := convertStreamToNonStream([]byte(unwrappedSSE.String()))
 		geminiResponse := unwrapV1InternalResponse(geminiWrapped)
@@ -1065,7 +1128,9 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 			responseBody, convErr = converter.GetGlobalRegistry().TransformResponse(
 				domain.ClientTypeGemini, domain.ClientTypeOpenAI, geminiResponse)
 			if convErr != nil {
-				return domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 			}
 		default:
 			responseBody = geminiResponse
@@ -1078,9 +1143,9 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 	return nil
 }
 
-// parseRateLimitInfo parses 429 RESOURCE_EXHAUSTED errors and extracts cooldown information
-// Returns RateLimitInfo and optional channel for async cooldown updates
-func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte, provider *domain.Provider) (*domain.RateLimitInfo, chan time.Time) {
+// parseRateLimitInfo parses 429 RESOURCE_EXHAUSTED errors and extracts cooldown information.
+// Returns (scope, reason, cooldownUntil, updateChan). An empty reason signals "not parsed".
+func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte, provider *domain.Provider) (domain.ErrorScope, domain.CooldownReason, *time.Time, chan time.Time) {
 	// Parse error response to check if it's QUOTA_EXHAUSTED with reset timestamp
 	var errResp struct {
 		Error struct {
@@ -1100,13 +1165,13 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 	}
 
 	if err := json.Unmarshal(body, &errResp); err != nil {
-		// Can't parse error, return nil
-		return nil, nil
+		// Can't parse error, return zero values
+		return "", "", nil, nil
 	}
 
 	// Check if it's RESOURCE_EXHAUSTED
 	if errResp.Error.Status != "RESOURCE_EXHAUSTED" {
-		return nil, nil
+		return "", "", nil, nil
 	}
 
 	// Look for QUOTA_EXHAUSTED with quotaResetTimeStamp in details
@@ -1123,12 +1188,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 
 	if !resetTime.IsZero() {
 		// Found quota reset timestamp, return immediately
-		return &domain.RateLimitInfo{
-			Type:             "quota_exhausted",
-			QuotaResetTime:   resetTime,
-			RetryHintMessage: errResp.Error.Message,
-			ClientType:       "", // Antigravity quota is global, affects all client types
-		}, nil
+		return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, &resetTime, nil
 	}
 
 	// No quota reset timestamp found, query quota API asynchronously
@@ -1136,12 +1196,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 	if config == nil {
 		// No config, return default 1-minute cooldown
 		oneMinuteFromNow := time.Now().Add(time.Minute)
-		return &domain.RateLimitInfo{
-			Type:             "quota_exhausted",
-			QuotaResetTime:   oneMinuteFromNow,
-			RetryHintMessage: errResp.Error.Message,
-			ClientType:       "",
-		}, nil
+		return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, &oneMinuteFromNow, nil
 	}
 
 	// Create channel for async update
@@ -1189,12 +1244,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 
 	// Return initial 1-minute cooldown with async update channel
 	oneMinuteFromNow := time.Now().Add(time.Minute)
-	return &domain.RateLimitInfo{
-		Type:             "quota_exhausted",
-		QuotaResetTime:   oneMinuteFromNow,
-		RetryHintMessage: errResp.Error.Message,
-		ClientType:       "", // Global cooldown
-	}, updateChan
+	return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, &oneMinuteFromNow, updateChan
 }
 
 // extractModelVersion extracts modelVersion from Gemini response JSON

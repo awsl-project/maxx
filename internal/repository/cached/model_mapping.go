@@ -4,6 +4,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/awsl-project/maxx/internal/coordinator"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 )
@@ -12,6 +13,7 @@ type ModelMappingRepository struct {
 	repo  repository.ModelMappingRepository
 	cache []*domain.ModelMapping
 	mu    sync.RWMutex
+	bc    cacheBroadcast
 }
 
 func NewModelMappingRepository(repo repository.ModelMappingRepository) *ModelMappingRepository {
@@ -19,6 +21,10 @@ func NewModelMappingRepository(repo repository.ModelMappingRepository) *ModelMap
 		repo:  repo,
 		cache: make([]*domain.ModelMapping, 0),
 	}
+}
+
+func (r *ModelMappingRepository) SetCoordinator(c coordinator.Coordinator) {
+	r.bc.attach(c, InvalidateModelMapping)
 }
 
 // Load 从数据库加载所有数据到内存（只在启动时调用一次）
@@ -70,9 +76,10 @@ func (r *ModelMappingRepository) Create(mapping *domain.ModelMapping) error {
 	}
 	// 直接添加到缓存并重新排序
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.cache = append(r.cache, mapping)
 	r.sortCache()
+	r.mu.Unlock()
+	r.bc.publish(OpCreate, mapping.ID)
 	return nil
 }
 
@@ -82,7 +89,6 @@ func (r *ModelMappingRepository) Update(mapping *domain.ModelMapping) error {
 	}
 	// 直接更新缓存中的数据
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	for i, m := range r.cache {
 		if m.ID == mapping.ID {
 			r.cache[i] = mapping
@@ -90,6 +96,8 @@ func (r *ModelMappingRepository) Update(mapping *domain.ModelMapping) error {
 		}
 	}
 	r.sortCache() // 可能 priority 或 scope 变了，需要重新排序
+	r.mu.Unlock()
+	r.bc.publish(OpUpdate, mapping.ID)
 	return nil
 }
 
@@ -99,13 +107,14 @@ func (r *ModelMappingRepository) Delete(tenantID uint64, id uint64) error {
 	}
 	// 直接从缓存中删除
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	for i, m := range r.cache {
 		if m.ID == id {
 			r.cache = append(r.cache[:i], r.cache[i+1:]...)
 			break
 		}
 	}
+	r.mu.Unlock()
+	r.bc.publish(OpDelete, id)
 	return nil
 }
 
@@ -204,7 +213,6 @@ func (r *ModelMappingRepository) DeleteAll(tenantID uint64) error {
 		return err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if tenantID == domain.TenantIDAll {
 		r.cache = make([]*domain.ModelMapping, 0)
 	} else {
@@ -216,6 +224,8 @@ func (r *ModelMappingRepository) DeleteAll(tenantID uint64) error {
 		}
 		r.cache = filtered
 	}
+	r.mu.Unlock()
+	r.bc.publish(OpReload, 0)
 	return nil
 }
 
@@ -224,7 +234,6 @@ func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
 		return err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if tenantID == domain.TenantIDAll {
 		r.cache = make([]*domain.ModelMapping, 0)
 	} else {
@@ -236,6 +245,8 @@ func (r *ModelMappingRepository) ClearAll(tenantID uint64) error {
 		}
 		r.cache = filtered
 	}
+	r.mu.Unlock()
+	r.bc.publish(OpReload, 0)
 	return nil
 }
 
@@ -244,5 +255,9 @@ func (r *ModelMappingRepository) SeedDefaults(tenantID uint64) error {
 		return err
 	}
 	// 重新加载（因为 seed 会创建多条记录）
-	return r.Load()
+	if err := r.Load(); err != nil {
+		return err
+	}
+	r.bc.publish(OpReload, 0)
+	return nil
 }

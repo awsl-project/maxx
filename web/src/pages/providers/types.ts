@@ -1,7 +1,7 @@
-import type { ClientType, Provider } from '@/lib/transport';
+import type { ClientType, DisguiseType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
-import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles } from 'lucide-react';
+import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles, Cloud } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
 import nvidiaLogo from '@/assets/icons/nvidia.svg';
@@ -12,7 +12,7 @@ import zhipuLogo from '@/assets/icons/zhipu.svg';
 // ===== Provider Type Configuration =====
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
 
-export type ProviderTypeKey = 'custom' | 'antigravity' | 'kiro' | 'codex' | 'claude';
+export type ProviderTypeKey = 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude';
 
 export interface ProviderTypeConfig {
   key: ProviderTypeKey;
@@ -62,6 +62,17 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     isAccountBased: true,
     getDisplayInfo: (p) => p.config?.claude?.email || 'Claude Account',
   },
+  bedrock: {
+    key: 'bedrock',
+    label: 'Bedrock',
+    icon: Cloud,
+    color: getProviderColorVar('bedrock'),
+    isAccountBased: false,
+    getDisplayInfo: (p) => {
+      const region = p.config?.bedrock?.region || 'us-east-1';
+      return `AWS Bedrock (${region})`;
+    },
+  },
   custom: {
     key: 'custom',
     label: 'Custom',
@@ -95,6 +106,7 @@ export const ANTIGRAVITY_COLOR = PROVIDER_TYPE_CONFIGS.antigravity.color;
 export const KIRO_COLOR = PROVIDER_TYPE_CONFIGS.kiro.color;
 export const CODEX_COLOR = PROVIDER_TYPE_CONFIGS.codex.color;
 export const CLAUDE_COLOR = PROVIDER_TYPE_CONFIGS.claude.color;
+export const BEDROCK_COLOR = PROVIDER_TYPE_CONFIGS.bedrock.color;
 
 // Model mapping for templates
 export type TemplateModelMapping = {
@@ -157,9 +169,9 @@ export const quickTemplates: QuickTemplate[] = [
     logoUrl: duckcodingLogo,
     supportedClients: ['claude', 'codex', 'gemini'],
     clientBaseURLs: {
-      claude: 'https://jp.duckcoding.com',
-      codex: 'https://jp.duckcoding.com/v1',
-      gemini: 'https://jp.duckcoding.com',
+      claude: 'https://api.duckcoding.ai',
+      codex: 'https://api.duckcoding.ai/v1',
+      gemini: 'https://api.duckcoding.ai',
     },
   },
   {
@@ -172,7 +184,7 @@ export const quickTemplates: QuickTemplate[] = [
     logoUrl: freeDuckLogo,
     supportedClients: ['claude'],
     clientBaseURLs: {
-      claude: 'https://free.duckcoding.com',
+      claude: 'https://free.duckcoding.ai',
     },
   },
   {
@@ -205,6 +217,8 @@ export const quickTemplates: QuickTemplate[] = [
 ];
 
 // Client config
+export type CustomBackend = 'http' | 'ollama';
+
 export type ClientConfig = {
   id: ClientType;
   name: string;
@@ -222,12 +236,17 @@ export const defaultClients: ClientConfig[] = [
 
 // Form data types
 export type ProviderFormData = {
-  type: 'custom' | 'antigravity' | 'kiro' | 'codex' | 'claude';
+  type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude';
   name: string;
   selectedTemplate: string | null;
   baseURL: string;
+  backend: CustomBackend;
   apiKey: string;
   clients: ClientConfig[];
+  // Disguise: which client identity to present to the upstream relay.
+  // Re-uses the canonical DisguiseType enum from the transport layer so the
+  // form types stay in sync if the protocol enum is extended.
+  disguiseType?: DisguiseType;
   cloakMode?: 'auto' | 'always' | 'never';
   cloakStrictMode?: boolean;
   cloakSensitiveWords?: string;
@@ -244,4 +263,5 @@ export type CreateStep =
   | 'antigravity-import'
   | 'kiro-import'
   | 'codex-import'
-  | 'claude-import';
+  | 'claude-import'
+  | 'bedrock-config';

@@ -222,3 +222,85 @@ func TestClaudeToCodexToolShortening(t *testing.T) {
 		t.Fatalf("missing server tool type in codex tools")
 	}
 }
+
+func TestCodexToOpenAIStreamToolCallArgumentDeltas(t *testing.T) {
+	state := NewTransformState()
+	conv := &codexToOpenAIResponse{}
+
+	eventsIn := []interface{}{
+		map[string]interface{}{"type": "response.created", "response": map[string]interface{}{"id": "resp_stream_delta"}},
+		map[string]interface{}{
+			"type":         "response.output_item.added",
+			"output_index": 0,
+			"item": map[string]interface{}{
+				"id":      "fc_1",
+				"type":    "function_call",
+				"call_id": "call_1",
+				"name":    "tool_alpha",
+			},
+		},
+		map[string]interface{}{"type": "response.function_call_arguments.delta", "output_index": 0, "delta": `{"a"`},
+		map[string]interface{}{"type": "response.function_call_arguments.delta", "output_index": 0, "delta": `:1}`},
+		map[string]interface{}{
+			"type":         "response.output_item.done",
+			"output_index": 0,
+			"item": map[string]interface{}{
+				"type":      "function_call",
+				"call_id":   "call_1",
+				"name":      "tool_alpha",
+				"arguments": `{"a":1}`,
+			},
+		},
+		map[string]interface{}{"type": "response.completed", "response": map[string]interface{}{"id": "resp_stream_delta"}},
+	}
+
+	var out []byte
+	for _, ev := range eventsIn {
+		next, err := conv.TransformChunk(FormatSSE("", ev), state)
+		if err != nil {
+			t.Fatalf("transform chunk error: %v", err)
+		}
+		out = append(out, next...)
+	}
+
+	events, _ := ParseSSE(string(out))
+	var nameChunk, firstArgDelta, secondArgDelta, duplicatedDoneArgs, finishToolCalls bool
+	for _, ev := range events {
+		if ev.Event == "done" {
+			continue
+		}
+		var chunk OpenAIStreamChunk
+		if err := json.Unmarshal(ev.Data, &chunk); err != nil {
+			t.Fatalf("invalid chunk JSON: %v", err)
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		choice := chunk.Choices[0]
+		if choice.FinishReason == "tool_calls" {
+			finishToolCalls = true
+		}
+		if choice.Delta == nil || len(choice.Delta.ToolCalls) == 0 {
+			continue
+		}
+		call := choice.Delta.ToolCalls[0]
+		if call.ID == "call_1" && call.Function.Name == "tool_alpha" {
+			nameChunk = true
+		}
+		if call.Function.Arguments == `{"a"` {
+			firstArgDelta = true
+		}
+		if call.Function.Arguments == `:1}` {
+			secondArgDelta = true
+		}
+		if call.Function.Arguments == `{"a":1}` {
+			duplicatedDoneArgs = true
+		}
+	}
+	if !nameChunk || !firstArgDelta || !secondArgDelta || !finishToolCalls {
+		t.Fatalf("missing expected stream tool call chunks; name=%v first=%v second=%v finish=%v output=%s", nameChunk, firstArgDelta, secondArgDelta, finishToolCalls, string(out))
+	}
+	if duplicatedDoneArgs {
+		t.Fatalf("expected output_item.done not to duplicate completed arguments after deltas: %s", string(out))
+	}
+}

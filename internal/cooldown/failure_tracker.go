@@ -46,6 +46,7 @@ func (ft *FailureTracker) LoadFromDatabase() error {
 			ProviderID: fc.ProviderID,
 			ClientType: fc.ClientType,
 			Reason:     CooldownReason(fc.Reason),
+			Model:      fc.Model,
 		}
 		ft.failureCounts[key] = fc.Count
 	}
@@ -56,11 +57,12 @@ func (ft *FailureTracker) LoadFromDatabase() error {
 
 // IncrementFailure increments the failure count and persists to database
 // Returns the new failure count
-func (ft *FailureTracker) IncrementFailure(providerID uint64, clientType string, reason CooldownReason) int {
+func (ft *FailureTracker) IncrementFailure(providerID uint64, clientType string, model string, reason CooldownReason) int {
 	key := FailureKey{
 		ProviderID: providerID,
 		ClientType: clientType,
 		Reason:     reason,
+		Model:      model,
 	}
 
 	ft.failureCounts[key]++
@@ -72,6 +74,7 @@ func (ft *FailureTracker) IncrementFailure(providerID uint64, clientType string,
 			TenantID:      domain.TenantIDAll, // cooldown is cross-tenant
 			ProviderID:    providerID,
 			ClientType:    clientType,
+			Model:         model,
 			Reason:        string(reason),
 			Count:         newCount,
 			LastFailureAt: time.Now().UTC(),
@@ -85,24 +88,25 @@ func (ft *FailureTracker) IncrementFailure(providerID uint64, clientType string,
 }
 
 // GetFailureCount returns the current failure count for a given key
-func (ft *FailureTracker) GetFailureCount(providerID uint64, clientType string, reason CooldownReason) int {
+func (ft *FailureTracker) GetFailureCount(providerID uint64, clientType string, model string, reason CooldownReason) int {
 	key := FailureKey{
 		ProviderID: providerID,
 		ClientType: clientType,
 		Reason:     reason,
+		Model:      model,
 	}
 	return ft.failureCounts[key]
 }
 
 // ResetFailures resets all failure counts for a provider+clientType
 // If clientType is empty, resets ALL failure counts for the provider
-func (ft *FailureTracker) ResetFailures(providerID uint64, clientType string) {
-	// Clear failure counts for all reasons for this provider+clientType
+func (ft *FailureTracker) ResetFailures(providerID uint64, clientType string, model string) {
+	// Clear failure counts for all reasons for this provider+clientType+model
 	keysToDelete := []FailureKey{}
 	for key := range ft.failureCounts {
-		// If clientType is empty, match all clientTypes for this provider
-		// Otherwise, only match the specific clientType
-		if key.ProviderID == providerID && (clientType == "" || key.ClientType == clientType) {
+		// If clientType is empty and model is empty, match all for this provider
+		// Otherwise, filter by the specified dimensions
+		if key.ProviderID == providerID && (clientType == "" || key.ClientType == clientType) && (model == "" || key.Model == model) {
 			keysToDelete = append(keysToDelete, key)
 		}
 	}
@@ -114,13 +118,13 @@ func (ft *FailureTracker) ResetFailures(providerID uint64, clientType string) {
 
 		// Delete from database
 		if ft.repository != nil {
-			if err := ft.repository.DeleteAll(domain.TenantIDAll, providerID, clientType); err != nil {
+			if err := ft.repository.DeleteAll(domain.TenantIDAll, providerID, clientType, model); err != nil {
 				log.Printf("[FailureTracker] Failed to delete failure counts from database: %v", err)
 			}
 		}
 
-		log.Printf("[FailureTracker] Provider %d (clientType=%s): Reset %d failure counts",
-			providerID, clientType, len(keysToDelete))
+		log.Printf("[FailureTracker] Provider %d (clientType=%s, model=%s): Reset %d failure counts",
+			providerID, clientType, model, len(keysToDelete))
 	}
 }
 

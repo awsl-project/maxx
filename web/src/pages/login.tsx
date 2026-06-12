@@ -5,6 +5,7 @@ import {
   ChevronDownIcon,
   FingerprintIcon,
 } from 'lucide-react';
+import { BackendAddressControl } from '@/components/backend-address-control';
 import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
 import { FieldError } from '@/components/field-error';
 import { PasswordInput } from '@/components/password-input';
@@ -27,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { AuthUser } from '@/lib/auth-context';
 import { getManagedPasswordError, getManagedPasswordRuleState } from '@/lib/managed-password';
 import { useTransport } from '@/lib/transport';
+import { usePublicSettings } from '@/hooks/queries';
 
 interface LoginPageProps {
   onSuccess: (token: string, user?: AuthUser) => void;
@@ -72,6 +74,9 @@ function mapRegisterError(
 export function LoginPage({ onSuccess }: LoginPageProps) {
   const { t } = useTranslation();
   const { transport } = useTransport();
+  const publicSettings = usePublicSettings();
+  const publicSettingsLoading = publicSettings.isLoading;
+  const multiTenantUIEnabled = publicSettings.data?.ui_multitenant_enabled === 'true';
   const [authTab, setAuthTab] = useState<AuthTab>('login');
   const [passkeyExpanded, setPasskeyExpanded] = useState(false);
   const [showRegisterPasswordRules, setShowRegisterPasswordRules] = useState(false);
@@ -99,7 +104,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
 
   const passkeySupported = browserSupportsWebAuthn();
-  const anyLoading = isLoginLoading || isRegisterLoading || isPasskeyLoading;
+  const anyLoading =
+    publicSettingsLoading || isLoginLoading || isRegisterLoading || isPasskeyLoading;
   const registerPasswordRuleState = getManagedPasswordRuleState(registerPassword);
   const registerPasswordFormatError = getRegisterPasswordError(registerPassword, t);
   const registerPasswordFieldError =
@@ -139,8 +145,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     clearLoginMessages();
     clearPasskeyMessages();
 
+    const loginUsernameValue = multiTenantUIEnabled ? loginUsername.trim() : 'admin';
     const nextErrors: Partial<Record<LoginField, string>> = {};
-    if (!loginUsername.trim()) {
+    if (multiTenantUIEnabled && !loginUsernameValue) {
       nextErrors.username = t('login.usernameRequired');
     }
     if (!loginPassword.trim()) {
@@ -155,7 +162,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     setIsLoginLoading(true);
 
     try {
-      const result = await transport.login(loginUsername.trim(), loginPassword);
+      const result = await transport.login(loginUsernameValue, loginPassword);
       if (result.success && result.token) {
         onSuccess(result.token, result.user as AuthUser | undefined);
         return;
@@ -332,7 +339,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                 )}
 
                 <Tabs
-                  value={authTab}
+                  value={multiTenantUIEnabled ? authTab : 'login'}
                   onValueChange={(value) => {
                     if (anyLoading) {
                       return;
@@ -349,18 +356,21 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                   }}
                   className="w-full"
                 >
-                  <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl p-1">
+                  {multiTenantUIEnabled && (
+                    <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl p-1">
                     <TabsTrigger value="login" className="rounded-lg text-sm" disabled={anyLoading}>
                       {t('login.primaryTitle')}
                     </TabsTrigger>
                     <TabsTrigger value="register" className="rounded-lg text-sm" disabled={anyLoading}>
                       {t('login.registerSummaryTitle')}
                     </TabsTrigger>
-                  </TabsList>
+                    </TabsList>
+                  )}
 
                   <TabsContent value="login" className="mt-6 space-y-5">
                     <form onSubmit={handleLogin} className="space-y-5">
-                      <div className="space-y-2">
+                      {multiTenantUIEnabled && (
+                        <div className="space-y-2">
                         <Label htmlFor="login-username">{t('login.usernameLabel')}</Label>
                         <Input
                           id="login-username"
@@ -380,7 +390,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                       }}
                     />
                         <FieldError message={loginFieldErrors.username} />
-                      </div>
+                        </div>
+                      )}
 
                       <div className="space-y-2">
                         <Label htmlFor="login-password">{t('login.passwordLabel')}</Label>
@@ -390,6 +401,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                           value={loginPassword}
                           placeholder={t('login.passwordPlaceholder')}
                           autoComplete="current-password"
+                          autoFocus={!multiTenantUIEnabled}
                           disabled={anyLoading}
                           className="h-11"
                           aria-invalid={loginFieldErrors.password ? 'true' : undefined}
@@ -399,7 +411,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                             setLoginFormError('');
                           }}
                         />
-                        <div className="flex justify-end">
+                        {multiTenantUIEnabled && (
+                          <div className="flex justify-end">
                           <Button
                             type="button"
                             variant="link"
@@ -408,7 +421,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                           >
                             {t('login.forgotPassword')}
                           </Button>
-                        </div>
+                          </div>
+                        )}
                         <FieldError message={loginFieldErrors.password} />
                       </div>
 
@@ -416,13 +430,18 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                         type="submit"
                         className="w-full"
                         size="lg"
-                        disabled={anyLoading || !loginUsername.trim() || !loginPassword.trim()}
+                        disabled={
+                          anyLoading ||
+                          (multiTenantUIEnabled && !loginUsername.trim()) ||
+                          !loginPassword.trim()
+                        }
                       >
                         {isLoginLoading ? t('login.verifying') : t('login.submit')}
                       </Button>
                     </form>
 
-                    <div className="space-y-3 border-t border-border/60 pt-4">
+                    {multiTenantUIEnabled && (
+                      <div className="space-y-3 border-t border-border/60 pt-4">
                       <button
                         type="button"
                         className="flex w-full items-start gap-3 rounded-2xl border border-border/70 bg-muted/25 px-4 py-4 text-left transition-colors hover:bg-muted/45"
@@ -484,10 +503,12 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                           </Button>
                         </div>
                       )}
-                    </div>
+                      </div>
+                    )}
                   </TabsContent>
 
-                  <TabsContent value="register" className="mt-6 space-y-5">
+                  {multiTenantUIEnabled && (
+                    <TabsContent value="register" className="mt-6 space-y-5">
                     <div className="rounded-2xl border border-border/70 bg-muted/25 p-4">
                       <p className="text-sm font-medium">{t('login.registerSummaryTitle')}</p>
                       <p className="text-muted-foreground mt-1 text-sm leading-6">
@@ -631,8 +652,13 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                         {isRegisterLoading ? t('login.registering') : t('login.register')}
                       </Button>
                     </form>
-                  </TabsContent>
+                    </TabsContent>
+                  )}
                 </Tabs>
+
+                <div className="border-t border-border/60 pt-4">
+                  <BackendAddressControl />
+                </div>
               </CardContent>
             </Card>
           </section>

@@ -51,10 +51,25 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	return nil
 }
 
+// Update 持久化一次状态/计量变更。
+//
+// OOM 关键:一次请求的生命周期里 Update 会被调用 5~10 次(route_match、
+// dispatch 中途、egress、超时收尾)。request_info 持有完整请求体(可达数十
+// MB),它在 Create 时写入后**永不变更**;若每次 Update 都走 toModel 把它
+// 重新 json.Marshal 一遍,就是 profile 里 2.58 GB cum 的主因。这里用
+// toModelMeta 完全不编码 request_info,并 Omit 掉该列(保留库中已有值);
+// response_info 仅在确有响应详情(非 nil)时才编码并写入一次,否则同样
+// Omit。clearDetail 路径下这两个字段全程为 nil、库中本就为空,跳过写入安全。
 func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 	p.UpdatedAt = time.Now()
-	model := r.toModel(p)
-	return r.db.gorm.Save(model).Error
+	model := r.toModelMeta(p)
+	omit := []string{"request_info"}
+	if p.ResponseInfo != nil {
+		model.ResponseInfo = LongText(toJSON(p.ResponseInfo))
+	} else {
+		omit = append(omit, "response_info")
+	}
+	return r.db.gorm.Omit(omit...).Save(model).Error
 }
 
 func (r *ProxyRequestRepository) GetByID(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {
@@ -106,6 +121,12 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 		if filter.ProjectID != nil {
 			baseQuery = baseQuery.Where("project_id = ?", *filter.ProjectID)
 		}
+		if filter.StartTime != nil {
+			baseQuery = baseQuery.Where("created_at >= ?", toTimestamp(*filter.StartTime))
+		}
+		if filter.EndTime != nil {
+			baseQuery = baseQuery.Where("created_at <= ?", toTimestamp(*filter.EndTime))
+		}
 	}
 
 	orderBy := "id DESC"
@@ -148,7 +169,7 @@ func (r *ProxyRequestRepository) Count(tenantID uint64) (int64, error) {
 // CountWithFilter 带过滤条件的计数
 func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
 	// 如果没有过滤条件且没有 tenantID 过滤，使用缓存的总数
-	if tenantID == domain.TenantIDAll && (filter == nil || (filter.ProviderID == nil && filter.Status == nil && filter.APITokenID == nil && filter.ProjectID == nil)) {
+	if tenantID == domain.TenantIDAll && (filter == nil || filter.IsEmpty()) {
 		return atomic.LoadInt64(&r.count), nil
 	}
 
@@ -168,6 +189,12 @@ func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *reposi
 		if filter.ProjectID != nil {
 			query = query.Where("project_id = ?", *filter.ProjectID)
 		}
+		if filter.StartTime != nil {
+			query = query.Where("created_at >= ?", toTimestamp(*filter.StartTime))
+		}
+		if filter.EndTime != nil {
+			query = query.Where("created_at <= ?", toTimestamp(*filter.EndTime))
+		}
 	}
 	if err := query.Count(&count).Error; err != nil {
 		return 0, err
@@ -175,21 +202,47 @@ func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *reposi
 	return count, nil
 }
 
-// MarkStaleAsFailed marks all IN_PROGRESS/PENDING requests from other instances as FAILED
-// Also marks requests that have been IN_PROGRESS for too long (> 30 minutes) as timed out
-// Sets proper end_time and duration_ms for complete failure handling
-func (r *ProxyRequestRepository) MarkStaleAsFailed(currentInstanceID string) (int64, error) {
-	timeoutThreshold := time.Now().Add(-30 * time.Minute).UnixMilli()
-	now := time.Now().UnixMilli()
+// 死实例孤儿请求的回收宽限期。当一个请求的 instance_id 不在活实例列表里时,
+// 等它的 start_time 早于 (now - DeadInstanceGracePeriod) 才标记为 FAILED。
+// 这个宽限期覆盖以下场景:
+//   - 新启动的实例完成 RegisterInstance 之前可能已经下发了少量请求
+//   - 实例 ID 一时未来得及同步到 coordinator(网络抖动)
+//
+// 选 60s 与心跳 TTL 对齐;单实例重启场景下,旧 in-progress 请求等 60s 后被清理,
+// 远好于原行为(立刻杀)和过保守行为(等 30min)之间。
+const deadInstanceGraceMillis = int64(60 * 1000)
 
-	// Use raw SQL for complex CASE expression
-	// Sets end_time = now and calculates duration_ms = now - start_time
+// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their
+// owning instance is no longer alive, or when the request has been in flight
+// for more than 30 minutes (timeout).
+//
+// 关键安全语义:
+//   - aliveInstanceIDs 为空 → 直接返回 0,不做任何回收。防止 coordinator
+//     异常导致全表误杀。调用方在 coordinator 健康时才该调用。
+//   - 多实例环境下,只清理 (a) instance_id 不在活实例集合且过了 60s 宽限期,
+//     或 (b) 任意实例上 start_time 超过 30min 的卡死请求。
+func (r *ProxyRequestRepository) MarkStaleAsFailed(aliveInstanceIDs []string) (int64, error) {
+	if len(aliveInstanceIDs) == 0 {
+		return 0, nil
+	}
+
+	nowMs := time.Now().UnixMilli()
+	timeoutThreshold := nowMs - int64(30*time.Minute/time.Millisecond)
+	deadGraceThreshold := nowMs - deadInstanceGraceMillis
+
+	// 死实例分支用 COALESCE(NULLIF(start_time, 0), created_at):PENDING 状态
+	// 请求可能 start_time = 0(还没真正开始处理就被卡在队列),如果只看
+	// start_time 这些请求永远不会被回收。fallback 到 created_at 让"创建超过
+	// 60s 且实例已死"的请求也能被清。
+	//
+	// 30min 硬超时分支仍只看 start_time > 0:超时本质上是"已开始但卡死太久",
+	// 还没开始的 PENDING 不算超时(它由死实例分支或 hourly cleanup 处理)。
 	result := r.db.gorm.Exec(`
 		UPDATE proxy_requests
 		SET status = 'FAILED',
 		    error = CASE
-		        WHEN instance_id IS NULL OR instance_id != ? THEN 'Server restarted'
-		        ELSE 'Request timed out (stuck in progress)'
+		        WHEN start_time > 0 AND start_time < ? THEN 'Request timed out (stuck in progress)'
+		        ELSE 'Instance no longer alive'
 		    END,
 		    end_time = ?,
 		    duration_ms = CASE
@@ -199,10 +252,14 @@ func (r *ProxyRequestRepository) MarkStaleAsFailed(currentInstanceID string) (in
 		    updated_at = ?
 		WHERE status IN ('PENDING', 'IN_PROGRESS')
 		  AND (
-		      (instance_id IS NULL OR instance_id != ?)
-		      OR (start_time < ? AND start_time > 0)
+		      ((instance_id IS NULL OR instance_id NOT IN (?))
+		         AND COALESCE(NULLIF(start_time, 0), created_at) < ?)
+		      OR
+		      (start_time > 0 AND start_time < ?)
 		  )`,
-		currentInstanceID, now, now, now, currentInstanceID, timeoutThreshold,
+		timeoutThreshold, nowMs, nowMs, nowMs,
+		aliveInstanceIDs, deadGraceThreshold,
+		timeoutThreshold,
 	)
 	if result.Error != nil {
 		return 0, result.Error
@@ -249,37 +306,56 @@ func (r *ProxyRequestRepository) UpdateProjectIDBySessionID(tenantID uint64, ses
 }
 
 // DeleteOlderThan 删除指定时间之前的请求记录
+//
+// 分批处理：避免一次性 pluck 海量 id + 两次大 IN DELETE 产生超大事务。
 func (r *ProxyRequestRepository) DeleteOlderThan(before time.Time) (int64, error) {
+	const batchSize = 500
 	beforeTs := toTimestamp(before)
+	var total int64
+	var lastID uint64
 
-	// 先查询需要删除的请求ID列表（兼容MySQL）
-	var requestIDs []uint64
-	if err := r.db.gorm.Model(&ProxyRequest{}).Where("created_at < ?", beforeTs).Pluck("id", &requestIDs).Error; err != nil {
-		return 0, err
+	for {
+		var ids []uint64
+		if err := r.db.gorm.Model(&ProxyRequest{}).
+			Where("created_at < ? AND id > ?", beforeTs, lastID).
+			Order("id").
+			Limit(batchSize).
+			Pluck("id", &ids).Error; err != nil {
+			return total, err
+		}
+		if len(ids) == 0 {
+			return total, nil
+		}
+		// keyset 推进：即使本批写命中 0 行也保证下一批跳过这段 id 区间，不会 livelock
+		lastID = ids[len(ids)-1]
+
+		var batchAffected int64
+		if err := r.db.gorm.Transaction(func(tx *gorm.DB) error {
+			// 子删除限定到当前仍 eligible 的 parent（防止 parent 不可删时 attempts 成孤儿）
+			eligibleParents := tx.Model(&ProxyRequest{}).
+				Select("id").
+				Where("id IN ? AND created_at < ?", ids, beforeTs)
+			if err := tx.Where("proxy_request_id IN (?)", eligibleParents).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
+				return err
+			}
+			res := tx.Where("id IN ? AND created_at < ?", ids, beforeTs).Delete(&ProxyRequest{})
+			if res.Error != nil {
+				return res.Error
+			}
+			batchAffected = res.RowsAffected
+			return nil
+		}); err != nil {
+			return total, err
+		}
+		if batchAffected > 0 {
+			atomic.AddInt64(&r.count, -batchAffected)
+		}
+		total += batchAffected
+
+		if len(ids) < batchSize {
+			return total, nil
+		}
 	}
-
-	if len(requestIDs) == 0 {
-		return 0, nil
-	}
-
-	// 删除关联的 attempts
-	if err := r.db.gorm.Where("proxy_request_id IN ?", requestIDs).Delete(&ProxyUpstreamAttempt{}).Error; err != nil {
-		return 0, err
-	}
-
-	// 删除 requests
-	result := r.db.gorm.Where("id IN ?", requestIDs).Delete(&ProxyRequest{})
-	if result.Error != nil {
-		return 0, result.Error
-	}
-
-	affected := result.RowsAffected
-	// 更新计数缓存
-	if affected > 0 {
-		atomic.AddInt64(&r.count, -affected)
-	}
-
-	return affected, nil
 }
 
 // HasRecentRequests 检查指定时间之后是否有请求记录
@@ -297,61 +373,15 @@ func (r *ProxyRequestRepository) UpdateCost(id uint64, cost uint64) error {
 	return r.db.gorm.Model(&ProxyRequest{}).Where("id = ?", id).Update("cost", cost).Error
 }
 
-// AddCost adds a delta to the cost field of a request (can be negative)
-func (r *ProxyRequestRepository) AddCost(id uint64, delta int64) error {
-	return r.db.gorm.Model(&ProxyRequest{}).Where("id = ?", id).
-		Update("cost", gorm.Expr("cost + ?", delta)).Error
-}
-
-// BatchUpdateCosts updates costs for multiple requests in a single transaction
-func (r *ProxyRequestRepository) BatchUpdateCosts(updates map[uint64]uint64) error {
-	if len(updates) == 0 {
-		return nil
-	}
-
+// UpdateCostAtomically 一个事务里同时更新 proxy_requests.cost 和一批 attempt 的 cost+model_price_id。
+// 保证 proxy_requests.cost == SUM(proxy_upstream_attempts.cost) 这条不变量在中途不会被打破:
+// 如果只用两步独立写,attempt 写完 / request 写失败 会留下父子不一致的窗口,审计后续很难发现。
+func (r *ProxyRequestRepository) UpdateCostAtomically(requestID, requestCost uint64, attemptUpdates map[uint64]domain.AttemptCostUpdate) error {
 	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
-		// Use CASE WHEN for batch update
-		const batchSize = 500
-		ids := make([]uint64, 0, len(updates))
-		for id := range updates {
-			ids = append(ids, id)
+		if err := batchUpdateAttemptCostsInTx(tx, attemptUpdates); err != nil {
+			return err
 		}
-
-		for i := 0; i < len(ids); i += batchSize {
-			end := i + batchSize
-			if end > len(ids) {
-				end = len(ids)
-			}
-			batchIDs := ids[i:end]
-
-			// Build CASE WHEN statement
-			var cases strings.Builder
-			cases.WriteString("CASE id ")
-			args := make([]interface{}, 0, len(batchIDs)*3+1)
-
-			// First: CASE WHEN pairs (id, cost)
-			for _, id := range batchIDs {
-				cases.WriteString("WHEN ? THEN ? ")
-				args = append(args, id, updates[id])
-			}
-			cases.WriteString("END")
-
-			// Second: timestamp for updated_at
-			args = append(args, time.Now().UnixMilli())
-
-			// Third: WHERE IN ids
-			for _, id := range batchIDs {
-				args = append(args, id)
-			}
-
-			sql := fmt.Sprintf("UPDATE proxy_requests SET cost = %s, updated_at = ? WHERE id IN (?%s)",
-				cases.String(), strings.Repeat(",?", len(batchIDs)-1))
-
-			if err := tx.Exec(sql, args...).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		return tx.Model(&ProxyRequest{}).Where("id = ?", requestID).Update("cost", requestCost).Error
 	})
 }
 
@@ -439,23 +469,193 @@ func (r *ProxyRequestRepository) RecalculateCostsFromAttemptsWithProgress(progre
 	return totalUpdated, nil
 }
 
-// ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
-func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time) (int64, error) {
-	beforeTs := toTimestamp(before)
-	now := time.Now().UnixMilli()
+// detailCleanupIndexMissing 由启动时健康检查置位:MySQL detail-cleanup 索引不存在时
+// 设为 1。设置后 detailCleanupBatchParams 退化回保守批次(200/50ms),避免在无索引的
+// 大表上以 batch=1000 反复触发 full-table-scan 把 IOPS 打满。
+//
+// 用 atomic.Int32 而非 mutex:写一次(启动),读高频(每次清理批次),无锁读最便宜。
+var detailCleanupIndexMissing atomic.Int32
 
-	result := r.db.gorm.Model(&ProxyRequest{}).
-		Where("created_at < ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND dev_mode = 0", beforeTs).
-		Updates(map[string]any{
+// detailClearedColumnMissing 由启动时检查置位:大表 threshold-skip 导致 v15 没建
+// detail_cleared 列时设为 1。ClearDetailOlderThan 据此走 legacy IS NOT NULL 谓词,
+// 否则查询会因列不存在而每个 tick 都失败——是功能失效,不是降级变慢(Codex 抓到)。
+var detailClearedColumnMissing atomic.Int32
+
+// SetDetailClearedColumnMissing 设置 detail_cleared 列缺失状态。
+//
+// 调用方:internal/core/task.go:checkDetailClearedColumnHealth 在启动时探测一次。
+// 同进程内若列后续被运维手动补建,需重启进程才能恢复 fast-path——这是与
+// detailCleanupIndexMissing 一致的语义,避免运行时反复轮询。
+func SetDetailClearedColumnMissing(missing bool) {
+	if missing {
+		detailClearedColumnMissing.Store(1)
+	} else {
+		detailClearedColumnMissing.Store(0)
+	}
+}
+
+// detailClearedColumnAvailable 返回是否可以使用 detail_cleared sentinel。
+func detailClearedColumnAvailable() bool {
+	return detailClearedColumnMissing.Load() == 0
+}
+
+// SetDetailCleanupIndexMissing 设置 MySQL detail-cleanup 索引缺失状态。startup
+// health-check 调用,见 internal/core/task.go:checkDetailCleanupIndexHealth。
+//
+// 显式 set(true/false):每次启动健康检查时都覆盖写,避免之前进程态/测试态遗留的 sticky
+// 标志位污染后续判断。同进程内若索引被运维补建,需要重启进程才能恢复 fast-path;
+// 这是可接受的权衡——避免运行时反复轮询 INFORMATION_SCHEMA 的开销。
+func SetDetailCleanupIndexMissing(missing bool) {
+	if missing {
+		detailCleanupIndexMissing.Store(1)
+	} else {
+		detailCleanupIndexMissing.Store(0)
+	}
+}
+
+// detailCleanupBatchParams 返回当前 dialect 下 detail cleanup 批次大小与 batch 间 sleep。
+//
+//   - SQLite:200 / 50ms。SQLite WAL 是单写者锁,大 batch 会让 API INSERT 长时间等待
+//     ("卡死"问题的根因);沿用 v0.13.77 的保守值,验证稳定。
+//   - MySQL 且索引就绪:1000 / 20ms。改完 v14 索引后 SELECT 亚秒级,瓶颈转到 UPDATE
+//     网络往返,大 batch 把往返摊薄到更多行。
+//   - MySQL 但索引缺失(threshold-skip 且没手动建):退化回 200 / 50ms。无索引时 SELECT
+//     是 full-scan-per-batch,大 batch 不会摊薄全扫成本,反而每批次锁更多行;保守批次
+//     +更长 sleep 减小对在线流量的干扰。startup 已经打了告警日志,运维应当尽快建索引。
+func detailCleanupBatchParams(dialector string) (batchSize int, sleep time.Duration) {
+	switch dialector {
+	case "mysql":
+		if detailCleanupIndexMissing.Load() == 1 {
+			return 200, 50 * time.Millisecond
+		}
+		return 1000, 20 * time.Millisecond
+	default:
+		return 200, 50 * time.Millisecond
+	}
+}
+
+// maxCleanupBatchesPerCall 限制单次 ClearDetailOlderThan 调用最多处理多少 batch。
+//
+// 解决"一次调用 drain-to-completion 跑 43 min"的延迟尾问题:
+//   - 50 batch × 1000 行(MySQL) = 50k 行 / 调用,单次 wall-clock 几秒
+//   - SQLite 200/50ms 时 50 × 200 = 10k 行 / 调用,同样几秒收敛
+//   - 配合 sentinel 索引,backlog 在多次 tick 内被分摊处理,不会单次卡死
+//
+// var 而非 const:测试中需要临时调小验证 cap 行为(TestClearDetailOlderThan_RespectsBatchCap)。
+// 生产路径不应修改。
+var maxCleanupBatchesPerCall = 50
+
+// ClearDetailOlderThan 清理指定时间之前请求的详情字段（request_info 和 response_info）
+// statuses 为空时不按状态过滤；非空时仅清理 status IN (statuses) 的记录
+//
+// 设计:
+//
+//  1. **sentinel column (detail_cleared)**:WHERE detail_cleared = 0 是 leading-column
+//     等值匹配,planner 在 v15 索引 (detail_cleared, created_at, id) 的 0-段做范围扫,
+//     **无需回行评估 LONGTEXT NULL flag**——这是 MySQL 上 43-min stall 的真正根因。
+//     UPDATE 同步置 detail_cleared = 1,清完的行自动离开 0-段。稳态下 0-段几乎空。
+//
+//  2. **within-call cursor (created_at, id)**:同一次函数调用内分批用游标。**不跨调用
+//     持久化**——曾经持久化过,会与可变 status 过滤冲突:PENDING 行先被 cursor 越过,
+//     之后转 COMPLETED/FAILED 时永远在 cursor 后,清不到(Codex review 抓到)。
+//     去掉持久化后每次从 0-段起点扫,稳态依赖 sentinel 让起点接近真实未清行。
+//
+//  3. **maxCleanupBatchesPerCall 封顶**:即使 backlog 巨大,单次调用 wall-clock 秒级,
+//     不再 43-min。下次 tick 接力。
+//
+// 重应用谓词:Pluck 与 UPDATE 之间行的 status/dev_mode 可能变动,UPDATE WHERE 必须再次
+// 校验所有过滤条件,避免错改 dev_mode 行或状态已变更的行。
+func (r *ProxyRequestRepository) ClearDetailOlderThan(before time.Time, statuses []string) (int64, error) {
+	batchSize, batchSleep := detailCleanupBatchParams(r.db.Dialector())
+	beforeTs := toTimestamp(before)
+	useSentinel := detailClearedColumnAvailable()
+	var total int64
+	var lastCreatedAt int64
+	var lastID uint64
+
+	// 谓词分支:
+	//   - useSentinel=true(常态):detail_cleared = 0,planner 走 v15 sentinel 索引
+	//   - useSentinel=false(大表 threshold-skip 列没建):退化到 v13/v14 legacy 谓词,
+	//     虽然慢但功能正常。运维补建列+重启即恢复 fast-path。
+	selectPred := "detail_cleared = 0 AND created_at < ? AND dev_mode = 0"
+	updatePred := "id IN ? AND detail_cleared = 0 AND created_at < ? AND dev_mode = 0"
+	updateMap := map[string]any{
+		"request_info":   nil,
+		"response_info":  nil,
+		"detail_cleared": 1,
+		"updated_at":     time.Now().UnixMilli(),
+	}
+	if !useSentinel {
+		selectPred = "(request_info IS NOT NULL OR response_info IS NOT NULL) AND created_at < ? AND dev_mode = 0"
+		updatePred = "id IN ? AND (request_info IS NOT NULL OR response_info IS NOT NULL) AND created_at < ? AND dev_mode = 0"
+		updateMap = map[string]any{
 			"request_info":  nil,
 			"response_info": nil,
-			"updated_at":    now,
-		})
+			"updated_at":    time.Now().UnixMilli(),
+		}
+	}
 
-	return result.RowsAffected, result.Error
+	type cursorRow struct {
+		ID        uint64 `gorm:"column:id"`
+		CreatedAt int64  `gorm:"column:created_at"`
+	}
+
+	for batchIdx := 0; batchIdx < maxCleanupBatchesPerCall; batchIdx++ {
+		var rows []cursorRow
+		q := r.db.gorm.Model(&ProxyRequest{}).
+			Select("id, created_at").
+			Where(selectPred, beforeTs).
+			Where("(created_at > ? OR (created_at = ? AND id > ?))", lastCreatedAt, lastCreatedAt, lastID)
+		if len(statuses) > 0 {
+			q = q.Where("status IN ?", statuses)
+		}
+		if err := q.Order("created_at, id").Limit(batchSize).Scan(&rows).Error; err != nil {
+			return total, err
+		}
+		if len(rows) == 0 {
+			return total, nil
+		}
+		ids := make([]uint64, len(rows))
+		for i, row := range rows {
+			ids[i] = row.ID
+		}
+		last := rows[len(rows)-1]
+		lastCreatedAt = last.CreatedAt
+		lastID = last.ID
+
+		// 每个 batch 用当前时刻刷新 updated_at;updateMap 在循环外构造时是初始时刻,
+		// 长 backlog 下让 updated_at 反映最近一次实际写入更精确。
+		updateMap["updated_at"] = time.Now().UnixMilli()
+		uq := r.db.gorm.Model(&ProxyRequest{}).Where(updatePred, ids, beforeTs)
+		if len(statuses) > 0 {
+			uq = uq.Where("status IN ?", statuses)
+		}
+		result := uq.Updates(updateMap)
+		if result.Error != nil {
+			return total, result.Error
+		}
+		total += result.RowsAffected
+
+		if len(rows) < batchSize {
+			return total, nil
+		}
+		time.Sleep(batchSleep)
+	}
+	return total, nil
 }
 
 func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
+	m := r.toModelMeta(p)
+	m.RequestInfo = LongText(toJSON(p.RequestInfo))
+	m.ResponseInfo = LongText(toJSON(p.ResponseInfo))
+	return m
+}
+
+// toModelMeta 构造除 request_info/response_info 两个大字段外的所有列。
+// 这两个字段的 JSON 编码是 OOM 的主要来源(请求体可达数十 MB,且 Update
+// 在一次请求生命周期里会被调用多次),Create 走 toModel 一次性编码,Update
+// 路径据此按需决定是否编码,避免对状态/计量类更新重复序列化大 body。
+func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyRequest {
 	return &ProxyRequest{
 		BaseModel: BaseModel{
 			ID:        p.ID,
@@ -476,8 +676,6 @@ func (r *ProxyRequestRepository) toModel(p *domain.ProxyRequest) *ProxyRequest {
 		IsStream:                    boolToInt(p.IsStream),
 		Status:                      p.Status,
 		StatusCode:                  p.StatusCode,
-		RequestInfo:                 LongText(toJSON(p.RequestInfo)),
-		ResponseInfo:                LongText(toJSON(p.ResponseInfo)),
 		Error:                       LongText(p.Error),
 		ProxyUpstreamAttemptCount:   p.ProxyUpstreamAttemptCount,
 		FinalProxyUpstreamAttemptID: p.FinalProxyUpstreamAttemptID,

@@ -8,14 +8,24 @@ import type { ModelMappingInput } from '@/lib/transport';
 
 export const settingsKeys = {
   all: ['settings'] as const,
+  public: ['public-settings'] as const,
   detail: (key: string) => ['settings', key] as const,
   modelMappings: ['model-mappings'] as const,
 };
 
-export function useSettings() {
+export function usePublicSettings(enabled = true) {
+  return useQuery({
+    queryKey: settingsKeys.public,
+    queryFn: () => getTransport().getPublicSettings(),
+    enabled,
+  });
+}
+
+export function useSettings(enabled = true) {
   return useQuery({
     queryKey: settingsKeys.all,
-    queryFn: () => getTransport().getSettings(),
+    queryFn: () => getTransport().getAdminSettings(),
+    enabled,
   });
 }
 
@@ -58,6 +68,7 @@ export function useUpdateSetting() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+      queryClient.invalidateQueries({ queryKey: settingsKeys.public });
     },
   });
 }
@@ -67,8 +78,27 @@ export function useDeleteSetting() {
 
   return useMutation({
     mutationFn: (key: string) => getTransport().deleteSetting(key),
+    onMutate: async (key) => {
+      await queryClient.cancelQueries({ queryKey: settingsKeys.all });
+
+      const previousSettings = queryClient.getQueryData<Record<string, string>>(settingsKeys.all);
+
+      if (previousSettings) {
+        const nextSettings = { ...previousSettings };
+        delete nextSettings[key];
+        queryClient.setQueryData(settingsKeys.all, nextSettings);
+      }
+
+      return { previousSettings };
+    },
+    onError: (_err, _key, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(settingsKeys.all, context.previousSettings);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+      queryClient.invalidateQueries({ queryKey: settingsKeys.public });
     },
   });
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   Copy,
@@ -24,7 +24,7 @@ import {
 } from '@/components/ui';
 import { ClientIcon } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
-import { useProxyStatus, useProviders, useRoutes, useSettings } from '@/hooks/queries';
+import { useProxyStatus, useProviders, usePublicSettings, useRoutes } from '@/hooks/queries';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
 
 interface CodeBlockProps {
@@ -66,7 +66,6 @@ interface QuickstartBundle {
   oneliner: string;
 }
 
-
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -93,7 +92,9 @@ function buildQuickstartBundle(params: {
 
   switch (params.client) {
     case 'claude': {
-      const settingsJson = JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: token, ANTHROPIC_BASE_URL: baseUrl } });
+      const settingsJson = JSON.stringify({
+        env: { ANTHROPIC_AUTH_TOKEN: token, ANTHROPIC_BASE_URL: baseUrl },
+      });
       return {
         primaryLabel: 'settings.json',
         primaryCode: `{
@@ -102,7 +103,7 @@ function buildQuickstartBundle(params: {
     "ANTHROPIC_BASE_URL": "${baseUrl}"
   }
 }`,
-        verifyCode: `ANTHROPIC_BASE_URL="${baseUrl}" ANTHROPIC_AUTH_TOKEN="${token}" claude`,
+        verifyCode: `ANTHROPIC_BASE_URL=${shellQuote(baseUrl)} ANTHROPIC_AUTH_TOKEN=${shellQuote(token)} claude`,
         oneliner: `mkdir -p ~/.claude && printf '%s\\n' ${shellQuote(settingsJson)} > ~/.claude/settings.json`,
       };
     }
@@ -111,37 +112,36 @@ function buildQuickstartBundle(params: {
         primaryLabel: '.env',
         primaryCode: `OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1
 OPENAI_API_KEY=${token}`,
-        verifyCode: `curl -X POST ${baseUrl}${projectPrefix}/v1/chat/completions \\
+        verifyCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1/chat/completions`)} \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${token}" \\
+  -H ${shellQuote(`Authorization: Bearer ${token}`)} \\
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}'`,
         oneliner: `printf '%s\\n' ${shellQuote(`OPENAI_BASE_URL=${baseUrl}${projectPrefix}/v1\nOPENAI_API_KEY=${token}`)} > .env`,
       };
     case 'codex': {
       const codexBaseUrl = `${baseUrl}${projectPrefix || ''}`;
       const bundle = buildCodexConfigBundle({ token, baseUrl: codexBaseUrl });
-      const authJson = JSON.stringify({ OPENAI_API_KEY: token });
       return {
         primaryLabel: 'config.toml',
         primaryCode: bundle.configToml,
         secondaryLabel: 'auth.json',
         secondaryCode: bundle.authJson,
         verifyCode: 'codex',
-        oneliner: `mkdir -p ~/.codex && printf '%s\\n' ${shellQuote(bundle.configToml)} > ~/.codex/config.toml && printf '%s\\n' ${shellQuote(authJson)} > ~/.codex/auth.json`,
+        oneliner: `mkdir -p ~/.codex && printf '%s\\n' ${shellQuote(bundle.configToml)} > ~/.codex/config.toml && printf '%s\\n' ${shellQuote(bundle.authJson)} > ~/.codex/auth.json`,
       };
     }
     case 'gemini':
       return {
         primaryLabel: 'curl',
-        primaryCode: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
+        primaryCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} \\
   -H "Content-Type: application/json" \\
-  -H "x-goog-api-key: ${token}" \\
+  -H ${shellQuote(`x-goog-api-key: ${token}`)} \\
   -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
-        verifyCode: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent \\
+        verifyCode: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} \\
   -H "Content-Type: application/json" \\
-  -H "x-goog-api-key: ${token}" \\
+  -H ${shellQuote(`x-goog-api-key: ${token}`)} \\
   -d '{"contents":[{"parts":[{"text":"diagnose"}]}]}'`,
-        oneliner: `curl -X POST ${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent -H "Content-Type: application/json" -H "x-goog-api-key: ${token}" -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
+        oneliner: `curl -X POST ${shellQuote(`${baseUrl}${projectPrefix}/v1beta/models/gemini-pro:generateContent`)} -H "Content-Type: application/json" -H ${shellQuote(`x-goog-api-key: ${token}`)} -d '{"contents":[{"parts":[{"text":"hello"}]}]}'`,
       };
   }
 }
@@ -170,12 +170,18 @@ export function DocumentationPage() {
 function DocumentationSection() {
   const { t } = useTranslation();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
   const [activeTab, setActiveTab] = useState<DocumentationPageTab>('quickstart');
   const [quickstartClient, setQuickstartClient] = useState<QuickstartClient>('claude');
   const [quickstartToken, setQuickstartToken] = useState('');
   const [quickstartProjectSlug, setQuickstartProjectSlug] = useState('');
   const { data: proxyStatus } = useProxyStatus();
-  const { data: settings } = useSettings();
+  const { data: settings } = usePublicSettings();
   const { data: providers } = useProviders();
   const { data: routes } = useRoutes();
   const baseUrl = buildProxyBaseUrl(proxyStatus);
@@ -260,10 +266,37 @@ function DocumentationSection() {
     ],
   );
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedCode(id);
-    setTimeout(() => setCopiedCode(null), 2000);
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      let copied = false;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        } catch {
+          copied = false;
+        }
+      }
+      if (!copied) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        try {
+          textarea.select();
+          copied = document.execCommand('copy');
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+      if (!copied) throw new Error('Clipboard copy failed');
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      setCopiedCode(id);
+      copyTimerRef.current = setTimeout(() => setCopiedCode(null), 2000);
+    } catch {
+      console.error('Failed to copy to clipboard.');
+    }
   };
 
   const handleDocumentationTabChange = (value: string) => {
@@ -324,7 +357,11 @@ function DocumentationSection() {
         })}
       </TabsList>
 
-      <TabsContent value="quickstart" data-testid="documentation-quickstart-content" className="mt-6">
+      <TabsContent
+        value="quickstart"
+        data-testid="documentation-quickstart-content"
+        className="mt-6"
+      >
         <Card className="border-border bg-card">
           <CardContent className="space-y-5 pt-6">
             <div className="space-y-1">
@@ -442,9 +479,7 @@ function DocumentationSection() {
                 </p>
               )}
               {quickstartClient === 'codex' && (
-                <p className="text-xs text-muted-foreground">
-                  {t('documentation.configTomlDesc')}
-                </p>
+                <p className="text-xs text-muted-foreground">{t('documentation.configTomlDesc')}</p>
               )}
               <CodeBlock
                 code={quickstartBundle.primaryCode}
@@ -461,9 +496,7 @@ function DocumentationSection() {
                   <Badge variant="outline">{quickstartBundle.secondaryLabel}</Badge>
                 </div>
                 {quickstartClient === 'codex' && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('documentation.authJsonDesc')}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
                 )}
                 <CodeBlock
                   code={quickstartBundle.secondaryCode}
@@ -486,8 +519,8 @@ function DocumentationSection() {
                 </p>
                 <CodeBlock
                   code={`claude_maxx() {
-    export ANTHROPIC_BASE_URL="${baseUrl}"
-    export ANTHROPIC_AUTH_TOKEN="${quickstartToken.trim() || 'maxx_your_token_here'}"
+    export ANTHROPIC_BASE_URL=${shellQuote(baseUrl)}
+    export ANTHROPIC_AUTH_TOKEN=${shellQuote(quickstartToken.trim() || 'maxx_your_token_here')}
     claude "$@"
 }`}
                   id="quickstart-claude-shell"
@@ -531,9 +564,7 @@ function DocumentationSection() {
             <div className="pt-4 border-t border-border space-y-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold">
-                  {t('documentation.tokenAuthentication')}
-                </h3>
+                <h3 className="text-sm font-semibold">{t('documentation.tokenAuthentication')}</h3>
               </div>
 
               <div className="p-4 rounded-md bg-muted/30 border border-border space-y-2">
@@ -578,7 +609,11 @@ function DocumentationSection() {
         </Card>
       </TabsContent>
 
-      <TabsContent value="diagnostics" data-testid="documentation-diagnostics-content" className="mt-6">
+      <TabsContent
+        value="diagnostics"
+        data-testid="documentation-diagnostics-content"
+        className="mt-6"
+      >
         <Card className="border-border bg-card">
           <CardContent className="space-y-4 pt-6">
             <div className="space-y-1">

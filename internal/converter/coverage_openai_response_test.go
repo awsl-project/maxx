@@ -797,3 +797,36 @@ func TestGeminiToOpenAIRequestFunctionResponseFallback(t *testing.T) {
 		t.Fatalf("expected tool_call_id fallback to name")
 	}
 }
+
+func TestCodexToOpenAIResponseJoinsMultipleOutputTextAndRefusal(t *testing.T) {
+	body := []byte(`{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"a"},{"type":"output_text","text":"b"},{"type":"refusal","refusal":"c"}]}]}`)
+	out, err := (&codexToOpenAIResponse{}).Transform(body)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if !strings.Contains(string(out), `"content":"abc"`) {
+		t.Fatalf("expected joined content/refusal text: %s", string(out))
+	}
+}
+
+func TestCodexToOpenAIResponseCompletedToolCallsFinishReason(t *testing.T) {
+	body := []byte(`{"id":"resp_1","status":"completed","output":[{"type":"function_call","call_id":"call_1","name":"tool","arguments":"{}"}]}`)
+	out, err := (&codexToOpenAIResponse{}).Transform(body)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if !strings.Contains(string(out), `"finish_reason":"tool_calls"`) {
+		t.Fatalf("expected tool_calls finish reason: %s", string(out))
+	}
+}
+
+func TestCodexToOpenAIResponseIncompleteFinishReason(t *testing.T) {
+	body := []byte(`{"id":"resp_1","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","content":[{"type":"output_text","text":"partial"}]}]}`)
+	out, err := (&codexToOpenAIResponse{}).Transform(body)
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if !strings.Contains(string(out), `"finish_reason":"length"`) {
+		t.Fatalf("expected length finish reason: %s", string(out))
+	}
+}

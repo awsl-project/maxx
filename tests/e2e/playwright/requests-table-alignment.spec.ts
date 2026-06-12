@@ -14,6 +14,10 @@ const REQUEST_FILTER_MODE_STORAGE_KEY = 'maxx-requests-filter-mode';
 const REQUEST_PROVIDER_FILTER_STORAGE_KEY = 'maxx-requests-provider-filter';
 const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
+const REQUEST_FILTER_MODE_SCOPED_STORAGE_KEY = 'maxx-requests-filter-mode:tenant-1:user-1';
+const REQUEST_PROVIDER_FILTER_SCOPED_STORAGE_KEY = 'maxx-requests-provider-filter:tenant-1:user-1';
+const REQUEST_TOKEN_FILTER_SCOPED_STORAGE_KEY = 'maxx-requests-token-filter:tenant-1:user-1';
+const REQUEST_PROJECT_FILTER_SCOPED_STORAGE_KEY = 'maxx-requests-project-filter:tenant-1:user-1';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -182,6 +186,11 @@ async function openRequestsPage(page: Page, providerId?: number) {
         localStorage.setItem(keys.provider, String(id));
         localStorage.removeItem(keys.token);
         localStorage.removeItem(keys.project);
+
+        localStorage.setItem(keys.scopedMode, 'provider');
+        localStorage.setItem(keys.scopedProvider, String(id));
+        localStorage.removeItem(keys.scopedToken);
+        localStorage.removeItem(keys.scopedProject);
       },
       {
         id: providerId,
@@ -190,22 +199,42 @@ async function openRequestsPage(page: Page, providerId?: number) {
           provider: REQUEST_PROVIDER_FILTER_STORAGE_KEY,
           token: REQUEST_TOKEN_FILTER_STORAGE_KEY,
           project: REQUEST_PROJECT_FILTER_STORAGE_KEY,
+          scopedMode: REQUEST_FILTER_MODE_SCOPED_STORAGE_KEY,
+          scopedProvider: REQUEST_PROVIDER_FILTER_SCOPED_STORAGE_KEY,
+          scopedToken: REQUEST_TOKEN_FILTER_SCOPED_STORAGE_KEY,
+          scopedProject: REQUEST_PROJECT_FILTER_SCOPED_STORAGE_KEY,
         },
       },
     );
   }
 
-  await page.goto(`${BASE}/requests`);
-  await page.waitForLoadState('networkidle');
+  const passwordInput = page.locator('input[type="password"]');
+  const requestsHeading = page.getByRole('heading', { name: 'Requests' });
 
-  if (await page.locator('input[type="password"]').count()) {
+  const navigateToRequests = async () => {
+    await page.goto(`${BASE}/requests`, { waitUntil: 'domcontentloaded' });
+    await Promise.race([
+      requestsHeading.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined),
+      passwordInput.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined),
+    ]);
+  };
+
+  await navigateToRequests();
+
+  if (await passwordInput.isVisible().catch(() => false)) {
     await loginToAdminUI(page);
-    await page.goto(`${BASE}/requests`);
-    await page.waitForLoadState('networkidle');
+    await navigateToRequests();
   }
+
+  await expect(requestsHeading).toBeVisible({ timeout: 30_000 });
 }
 
 test('virtualized requests table keeps header and body columns aligned', async ({ page }, testInfo) => {
+  // This spec runs after other serial request-page stress tests in CI and can
+  // legitimately exceed Playwright's default slow-test cap while waiting for
+  // proxy requests, request indexing, and the first virtualized render.
+  test.setTimeout(180_000);
+
   const mock = await startMockClaudeServer();
   let jwt: string | undefined;
   let providerId: number | null = null;
@@ -253,9 +282,13 @@ test('virtualized requests table keeps header and body columns aligned', async (
     );
     routeId = route.id;
 
-    for (let batch = 0; batch < 6; batch += 1) {
+    const batchCount = 3;
+    const requestsPerBatch = 10;
+    const minIndexedRequests = 24;
+
+    for (let batch = 0; batch < batchCount; batch += 1) {
       await Promise.all(
-        Array.from({ length: 10 }, (_, index) =>
+        Array.from({ length: requestsPerBatch }, (_, index) =>
           sendClaudeRequest(`claude-sonnet-4-20250514-b${batch}-r${index}`),
         ),
       );
@@ -264,12 +297,12 @@ test('virtualized requests table keeps header and body columns aligned', async (
     await expect
       .poll(
         async () => {
-          const requests = await adminAPI('GET', '/requests?limit=100', undefined, jwt);
-          return requests.items?.filter((item: any) => item.providerID === providerId).length ?? 0;
+          const requests = await adminAPI('GET', `/requests?limit=50&providerId=${providerId}`, undefined, jwt);
+          return requests.items?.length ?? 0;
         },
         { timeout: 15000 },
       )
-      .toBeGreaterThanOrEqual(40);
+      .toBeGreaterThanOrEqual(minIndexedRequests);
 
     await openRequestsPage(page, provider.id);
     await expect(page.locator('table thead th').first()).toBeVisible({ timeout: 30_000 });

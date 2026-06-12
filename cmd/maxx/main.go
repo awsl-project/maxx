@@ -10,24 +10,27 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/client"
+	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude" // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom" // Register custom adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"   // Register kiro adapter
+	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/core"
+	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
-	"github.com/awsl-project/maxx/internal/health"
+	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
-	"github.com/awsl-project/maxx/internal/stats"
 	"github.com/awsl-project/maxx/internal/version"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
@@ -48,12 +51,42 @@ func generateInstanceID() string {
 	return fmt.Sprintf("%s-%d", hostname, time.Now().UnixNano())
 }
 
+// flagPassed reports whether the named flag was explicitly set on the command
+// line, so an explicit flag can take precedence over an environment variable.
+func flagPassed(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
+// isTruthyEnv interprets common truthy spellings of a boolean env var.
+func isTruthyEnv(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func main() {
 	// Parse flags
 	addr := flag.String("addr", ":9880", "Server address")
 	dataDir := flag.String("data", "", "Data directory for database and logs (default: ~/.config/maxx)")
 	showVersion := flag.Bool("version", false, "Show version information and exit")
+	noUI := flag.Bool("no-ui", false, "Headless mode: do not serve the web UI, expose API/proxy only (env: MAXX_DISABLE_UI)")
 	flag.Parse()
+
+	// Headless mode: an explicit -no-ui flag wins; otherwise fall back to the
+	// MAXX_DISABLE_UI env var (truthy = 1/true/yes/on) for container deployments.
+	disableUI := *noUI
+	if !flagPassed("no-ui") {
+		disableUI = isTruthyEnv(os.Getenv("MAXX_DISABLE_UI"))
+	}
 
 	// Show version and exit if requested
 	if *showVersion {
@@ -117,6 +150,14 @@ func main() {
 	inviteCodeRepo := sqlite.NewInviteCodeRepository(db)
 	inviteCodeUsageRepo := sqlite.NewInviteCodeUsageRepository(db)
 
+	// Wire Bedrock discovery persistence. The CLI entry point does not
+	// go through core.InitializeServerComponents (the desktop launcher
+	// does — the desktop path gets the same call from core/database.go),
+	// so it needs its own setter call; otherwise the server process
+	// leaves the repo unset and the first Bedrock request after every
+	// restart pays the full AWS discovery round-trip.
+	bedrock.SetDiscoveryRepository(sqlite.NewBedrockDiscoveryRepository(db))
+
 	// Initialize cooldown manager with database persistence
 	cooldown.Default().SetRepository(cooldownRepo)
 	cooldown.Default().SetFailureCountRepository(failureCountRepo)
@@ -124,11 +165,36 @@ func main() {
 		log.Printf("Warning: Failed to load cooldowns from database: %v", err)
 	}
 
-	// Generate instance ID and mark stale requests as failed
+	// Seed/load model prices + wire historical price lookup. Same rationale as the
+	// Bedrock setter above: the CLI entry point does not go through
+	// core.InitializeServerComponents (the desktop launcher does), so without this
+	// the global Calculator keeps only its built-in default prices — DB price
+	// edits, versioning and historical-snapshot recalc would all be inert until
+	// the first admin price write. Non-fatal: on error billing degrades to builtins.
+	if err := core.InitializeModelPrices(modelPriceRepo); err != nil {
+		log.Printf("Warning: Failed to initialize model prices: %v", err)
+	}
+
+	// Generate instance ID
 	instanceID := generateInstanceID()
+
+	// Setup coordinator (mode + heartbeat + cooldown wiring).
+	// 必须在 MarkStaleAsFailed 和任何会写入 proxy_requests.instance_id 的代码路径
+	// (主要是 HTTP server) 之前完成 RegisterInstance,否则其他实例可能误判本实
+	// 例为"死亡"并清理本实例刚下发的请求。
+	coordComp, err := core.SetupCoordinator(context.Background(), instanceID, false)
+	if err != nil {
+		log.Fatalf("[Startup] coordinator setup: %v", err)
+	}
+	coord := coordComp.Coordinator
+	coordCtx := coordComp.Ctx
+
 	startupStep := time.Now()
 	log.Printf("[Startup] Marking stale requests as failed...")
-	if count, err := proxyRequestRepo.MarkStaleAsFailed(instanceID); err != nil {
+	aliveInstances, err := coord.ListAliveInstances(coordCtx)
+	if err != nil {
+		log.Printf("Warning: ListAliveInstances failed: %v (skipping stale sweep)", err)
+	} else if count, err := proxyRequestRepo.MarkStaleAsFailed(aliveInstances); err != nil {
 		log.Printf("Warning: Failed to mark stale requests: %v", err)
 	} else {
 		log.Printf("[Startup] Marked %d stale requests as failed (%v)", count, time.Since(startupStep))
@@ -167,6 +233,19 @@ func main() {
 	cachedAPITokenRepo := cached.NewAPITokenRepository(apiTokenRepo)
 	cachedModelMappingRepo := cached.NewModelMappingRepository(modelMappingRepo)
 
+	// Wire cross-instance cache invalidation. AttachCachedReposToCoordinator
+	// 是 desktop launcher 也走的同一个 helper,保证两条启动路径行为一致。
+	core.AttachCachedReposToCoordinator(coordCtx, coord, &core.DatabaseRepos{
+		CachedProviderRepo:        cachedProviderRepo,
+		CachedRouteRepo:           cachedRouteRepo,
+		CachedRetryConfigRepo:     cachedRetryConfigRepo,
+		CachedRoutingStrategyRepo: cachedRoutingStrategyRepo,
+		CachedProjectRepo:         cachedProjectRepo,
+		CachedAPITokenRepo:        cachedAPITokenRepo,
+		CachedModelMappingRepo:    cachedModelMappingRepo,
+		CachedSessionRepo:         cachedSessionRepo,
+	})
+
 	// Load cached data
 	startupStep = time.Now()
 	log.Printf("[Startup] Loading caches...")
@@ -193,10 +272,8 @@ func main() {
 	}
 	log.Printf("[Startup] Caches loaded (%v)", time.Since(startupStep))
 
-	providerHealthTracker := health.NewTracker()
-
 	// Create router
-	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo, providerHealthTracker)
+	r := router.NewRouter(cachedRouteRepo, cachedProviderRepo, cachedRoutingStrategyRepo, cachedRetryConfigRepo, cachedProjectRepo)
 
 	// Initialize provider adapters
 	startupStep = time.Now()
@@ -205,6 +282,32 @@ func main() {
 		log.Printf("Warning: Failed to initialize adapters: %v", err)
 	}
 	log.Printf("[Startup] Provider adapters initialized (%v)", time.Since(startupStep))
+
+	// Periodic sweep: 周期性基于活实例列表清理孤儿请求。多实例环境下,
+	// 这让活的实例能持续回收已死实例(实例突然崩溃、未走优雅关闭)留下的
+	// in-progress 请求。频率由 MAXX_PROXY_REQUEST_SWEEP_INTERVAL 控制
+	// (默认 45s,见 RFC)。
+	go func() {
+		ticker := time.NewTicker(coordComp.Config.SweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-coordCtx.Done():
+				return
+			case <-ticker.C:
+				alive, err := coord.ListAliveInstances(coordCtx)
+				if err != nil {
+					log.Printf("[Coordinator] periodic sweep: ListAlive failed: %v", err)
+					continue
+				}
+				if count, err := proxyRequestRepo.MarkStaleAsFailed(alive); err != nil {
+					log.Printf("[Coordinator] periodic sweep: MarkStaleAsFailed failed: %v", err)
+				} else if count > 0 {
+					log.Printf("[Coordinator] periodic sweep: marked %d stale requests as failed", count)
+				}
+			}
+		}
+	}()
 
 	// Start cooldown cleanup goroutine with graceful shutdown support
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
@@ -261,9 +364,11 @@ func main() {
 		UsageStats:         usageStatsRepo,
 		ProxyRequest:       proxyRequestRepo,
 		AttemptRepo:        attemptRepo,
+		SessionRepo:        cachedSessionRepo,
 		Settings:           settingRepo,
 		AntigravityTaskSvc: antigravityTaskSvc,
 		CodexTaskSvc:       codexTaskSvc,
+		Coordinator:        coord,
 	})
 
 	// Ensure default tenant exists
@@ -275,14 +380,46 @@ func main() {
 	logWriter := handler.NewWebSocketLogWriter(wsHub, os.Stdout, logPath)
 	log.SetOutput(logWriter)
 
+	converter.SetGlobalSettingsGetter(func() (*converter.GlobalSettings, error) {
+		val, err := settingRepo.Get(domain.SettingKeyCodexInstructionsEnabled)
+		if err != nil {
+			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyCodexInstructionsEnabled, err)
+		}
+		if val == "" {
+			return &converter.GlobalSettings{}, nil
+		}
+		enabled := strings.EqualFold(strings.TrimSpace(val), "true")
+		return &converter.GlobalSettings{CodexInstructionsEnabled: enabled}, nil
+	})
+
+	payloadoverride.SetGlobalSettingsGetter(func() (*payloadoverride.GlobalSettings, error) {
+		val, err := settingRepo.Get(domain.SettingKeyPayloadOverrideRules)
+		if err != nil {
+			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyPayloadOverrideRules, err)
+		}
+		if strings.TrimSpace(val) == "" {
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		if err := payloadoverride.ValidateRulesJSON(val); err != nil {
+			log.Printf("Warning: Ignoring invalid payload override rules: %v", err)
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		rules, err := payloadoverride.ParseRules(val)
+		if err != nil {
+			log.Printf("Warning: Failed to parse payload override rules: %v", err)
+			return &payloadoverride.GlobalSettings{}, nil
+		}
+		return &payloadoverride.GlobalSettings{Rules: rules}, nil
+	})
+	if _, err := payloadoverride.ReloadGlobalSettings(); err != nil {
+		log.Printf("Warning: Failed to warm payload override cache: %v", err)
+	}
+
 	// Create project waiter for force project binding
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)
 
-	// Create stats aggregator
-	statsAggregator := stats.NewStatsAggregator(usageStatsRepo)
-
 	// Create executor
-	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID, statsAggregator, providerHealthTracker)
+	requestExecutor := executor.NewExecutor(r, proxyRequestRepo, attemptRepo, cachedRetryConfigRepo, cachedSessionRepo, cachedModelMappingRepo, settingRepo, wsHub, projectWaiter, instanceID)
 
 	// Create client adapter
 	clientAdapter := client.NewAdapter()
@@ -359,6 +496,7 @@ func main() {
 	proxyHandler := handler.NewProxyHandler(clientAdapter, requestExecutor, cachedSessionRepo, tokenAuthMiddleware)
 	proxyHandler.SetRequestTracker(requestTracker)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)
+	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
 	adminHandler.SetUserRepo(userRepo)
 	adminHandler.SetAuthEnabled(authEnabled)
 	authHandler := handler.NewAuthHandler(
@@ -379,6 +517,7 @@ func main() {
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, modelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -388,9 +527,9 @@ func main() {
 
 	// Admin API routes with authentication middleware
 	if authMiddleware != nil {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", authMiddleware.Wrap(adminHandler)))
+		handler.RegisterSelfServiceRoutes(mux, authMiddleware.Wrap, adminHandler, selfServiceHandler)
 	} else {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", handler.NoAuthMiddleware(adminHandler)))
+		handler.RegisterSelfServiceRoutes(mux, handler.NoAuthMiddleware, adminHandler, selfServiceHandler)
 	}
 
 	// Other API routes (no authentication required)
@@ -400,18 +539,11 @@ func main() {
 	mux.Handle("/api/claude/", http.StripPrefix("/api", claudeHandler))
 
 	// Proxy routes - catch all AI API endpoints
-	// Claude API
-	mux.Handle("/v1/messages", proxyHandler)
-	mux.Handle("/v1/messages/", proxyHandler)
-	// OpenAI API
-	mux.Handle("/v1/chat/completions", proxyHandler)
-	// Codex API
-	mux.Handle("/responses", proxyHandler)
-	mux.Handle("/responses/", proxyHandler)
-	mux.Handle("/v1/responses", proxyHandler)
-	mux.Handle("/v1/responses/", proxyHandler)
-	// Gemini API (Google AI Studio style)
-	mux.Handle("/v1beta/models/", proxyHandler)
+	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
+		ProxyHandler:         proxyHandler,
+		ModelsHandler:        modelsHandler,
+		ProviderProxyHandler: providerProxyHandler,
+	})
 
 	// Health check
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -423,13 +555,32 @@ func main() {
 	// WebSocket endpoint
 	mux.HandleFunc("/ws", wsHub.HandleWebSocket)
 
-	// Serve static files (Web UI) with project proxy support - must be last (default route)
-	staticHandler := handler.NewStaticHandler()
-	combinedHandler := handler.NewCombinedHandler(projectProxyHandler, staticHandler)
-	mux.Handle("/", combinedHandler)
+	// Default route ("/"). In headless mode we skip the web UI entirely and
+	// only keep the project-prefixed proxy (/project/{slug}/...); everything
+	// else 404s. Otherwise serve the web UI with project proxy support.
+	if disableUI {
+		mux.Handle("/", projectProxyHandler)
+		log.Printf("Web UI: disabled (headless mode)")
+	} else {
+		staticHandler := handler.NewStaticHandler()
+		combinedHandler := handler.NewCombinedHandler(projectProxyHandler, staticHandler)
+		mux.Handle("/", combinedHandler)
+	}
 
-	// Wrap with logging middleware
-	loggedMux := handler.LoggingMiddleware(mux)
+	// Wrap with logging middleware, then CORS (outermost so preflight responses
+	// also carry the headers). CORS is a no-op unless MAXX_CORS_ALLOW_ORIGINS
+	// is set — this lets a separately-hosted frontend point at this backend.
+	corsConfig := handler.ParseCORSOrigins(os.Getenv("MAXX_CORS_ALLOW_ORIGINS"))
+	if corsConfig.Enabled() {
+		log.Printf("CORS: allowing origins %v", corsConfig.AllowOrigins)
+		// A wildcard origin makes every route — including the admin API —
+		// readable from any website. CORS is not a substitute for auth, so warn
+		// loudly when "*" is combined with an unauthenticated admin API.
+		if corsConfig.HasWildcard() && os.Getenv("MAXX_ADMIN_PASSWORD") == "" {
+			log.Printf("WARNING: MAXX_CORS_ALLOW_ORIGINS=* with no MAXX_ADMIN_PASSWORD — any website can read/modify the admin API from a browser. Set MAXX_ADMIN_PASSWORD or list explicit trusted origins instead of '*'.")
+		}
+	}
+	loggedMux := handler.CORSMiddleware(corsConfig, handler.LoggingMiddleware(mux))
 
 	// Create HTTP server
 	server := &http.Server{
@@ -470,6 +621,9 @@ func main() {
 
 		// Stop background cleanup task
 		cleanupCancel()
+
+		// Cleanup 内部顺序:UnregisterInstance → cancel ctx → close coordinator
+		coordComp.Cleanup()
 
 		// Stop pprof manager
 		if err := pprofMgr.Stop(shutdownCtx); err != nil {

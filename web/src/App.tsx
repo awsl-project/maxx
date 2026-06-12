@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useEffect, type ReactNode } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { useTranslation } from 'react-i18next';
 import { OverviewPage } from '@/pages/overview';
@@ -26,6 +26,26 @@ import { UsersPage } from '@/pages/users';
 import { AdminRoute } from '@/components/auth/admin-route';
 import { InviteCodesPage } from '@/pages/invite-codes';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { usePublicSettings } from '@/hooks/queries';
+
+function MultiTenantUIRoute({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
+  const { data: settings, isLoading } = usePublicSettings();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <span className="text-muted-foreground">{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (settings?.ui_multitenant_enabled !== 'true') {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
 
 function AppRoutes() {
   const { t } = useTranslation();
@@ -71,19 +91,44 @@ function AppRoutes() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<ProjectDetailPage />} />
           <Route path="sessions" element={<SessionsPage />} />
-          <Route path="api-tokens" element={<APITokensPage />} />
-          <Route path="invite-codes" element={<InviteCodesPage />} />
+          <Route
+            path="api-tokens"
+            element={
+              <AdminRoute>
+                <APITokensPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="invite-codes"
+            element={
+              <AdminRoute>
+                <MultiTenantUIRoute>
+                  <InviteCodesPage />
+                </MultiTenantUIRoute>
+              </AdminRoute>
+            }
+          />
           <Route path="model-mappings" element={<ModelMappingsPage />} />
           <Route path="model-prices" element={<ModelPricesPage />} />
           <Route path="retry-configs" element={<RetryConfigsPage />} />
-          <Route path="routing-strategies" element={<RoutingStrategiesPage />} />
+          <Route
+            path="routing-strategies"
+            element={
+              <AdminRoute>
+                <RoutingStrategiesPage />
+              </AdminRoute>
+            }
+          />
           <Route path="stats" element={<StatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route
             path="users"
             element={
               <AdminRoute>
-                <UsersPage />
+                <MultiTenantUIRoute>
+                  <UsersPage />
+                </MultiTenantUIRoute>
               </AdminRoute>
             }
           />

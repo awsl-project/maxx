@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { Button } from '@/components/ui';
 import { Terminal, Check } from 'lucide-react';
 import type { RequestInfo } from '@/lib/transport';
-import { useSetting } from '@/hooks/queries';
+import { useProxyStatus } from '@/hooks/queries';
 import { useTranslation } from 'react-i18next';
 
 interface CopyAsCurlButtonProps {
   requestInfo: RequestInfo;
 }
 
-function generateCurlCommand(requestInfo: RequestInfo, proxyPort: string): string {
+function generateCurlCommand(requestInfo: RequestInfo, proxyPort?: string | null): string {
   const parts: string[] = ['curl'];
 
   // Method (default is GET, so only add if different)
@@ -54,10 +54,26 @@ function generateCurlCommand(requestInfo: RequestInfo, proxyPort: string): strin
 export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const { data: settingData } = useSetting('proxy_port');
-  const proxyPort = settingData?.value || '9880';
+  const {
+    data: proxyStatus,
+    isLoading: isProxyStatusLoading,
+    isError: isProxyStatusError,
+    error: proxyStatusError,
+  } = useProxyStatus();
+  const proxyPort = proxyStatus?.port ? String(proxyStatus.port) : null;
+  const proxyStatusErrorMessage =
+    proxyStatusError instanceof Error ? proxyStatusError.message : t('common.unknown');
+  const buttonTitle = isProxyStatusLoading
+    ? t('requests.loadingProxyStatus')
+    : isProxyStatusError
+      ? t('requests.proxyStatusLoadFailed', { message: proxyStatusErrorMessage })
+      : undefined;
 
   const handleCopy = async () => {
+    if (isProxyStatusLoading || isProxyStatusError) {
+      return;
+    }
+
     try {
       const curlCommand = generateCurlCommand(requestInfo, proxyPort);
       await navigator.clipboard.writeText(curlCommand);
@@ -69,7 +85,14 @@ export function CopyAsCurlButton({ requestInfo }: CopyAsCurlButtonProps) {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleCopy} className="h-6 px-2 text-[10px] gap-1">
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleCopy}
+      disabled={isProxyStatusLoading || isProxyStatusError}
+      title={buttonTitle}
+      className="h-6 px-2 text-[10px] gap-1"
+    >
       {copied ? (
         <>
           <Check className="h-3 w-3" />

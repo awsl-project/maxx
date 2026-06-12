@@ -168,7 +168,7 @@ export function useActivityHeatmap() {
     }));
   }, [dashboardData]);
 
-  const timezone = dashboardData?.timezone || 'Asia/Shanghai';
+  const timezone = dashboardData?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
   return { data: heatmapData, isLoading, timezone };
 }

@@ -9,13 +9,14 @@ RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
-# Copy pre-compiled binary based on target architecture
+# Copy pre-compiled binaries based on target architecture
 COPY maxx-linux-${TARGETARCH} ./maxx
+COPY maxx-cli-linux-${TARGETARCH} /usr/local/bin/maxx-cli
 
 # Copy pre-built frontend from GitHub Actions
 COPY web/dist ./web/dist
 
-RUN mkdir -p /data && chmod +x ./maxx
+RUN mkdir -p /data && chmod +x ./maxx /usr/local/bin/maxx-cli
 
 EXPOSE 9880
 

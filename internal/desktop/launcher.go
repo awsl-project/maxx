@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/core"
+	"github.com/awsl-project/maxx/internal/handler"
 	"github.com/awsl-project/maxx/internal/version"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -224,6 +225,7 @@ func (a *LauncherApp) startServerAsync() {
 		Components:  components,
 		SettingRepo: dbRepos.SettingRepo,
 		ServeStatic: true, // 关键：启用静态文件服务
+		CORS:        handler.ParseCORSOrigins(os.Getenv("MAXX_CORS_ALLOW_ORIGINS")),
 	}
 
 	server, err := core.NewManagedServer(serverConfig)
@@ -328,6 +330,13 @@ func (a *LauncherApp) RestartServer() error {
 		if err := a.server.Stop(a.ctx); err != nil {
 			log.Printf("[Launcher] Failed to stop server: %v", err)
 		}
+	}
+
+	// 释放 coordinator 资源(心跳 goroutine + Redis 连接 + 订阅 goroutine)。
+	// 必须先于 CloseDatabase,因为某些清理(如 UnregisterInstance)可能在
+	// goroutine 里仍要使用 coord。
+	if a.components != nil && a.components.CoordinatorCleanup != nil {
+		a.components.CoordinatorCleanup()
 	}
 
 	// 关闭数据库
@@ -463,6 +472,10 @@ func (a *LauncherApp) Shutdown(ctx context.Context) {
 		if err := a.server.Stop(ctx); err != nil {
 			log.Printf("[Launcher] Failed to stop server: %v", err)
 		}
+	}
+
+	if a.components != nil && a.components.CoordinatorCleanup != nil {
+		a.components.CoordinatorCleanup()
 	}
 
 	if a.dbRepos != nil {

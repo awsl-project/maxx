@@ -10,6 +10,15 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// noneDisguiseCustomCfg returns a custom config whose Disguise.Type explicitly
+// disables any body-level disguise transformation. Used by tests that exercise
+// processClaudeRequestBody steps OTHER than cloaking.
+func noneDisguiseCustomCfg() *domain.ProviderConfigCustom {
+	return &domain.ProviderConfigCustom{
+		Disguise: &domain.ProviderConfigCustomDisguise{Type: "none"},
+	}
+}
+
 func TestSystemPromptInjection(t *testing.T) {
 	// Test case: empty body
 	body := []byte(`{"model":"claude-3-5-sonnet","messages":[]}`)
@@ -182,7 +191,7 @@ func TestFullBodyProcessingAddsCacheControlAndExtractsBetas(t *testing.T) {
 
 func TestSensitiveWordObfuscation(t *testing.T) {
 	body := []byte(`{"model":"claude-3-5-sonnet","messages":[{"role":"user","content":"this is secret"}]}`)
-	cfg := &domain.ProviderConfigCustomCloak{
+	cfg := &domain.DisguiseClaudeCodeOptions{
 		Mode:           "always",
 		SensitiveWords: []string{"secret"},
 	}
@@ -207,7 +216,7 @@ func TestStrictCloakingReplacesSystem(t *testing.T) {
 		],
 		"messages":[{"role":"user","content":"hello"}]
 	}`)
-	cfg := &domain.ProviderConfigCustomCloak{
+	cfg := &domain.DisguiseClaudeCodeOptions{
 		Mode:       "always",
 		StrictMode: true,
 	}
@@ -229,7 +238,7 @@ func TestSensitiveWordObfuscationInSystem(t *testing.T) {
 		"system":[{"type":"text","text":"keep secret here"}],
 		"messages":[{"role":"user","content":"hello"}]
 	}`)
-	cfg := &domain.ProviderConfigCustomCloak{
+	cfg := &domain.DisguiseClaudeCodeOptions{
 		Mode:           "always",
 		SensitiveWords: []string{"secret"},
 	}
@@ -256,9 +265,7 @@ func TestEnsureCacheControlWithSystemString(t *testing.T) {
 			{"role":"user","content":"again"}
 		]
 	}`)
-	cfg := &domain.ProviderConfigCustomCloak{Mode: "never"}
-
-	result, _ := processClaudeRequestBody(body, "curl/7.68.0", cfg)
+	result, _ := processClaudeRequestBody(body, "curl/7.68.0", noneDisguiseCustomCfg())
 
 	if !gjson.GetBytes(result, "system.0.cache_control").Exists() {
 		t.Error("cache_control should be injected into system string")
@@ -281,9 +288,7 @@ func TestEnsureCacheControlDoesNotOverrideExistingTools(t *testing.T) {
 			{"role":"user","content":"again"}
 		]
 	}`)
-	cfg := &domain.ProviderConfigCustomCloak{Mode: "never"}
-
-	result, _ := processClaudeRequestBody(body, "curl/7.68.0", cfg)
+	result, _ := processClaudeRequestBody(body, "curl/7.68.0", noneDisguiseCustomCfg())
 
 	if gjson.GetBytes(result, "tools.1.cache_control").Exists() {
 		t.Error("cache_control should not be added when tools already have cache_control")
@@ -319,9 +324,7 @@ func TestProcessClaudeRequestBodyDoesNotForceStream(t *testing.T) {
 		"stream":false,
 		"messages":[{"role":"user","content":"hello"}]
 	}`)
-	cfg := &domain.ProviderConfigCustomCloak{Mode: "never"}
-
-	result, _ := processClaudeRequestBody(body, "curl/7.68.0", cfg)
+	result, _ := processClaudeRequestBody(body, "curl/7.68.0", noneDisguiseCustomCfg())
 	if gjson.GetBytes(result, "stream").Type != gjson.False {
 		t.Error("stream flag should not be forced to true")
 	}
@@ -418,7 +421,7 @@ func TestCloakingPreservesSystemStringInNonStrictMode(t *testing.T) {
 		"system":"Keep this instruction",
 		"messages":[{"role":"user","content":"hello"}]
 	}`)
-	cfg := &domain.ProviderConfigCustomCloak{Mode: "always", StrictMode: false}
+	cfg := &domain.DisguiseClaudeCodeOptions{Mode: "always", StrictMode: false}
 
 	result := applyCloaking(body, "curl/7.68.0", "claude-3-5-sonnet", cfg)
 	if got := gjson.GetBytes(result, "system.0.text").String(); got != claudeCodeSystemPrompt {
@@ -440,8 +443,7 @@ func TestProcessClaudeRequestBodyStripsVolatileBillingCCH(t *testing.T) {
 		]
 	}`)
 
-	cfg := &domain.ProviderConfigCustomCloak{Mode: "never"}
-	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", cfg)
+	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", noneDisguiseCustomCfg())
 
 	systemText := gjson.GetBytes(result, "system.0.text").String()
 	if strings.Contains(systemText, "cch=") {
@@ -581,8 +583,7 @@ func TestProcessClaudeRequestBodyReplacesEmptyContentWithPlaceholder(t *testing.
 		]
 	}`)
 
-	cfg := &domain.ProviderConfigCustomCloak{Mode: "never"}
-	result, _ := processClaudeRequestBody(body, "curl/7.68.0", cfg)
+	result, _ := processClaudeRequestBody(body, "curl/7.68.0", noneDisguiseCustomCfg())
 
 	// Message count is preserved: empty content is replaced with placeholder,
 	// never dropped, to maintain user/assistant alternation and tool correspondence.
@@ -715,5 +716,232 @@ func TestEnsureToolResultCorrespondenceNextIsNotUser(t *testing.T) {
 	}
 	if gjson.GetBytes(result, "messages.3.role").String() != "assistant" {
 		t.Fatalf("messages[3] role = %q, want assistant", gjson.GetBytes(result, "messages.3.role").String())
+	}
+}
+
+// bedrockDisguiseCustomCfg returns a custom config wired for the "bedrock" disguise.
+func bedrockDisguiseCustomCfg() *domain.ProviderConfigCustom {
+	return &domain.ProviderConfigCustom{
+		Disguise: &domain.ProviderConfigCustomDisguise{Type: "bedrock"},
+	}
+}
+
+func TestProcessClaudeRequestBodyBedrockDisguiseStripsUnsupportedFields(t *testing.T) {
+	// A representative Claude Code request body that includes every field Bedrock
+	// rejects: betas, output_config, context_management, reasoning, tools[].custom,
+	// cache_control.scope, and thinking.type=adaptive.
+	body := []byte(`{
+		"model":"claude-sonnet-4-5",
+		"betas":["claude-code-20250219"],
+		"output_config":{"foo":"bar"},
+		"context_management":{"x":1},
+		"reasoning":{"effort":"high"},
+		"thinking":{"type":"adaptive"},
+		"max_tokens":2048,
+		"system":[
+			{"type":"text","text":"You are Claude Code","cache_control":{"type":"ephemeral","scope":"turn"}}
+		],
+		"tools":[
+			{"name":"bash","custom":{"foo":"bar"},"cache_control":{"type":"ephemeral","scope":"turn"}}
+		],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","scope":"turn"}}]}
+		]
+	}`)
+
+	result, betas := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+	// betas removed from body by the bedrock sanitizer (strictly before
+	// extractAndRemoveBetas sees them), so extraBetas should be empty for the
+	// bedrock disguise. The header path drops Anthropic-Beta entirely anyway.
+	if gjson.GetBytes(result, "betas").Exists() {
+		t.Error("betas should be removed from body")
+	}
+	if len(betas) != 0 {
+		t.Errorf("expected no extra betas under bedrock disguise, got %v", betas)
+	}
+
+	// Bedrock-rejected top-level fields gone
+	for _, f := range []string{"output_config", "context_management", "reasoning"} {
+		if gjson.GetBytes(result, f).Exists() {
+			t.Errorf("expected %s to be stripped", f)
+		}
+	}
+
+	// thinking.type=adaptive → enabled
+	if got := gjson.GetBytes(result, "thinking.type").String(); got != "enabled" {
+		t.Errorf("thinking.type = %q, want enabled", got)
+	}
+	// budget_tokens auto-populated
+	if got := gjson.GetBytes(result, "thinking.budget_tokens").Int(); got <= 0 {
+		t.Errorf("thinking.budget_tokens should be > 0, got %d", got)
+	}
+
+	// cache_control.scope stripped from system / tools / messages, type preserved
+	for _, p := range []string{
+		"system.0.cache_control.scope",
+		"tools.0.cache_control.scope",
+		"messages.0.content.0.cache_control.scope",
+	} {
+		if gjson.GetBytes(result, p).Exists() {
+			t.Errorf("expected %s to be stripped", p)
+		}
+	}
+	for _, p := range []string{
+		"system.0.cache_control.type",
+		"tools.0.cache_control.type",
+		"messages.0.content.0.cache_control.type",
+	} {
+		if got := gjson.GetBytes(result, p).String(); got != "ephemeral" {
+			t.Errorf("expected %s = ephemeral, got %q", p, got)
+		}
+	}
+
+	// tools[].custom stripped
+	if gjson.GetBytes(result, "tools.0.custom").Exists() {
+		t.Error("expected tools[].custom to be stripped")
+	}
+
+	// Importantly: model and stream NOT stripped (relay still needs them)
+	if got := gjson.GetBytes(result, "model").String(); got != "claude-sonnet-4-5" {
+		t.Errorf("model field should be preserved, got %q", got)
+	}
+
+	// And critically: NO Claude Code system prompt injected (bedrock disguise
+	// is the OPPOSITE of cloaking — we strip Claude Code identity, not add it).
+	systemText := gjson.GetBytes(result, "system.0.text").String()
+	if strings.Contains(systemText, "Claude Code, Anthropic's official CLI for Claude") {
+		t.Errorf("bedrock disguise should not inject Claude Code system prompt, got %q", systemText)
+	}
+	if gjson.GetBytes(result, "metadata.user_id").Exists() {
+		t.Error("bedrock disguise should not inject fake user_id")
+	}
+}
+
+// TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForAdaptiveOnly
+// guards that custom-bedrock disguise applies the adaptive-only model
+// strip too: Opus 4.7 rejects temperature/top_p/top_k even without an
+// explicit thinking block, so the relay path needs the same model-aware
+// handling as the direct Bedrock adapter — otherwise a custom relay
+// fronting Bedrock fails on the same class of requests the direct path
+// already recovers from.
+func TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForAdaptiveOnly(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-opus-4-7",
+		"max_tokens":1024,
+		"temperature":0.7,
+		"top_p":0.9,
+		"top_k":40,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+	for _, f := range []string{"temperature", "top_p", "top_k"} {
+		if gjson.GetBytes(result, f).Exists() {
+			t.Errorf("expected %s to be stripped on claude-opus-4-7 under bedrock disguise", f)
+		}
+	}
+}
+
+// TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForBedrockID
+// guards the case where a custom provider's model mapping has already
+// rewritten `model` into a Bedrock-qualified inference-profile ID — the
+// adaptive-only strip must still fire because the short name is
+// embedded in the ID. Without normalization, a custom relay fronting
+// Bedrock would hit the same Opus 4.7 sampling-param rejection the
+// short-name path already recovers from.
+func TestProcessClaudeRequestBodyBedrockDisguiseStripsSamplingForBedrockID(t *testing.T) {
+	for _, modelID := range []string{
+		"us.anthropic.claude-opus-4-7-20260115-v1:0",
+		"anthropic.claude-opus-4-7-20260115-v1:0",
+		"eu.anthropic.claude-opus-4-7-20260115-v1:0",
+	} {
+		t.Run(modelID, func(t *testing.T) {
+			body := []byte(`{
+				"model":"` + modelID + `",
+				"max_tokens":1024,
+				"temperature":0.7,
+				"top_p":0.9,
+				"top_k":40,
+				"messages":[{"role":"user","content":"hi"}]
+			}`)
+
+			result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+			for _, f := range []string{"temperature", "top_p", "top_k"} {
+				if gjson.GetBytes(result, f).Exists() {
+					t.Errorf("expected %s to be stripped when model is %q under bedrock disguise", f, modelID)
+				}
+			}
+		})
+	}
+}
+
+// TestProcessClaudeRequestBodyBedrockDisguisePreservesSamplingForClassic
+// confirms the model-aware strip only fires for adaptive-only models —
+// a classic-thinking model with no thinking block must keep its sampling
+// params under the bedrock disguise.
+func TestProcessClaudeRequestBodyBedrockDisguisePreservesSamplingForClassic(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-opus-4-5",
+		"max_tokens":1024,
+		"temperature":0.7,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+	if !gjson.GetBytes(result, "temperature").Exists() {
+		t.Error("expected temperature to be preserved on classic model under bedrock disguise")
+	}
+}
+
+// TestProcessClaudeRequestBodyBedrockDisguiseRecheckMaxTokensAfterMinBudget
+// guards against a subtle ordering bug: SanitizeForBedrockCompat enforces
+// `max_tokens > thinking.budget_tokens` early, then ensureMinThinkingBudget
+// raises the budget to 1024 — which can put max_tokens BELOW the new budget.
+// processClaudeRequestBody must re-run the constraint after the min-budget
+// raise so Bedrock doesn't reject the request.
+func TestProcessClaudeRequestBodyBedrockDisguiseRecheckMaxTokensAfterMinBudget(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":200,
+		"thinking":{"type":"enabled","budget_tokens":100},
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+
+	result, _ := processClaudeRequestBody(body, "claude-cli/2.1.23 (external, cli)", bedrockDisguiseCustomCfg())
+
+	// ensureMinThinkingBudget should have raised budget to 1024
+	if got := gjson.GetBytes(result, "thinking.budget_tokens").Int(); got != 1024 {
+		t.Errorf("thinking.budget_tokens = %d, want 1024 (min)", got)
+	}
+	// max_tokens MUST then be raised above the new budget
+	maxT := gjson.GetBytes(result, "max_tokens").Int()
+	if maxT <= 1024 {
+		t.Errorf("max_tokens = %d, want > 1024 (above raised budget)", maxT)
+	}
+}
+
+func TestProcessClaudeRequestBodyNoneDisguiseSkipsCloaking(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-sonnet-4-5",
+		"messages":[{"role":"user","content":"hello"}]
+	}`)
+
+	// Non-Claude UA + nil cfg = legacy auto-cloak (test from baseline)
+	resultLegacy, _ := processClaudeRequestBody(body, "curl/8.0.0", nil)
+	if !gjson.GetBytes(resultLegacy, "metadata.user_id").Exists() {
+		t.Error("nil disguise should preserve legacy auto-cloak default for non-Claude UA")
+	}
+
+	// Same UA + explicit Type=none = no cloaking
+	result, _ := processClaudeRequestBody(body, "curl/8.0.0", noneDisguiseCustomCfg())
+	if gjson.GetBytes(result, "metadata.user_id").Exists() {
+		t.Error("Type=none should skip body cloaking")
+	}
+	if gjson.GetBytes(result, "system").Exists() {
+		t.Error("Type=none should not inject system prompt")
 	}
 }

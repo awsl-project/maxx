@@ -9,6 +9,9 @@ export type {
   Provider,
   ProviderConfig,
   ProviderConfigCustom,
+  ProviderConfigCustomDisguise,
+  DisguiseClaudeCodeOptions,
+  DisguiseType,
   ProviderConfigAntigravity,
   CreateProviderData,
   Project,
@@ -22,6 +25,7 @@ export type {
   RoutingStrategy,
   RoutingStrategyType,
   RoutingStrategyConfig,
+  RoutingStickyScope,
   CreateRoutingStrategyData,
   ProxyRequest,
   ProxyRequestStatus,
@@ -48,6 +52,8 @@ export type {
   AntigravityTokenValidationResult,
   AntigravityBatchValidationResult,
   AntigravityOAuthResult,
+  // Bedrock
+  BedrockDiscoveredModelsResult,
   // Model Mapping
   ModelMapping,
   ModelMappingInput,
@@ -69,6 +75,7 @@ export type {
   ImportResult,
   // Cooldown
   Cooldown,
+  ProviderHealthLevel,
   // User
   User,
   UserRole,

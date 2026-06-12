@@ -27,6 +27,8 @@ type ServerConfig struct {
 	SettingRepo    repository.SystemSettingRepository
 	ServeStatic    bool
 	AuthMiddleware *handler.AuthMiddleware
+	// CORS controls cross-origin access. Zero value (no origins) disables it.
+	CORS handler.CORSConfig
 }
 
 // ManagedServer 可管理的服务器（支持启动/停止）
@@ -77,24 +79,30 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 
 	// API routes under /api prefix (Go 1.22+ enhanced routing)
 	if s.config.AuthMiddleware != nil {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", s.config.AuthMiddleware.Wrap(components.AdminHandler)))
+		handler.RegisterSelfServiceRoutes(
+			mux,
+			s.config.AuthMiddleware.Wrap,
+			components.AdminHandler,
+			components.SelfServiceHandler,
+		)
 	} else {
-		mux.Handle("/api/admin/", http.StripPrefix("/api", handler.NoAuthMiddleware(components.AdminHandler)))
+		handler.RegisterSelfServiceRoutes(
+			mux,
+			handler.NoAuthMiddleware,
+			components.AdminHandler,
+			components.SelfServiceHandler,
+		)
 	}
 	mux.Handle("/api/antigravity/", http.StripPrefix("/api", components.AntigravityHandler))
 	mux.Handle("/api/kiro/", http.StripPrefix("/api", components.KiroHandler))
 	mux.Handle("/api/codex/", http.StripPrefix("/api", components.CodexHandler))
 	mux.Handle("/api/claude/", http.StripPrefix("/api", components.ClaudeHandler))
 
-	mux.Handle("/v1/messages", components.ProxyHandler)
-	mux.Handle("/v1/messages/", components.ProxyHandler)
-	mux.Handle("/v1/chat/completions", components.ProxyHandler)
-	mux.Handle("/responses", components.ProxyHandler)
-	mux.Handle("/responses/", components.ProxyHandler)
-	mux.Handle("/v1/responses", components.ProxyHandler)
-	mux.Handle("/v1/responses/", components.ProxyHandler)
-	mux.Handle("/v1/models", components.ModelsHandler)
-	mux.Handle("/v1beta/models/", components.ProxyHandler)
+	RegisterProxyRoutes(mux, ProxyRouteHandlers{
+		ProxyHandler:         components.ProxyHandler,
+		ModelsHandler:        components.ModelsHandler,
+		ProviderProxyHandler: components.ProviderProxyHandler,
+	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -129,7 +137,7 @@ func (s *ManagedServer) Start(ctx context.Context) error {
 
 	s.httpServer = &http.Server{
 		Addr:     s.config.Addr,
-		Handler:  s.mux,
+		Handler:  handler.CORSMiddleware(s.config.CORS, s.mux),
 		ErrorLog: nil,
 	}
 

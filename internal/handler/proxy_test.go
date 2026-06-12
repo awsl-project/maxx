@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
-	"github.com/awsl-project/maxx/internal/flow"
 )
 
 func TestWriteError(t *testing.T) {
@@ -33,45 +32,23 @@ func TestWriteError(t *testing.T) {
 	}
 }
 
-func TestWriteDispatchErrorSkipsWhenResponseAlreadyStarted(t *testing.T) {
-	recorder := httptest.NewRecorder()
-	writer := newResponseStateWriter(recorder)
-	ctx := flow.NewCtx(writer, httptest.NewRequest("POST", "/v1/messages", nil))
+func TestWriteRateLimitError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeRateLimitError(rec, "API token concurrent request limit exceeded", 1)
 
-	if _, err := ctx.Writer.Write([]byte("chunk-1")); err != nil {
-		t.Fatalf("initial write failed: %v", err)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "1" {
+		t.Fatalf("Retry-After = %q, want 1", got)
 	}
 
-	handler := &ProxyHandler{}
-	proxyErr := domain.NewProxyErrorWithMessage(domain.ErrStreamIdleTimeout, false, "stream stalled")
-	handler.writeDispatchError(ctx, proxyErr, true)
-
-	if body := recorder.Body.String(); body != "chunk-1" {
-		t.Fatalf("response body = %q, want original partial response only", body)
+	var payload map[string]map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
 	}
-}
-
-func TestWriteProxyErrorUsesProxyHTTPStatusCode(t *testing.T) {
-	recorder := httptest.NewRecorder()
-	proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFirstByteTimeout, true, "first token timeout")
-	proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
-
-	writeProxyError(recorder, proxyErr)
-
-	if recorder.Code != http.StatusGatewayTimeout {
-		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusGatewayTimeout)
-	}
-}
-
-func TestWriteStreamErrorUsesProxyHTTPStatusCodeBeforeStreamStarts(t *testing.T) {
-	recorder := httptest.NewRecorder()
-	proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFirstByteTimeout, true, "first token timeout")
-	proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
-
-	writeStreamError(recorder, proxyErr)
-
-	if recorder.Code != http.StatusGatewayTimeout {
-		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusGatewayTimeout)
+	if payload["error"]["type"] != "rate_limit_error" {
+		t.Fatalf("payload = %v, want rate_limit_error", payload)
 	}
 }
 
@@ -99,6 +76,21 @@ func TestWriteProxyErrorPreservesStatusAndRetryAfter(t *testing.T) {
 	}
 	if sec < 1 || sec > 2 {
 		t.Fatalf("Retry-After = %d, want 1 or 2", sec)
+	}
+}
+
+func TestWriteStreamRateLimitError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeStreamRateLimitError(rec, "API token concurrent request limit exceeded", 1)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "1" {
+		t.Fatalf("Retry-After = %q, want 1", got)
+	}
+	if !strings.Contains(rec.Body.String(), `"type":"rate_limit_error"`) {
+		t.Fatalf("stream body = %q, want rate_limit_error", rec.Body.String())
 	}
 }
 

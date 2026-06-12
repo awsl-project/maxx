@@ -19,11 +19,23 @@ type ProviderConfigCustom struct {
 	// 中转站的 URL
 	BaseURL string `json:"baseURL"`
 
+	// Backend selects the custom provider's upstream protocol implementation.
+	// Empty means legacy HTTP passthrough. "ollama" converts Claude-compatible
+	// requests to Ollama /api/chat and wraps responses back to Claude format.
+	Backend string `json:"backend,omitempty"`
+
 	// API Key
 	APIKey string `json:"apiKey"`
 
-	// Claude Cloaking 配置（可选）
-	Cloak *ProviderConfigCustomCloak `json:"cloak,omitempty"`
+	// 伪装配置（可选）。控制对外发包时把请求装成什么客户端。
+	// 替代旧的 Cloak 字段，互斥地选择一种伪装类型。
+	Disguise *ProviderConfigCustomDisguise `json:"disguise,omitempty"`
+
+	// LegacyCloak 是被 Disguise 取代的旧字段名。仅为了兼容升级前已经写入数据库的
+	// provider 配置而保留——这些配置的 JSON 里依然有 "cloak": {...}。新代码不要直接
+	// 读这个字段，而是通过 ResolveDisguise() 拿到统一形状。第一次 edit-and-save 之后
+	// 会被表单序列化器替换成 Disguise，自然消失。
+	LegacyCloak *DisguiseClaudeCodeOptions `json:"cloak,omitempty"`
 
 	// 某个 Client 有特殊的 BaseURL
 	ClientBaseURL map[ClientType]string `json:"clientBaseURL,omitempty"`
@@ -33,9 +45,35 @@ type ProviderConfigCustom struct {
 
 	// Model 映射: RequestModel → MappedModel
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
+
+	// ResponseModel 映射: UpstreamResponseModel → ClientResponseModel
+	ResponseModelMapping map[string]string `json:"responseModelMapping,omitempty"`
 }
 
-type ProviderConfigCustomCloak struct {
+// Disguise type constants. Use these instead of magic strings when dispatching
+// on ProviderConfigCustomDisguise.Type so typos and renames are caught at compile time.
+const (
+	// DisguiseTypeNone — 不伪装，按客户端原始 header 透传，仅覆盖鉴权头
+	DisguiseTypeNone = "none"
+	// DisguiseTypeClaudeCode — 装成 Claude Code CLI（注入 system prompt / 伪 user_id / x-stainless 等）
+	DisguiseTypeClaudeCode = "claude-code"
+	// DisguiseTypeBedrock — 洗掉 Claude Code 标识，让后端为 AWS Bedrock 的中转站不报 invalid beta flag
+	DisguiseTypeBedrock = "bedrock"
+)
+
+// ProviderConfigCustomDisguise 描述对外伪装的目标客户端类型与对应子选项。
+// Type 为单选枚举，互斥地决定走哪一种伪装逻辑。空值或 nil 等同于
+// DisguiseTypeClaudeCode（保留旧的 cloak 默认行为）。
+type ProviderConfigCustomDisguise struct {
+	// 必须是 DisguiseType* 常量之一（或空字符串，等同于 claude-code）
+	Type string `json:"type,omitempty"`
+
+	// claude-code 类型的子选项
+	ClaudeCode *DisguiseClaudeCodeOptions `json:"claudeCode,omitempty"`
+}
+
+// DisguiseClaudeCodeOptions 是 Claude Code 伪装的子选项，沿用旧 Cloak 的形状。
+type DisguiseClaudeCodeOptions struct {
 	// "auto" (default), "always", "never"
 	Mode string `json:"mode,omitempty"`
 
@@ -44,6 +82,27 @@ type ProviderConfigCustomCloak struct {
 
 	// 敏感词列表（会做零宽分隔混淆）
 	SensitiveWords []string `json:"sensitiveWords,omitempty"`
+}
+
+// ResolveDisguise 返回该 custom config 的有效伪装配置，自动把旧的 LegacyCloak 字段
+// 迁移到新的 Disguise 形状。优先级：Disguise > LegacyCloak > nil。
+//
+// 用于升级路径：升级前的 provider 配置只有 cloak，升级后第一次加载时通过这个方法
+// 把它当作 Disguise{Type: claude-code, ClaudeCode: <legacy>} 看待，行为与升级前一致。
+func (c *ProviderConfigCustom) ResolveDisguise() *ProviderConfigCustomDisguise {
+	if c == nil {
+		return nil
+	}
+	if c.Disguise != nil {
+		return c.Disguise
+	}
+	if c.LegacyCloak != nil {
+		return &ProviderConfigCustomDisguise{
+			Type:       DisguiseTypeClaudeCode,
+			ClaudeCode: c.LegacyCloak,
+		}
+	}
+	return nil
 }
 
 type ProviderConfigAntigravity struct {
@@ -68,6 +127,24 @@ type ProviderConfigAntigravity struct {
 
 	// 使用 CLIProxyAPI 转发
 	UseCLIProxyAPI bool `json:"useCLIProxyAPI,omitempty"`
+}
+
+type ProviderConfigBedrock struct {
+	// AWS Access Key ID
+	AccessKeyID string `json:"accessKeyId"`
+
+	// AWS Secret Access Key
+	SecretAccessKey string `json:"secretAccessKey"`
+
+	// AWS Region (默认 us-east-1)
+	Region string `json:"region,omitempty"`
+
+	// Model ID 前缀 (默认 "us"，用于跨区域推理配置)
+	// 设为 "none" 可禁用前缀
+	ModelPrefix string `json:"modelPrefix,omitempty"`
+
+	// Model 映射: RequestModel → BedrockModelID
+	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
 type ProviderConfigKiro struct {
@@ -107,6 +184,9 @@ type ProviderConfigClaude struct {
 
 	// Model 映射: RequestModel → MappedModel
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
+
+	// 响应 Model 映射: ResponseModelPattern → MappedModelConstant
+	ResponseModelMapping map[string]string `json:"responseModelMapping,omitempty"`
 }
 
 type ProviderConfigCodex struct {
@@ -198,6 +278,7 @@ type ProviderConfig struct {
 	DisableErrorCooldown bool                       `json:"disableErrorCooldown,omitempty"`
 	Custom               *ProviderConfigCustom      `json:"custom,omitempty"`
 	Antigravity          *ProviderConfigAntigravity `json:"antigravity,omitempty"`
+	Bedrock              *ProviderConfigBedrock     `json:"bedrock,omitempty"`
 	Kiro                 *ProviderConfigKiro        `json:"kiro,omitempty"`
 	Codex                *ProviderConfigCodex       `json:"codex,omitempty"`
 	Claude               *ProviderConfigClaude      `json:"claude,omitempty"`
@@ -308,7 +389,7 @@ type Route struct {
 	// 位置，数字越小越优先
 	Position int `json:"position"`
 
-	// 权重，仅用于 weighted_random 策略，<=0 视为 1
+	// 权重，用于加权随机路由策略，值越大被选中概率越高，默认 1
 	Weight int `json:"weight"`
 
 	// 重试配置，0 表示使用系统默认
@@ -453,6 +534,11 @@ type ProxyUpstreamAttempt struct {
 	InputTokenCount  uint64 `json:"inputTokenCount"`
 	OutputTokenCount uint64 `json:"outputTokenCount"`
 
+	// 图像 token 计数（gpt-image-*），是 Input/OutputTokenCount 的子集，单独保留以便
+	// 按图像价位计费;计费(FinalizeAttemptCost)和重算(RecalcFromAttempt)都依赖这两个字段。
+	InputImageTokenCount  uint64 `json:"inputImageTokenCount,omitempty"`
+	OutputImageTokenCount uint64 `json:"outputImageTokenCount,omitempty"`
+
 	// 缓存使用情况
 	// - CacheReadCount: 缓存命中读取的 tokens
 	// - CacheWriteCount: 缓存创建的总 tokens (兼容字段，= Cache5mWriteCount + Cache1hWriteCount)
@@ -470,20 +556,33 @@ type ProxyUpstreamAttempt struct {
 	Cost uint64 `json:"cost"`
 }
 
-// AttemptCostData contains minimal data needed for cost recalculation
+// AttemptCostData contains minimal data needed for cost recalculation.
+// 重算 cost 时需要带上历史 Multiplier:重算用当前价表得出新 cost,
+// 但合约层面的倍率(由 Provider×ClientType 决定)是历史值,不能在 backfill 时悄悄丢掉。
 type AttemptCostData struct {
-	ID                uint64
-	ProxyRequestID    uint64
-	ResponseModel     string
-	MappedModel       string
-	RequestModel      string
-	InputTokenCount   uint64
-	OutputTokenCount  uint64
-	CacheReadCount    uint64
-	CacheWriteCount   uint64
-	Cache5mWriteCount uint64
-	Cache1hWriteCount uint64
-	Cost              uint64
+	ID                    uint64
+	ProxyRequestID        uint64
+	ResponseModel         string
+	MappedModel           string
+	RequestModel          string
+	InputTokenCount       uint64
+	OutputTokenCount      uint64
+	InputImageTokenCount  uint64 // 图像输入 token(gpt-image-*),Input 的子集,按图像价位重算
+	OutputImageTokenCount uint64 // 图像输出 token,Output 的子集
+	CacheReadCount        uint64
+	CacheWriteCount       uint64
+	Cache5mWriteCount     uint64
+	Cache1hWriteCount     uint64
+	Cost                  uint64
+	Multiplier            uint64 // 历史倍率(10000=1×, 0 视作 10000)
+	ModelPriceID          uint64 // 历史 model_price_id;backfill 时跟新匹配 ID 对比来判断是否需要刷新
+}
+
+// AttemptCostUpdate 是 backfill 时批量更新 attempt 成本字段的载荷:
+// cost 是按当前价表 + 历史倍率算出的新值,model_price_id 同步更新到当前匹配的价格记录。
+type AttemptCostUpdate struct {
+	Cost         uint64
+	ModelPriceID uint64
 }
 
 // 重试配置
@@ -531,7 +630,23 @@ var (
 type RoutingStrategyConfig struct {
 	// 加权随机策略的权重配置等
 	// 根据具体策略扩展
+
+	// Sticky / session-affinity 配置（用于 weighted_random 策略；priority 下忽略）
+	// 启用后：同一 (api token[+session]) 命中过的 provider 会在 TTL 内被记住，
+	// 后续请求优先尝试它（最大化上游 prompt cache 命中率）。
+	StickyEnabled    bool               `json:"stickyEnabled,omitempty"`
+	StickyScope      RoutingStickyScope `json:"stickyScope,omitempty"`      // "token" | "conversation"，默认 "token"
+	StickyTTLSeconds int64              `json:"stickyTTLSeconds,omitempty"` // 默认 1800（30 分钟），<=0 取默认
 }
+
+type RoutingStickyScope string
+
+const (
+	// 按 API token 粘性：同 token 的所有 session 都打同一 provider（命中率高，亲和粒度粗）
+	RoutingStickyScopeToken RoutingStickyScope = "token"
+	// 按 conversation 粘性：(token, sessionID) 粘性（亲和粒度细，sticky 项更多）
+	RoutingStickyScopeConversation RoutingStickyScope = "conversation"
+)
 
 // 路由策略
 type RoutingStrategy struct {
@@ -565,17 +680,22 @@ type SystemSetting struct {
 
 // 系统设置 Key 常量
 const (
-	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
-	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeyRequestDetailRetentionSeconds = "request_detail_retention_seconds" // 请求详情保留秒数，-1=永久保存(默认)，0=不保存，>0=保留秒数
-	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
-	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
-	SettingKeyAutoSortAntigravity           = "auto_sort_antigravity"            // 是否自动排序 Antigravity 路由，"true" 或 "false"
-	SettingKeyAutoSortCodex                 = "auto_sort_codex"                  // 是否自动排序 Codex 路由，"true" 或 "false"
-	SettingKeyCodexInstructionsEnabled      = "codex_instructions_enabled"       // 是否启用 Codex 官方 instructions，"true" 或 "false"
-	SettingKeyEnablePprof                   = "enable_pprof"                     // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
-	SettingKeyPprofPort                     = "pprof_port"                       // pprof 服务端口，默认 6060
-	SettingKeyPprofPassword                 = "pprof_password"                   // pprof 访问密码，为空表示不需要密码
+	SettingKeyProxyPort                            = "proxy_port"                               // 代理服务器端口，默认 9880
+	SettingKeyRequestRetentionHours                = "request_retention_hours"                  // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeySessionRetentionHours                = "session_retention_hours"                  // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"         // 请求详情保留秒数（统一），-1=永久保存(默认)，0=不保存，>0=保留秒数；当 split=false 时使用
+	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"   // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "false"
+	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success" // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
+	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"  // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
+	SettingKeyTimezone                             = "timezone"                                 // 时区设置，默认 Asia/Shanghai
+	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                   // Antigravity 配额刷新间隔（分钟），0 表示禁用
+	SettingKeyAutoSortAntigravity                  = "auto_sort_antigravity"                    // 是否自动排序 Antigravity 路由，"true" 或 "false"
+	SettingKeyAutoSortCodex                        = "auto_sort_codex"                          // 是否自动排序 Codex 路由，"true" 或 "false"
+	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
+	SettingKeyPayloadOverrideRules                 = "payload_override_rules"                   // 请求 payload 覆盖规则（JSON 数组）
+	SettingKeyEnablePprof                          = "enable_pprof"                             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
+	SettingKeyPprofPort                            = "pprof_port"                               // pprof 服务端口，默认 6060
+	SettingKeyPprofPassword                        = "pprof_password"                           // pprof 访问密码，为空表示不需要密码
 )
 
 // ModelPrice 模型价格（每个模型可有多条记录，每条代表一个版本）
@@ -590,6 +710,12 @@ type ModelPrice struct {
 	CacheReadPriceMicro    uint64 `json:"cacheReadPriceMicro"`
 	Cache5mWritePriceMicro uint64 `json:"cache5mWritePriceMicro"`
 	Cache1hWritePriceMicro uint64 `json:"cache1hWritePriceMicro"`
+
+	// 图像 token 价格 (microUSD/M)，用于图像生成模型（gpt-image-*）。响应 usage 把
+	// input/output token 拆成 text/image 两类，image 部分按这里的价位计；0 表示该模型
+	// 没有独立图像价位（普通文本模型），此时 image token 回退到 Input/OutputPriceMicro。
+	ImageInputPriceMicro  uint64 `json:"imageInputPriceMicro,omitempty"`
+	ImageOutputPriceMicro uint64 `json:"imageOutputPriceMicro,omitempty"`
 
 	// 1M Context 分层定价
 	Has1MContext       bool   `json:"has1mContext"`

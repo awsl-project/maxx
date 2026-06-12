@@ -3,6 +3,7 @@ package sqlite
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,23 +23,57 @@ func NewUsageStatsRepository(db *DB) *UsageStatsRepository {
 	return &UsageStatsRepository{db: db}
 }
 
-// getConfiguredTimezone 获取配置的时区，默认 Asia/Shanghai
+// getConfiguredTimezone 获取配置的时区。
+// 未配置时默认跟随部署环境时区；若无法解析，再退回 UTC。
 func (r *UsageStatsRepository) getConfiguredTimezone() *time.Location {
 	var value string
 	err := r.db.gorm.Table("system_settings").
-		Where("key = ?", domain.SettingKeyTimezone).
+		Where("setting_key = ?", domain.SettingKeyTimezone).
 		Pluck("value", &value).Error
-	if err != nil || value == "" {
-		value = "Asia/Shanghai" // 默认时区
+	if err != nil {
+		log.Printf("[UsageStats] Failed to load timezone setting, falling back to system timezone: %v", err)
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return getSystemTimezoneLocation()
 	}
 
 	loc, err := time.LoadLocation(value)
 	if err != nil {
-		log.Printf("[UsageStats] Invalid timezone %q, falling back to UTC+8: %v", value, err)
-		// 手动创建 UTC+8 时区作为 fallback（避免 Docker 容器无 tzdata 导致 panic）
-		loc = time.FixedZone("UTC+8", 8*60*60)
+		log.Printf("[UsageStats] Invalid timezone %q, falling back to system timezone: %v", value, err)
+		return getSystemTimezoneLocation()
 	}
 	return loc
+}
+
+func getSystemTimezoneLocation() *time.Location {
+	if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
+		log.Printf("[UsageStats] Invalid TZ environment value %q, falling back to time.Local", tz)
+	}
+
+	return time.Local
+}
+
+func getConfiguredTimezoneName(loc *time.Location) string {
+	if loc == nil {
+		return "UTC"
+	}
+
+	name := strings.TrimSpace(loc.String())
+	if name != "" && name != "Local" {
+		return name
+	}
+
+	return "UTC"
+}
+
+func truncateToHourInLocation(t time.Time, loc *time.Location) time.Time {
+	wallClock := t.In(loc)
+	return time.Date(wallClock.Year(), wallClock.Month(), wallClock.Day(), wallClock.Hour(), 0, 0, 0, loc)
 }
 
 // Upsert 更新或插入统计记录
@@ -159,7 +194,7 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 	currentBucket := stats.TruncateToGranularity(now, filter.Granularity, loc)
 	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
 	currentDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	currentHour := now.Truncate(time.Hour)
+	currentHour := truncateToHourInLocation(now, loc)
 	currentMinute := now.Truncate(time.Minute)
 	twoMinutesAgo := currentMinute.Add(-time.Minute)
 
@@ -575,153 +610,11 @@ func (r *UsageStatsRepository) queryRecentMinutesStats(tenantID uint64, startMin
 // GetSummary 获取汇总统计数据（总计）
 // 复用 queryAllWithRealtime 获取实时数据
 func (r *UsageStatsRepository) GetSummary(tenantID uint64, filter repository.UsageStatsFilter) (*domain.UsageStatsSummary, error) {
-	// 使用通用的分层查询获取所有数据
 	allStats, err := r.queryAllWithRealtime(tenantID, filter)
 	if err != nil {
 		return nil, err
 	}
-
-	// 聚合所有数据
-	var s domain.UsageStatsSummary
-	for _, stat := range allStats {
-		s.TotalRequests += stat.TotalRequests
-		s.SuccessfulRequests += stat.SuccessfulRequests
-		s.FailedRequests += stat.FailedRequests
-		s.TotalInputTokens += stat.InputTokens
-		s.TotalOutputTokens += stat.OutputTokens
-		s.TotalCacheRead += stat.CacheRead
-		s.TotalCacheWrite += stat.CacheWrite
-		s.TotalCost += stat.Cost
-	}
-
-	if s.TotalRequests > 0 {
-		s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
-	}
-	return &s, nil
-}
-
-// GetSummaryByProvider 按 Provider 维度获取汇总统计
-func (r *UsageStatsRepository) GetSummaryByProvider(tenantID uint64, filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return r.getSummaryByDimension(tenantID, filter, "provider_id")
-}
-
-// GetSummaryByRoute 按 Route 维度获取汇总统计
-func (r *UsageStatsRepository) GetSummaryByRoute(tenantID uint64, filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return r.getSummaryByDimension(tenantID, filter, "route_id")
-}
-
-// GetSummaryByProject 按 Project 维度获取汇总统计
-func (r *UsageStatsRepository) GetSummaryByProject(tenantID uint64, filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return r.getSummaryByDimension(tenantID, filter, "project_id")
-}
-
-// GetSummaryByAPIToken 按 APIToken 维度获取汇总统计
-func (r *UsageStatsRepository) GetSummaryByAPIToken(tenantID uint64, filter repository.UsageStatsFilter) (map[uint64]*domain.UsageStatsSummary, error) {
-	return r.getSummaryByDimension(tenantID, filter, "api_token_id")
-}
-
-// getSummaryByDimension 通用的按维度聚合方法
-// 复用 queryAllWithRealtime 获取实时数据
-func (r *UsageStatsRepository) getSummaryByDimension(tenantID uint64, filter repository.UsageStatsFilter, dimension string) (map[uint64]*domain.UsageStatsSummary, error) {
-	// 使用通用的分层查询获取所有数据
-	allStats, err := r.queryAllWithRealtime(tenantID, filter)
-	if err != nil {
-		return nil, err
-	}
-
-	// 按维度聚合
-	results := make(map[uint64]*domain.UsageStatsSummary)
-	for _, stat := range allStats {
-		var dimID uint64
-		switch dimension {
-		case "provider_id":
-			dimID = stat.ProviderID
-		case "route_id":
-			dimID = stat.RouteID
-		case "project_id":
-			dimID = stat.ProjectID
-		case "api_token_id":
-			dimID = stat.APITokenID
-		}
-
-		if existing, ok := results[dimID]; ok {
-			existing.TotalRequests += stat.TotalRequests
-			existing.SuccessfulRequests += stat.SuccessfulRequests
-			existing.FailedRequests += stat.FailedRequests
-			existing.TotalInputTokens += stat.InputTokens
-			existing.TotalOutputTokens += stat.OutputTokens
-			existing.TotalCacheRead += stat.CacheRead
-			existing.TotalCacheWrite += stat.CacheWrite
-			existing.TotalCost += stat.Cost
-		} else {
-			results[dimID] = &domain.UsageStatsSummary{
-				TotalRequests:      stat.TotalRequests,
-				SuccessfulRequests: stat.SuccessfulRequests,
-				FailedRequests:     stat.FailedRequests,
-				TotalInputTokens:   stat.InputTokens,
-				TotalOutputTokens:  stat.OutputTokens,
-				TotalCacheRead:     stat.CacheRead,
-				TotalCacheWrite:    stat.CacheWrite,
-				TotalCost:          stat.Cost,
-			}
-		}
-	}
-
-	// 计算成功率
-	for _, s := range results {
-		if s.TotalRequests > 0 {
-			s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
-		}
-	}
-
-	return results, nil
-}
-
-// GetSummaryByClientType 按 ClientType 维度获取汇总统计
-// 复用 queryAllWithRealtime 获取实时数据
-func (r *UsageStatsRepository) GetSummaryByClientType(tenantID uint64, filter repository.UsageStatsFilter) (map[string]*domain.UsageStatsSummary, error) {
-	// 使用通用的分层查询获取所有数据
-	allStats, err := r.queryAllWithRealtime(tenantID, filter)
-	if err != nil {
-		return nil, err
-	}
-
-	// 按 ClientType 聚合
-	results := make(map[string]*domain.UsageStatsSummary)
-	for _, stat := range allStats {
-		clientType := stat.ClientType
-
-		if existing, ok := results[clientType]; ok {
-			existing.TotalRequests += stat.TotalRequests
-			existing.SuccessfulRequests += stat.SuccessfulRequests
-			existing.FailedRequests += stat.FailedRequests
-			existing.TotalInputTokens += stat.InputTokens
-			existing.TotalOutputTokens += stat.OutputTokens
-			existing.TotalCacheRead += stat.CacheRead
-			existing.TotalCacheWrite += stat.CacheWrite
-			existing.TotalCost += stat.Cost
-		} else {
-			results[clientType] = &domain.UsageStatsSummary{
-				TotalRequests:      stat.TotalRequests,
-				SuccessfulRequests: stat.SuccessfulRequests,
-				FailedRequests:     stat.FailedRequests,
-				TotalInputTokens:   stat.InputTokens,
-				TotalOutputTokens:  stat.OutputTokens,
-				TotalCacheRead:     stat.CacheRead,
-				TotalCacheWrite:    stat.CacheWrite,
-				TotalCost:          stat.Cost,
-			}
-		}
-	}
-
-	// 计算成功率
-	for _, s := range results {
-		if s.TotalRequests > 0 {
-			s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
-		}
-	}
-
-	return results, nil
+	return stats.Summarize(allStats), nil
 }
 
 // DeleteOlderThan 删除指定粒度下指定时间之前的统计记录
@@ -753,9 +646,9 @@ func (r *UsageStatsRepository) GetLatestTimeBucket(tenantID uint64, granularity 
 }
 
 // GetProviderStats 获取 Provider 统计数据
-// 使用分层查询策略，复用 queryAllWithRealtime 获取实时数据
+// 使用分层查询策略,复用 queryAllWithRealtime 获取实时数据;
+// 按 provider 聚合的逻辑统一走 stats.GroupByProvider 纯函数,与前端 useProviderStatsFromUsageStats 行为一致。
 func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType string, projectID uint64) (map[uint64]*domain.ProviderStats, error) {
-	// 构建过滤条件
 	filter := repository.UsageStatsFilter{
 		Granularity: domain.GranularityMinute, // 使用 minute 粒度以获取最新数据
 	}
@@ -766,50 +659,11 @@ func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType stri
 		filter.ProjectID = &projectID
 	}
 
-	// 使用通用的分层查询获取所有数据（包括实时数据）
 	allStats, err := r.queryAllWithRealtime(tenantID, filter)
 	if err != nil {
 		return nil, err
 	}
-
-	// 按 provider 聚合
-	result := make(map[uint64]*domain.ProviderStats)
-	for _, s := range allStats {
-		if s.ProviderID == 0 {
-			continue
-		}
-		if existing, ok := result[s.ProviderID]; ok {
-			existing.TotalRequests += s.TotalRequests
-			existing.SuccessfulRequests += s.SuccessfulRequests
-			existing.FailedRequests += s.FailedRequests
-			existing.TotalInputTokens += s.InputTokens
-			existing.TotalOutputTokens += s.OutputTokens
-			existing.TotalCacheRead += s.CacheRead
-			existing.TotalCacheWrite += s.CacheWrite
-			existing.TotalCost += s.Cost
-		} else {
-			result[s.ProviderID] = &domain.ProviderStats{
-				ProviderID:         s.ProviderID,
-				TotalRequests:      s.TotalRequests,
-				SuccessfulRequests: s.SuccessfulRequests,
-				FailedRequests:     s.FailedRequests,
-				TotalInputTokens:   s.InputTokens,
-				TotalOutputTokens:  s.OutputTokens,
-				TotalCacheRead:     s.CacheRead,
-				TotalCacheWrite:    s.CacheWrite,
-				TotalCost:          s.Cost,
-			}
-		}
-	}
-
-	// 计算成功率
-	for _, s := range result {
-		if s.TotalRequests > 0 {
-			s.SuccessRate = float64(s.SuccessfulRequests) / float64(s.TotalRequests) * 100
-		}
-	}
-
-	return result, nil
+	return stats.GroupByProvider(allStats), nil
 }
 
 // queryAllWithRealtime 通用的分层查询函数，返回所有统计数据（包括实时数据）
@@ -821,7 +675,7 @@ func (r *UsageStatsRepository) queryAllWithRealtime(tenantID uint64, filter repo
 	now := time.Now().In(loc)
 	currentMonth := stats.TruncateToGranularity(now, domain.GranularityMonth, loc)
 	currentDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	currentHour := now.Truncate(time.Hour)
+	currentHour := truncateToHourInLocation(now, loc)
 	currentMinute := now.Truncate(time.Minute)
 	twoMinutesAgo := currentMinute.Add(-time.Minute)
 
@@ -1143,7 +997,7 @@ func (r *UsageStatsRepository) rollUp(tenantID uint64, from, to domain.Granulari
 		case domain.GranularityDay:
 			startTime = now.Add(-90 * 24 * time.Hour)
 		default:
-			startTime = now.Add(-30 * 24 * time.Hour)
+			startTime = now.AddDate(0, 0, -30)
 		}
 	} else {
 		startTime = *latestBucket
@@ -1233,11 +1087,6 @@ func (r *UsageStatsRepository) RollUpAllWithProgress(tenantID uint64, from, to d
 	}
 
 	return len(rolledUp), r.BatchUpsert(rolledUp)
-}
-
-// ClearAndRecalculate 清空统计数据并重新从原始数据计算
-func (r *UsageStatsRepository) ClearAndRecalculate(tenantID uint64) error {
-	return r.ClearAndRecalculateWithProgress(tenantID, nil)
 }
 
 // ClearAndRecalculateWithProgress 清空统计数据并重新计算，通过 channel 报告进度
@@ -1529,9 +1378,9 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 
 	// 使用配置的时区计算今日、昨日等
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	yesterdayStart := todayStart.Add(-24 * time.Hour)
-	days30Ago := todayStart.Add(-30 * 24 * time.Hour)
-	days371Ago := todayStart.Add(-371 * 24 * time.Hour) // 53周
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+	days30Ago := todayStart.AddDate(0, 0, -30)
+	days371Ago := todayStart.AddDate(0, 0, -371) // 53周
 
 	hours24Ago := now.Add(-24 * time.Hour)
 
@@ -1539,114 +1388,44 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		mu     sync.Mutex
 		result = &domain.DashboardData{
 			ProviderStats: make(map[uint64]domain.DashboardProviderStats),
-			Timezone:      loc.String(),
+			Timezone:      getConfiguredTimezoneName(loc),
 		}
 		g errgroup.Group
 	)
 
-	// 查询1: 历史 day 粒度数据 (371天，不含今天)
-	// 用于：热力图历史、昨日统计、Provider统计(30天)
+	// 查询1: 历史 day 粒度数据 (371 天,不含今天)
+	// 用于:热力图历史、昨日统计、Provider 统计 (30 天)
+	//
+	// 这里走 raw SQL 的 GROUP BY (time_bucket, provider_id, model) 把聚合下推到 SQLite/MySQL,
+	// 而不是 r.Query() 拉全维度行后在 Go 里收;前者对 (route × project × token × client_type)
+	// 高基数租户友好得多(rows 数从 N 维笛卡尔积压缩到 ~ days × providers × models)。
+	// 聚合好的行再喂给 stats/pure helpers,审计/复用语义跟其他路径一致。
 	g.Go(func() error {
-		var dashboardArgs []interface{}
-		tenantFilter := ""
-		if tenantID > 0 {
-			tenantFilter = "AND tenant_id = ? "
-			dashboardArgs = append(dashboardArgs, tenantID)
-		}
-		query := `
-			SELECT time_bucket, provider_id, model,
-				SUM(total_requests), SUM(successful_requests),
-				SUM(input_tokens + output_tokens + cache_read + cache_write), SUM(cost)
-			FROM usage_stats
-			WHERE granularity = 'day'
-			` + tenantFilter + `AND time_bucket >= ? AND time_bucket < ?
-			GROUP BY time_bucket, provider_id, model
-		`
-		dashboardArgs = append(dashboardArgs, toTimestamp(days371Ago), toTimestamp(todayStart))
-		rows, err := r.db.gorm.Raw(query, dashboardArgs...).Rows()
+		dayStats, err := r.queryDashboardHistoricalDays(tenantID, days371Ago, todayStart)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = rows.Close() }()
 
-		// 初始化热力图（使用配置的时区格式化日期）
-		days := int(now.Sub(days371Ago).Hours()/24) + 1
-		heatmapData := make(map[string]uint64, days)
-		for i := 0; i < days; i++ {
-			date := days371Ago.Add(time.Duration(i) * 24 * time.Hour).In(loc)
-			heatmapData[date.Format("2006-01-02")] = 0
-		}
-
+		// 昨日统计:窗口 [yesterdayStart, todayStart)。
 		var yesterdaySummary domain.DashboardDaySummary
-		providerData := make(map[uint64]*struct {
-			requests   uint64
-			successful uint64
-		})
-
-		for rows.Next() {
-			var bucket int64
-			var providerID uint64
-			var model string
-			var requests, successful, tokens, cost uint64
-			if err := rows.Scan(&bucket, &providerID, &model, &requests, &successful, &tokens, &cost); err != nil {
-				continue
-			}
-
-			bucketTime := fromTimestamp(bucket).In(loc)
-			dateStr := bucketTime.Format("2006-01-02")
-
-			// 热力图
-			heatmapData[dateStr] += requests
-
-			// 昨日统计
-			if !bucketTime.Before(yesterdayStart) && bucketTime.Before(todayStart) {
-				yesterdaySummary.Requests += requests
-				yesterdaySummary.Tokens += tokens
-				yesterdaySummary.Cost += cost
-			}
-
-			// Provider统计 (30天)
-			if !bucketTime.Before(days30Ago) && providerID > 0 {
-				if _, ok := providerData[providerID]; !ok {
-					providerData[providerID] = &struct {
-						requests   uint64
-						successful uint64
-					}{}
-				}
-				providerData[providerID].requests += requests
-				providerData[providerID].successful += successful
-			}
+		for _, s := range stats.FilterByTimeRange(dayStats, yesterdayStart, todayStart) {
+			yesterdaySummary.Requests += s.TotalRequests
+			yesterdaySummary.Tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
+			yesterdaySummary.Cost += s.Cost
 		}
+
+		// Provider 统计 (30 天):窗口 [days30Ago, todayStart),走标准 GroupByProvider。
+		providers := stats.GroupByProvider(stats.FilterByTimeRange(dayStats, days30Ago, todayStart))
 
 		mu.Lock()
-		// 设置昨日
 		result.Yesterday = yesterdaySummary
-
-		// 设置 Provider 统计 (30天)
-		for providerID, data := range providerData {
-			var successRate float64
-			if data.requests > 0 {
-				successRate = float64(data.successful) / float64(data.requests) * 100
-			}
+		for providerID, ps := range providers {
 			result.ProviderStats[providerID] = domain.DashboardProviderStats{
-				Requests:    data.requests,
-				SuccessRate: successRate,
+				Requests:    ps.TotalRequests,
+				SuccessRate: ps.SuccessRate,
 			}
 		}
-
-		// 暂存热力图数据（后面会补充今天的）- 只保留有数据的日期
-		result.Heatmap = make([]domain.DashboardHeatmapPoint, 0, days)
-		for i := 0; i < days; i++ {
-			date := days371Ago.Add(time.Duration(i) * 24 * time.Hour).In(loc)
-			dateStr := date.Format("2006-01-02")
-			count := heatmapData[dateStr]
-			if count > 0 {
-				result.Heatmap = append(result.Heatmap, domain.DashboardHeatmapPoint{
-					Date:  dateStr,
-					Count: count,
-				})
-			}
-		}
+		result.Heatmap = stats.DailyCounts(dayStats, loc)
 		mu.Unlock()
 		return nil
 	})
@@ -1658,16 +1437,9 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 			Granularity: domain.GranularityHour,
 			StartTime:   &hours24Ago,
 		}
-		stats, err := r.Query(tenantID, filter)
+		hourStats, err := r.Query(tenantID, filter)
 		if err != nil {
 			return err
-		}
-
-		// 初始化 24 小时趋势（使用配置的时区）
-		hourMap := make(map[string]uint64, 24)
-		for i := 0; i < 24; i++ {
-			hour := hours24Ago.Add(time.Duration(i) * time.Hour).In(loc).Truncate(time.Hour)
-			hourMap[hour.Format("15:04")] = 0
 		}
 
 		var todaySummary domain.DashboardDaySummary
@@ -1682,11 +1454,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 			durationMs uint64
 		})
 
-		for _, s := range stats {
-			// 24h趋势（使用配置的时区）
-			hourStr := s.TimeBucket.In(loc).Format("15:04")
-			hourMap[hourStr] += s.TotalRequests
-
+		for _, s := range hourStats {
 			// 今日统计（只统计今天的数据）
 			if !s.TimeBucket.Before(todayStart) {
 				todaySummary.Requests += s.TotalRequests
@@ -1724,20 +1492,9 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 			todaySummary.TPM = (float64(todaySummary.Tokens) / float64(todayDurationMs)) * 60000
 		}
 
-		// 构建24h趋势数组（使用配置的时区）
-		trend := make([]domain.DashboardTrendPoint, 0, 24)
-		for i := 0; i < 24; i++ {
-			hour := hours24Ago.Add(time.Duration(i) * time.Hour).In(loc).Truncate(time.Hour)
-			hourStr := hour.Format("15:04")
-			trend = append(trend, domain.DashboardTrendPoint{
-				Hour:     hourStr,
-				Requests: hourMap[hourStr],
-			})
-		}
-
 		mu.Lock()
 		result.Today = todaySummary
-		result.Trend24h = trend
+		result.Trend24h = stats.HourlyTrend(hourStats, hours24Ago, loc)
 
 		// 补充今日热力图（今日数据可能不在历史查询中）
 		if todayRequests > 0 {
@@ -1788,34 +1545,16 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 		filter := repository.UsageStatsFilter{
 			Granularity: domain.GranularityMonth,
 		}
-		stats, err := r.Query(tenantID, filter)
+		monthStats, err := r.Query(tenantID, filter)
 		if err != nil {
 			return err
 		}
 
 		var allTimeSummary domain.DashboardAllTimeSummary
-		modelData := make(map[string]*struct {
-			requests uint64
-			tokens   uint64
-		})
-
-		for _, s := range stats {
+		for _, s := range monthStats {
 			allTimeSummary.Requests += s.TotalRequests
 			allTimeSummary.Tokens += s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
 			allTimeSummary.Cost += s.Cost
-
-			// Top模型（全量）
-			if s.Model != "" {
-				tokens := s.InputTokens + s.OutputTokens + s.CacheRead + s.CacheWrite
-				if _, ok := modelData[s.Model]; !ok {
-					modelData[s.Model] = &struct {
-						requests uint64
-						tokens   uint64
-					}{}
-				}
-				modelData[s.Model].requests += s.TotalRequests
-				modelData[s.Model].tokens += tokens
-			}
 		}
 
 		// 从 proxy_requests 表获取真正的首次使用时间（按租户过滤）
@@ -1835,7 +1574,7 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 
 		mu.Lock()
 		result.AllTime = allTimeSummary
-		result.TopModels = r.getTopModels(modelData, 3)
+		result.TopModels = stats.TopModelsByRequests(monthStats, 3)
 		mu.Unlock()
 		return nil
 	})
@@ -1847,39 +1586,75 @@ func (r *UsageStatsRepository) QueryDashboardData(tenantID uint64) (*domain.Dash
 	return result, nil
 }
 
-// getTopModels 从 model->stats map 中提取 Top N 模型
-func (r *UsageStatsRepository) getTopModels(modelData map[string]*struct {
-	requests uint64
-	tokens   uint64
-}, limit int) []domain.DashboardModelStats {
-	// 转换为切片并排序
-	type modelReq struct {
-		model    string
-		requests uint64
-		tokens   uint64
+// queryDashboardHistoricalDays 把 dashboard 用的"过去 371 天、不含今天"day 粒度数据
+// 在 SQL 层做完聚合后再返回。GROUP BY (time_bucket, provider_id, model) 把行数从
+// (route × project × api_token × client_type × provider × model × days) 笛卡尔积压回
+// (days × providers × models),避免 r.Query() 把全维度行拖到 Go 端再聚合。
+//
+// 时间窗口语义跟原 dashboard raw SQL 一致:[startInclusive, endExclusive)。
+// 返回的 UsageStats 只填了下游 stats/pure helpers 用到的字段(TimeBucket / ProviderID /
+// Model / TotalRequests / SuccessfulRequests / Input/Output/CacheRead/CacheWrite Tokens / Cost),
+// 其他维度(Route/Project/APIToken/ClientType)全置 0。
+func (r *UsageStatsRepository) queryDashboardHistoricalDays(tenantID uint64, startInclusive, endExclusive time.Time) ([]*domain.UsageStats, error) {
+	var (
+		conditions []string
+		args       []interface{}
+	)
+	conditions = append(conditions, "granularity = ?")
+	args = append(args, domain.GranularityDay)
+	if tenantID > 0 {
+		conditions = append(conditions, "tenant_id = ?")
+		args = append(args, tenantID)
 	}
-	models := make([]modelReq, 0, len(modelData))
-	for model, data := range modelData {
-		models = append(models, modelReq{model, data.requests, data.tokens})
-	}
+	conditions = append(conditions, "time_bucket >= ?")
+	args = append(args, toTimestamp(startInclusive))
+	conditions = append(conditions, "time_bucket < ?")
+	args = append(args, toTimestamp(endExclusive))
 
-	// 按请求数降序排序
-	for i := 0; i < len(models)-1; i++ {
-		for j := i + 1; j < len(models); j++ {
-			if models[j].requests > models[i].requests {
-				models[i], models[j] = models[j], models[i]
-			}
+	query := `
+		SELECT time_bucket, provider_id, model,
+			SUM(total_requests), SUM(successful_requests),
+			SUM(input_tokens), SUM(output_tokens),
+			SUM(cache_read), SUM(cache_write),
+			SUM(cost)
+		FROM usage_stats
+		WHERE ` + strings.Join(conditions, " AND ") + `
+		GROUP BY time_bucket, provider_id, model
+	`
+
+	rows, err := r.db.gorm.Raw(query, args...).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []*domain.UsageStats
+	for rows.Next() {
+		var (
+			bucket                                                                       int64
+			providerID                                                                   uint64
+			model                                                                        string
+			totalReq, successReq, inputTokens, outputTokens, cacheRead, cacheWrite, cost uint64
+		)
+		if err := rows.Scan(&bucket, &providerID, &model, &totalReq, &successReq, &inputTokens, &outputTokens, &cacheRead, &cacheWrite, &cost); err != nil {
+			return nil, err
 		}
-	}
-
-	// 取前 N 个
-	result := make([]domain.DashboardModelStats, 0, limit)
-	for i := 0; i < len(models) && i < limit; i++ {
-		result = append(result, domain.DashboardModelStats{
-			Model:    models[i].model,
-			Requests: models[i].requests,
-			Tokens:   models[i].tokens,
+		out = append(out, &domain.UsageStats{
+			Granularity:        domain.GranularityDay,
+			TimeBucket:         fromTimestamp(bucket),
+			ProviderID:         providerID,
+			Model:              model,
+			TotalRequests:      totalReq,
+			SuccessfulRequests: successReq,
+			InputTokens:        inputTokens,
+			OutputTokens:       outputTokens,
+			CacheRead:          cacheRead,
+			CacheWrite:         cacheWrite,
+			Cost:               cost,
 		})
 	}
-	return result
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

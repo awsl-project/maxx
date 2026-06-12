@@ -2,11 +2,10 @@ package handler
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,6 +38,7 @@ type ProxyHandler struct {
 	trackerMu     sync.RWMutex
 	engine        *flow.Engine
 	extra         []flow.HandlerFunc
+	uploadLimiter *uploadLimiter
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -54,6 +54,7 @@ func NewProxyHandler(
 		sessionRepo:   sessionRepo,
 		tokenAuth:     tokenAuth,
 		engine:        flow.NewEngine(),
+		uploadLimiter: newUploadLimiterFromEnv(),
 	}
 	h.engine.Use(h.ingress)
 	return h
@@ -72,7 +73,7 @@ func (h *ProxyHandler) SetRequestTracker(tracker RequestTracker) {
 
 // ServeHTTP handles proxy requests
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := flow.NewCtx(newResponseStateWriter(w), r)
+	ctx := flow.NewCtx(w, r)
 	handlers := make([]flow.HandlerFunc, len(h.extra)+1)
 	copy(handlers, h.extra)
 	handlers[len(h.extra)] = h.dispatch
@@ -109,13 +110,52 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/v1")
 	}
 
-	body, err := io.ReadAll(r.Body)
+	// 大上传准入控制:在把 body 读进内存之前先门控,避免大量并发大上传同时挤爆堆。
+	// 名额持有到本函数返回(c.Next 同步跑完整个请求链路后),覆盖 body 在内存的整个生命周期。
+	//
+	// 刻意放在 stream 检测/鉴权之前:目的就是在做任何工作、读任何 body 之前廉价地泄洪。
+	// 代价是被泄洪的请求即使本是 SSE,拿到的也是 HTTP 层 413/429 而非 SSE 错误事件——
+	// 此时 body 还没读、client type 还不知道,无法构造对应协议的错误,可接受。
+	if h.uploadLimiter != nil {
+		if h.uploadLimiter.tooLarge(r.ContentLength) {
+			log.Printf("[Proxy] rejecting over-limit upload: %s %s (len=%d > %d)", r.Method, r.URL.Path, r.ContentLength, h.uploadLimiter.maxBytes)
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			c.Abort()
+			return
+		}
+		release, ok := h.uploadLimiter.acquire(r.Context(), r.ContentLength)
+		if !ok {
+			log.Printf("[Proxy] large-upload slot unavailable, shedding request: %s %s (len=%d)", r.Method, r.URL.Path, r.ContentLength)
+			writeRateLimitError(w, "server busy: too many concurrent large uploads, please retry", 5)
+			c.Abort()
+			return
+		}
+		defer release()
+	}
+
+	// 硬上限兜底:Content-Length 未知(chunked)时 tooLarge 预判不到,读取时用 LimitReader 封顶。
+	// +1 用于区分"恰好等于上限"与"超过上限";maxBytes 接近 MaxInt64 时跳过 +1 防溢出成负数。
+	var bodyReader io.Reader = r.Body
+	if h.uploadLimiter != nil && h.uploadLimiter.maxBytes > 0 {
+		limit := h.uploadLimiter.maxBytes
+		if limit < math.MaxInt64 {
+			limit++
+		}
+		bodyReader = io.LimitReader(r.Body, limit)
+	}
+	body, err := io.ReadAll(bodyReader)
 	if err != nil {
+		_ = r.Body.Close()
 		writeError(w, http.StatusBadRequest, "failed to read request body")
 		c.Abort()
 		return
 	}
 	_ = r.Body.Close()
+	if h.uploadLimiter != nil && h.uploadLimiter.maxBytes > 0 && int64(len(body)) > h.uploadLimiter.maxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		c.Abort()
+		return
+	}
 
 	// Normalize OpenAI Responses payloads sent to chat/completions
 	if strings.HasPrefix(r.URL.Path, "/v1/chat/completions") {
@@ -126,6 +166,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	ctx := r.Context()
+	stream := h.clientAdapter.IsStreamRequest(r, body)
 
 	clientType := h.clientAdapter.DetectClientType(r, body)
 	log.Printf("[Proxy] Detected client type: %s", clientType)
@@ -152,24 +193,19 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		}
 	}
 
-	// Determine tenantID from API token or use default
-	var tenantID uint64
-	if apiToken != nil && apiToken.TenantID > 0 {
-		tenantID = apiToken.TenantID
-	} else {
-		tenantID = domain.DefaultTenantID
-	}
-	ctx = maxxctx.WithTenantID(ctx, tenantID)
-
 	requestModel := h.clientAdapter.ExtractModel(r, body, clientType)
 	log.Printf("[Proxy] Extracted model: %s (path: %s)", requestModel, r.URL.Path)
 	sessionID := h.clientAdapter.ExtractSessionID(r, body, clientType)
-	stream := h.clientAdapter.IsStreamRequest(r, body)
+	// originalBody 与 body 内容一致且 body 全程不被就地修改:converter / normalize /
+	// InjectCodexUserAgent 都返回新切片,dispatch 里的格式转换也写到局部变量而非
+	// state.requestBody。因此别名共享即可,无需再 bytes.Clone 出一整份副本(每个请求
+	// 体可达数十 MB,这份拷贝纯属浪费)。真正需要独立副本的下游(converting_writer)
+	// 已自行 Clone。
+	originalBody := body
 
 	c.Set(flow.KeyClientType, clientType)
 	c.Set(flow.KeySessionID, sessionID)
 	c.Set(flow.KeyRequestModel, requestModel)
-	originalBody := bytes.Clone(body)
 	c.Set(flow.KeyRequestBody, body)
 	c.Set(flow.KeyOriginalRequestBody, originalBody)
 	c.Set(flow.KeyRequestHeaders, r.Header)
@@ -184,6 +220,36 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 			log.Printf("[Proxy] Using project ID from header: %d", projectID)
 		}
 	}
+	c.Set(flow.KeyProjectID, projectID)
+
+	if apiToken != nil {
+		if apiToken.ProjectID > 0 && projectID == 0 {
+			c.Set(flow.KeyProjectID, apiToken.ProjectID)
+		}
+		if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
+			log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
+			h.executor.RecordRejectedProxyRequest(c, apiToken, http.StatusTooManyRequests, err.Error())
+			if stream {
+				writeStreamRateLimitError(w, err.Error(), 1)
+			} else {
+				writeRateLimitError(w, err.Error(), 1)
+			}
+			c.Abort()
+			return
+		}
+		defer h.tokenAuth.ReleaseConcurrency(apiToken)
+	}
+
+	// Determine tenantID from API token or use default
+	var tenantID uint64
+	if apiToken != nil && apiToken.TenantID > 0 {
+		tenantID = apiToken.TenantID
+	} else {
+		tenantID = domain.DefaultTenantID
+	}
+	ctx = maxxctx.WithTenantID(ctx, tenantID)
+
+	now := time.Now()
 
 	session, sessionErr := h.sessionRepo.GetBySessionID(tenantID, sessionID)
 	if sessionErr != nil {
@@ -196,6 +262,9 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		} else if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
 			projectID = apiToken.ProjectID
 			log.Printf("[Proxy] Using project ID from token: %d", projectID)
+		}
+		if touchErr := h.sessionRepo.Touch(tenantID, sessionID, now); touchErr != nil {
+			log.Printf("[Proxy] Failed to touch session %s: %v", sessionID, touchErr)
 		}
 	} else {
 		if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
@@ -236,25 +305,13 @@ func (h *ProxyHandler) dispatch(c *flow.Ctx) {
 	if err == nil {
 		return
 	}
-	if responseHasStarted(c.Writer) {
-		c.Err = err
-		c.Abort()
-		return
-	}
 	proxyErr, ok := err.(*domain.ProxyError)
 	if ok {
-		h.writeDispatchError(c, proxyErr, stream)
-		c.Err = err
-		c.Abort()
-		return
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		writeError(c.Writer, http.StatusGatewayTimeout, err.Error())
-		c.Err = err
-		c.Abort()
-		return
-	}
-	if errors.Is(err, context.Canceled) {
+		if stream {
+			writeStreamError(c.Writer, proxyErr)
+		} else {
+			writeProxyError(c.Writer, proxyErr)
+		}
 		c.Err = err
 		c.Abort()
 		return
@@ -262,17 +319,6 @@ func (h *ProxyHandler) dispatch(c *flow.Ctx) {
 	writeError(c.Writer, http.StatusInternalServerError, err.Error())
 	c.Err = err
 	c.Abort()
-}
-
-func (h *ProxyHandler) writeDispatchError(c *flow.Ctx, proxyErr *domain.ProxyError, stream bool) {
-	if responseHasStarted(c.Writer) {
-		return
-	}
-	if stream {
-		writeStreamError(c.Writer, proxyErr)
-		return
-	}
-	writeProxyError(c.Writer, proxyErr)
 }
 
 func normalizeOpenAIChatCompletionsPayload(body []byte) ([]byte, bool) {
@@ -317,6 +363,21 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
+func writeRateLimitError(w http.ResponseWriter, message string, retryAfterSeconds int64) {
+	w.Header().Set("Content-Type", "application/json")
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	w.WriteHeader(http.StatusTooManyRequests)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "rate_limit_error",
+		},
+	})
+}
+
 func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 	w.Header().Set("Content-Type", "application/json")
 	retryAfter := err.RetryAfter
@@ -344,6 +405,32 @@ func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 	})
 }
 
+func writeStreamRateLimitError(w http.ResponseWriter, message string, retryAfterSeconds int64) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if retryAfterSeconds <= 0 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+	w.WriteHeader(http.StatusTooManyRequests)
+
+	errorEvent := map[string]interface{}{
+		"type": "error",
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "rate_limit_error",
+		},
+	}
+	data, _ := json.Marshal(errorEvent)
+	w.Write([]byte("data: "))
+	w.Write(data)
+	w.Write([]byte("\n\n"))
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -358,7 +445,7 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 		}
 		w.Header().Set("Retry-After", strconv.FormatInt(sec, 10))
 	}
-	statusCode := http.StatusBadGateway
+	statusCode := http.StatusOK
 	if err.HTTPStatusCode >= 400 && err.HTTPStatusCode < 600 {
 		statusCode = err.HTTPStatusCode
 	}

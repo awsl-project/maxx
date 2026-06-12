@@ -1,7 +1,7 @@
 import { expect, test, type Page } from 'playwright/test';
 
 async function mockDocumentationApis(page: Page) {
-  await page.route('**/api/admin/**', async (route) => {
+  await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     const { pathname } = url;
 
@@ -16,22 +16,22 @@ async function mockDocumentationApis(page: Page) {
       return json({ authEnabled: false });
     }
 
-    if (pathname === '/api/admin/settings') {
+    if (pathname === '/api/admin/settings' || pathname === '/api/settings') {
       return json({ api_token_auth_enabled: 'true' });
     }
 
-    if (pathname === '/api/admin/proxy-status') {
+    if (pathname === '/api/admin/proxy-status' || pathname === '/api/proxy-status') {
       return json({ running: true, address: '127.0.0.1', port: 9880, version: 'v0.12.31' });
     }
 
-    if (pathname === '/api/admin/providers') {
+    if (pathname === '/api/admin/providers' || pathname === '/api/providers') {
       return json([
         { id: 1, name: 'Claude Pool', type: 'claude' },
         { id: 2, name: 'Codex Pool', type: 'codex' },
       ]);
     }
 
-    if (pathname === '/api/admin/routes') {
+    if (pathname === '/api/admin/routes' || pathname === '/api/routes') {
       return json([
         { id: 1, name: 'Default Route', isEnabled: true },
         { id: 2, name: 'Disabled Route', isEnabled: false },

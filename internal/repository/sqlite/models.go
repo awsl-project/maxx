@@ -307,6 +307,13 @@ type ProxyRequest struct {
 	ProjectID                   uint64 `gorm:"index"`
 	APITokenID                  uint64
 	DevMode                     int `gorm:"default:0"`
+	// detail_cleared 列**故意不放在 struct 上**:
+	//
+	// 该列由 migration v15 raw SQL 添加,带有 500k 行 threshold-skip 保护。
+	// 如果放在这里,GORM AutoMigrate 在 v15 之前就会跑 ADD COLUMN,绕过 threshold
+	// 守护——46GB 大表上 MySQL 5.7 INPLACE 重写可达小时级。
+	// 代码通过 .Updates(map[string]any{"detail_cleared": 1}) 和 raw WHERE 访问该列,
+	// 不需要 struct 字段。详见 ClearDetailOlderThan 与 runDetailClearedColumnMigration。
 }
 
 func (ProxyRequest) TableName() string { return "proxy_requests" }
@@ -319,15 +326,17 @@ type ProxyUpstreamAttempt struct {
 	ProxyRequestID    uint64 `gorm:"index"`
 	RequestInfo       LongText
 	ResponseInfo      LongText
-	RouteID           uint64
-	ProviderID        uint64
-	InputTokenCount   uint64
-	OutputTokenCount  uint64
-	CacheReadCount    uint64
-	CacheWriteCount   uint64
-	Cache5mWriteCount uint64 `gorm:"column:cache_5m_write_count"`
-	Cache1hWriteCount uint64 `gorm:"column:cache_1h_write_count"`
-	ModelPriceID      uint64 // 使用的模型价格记录ID
+	RouteID               uint64
+	ProviderID            uint64
+	InputTokenCount       uint64
+	OutputTokenCount      uint64
+	InputImageTokenCount  uint64
+	OutputImageTokenCount uint64
+	CacheReadCount        uint64
+	CacheWriteCount       uint64
+	Cache5mWriteCount     uint64 `gorm:"column:cache_5m_write_count"`
+	Cache1hWriteCount     uint64 `gorm:"column:cache_1h_write_count"`
+	ModelPriceID          uint64 // 使用的模型价格记录ID
 	Multiplier        uint64 // 倍率（10000=1倍）
 	Cost              uint64
 	IsStream          int
@@ -338,6 +347,7 @@ type ProxyUpstreamAttempt struct {
 	RequestModel      string `gorm:"size:128"`
 	MappedModel       string `gorm:"size:128"`
 	ResponseModel     string `gorm:"size:128"`
+	// detail_cleared 列同样不在 struct 上,理由见 ProxyRequest.detail_cleared 注释。
 }
 
 func (ProxyUpstreamAttempt) TableName() string { return "proxy_upstream_attempts" }
@@ -356,8 +366,9 @@ func (SystemSetting) TableName() string { return "system_settings" }
 type Cooldown struct {
 	BaseModel
 	TenantID   uint64 `gorm:"index"`
-	ProviderID uint64 `gorm:"uniqueIndex:idx_cooldowns_provider_client"`
-	ClientType string `gorm:"size:255;uniqueIndex:idx_cooldowns_provider_client"`
+	ProviderID uint64 `gorm:"uniqueIndex:idx_cooldowns_provider_client_model"`
+	ClientType string `gorm:"size:64;uniqueIndex:idx_cooldowns_provider_client_model"`
+	Model      string `gorm:"size:191;uniqueIndex:idx_cooldowns_provider_client_model;default:''"`
 	UntilTime  int64  `gorm:"index"`
 	Reason     string `gorm:"size:64;default:'unknown'"`
 }
@@ -367,10 +378,11 @@ func (Cooldown) TableName() string { return "cooldowns" }
 // FailureCount model
 type FailureCount struct {
 	BaseModel
-	TenantID      uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
-	ProviderID    uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
-	ClientType    string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
-	Reason        string `gorm:"size:255;uniqueIndex:idx_failure_counts_tenant_provider_client_reason"`
+	TenantID      uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	ProviderID    uint64 `gorm:"uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	ClientType    string `gorm:"size:64;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	Reason        string `gorm:"size:64;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model"`
+	Model         string `gorm:"size:191;uniqueIndex:idx_failure_counts_tenant_provider_client_reason_model;default:''"`
 	Count         int
 	LastFailureAt int64 `gorm:"index"`
 }
@@ -435,6 +447,8 @@ type ModelPrice struct {
 	CacheReadPriceMicro    uint64
 	Cache5mWritePriceMicro uint64 `gorm:"column:cache_5m_write_price_micro"`
 	Cache1hWritePriceMicro uint64 `gorm:"column:cache_1h_write_price_micro"`
+	ImageInputPriceMicro   uint64
+	ImageOutputPriceMicro  uint64
 	Has1MContext           int
 	Context1MThreshold     uint64 `gorm:"column:context_1m_threshold"`
 	InputPremiumNum        uint64
@@ -444,6 +458,34 @@ type ModelPrice struct {
 }
 
 func (ModelPrice) TableName() string { return "model_prices" }
+
+// BedrockDiscoveryEntry caches one short-name → Bedrock-ID mapping that
+// discovery resolved for a given Bedrock provider. Persisted so process
+// restarts don't pay the ~5s cold-start ListInferenceProfiles +
+// ListFoundationModels round-trip on the first request. Keyed by
+// provider_id (not region alone) because different providers in the same
+// region may have different IAM permissions and therefore see different
+// catalogs. FetchedAt tracks when the row was written so the loader can
+// decide whether the cache is still within TTL.
+//
+// Region + AccessKeyID are recorded alongside so a later config edit
+// that retargets the provider at a different region or IAM principal
+// invalidates the cache: loadFromStore filters to rows whose (region,
+// access_key_id) still match the live config, so a stale catalog from
+// the previous region never gets served post-edit. AccessKeyID is only
+// the public ID ("AKIA..."), not the secret.
+type BedrockDiscoveryEntry struct {
+	ID           uint64 `gorm:"primaryKey;autoIncrement"`
+	ProviderID   uint64 `gorm:"uniqueIndex:idx_bedrock_disc_provider_short"`
+	ShortName    string `gorm:"size:128;uniqueIndex:idx_bedrock_disc_provider_short"`
+	BedrockID    string `gorm:"size:255"`
+	Source       string `gorm:"size:32"` // "inference-profile" or "foundation-model"
+	Region       string `gorm:"size:64"`
+	AccessKeyID  string `gorm:"size:128"`
+	FetchedAt    int64  `gorm:"index"` // unix ms
+}
+
+func (BedrockDiscoveryEntry) TableName() string { return "bedrock_discovery_entries" }
 
 // ==================== All Models for AutoMigrate ====================
 
@@ -472,6 +514,7 @@ func AllModels() []any {
 		&UsageStats{},
 		&ResponseModel{},
 		&ModelPrice{},
+		&BedrockDiscoveryEntry{},
 		&SchemaMigration{},
 	}
 }

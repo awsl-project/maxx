@@ -3,14 +3,13 @@ package pricing
 import "math/big"
 
 // 价格单位常量
+//
+//	storage:  microUSD/M tokens   (1 USD = 1,000,000 microUSD)
+//	output:   nanoUSD            (1 USD = 1,000,000,000 nanoUSD)
 const (
-	// MicroUSDPerUSD 1美元 = 1,000,000 微美元 (用于价格表存储)
-	MicroUSDPerUSD = 1_000_000
-	// NanoUSDPerUSD 1美元 = 1,000,000,000 纳美元 (用于成本存储，提供更高精度)
-	NanoUSDPerUSD = 1_000_000_000
-	// TokensPerMillion 百万tokens
+	// TokensPerMillion 价格单位分母:百万 tokens。
 	TokensPerMillion = 1_000_000
-	// MicroToNano 微美元转纳美元的倍数
+	// MicroToNano 微美元到纳美元的倍数(成本输出乘以这个值)。
 	MicroToNano = 1000
 )
 
@@ -70,22 +69,3 @@ func calculateLinearCostBig(tokens, priceMicro uint64) uint64 {
 	return t.Uint64()
 }
 
-// Deprecated: 使用 CalculateTieredCost 代替
-func CalculateTieredCostMicro(tokens uint64, basePriceMicro uint64, premiumNum, premiumDenom, threshold uint64) uint64 {
-	return CalculateTieredCost(tokens, basePriceMicro, premiumNum, premiumDenom, threshold) / MicroToNano
-}
-
-// Deprecated: 使用 CalculateLinearCost 代替
-func CalculateLinearCostMicro(tokens, priceMicro uint64) uint64 {
-	return CalculateLinearCost(tokens, priceMicro) / MicroToNano
-}
-
-// NanoToUSD 将纳美元转换为美元（用于显示）
-func NanoToUSD(nanoUSD uint64) float64 {
-	return float64(nanoUSD) / NanoUSDPerUSD
-}
-
-// MicroToUSD 将微美元转换为美元（用于显示）
-func MicroToUSD(microUSD uint64) float64 {
-	return float64(microUSD) / MicroUSDPerUSD
-}

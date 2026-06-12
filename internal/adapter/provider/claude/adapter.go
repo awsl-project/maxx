@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -92,7 +93,10 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Get access token
 	accessToken, err := a.getAccessToken(ctx, false)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to get access token")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		return proxyErr
 	}
 
 	// Extract beta headers from request body before sending
@@ -112,7 +116,10 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Create upstream request
 	upstreamReq, err := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(err, true, "failed to create upstream request")
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to create upstream request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return proxyErr
 	}
 
 	// Apply headers
@@ -131,11 +138,10 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Execute request
 	resp, err := a.httpClient.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream")
-		proxyErr.IsNetworkError = true
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to upstream"
 		return proxyErr
 	}
-	resp.Body = flow.WrapResponseBody(c, resp.Body)
 	defer resp.Body.Close()
 
 	// Handle 401 (token expired) - refresh and retry once
@@ -150,23 +156,28 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		// Get new token (force refresh to skip persisted token)
 		accessToken, err = a.getAccessToken(ctx, true)
 		if err != nil {
-			return domain.NewProxyErrorWithMessage(err, true, "failed to refresh access token")
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to refresh access token")
+			proxyErr.Scope = domain.ScopeKey
+			proxyErr.Reason = domain.CooldownReasonAuthFailure
+			return proxyErr
 		}
 
 		// Retry request
 		upstreamReq, reqErr := http.NewRequestWithContext(ctx, "POST", upstreamURL, bytes.NewReader(requestBody))
 		if reqErr != nil {
-			return domain.NewProxyErrorWithMessage(reqErr, false, fmt.Sprintf("failed to create retry request: %v", reqErr))
+			proxyErr := domain.NewProxyErrorWithMessage(reqErr, false, fmt.Sprintf("failed to create retry request: %v", reqErr))
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
+			return proxyErr
 		}
 		a.applyClaudeHeaders(upstreamReq, request, accessToken, clientWantsStream, extraBetas)
 
 		resp, err = a.httpClient.Do(upstreamReq)
 		if err != nil {
-			proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to connect to upstream after token refresh")
-			proxyErr.IsNetworkError = true
+			proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+			proxyErr.Message = "failed to connect to upstream after token refresh"
 			return proxyErr
 		}
-		resp.Body = flow.WrapResponseBody(c, resp.Body)
 		defer resp.Body.Close()
 	}
 
@@ -183,24 +194,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			})
 		}
 
-		proxyErr := domain.NewProxyErrorWithMessage(
-			fmt.Errorf("upstream error: %s", string(body)),
-			isRetryableStatusCode(resp.StatusCode),
-			fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-		)
-		proxyErr.HTTPStatusCode = resp.StatusCode
-		proxyErr.IsServerError = resp.StatusCode >= 500 && resp.StatusCode < 600
-
-		// Handle rate limiting
-		if resp.StatusCode == http.StatusTooManyRequests {
-			proxyErr.RateLimitInfo = &domain.RateLimitInfo{
-				Type:             "rate_limit",
-				QuotaResetTime:   time.Now().Add(time.Minute),
-				RetryHintMessage: "Rate limited by Claude API",
-				ClientType:       string(domain.ClientTypeClaude),
-			}
-		}
-
+		proxyErr := classifyClaudeHTTPError(resp.StatusCode, body, resp.Header, flow.GetMappedModel(c))
 		return proxyErr
 	}
 
@@ -307,7 +301,10 @@ func (a *ClaudeAdapter) getAccessToken(ctx context.Context, forceRefresh bool) (
 func (a *ClaudeAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response) error {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, true, "failed to read upstream response")
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		return proxyErr
 	}
 
 	// Send events via EventChannel
@@ -360,7 +357,9 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		return domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
 	}
 
 	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
@@ -381,7 +380,9 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 			if responseCompleted {
 				return nil
 			}
-			return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+			proxyErr.Scope = domain.ScopeRequest
+			return proxyErr
 		default:
 		}
 
@@ -402,7 +403,9 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 				if responseCompleted {
 					return nil
 				}
-				return domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 			flusher.Flush()
 
@@ -421,9 +424,14 @@ func (a *ClaudeAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) e
 				return nil
 			}
 			if ctx.Err() != nil {
-				return domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
-			return domain.NewProxyErrorWithMessage(err, true, "stream read error")
+			proxyErr := domain.NewProxyErrorWithMessage(err, true, "stream read error")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 	}
 }
@@ -602,7 +610,7 @@ func ensureHeader(dst http.Header, clientReq *http.Request, key, defaultValue st
 
 func resolveClaudeUserAgent(clientReq *http.Request) string {
 	if clientReq != nil {
-		if ua := strings.TrimSpace(clientReq.Header.Get("User-Agent")); isClaudeCLIUserAgent(ua) {
+		if ua := clientReq.Header.Get("User-Agent"); strings.TrimSpace(ua) != "" {
 			return ua
 		}
 	}
@@ -670,6 +678,85 @@ func copyResponseHeaders(dst, src http.Header) {
 	}
 }
 
+func classifyClaudeHTTPError(statusCode int, body []byte, headers http.Header, model string) *domain.ProxyError {
+	bodyLower := strings.ToLower(string(body))
+
+	proxyErr := &domain.ProxyError{
+		Err:            fmt.Errorf("upstream error: %s", string(body)),
+		Message:        fmt.Sprintf("upstream returned status %d", statusCode),
+		HTTPStatusCode: statusCode,
+		Retryable:      isRetryableStatusCode(statusCode),
+		ClientType:     string(domain.ClientTypeClaude),
+	}
+
+	switch {
+	case statusCode == 400 || statusCode == 413 || statusCode == 422:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+
+	case statusCode == 401:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	case statusCode == 403:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonAuthFailure
+		proxyErr.Retryable = false
+
+	case statusCode == 404:
+		if model != "" && strings.Contains(bodyLower, "model") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonModelUnavailable
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeEndpoint
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+		proxyErr.Retryable = false
+
+	case statusCode == 429:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonRateLimitExceeded
+		proxyErr.Retryable = true
+		// Parse Retry-After
+		if retryAfter := headers.Get("Retry-After"); retryAfter != "" {
+			if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
+				proxyErr.RetryAfter = time.Duration(seconds) * time.Second
+				until := time.Now().Add(proxyErr.RetryAfter)
+				proxyErr.CooldownUntil = &until
+			}
+		}
+		if proxyErr.CooldownUntil == nil {
+			until := time.Now().Add(time.Minute)
+			proxyErr.CooldownUntil = &until
+		}
+		if strings.Contains(bodyLower, "quota") || strings.Contains(bodyLower, "insufficient") {
+			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		}
+
+	case statusCode == 503:
+		if model != "" && strings.Contains(bodyLower, "overloaded") {
+			proxyErr.Scope = domain.ScopeModel
+			proxyErr.Reason = domain.CooldownReasonServerError
+			proxyErr.Model = model
+		} else {
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+		}
+
+	case statusCode >= 500:
+		proxyErr.Scope = domain.ScopeProvider
+		proxyErr.Reason = domain.CooldownReasonServerError
+
+	default:
+		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Retryable = false
+	}
+
+	return proxyErr
+}
+
 func isRetryableStatusCode(status int) bool {
 	switch status {
 	case http.StatusTooManyRequests,
@@ -692,6 +779,7 @@ func extractModelFromResponse(body []byte) string {
 	}
 	return ""
 }
+
 
 var claudeFilteredHeaders = map[string]bool{
 	// Hop-by-hop headers

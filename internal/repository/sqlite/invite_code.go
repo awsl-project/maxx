@@ -192,6 +192,18 @@ func (r *InviteCodeRepository) ConsumeAndCreateUser(tenantID uint64, codeHash st
 }
 
 func (r *InviteCodeRepository) consumeWithTx(tx *gorm.DB, tenantID uint64, codeHash string, now time.Time) (*domain.InviteCode, error) {
+	update := tenantScope(tx.Model(&InviteCode{}), tenantID).
+		Where("code_hash = ? AND deleted_at = 0", codeHash).
+		Where("status = ?", string(domain.InviteCodeStatusActive)).
+		Where("(max_uses = 0 OR used_count < max_uses)").
+		Where("(expires_at = 0 OR expires_at > ?)", toTimestamp(now)).
+		Updates(map[string]any{
+			"used_count": gorm.Expr("used_count + 1"),
+			"updated_at": toTimestamp(now),
+		})
+	if update.Error != nil {
+		return nil, update.Error
+	}
 	var model InviteCode
 	if err := tenantScope(tx, tenantID).
 		Where("code_hash = ? AND deleted_at = 0", codeHash).
@@ -202,48 +214,19 @@ func (r *InviteCodeRepository) consumeWithTx(tx *gorm.DB, tenantID uint64, codeH
 		return nil, err
 	}
 
-	if model.Status != string(domain.InviteCodeStatusActive) {
-		return nil, domain.ErrInviteCodeDisabled
-	}
-	if model.ExpiresAt > 0 && model.ExpiresAt <= toTimestamp(now) {
-		return nil, domain.ErrInviteCodeExpired
-	}
-	if model.MaxUses > 0 && model.UsedCount >= model.MaxUses {
-		return nil, domain.ErrInviteCodeExhausted
-	}
-
-	update := tenantScope(tx.Model(&InviteCode{}), tenantID).
-		Where("id = ? AND deleted_at = 0 AND status = ?", model.ID, string(domain.InviteCodeStatusActive)).
-		Where("(max_uses = 0 OR used_count < max_uses)").
-		Where("(expires_at = 0 OR expires_at > ?)", toTimestamp(now)).
-		Updates(map[string]any{
-			"used_count": gorm.Expr("used_count + 1"),
-			"updated_at": toTimestamp(now),
-		})
-	if update.Error != nil {
-		return nil, update.Error
-	}
 	if update.RowsAffected == 0 {
-		// Re-check latest state for accurate error.
-		var current InviteCode
-		if err := tenantScope(tx, tenantID).
-			Where("id = ? AND deleted_at = 0", model.ID).
-			First(&current).Error; err == nil {
-			if current.Status != string(domain.InviteCodeStatusActive) {
-				return nil, domain.ErrInviteCodeDisabled
-			}
-			if current.ExpiresAt > 0 && current.ExpiresAt <= toTimestamp(now) {
-				return nil, domain.ErrInviteCodeExpired
-			}
-			if current.MaxUses > 0 && current.UsedCount >= current.MaxUses {
-				return nil, domain.ErrInviteCodeExhausted
-			}
+		if model.Status != string(domain.InviteCodeStatusActive) {
+			return nil, domain.ErrInviteCodeDisabled
+		}
+		if model.ExpiresAt > 0 && model.ExpiresAt <= toTimestamp(now) {
+			return nil, domain.ErrInviteCodeExpired
+		}
+		if model.MaxUses > 0 && model.UsedCount >= model.MaxUses {
+			return nil, domain.ErrInviteCodeExhausted
 		}
 		return nil, domain.ErrInviteCodeInvalid
 	}
 
-	model.UsedCount += 1
-	model.UpdatedAt = toTimestamp(now)
 	return r.toDomain(&model), nil
 }
 

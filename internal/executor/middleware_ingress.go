@@ -15,8 +15,9 @@ import (
 func (e *Executor) ingress(c *flow.Ctx) {
 	state, ok := getExecState(c)
 	if !ok {
-		err := domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "executor state missing")
-		c.Err = err
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrInvalidInput, false, "executor state missing")
+		proxyErr.Scope = domain.ScopeRequest
+		c.Err = proxyErr
 		c.Abort()
 		return
 	}
@@ -97,7 +98,7 @@ func (e *Executor) ingress(c *flow.Ctx) {
 		IsStream:     state.isStream,
 		Status:       "PENDING",
 		APITokenID:   state.apiTokenID,
-		DevMode:     state.apiTokenDevMode,
+		DevMode:      state.apiTokenDevMode,
 	}
 
 	clearDetail := e.shouldClearRequestDetailFor(state)
@@ -117,7 +118,7 @@ func (e *Executor) ingress(c *flow.Ctx) {
 				Method:  c.Request.Method,
 				URL:     requestURI,
 				Headers: headers,
-				Body:    string(requestBody),
+				Body:    domain.RequestBodySnapshot(requestBody, requestHeaders.Get("Content-Type"), state.apiTokenDevMode),
 			}
 		}
 	}
@@ -167,9 +168,10 @@ func (e *Executor) ingress(c *flow.Ctx) {
 				e.broadcaster.BroadcastProxyRequest(proxyReq)
 			}
 
-			err := domain.NewProxyErrorWithMessage(err, false, "project binding required: "+err.Error())
-			state.lastErr = err
-			c.Err = err
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "project binding required: "+err.Error())
+			proxyErr.Scope = domain.ScopeRequest
+			state.lastErr = proxyErr
+			c.Err = proxyErr
 			c.Abort()
 			return
 		}
