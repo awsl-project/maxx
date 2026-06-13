@@ -833,6 +833,58 @@ func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenSecret(t *test
 	}
 }
 
+func TestSelfServiceHandler_UpdateProviderType_DoesNotPreserveOldTypeSecrets(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{
+		providers: []*domain.Provider{
+			{
+				ID:       1,
+				TenantID: 1,
+				Name:     "custom-provider",
+				Type:     "custom",
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{
+						BaseURL: "https://example.com",
+						APIKey:  "old-custom-secret",
+					},
+				},
+			},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"bedrock-provider","type":"bedrock","config":{"bedrock":{"accessKeyId":"AKIATEST","secretAccessKey":"new-bedrock-secret","region":"us-east-1"}},"supportedClientTypes":["claude"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	stored := providerRepo.providers[0]
+	if stored.Type != "bedrock" {
+		t.Fatalf("stored type = %q, want bedrock", stored.Type)
+	}
+	if stored.Config == nil || stored.Config.Bedrock == nil {
+		t.Fatalf("stored bedrock config missing: %+v", stored.Config)
+	}
+	if got := stored.Config.Bedrock.SecretAccessKey; got != "new-bedrock-secret" {
+		t.Fatalf("stored bedrock secret = %q, want submitted secret", got)
+	}
+	if stored.Config.Custom != nil {
+		t.Fatalf("old custom config was preserved after type switch: %+v", stored.Config.Custom)
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config != nil && provider.Config.Custom != nil {
+		t.Fatalf("response preserved old custom config after type switch: %+v", provider.Config.Custom)
+	}
+}
+
 func TestSelfServiceHandler_MemberForbiddenOnSensitiveProviderOperations(t *testing.T) {
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
 		providerRepo: &selfServiceProviderRepo{

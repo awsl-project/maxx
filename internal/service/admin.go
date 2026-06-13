@@ -193,71 +193,85 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 	if existing == nil || incoming == nil || existing.Config == nil {
 		return
 	}
-	if incoming.Config == nil {
-		incoming.Config = existing.Config
+	effectiveType := incoming.Type
+	if effectiveType == "" {
+		effectiveType = existing.Type
+	}
+	if effectiveType != existing.Type {
 		return
 	}
+	if incoming.Config == nil {
+		incoming.Config = &domain.ProviderConfig{}
+	}
 
-	if existing.Config.Custom != nil {
-		if incoming.Config.Custom == nil {
-			custom := *existing.Config.Custom
-			incoming.Config.Custom = &custom
-		} else if incoming.Config.Custom.APIKey == "" {
-			incoming.Config.Custom.APIKey = existing.Config.Custom.APIKey
-		}
-	}
-	if existing.Config.Antigravity != nil {
-		if incoming.Config.Antigravity == nil {
-			antigravity := *existing.Config.Antigravity
-			incoming.Config.Antigravity = &antigravity
-		} else if incoming.Config.Antigravity.RefreshToken == "" {
-			incoming.Config.Antigravity.RefreshToken = existing.Config.Antigravity.RefreshToken
-		}
-	}
-	if existing.Config.Bedrock != nil {
-		if incoming.Config.Bedrock == nil {
-			bedrock := *existing.Config.Bedrock
-			incoming.Config.Bedrock = &bedrock
-		} else if incoming.Config.Bedrock.SecretAccessKey == "" {
-			incoming.Config.Bedrock.SecretAccessKey = existing.Config.Bedrock.SecretAccessKey
-		}
-	}
-	if existing.Config.Kiro != nil {
-		if incoming.Config.Kiro == nil {
-			kiro := *existing.Config.Kiro
-			incoming.Config.Kiro = &kiro
-		} else {
-			if incoming.Config.Kiro.RefreshToken == "" {
-				incoming.Config.Kiro.RefreshToken = existing.Config.Kiro.RefreshToken
-			}
-			if incoming.Config.Kiro.ClientSecret == "" {
-				incoming.Config.Kiro.ClientSecret = existing.Config.Kiro.ClientSecret
+	switch effectiveType {
+	case "custom":
+		if existing.Config.Custom != nil {
+			if incoming.Config.Custom == nil {
+				custom := *existing.Config.Custom
+				incoming.Config.Custom = &custom
+			} else if incoming.Config.Custom.APIKey == "" {
+				incoming.Config.Custom.APIKey = existing.Config.Custom.APIKey
 			}
 		}
-	}
-	if existing.Config.Codex != nil {
-		if incoming.Config.Codex == nil {
-			codex := *existing.Config.Codex
-			incoming.Config.Codex = &codex
-		} else {
-			if incoming.Config.Codex.RefreshToken == "" {
-				incoming.Config.Codex.RefreshToken = existing.Config.Codex.RefreshToken
-			}
-			if incoming.Config.Codex.AccessToken == "" {
-				incoming.Config.Codex.AccessToken = existing.Config.Codex.AccessToken
+	case "antigravity":
+		if existing.Config.Antigravity != nil {
+			if incoming.Config.Antigravity == nil {
+				antigravity := *existing.Config.Antigravity
+				incoming.Config.Antigravity = &antigravity
+			} else if incoming.Config.Antigravity.RefreshToken == "" {
+				incoming.Config.Antigravity.RefreshToken = existing.Config.Antigravity.RefreshToken
 			}
 		}
-	}
-	if existing.Config.Claude != nil {
-		if incoming.Config.Claude == nil {
-			claude := *existing.Config.Claude
-			incoming.Config.Claude = &claude
-		} else {
-			if incoming.Config.Claude.RefreshToken == "" {
-				incoming.Config.Claude.RefreshToken = existing.Config.Claude.RefreshToken
+	case "bedrock":
+		if existing.Config.Bedrock != nil {
+			if incoming.Config.Bedrock == nil {
+				bedrock := *existing.Config.Bedrock
+				incoming.Config.Bedrock = &bedrock
+			} else if incoming.Config.Bedrock.SecretAccessKey == "" {
+				incoming.Config.Bedrock.SecretAccessKey = existing.Config.Bedrock.SecretAccessKey
 			}
-			if incoming.Config.Claude.AccessToken == "" {
-				incoming.Config.Claude.AccessToken = existing.Config.Claude.AccessToken
+		}
+	case "kiro":
+		if existing.Config.Kiro != nil {
+			if incoming.Config.Kiro == nil {
+				kiro := *existing.Config.Kiro
+				incoming.Config.Kiro = &kiro
+			} else {
+				if incoming.Config.Kiro.RefreshToken == "" {
+					incoming.Config.Kiro.RefreshToken = existing.Config.Kiro.RefreshToken
+				}
+				if incoming.Config.Kiro.ClientSecret == "" {
+					incoming.Config.Kiro.ClientSecret = existing.Config.Kiro.ClientSecret
+				}
+			}
+		}
+	case "codex":
+		if existing.Config.Codex != nil {
+			if incoming.Config.Codex == nil {
+				codex := *existing.Config.Codex
+				incoming.Config.Codex = &codex
+			} else {
+				if incoming.Config.Codex.RefreshToken == "" {
+					incoming.Config.Codex.RefreshToken = existing.Config.Codex.RefreshToken
+				}
+				if incoming.Config.Codex.AccessToken == "" {
+					incoming.Config.Codex.AccessToken = existing.Config.Codex.AccessToken
+				}
+			}
+		}
+	case "claude":
+		if existing.Config.Claude != nil {
+			if incoming.Config.Claude == nil {
+				claude := *existing.Config.Claude
+				incoming.Config.Claude = &claude
+			} else {
+				if incoming.Config.Claude.RefreshToken == "" {
+					incoming.Config.Claude.RefreshToken = existing.Config.Claude.RefreshToken
+				}
+				if incoming.Config.Claude.AccessToken == "" {
+					incoming.Config.Claude.AccessToken = existing.Config.Claude.AccessToken
+				}
 			}
 		}
 	}
