@@ -312,7 +312,9 @@
       "serviceTierAuto": "Auto",
       "serviceTierDefault": "Default",
       "serviceTierFlex": "Flex",
-      "serviceTierPriority": "Priority"
+      "serviceTierPriority": "Priority",
+      "responsesPassthrough": "Passthrough Responses Path",
+      "responsesPassthroughDesc": "When forwarding to a custom Base URL, send the client's original path (e.g. /v1/responses) instead of a hardcoded /responses. Turn off only for upstreams that expect /responses, or when the Base URL already ends with /v1. No effect on the official ChatGPT backend."
     },
     "projectId": "Project ID",
     "endpoint": "Endpoint",
@@ -1349,6 +1351,8 @@
     "errorCooldownTitle": "3. Error Cooldown",
     "disableErrorCooldown": "Disable Error Cooldown",
     "disableErrorCooldownDesc": "When enabled, errors won't trigger automatic cooldown. Manual freezes and explicit cooldown times still apply.",
+    "responsesPassthrough": "Passthrough Responses Path",
+    "responsesPassthroughDesc": "For Codex Responses requests, forward the client's original path (e.g. /v1/responses) instead of a hardcoded /responses. Turn off only for upstreams that expect /responses, or when the Base URL already ends with /v1.",
     "excludeFromExport": "Do not export this provider",
     "excludeFromExportDesc": "When enabled, this provider and its configuration will not be included in provider exports or system backups, and saved provider secrets will not be revealed on the edit page. Enter a new value to rotate a secret.",
     "excludeFromExportLockedDesc": "This provider is already in hidden-secret mode. To avoid exposing the old secret by toggling this off, the switch cannot be disabled directly."

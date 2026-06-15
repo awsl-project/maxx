@@ -44,6 +44,9 @@ export interface ProviderConfigCustom {
   clientMultiplier?: Partial<Record<ClientType, number>>; // 10000=1倍
   modelMapping?: Record<string, string>;
   responseModelMapping?: Record<string, string>;
+  // Codex Responses 请求是否透传客户端原始路径(/v1/responses)。
+  // 不设置=默认透传;false=用旧的、被砍掉 /v1 的 /responses。
+  responsesPassthrough?: boolean;
 }
 
 export interface ProviderConfigAntigravity {
@@ -82,6 +85,9 @@ export interface ProviderConfigCodex {
   baseURL?: string;
   reasoning?: string; // "low", "medium", "high"
   serviceTier?: string; // "auto", "default", "flex", "priority"
+  // 转发到自定义 baseURL 时是否透传客户端原始 Responses 路径(/v1/responses)。
+  // 不设置=默认透传;false=用旧的硬编码 /responses。
+  responsesPassthrough?: boolean;
 }
 
 export interface ProviderConfigClaude {

@@ -48,6 +48,12 @@ type ProviderConfigCustom struct {
 
 	// ResponseModel 映射: UpstreamResponseModel → ClientResponseModel
 	ResponseModelMapping map[string]string `json:"responseModelMapping,omitempty"`
+
+	// ResponsesPassthrough 控制 Codex Responses 请求转发到本下游时是否透传客户端
+	// 原始路径(/v1/responses 原样转,而不是被归一化成 /responses)。
+	// 不设置(nil)= 默认透传;显式 false = 用旧的、被砍掉 /v1 的 /responses。
+	// 用于适配只认 /responses 的特殊上游,或修正 base_url 已含 /v1 的旧配置。
+	ResponsesPassthrough *bool `json:"responsesPassthrough,omitempty"`
 }
 
 // Disguise type constants. Use these instead of magic strings when dispatching
@@ -232,6 +238,12 @@ type ProviderConfigCodex struct {
 	// 自定义 Codex API Base URL（默认使用官方地址）
 	BaseURL string `json:"baseURL,omitempty"`
 
+	// ResponsesPassthrough 控制配置了自定义 BaseURL 时,是否透传客户端原始
+	// Responses 路径(/v1/responses 原样转,而不是硬编码 /responses)。
+	// 不设置(nil)= 默认透传;显式 false = 切回旧的硬编码 /responses(+ /responses/compact)。
+	// 官方 ChatGPT 后端(未配 BaseURL)不受此开关影响。
+	ResponsesPassthrough *bool `json:"responsesPassthrough,omitempty"`
+
 	// 强制 reasoning effort（覆盖请求中的值）
 	// 可选值: "low", "medium", "high"
 	Reasoning string `json:"reasoning,omitempty"`
@@ -239,6 +251,13 @@ type ProviderConfigCodex struct {
 	// 强制 service_tier（覆盖请求中的值）
 	// 可选值: "auto", "default", "flex", "priority"
 	ServiceTier string `json:"serviceTier,omitempty"`
+}
+
+// ResponsesPassthroughEnabled reports whether Codex Responses path passthrough is
+// on for the given config flag. Unset (nil) defaults to true (passthrough); only
+// an explicit false restores the legacy hardcoded /responses path.
+func ResponsesPassthroughEnabled(flag *bool) bool {
+	return flag == nil || *flag
 }
 
 // ProviderConfigCLIProxyAPIAntigravity CLIProxyAPI Antigravity 内部配置

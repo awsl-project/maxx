@@ -254,6 +254,8 @@ export type ProviderFormData = {
   logo?: string; // Logo URL
   disableErrorCooldown?: boolean;
   excludeFromExport?: boolean;
+  // undefined = 默认透传;false = 旧的硬编码 /responses。
+  responsesPassthrough?: boolean;
 };
 
 // Create step type

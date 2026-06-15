@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { Globe, ChevronLeft, Key, Check, Plus, Trash2, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import {
+  Globe,
+  ChevronLeft,
+  Key,
+  Check,
+  Plus,
+  Trash2,
+  ArrowRight,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCreateProvider, useCreateModelMapping } from '@/hooks/queries';
 import type { ClientType, CreateProviderData } from '@/lib/transport';
@@ -73,6 +83,7 @@ export function CustomConfigStep() {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey: formData.apiKey,
+            responsesPassthrough: formData.responsesPassthrough,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -273,6 +284,20 @@ export function CustomConfigStep() {
               <Switch
                 checked={!!formData.disableErrorCooldown}
                 onCheckedChange={(checked) => updateFormData({ disableErrorCooldown: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.responsesPassthrough')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.responsesPassthroughDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={formData.responsesPassthrough !== false}
+                onCheckedChange={(checked) => updateFormData({ responsesPassthrough: checked })}
               />
             </div>
           </div>

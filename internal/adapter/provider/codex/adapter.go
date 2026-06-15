@@ -140,16 +140,39 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 	requestBody = payloadoverride.ApplyGlobal(requestBody, "codex", flow.GetMappedModel(c))
 
-	// Build upstream URL and stream mode
+	// Build upstream URL and stream mode.
+	//
+	// Custom downstream with passthrough on (default): forward the exact Responses
+	// path the client used (preserving /v1, since New API / OpenAI-compatible
+	// gateways serve /v1/responses, not /responses). Stream vs non-stream is
+	// conveyed via the body's "stream" flag, not /responses/compact (which is
+	// ChatGPT-specific and 404s elsewhere).
+	//
+	// Official ChatGPT backend (no custom BaseURL), or custom downstream with
+	// passthrough explicitly disabled: use the ChatGPT contract — /responses for
+	// streaming, /responses/compact for non-streaming.
+	upstreamStream := clientWantsStream
 	baseURL := CodexBaseURL
-	if config.BaseURL != "" {
+	custom := config.BaseURL != ""
+	if custom {
 		baseURL = strings.TrimRight(config.BaseURL, "/")
 	}
-	upstreamURL := baseURL + "/responses"
-	upstreamStream := true
-	if !clientWantsStream {
-		upstreamURL = baseURL + "/responses/compact"
-		upstreamStream = false
+
+	var upstreamURL string
+	if custom && domain.ResponsesPassthroughEnabled(config.ResponsesPassthrough) {
+		path := flow.GetResponsesClientPath(c)
+		if path == "" {
+			// No client Responses path captured (e.g. converted from another
+			// client type) — default to the OpenAI-compatible endpoint.
+			path = "/v1/responses"
+		}
+		upstreamURL = baseURL + path
+	} else {
+		upstreamURL = baseURL + "/responses"
+		if !clientWantsStream {
+			upstreamURL = baseURL + "/responses/compact"
+			upstreamStream = false
+		}
 	}
 	if len(requestBody) > 0 {
 		if updated, err := sjson.SetBytes(requestBody, "stream", upstreamStream); err == nil {

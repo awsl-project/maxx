@@ -1626,3 +1626,83 @@ func TestCooldown_GeminiProtocol(t *testing.T) {
 		t.Errorf("no cooldown for Gemini provider %d: %s", providerID, cdBody)
 	}
 }
+
+// TestProxyCodexResponsesPathPassthrough verifies that a Codex client's original
+// Responses path is forwarded verbatim to a custom (OpenAI-compatible, e.g. New
+// API) downstream — /v1/responses stays /v1/responses rather than being rewritten
+// to a hardcoded /responses. Regression for New API serving /v1/responses.
+func TestProxyCodexResponsesPathPassthrough(t *testing.T) {
+	cases := []struct {
+		name       string
+		clientPath string
+		wantUp     string
+	}{
+		{"v1_prefixed", "/v1/responses", "/v1/responses"},
+		{"bare", "/responses", "/responses"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			captured := &capturedRequest{}
+			mock := newMockCodexUpstream(t, captured)
+			defer mock.Close()
+
+			env := NewProxyTestEnv(t)
+			providerID := createProvider(t, env, "mock-newapi", mock.URL, []string{"codex"})
+			createRoute(t, env, "codex", providerID)
+
+			resp := env.ProxyPost(tc.clientPath, codexRequest("gpt-5"), nil)
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+			}
+			_, upPath, _, _ := captured.Get()
+			if upPath != tc.wantUp {
+				t.Fatalf("client %s: upstream path=%q, want %q", tc.clientPath, upPath, tc.wantUp)
+			}
+		})
+	}
+}
+
+// TestProxyCodexResponsesPassthroughDisabled verifies the per-provider switch:
+// with responsesPassthrough=false the legacy hardcoded /responses path is used
+// even when the client sent /v1/responses.
+func TestProxyCodexResponsesPassthroughDisabled(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockCodexUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	resp := env.AdminPost("/api/admin/providers", map[string]any{
+		"name": "mock-legacy",
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL":              mock.URL,
+				"apiKey":               "sk-mock-test-key",
+				"responsesPassthrough": false,
+			},
+		},
+		"supportedClientTypes": []string{"codex"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create provider: status=%d body=%s", resp.StatusCode, body)
+	}
+	var created struct {
+		ID uint64 `json:"id"`
+	}
+	DecodeJSON(t, resp, &created)
+	createRoute(t, env, "codex", created.ID)
+
+	r := env.ProxyPost("/v1/responses", codexRequest("gpt-5"), nil)
+	body, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", r.StatusCode, body)
+	}
+	_, upPath, _, _ := captured.Get()
+	if upPath != "/responses" {
+		t.Fatalf("passthrough disabled: upstream path=%q, want /responses", upPath)
+	}
+}

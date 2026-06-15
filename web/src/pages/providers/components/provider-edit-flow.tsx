@@ -430,6 +430,8 @@ type EditFormData = {
   responseModelMapping: Record<string, string>;
   disableErrorCooldown?: boolean;
   excludeFromExport?: boolean;
+  // undefined = 默认透传;false = 旧的硬编码 /responses。
+  responsesPassthrough?: boolean;
 };
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
@@ -490,6 +492,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
       excludeFromExport: !!provider.excludeFromExport,
+      responsesPassthrough: provider.config?.custom?.responsesPassthrough,
     };
   });
   const secretsAreWriteOnly = !!provider.excludeFromExport || !!formData.excludeFromExport;
@@ -548,6 +551,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey: formData.apiKey.trim() || '',
+            responsesPassthrough: formData.responsesPassthrough,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -615,6 +619,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
               formData.apiKey.trim() ||
               (secretsAreWriteOnly ? '' : provider.config?.custom?.apiKey) ||
               '',
+            responsesPassthrough: formData.responsesPassthrough,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -984,6 +989,22 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 checked={!!formData.disableErrorCooldown}
                 onCheckedChange={(checked) =>
                   setFormData((prev) => ({ ...prev, disableErrorCooldown: checked }))
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.responsesPassthrough')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.responsesPassthroughDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={formData.responsesPassthrough !== false}
+                onCheckedChange={(checked) =>
+                  setFormData((prev) => ({ ...prev, responsesPassthrough: checked }))
                 }
               />
             </div>

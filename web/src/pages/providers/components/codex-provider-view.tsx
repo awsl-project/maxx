@@ -355,14 +355,16 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
   const config = provider.config?.codex;
   const updateProvider = useUpdateProvider();
 
-  const [useCLIProxyAPI, setUseCLIProxyAPI] = useState(
-    () => config?.useCLIProxyAPI ?? false,
-  );
+  const [useCLIProxyAPI, setUseCLIProxyAPI] = useState(() => config?.useCLIProxyAPI ?? false);
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(
     () => provider.config?.disableErrorCooldown ?? false,
   );
   const [reasoning, setReasoning] = useState(() => config?.reasoning ?? '');
   const [serviceTier, setServiceTier] = useState(() => config?.serviceTier ?? '');
+  // undefined/true = 默认透传;仅显式 false 关闭。
+  const [responsesPassthrough, setResponsesPassthrough] = useState(
+    () => config?.responsesPassthrough !== false,
+  );
 
   useEffect(() => {
     setUseCLIProxyAPI(config?.useCLIProxyAPI ?? false);
@@ -376,6 +378,9 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
   useEffect(() => {
     setServiceTier(config?.serviceTier ?? '');
   }, [config?.serviceTier]);
+  useEffect(() => {
+    setResponsesPassthrough(config?.responsesPassthrough !== false);
+  }, [config?.responsesPassthrough]);
 
   const handleToggleCLIProxyAPI = async (checked: boolean) => {
     if (!config) return;
@@ -467,6 +472,29 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
       });
     } catch {
       setServiceTier(prev);
+    }
+  };
+
+  const handleToggleResponsesPassthrough = async (checked: boolean) => {
+    if (!config) return;
+    const prev = responsesPassthrough;
+    setResponsesPassthrough(checked);
+    try {
+      await updateProvider.mutateAsync({
+        id: provider.id,
+        data: {
+          ...provider,
+          config: {
+            ...provider.config,
+            codex: {
+              ...config,
+              responsesPassthrough: checked,
+            },
+          },
+        },
+      });
+    } catch {
+      setResponsesPassthrough(prev);
     }
   };
 
@@ -703,6 +731,22 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
                   <option value="flex">{t('providers.codex.serviceTierFlex')}</option>
                   <option value="priority">{t('providers.codex.serviceTierPriority')}</option>
                 </select>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('providers.codex.responsesPassthrough')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('providers.codex.responsesPassthroughDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={responsesPassthrough}
+                  onCheckedChange={handleToggleResponsesPassthrough}
+                  disabled={updateProvider.isPending}
+                />
               </div>
             </div>
           </div>

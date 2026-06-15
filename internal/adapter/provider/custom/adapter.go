@@ -74,6 +74,17 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	baseURL := a.getBaseURL(clientType)
 	requestURI := flow.GetRequestURI(c)
 
+	// Codex Responses passthrough: the proxy layer normalizes /v1/responses down
+	// to /responses. When forwarding to a codex downstream as-is (no format
+	// conversion), honor the client's original path so OpenAI-compatible gateways
+	// that serve /v1/responses (e.g. New API) are hit at the right path instead of
+	// a 404-ing /responses. Gated by the per-provider switch (default on).
+	if clientType == domain.ClientTypeCodex && domain.ResponsesPassthroughEnabled(a.customPassthroughFlag()) {
+		if p := flow.GetResponsesClientPath(c); p != "" {
+			requestURI = p
+		}
+	}
+
 	// Apply model mapping if configured
 	var err error
 	if mappedModel != "" {
@@ -426,6 +437,15 @@ func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
 		return url
 	}
 	return config.BaseURL
+}
+
+// customPassthroughFlag returns the provider's Codex Responses passthrough flag
+// (nil when unconfigured → treated as default-on by ResponsesPassthroughEnabled).
+func (a *CustomAdapter) customPassthroughFlag() *bool {
+	if cfg := a.provider.Config.Custom; cfg != nil {
+		return cfg.ResponsesPassthrough
+	}
+	return nil
 }
 
 func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response, clientType domain.ClientType, isOAuthToken bool) error {

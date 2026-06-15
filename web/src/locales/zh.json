@@ -311,7 +311,9 @@
       "serviceTierAuto": "自动",
       "serviceTierDefault": "默认",
       "serviceTierFlex": "弹性",
-      "serviceTierPriority": "优先"
+      "serviceTierPriority": "优先",
+      "responsesPassthrough": "透传 Responses 路径",
+      "responsesPassthroughDesc": "转发到自定义 Base URL 时,按客户端原始路径转发(如 /v1/responses),而不是硬编码 /responses。仅当上游只认 /responses、或 Base URL 已自带 /v1 时才需要关闭。官方 ChatGPT 后端不受影响。"
     },
     "projectId": "项目 ID",
     "endpoint": "端点",
@@ -1348,6 +1350,8 @@
     "errorCooldownTitle": "3. 错误冷冻",
     "disableErrorCooldown": "禁用错误冷冻",
     "disableErrorCooldownDesc": "开启后，错误将不再触发自动冷冻；手动冷冻与上游明确冷冻时间仍会生效。",
+    "responsesPassthrough": "透传 Responses 路径",
+    "responsesPassthroughDesc": "Codex Responses 请求按客户端原始路径转发（如 /v1/responses），而不是硬编码 /responses。仅当上游只认 /responses、或 Base URL 已自带 /v1 时才需要关闭。",
     "excludeFromExport": "不导出此提供商配置",
     "excludeFromExportDesc": "开启后，此提供商及其配置不会被包含在提供商导出或系统备份中；保存后的提供商密钥也不会在编辑页回显，只能重新输入轮换。",
     "excludeFromExportLockedDesc": "该提供商已进入密钥隐藏模式。为了避免通过关闭开关读回旧密钥，当前开关不可直接关闭。"

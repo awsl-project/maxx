@@ -97,6 +97,18 @@ func GetRequestURI(c *Ctx) string {
 	return ""
 }
 
+// GetResponsesClientPath returns the client's original Responses API path
+// captured before /v1 normalization (e.g. "/v1/responses" or "/responses"),
+// or "" when the request was not a Responses call.
+func GetResponsesClientPath(c *Ctx) string {
+	if v, ok := c.Get(KeyResponsesClientPath); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 func GetIsStream(c *Ctx) bool {
 	if v, ok := c.Get(KeyIsStream); ok {
 		if s, ok := v.(bool); ok {

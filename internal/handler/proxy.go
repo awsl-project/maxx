@@ -106,6 +106,13 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		return
 	}
 
+	// Capture the client's original Responses request URI (path + query) before
+	// normalizing /v1 away, so a custom Codex downstream can be forwarded the exact
+	// path the client used (passthrough) rather than a hardcoded one.
+	if strings.HasPrefix(r.URL.Path, "/responses") || strings.HasPrefix(r.URL.Path, "/v1/responses") {
+		c.Set(flow.KeyResponsesClientPath, r.URL.RequestURI())
+	}
+
 	if strings.HasPrefix(r.URL.Path, "/v1/responses") {
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/v1")
 	}
