@@ -11,6 +11,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -243,6 +244,12 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
 		proxyErr.Message = "failed to connect to upstream"
 		return proxyErr
+	}
+
+	if retryResp, retryErr := retryCodexResponsesWithV1IfHTML(ctx, client, upstreamReq, resp, baseURL, requestURI, requestBody, clientType); retryErr != nil {
+		return retryErr
+	} else if retryResp != nil {
+		resp = retryResp
 	}
 	defer resp.Body.Close()
 
@@ -858,6 +865,84 @@ func updateModelInMultipartForm(body []byte, req *http.Request, model string) ([
 
 func buildUpstreamURL(baseURL string, requestPath string) string {
 	return strings.TrimSuffix(baseURL, "/") + requestPath
+}
+
+func splitRequestURI(requestURI string) (string, string) {
+	u, err := url.ParseRequestURI(requestURI)
+	if err == nil {
+		return u.Path, u.RawQuery
+	}
+	if strings.Contains(requestURI, "?") {
+		parts := strings.SplitN(requestURI, "?", 2)
+		return parts[0], parts[1]
+	}
+	return requestURI, ""
+}
+
+func retryCodexResponsesWithV1IfHTML(
+	ctx context.Context,
+	client *http.Client,
+	upstreamReq *http.Request,
+	resp *http.Response,
+	baseURL string,
+	requestURI string,
+	requestBody []byte,
+	clientType domain.ClientType,
+) (*http.Response, error) {
+	if clientType != domain.ClientTypeCodex || !isHTMLResponse(resp) {
+		return nil, nil
+	}
+
+	retryURI, ok := codexResponsesV1URI(requestURI)
+	if !ok {
+		return nil, nil
+	}
+
+	_ = resp.Body.Close()
+	retryURL := buildUpstreamURL(baseURL, retryURI)
+	retryReq := upstreamReq.Clone(ctx)
+	parsedURL, err := url.Parse(retryURL)
+	if err != nil {
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to create upstream retry request")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonServerError
+		return nil, proxyErr
+	}
+	retryReq.URL = parsedURL
+	retryReq.Body = io.NopCloser(bytes.NewReader(requestBody))
+	retryReq.ContentLength = int64(len(requestBody))
+
+	log.Printf("[CustomAdapter] Codex /responses returned HTML, retrying OpenAI Responses path: %s", retryURI)
+	retryResp, err := client.Do(retryReq)
+	if err != nil {
+		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+		proxyErr.Message = "failed to connect to upstream"
+		return nil, proxyErr
+	}
+	return retryResp, nil
+}
+
+func isHTMLResponse(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html")
+}
+
+func codexResponsesV1URI(requestURI string) (string, bool) {
+	path, rawQuery := splitRequestURI(requestURI)
+	switch {
+	case path == "/responses":
+		path = "/v1/responses"
+	case strings.HasPrefix(path, "/responses/"):
+		path = "/v1" + path
+	default:
+		return "", false
+	}
+	if rawQuery == "" {
+		return path, true
+	}
+	return path + "?" + rawQuery, true
 }
 
 // isMultipartForm reports whether the request body is multipart/form-data

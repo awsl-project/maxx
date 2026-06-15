@@ -86,6 +86,44 @@ func createRoute(t *testing.T, env *ProxyTestEnv, clientType string, providerID 
 	return result.ID
 }
 
+func createProject(t *testing.T, env *ProxyTestEnv, name, slug string) uint64 {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/projects", map[string]any{
+		"name":                name,
+		"slug":                slug,
+		"enabledCustomRoutes": []string{},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Failed to create project %s: status=%d body=%s", name, resp.StatusCode, body)
+	}
+	var result struct {
+		ID uint64 `json:"id"`
+	}
+	DecodeJSON(t, resp, &result)
+	return result.ID
+}
+
+func createProjectRoute(t *testing.T, env *ProxyTestEnv, clientType string, providerID uint64, projectID uint64) uint64 {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/routes", map[string]any{
+		"isEnabled":  true,
+		"clientType": clientType,
+		"providerID": providerID,
+		"projectID":  projectID,
+		"position":   1,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Failed to create project route: status=%d body=%s", resp.StatusCode, body)
+	}
+	var result struct {
+		ID uint64 `json:"id"`
+	}
+	DecodeJSON(t, resp, &result)
+	return result.ID
+}
+
 // --- Mock Upstream Servers ---
 
 // newMockClaudeUpstream creates a mock server that returns Claude-format responses.
@@ -169,6 +207,35 @@ func newMockCodexUpstream(t *testing.T, captured *capturedRequest) *httptest.Ser
 				"output_tokens": 8,
 				"total_tokens":  18,
 			},
+		})
+	}))
+}
+
+func newMockOpenAIResponsesUpstream(t *testing.T, captured *capturedRequest) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.Set(r)
+		if r.URL.Path != "/v1/responses" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, `<!doctype html><title>New API</title>`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":         "resp_mock_001",
+			"object":     "response",
+			"created_at": 1700000000,
+			"model":      "gpt-4o",
+			"output": []map[string]any{
+				{
+					"type": "message",
+					"role": "assistant",
+					"content": []map[string]any{
+						{"type": "output_text", "text": "Hello from mock OpenAI Responses!"},
+					},
+				},
+			},
+			"status": "completed",
 		})
 	}))
 }
@@ -556,6 +623,41 @@ func TestProxyCodexPassthrough(t *testing.T) {
 	respBody, _ := io.ReadAll(resp.Body)
 	if gjson.GetBytes(respBody, "object").String() != "response" {
 		t.Errorf("Response should have object=response, got: %s", string(respBody))
+	}
+}
+
+func TestProxyCodexResponsesOpenAICompatibleBaseURL(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockOpenAIResponsesUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai-responses", mock.URL, []string{"codex"})
+	createRoute(t, env, "codex", providerID)
+	projectID := createProject(t, env, "code-x", "code-x")
+	createProjectRoute(t, env, "codex", providerID, projectID)
+
+	for _, path := range []string{
+		"/v1/responses",
+		"/responses",
+		"/project/code-x/v1/responses",
+		"/project/code-x/responses",
+	} {
+		t.Run(path, func(t *testing.T) {
+			resp := env.ProxyPost(path, codexRequest("gpt-4o"), nil)
+			defer resp.Body.Close()
+			assertStatus(t, resp, http.StatusOK)
+
+			_, upstreamPath, _, _ := captured.Get()
+			if upstreamPath != "/v1/responses" {
+				t.Fatalf("Expected upstream path /v1/responses, got %s", upstreamPath)
+			}
+
+			respBody, _ := io.ReadAll(resp.Body)
+			if gjson.GetBytes(respBody, "object").String() != "response" {
+				t.Fatalf("Response should have object=response, got: %s", string(respBody))
+			}
+		})
 	}
 }
 
