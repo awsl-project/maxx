@@ -19,11 +19,12 @@ import (
 
 // capturedRequest stores the last request received by a mock upstream.
 type capturedRequest struct {
-	mu      sync.Mutex
-	Method  string
-	Path    string
-	Headers http.Header
-	Body    []byte
+	mu       sync.Mutex
+	Method   string
+	Path     string
+	RawQuery string
+	Headers  http.Header
+	Body     []byte
 }
 
 func (c *capturedRequest) Set(r *http.Request) {
@@ -31,6 +32,7 @@ func (c *capturedRequest) Set(r *http.Request) {
 	defer c.mu.Unlock()
 	c.Method = r.Method
 	c.Path = r.URL.Path
+	c.RawQuery = r.URL.RawQuery
 	c.Headers = r.Header.Clone()
 	c.Body, _ = io.ReadAll(r.Body)
 }
@@ -39,6 +41,13 @@ func (c *capturedRequest) Get() (string, string, http.Header, []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.Method, c.Path, c.Headers, c.Body
+}
+
+// GetRawQuery returns the captured upstream request's raw query string.
+func (c *capturedRequest) GetRawQuery() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.RawQuery
 }
 
 // createProvider creates a custom provider via admin API and returns the provider ID.
@@ -1630,15 +1639,19 @@ func TestCooldown_GeminiProtocol(t *testing.T) {
 // TestProxyCodexResponsesPathPassthrough verifies that a Codex client's original
 // Responses path is forwarded verbatim to a custom (OpenAI-compatible, e.g. New
 // API) downstream — /v1/responses stays /v1/responses rather than being rewritten
-// to a hardcoded /responses. Regression for New API serving /v1/responses.
+// to a hardcoded /responses. The query string must be preserved too, since the
+// passthrough captures the full request URI (path + query). Regression for New
+// API serving /v1/responses.
 func TestProxyCodexResponsesPathPassthrough(t *testing.T) {
 	cases := []struct {
 		name       string
 		clientPath string
 		wantUp     string
+		wantQuery  string
 	}{
-		{"v1_prefixed", "/v1/responses", "/v1/responses"},
-		{"bare", "/responses", "/responses"},
+		{"v1_prefixed", "/v1/responses", "/v1/responses", ""},
+		{"bare", "/responses", "/responses", ""},
+		{"with_query", "/v1/responses?source=codex-cli", "/v1/responses", "source=codex-cli"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1659,6 +1672,9 @@ func TestProxyCodexResponsesPathPassthrough(t *testing.T) {
 			_, upPath, _, _ := captured.Get()
 			if upPath != tc.wantUp {
 				t.Fatalf("client %s: upstream path=%q, want %q", tc.clientPath, upPath, tc.wantUp)
+			}
+			if gotQuery := captured.GetRawQuery(); gotQuery != tc.wantQuery {
+				t.Fatalf("client %s: upstream query=%q, want %q", tc.clientPath, gotQuery, tc.wantQuery)
 			}
 		})
 	}
