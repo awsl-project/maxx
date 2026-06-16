@@ -304,6 +304,36 @@ func TestExtractFromResponse_GptImageEditsTokenSplit(t *testing.T) {
 // {"usage": ...} branch unconditionally ran the Claude extractor, which only
 // looks for input_tokens / output_tokens — so prompt_tokens / completion_tokens
 // were silently dropped and the request billed at zero.
+// TestExtractFromResponse_CodexResponsesAPI pins the dispatcher contract for
+// non-streaming Codex / OpenAI Responses API bodies. Their usage uses
+// input_tokens / output_tokens at the top level (colliding with Claude and
+// the Images API) but carries cached_tokens under input_tokens_details — a
+// sub-key Claude never emits. isOpenAIUsage must route on that marker so the
+// cache_read count reaches the executor.
+func TestExtractFromResponse_CodexResponsesAPI(t *testing.T) {
+	body := `{
+		"id": "resp_abc",
+		"object": "response",
+		"model": "gpt-5",
+		"usage": {
+			"input_tokens": 200,
+			"output_tokens": 50,
+			"input_tokens_details": {"cached_tokens": 150}
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected metrics for Responses API body, got nil")
+	}
+	if m.InputTokens != 200 || m.OutputTokens != 50 {
+		t.Errorf("tokens = in %d / out %d, want 200 / 50", m.InputTokens, m.OutputTokens)
+	}
+	if m.CacheReadCount != 150 {
+		t.Errorf("CacheReadCount = %d, want 150", m.CacheReadCount)
+	}
+}
+
 func TestExtractFromResponse_OpenAIChatCompletions(t *testing.T) {
 	body := `{
 		"id": "chatcmpl-xyz",

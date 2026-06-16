@@ -172,16 +172,27 @@ func extractUsageFromMap(data map[string]interface{}) *Metrics {
 	return nil
 }
 
-// isOpenAIUsage reports whether a usage map uses OpenAI chat-completions naming
-// (prompt_tokens / completion_tokens). These keys are absent from Claude and
-// from the OpenAI Images API (which both use input_tokens / output_tokens), so
-// their presence is a reliable discriminator.
+// isOpenAIUsage reports whether a usage map uses an OpenAI extractor shape.
+// prompt_tokens / completion_tokens identify chat-completions; those keys are
+// absent from Claude and from the OpenAI Images API (both use
+// input_tokens / output_tokens), so their presence is a reliable discriminator.
+//
+// The Responses API (Codex) also uses input_tokens / output_tokens at the top
+// level, colliding with Claude, but carries cached_tokens under
+// input_tokens_details — a sub-key Claude never emits. Routing on its presence
+// lets extractOpenAIUsage pick up the cache read instead of silently dropping
+// it via extractClaudeUsage.
 func isOpenAIUsage(usage map[string]interface{}) bool {
 	if _, ok := usage["prompt_tokens"]; ok {
 		return true
 	}
 	if _, ok := usage["completion_tokens"]; ok {
 		return true
+	}
+	if details, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
+		if _, ok := details["cached_tokens"]; ok {
+			return true
+		}
 	}
 	return false
 }

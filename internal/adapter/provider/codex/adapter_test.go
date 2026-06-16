@@ -321,7 +321,7 @@ func TestHandleNonStreamResponseForwardsCacheReadCount(t *testing.T) {
 	eventChan := domain.NewAdapterEventChan()
 	ctx.Set(flow.KeyEventChan, eventChan)
 
-	body := `{"model":"gpt-5","usage":{"prompt_tokens":120,"completion_tokens":40,"prompt_tokens_details":{"cached_tokens":80}}}`
+	body := `{"id":"resp_1","object":"response","model":"gpt-5","usage":{"input_tokens":120,"output_tokens":40,"input_tokens_details":{"cached_tokens":80}}}`
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
