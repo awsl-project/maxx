@@ -10,8 +10,24 @@ import (
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/tidwall/gjson"
 )
+
+// collectMetricsEvent drains an AdapterEventChan and returns the first
+// EventMetrics payload it finds, or nil if none was sent.
+func collectMetricsEvent(ch domain.AdapterEventChan) *domain.AdapterMetrics {
+	for {
+		select {
+		case ev := <-ch:
+			if ev != nil && ev.Type == domain.EventMetrics {
+				return ev.Metrics
+			}
+		default:
+			return nil
+		}
+	}
+}
 
 type scriptedReadCloser struct {
 	chunks [][]byte
@@ -294,5 +310,102 @@ func TestHandleStreamResponseAllowsCompletedStreamWithoutTrailingNewline(t *test
 
 	if err := a.handleStreamResponse(ctx, resp); err != nil {
 		t.Fatalf("expected completed stream without trailing newline to succeed, got %v", err)
+	}
+}
+
+func TestHandleNonStreamResponseForwardsCacheReadCount(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+	ctx.Set(flow.KeyEventChan, eventChan)
+
+	body := `{"model":"gpt-5","usage":{"prompt_tokens":120,"completion_tokens":40,"prompt_tokens_details":{"cached_tokens":80}}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	if err := a.handleNonStreamResponse(ctx, resp); err != nil {
+		t.Fatalf("handleNonStreamResponse: %v", err)
+	}
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics to be emitted")
+	}
+	if metrics.InputTokens != 120 || metrics.OutputTokens != 40 {
+		t.Fatalf("input/output mismatch: got input=%d output=%d", metrics.InputTokens, metrics.OutputTokens)
+	}
+	if metrics.CacheReadCount != 80 {
+		t.Fatalf("expected CacheReadCount=80, got %d", metrics.CacheReadCount)
+	}
+}
+
+func TestHandleStreamResponseForwardsCacheReadCount(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+	ctx.Set(flow.KeyEventChan, eventChan)
+
+	// Real Codex Responses SSE: usage is only carried on the terminating
+	// response.completed event.
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"hi"}`,
+		`data: {"type":"response.completed","response":{"model":"gpt-5","usage":{"input_tokens":200,"output_tokens":50,"input_tokens_details":{"cached_tokens":150}}}}`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	if err := a.handleStreamResponse(ctx, resp); err != nil {
+		t.Fatalf("handleStreamResponse: %v", err)
+	}
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics to be emitted from response.completed")
+	}
+	if metrics.InputTokens != 200 || metrics.OutputTokens != 50 {
+		t.Fatalf("input/output mismatch: got input=%d output=%d", metrics.InputTokens, metrics.OutputTokens)
+	}
+	if metrics.CacheReadCount != 150 {
+		t.Fatalf("expected CacheReadCount=150, got %d", metrics.CacheReadCount)
+	}
+}
+
+// A cache-only metric (no fresh input/output tokens, just a prompt-cache hit)
+// must still flow through sendFinalStreamEvents. Metrics.IsEmpty is the gate;
+// regressing it to drop cache-only metrics would silently zero out cache stats
+// for some streams.
+func TestSendFinalStreamEventsEmitsCacheOnlyMetrics(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	_ = flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+
+	collector := &usage.StreamCollector{Metrics: &usage.Metrics{CacheReadCount: 42}}
+	model := ""
+	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}
+
+	a.sendFinalStreamEvents(eventChan, collector, &model, resp)
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics for cache-only metrics")
+	}
+	if metrics.CacheReadCount != 42 {
+		t.Fatalf("expected CacheReadCount=42, got %d", metrics.CacheReadCount)
+	}
+	if metrics.InputTokens != 0 || metrics.OutputTokens != 0 {
+		t.Fatalf("expected zero input/output tokens, got input=%d output=%d", metrics.InputTokens, metrics.OutputTokens)
 	}
 }
