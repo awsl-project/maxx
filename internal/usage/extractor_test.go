@@ -4,7 +4,60 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/awsl-project/maxx/internal/domain"
 )
+
+// TestAdjustForClientType_Codex pins the subtraction contract that
+// codex/adapter.go now relies on directly. Codex usage.input_tokens includes
+// cached_tokens, so InputTokens must be reduced by CacheReadCount before
+// metrics reach pricing — otherwise the cached portion is billed at both the
+// input rate and the cache-read rate.
+func TestAdjustForClientType_Codex(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        Metrics
+		wantInput uint64
+	}{
+		{"input greater than cache", Metrics{InputTokens: 200, CacheReadCount: 150}, 50},
+		{"input equals cache", Metrics{InputTokens: 150, CacheReadCount: 150}, 0},
+		{"cache zero is no-op", Metrics{InputTokens: 200, CacheReadCount: 0}, 200},
+		// Defensive: relays occasionally report cached > input. Skipping the
+		// subtraction is preferred over clamping to zero — clamping would
+		// silently underbill fresh input on a broken relay; skipping leaves
+		// the metric visible and consistent with what the upstream sent.
+		{"input less than cache is skipped", Metrics{InputTokens: 100, CacheReadCount: 150}, 100},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.in
+			got := AdjustForClientType(&m, domain.ClientTypeCodex)
+			if got.InputTokens != tc.wantInput {
+				t.Errorf("InputTokens = %d, want %d", got.InputTokens, tc.wantInput)
+			}
+			if got.CacheReadCount != tc.in.CacheReadCount {
+				t.Errorf("CacheReadCount changed from %d to %d", tc.in.CacheReadCount, got.CacheReadCount)
+			}
+		})
+	}
+}
+
+func TestAdjustForClientType_NonCodexIsNoOp(t *testing.T) {
+	for _, ct := range []domain.ClientType{domain.ClientTypeClaude, domain.ClientTypeGemini, domain.ClientTypeOpenAI} {
+		m := Metrics{InputTokens: 200, CacheReadCount: 150}
+		got := AdjustForClientType(&m, ct)
+		if got.InputTokens != 200 {
+			t.Errorf("clientType=%s: InputTokens = %d, want 200 (unchanged)", ct, got.InputTokens)
+		}
+	}
+}
+
+func TestAdjustForClientType_NilMetricsSafe(t *testing.T) {
+	if got := AdjustForClientType(nil, domain.ClientTypeCodex); got != nil {
+		t.Errorf("nil input must return nil, got %+v", got)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Functional tests for StreamCollector
