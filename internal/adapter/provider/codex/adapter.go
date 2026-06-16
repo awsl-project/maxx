@@ -412,6 +412,7 @@ func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response)
 		})
 		// Extract token usage from response
 		if metrics := usage.ExtractFromResponse(string(body)); metrics != nil {
+			metrics = usage.AdjustForClientType(metrics, domain.ClientTypeCodex)
 			eventChan.SendMetrics(&domain.AdapterMetrics{
 				InputTokens:    metrics.InputTokens,
 				OutputTokens:   metrics.OutputTokens,
@@ -557,10 +558,11 @@ func (a *CodexAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, 
 
 	// Send token usage collected incrementally
 	if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
+		metrics := usage.AdjustForClientType(collector.Metrics, domain.ClientTypeCodex)
 		eventChan.SendMetrics(&domain.AdapterMetrics{
-			InputTokens:    collector.Metrics.InputTokens,
-			OutputTokens:   collector.Metrics.OutputTokens,
-			CacheReadCount: collector.Metrics.CacheReadCount,
+			InputTokens:    metrics.InputTokens,
+			OutputTokens:   metrics.OutputTokens,
+			CacheReadCount: metrics.CacheReadCount,
 		})
 	}
 

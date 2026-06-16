@@ -336,8 +336,11 @@ func TestHandleNonStreamResponseForwardsCacheReadCount(t *testing.T) {
 	if metrics == nil {
 		t.Fatal("expected EventMetrics to be emitted")
 	}
-	if metrics.InputTokens != 120 || metrics.OutputTokens != 40 {
-		t.Fatalf("input/output mismatch: got input=%d output=%d", metrics.InputTokens, metrics.OutputTokens)
+	// Codex usage.input_tokens includes cached_tokens; AdjustForClientType
+	// subtracts so pricing does not bill the cached portion at the input rate
+	// on top of the cache-read rate. Expect input_tokens (120) - cached (80) = 40.
+	if metrics.InputTokens != 40 || metrics.OutputTokens != 40 {
+		t.Fatalf("input/output mismatch: got input=%d output=%d, want input=40 output=40", metrics.InputTokens, metrics.OutputTokens)
 	}
 	if metrics.CacheReadCount != 80 {
 		t.Fatalf("expected CacheReadCount=80, got %d", metrics.CacheReadCount)
@@ -373,8 +376,9 @@ func TestHandleStreamResponseForwardsCacheReadCount(t *testing.T) {
 	if metrics == nil {
 		t.Fatal("expected EventMetrics to be emitted from response.completed")
 	}
-	if metrics.InputTokens != 200 || metrics.OutputTokens != 50 {
-		t.Fatalf("input/output mismatch: got input=%d output=%d", metrics.InputTokens, metrics.OutputTokens)
+	// After AdjustForClientType: input_tokens (200) - cached (150) = 50.
+	if metrics.InputTokens != 50 || metrics.OutputTokens != 50 {
+		t.Fatalf("input/output mismatch: got input=%d output=%d, want input=50 output=50", metrics.InputTokens, metrics.OutputTokens)
 	}
 	if metrics.CacheReadCount != 150 {
 		t.Fatalf("expected CacheReadCount=150, got %d", metrics.CacheReadCount)
