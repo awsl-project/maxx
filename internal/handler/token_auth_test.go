@@ -152,10 +152,10 @@ func TestTokenAuthValidateRequestUpdatesLastSeenWithClientIP(t *testing.T) {
 	}
 }
 
-func TestTokenAuthInactiveExpiry(t *testing.T) {
+func TestTokenAuthInactiveExpiryRejectsTokenLastUsedFifteenDaysAgo(t *testing.T) {
 	repo := newTokenAuthTestRepo()
 	cachedRepo := cached.NewAPITokenRepository(repo)
-	lastUsedAt := time.Now().Add(-APITokenInactiveExpiry - time.Minute)
+	lastUsedAt := time.Now().Add(-15 * 24 * time.Hour)
 	token := &domain.APIToken{
 		TenantID:    domain.DefaultTenantID,
 		Token:       "maxx_test_token_inactive",
@@ -233,6 +233,7 @@ func TestInactiveAPITokenExpiredBoundary(t *testing.T) {
 		{name: "missing last used", want: false},
 		{name: "exactly ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry)), want: false},
 		{name: "over ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry - time.Nanosecond)), want: true},
+		{name: "fifteen days", lastUsedAt: ptrTime(now.Add(-15 * 24 * time.Hour)), want: true},
 		{name: "within ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry + time.Nanosecond)), want: false},
 	}
 
