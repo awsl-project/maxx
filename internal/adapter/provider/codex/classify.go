@@ -84,8 +84,8 @@ func classifyCodexStreamError(e *codexStreamError) (domain.ErrorScope, domain.Co
 		"model not available",
 		"no access to the model",
 		"does not have access to model",
-		"unknown model",
 		"model_not_found",
+		"does not exist or you do not have access",
 	} {
 		if strings.Contains(msg, p) {
 			return domain.ScopeModel, domain.CooldownReasonModelUnavailable, true
@@ -110,8 +110,20 @@ func classifyCodexStreamError(e *codexStreamError) (domain.ErrorScope, domain.Co
 	if code == "rate_limit_exceeded" || strings.Contains(msg, "rate limit") {
 		return domain.ScopeKey, domain.CooldownReasonRateLimitExceeded, true
 	}
-	if code == "insufficient_quota" || strings.Contains(msg, "quota") {
+	if code == "insufficient_quota" {
 		return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, true
+	}
+	for _, p := range []string{
+		"insufficient quota",
+		"quota exceeded",
+		"exceeded your current quota",
+		"exceeded your quota",
+		"out of quota",
+		"exhausted your quota",
+	} {
+		if strings.Contains(msg, p) {
+			return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, true
+		}
 	}
 
 	return "", "", false

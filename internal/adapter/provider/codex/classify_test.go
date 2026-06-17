@@ -121,10 +121,32 @@ func TestClassifyCodexStreamError(t *testing.T) {
 			wantOK:     true,
 		},
 		{
-			name:       "unknown model by message",
-			err:        &codexStreamError{message: "Unknown model: foobar"},
+			name:       "openai model-does-not-exist message",
+			err:        &codexStreamError{message: "The model `foobar` does not exist or you do not have access to it"},
 			wantScope:  domain.ScopeModel,
 			wantReason: domain.CooldownReasonModelUnavailable,
+			wantOK:     true,
+		},
+		{
+			// Guard against the previous over-broad "unknown model" pattern:
+			// a tool/function-argument validation message that happens to
+			// mention "unknown model" should NOT cool a working model down.
+			name:   "tool validation mentioning unknown model is not a model cooldown",
+			err:    &codexStreamError{message: "function_call: unknown model parameter in tool spec"},
+			wantOK: false,
+		},
+		{
+			// Guard against the previous over-broad bare "quota" substring:
+			// a per-conversation budget message should NOT cool the key down.
+			name:   "conversation context quota is not a key cooldown",
+			err:    &codexStreamError{message: "context quota for this conversation exceeded"},
+			wantOK: false,
+		},
+		{
+			name:       "openai quota-exceeded message",
+			err:        &codexStreamError{message: "You exceeded your current quota, please check your plan"},
+			wantScope:  domain.ScopeKey,
+			wantReason: domain.CooldownReasonQuotaExhausted,
 			wantOK:     true,
 		},
 		{
