@@ -295,6 +295,82 @@ func TestHandleStreamResponseReturnsProviderErrorOnReadErrorBeforeCompleted(t *t
 	}
 }
 
+// TestHandleStreamResponseScopesModelOnInStreamModelError exercises the path
+// where the upstream emits a structured "model not supported" event and then
+// closes the stream without response.completed. Without scope refinement the
+// adapter would freeze the entire provider; with it, only the failing model
+// should be cooled down.
+func TestHandleStreamResponseScopesModelOnInStreamModelError(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+
+	// Real-world shape observed for ChatGPT-account Codex on unsupported models:
+	// upstream returns 200 OK, sends an error event, then EOFs.
+	stream := strings.Join([]string{
+		`data: {"type":"response.created","response":{"model":"gpt-5.5-codex"}}`,
+		`data: {"type":"response.failed","response":{"model":"gpt-5.5-codex","error":{"code":"model_not_supported","message":"The 'gpt-5.5-codex' model is not supported when using Codex with a ChatGPT account."}}}`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected stream close without response.completed to return error")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeModel {
+		t.Errorf("Scope = %q, want %q (in-stream model error should narrow scope)", proxyErr.Scope, domain.ScopeModel)
+	}
+	if proxyErr.Reason != domain.CooldownReasonModelUnavailable {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonModelUnavailable)
+	}
+	if proxyErr.Model != "gpt-5.5-codex" {
+		t.Errorf("Model = %q, want %q", proxyErr.Model, "gpt-5.5-codex")
+	}
+}
+
+// TestHandleStreamResponseKeepsProviderScopeWithoutErrorEvent guards the
+// fallback: a stream that closes without ANY structured error signal should
+// still cool down the whole provider so genuine outages keep tripping the
+// wider cooldown.
+func TestHandleStreamResponseKeepsProviderScopeWithoutErrorEvent(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+
+	stream := `data: {"type":"response.output_text.delta","delta":"hello"}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected error for incomplete stream")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Errorf("Scope = %q, want %q (no error event → provider-wide fallback)", proxyErr.Scope, domain.ScopeProvider)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonNetworkError)
+	}
+}
+
 func TestHandleStreamResponseAllowsCompletedStreamWithoutTrailingNewline(t *testing.T) {
 	a := &CodexAdapter{}
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
