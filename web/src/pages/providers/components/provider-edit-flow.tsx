@@ -429,7 +429,6 @@ type EditFormData = {
   cloakSensitiveWords?: string;
   responseModelMapping: Record<string, string>;
   disableErrorCooldown?: boolean;
-  cloneExcludeFromExport?: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
 };
@@ -493,7 +492,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       cloakSensitiveWords: (cc?.sensitiveWords || []).join('\n'),
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
-      cloneExcludeFromExport: !!provider.excludeFromExport,
       responsesPassthrough: provider.config?.custom?.responsesPassthrough,
     };
   });
@@ -641,7 +639,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
-        excludeFromExport: !!formData.cloneExcludeFromExport,
       };
 
       const newProvider = await createProvider.mutateAsync(data);
@@ -1025,27 +1022,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             </div>
           </div>
 
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('provider.cloneOptions')}
-            </h3>
-            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-              <div className="pr-4">
-                <div className="text-sm font-medium text-foreground">
-                  {t('provider.excludeFromExport')}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('provider.cloneExcludeFromExportDesc')}
-                </p>
-              </div>
-              <Switch
-                checked={!!formData.cloneExcludeFromExport}
-                onCheckedChange={(checked) =>
-                  setFormData((prev) => ({ ...prev, cloneExcludeFromExport: checked }))
-                }
-              />
-            </div>
-          </div>
 
           {/* Provider Supported Models Filter */}
           <ProviderSupportModels
