@@ -80,8 +80,8 @@ func classifyCodexStreamError(e *codexStreamError) (domain.ErrorScope, domain.Co
 	for _, p := range []string{
 		"model is not supported",
 		"model not supported",
+		"model is not available",
 		"model not available",
-		"is not available",
 		"no access to the model",
 		"does not have access to model",
 		"unknown model",

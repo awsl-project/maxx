@@ -338,6 +338,70 @@ func TestHandleStreamResponseScopesModelOnInStreamModelError(t *testing.T) {
 	}
 }
 
+// TestHandleStreamResponseScopesModelOnFastAPIDetail covers the observed
+// ChatGPT-account Codex shape: a single SSE event with no `type` field and a
+// `detail` message naming the unsupported model. The error event itself
+// carries no model field, so the adapter must attribute the model from the
+// flow context's mapped model.
+func TestHandleStreamResponseScopesModelOnFastAPIDetail(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	ctx.Set(flow.KeyMappedModel, "gpt-5.5-codex")
+
+	stream := `data: {"detail":"The 'gpt-5.5-codex' model is not supported when using Codex with a ChatGPT account."}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeModel {
+		t.Errorf("Scope = %q, want %q", proxyErr.Scope, domain.ScopeModel)
+	}
+	if proxyErr.Model != "gpt-5.5-codex" {
+		t.Errorf("Model = %q, want %q (must attribute from flow context when error event lacks model)", proxyErr.Model, "gpt-5.5-codex")
+	}
+}
+
+// TestHandleStreamResponseDowngradesToProviderWhenModelUnattributable guards
+// the safety net: if classifyCodexStreamError returns ScopeModel but no model
+// can be attributed from anywhere, ScopeModel with empty Model would collapse
+// to a (provider, "", "") cooldown key — i.e. provider-wide — defeating the
+// scope refinement. The adapter must fall back to the explicit ScopeProvider.
+func TestHandleStreamResponseDowngradesToProviderWhenModelUnattributable(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	// Deliberately do not set KeyMappedModel.
+
+	stream := `data: {"detail":"unknown model"}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Errorf("Scope = %q, want %q (unattributable model should not emit ScopeModel)", proxyErr.Scope, domain.ScopeProvider)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonNetworkError)
+	}
+}
+
 // TestHandleStreamResponseKeepsProviderScopeWithoutErrorEvent guards the
 // fallback: a stream that closes without ANY structured error signal should
 // still cool down the whole provider so genuine outages keep tripping the

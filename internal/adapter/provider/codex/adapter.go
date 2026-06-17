@@ -534,14 +534,26 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 			// frozen along with the failing one. Anything we can't classify
 			// confidently keeps the conservative ScopeProvider fallback.
 			if scope, reason, ok := classifyCodexStreamError(lastStreamErr); ok {
-				proxyErr.Scope = scope
-				proxyErr.Reason = reason
 				if scope == domain.ScopeModel {
 					proxyErr.Model = lastStreamErr.model
 					if proxyErr.Model == "" {
 						proxyErr.Model = model
 					}
+					if proxyErr.Model == "" {
+						proxyErr.Model = flow.GetMappedModel(c)
+					}
+					// Without a model to attribute, ScopeModel would collapse
+					// to a (provider,"","") cooldown key — i.e. provider-wide —
+					// defeating the point of refining the scope. Fall back to
+					// the conservative ScopeProvider in that case.
+					if proxyErr.Model == "" {
+						proxyErr.Scope = domain.ScopeProvider
+						proxyErr.Reason = domain.CooldownReasonNetworkError
+						return proxyErr
+					}
 				}
+				proxyErr.Scope = scope
+				proxyErr.Reason = reason
 			} else {
 				proxyErr.Scope = domain.ScopeProvider
 				proxyErr.Reason = domain.CooldownReasonNetworkError
