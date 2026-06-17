@@ -178,6 +178,20 @@ func TestClassifyCodexStreamError(t *testing.T) {
 			wantOK:     true,
 		},
 		{
+			name:       "permission_denied by code",
+			err:        &codexStreamError{code: "permission_denied"},
+			wantScope:  domain.ScopeKey,
+			wantReason: domain.CooldownReasonAuthFailure,
+			wantOK:     true,
+		},
+		{
+			name:       "billing hard limit by code",
+			err:        &codexStreamError{code: "billing_hard_limit_reached"},
+			wantScope:  domain.ScopeKey,
+			wantReason: domain.CooldownReasonQuotaExhausted,
+			wantOK:     true,
+		},
+		{
 			name:   "unrecognized error stays unclassified",
 			err:    &codexStreamError{code: "weird_thing", message: "something went wrong"},
 			wantOK: false,

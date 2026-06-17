@@ -93,7 +93,7 @@ func classifyCodexStreamError(e *codexStreamError) (domain.ErrorScope, domain.Co
 	}
 
 	// Key-level: bad token / account scope, no point retrying on the same key.
-	if code == "invalid_api_key" || code == "unauthorized" {
+	if code == "invalid_api_key" || code == "unauthorized" || code == "permission_denied" {
 		return domain.ScopeKey, domain.CooldownReasonAuthFailure, true
 	}
 	for _, p := range []string{
@@ -110,7 +110,7 @@ func classifyCodexStreamError(e *codexStreamError) (domain.ErrorScope, domain.Co
 	if code == "rate_limit_exceeded" || strings.Contains(msg, "rate limit") {
 		return domain.ScopeKey, domain.CooldownReasonRateLimitExceeded, true
 	}
-	if code == "insufficient_quota" {
+	if code == "insufficient_quota" || code == "billing_hard_limit_reached" {
 		return domain.ScopeKey, domain.CooldownReasonQuotaExhausted, true
 	}
 	for _, p := range []string{
