@@ -672,6 +672,9 @@ func TestSelfServiceHandler_ListProviders_MemberAllowed(t *testing.T) {
 						Custom: &domain.ProviderConfigCustom{
 							BaseURL: "https://example.com",
 							APIKey:  "secret-api-key",
+							ClientBaseURL: map[domain.ClientType]string{
+								domain.ClientTypeOpenAI: "https://openai.example.com/v1",
+							},
 						},
 					},
 				},
@@ -779,6 +782,12 @@ func TestSelfServiceHandler_GetProvider_AdminHidesExcludedProviderSecrets(t *tes
 	if provider.Config.Custom.APIKey != "" {
 		t.Fatalf("excluded provider API key leaked to admin: %+v", provider.Config.Custom)
 	}
+	if provider.Config.Custom.BaseURL != "" {
+		t.Fatalf("excluded provider base URL leaked to admin: %+v", provider.Config.Custom)
+	}
+	if len(provider.Config.Custom.ClientBaseURL) != 0 {
+		t.Fatalf("excluded provider client base URLs leaked to admin: %+v", provider.Config.Custom)
+	}
 }
 
 func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenSecret(t *testing.T) {
@@ -830,6 +839,68 @@ func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenSecret(t *test
 	}
 	if provider.Config.Custom.APIKey != "" {
 		t.Fatalf("update response leaked preserved API key: %+v", provider.Config.Custom)
+	}
+	if provider.Config.Custom.BaseURL != "" {
+		t.Fatalf("update response leaked hidden base URL: %+v", provider.Config.Custom)
+	}
+}
+
+func TestSelfServiceHandler_UpdateExcludedProvider_PreservesHiddenURLWhenBlank(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{
+		providers: []*domain.Provider{
+			{
+				ID:                1,
+				TenantID:          1,
+				Name:              "private-provider",
+				Type:              "custom",
+				ExcludeFromExport: true,
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{
+						BaseURL: "https://hidden.example.com/v1",
+						APIKey:  "secret-api-key",
+						ClientBaseURL: map[domain.ClientType]string{
+							domain.ClientTypeOpenAI: "https://hidden-openai.example.com/v1",
+						},
+					},
+				},
+			},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"renamed-private-provider","type":"custom","excludeFromExport":false,"config":{"custom":{"baseURL":"","apiKey":""}},"supportedClientTypes":["openai"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	stored := providerRepo.providers[0]
+	if got := stored.Config.Custom.BaseURL; got != "https://hidden.example.com/v1" {
+		t.Fatalf("stored base URL = %q, want preserved hidden URL", got)
+	}
+	if got := stored.Config.Custom.ClientBaseURL[domain.ClientTypeOpenAI]; got != "https://hidden-openai.example.com/v1" {
+		t.Fatalf("stored client base URL = %q, want preserved hidden client URL", got)
+	}
+	if !stored.ExcludeFromExport {
+		t.Fatalf("stored excludeFromExport = false, want hidden mode preserved")
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config == nil || provider.Config.Custom == nil {
+		t.Fatalf("provider config missing: %+v", provider)
+	}
+	if provider.Config.Custom.BaseURL != "" {
+		t.Fatalf("update response leaked hidden base URL: %+v", provider.Config.Custom)
+	}
+	if len(provider.Config.Custom.ClientBaseURL) != 0 {
+		t.Fatalf("update response leaked hidden client URLs: %+v", provider.Config.Custom)
 	}
 }
 

@@ -1323,7 +1323,9 @@
     "apiKeyEdit": "API 密钥（留空保持当前值）",
     "apiKeyOptional": "API 密钥（可选）",
     "apiKeyExcludedHint": "该提供商已设置为“不导出此提供商配置”。已保存的 API 密钥不会在编辑页回显；留空保存会保持当前密钥，输入新值则轮换。",
+    "urlExcludedHint": "该提供商已设置为“不导出此提供商配置”。已保存的 API 端点不会在编辑页回显；留空保存会保持当前端点，输入新值则轮换。",
     "keyPlaceholderWriteOnly": "已隐藏，留空保持当前密钥",
+    "endpointPlaceholderWriteOnly": "已隐藏，留空保持当前端点",
     "optionalUrlNote": "如果下面设置了客户端特定的 URL，则此项为可选。",
     "namePlaceholder": "例如：Production OpenAI",
     "endpointPlaceholder": "https://api.openai.com/v1",
@@ -1337,6 +1339,7 @@
     "cloneSuffix": "（副本）",
     "cloneSuccess": "已成功克隆「{{name}}」。",
     "cloneWriteOnlyRequiresKey": "克隆该隐藏密钥提供商前，请先输入新的 API 密钥。",
+    "cloneOptions": "克隆选项",
     "delete": "删除",
     "cancel": "取消",
     "none": "无",
@@ -1353,7 +1356,8 @@
     "responsesPassthrough": "透传 Responses 路径",
     "responsesPassthroughDesc": "Codex Responses 请求按客户端原始路径转发（如 /v1/responses），而不是硬编码 /responses。仅当上游只认 /responses、或 Base URL 已自带 /v1 时才需要关闭。",
     "excludeFromExport": "不导出此提供商配置",
-    "excludeFromExportDesc": "开启后，此提供商及其配置不会被包含在提供商导出或系统备份中；保存后的提供商密钥也不会在编辑页回显，只能重新输入轮换。",
+    "excludeFromExportDesc": "开启后，此提供商及其配置不会被包含在提供商导出或系统备份中；保存后的 API 端点和提供商密钥也不会在编辑页回显，只能重新输入轮换。",
+    "cloneExcludeFromExportDesc": "仅用于新克隆出的提供商。开启后，克隆出的提供商不会被导出，且保存后的 API 端点和提供商密钥不会在编辑页回显。",
     "excludeFromExportLockedDesc": "该提供商已进入密钥隐藏模式。为了避免通过关闭开关读回旧密钥，当前开关不可直接关闭。"
   },
   "cooldown": {

@@ -977,6 +977,10 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 	if config.Custom != nil {
 		custom := *config.Custom
 		custom.APIKey = ""
+		if provider.ExcludeFromExport {
+			custom.BaseURL = ""
+			custom.ClientBaseURL = nil
+		}
 		if custom.Disguise != nil {
 			disguise := *custom.Disguise
 			if disguise.ClaudeCode != nil {

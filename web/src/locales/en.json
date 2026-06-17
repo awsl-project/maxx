@@ -1324,7 +1324,9 @@
     "apiKeyEdit": "API Key (leave empty to keep current)",
     "apiKeyOptional": "API Key (optional)",
     "apiKeyExcludedHint": "This provider is set to \"Do not export this provider\". Saved API keys are not revealed on the edit page; leave this empty to keep the current key, or enter a new value to rotate it.",
+    "urlExcludedHint": "This provider is set to \"Do not export this provider\". Saved API endpoints are not revealed on the edit page; leave this empty to keep the current endpoint, or enter a new value to rotate it.",
     "keyPlaceholderWriteOnly": "Hidden; leave empty to keep the current key",
+    "endpointPlaceholderWriteOnly": "Hidden; leave empty to keep the current endpoint",
     "optionalUrlNote": "Optional if client-specific URLs are set below.",
     "namePlaceholder": "e.g. Production OpenAI",
     "endpointPlaceholder": "https://api.openai.com/v1",
@@ -1338,6 +1340,7 @@
     "cloneSuffix": " (Copy)",
     "cloneSuccess": "Cloned \"{{name}}\" successfully.",
     "cloneWriteOnlyRequiresKey": "Enter a new API key before cloning this hidden-secret provider.",
+    "cloneOptions": "Clone options",
     "delete": "Delete",
     "cancel": "Cancel",
     "none": "None",
@@ -1354,7 +1357,8 @@
     "responsesPassthrough": "Passthrough Responses Path",
     "responsesPassthroughDesc": "For Codex Responses requests, forward the client's original path (e.g. /v1/responses) instead of a hardcoded /responses. Turn off only for upstreams that expect /responses, or when the Base URL already ends with /v1.",
     "excludeFromExport": "Do not export this provider",
-    "excludeFromExportDesc": "When enabled, this provider and its configuration will not be included in provider exports or system backups, and saved provider secrets will not be revealed on the edit page. Enter a new value to rotate a secret.",
+    "excludeFromExportDesc": "When enabled, this provider and its configuration will not be included in provider exports or system backups, and saved API endpoints and provider secrets will not be revealed on the edit page. Enter a new value to rotate one.",
+    "cloneExcludeFromExportDesc": "Applies only to the newly cloned provider. When enabled, the clone will not be exported, and saved API endpoints and provider secrets will not be revealed on the edit page.",
     "excludeFromExportLockedDesc": "This provider is already in hidden-secret mode. To avoid exposing the old secret by toggling this off, the switch cannot be disabled directly."
   },
   "cooldown": {

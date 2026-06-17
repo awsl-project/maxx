@@ -187,6 +187,46 @@ func preserveExcludedProviderWriteOnlyMode(existing, incoming *domain.Provider) 
 		return
 	}
 	incoming.ExcludeFromExport = true
+	preserveEmptyExcludedProviderURLs(existing, incoming)
+}
+
+func preserveEmptyExcludedProviderURLs(existing, incoming *domain.Provider) {
+	if existing == nil || incoming == nil || existing.Config == nil || existing.Config.Custom == nil {
+		return
+	}
+	effectiveType := incoming.Type
+	if effectiveType == "" {
+		effectiveType = existing.Type
+	}
+	if effectiveType != "custom" || existing.Type != "custom" {
+		return
+	}
+	if incoming.Config == nil {
+		incoming.Config = &domain.ProviderConfig{}
+	}
+	if incoming.Config.Custom == nil {
+		custom := *existing.Config.Custom
+		incoming.Config.Custom = &custom
+		return
+	}
+
+	if incoming.Config.Custom.BaseURL == "" {
+		incoming.Config.Custom.BaseURL = existing.Config.Custom.BaseURL
+	}
+	if len(incoming.Config.Custom.ClientBaseURL) == 0 {
+		incoming.Config.Custom.ClientBaseURL = existing.Config.Custom.ClientBaseURL
+		return
+	}
+	merged := make(map[domain.ClientType]string, len(existing.Config.Custom.ClientBaseURL)+len(incoming.Config.Custom.ClientBaseURL))
+	for clientType, url := range existing.Config.Custom.ClientBaseURL {
+		merged[clientType] = url
+	}
+	for clientType, url := range incoming.Config.Custom.ClientBaseURL {
+		if url != "" {
+			merged[clientType] = url
+		}
+	}
+	incoming.Config.Custom.ClientBaseURL = merged
 }
 
 func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {

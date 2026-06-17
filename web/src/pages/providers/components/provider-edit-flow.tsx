@@ -429,7 +429,7 @@ type EditFormData = {
   cloakSensitiveWords?: string;
   responseModelMapping: Record<string, string>;
   disableErrorCooldown?: boolean;
-  excludeFromExport?: boolean;
+  cloneExcludeFromExport?: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
 };
@@ -453,7 +453,9 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     const supportedTypes = provider.supportedClientTypes || [];
     return defaultClients.map((client) => {
       const isEnabled = supportedTypes.includes(client.id);
-      const urlOverride = provider.config?.custom?.clientBaseURL?.[client.id] || '';
+      const urlOverride = provider.excludeFromExport
+        ? ''
+        : provider.config?.custom?.clientBaseURL?.[client.id] || '';
       const multiplier = provider.config?.custom?.clientMultiplier?.[client.id] || 10000;
       return { ...client, enabled: isEnabled, urlOverride, multiplier };
     });
@@ -480,9 +482,9 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     const cc = disguise?.claudeCode ?? legacyCloak;
     return {
       name: provider.name,
-      baseURL: provider.config?.custom?.baseURL || '',
+      baseURL: provider.excludeFromExport ? '' : provider.config?.custom?.baseURL || '',
       backend: provider.config?.custom?.backend === 'ollama' ? 'ollama' : 'http',
-      apiKey: provider.config?.custom?.apiKey || '',
+      apiKey: provider.excludeFromExport ? '' : provider.config?.custom?.apiKey || '',
       clients: initClients(),
       supportModels: provider.supportModels || [],
       disguiseType,
@@ -491,11 +493,11 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       cloakSensitiveWords: (cc?.sensitiveWords || []).join('\n'),
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
-      excludeFromExport: !!provider.excludeFromExport,
+      cloneExcludeFromExport: !!provider.excludeFromExport,
       responsesPassthrough: provider.config?.custom?.responsesPassthrough,
     };
   });
-  const secretsAreWriteOnly = !!provider.excludeFromExport || !!formData.excludeFromExport;
+  const providerConfigIsWriteOnly = !!provider.excludeFromExport;
 
   const updateClient = (clientId: ClientType, updates: Partial<ClientConfig>) => {
     setFormData((prev) => ({
@@ -504,12 +506,19 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     }));
   };
 
-  const isValid = () => {
+  const hasVisibleURL = () =>
+    formData.baseURL.trim() || formData.clients.some((c) => c.enabled && c.urlOverride.trim());
+
+  const isSaveValid = () => {
     if (!formData.name.trim()) return false;
     const hasEnabledClient = formData.clients.some((c) => c.enabled);
-    const hasUrl =
-      formData.baseURL.trim() || formData.clients.some((c) => c.enabled && c.urlOverride.trim());
-    return hasEnabledClient && hasUrl;
+    return hasEnabledClient && (providerConfigIsWriteOnly || !!hasVisibleURL());
+  };
+
+  const isCloneValid = () => {
+    if (!formData.name.trim()) return false;
+    const hasEnabledClient = formData.clients.some((c) => c.enabled);
+    return hasEnabledClient && !!hasVisibleURL();
   };
 
   // Build the disguise payload from current form state. Delegates to the
@@ -524,7 +533,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     );
 
   const handleSave = async () => {
-    if (!isValid()) return;
+    if (!isSaveValid()) return;
 
     setSaving(true);
     setSaveStatus('idle');
@@ -564,7 +573,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
-        excludeFromExport: !!formData.excludeFromExport,
+        excludeFromExport: !!provider.excludeFromExport,
       };
 
       await updateProvider.mutateAsync({ id: Number(provider.id), data });
@@ -579,10 +588,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   };
 
   const handleClone = async () => {
-    if (!isValid() || cloning) return;
+    if (!isCloneValid() || cloning) return;
 
     setCloneError(null);
-    if (secretsAreWriteOnly && !formData.apiKey.trim()) {
+    if (providerConfigIsWriteOnly && !formData.apiKey.trim()) {
       setCloneError(t('provider.cloneWriteOnlyRequiresKey'));
       return;
     }
@@ -617,7 +626,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey:
               formData.apiKey.trim() ||
-              (secretsAreWriteOnly ? '' : provider.config?.custom?.apiKey) ||
+              (providerConfigIsWriteOnly ? '' : provider.config?.custom?.apiKey) ||
               '',
             responsesPassthrough: formData.responsesPassthrough,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
@@ -632,7 +641,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
-        excludeFromExport: !!formData.excludeFromExport,
+        excludeFromExport: !!formData.cloneExcludeFromExport,
       };
 
       const newProvider = await createProvider.mutateAsync(data);
@@ -794,7 +803,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         </Button>
         <Button
           onClick={handleClone}
-          disabled={cloning || saving || !isValid()}
+          disabled={cloning || saving || !isCloneValid()}
           variant={'outline'}
         >
           <Copy size={14} />
@@ -803,7 +812,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         <Button onClick={onClose} variant={'secondary'}>
           {t('provider.cancel')}
         </Button>
-        <Button onClick={handleSave} disabled={saving || !isValid()} variant={'default'}>
+        <Button onClick={handleSave} disabled={saving || !isSaveValid()} variant={'default'}>
           {saving ? (
             t('common.saving')
           ) : saveStatus === 'success' ? (
@@ -884,11 +893,17 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                         baseURL: e.target.value,
                       }))
                     }
-                    placeholder={t('provider.endpointPlaceholder')}
+                    placeholder={
+                      providerConfigIsWriteOnly
+                        ? t('provider.endpointPlaceholderWriteOnly')
+                        : t('provider.endpointPlaceholder')
+                    }
                     className="w-full"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    {t('provider.optionalUrlNote')}
+                    {providerConfigIsWriteOnly
+                      ? t('provider.urlExcludedHint')
+                      : t('provider.optionalUrlNote')}
                   </p>
                 </div>
 
@@ -905,14 +920,14 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   </label>
                   <div className="relative">
                     <Input
-                      type={showApiKey && !secretsAreWriteOnly ? 'text' : 'password'}
+                      type={showApiKey && !providerConfigIsWriteOnly ? 'text' : 'password'}
                       value={formData.apiKey}
                       onChange={(e) => {
                         setCloneError(null);
                         setFormData((prev) => ({ ...prev, apiKey: e.target.value }));
                       }}
                       placeholder={
-                        secretsAreWriteOnly
+                        providerConfigIsWriteOnly
                           ? t('provider.keyPlaceholderWriteOnly')
                           : formData.backend === 'ollama'
                             ? t('provider.keyPlaceholderOptional')
@@ -920,7 +935,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       }
                       className="w-full pr-10"
                     />
-                    {!secretsAreWriteOnly && (
+                    {!providerConfigIsWriteOnly && (
                       <button
                         type="button"
                         onClick={() => setShowApiKey(!showApiKey)}
@@ -931,7 +946,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                       </button>
                     )}
                   </div>
-                  {secretsAreWriteOnly && (
+                  {providerConfigIsWriteOnly && (
                     <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
                       {t('provider.apiKeyExcludedHint')}
                     </div>
@@ -1012,24 +1027,21 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('provider.excludeFromExport')}
+              {t('provider.cloneOptions')}
             </h3>
             <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
               <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.excludeFromExport')}
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {t('provider.excludeFromExportDesc')}
+                  {t('provider.cloneExcludeFromExportDesc')}
                 </p>
-                {provider.excludeFromExport && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {t('provider.excludeFromExportLockedDesc')}
-                  </p>
-                )}
               </div>
               <Switch
-                checked={!!formData.excludeFromExport}
-                disabled={!!provider.excludeFromExport}
+                checked={!!formData.cloneExcludeFromExport}
                 onCheckedChange={(checked) =>
-                  setFormData((prev) => ({ ...prev, excludeFromExport: checked }))
+                  setFormData((prev) => ({ ...prev, cloneExcludeFromExport: checked }))
                 }
               />
             </div>
