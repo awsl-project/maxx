@@ -22,6 +22,9 @@ const (
 	TokenPrefix = "maxx_"
 	// TokenPrefixDisplayLen is the length of token prefix to display (including "maxx_")
 	TokenPrefixDisplayLen = 12
+	// APITokenInactiveExpiry is the inactivity window after a token was last used.
+	// Tokens without LastUsedAt are not affected by this rule.
+	APITokenInactiveExpiry = 10 * 24 * time.Hour
 )
 
 var (
@@ -137,7 +140,17 @@ func (m *TokenAuthMiddleware) validateExtractedToken(token string) (*domain.APIT
 	if apiToken.ExpiresAt != nil && time.Now().After(*apiToken.ExpiresAt) {
 		return nil, ErrTokenExpired
 	}
+	if isInactiveAPITokenExpired(apiToken, time.Now()) {
+		return nil, ErrTokenExpired
+	}
 	return apiToken, nil
+}
+
+func isInactiveAPITokenExpired(apiToken *domain.APIToken, now time.Time) bool {
+	if apiToken == nil || apiToken.LastUsedAt == nil || apiToken.LastUsedAt.IsZero() {
+		return false
+	}
+	return now.After(apiToken.LastUsedAt.Add(APITokenInactiveExpiry))
 }
 
 // ResolveToken resolves the token attached to a request without assuming a specific client type.
