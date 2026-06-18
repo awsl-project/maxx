@@ -48,6 +48,7 @@ import {
   CircleAlert,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
+import { isAPITokenExpired } from '@/lib/api-token-expiry';
 import type { APIToken } from '@/lib/transport';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
 
@@ -56,6 +57,7 @@ type CodexConfigDialogState = {
   tokenValue: string;
   isEnabled: boolean;
   expiresAt?: string;
+  lastUsedAt?: string;
 };
 
 export function APITokensPage() {
@@ -202,8 +204,7 @@ export function APITokensPage() {
     });
   }, [codexConfigDialog, codexBaseUrl]);
 
-  const isCodexTokenExpired =
-    !!codexConfigDialog?.expiresAt && new Date(codexConfigDialog.expiresAt) < new Date();
+  const isCodexTokenExpired = codexConfigDialog ? isAPITokenExpired(codexConfigDialog) : false;
 
   const codexPreflightChecks = useMemo(
     () => [
@@ -231,6 +232,7 @@ export function APITokensPage() {
     token: string;
     isEnabled: boolean;
     expiresAt?: string;
+    lastUsedAt?: string;
   }) => {
     setCopiedCodexSection(null);
     setCodexConfigDialog({
@@ -238,6 +240,7 @@ export function APITokensPage() {
       tokenValue: token.token,
       isEnabled: token.isEnabled,
       expiresAt: token.expiresAt,
+      lastUsedAt: token.lastUsedAt,
     });
   };
 
@@ -270,10 +273,7 @@ export function APITokensPage() {
     return project?.name || t('apiTokens.unknownProject', { id: projectId });
   };
 
-  const isExpired = (token: APIToken) => {
-    if (!token.expiresAt) return false;
-    return new Date(token.expiresAt) < new Date();
-  };
+  const isExpired = (token: APIToken) => isAPITokenExpired(token);
 
   const formatDateTime = (value?: string) => {
     if (!value) return t('apiTokens.never');
@@ -496,6 +496,7 @@ export function APITokensPage() {
                                   token: token.token,
                                   isEnabled: token.isEnabled,
                                   expiresAt: token.expiresAt,
+                                  lastUsedAt: token.lastUsedAt,
                                 })
                               }
                               title={t('apiTokens.generateCodexConfig')}

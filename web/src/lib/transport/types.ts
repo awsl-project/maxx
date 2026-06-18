@@ -36,6 +36,7 @@ export interface ProviderConfigCustomDisguise {
 
 export interface ProviderConfigCustom {
   baseURL: string;
+  backend?: 'ollama';
   apiKey: string;
   // 伪装配置：选择把对外发包装成什么客户端。替代旧的 cloak 字段。
   disguise?: ProviderConfigCustomDisguise;
@@ -43,6 +44,9 @@ export interface ProviderConfigCustom {
   clientMultiplier?: Partial<Record<ClientType, number>>; // 10000=1倍
   modelMapping?: Record<string, string>;
   responseModelMapping?: Record<string, string>;
+  // Codex Responses 请求是否透传客户端原始路径(/v1/responses)。
+  // 不设置=默认透传;false=用旧的、被砍掉 /v1 的 /responses。
+  responsesPassthrough?: boolean;
 }
 
 export interface ProviderConfigAntigravity {
@@ -81,6 +85,9 @@ export interface ProviderConfigCodex {
   baseURL?: string;
   reasoning?: string; // "low", "medium", "high"
   serviceTier?: string; // "auto", "default", "flex", "priority"
+  // 转发到自定义 baseURL 时是否透传客户端原始 Responses 路径(/v1/responses)。
+  // 不设置=默认透传;false=用旧的硬编码 /responses。
+  responsesPassthrough?: boolean;
 }
 
 export interface ProviderConfigClaude {
@@ -372,6 +379,10 @@ export interface CursorPaginationParams {
   apiTokenId?: number;
   /** 按 Project ID 过滤 */
   projectId?: number;
+  /** 按创建时间起点过滤（ISO 字符串或毫秒时间戳字符串） */
+  startTime?: string;
+  /** 按创建时间终点过滤（ISO 字符串或毫秒时间戳字符串） */
+  endTime?: string;
 }
 
 /** 游标分页响应 */

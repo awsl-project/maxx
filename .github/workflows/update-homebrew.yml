@@ -75,10 +75,12 @@ jobs:
 
             name "maxx"
             desc "maxx"
-            if Hardware::CPU.intel?
+            on_intel do
               url "https://github.com/awsl-project/maxx/releases/download/v#{version}/maxx-macOS-amd64.dmg"
               sha256 "${AMD64_SHA}"
-            else
+            end
+
+            on_arm do
               url "https://github.com/awsl-project/maxx/releases/download/v#{version}/maxx-macOS-arm64.dmg"
               sha256 "${ARM64_SHA}"
             end

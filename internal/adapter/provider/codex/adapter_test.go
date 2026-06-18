@@ -11,8 +11,24 @@ import (
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/tidwall/gjson"
 )
+
+// collectMetricsEvent drains an AdapterEventChan and returns the first
+// EventMetrics payload it finds, or nil if none was sent.
+func collectMetricsEvent(ch domain.AdapterEventChan) *domain.AdapterMetrics {
+	for {
+		select {
+		case ev := <-ch:
+			if ev != nil && ev.Type == domain.EventMetrics {
+				return ev.Metrics
+			}
+		default:
+			return nil
+		}
+	}
+}
 
 type scriptedReadCloser struct {
 	chunks [][]byte
@@ -280,6 +296,146 @@ func TestHandleStreamResponseReturnsProviderErrorOnReadErrorBeforeCompleted(t *t
 	}
 }
 
+// TestHandleStreamResponseScopesModelOnInStreamModelError exercises the path
+// where the upstream emits a structured "model not supported" event and then
+// closes the stream without response.completed. Without scope refinement the
+// adapter would freeze the entire provider; with it, only the failing model
+// should be cooled down.
+func TestHandleStreamResponseScopesModelOnInStreamModelError(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+
+	// Real-world shape observed for ChatGPT-account Codex on unsupported models:
+	// upstream returns 200 OK, sends an error event, then EOFs.
+	stream := strings.Join([]string{
+		`data: {"type":"response.created","response":{"model":"gpt-5.5-codex"}}`,
+		`data: {"type":"response.failed","response":{"model":"gpt-5.5-codex","error":{"code":"model_not_supported","message":"The 'gpt-5.5-codex' model is not supported when using Codex with a ChatGPT account."}}}`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected stream close without response.completed to return error")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeModel {
+		t.Errorf("Scope = %q, want %q (in-stream model error should narrow scope)", proxyErr.Scope, domain.ScopeModel)
+	}
+	if proxyErr.Reason != domain.CooldownReasonModelUnavailable {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonModelUnavailable)
+	}
+	if proxyErr.Model != "gpt-5.5-codex" {
+		t.Errorf("Model = %q, want %q", proxyErr.Model, "gpt-5.5-codex")
+	}
+}
+
+// TestHandleStreamResponseScopesModelOnFastAPIDetail covers the observed
+// ChatGPT-account Codex shape: a single SSE event with no `type` field and a
+// `detail` message naming the unsupported model. The error event itself
+// carries no model field, so the adapter must attribute the model from the
+// flow context's mapped model.
+func TestHandleStreamResponseScopesModelOnFastAPIDetail(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	ctx.Set(flow.KeyMappedModel, "gpt-5.5-codex")
+
+	stream := `data: {"detail":"The 'gpt-5.5-codex' model is not supported when using Codex with a ChatGPT account."}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeModel {
+		t.Errorf("Scope = %q, want %q", proxyErr.Scope, domain.ScopeModel)
+	}
+	if proxyErr.Model != "gpt-5.5-codex" {
+		t.Errorf("Model = %q, want %q (must attribute from flow context when error event lacks model)", proxyErr.Model, "gpt-5.5-codex")
+	}
+}
+
+// TestHandleStreamResponseDowngradesToProviderWhenModelUnattributable guards
+// the safety net: if classifyCodexStreamError returns ScopeModel but no model
+// can be attributed from anywhere, ScopeModel with empty Model would collapse
+// to a (provider, "", "") cooldown key — i.e. provider-wide — defeating the
+// scope refinement. The adapter must fall back to the explicit ScopeProvider.
+func TestHandleStreamResponseDowngradesToProviderWhenModelUnattributable(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	// Deliberately do not set KeyMappedModel.
+
+	stream := `data: {"detail":"unknown model"}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Errorf("Scope = %q, want %q (unattributable model should not emit ScopeModel)", proxyErr.Scope, domain.ScopeProvider)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonNetworkError)
+	}
+}
+
+// TestHandleStreamResponseKeepsProviderScopeWithoutErrorEvent guards the
+// fallback: a stream that closes without ANY structured error signal should
+// still cool down the whole provider so genuine outages keep tripping the
+// wider cooldown.
+func TestHandleStreamResponseKeepsProviderScopeWithoutErrorEvent(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+
+	stream := `data: {"type":"response.output_text.delta","delta":"hello"}` + "\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	err := a.handleStreamResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected error for incomplete stream")
+	}
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("expected ProxyError, got %T", err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider {
+		t.Errorf("Scope = %q, want %q (no error event → provider-wide fallback)", proxyErr.Scope, domain.ScopeProvider)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Errorf("Reason = %q, want %q", proxyErr.Reason, domain.CooldownReasonNetworkError)
+	}
+}
+
 func TestHandleStreamResponseAllowsCompletedStreamWithoutTrailingNewline(t *testing.T) {
 	a := &CodexAdapter{}
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
@@ -343,5 +499,107 @@ func TestPersistRefreshedTokenRequiresUpdaterForRotatedRefreshToken(t *testing.T
 	err := a.persistRefreshedToken(orig, &TokenResponse{AccessToken: "new-at", RefreshToken: "new-rt", ExpiresIn: 3600}, time.Unix(123, 0).UTC())
 	if err == nil || !strings.Contains(err.Error(), "provider update callback not configured") {
 		t.Fatalf("expected missing updater error for rotated refresh token, got %v", err)
+	}
+}
+
+func TestHandleNonStreamResponseForwardsCacheReadCount(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+	ctx.Set(flow.KeyEventChan, eventChan)
+
+	body := `{"id":"resp_1","object":"response","model":"gpt-5","usage":{"input_tokens":120,"output_tokens":40,"input_tokens_details":{"cached_tokens":80}}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	if err := a.handleNonStreamResponse(ctx, resp); err != nil {
+		t.Fatalf("handleNonStreamResponse: %v", err)
+	}
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics to be emitted")
+	}
+	// Codex usage.input_tokens includes cached_tokens; AdjustForClientType
+	// subtracts so pricing does not bill the cached portion at the input rate
+	// on top of the cache-read rate. Expect input_tokens (120) - cached (80) = 40.
+	if metrics.InputTokens != 40 || metrics.OutputTokens != 40 {
+		t.Fatalf("input/output mismatch: got input=%d output=%d, want input=40 output=40", metrics.InputTokens, metrics.OutputTokens)
+	}
+	if metrics.CacheReadCount != 80 {
+		t.Fatalf("expected CacheReadCount=80, got %d", metrics.CacheReadCount)
+	}
+}
+
+func TestHandleStreamResponseForwardsCacheReadCount(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+	ctx.Set(flow.KeyEventChan, eventChan)
+
+	// Real Codex Responses SSE: usage is only carried on the terminating
+	// response.completed event.
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"hi"}`,
+		`data: {"type":"response.completed","response":{"model":"gpt-5","usage":{"input_tokens":200,"output_tokens":50,"input_tokens_details":{"cached_tokens":150}}}}`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+
+	if err := a.handleStreamResponse(ctx, resp); err != nil {
+		t.Fatalf("handleStreamResponse: %v", err)
+	}
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics to be emitted from response.completed")
+	}
+	// After AdjustForClientType: input_tokens (200) - cached (150) = 50.
+	if metrics.InputTokens != 50 || metrics.OutputTokens != 50 {
+		t.Fatalf("input/output mismatch: got input=%d output=%d, want input=50 output=50", metrics.InputTokens, metrics.OutputTokens)
+	}
+	if metrics.CacheReadCount != 150 {
+		t.Fatalf("expected CacheReadCount=150, got %d", metrics.CacheReadCount)
+	}
+}
+
+// A cache-only metric (no fresh input/output tokens, just a prompt-cache hit)
+// must still flow through sendFinalStreamEvents. Metrics.IsEmpty is the gate;
+// regressing it to drop cache-only metrics would silently zero out cache stats
+// for some streams.
+func TestSendFinalStreamEventsEmitsCacheOnlyMetrics(t *testing.T) {
+	a := &CodexAdapter{}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	rec := httptest.NewRecorder()
+	_ = flow.NewCtx(rec, req)
+	eventChan := domain.NewAdapterEventChan()
+
+	collector := &usage.StreamCollector{Metrics: &usage.Metrics{CacheReadCount: 42}}
+	model := ""
+	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}
+
+	a.sendFinalStreamEvents(eventChan, collector, &model, resp)
+
+	metrics := collectMetricsEvent(eventChan)
+	if metrics == nil {
+		t.Fatal("expected EventMetrics for cache-only metrics")
+	}
+	if metrics.CacheReadCount != 42 {
+		t.Fatalf("expected CacheReadCount=42, got %d", metrics.CacheReadCount)
+	}
+	if metrics.InputTokens != 0 || metrics.OutputTokens != 0 {
+		t.Fatalf("expected zero input/output tokens, got input=%d output=%d", metrics.InputTokens, metrics.OutputTokens)
+
 	}
 }

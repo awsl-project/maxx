@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { Globe, ChevronLeft, Key, Check, Plus, Trash2, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import {
+  Globe,
+  ChevronLeft,
+  Key,
+  Check,
+  Plus,
+  Trash2,
+  ArrowRight,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCreateProvider, useCreateModelMapping } from '@/hooks/queries';
 import type { ClientType, CreateProviderData } from '@/lib/transport';
@@ -7,6 +17,13 @@ import { ClientsConfigSection } from './clients-config-section';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProviderForm } from '../context/provider-form-context';
@@ -64,7 +81,9 @@ export function CustomConfigStep() {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           custom: {
             baseURL: formData.baseURL,
+            backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey: formData.apiKey,
+            responsesPassthrough: formData.responsesPassthrough,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -142,6 +161,31 @@ export function CustomConfigStep() {
                   className="w-full"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-2">
+                  {t('provider.customBackend')}
+                </label>
+                <Select
+                  value={formData.backend}
+                  onValueChange={(backend) =>
+                    updateFormData({ backend: backend === 'ollama' ? 'ollama' : 'http' })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
+                    <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formData.backend === 'ollama'
+                    ? t('provider.customBackendOllamaDesc')
+                    : t('provider.customBackendHttpDesc')}
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
@@ -166,7 +210,11 @@ export function CustomConfigStep() {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Key size={14} />
-                      <span>{t('provider.apiKey')}</span>
+                      <span>
+                        {formData.backend === 'ollama'
+                          ? t('provider.apiKeyOptional')
+                          : t('provider.apiKey')}
+                      </span>
                     </div>
                   </label>
                   <div className="relative">
@@ -174,7 +222,11 @@ export function CustomConfigStep() {
                       type={showApiKey ? 'text' : 'password'}
                       value={formData.apiKey}
                       onChange={(e) => updateFormData({ apiKey: e.target.value })}
-                      placeholder={t('provider.keyPlaceholder')}
+                      placeholder={
+                        formData.backend === 'ollama'
+                          ? t('provider.keyPlaceholderOptional')
+                          : t('provider.keyPlaceholder')
+                      }
                       className="w-full pr-10"
                     />
                     <button
@@ -232,6 +284,20 @@ export function CustomConfigStep() {
               <Switch
                 checked={!!formData.disableErrorCooldown}
                 onCheckedChange={(checked) => updateFormData({ disableErrorCooldown: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.responsesPassthrough')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.responsesPassthroughDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={formData.responsesPassthrough !== false}
+                onCheckedChange={(checked) => updateFormData({ responsesPassthrough: checked })}
               />
             </div>
           </div>

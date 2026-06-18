@@ -134,6 +134,8 @@ export interface Transport {
     status?: string,
     apiTokenId?: number,
     projectId?: number,
+    startTime?: string,
+    endTime?: string,
   ): Promise<number>;
   getActiveProxyRequests(): Promise<ProxyRequest[]>;
   getProxyRequest(id: number): Promise<ProxyRequest>;

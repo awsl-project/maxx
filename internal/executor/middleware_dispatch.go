@@ -391,6 +391,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 	if state.lastErr != nil {
 		proxyReq.Error = state.lastErr.Error()
+		if proxyErr, ok := state.lastErr.(*domain.ProxyError); ok && proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+			proxyReq.StatusCode = proxyErr.HTTPStatusCode
+		}
 	}
 	clearProxyRequestDetail(proxyReq, clearDetail)
 	_ = e.proxyRequestRepo.Update(proxyReq)

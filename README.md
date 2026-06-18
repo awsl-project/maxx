@@ -289,7 +289,7 @@ codex
 | OpenAI | `POST /v1/chat/completions` |
 | Codex | `POST /v1/responses` |
 | Gemini | `POST /v1beta/models/{model}:generateContent` |
-| Project Proxy | `/{project-slug}/v1/messages` (etc.) |
+| Project Proxy | `/project/{project-slug}/v1/messages` (etc.) |
 | Admin API | `/api/admin/*` |
 | WebSocket | `ws://localhost:9880/ws` |
 | Health Check | `GET /health` |
@@ -304,7 +304,64 @@ codex
 | `MAXX_ADMIN_PASSWORD` | Enable admin authentication with JWT. Default username: `admin`, password: the value of this variable |
 | `MAXX_DSN` | Database connection string |
 | `MAXX_DATA_DIR` | Custom data directory path |
+| `MAXX_DISABLE_UI` | Headless mode: when truthy (`1`/`true`/`yes`/`on`), do not serve the web UI — only the API and proxy endpoints are exposed. Equivalent to the `-no-ui` flag (the flag takes precedence when set). Project proxy routes (`/project/{slug}/...`) remain available. |
+| `MAXX_CORS_ALLOW_ORIGINS` | Comma-separated list of allowed origins (or `*`) for cross-origin requests. Enables a separately-hosted frontend to point at this backend; unset disables CORS (same-origin only). |
 | `MAXX_ROUTING_SEED_SALT` | Optional shared secret for the `weighted_random` routing strategy. If unset, each process generates its own random salt — anti-grinding still holds and Redis sticky bindings still converge after the first successful request, but the pre-sticky first-pick order for the same `(token, session)` can differ across instances. Set the **same value on every instance** when you need consistent first-pick behavior in multi-instance deployments. |
+
+### Headless Mode (API-only, no Web UI)
+
+Run maxx as a pure API gateway without serving the admin Web UI — useful for
+server/production deployments where you configure everything through the Admin
+API and want a smaller attack surface.
+
+Enable it with **either** the `-no-ui` flag **or** the `MAXX_DISABLE_UI`
+environment variable (the flag wins if both are set):
+
+```bash
+# Flag (local build)
+maxx -no-ui
+
+# Env var (Docker / compose)
+docker run -e MAXX_DISABLE_UI=true -p 9880:9880 ghcr.io/awsl-project/maxx
+```
+
+In headless mode:
+
+- `/` and all web UI routes return `404` (no static files are served).
+- The API (`/api/admin/*`), proxy endpoints (`/v1/messages`, `/v1/chat/completions`, …), project proxy (`/project/{slug}/...`), `/health`, and `/ws` all keep working.
+- Configure providers, routes, tokens, etc. via the Admin API. Set `MAXX_ADMIN_PASSWORD` to protect it.
+
+### Separately-hosted Frontend (point the UI at a remote backend)
+
+You can host the Web UI on one origin (e.g. a CDN, a dev server, or a headless
+maxx's sibling) and have it talk to a backend on a **different** origin.
+
+**1. Allow the frontend's origin on the backend** via CORS (otherwise the
+browser blocks cross-origin requests):
+
+```bash
+# Single origin
+MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com maxx
+
+# Multiple origins (comma-separated), or "*" to allow any
+MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com,http://localhost:3000 maxx
+```
+
+> ⚠️ **CORS is not a substitute for authentication.** `*` lets *any* website read
+> and call your API from a browser, including the admin API. Only use `*` for
+> trusted/local setups, and always set `MAXX_ADMIN_PASSWORD` so the admin API
+> requires a token. Prefer listing explicit origins over `*`. maxx logs a warning
+> at startup if `*` is combined with an unauthenticated admin API.
+
+**2. Point the UI at the backend.** Open the Web UI and either:
+
+- On the **login screen**, expand **Connection settings** and enter the backend URL (e.g. `https://api.example.com`); or
+- After login, go to **Settings → Backend address**.
+
+The value is stored in the browser (`localStorage`), so each user/browser can
+target a different backend. Leave it empty to use the same origin that served
+the page (the default). Build-time default: set `VITE_BACKEND_URL` when building
+the frontend.
 
 ### System Settings
 

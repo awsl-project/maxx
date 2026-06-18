@@ -19,6 +19,11 @@ type ProviderConfigCustom struct {
 	// 中转站的 URL
 	BaseURL string `json:"baseURL"`
 
+	// Backend selects the custom provider's upstream protocol implementation.
+	// Empty means legacy HTTP passthrough. "ollama" converts Claude-compatible
+	// requests to Ollama /api/chat and wraps responses back to Claude format.
+	Backend string `json:"backend,omitempty"`
+
 	// API Key
 	APIKey string `json:"apiKey"`
 
@@ -43,6 +48,12 @@ type ProviderConfigCustom struct {
 
 	// ResponseModel 映射: UpstreamResponseModel → ClientResponseModel
 	ResponseModelMapping map[string]string `json:"responseModelMapping,omitempty"`
+
+	// ResponsesPassthrough 控制 Codex Responses 请求转发到本下游时是否透传客户端
+	// 原始路径(/v1/responses 原样转,而不是被归一化成 /responses)。
+	// 不设置(nil)= 默认透传;显式 false = 用旧的、被砍掉 /v1 的 /responses。
+	// 用于适配只认 /responses 的特殊上游,或修正 base_url 已含 /v1 的旧配置。
+	ResponsesPassthrough *bool `json:"responsesPassthrough,omitempty"`
 }
 
 // Disguise type constants. Use these instead of magic strings when dispatching
@@ -227,6 +238,12 @@ type ProviderConfigCodex struct {
 	// 自定义 Codex API Base URL（默认使用官方地址）
 	BaseURL string `json:"baseURL,omitempty"`
 
+	// ResponsesPassthrough 控制配置了自定义 BaseURL 时,是否透传客户端原始
+	// Responses 路径(/v1/responses 原样转,而不是硬编码 /responses)。
+	// 不设置(nil)= 默认透传;显式 false = 切回旧的硬编码 /responses(+ /responses/compact)。
+	// 官方 ChatGPT 后端(未配 BaseURL)不受此开关影响。
+	ResponsesPassthrough *bool `json:"responsesPassthrough,omitempty"`
+
 	// 强制 reasoning effort（覆盖请求中的值）
 	// 可选值: "low", "medium", "high"
 	Reasoning string `json:"reasoning,omitempty"`
@@ -234,6 +251,13 @@ type ProviderConfigCodex struct {
 	// 强制 service_tier（覆盖请求中的值）
 	// 可选值: "auto", "default", "flex", "priority"
 	ServiceTier string `json:"serviceTier,omitempty"`
+}
+
+// ResponsesPassthroughEnabled reports whether Codex Responses path passthrough is
+// on for the given config flag. Unset (nil) defaults to true (passthrough); only
+// an explicit false restores the legacy hardcoded /responses path.
+func ResponsesPassthroughEnabled(flag *bool) bool {
+	return flag == nil || *flag
 }
 
 // ProviderConfigCLIProxyAPIAntigravity CLIProxyAPI Antigravity 内部配置
@@ -675,22 +699,22 @@ type SystemSetting struct {
 
 // 系统设置 Key 常量
 const (
-	SettingKeyProxyPort                     = "proxy_port"                       // 代理服务器端口，默认 9880
-	SettingKeyRequestRetentionHours         = "request_retention_hours"          // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
-	SettingKeySessionRetentionHours         = "session_retention_hours"          // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeyProxyPort                            = "proxy_port"                               // 代理服务器端口，默认 9880
+	SettingKeyRequestRetentionHours                = "request_retention_hours"                  // 请求记录保留小时数，默认 168 小时（7天），0 表示不清理
+	SettingKeySessionRetentionHours                = "session_retention_hours"                  // 请求会话保留小时数，默认 168 小时（7天），0 表示不清理
 	SettingKeyRequestDetailRetentionSeconds        = "request_detail_retention_seconds"         // 请求详情保留秒数（统一），-1=永久保存(默认)，0=不保存，>0=保留秒数；当 split=false 时使用
 	SettingKeyRequestDetailRetentionSplitEnabled   = "request_detail_retention_split_enabled"   // 是否分别配置成功/失败保留时长，"true" 或 "false"，默认 "false"
 	SettingKeyRequestDetailRetentionSecondsSuccess = "request_detail_retention_seconds_success" // 成功请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
 	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"  // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
-	SettingKeyTimezone                      = "timezone"                         // 时区设置，默认 Asia/Shanghai
-	SettingKeyQuotaRefreshInterval          = "quota_refresh_interval"           // Antigravity 配额刷新间隔（分钟），0 表示禁用
-	SettingKeyAutoSortAntigravity           = "auto_sort_antigravity"            // 是否自动排序 Antigravity 路由，"true" 或 "false"
-	SettingKeyAutoSortCodex                 = "auto_sort_codex"                  // 是否自动排序 Codex 路由，"true" 或 "false"
-	SettingKeyCodexInstructionsEnabled      = "codex_instructions_enabled"       // 是否启用 Codex 官方 instructions，"true" 或 "false"
-	SettingKeyPayloadOverrideRules          = "payload_override_rules"           // 请求 payload 覆盖规则（JSON 数组）
-	SettingKeyEnablePprof                   = "enable_pprof"                     // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
-	SettingKeyPprofPort                     = "pprof_port"                       // pprof 服务端口，默认 6060
-	SettingKeyPprofPassword                 = "pprof_password"                   // pprof 访问密码，为空表示不需要密码
+	SettingKeyTimezone                             = "timezone"                                 // 时区设置，默认 Asia/Shanghai
+	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                   // Antigravity 配额刷新间隔（分钟），0 表示禁用
+	SettingKeyAutoSortAntigravity                  = "auto_sort_antigravity"                    // 是否自动排序 Antigravity 路由，"true" 或 "false"
+	SettingKeyAutoSortCodex                        = "auto_sort_codex"                          // 是否自动排序 Codex 路由，"true" 或 "false"
+	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
+	SettingKeyPayloadOverrideRules                 = "payload_override_rules"                   // 请求 payload 覆盖规则（JSON 数组）
+	SettingKeyEnablePprof                          = "enable_pprof"                             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
+	SettingKeyPprofPort                            = "pprof_port"                               // pprof 服务端口，默认 6060
+	SettingKeyPprofPassword                        = "pprof_password"                           // pprof 访问密码，为空表示不需要密码
 )
 
 // ModelPrice 模型价格（每个模型可有多条记录，每条代表一个版本）

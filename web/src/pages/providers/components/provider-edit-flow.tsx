@@ -39,7 +39,7 @@ import type {
   ModelMapping,
   ModelMappingInput,
 } from '@/lib/transport';
-import { defaultClients, type ClientConfig } from '../types';
+import { defaultClients, type ClientConfig, type CustomBackend } from '../types';
 import { buildDisguisePayload } from '../utils/disguise';
 import { ClientsConfigSection } from './clients-config-section';
 import { AntigravityProviderView } from './antigravity-provider-view';
@@ -50,6 +50,13 @@ import { ClaudeProviderView } from './claude-provider-view';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
@@ -250,9 +257,7 @@ function ResponseModelMappings({
       </div>
 
       <div className="bg-card border border-border rounded-xl p-4">
-        <p className="text-xs text-muted-foreground mb-4">
-          {t('responseModelMappings.pageDesc')}
-        </p>
+        <p className="text-xs text-muted-foreground mb-4">{t('responseModelMappings.pageDesc')}</p>
 
         {entries.length > 0 && (
           <div className="space-y-2 mb-4">
@@ -289,9 +294,7 @@ function ResponseModelMappings({
 
         {entries.length === 0 && (
           <div className="text-center py-6 mb-4">
-            <p className="text-muted-foreground text-sm">
-              {t('responseModelMappings.noMappings')}
-            </p>
+            <p className="text-muted-foreground text-sm">{t('responseModelMappings.noMappings')}</p>
           </div>
         )}
 
@@ -416,6 +419,7 @@ interface ProviderEditFlowProps {
 type EditFormData = {
   name: string;
   baseURL: string;
+  backend: CustomBackend;
   apiKey: string;
   clients: ClientConfig[];
   supportModels: string[];
@@ -425,6 +429,8 @@ type EditFormData = {
   cloakSensitiveWords?: string;
   responseModelMapping: Record<string, string>;
   disableErrorCooldown?: boolean;
+  // undefined = 默认透传;false = 旧的硬编码 /responses。
+  responsesPassthrough?: boolean;
 };
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
@@ -434,6 +440,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const [cloning, setCloning] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [cloneError, setCloneError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const createProvider = useCreateProvider();
   const updateProvider = useUpdateProvider();
@@ -445,7 +452,9 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     const supportedTypes = provider.supportedClientTypes || [];
     return defaultClients.map((client) => {
       const isEnabled = supportedTypes.includes(client.id);
-      const urlOverride = provider.config?.custom?.clientBaseURL?.[client.id] || '';
+      const urlOverride = provider.excludeFromExport
+        ? ''
+        : provider.config?.custom?.clientBaseURL?.[client.id] || '';
       const multiplier = provider.config?.custom?.clientMultiplier?.[client.id] || 10000;
       return { ...client, enabled: isEnabled, urlOverride, multiplier };
     });
@@ -458,21 +467,23 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     // before the migration continue to display their previous settings.
     const customCfg = provider.config?.custom as
       | (NonNullable<typeof provider.config>['custom'] & {
-          cloak?: { mode?: 'auto' | 'always' | 'never'; strictMode?: boolean; sensitiveWords?: string[] };
+          cloak?: {
+            mode?: 'auto' | 'always' | 'never';
+            strictMode?: boolean;
+            sensitiveWords?: string[];
+          };
         })
       | undefined;
     const disguise = customCfg?.disguise;
     const legacyCloak = customCfg?.cloak;
     // Default disguiseType: 'claude-code' (preserves legacy auto-cloak behavior).
-    const disguiseType = (disguise?.type ?? 'claude-code') as
-      | 'none'
-      | 'claude-code'
-      | 'bedrock';
+    const disguiseType = (disguise?.type ?? 'claude-code') as 'none' | 'claude-code' | 'bedrock';
     const cc = disguise?.claudeCode ?? legacyCloak;
     return {
       name: provider.name,
-      baseURL: provider.config?.custom?.baseURL || '',
-      apiKey: provider.config?.custom?.apiKey || '',
+      baseURL: provider.excludeFromExport ? '' : provider.config?.custom?.baseURL || '',
+      backend: provider.config?.custom?.backend === 'ollama' ? 'ollama' : 'http',
+      apiKey: provider.excludeFromExport ? '' : provider.config?.custom?.apiKey || '',
       clients: initClients(),
       supportModels: provider.supportModels || [],
       disguiseType,
@@ -481,8 +492,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       cloakSensitiveWords: (cc?.sensitiveWords || []).join('\n'),
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
+      responsesPassthrough: provider.config?.custom?.responsesPassthrough,
     };
   });
+  const providerConfigIsWriteOnly = !!provider.excludeFromExport;
 
   const updateClient = (clientId: ClientType, updates: Partial<ClientConfig>) => {
     setFormData((prev) => ({
@@ -491,12 +504,19 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     }));
   };
 
-  const isValid = () => {
+  const hasVisibleURL = () =>
+    formData.baseURL.trim() || formData.clients.some((c) => c.enabled && c.urlOverride.trim());
+
+  const isSaveValid = () => {
     if (!formData.name.trim()) return false;
     const hasEnabledClient = formData.clients.some((c) => c.enabled);
-    const hasUrl =
-      formData.baseURL.trim() || formData.clients.some((c) => c.enabled && c.urlOverride.trim());
-    return hasEnabledClient && hasUrl;
+    return hasEnabledClient && (providerConfigIsWriteOnly || !!hasVisibleURL());
+  };
+
+  const isCloneValid = () => {
+    if (!formData.name.trim()) return false;
+    const hasEnabledClient = formData.clients.some((c) => c.enabled);
+    return hasEnabledClient && !!hasVisibleURL();
   };
 
   // Build the disguise payload from current form state. Delegates to the
@@ -511,7 +531,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     );
 
   const handleSave = async () => {
-    if (!isValid()) return;
+    if (!isSaveValid()) return;
 
     setSaving(true);
     setSaveStatus('idle');
@@ -536,7 +556,9 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           custom: {
             baseURL: formData.baseURL,
-            apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
+            backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+            apiKey: formData.apiKey.trim() || '',
+            responsesPassthrough: formData.responsesPassthrough,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -564,7 +586,13 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   };
 
   const handleClone = async () => {
-    if (!isValid() || cloning) return;
+    if (!isCloneValid() || cloning) return;
+
+    setCloneError(null);
+    if (providerConfigIsWriteOnly && !formData.apiKey.trim()) {
+      setCloneError(t('provider.cloneWriteOnlyRequiresKey'));
+      return;
+    }
 
     setCloning(true);
 
@@ -593,7 +621,12 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
           disableErrorCooldown: !!formData.disableErrorCooldown,
           custom: {
             baseURL: formData.baseURL,
-            apiKey: formData.apiKey || provider.config?.custom?.apiKey || '',
+            backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+            apiKey:
+              formData.apiKey.trim() ||
+              (providerConfigIsWriteOnly ? '' : provider.config?.custom?.apiKey) ||
+              '',
+            responsesPassthrough: formData.responsesPassthrough,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -606,7 +639,6 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         },
         supportedClientTypes,
         supportModels: formData.supportModels.length > 0 ? formData.supportModels : undefined,
-        excludeFromExport: !!provider.excludeFromExport,
       };
 
       const newProvider = await createProvider.mutateAsync(data);
@@ -768,7 +800,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         </Button>
         <Button
           onClick={handleClone}
-          disabled={cloning || saving || !isValid()}
+          disabled={cloning || saving || !isCloneValid()}
           variant={'outline'}
         >
           <Copy size={14} />
@@ -777,7 +809,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         <Button onClick={onClose} variant={'secondary'}>
           {t('provider.cancel')}
         </Button>
-        <Button onClick={handleSave} disabled={saving || !isValid()} variant={'default'}>
+        <Button onClick={handleSave} disabled={saving || !isSaveValid()} variant={'default'}>
           {saving ? (
             t('common.saving')
           ) : saveStatus === 'success' ? (
@@ -813,6 +845,34 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 />
               </div>
 
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-2">
+                  {t('provider.customBackend')}
+                </label>
+                <Select
+                  value={formData.backend}
+                  onValueChange={(backend) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      backend: backend === 'ollama' ? 'ollama' : 'http',
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
+                    <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formData.backend === 'ollama'
+                    ? t('provider.customBackendOllamaDesc')
+                    : t('provider.customBackendHttpDesc')}
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
@@ -830,11 +890,17 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                         baseURL: e.target.value,
                       }))
                     }
-                    placeholder={t('provider.endpointPlaceholder')}
+                    placeholder={
+                      providerConfigIsWriteOnly
+                        ? t('provider.endpointPlaceholderWriteOnly')
+                        : t('provider.endpointPlaceholder')
+                    }
                     className="w-full"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    {t('provider.optionalUrlNote')}
+                    {providerConfigIsWriteOnly
+                      ? t('provider.urlExcludedHint')
+                      : t('provider.optionalUrlNote')}
                   </p>
                 </div>
 
@@ -842,29 +908,49 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                   <label className="text-sm font-medium text-foreground block mb-2">
                     <div className="flex items-center gap-2">
                       <Key size={14} />
-                      <span>{t('provider.apiKeyEdit')}</span>
+                      <span>
+                        {formData.backend === 'ollama'
+                          ? t('provider.apiKeyOptional')
+                          : t('provider.apiKeyEdit')}
+                      </span>
                     </div>
                   </label>
                   <div className="relative">
                     <Input
-                      type={showApiKey ? 'text' : 'password'}
+                      type={showApiKey && !providerConfigIsWriteOnly ? 'text' : 'password'}
                       value={formData.apiKey}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
-                      placeholder={t('provider.keyPlaceholder')}
+                      onChange={(e) => {
+                        setCloneError(null);
+                        setFormData((prev) => ({ ...prev, apiKey: e.target.value }));
+                      }}
+                      placeholder={
+                        providerConfigIsWriteOnly
+                          ? t('provider.keyPlaceholderWriteOnly')
+                          : formData.backend === 'ollama'
+                            ? t('provider.keyPlaceholderOptional')
+                            : t('provider.keyPlaceholder')
+                      }
                       className="w-full pr-10"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      aria-label={showApiKey ? t('common.hide') : t('common.show')}
-                    >
-                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                    {!providerConfigIsWriteOnly && (
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label={showApiKey ? t('common.hide') : t('common.show')}
+                      >
+                        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    )}
                   </div>
-                  {provider.excludeFromExport && (
+                  {providerConfigIsWriteOnly && (
                     <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
                       {t('provider.apiKeyExcludedHint')}
+                    </div>
+                  )}
+                  {cloneError && (
+                    <div className="mt-2 p-3 bg-error/10 border border-error/30 rounded-lg text-xs text-error">
+                      {cloneError}
                     </div>
                   )}
                 </div>
@@ -918,7 +1004,24 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 }
               />
             </div>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">
+                  {t('provider.responsesPassthrough')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('provider.responsesPassthroughDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={formData.responsesPassthrough !== false}
+                onCheckedChange={(checked) =>
+                  setFormData((prev) => ({ ...prev, responsesPassthrough: checked }))
+                }
+              />
+            </div>
           </div>
+
 
           {/* Provider Supported Models Filter */}
           <ProviderSupportModels

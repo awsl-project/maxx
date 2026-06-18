@@ -28,8 +28,26 @@ type TestEnv struct {
 	Token  string // Admin JWT token
 }
 
+// testEnvOptions tunes the assembled server for feature-specific integration tests.
+type testEnvOptions struct {
+	// mountRoot mounts the "/" route the way core.setupRoutes does, so tests can
+	// exercise headless vs. UI-serving behavior end-to-end. When false, "/" is
+	// left unmounted (the historical default, keeping unrelated tests untouched).
+	mountRoot bool
+	// serveStatic selects UI mode (serve web/dist + project proxy) vs. headless
+	// mode (project proxy only) for the "/" route. Only meaningful with mountRoot.
+	serveStatic bool
+	// corsOrigins, when non-empty, wraps the mux with CORSMiddleware configured
+	// from this MAXX_CORS_ALLOW_ORIGINS-style value (comma list or "*").
+	corsOrigins string
+}
+
 // NewTestEnv creates a fully assembled test environment mirroring cmd/maxx/main.go.
 func NewTestEnv(t *testing.T) *TestEnv {
+	return newTestEnv(t, testEnvOptions{})
+}
+
+func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 	t.Helper()
 
 	// Use a unique file-based DSN per test for full isolation.
@@ -185,7 +203,26 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	server := httptest.NewServer(mux)
+	// Optionally mount "/" the way core.setupRoutes does, so headless
+	// (project-proxy-only) vs. UI-serving (static files) behavior can be tested
+	// end-to-end. The project proxy safely 404s on non-project paths, so a nil
+	// proxy handler is fine for the routes these tests exercise.
+	if opts.mountRoot {
+		projectProxyHandler := handler.NewProjectProxyHandler(nil, modelsHandler, cachedProjectRepo)
+		if opts.serveStatic {
+			staticHandler := handler.NewStaticHandler()
+			mux.Handle("/", handler.NewCombinedHandler(projectProxyHandler, staticHandler))
+		} else {
+			mux.Handle("/", projectProxyHandler)
+		}
+	}
+
+	// Wrap with CORS exactly like the real entrypoints. ParseCORSOrigins("")
+	// yields a disabled config, so this is a no-op for the default env.
+	var rootHandler http.Handler = mux
+	rootHandler = handler.CORSMiddleware(handler.ParseCORSOrigins(opts.corsOrigins), rootHandler)
+
+	server := httptest.NewServer(rootHandler)
 
 	env := &TestEnv{
 		t:      t,

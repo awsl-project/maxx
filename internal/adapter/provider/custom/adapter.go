@@ -51,6 +51,10 @@ func (a *CustomAdapter) SupportedClientTypes() []domain.ClientType {
 
 func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	clientType := flow.GetClientType(c)
+	if strings.EqualFold(strings.TrimSpace(a.provider.Config.Custom.Backend), customBackendOllama) {
+		return a.executeOllama(c, provider)
+	}
+
 	mappedModel := flow.GetMappedModel(c)
 	requestBody := flow.GetRequestBody(c)
 	request := c.Request
@@ -69,6 +73,17 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	// Build upstream URL
 	baseURL := a.getBaseURL(clientType)
 	requestURI := flow.GetRequestURI(c)
+
+	// Codex Responses passthrough: the proxy layer normalizes /v1/responses down
+	// to /responses. When forwarding to a codex downstream as-is (no format
+	// conversion), honor the client's original path so OpenAI-compatible gateways
+	// that serve /v1/responses (e.g. New API) are hit at the right path instead of
+	// a 404-ing /responses. Gated by the per-provider switch (default on).
+	if clientType == domain.ClientTypeCodex && domain.ResponsesPassthroughEnabled(a.customPassthroughFlag()) {
+		if p := flow.GetResponsesClientPath(c); p != "" {
+			requestURI = p
+		}
+	}
 
 	// Apply model mapping if configured
 	var err error
@@ -225,7 +240,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
-			Headers: flattenHeaders(upstreamReq.Header),
+			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
 			Body:    string(requestBody),
 		})
 	}
@@ -370,7 +385,7 @@ func (a *CustomAdapter) retryWithFixer(
 			eventChan.SendRequestInfo(&domain.RequestInfo{
 				Method:  retryReq.Method,
 				URL:     retryReq.URL.String(),
-				Headers: flattenHeaders(retryReq.Header),
+				Headers: sanitizeHeadersForEvent(retryReq.Header),
 				Body:    string(fixedBody),
 			})
 		}
@@ -422,6 +437,15 @@ func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
 		return url
 	}
 	return config.BaseURL
+}
+
+// customPassthroughFlag returns the provider's Codex Responses passthrough flag
+// (nil when unconfigured → treated as default-on by ResponsesPassthroughEnabled).
+func (a *CustomAdapter) customPassthroughFlag() *bool {
+	if cfg := a.provider.Config.Custom; cfg != nil {
+		return cfg.ResponsesPassthrough
+	}
+	return nil
 }
 
 func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response, clientType domain.ClientType, isOAuthToken bool) error {
@@ -989,6 +1013,36 @@ func flattenHeaders(h http.Header) map[string]string {
 		}
 	}
 	return result
+}
+
+// sanitizeHeadersForEvent returns a header map safe for request event logging,
+// redacting upstream credentials that may be injected from provider config.
+func sanitizeHeadersForEvent(h http.Header) map[string]string {
+	result := flattenHeaders(h)
+	for key := range result {
+		if isSensitiveEventHeader(key) {
+			result[key] = "[REDACTED]"
+		}
+	}
+	return result
+}
+
+func isSensitiveEventHeader(key string) bool {
+	switch strings.ToLower(key) {
+	case "authorization",
+		"proxy-authorization",
+		"x-api-key",
+		"x-goog-api-key",
+		"api-key",
+		"anthropic-api-key",
+		"openai-api-key",
+		"x-amz-security-token",
+		"cookie",
+		"set-cookie":
+		return true
+	default:
+		return false
+	}
 }
 
 // Headers to filter out - only privacy/proxy related, NOT application headers like anthropic-version

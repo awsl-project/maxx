@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 )
 
 func TestDetailCleanupBatchParams(t *testing.T) {
@@ -184,6 +185,128 @@ func TestProxyRequestListCursorBeforeCursorDoesNotRepeatOrSkipRecords(t *testing
 	}
 	if fmt.Sprint(combined) != fmt.Sprint(expectedCombined) {
 		t.Fatalf("expected combined pages %v, got %v", expectedCombined, combined)
+	}
+}
+
+func TestProxyRequestListCursorAndCountFilterByCreatedAtRange(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	base := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
+	requests := []*domain.ProxyRequest{
+		buildTestProxyRequest("COMPLETED", 1),
+		buildTestProxyRequest("COMPLETED", 2),
+		buildTestProxyRequest("COMPLETED", 3),
+		buildTestProxyRequest("COMPLETED", 4),
+	}
+
+	for i, request := range requests {
+		if err := repo.Create(request); err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+		createdAt := base.Add(time.Duration(i) * time.Hour).UnixMilli()
+		if err := db.gorm.Model(&ProxyRequest{}).Where("id = ?", request.ID).Update("created_at", createdAt).Error; err != nil {
+			t.Fatalf("Failed to update created_at: %v", err)
+		}
+	}
+
+	start := base.Add(1 * time.Hour)
+	end := base.Add(2 * time.Hour)
+	filter := &repository.ProxyRequestFilter{
+		StartTime: &start,
+		EndTime:   &end,
+	}
+
+	items, err := repo.ListCursor(1, 10, 0, 0, filter)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	expected := []uint64{requests[2].ID, requests[1].ID}
+	if got := collectRequestIDs(items); fmt.Sprint(got) != fmt.Sprint(expected) {
+		t.Fatalf("expected filtered ids %v, got %v", expected, got)
+	}
+
+	count, err := repo.CountWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("CountWithFilter failed: %v", err)
+	}
+	if count != int64(len(expected)) {
+		t.Fatalf("expected filtered count %d, got %d", len(expected), count)
+	}
+}
+
+// TestProxyRequestUpdatePreservesRequestInfo 锁定 OOM 优化后的写入不变量:
+//   - Update 永不重写 request_info(Create 后不变),状态类 Update 不能把它清空;
+//   - Update 仅在 ResponseInfo 非 nil 时写 response_info;ResponseInfo 为 nil 时
+//     不能覆盖库中已有的 response_info。
+func TestProxyRequestUpdatePreservesRequestInfo(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+
+	req := buildTestProxyRequest("PENDING", 1)
+	req.RequestInfo = &domain.RequestInfo{Method: "POST", URL: "u", Body: "the-request-body"}
+	if err := repo.Create(req); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	reload := func() *ProxyRequest {
+		var m ProxyRequest
+		if err := repo.db.gorm.First(&m, req.ID).Error; err != nil {
+			t.Fatalf("reload: %v", err)
+		}
+		return &m
+	}
+
+	// 1) 状态类 Update(ResponseInfo 仍为 nil)：request_info 必须保留，
+	//    response_info 不得被写入响应体(Create 写的 nil 占位 "null" 可保留)。
+	req.Status = "IN_PROGRESS"
+	req.RequestInfo = nil // 模拟调用方在 Update 时并不携带 RequestInfo
+	if err := repo.Update(req); err != nil {
+		t.Fatalf("update status: %v", err)
+	}
+	if got := reload(); !strings.Contains(string(got.RequestInfo), "the-request-body") {
+		t.Fatalf("request_info wiped by status-only Update: %q", got.RequestInfo)
+	} else if strings.Contains(string(got.ResponseInfo), "the-response-body") {
+		t.Fatalf("response_info unexpectedly written: %q", got.ResponseInfo)
+	}
+
+	// 2) 终态 Update 带 ResponseInfo：response_info 必须落库，request_info 仍保留。
+	req.Status = "COMPLETED"
+	req.ResponseInfo = &domain.ResponseInfo{Status: 200, Body: "the-response-body"}
+	if err := repo.Update(req); err != nil {
+		t.Fatalf("update completed: %v", err)
+	}
+	got := reload()
+	if !strings.Contains(string(got.ResponseInfo), "the-response-body") {
+		t.Fatalf("response_info not persisted: %q", got.ResponseInfo)
+	}
+	if !strings.Contains(string(got.RequestInfo), "the-request-body") {
+		t.Fatalf("request_info lost after completion Update: %q", got.RequestInfo)
+	}
+	if got.Status != "COMPLETED" {
+		t.Fatalf("status not updated: %q", got.Status)
+	}
+
+	// 3) 关键不变量(CodeRabbit 指出):response_info 已落真实值后,再来一次
+	//    ResponseInfo==nil 的状态类 Update,必须 Omit 掉 response_info、不能把已有值清空。
+	req.Status = "FAILED"
+	req.ResponseInfo = nil
+	if err := repo.Update(req); err != nil {
+		t.Fatalf("status update after response set: %v", err)
+	}
+	if got := reload(); !strings.Contains(string(got.ResponseInfo), "the-response-body") {
+		t.Fatalf("existing response_info wiped by nil-ResponseInfo Update: %q", got.ResponseInfo)
+	} else if got.Status != "FAILED" {
+		t.Fatalf("status not updated on nil-ResponseInfo Update: %q", got.Status)
 	}
 }
 

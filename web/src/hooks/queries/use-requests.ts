@@ -18,12 +18,30 @@ export const requestKeys = {
   all: ['requests'] as const,
   lists: () => [...requestKeys.all, 'list'] as const,
   list: (params?: CursorPaginationParams) => [...requestKeys.lists(), params] as const,
-  infinite: (providerId?: number, status?: string, apiTokenId?: number, projectId?: number) =>
-    [...requestKeys.all, 'infinite', providerId, status, apiTokenId, projectId] as const,
+  infinite: (providerId?: number, status?: string, apiTokenId?: number, projectId?: number, startTime?: string, endTime?: string) =>
+    [...requestKeys.all, 'infinite', providerId, status, apiTokenId, projectId, startTime, endTime] as const,
   details: () => [...requestKeys.all, 'detail'] as const,
   detail: (id: number) => [...requestKeys.details(), id] as const,
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
 };
+
+function matchesRequestTimeRange(
+  request: ProxyRequest,
+  startTime?: string,
+  endTime?: string,
+): boolean {
+  const createdAtMs = new Date(request.createdAt).getTime();
+  if (!Number.isFinite(createdAtMs)) {
+    return true;
+  }
+  if (startTime !== undefined && createdAtMs < new Date(startTime).getTime()) {
+    return false;
+  }
+  if (endTime !== undefined && createdAtMs > new Date(endTime).getTime()) {
+    return false;
+  }
+  return true;
+}
 
 /** Fetches proxy requests with cursor-based pagination. */
 export function useProxyRequests(params?: CursorPaginationParams) {
@@ -42,10 +60,12 @@ export function useInfiniteProxyRequests(
   status?: string,
   apiTokenId?: number,
   projectId?: number,
+  startTime?: string,
+  endTime?: string,
   enabled = true,
 ) {
   return useInfiniteQuery({
-    queryKey: requestKeys.infinite(providerId, status, apiTokenId, projectId),
+    queryKey: requestKeys.infinite(providerId, status, apiTokenId, projectId, startTime, endTime),
     queryFn: ({ pageParam }) =>
       getTransport().getProxyRequests({
         limit: 100,
@@ -54,6 +74,8 @@ export function useInfiniteProxyRequests(
         status,
         apiTokenId,
         projectId,
+        startTime,
+        endTime,
       }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastId : undefined),
     initialPageParam: undefined as number | undefined,
@@ -71,11 +93,14 @@ export function useProxyRequestsCount(
   status?: string,
   apiTokenId?: number,
   projectId?: number,
+  startTime?: string,
+  endTime?: string,
   enabled = true,
 ) {
   return useQuery({
-    queryKey: ['requestsCount', providerId, status, apiTokenId, projectId] as const,
-    queryFn: () => getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId),
+    queryKey: ['requestsCount', providerId, status, apiTokenId, projectId, startTime, endTime] as const,
+    queryFn: () =>
+      getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId, startTime, endTime),
     enabled,
     staleTime: 5_000,
     refetchInterval: enabled ? 10_000 : false,
@@ -216,6 +241,9 @@ export function useProxyRequestUpdates() {
           const filterProviderId = params?.providerId;
           const filterStatus = params?.status;
           const filterAPITokenId = params?.apiTokenId;
+          const filterProjectId = params?.projectId;
+          const filterStartTime = params?.startTime;
+          const filterEndTime = params?.endTime;
 
           const matchesFilter = (request: ProxyRequest) => {
             if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
@@ -225,6 +253,12 @@ export function useProxyRequestUpdates() {
               return false;
             }
             if (filterAPITokenId !== undefined && request.apiTokenID !== filterAPITokenId) {
+              return false;
+            }
+            if (filterProjectId !== undefined && request.projectID !== filterProjectId) {
+              return false;
+            }
+            if (!matchesRequestTimeRange(request, filterStartTime, filterEndTime)) {
               return false;
             }
             return true;
@@ -288,6 +322,8 @@ export function useProxyRequestUpdates() {
           const filterStatus = queryKey[3] as string | undefined;
           const filterAPITokenId = queryKey[4] as number | undefined;
           const filterProjectId = queryKey[5] as number | undefined;
+          const filterStartTime = queryKey[6] as string | undefined;
+          const filterEndTime = queryKey[7] as string | undefined;
 
           const matchesFilter = (request: ProxyRequest) => {
             if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
@@ -300,6 +336,9 @@ export function useProxyRequestUpdates() {
               return false;
             }
             if (filterProjectId !== undefined && request.projectID !== filterProjectId) {
+              return false;
+            }
+            if (!matchesRequestTimeRange(request, filterStartTime, filterEndTime)) {
               return false;
             }
             return true;
@@ -372,6 +411,8 @@ export function useProxyRequestUpdates() {
               const filterStatus = query.queryKey[2] as string | undefined;
               const filterAPITokenId = query.queryKey[3] as number | undefined;
               const filterProjectId = query.queryKey[4] as number | undefined;
+              const filterStartTime = query.queryKey[5] as string | undefined;
+              const filterEndTime = query.queryKey[6] as string | undefined;
               if (filterProviderId !== undefined && updatedRequest.providerID !== filterProviderId) {
                 continue;
               }
@@ -382,6 +423,9 @@ export function useProxyRequestUpdates() {
                 continue;
               }
               if (filterProjectId !== undefined && updatedRequest.projectID !== filterProjectId) {
+                continue;
+              }
+              if (!matchesRequestTimeRange(updatedRequest, filterStartTime, filterEndTime)) {
                 continue;
               }
               queryClient.setQueryData<number>(query.queryKey, (old) => (old ?? 0) + 1);

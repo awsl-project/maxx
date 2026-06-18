@@ -182,14 +182,14 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
 				return
 			}
-			writeJSON(w, http.StatusOK, provider)
+			writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(provider))
 		} else {
 			providers, err := h.svc.GetProviders(tenantID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusOK, providers)
+			writeJSON(w, http.StatusOK, sanitizeProvidersForRole(providers, true))
 		}
 	case http.MethodPost:
 		var provider domain.Provider
@@ -201,7 +201,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusCreated, provider)
+		writeJSON(w, http.StatusCreated, sanitizeProviderAfterMutation(&provider))
 	case http.MethodPut:
 		if id == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
@@ -228,7 +228,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, provider)
+		writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(&provider))
 	case http.MethodDelete:
 		if id == 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id required"})
@@ -825,6 +825,28 @@ func (h *AdminHandler) handleRoutingStrategies(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// parseTimeQuery parses a time query parameter as either a 13-digit millisecond timestamp or RFC3339.
+func parseTimeQuery(raw, name string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	if millis, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		digits := len(strings.TrimLeft(raw, "-"))
+		if digits != 13 {
+			return nil, errors.New("invalid " + name + ": expected 13-digit millisecond timestamp or RFC3339")
+		}
+		t := time.UnixMilli(millis).UTC()
+		return &t, nil
+	}
+	for _, format := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(format, raw); err == nil {
+			utc := t.UTC()
+			return &utc, nil
+		}
+	}
+	return nil, errors.New("invalid " + name + ": expected millisecond timestamp or RFC3339")
+}
+
 // ProxyRequest handlers
 // Routes: /admin/requests, /admin/requests/count, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts, /admin/requests/{id}/recalculate-cost
 func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
@@ -882,8 +904,10 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 			statusStr := r.URL.Query().Get("status")
 			apiTokenIDStr := r.URL.Query().Get("apiTokenId")
 			projectIDStr := r.URL.Query().Get("projectId")
+			startTimeStr := r.URL.Query().Get("startTime")
+			endTimeStr := r.URL.Query().Get("endTime")
 
-			if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" {
+			if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" || startTimeStr != "" || endTimeStr != "" {
 				filter = &repository.ProxyRequestFilter{}
 				if providerIDStr != "" {
 					providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
@@ -911,6 +935,26 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 						return
 					}
 					filter.ProjectID = &projectID
+				}
+				if startTimeStr != "" {
+					startTime, err := parseTimeQuery(startTimeStr, "startTime")
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+						return
+					}
+					filter.StartTime = startTime
+				}
+				if endTimeStr != "" {
+					endTime, err := parseTimeQuery(endTimeStr, "endTime")
+					if err != nil {
+						writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+						return
+					}
+					filter.EndTime = endTime
+				}
+				if filter.StartTime != nil && filter.EndTime != nil && filter.EndTime.Before(*filter.StartTime) {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endTime must be greater than or equal to startTime"})
+					return
 				}
 			}
 
@@ -941,8 +985,10 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 	statusStr := r.URL.Query().Get("status")
 	apiTokenIDStr := r.URL.Query().Get("apiTokenId")
 	projectIDStr := r.URL.Query().Get("projectId")
+	startTimeStr := r.URL.Query().Get("startTime")
+	endTimeStr := r.URL.Query().Get("endTime")
 
-	if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" {
+	if providerIDStr != "" || statusStr != "" || apiTokenIDStr != "" || projectIDStr != "" || startTimeStr != "" || endTimeStr != "" {
 		filter = &repository.ProxyRequestFilter{}
 		if providerIDStr != "" {
 			providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
@@ -970,6 +1016,26 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 				return
 			}
 			filter.ProjectID = &projectID
+		}
+		if startTimeStr != "" {
+			startTime, err := parseTimeQuery(startTimeStr, "startTime")
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			filter.StartTime = startTime
+		}
+		if endTimeStr != "" {
+			endTime, err := parseTimeQuery(endTimeStr, "endTime")
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			filter.EndTime = endTime
+		}
+		if filter.StartTime != nil && filter.EndTime != nil && filter.EndTime.Before(*filter.StartTime) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endTime must be greater than or equal to startTime"})
+			return
 		}
 	}
 

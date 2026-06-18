@@ -41,6 +41,7 @@ import {
 } from '@/components/ui';
 import { Textarea } from '@/components/ui/textarea';
 import { PageHeader } from '@/components/layout/page-header';
+import { BackendAddressControl } from '@/components/backend-address-control';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
 import { useTransport } from '@/lib/transport/context';
@@ -280,6 +281,7 @@ export function SettingsPage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="space-y-6">
           <GeneralSection />
+          <BackendAddressSection />
           {isAdmin && (
             <>
               <MultiTenantUISection />
@@ -435,6 +437,24 @@ function GeneralSection() {
             ))}
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BackendAddressSection() {
+  const { t } = useTranslation();
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Globe className="h-4 w-4 text-muted-foreground" />
+          {t('backendAddress.title')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <BackendAddressControl alwaysOpen />
       </CardContent>
     </Card>
   );

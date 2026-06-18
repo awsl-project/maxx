@@ -30,10 +30,20 @@ func (r *ProxyUpstreamAttemptRepository) Create(a *domain.ProxyUpstreamAttempt) 
 	return nil
 }
 
+// Update 持久化 attempt 的状态/计量变更。与 ProxyRequestRepository.Update
+// 同理:request_info 在 Create 时写入后不再变更,Update 不重新编码它(避免对
+// 完整请求体重复 json.Marshal —— profile 里 1.19 GB cum 的来源);response_info
+// 仅在确有响应详情(非 nil,由事件流在 Update 前填充完毕)时编码并写入一次。
 func (r *ProxyUpstreamAttemptRepository) Update(a *domain.ProxyUpstreamAttempt) error {
 	a.UpdatedAt = time.Now()
-	model := r.toModel(a)
-	return r.db.gorm.Save(model).Error
+	model := r.toModelMeta(a)
+	omit := []string{"request_info"}
+	if a.ResponseInfo != nil {
+		model.ResponseInfo = LongText(toJSON(a.ResponseInfo))
+	} else {
+		omit = append(omit, "response_info")
+	}
+	return r.db.gorm.Omit(omit...).Save(model).Error
 }
 
 func (r *ProxyUpstreamAttemptRepository) ListByProxyRequestID(proxyRequestID uint64) ([]*domain.ProxyUpstreamAttempt, error) {
@@ -357,25 +367,32 @@ func (r *ProxyUpstreamAttemptRepository) ClearDetailOlderThan(before time.Time, 
 }
 
 func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
+	m := r.toModelMeta(a)
+	m.RequestInfo = LongText(toJSON(a.RequestInfo))
+	m.ResponseInfo = LongText(toJSON(a.ResponseInfo))
+	return m
+}
+
+// toModelMeta 构造除 request_info/response_info 两个大字段外的所有列,供 Update
+// 路径按需编码大字段,避免重复序列化完整请求/响应体。详见 Update 注释。
+func (r *ProxyUpstreamAttemptRepository) toModelMeta(a *domain.ProxyUpstreamAttempt) *ProxyUpstreamAttempt {
 	return &ProxyUpstreamAttempt{
 		BaseModel: BaseModel{
 			ID:        a.ID,
 			CreatedAt: toTimestamp(a.CreatedAt),
 			UpdatedAt: toTimestamp(a.UpdatedAt),
 		},
-		TenantID:          a.TenantID,
-		StartTime:         toTimestamp(a.StartTime),
-		EndTime:           toTimestamp(a.EndTime),
-		DurationMs:        a.Duration.Milliseconds(),
-		TTFTMs:            a.TTFT.Milliseconds(),
-		Status:            a.Status,
-		ProxyRequestID:    a.ProxyRequestID,
-		IsStream:          boolToInt(a.IsStream),
-		RequestModel:      a.RequestModel,
-		MappedModel:       a.MappedModel,
-		ResponseModel:     a.ResponseModel,
-		RequestInfo:       LongText(toJSON(a.RequestInfo)),
-		ResponseInfo:      LongText(toJSON(a.ResponseInfo)),
+		TenantID:              a.TenantID,
+		StartTime:             toTimestamp(a.StartTime),
+		EndTime:               toTimestamp(a.EndTime),
+		DurationMs:            a.Duration.Milliseconds(),
+		TTFTMs:                a.TTFT.Milliseconds(),
+		Status:                a.Status,
+		ProxyRequestID:        a.ProxyRequestID,
+		IsStream:              boolToInt(a.IsStream),
+		RequestModel:          a.RequestModel,
+		MappedModel:           a.MappedModel,
+		ResponseModel:         a.ResponseModel,
 		RouteID:               a.RouteID,
 		ProviderID:            a.ProviderID,
 		InputTokenCount:       a.InputTokenCount,
@@ -394,22 +411,22 @@ func (r *ProxyUpstreamAttemptRepository) toModel(a *domain.ProxyUpstreamAttempt)
 
 func (r *ProxyUpstreamAttemptRepository) toDomain(m *ProxyUpstreamAttempt) *domain.ProxyUpstreamAttempt {
 	return &domain.ProxyUpstreamAttempt{
-		ID:                m.ID,
-		CreatedAt:         fromTimestamp(m.CreatedAt),
-		UpdatedAt:         fromTimestamp(m.UpdatedAt),
-		TenantID:          m.TenantID,
-		StartTime:         fromTimestamp(m.StartTime),
-		EndTime:           fromTimestamp(m.EndTime),
-		Duration:          time.Duration(m.DurationMs) * time.Millisecond,
-		TTFT:              time.Duration(m.TTFTMs) * time.Millisecond,
-		Status:            m.Status,
-		ProxyRequestID:    m.ProxyRequestID,
-		IsStream:          m.IsStream == 1,
-		RequestModel:      m.RequestModel,
-		MappedModel:       m.MappedModel,
-		ResponseModel:     m.ResponseModel,
-		RequestInfo:       fromJSON[*domain.RequestInfo](string(m.RequestInfo)),
-		ResponseInfo:      fromJSON[*domain.ResponseInfo](string(m.ResponseInfo)),
+		ID:                    m.ID,
+		CreatedAt:             fromTimestamp(m.CreatedAt),
+		UpdatedAt:             fromTimestamp(m.UpdatedAt),
+		TenantID:              m.TenantID,
+		StartTime:             fromTimestamp(m.StartTime),
+		EndTime:               fromTimestamp(m.EndTime),
+		Duration:              time.Duration(m.DurationMs) * time.Millisecond,
+		TTFT:                  time.Duration(m.TTFTMs) * time.Millisecond,
+		Status:                m.Status,
+		ProxyRequestID:        m.ProxyRequestID,
+		IsStream:              m.IsStream == 1,
+		RequestModel:          m.RequestModel,
+		MappedModel:           m.MappedModel,
+		ResponseModel:         m.ResponseModel,
+		RequestInfo:           fromJSON[*domain.RequestInfo](string(m.RequestInfo)),
+		ResponseInfo:          fromJSON[*domain.ResponseInfo](string(m.ResponseInfo)),
 		RouteID:               m.RouteID,
 		ProviderID:            m.ProviderID,
 		InputTokenCount:       m.InputTokenCount,
@@ -422,7 +439,7 @@ func (r *ProxyUpstreamAttemptRepository) toDomain(m *ProxyUpstreamAttempt) *doma
 		Cache1hWriteCount:     m.Cache1hWriteCount,
 		ModelPriceID:          m.ModelPriceID,
 		Multiplier:            m.Multiplier,
-		Cost:              m.Cost,
+		Cost:                  m.Cost,
 	}
 }
 

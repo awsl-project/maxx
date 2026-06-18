@@ -150,3 +150,87 @@ func TestAdaptThinkingForModelStripsSamplingParams(t *testing.T) {
 		})
 	}
 }
+
+func TestRewriteClassicThinkingToAdaptive(t *testing.T) {
+	cases := []struct {
+		name       string
+		input      string
+		wantEffort string
+	}{
+		{
+			name:       "maps medium budget",
+			input:      `{"thinking":{"type":"enabled","budget_tokens":16000}}`,
+			wantEffort: "medium",
+		},
+		{
+			name:       "preserves explicit effort",
+			input:      `{"thinking":{"type":"enabled","budget_tokens":16000},"output_config":{"effort":"high"}}`,
+			wantEffort: "high",
+		},
+		{
+			name:       "maps missing budget to low",
+			input:      `{"thinking":{"type":"enabled"}}`,
+			wantEffort: "low",
+		},
+		{
+			name:       "drops extra thinking fields",
+			input:      `{"thinking":{"type":"enabled","budget_tokens":16000,"foo":"bar","nested":{"x":1}}}`,
+			wantEffort: "medium",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := RewriteClassicThinkingToAdaptive([]byte(c.input))
+			if gt := gjson.GetBytes(got, "thinking.type").String(); gt != "adaptive" {
+				t.Fatalf("thinking.type = %q; want adaptive (body=%s)", gt, string(got))
+			}
+			if gjson.GetBytes(got, "thinking.budget_tokens").Exists() {
+				t.Fatalf("thinking.budget_tokens should be removed (body=%s)", string(got))
+			}
+			if ge := gjson.GetBytes(got, "output_config.effort").String(); ge != c.wantEffort {
+				t.Fatalf("output_config.effort = %q; want %q (body=%s)", ge, c.wantEffort, string(got))
+			}
+			if thinkingKeys := len(gjson.GetBytes(got, "thinking").Map()); thinkingKeys != 1 {
+				t.Fatalf("thinking should contain only type, got %d keys (body=%s)", thinkingKeys, string(got))
+			}
+		})
+	}
+}
+
+func TestIsClassicThinkingRejectedError(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "reported bedrock validation",
+			body: `{"message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}`,
+			want: true,
+		},
+		{
+			name: "generic not supported wording",
+			body: `{"message":"thinking.type=enabled is not supported; use adaptive thinking"}`,
+			want: true,
+		},
+		{
+			name: "unrelated thinking budget error",
+			body: `{"message":"thinking.budget_tokens must be less than max_tokens"}`,
+			want: false,
+		},
+		{
+			name: "sampling rejection",
+			body: `{"message":"temperature may only be set to 1 when thinking is enabled"}`,
+			want: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := IsClassicThinkingRejectedError([]byte(c.body)); got != c.want {
+				t.Fatalf("IsClassicThinkingRejectedError = %v; want %v", got, c.want)
+			}
+		})
+	}
+}

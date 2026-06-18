@@ -50,6 +50,7 @@ export function SelectTypeStep() {
       updateFormData({
         selectedTemplate: templateId,
         name: template.name,
+        backend: 'http',
         clients: updatedClients,
         modelMappings: template.modelMappings,
         logo: template.logoUrl,

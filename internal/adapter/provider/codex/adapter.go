@@ -160,16 +160,39 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 	requestBody = payloadoverride.ApplyGlobal(requestBody, "codex", flow.GetMappedModel(c))
 
-	// Build upstream URL and stream mode
+	// Build upstream URL and stream mode.
+	//
+	// Custom downstream with passthrough on (default): forward the exact Responses
+	// path the client used (preserving /v1, since New API / OpenAI-compatible
+	// gateways serve /v1/responses, not /responses). Stream vs non-stream is
+	// conveyed via the body's "stream" flag, not /responses/compact (which is
+	// ChatGPT-specific and 404s elsewhere).
+	//
+	// Official ChatGPT backend (no custom BaseURL), or custom downstream with
+	// passthrough explicitly disabled: use the ChatGPT contract — /responses for
+	// streaming, /responses/compact for non-streaming.
+	upstreamStream := clientWantsStream
 	baseURL := CodexBaseURL
-	if config.BaseURL != "" {
+	custom := config.BaseURL != ""
+	if custom {
 		baseURL = strings.TrimRight(config.BaseURL, "/")
 	}
-	upstreamURL := baseURL + "/responses"
-	upstreamStream := true
-	if !clientWantsStream {
-		upstreamURL = baseURL + "/responses/compact"
-		upstreamStream = false
+
+	var upstreamURL string
+	if custom && domain.ResponsesPassthroughEnabled(config.ResponsesPassthrough) {
+		path := flow.GetResponsesClientPath(c)
+		if path == "" {
+			// No client Responses path captured (e.g. converted from another
+			// client type) — default to the OpenAI-compatible endpoint.
+			path = "/v1/responses"
+		}
+		upstreamURL = baseURL + path
+	} else {
+		upstreamURL = baseURL + "/responses"
+		if !clientWantsStream {
+			upstreamURL = baseURL + "/responses/compact"
+			upstreamStream = false
+		}
 	}
 	if len(requestBody) > 0 {
 		if updated, err := sjson.SetBytes(requestBody, "stream", upstreamStream); err == nil {
@@ -511,9 +534,11 @@ func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response)
 		})
 		// Extract token usage from response
 		if metrics := usage.ExtractFromResponse(string(body)); metrics != nil {
+			metrics = usage.AdjustForClientType(metrics, domain.ClientTypeCodex)
 			eventChan.SendMetrics(&domain.AdapterMetrics{
-				InputTokens:  metrics.InputTokens,
-				OutputTokens: metrics.OutputTokens,
+				InputTokens:    metrics.InputTokens,
+				OutputTokens:   metrics.OutputTokens,
+				CacheReadCount: metrics.CacheReadCount,
 			})
 		}
 		// Extract model from response
@@ -556,6 +581,7 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
 	var collector usage.StreamCollector
 	var model string
+	var lastStreamErr *codexStreamError
 	reader := bufio.NewReader(resp.Body)
 	firstChunkSent := false
 	responseCompleted := false
@@ -585,6 +611,10 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 
 			if isCodexResponseCompletedLine(line) {
 				responseCompleted = true
+			}
+
+			if e := parseCodexStreamErrorLine(line); e != nil {
+				lastStreamErr = e
 			}
 
 			// Write to client
@@ -620,8 +650,36 @@ func (a *CodexAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response) er
 				return proxyErr
 			}
 			proxyErr := domain.NewProxyErrorWithMessage(err, true, "stream closed before response.completed")
-			proxyErr.Scope = domain.ScopeProvider
-			proxyErr.Reason = domain.CooldownReasonNetworkError
+			// If the upstream emitted a structured error event in the stream
+			// (e.g. response.failed with code=model_not_supported), narrow the
+			// cooldown scope so an unrelated model on the same provider is not
+			// frozen along with the failing one. Anything we can't classify
+			// confidently keeps the conservative ScopeProvider fallback.
+			if scope, reason, ok := classifyCodexStreamError(lastStreamErr); ok {
+				if scope == domain.ScopeModel {
+					proxyErr.Model = lastStreamErr.model
+					if proxyErr.Model == "" {
+						proxyErr.Model = model
+					}
+					if proxyErr.Model == "" {
+						proxyErr.Model = flow.GetMappedModel(c)
+					}
+					// Without a model to attribute, ScopeModel would collapse
+					// to a (provider,"","") cooldown key — i.e. provider-wide —
+					// defeating the point of refining the scope. Fall back to
+					// the conservative ScopeProvider in that case.
+					if proxyErr.Model == "" {
+						proxyErr.Scope = domain.ScopeProvider
+						proxyErr.Reason = domain.CooldownReasonNetworkError
+						return proxyErr
+					}
+				}
+				proxyErr.Scope = scope
+				proxyErr.Reason = reason
+			} else {
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonNetworkError
+			}
 			return proxyErr
 		}
 	}
@@ -655,9 +713,11 @@ func (a *CodexAdapter) sendFinalStreamEvents(eventChan domain.AdapterEventChan, 
 
 	// Send token usage collected incrementally
 	if collector.Metrics != nil && !collector.Metrics.IsEmpty() {
+		metrics := usage.AdjustForClientType(collector.Metrics, domain.ClientTypeCodex)
 		eventChan.SendMetrics(&domain.AdapterMetrics{
-			InputTokens:  collector.Metrics.InputTokens,
-			OutputTokens: collector.Metrics.OutputTokens,
+			InputTokens:    metrics.InputTokens,
+			OutputTokens:   metrics.OutputTokens,
+			CacheReadCount: metrics.CacheReadCount,
 		})
 	}
 

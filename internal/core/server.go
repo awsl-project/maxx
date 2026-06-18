@@ -27,6 +27,8 @@ type ServerConfig struct {
 	SettingRepo    repository.SystemSettingRepository
 	ServeStatic    bool
 	AuthMiddleware *handler.AuthMiddleware
+	// CORS controls cross-origin access. Zero value (no origins) disables it.
+	CORS handler.CORSConfig
 }
 
 // ManagedServer 可管理的服务器（支持启动/停止）
@@ -135,7 +137,7 @@ func (s *ManagedServer) Start(ctx context.Context) error {
 
 	s.httpServer = &http.Server{
 		Addr:     s.config.Addr,
-		Handler:  s.mux,
+		Handler:  handler.CORSMiddleware(s.config.CORS, s.mux),
 		ErrorLog: nil,
 	}
 

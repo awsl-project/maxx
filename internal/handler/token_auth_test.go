@@ -152,6 +152,103 @@ func TestTokenAuthValidateRequestUpdatesLastSeenWithClientIP(t *testing.T) {
 	}
 }
 
+func TestTokenAuthInactiveExpiryRejectsTokenLastUsedFifteenDaysAgo(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	lastUsedAt := time.Now().Add(-15 * 24 * time.Hour)
+	token := &domain.APIToken{
+		TenantID:    domain.DefaultTenantID,
+		Token:       "maxx_test_token_inactive",
+		TokenPrefix: "maxx_test...",
+		Name:        "inactive-token",
+		IsEnabled:   true,
+		LastUsedAt:  &lastUsedAt,
+	}
+	if err := cachedRepo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	req := httptest.NewRequest("POST", "http://example.test/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer "+token.Token)
+
+	validated, err := middleware.ValidateRequest(req, domain.ClientTypeOpenAI)
+	if err != ErrTokenExpired {
+		t.Fatalf("ValidateRequest() error = %v, want %v", err, ErrTokenExpired)
+	}
+	if validated != nil {
+		t.Fatalf("ValidateRequest() token = %#v, want nil", validated)
+	}
+
+	select {
+	case update := <-repo.updates:
+		t.Fatalf("expired token should not update last seen, got %#v", update)
+	default:
+	}
+}
+
+func TestTokenAuthInactiveExpiryIgnoresMissingLastUsedAt(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	token := &domain.APIToken{
+		TenantID:    domain.DefaultTenantID,
+		Token:       "maxx_test_token_no_last_used",
+		TokenPrefix: "maxx_test...",
+		Name:        "no-last-used-token",
+		IsEnabled:   true,
+	}
+	if err := cachedRepo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	req := httptest.NewRequest("POST", "http://example.test/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer "+token.Token)
+
+	validated, err := middleware.ValidateRequest(req, domain.ClientTypeOpenAI)
+	if err != nil {
+		t.Fatalf("ValidateRequest() error = %v", err)
+	}
+	if validated == nil || validated.Token != token.Token {
+		t.Fatalf("ValidateRequest() token = %#v, want %q", validated, token.Token)
+	}
+
+	select {
+	case update := <-repo.updates:
+		if update.lastSeenAt.IsZero() {
+			t.Fatal("lastSeenAt should be set")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for UpdateLastSeen call")
+	}
+}
+
+func TestInactiveAPITokenExpiredBoundary(t *testing.T) {
+	now := time.Date(2026, 6, 17, 11, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		lastUsedAt *time.Time
+		want       bool
+	}{
+		{name: "missing last used", want: false},
+		{name: "exactly ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry)), want: false},
+		{name: "over ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry - time.Nanosecond)), want: true},
+		{name: "fifteen days", lastUsedAt: ptrTime(now.Add(-15 * 24 * time.Hour)), want: true},
+		{name: "within ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry + time.Nanosecond)), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isInactiveAPITokenExpired(&domain.APIToken{LastUsedAt: tt.lastUsedAt}, now)
+			if got != tt.want {
+				t.Fatalf("isInactiveAPITokenExpired() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }
+
 func TestTokenAuthConcurrentLimitDefaultsToFive(t *testing.T) {
 	repo := newTokenAuthTestRepo()
 	cachedRepo := cached.NewAPITokenRepository(repo)

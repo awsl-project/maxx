@@ -287,7 +287,7 @@ codex
 | OpenAI | `POST /v1/chat/completions` |
 | Codex | `POST /v1/responses` |
 | Gemini | `POST /v1beta/models/{model}:generateContent` |
-| 项目代理 | `/{project-slug}/v1/messages` (等) |
+| 项目代理 | `/project/{project-slug}/v1/messages` (等) |
 | 管理 API | `/api/admin/*` |
 | WebSocket | `ws://localhost:9880/ws` |
 | 健康检查 | `GET /health` |
@@ -302,7 +302,52 @@ codex
 | `MAXX_ADMIN_PASSWORD` | 启用管理员 JWT 认证。默认用户名：`admin`，密码为该变量的值 |
 | `MAXX_DSN` | 数据库连接字符串 |
 | `MAXX_DATA_DIR` | 自定义数据目录路径 |
+| `MAXX_DISABLE_UI` | 无前端模式：取值为真（`1`/`true`/`yes`/`on`）时不再提供 Web UI，仅暴露 API 与代理接口。等价于 `-no-ui` 命令行参数（同时设置时以 flag 为准）。项目代理路由（`/project/{slug}/...`）仍然可用 |
+| `MAXX_CORS_ALLOW_ORIGINS` | 允许跨源访问的来源列表（逗号分隔，或 `*`）。用于让单独托管的前端连接此后端；未设置时关闭 CORS（仅同源） |
 | `MAXX_ROUTING_SEED_SALT` | 可选共享密钥，用于 `weighted_random` 路由策略。未设置时每个进程会生成自己的随机盐——防 SessionID 枚举仍然成立，Redis sticky 绑定也会在首次成功后跨实例收敛；但相同 `(token, session)` 在 sticky 写入前的首选顺序在各实例间可能不一致。**多实例部署且需要一致首选顺序**时，请在所有实例上设置相同的值 |
+
+### 无前端模式（仅 API，不提供 Web UI）
+
+把 maxx 作为纯 API 网关运行，不再提供管理 Web UI——适合服务端/生产部署：所有配置都通过 Admin API 完成，同时减小攻击面。
+
+用 `-no-ui` 命令行参数**或** `MAXX_DISABLE_UI` 环境变量开启（两者同时设置时以 flag 为准）：
+
+```bash
+# 命令行参数（本地构建）
+maxx -no-ui
+
+# 环境变量（Docker / compose）
+docker run -e MAXX_DISABLE_UI=true -p 9880:9880 ghcr.io/awsl-project/maxx
+```
+
+无前端模式下：
+
+- `/` 及所有 Web UI 路由返回 `404`（不提供静态文件）。
+- API（`/api/admin/*`）、代理接口（`/v1/messages`、`/v1/chat/completions` 等）、项目代理（`/project/{slug}/...`）、`/health`、`/ws` 均照常工作。
+- 通过 Admin API 配置 provider、路由、token 等。建议设置 `MAXX_ADMIN_PASSWORD` 保护接口。
+
+### 前端单独托管（让 UI 连接远程后端）
+
+可以把 Web UI 托管在一个来源（如 CDN、开发服务器），让它连接**另一个来源**上的后端。
+
+**1. 在后端放行前端来源**（CORS，否则浏览器会拦截跨源请求）：
+
+```bash
+# 单个来源
+MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com maxx
+
+# 多个来源（逗号分隔），或用 "*" 放行任意来源
+MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com,http://localhost:3000 maxx
+```
+
+> ⚠️ **CORS 不能替代鉴权。** `*` 会让*任意*网站都能从浏览器读取并调用你的 API（包括管理 API）。只在受信/本地环境用 `*`，并务必设置 `MAXX_ADMIN_PASSWORD` 让管理 API 需要 token。尽量列举明确来源而非 `*`。当 `*` 与未鉴权的管理 API 同时出现时，maxx 启动时会打印告警。
+
+**2. 让 UI 指向后端。** 打开 Web UI，二选一：
+
+- 在**登录页**展开 **连接设置**，填入后端地址（如 `https://api.example.com`）；或
+- 登录后进入 **设置 → 后端地址**。
+
+该值保存在浏览器（`localStorage`），所以不同用户/浏览器可以连接不同后端。留空则使用提供页面的同源地址（默认）。构建期默认值：构建前端时设置 `VITE_BACKEND_URL`。
 
 ### 系统设置
 

@@ -156,3 +156,44 @@ func TestAdminHandler_ProvidersExport_WithTrailingSlash(t *testing.T) {
 		t.Fatalf("providers = %+v, want excluded providers to be omitted", providers)
 	}
 }
+
+func TestAdminHandler_GetProvider_HidesExcludedProviderSecrets(t *testing.T) {
+	providerRepo := &adminTestProviderRepo{
+		providers: []*domain.Provider{{
+			ID:                1,
+			TenantID:          1,
+			Name:              "private-provider",
+			Type:              "custom",
+			ExcludeFromExport: true,
+			Config: &domain.ProviderConfig{
+				Custom: &domain.ProviderConfigCustom{
+					BaseURL: "https://example.com",
+					APIKey:  "secret-api-key",
+				},
+			},
+		}},
+	}
+	h := newAdminHandlerForProviderImportExportTests(providerRepo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/providers/1", nil)
+	ctx := maxxctx.WithUserRole(req.Context(), string(domain.UserRoleAdmin))
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if provider.Config == nil || provider.Config.Custom == nil {
+		t.Fatalf("provider config missing: %+v", provider)
+	}
+	if provider.Config.Custom.APIKey != "" {
+		t.Fatalf("excluded provider API key leaked from admin endpoint: %+v", provider.Config.Custom)
+	}
+}
