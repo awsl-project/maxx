@@ -413,7 +413,13 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context, forceRefresh bool, re
 	// how the quota refreshers persist ExpiresAt).
 	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 
-	// Update cache
+	if err := a.persistRefreshedToken(prov, tokenResp, expiresAt); err != nil {
+		return "", err
+	}
+
+	// Update cache only after persistence succeeds. A rotated refresh_token that
+	// works only in memory is a trap: after restart/cache expiry the next caller
+	// would read the old persisted token and hit invalid_grant/reuse upstream.
 	a.tokenMu.Lock()
 	a.tokenCache = &TokenCache{
 		AccessToken: tokenResp.AccessToken,
@@ -421,54 +427,70 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context, forceRefresh bool, re
 	}
 	a.tokenMu.Unlock()
 
-	// Persist token to database if update function is set
-	if a.providerUpdate != nil {
-		// Copy-on-write: the cached repository hands out the same *Provider to
-		// every caller and the request hot path reads these fields lock-free, so
-		// mutate a clone instead of the shared struct. repo.Update atomically
-		// swaps the cache pointer; readers holding the old pointer see a
-		// consistent (if briefly stale) struct.
-		cp, cpCfg := CloneForTokenPersist(prov)
-		cpCfg.AccessToken = tokenResp.AccessToken
-		cpCfg.ExpiresAt = expiresAt.Format(time.RFC3339)
-		if tokenResp.RefreshToken != "" {
-			cpCfg.RefreshToken = tokenResp.RefreshToken
-		}
-		if tokenResp.IDToken != "" {
-			if claims, parseErr := ParseIDToken(tokenResp.IDToken); parseErr == nil && claims != nil {
-				if v := strings.TrimSpace(claims.GetAccountID()); v != "" {
-					cpCfg.AccountID = v
-				}
-				if v := strings.TrimSpace(claims.GetUserID()); v != "" {
-					cpCfg.UserID = v
-				}
-				if v := strings.TrimSpace(claims.Email); v != "" {
-					cpCfg.Email = v
-				}
-				if v := strings.TrimSpace(claims.Name); v != "" {
-					cpCfg.Name = v
-				}
-				if v := strings.TrimSpace(claims.Picture); v != "" {
-					cpCfg.Picture = v
-				}
-				if v := strings.TrimSpace(claims.GetPlanType()); v != "" {
-					cpCfg.PlanType = v
-				}
-				if v := strings.TrimSpace(claims.GetSubscriptionStart()); v != "" {
-					cpCfg.SubscriptionStart = v
-				}
-				if v := strings.TrimSpace(claims.GetSubscriptionEnd()); v != "" {
-					cpCfg.SubscriptionEnd = v
-				}
-			}
-		}
-		// Best-effort: token already works in memory, log if DB update fails
-		if err := a.providerUpdate(cp); err != nil {
-			log.Printf("[Codex] failed to persist refreshed token: %v", err)
-		}
+	return tokenResp.AccessToken, nil
+}
+
+func (a *CodexAdapter) persistRefreshedToken(prov *domain.Provider, tokenResp *TokenResponse, expiresAt time.Time) error {
+	if tokenResp == nil {
+		return fmt.Errorf("failed to persist refreshed token: empty token response")
 	}
 
-	return tokenResp.AccessToken, nil
+	oldRefreshToken := ""
+	if prov != nil && prov.Config != nil && prov.Config.Codex != nil {
+		oldRefreshToken = prov.Config.Codex.RefreshToken
+	}
+	refreshRotated := tokenResp.RefreshToken != "" && tokenResp.RefreshToken != oldRefreshToken
+
+	if a.providerUpdate == nil {
+		if refreshRotated {
+			return fmt.Errorf("failed to persist refreshed token: provider update callback not configured")
+		}
+		return nil
+	}
+
+	// Copy-on-write: the cached repository hands out the same *Provider to every
+	// caller and the request hot path reads these fields lock-free, so mutate a
+	// clone instead of the shared struct. repo.Update atomically swaps the cache
+	// pointer; readers holding the old pointer see a consistent (if briefly stale)
+	// struct.
+	cp, cpCfg := CloneForTokenPersist(prov)
+	cpCfg.AccessToken = tokenResp.AccessToken
+	cpCfg.ExpiresAt = expiresAt.Format(time.RFC3339)
+	if tokenResp.RefreshToken != "" {
+		cpCfg.RefreshToken = tokenResp.RefreshToken
+	}
+	if tokenResp.IDToken != "" {
+		if claims, parseErr := ParseIDToken(tokenResp.IDToken); parseErr == nil && claims != nil {
+			if v := strings.TrimSpace(claims.GetAccountID()); v != "" {
+				cpCfg.AccountID = v
+			}
+			if v := strings.TrimSpace(claims.GetUserID()); v != "" {
+				cpCfg.UserID = v
+			}
+			if v := strings.TrimSpace(claims.Email); v != "" {
+				cpCfg.Email = v
+			}
+			if v := strings.TrimSpace(claims.Name); v != "" {
+				cpCfg.Name = v
+			}
+			if v := strings.TrimSpace(claims.Picture); v != "" {
+				cpCfg.Picture = v
+			}
+			if v := strings.TrimSpace(claims.GetPlanType()); v != "" {
+				cpCfg.PlanType = v
+			}
+			if v := strings.TrimSpace(claims.GetSubscriptionStart()); v != "" {
+				cpCfg.SubscriptionStart = v
+			}
+			if v := strings.TrimSpace(claims.GetSubscriptionEnd()); v != "" {
+				cpCfg.SubscriptionEnd = v
+			}
+		}
+	}
+	if err := a.providerUpdate(cp); err != nil {
+		return fmt.Errorf("failed to persist refreshed token: %w", err)
+	}
+	return nil
 }
 
 func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -539,7 +540,10 @@ func (h *CodexHandler) GetProviderUsage(ctx context.Context, providerID int) (*c
 				if result.RefreshToken != "" && result.RefreshToken != cpCfg.RefreshToken {
 					cpCfg.RefreshToken = result.RefreshToken
 				}
-				_ = h.svc.UpdateProvider(tenantID, cp) // Best effort update
+				if err := h.svc.UpdateProvider(tenantID, cp); err != nil {
+					unlock()
+					return nil, fmt.Errorf("failed to persist refreshed token: %w", err)
+				}
 				codexConfig = cpCfg
 				unlock()
 			}
@@ -673,7 +677,11 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 				if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != cpCfg.RefreshToken {
 					cpCfg.RefreshToken = tokenResp.RefreshToken
 				}
-				_ = h.svc.UpdateProvider(tenantID, cp)
+				if err := h.svc.UpdateProvider(tenantID, cp); err != nil {
+					unlock()
+					log.Printf("[CodexHandler] Failed to persist refreshed token for tenant %d provider %d: %v", tenantID, provider.ID, err)
+					continue
+				}
 				config = cpCfg
 				unlock()
 			}

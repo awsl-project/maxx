@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -294,5 +295,53 @@ func TestHandleStreamResponseAllowsCompletedStreamWithoutTrailingNewline(t *test
 
 	if err := a.handleStreamResponse(ctx, resp); err != nil {
 		t.Fatalf("expected completed stream without trailing newline to succeed, got %v", err)
+	}
+}
+
+func TestPersistRefreshedTokenFailsOnUpdateError(t *testing.T) {
+	orig := &domain.Provider{
+		ID:   42,
+		Name: "codex-account",
+		Config: &domain.ProviderConfig{Codex: &domain.ProviderConfigCodex{
+			AccessToken:  "old-at",
+			RefreshToken: "old-rt",
+			ExpiresAt:    "old-exp",
+		}},
+	}
+	updateErr := errors.New("db down")
+	a := &CodexAdapter{
+		providerUpdate: func(p *domain.Provider) error {
+			if p == orig {
+				t.Fatal("provider update must receive a clone, not the shared provider pointer")
+			}
+			if got := p.Config.Codex.AccessToken; got != "new-at" {
+				t.Fatalf("persisted access token = %q, want new-at", got)
+			}
+			if got := p.Config.Codex.RefreshToken; got != "new-rt" {
+				t.Fatalf("persisted refresh token = %q, want new-rt", got)
+			}
+			return updateErr
+		},
+	}
+
+	err := a.persistRefreshedToken(orig, &TokenResponse{AccessToken: "new-at", RefreshToken: "new-rt", ExpiresIn: 3600}, time.Unix(123, 0).UTC())
+	if err == nil || !strings.Contains(err.Error(), "failed to persist refreshed token") || !errors.Is(err, updateErr) {
+		t.Fatalf("expected wrapped persistence error, got %v", err)
+	}
+	if got := orig.Config.Codex.AccessToken; got != "old-at" {
+		t.Fatalf("original provider was mutated: access token = %q", got)
+	}
+	if got := orig.Config.Codex.RefreshToken; got != "old-rt" {
+		t.Fatalf("original provider was mutated: refresh token = %q", got)
+	}
+}
+
+func TestPersistRefreshedTokenRequiresUpdaterForRotatedRefreshToken(t *testing.T) {
+	a := &CodexAdapter{}
+	orig := &domain.Provider{Config: &domain.ProviderConfig{Codex: &domain.ProviderConfigCodex{RefreshToken: "old-rt"}}}
+
+	err := a.persistRefreshedToken(orig, &TokenResponse{AccessToken: "new-at", RefreshToken: "new-rt", ExpiresIn: 3600}, time.Unix(123, 0).UTC())
+	if err == nil || !strings.Contains(err.Error(), "provider update callback not configured") {
+		t.Fatalf("expected missing updater error for rotated refresh token, got %v", err)
 	}
 }
