@@ -434,7 +434,7 @@ func (a *CodexAdapter) getAccessToken(ctx context.Context, forceRefresh bool, re
 	// Store the raw expiry; every read path already applies a 60s safety margin
 	// before treating the token as expired (avoids double-buffering, and matches
 	// how the quota refreshers persist ExpiresAt).
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	expiresAt := TokenExpiresAt(tokenResp.ExpiresIn)
 
 	if err := a.persistRefreshedToken(prov, tokenResp, expiresAt); err != nil {
 		return "", err

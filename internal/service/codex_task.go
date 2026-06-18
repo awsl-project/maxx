@@ -174,7 +174,7 @@ func (s *CodexTaskService) refreshAllQuotas(ctx context.Context) bool {
 					// concurrent requests read lock-free; Update swaps the pointer.
 					cp, cpCfg := codex.CloneForTokenPersist(provider)
 					cpCfg.AccessToken = tokenResp.AccessToken
-					cpCfg.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
+					cpCfg.ExpiresAt = codex.TokenExpiresAt(tokenResp.ExpiresIn).Format(time.RFC3339)
 					if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != cpCfg.RefreshToken {
 						cpCfg.RefreshToken = tokenResp.RefreshToken
 					}

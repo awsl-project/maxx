@@ -30,6 +30,18 @@ type TokenResponse struct {
 	IDToken      string `json:"id_token,omitempty"`
 }
 
+const minTokenExpiresInSeconds = 60
+
+// TokenExpiresAt converts an OAuth expires_in value into an absolute expiry.
+// Malformed zero/negative values are clamped so callers do not persist an
+// already-expired access token and then hot-loop refresh attempts.
+func TokenExpiresAt(expiresIn int) time.Time {
+	if expiresIn < minTokenExpiresInSeconds {
+		expiresIn = minTokenExpiresInSeconds
+	}
+	return time.Now().Add(time.Duration(expiresIn) * time.Second)
+}
+
 // CodexAuthInfo contains authentication-related details specific to Codex
 type CodexAuthInfo struct {
 	ChatgptAccountID               string `json:"chatgpt_account_id"`

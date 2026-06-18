@@ -260,7 +260,7 @@ func (h *CodexHandler) handleOAuthCallback(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Calculate expiration time
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
+	expiresAt := codex.TokenExpiresAt(tokenResp.ExpiresIn).Format(time.RFC3339)
 
 	// Push success result to frontend
 	result := &codex.OAuthResult{
@@ -337,7 +337,7 @@ func (h *CodexHandler) handleOAuthExchange(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Calculate expiration time
-	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
+	expiresAt := codex.TokenExpiresAt(tokenResp.ExpiresIn).Format(time.RFC3339)
 
 	// Build result
 	result := &codex.OAuthResult{
@@ -673,7 +673,7 @@ func (h *CodexHandler) GetBatchQuotas(ctx context.Context) (*CodexBatchQuotaResu
 				// concurrent requests read lock-free.
 				cp, cpCfg := codex.CloneForTokenPersist(provider)
 				cpCfg.AccessToken = tokenResp.AccessToken
-				cpCfg.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
+				cpCfg.ExpiresAt = codex.TokenExpiresAt(tokenResp.ExpiresIn).Format(time.RFC3339)
 				if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != cpCfg.RefreshToken {
 					cpCfg.RefreshToken = tokenResp.RefreshToken
 				}
