@@ -61,6 +61,7 @@ import type {
   UpdateInviteCodeData,
   InviteCodeCreateResult,
   APIToken,
+  APITokenCleanupResult,
   APITokenCreateResult,
   CreateAPITokenData,
   RoutePositionUpdate,
@@ -945,6 +946,13 @@ export class HttpTransport implements Transport {
 
   async deleteAPIToken(id: number): Promise<void> {
     await this.adminClient.delete(`/api-tokens/${id}`);
+  }
+
+  async cleanupExpiredAPITokens(): Promise<APITokenCleanupResult> {
+    const { data } = await this.adminClient.post<APITokenCleanupResult>(
+      '/api-tokens/cleanup-expired',
+    );
+    return data;
   }
 
   // ===== Invite Code API =====

@@ -1170,6 +1170,7 @@
     "title": "API Tokens",
     "description": "Manage API tokens for proxy authentication",
     "createToken": "Create Token",
+    "listTitle": "Token List",
     "noTokens": "No API tokens",
     "noTokensHint": "Create a token to authenticate proxy requests",
     "authEnabled": "API Token Authentication",
@@ -1189,6 +1190,8 @@
     "never": "Never",
     "active": "Active",
     "expired": "Expired",
+    "expiredSummary": "{{count}} expired token(s) can be cleaned up",
+    "noExpiredTokens": "No expired tokens right now",
     "global": "Global",
     "notSpecified": "Not Specified",
     "generateCodexConfig": "Generate Codex Config",
@@ -1208,6 +1211,14 @@
     "deleteDialog": {
       "title": "Delete API Token",
       "description": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone. Any applications using this token will no longer be able to authenticate."
+    },
+    "cleanupExpired": {
+      "button": "Clean up expired tokens ({{count}})",
+      "title": "Clean Up Expired Tokens",
+      "description": "This will delete {{count}} expired API token(s). This action cannot be undone, and applications using these tokens will no longer authenticate.",
+      "confirm": "Clean up {{count}} token(s)",
+      "more": "and {{count}} more token(s)",
+      "lastResult": "Last cleanup removed {{count}} expired token(s)."
     },
     "newTokenDialog": {
       "title": "Token Created Successfully",

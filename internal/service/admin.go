@@ -816,6 +816,27 @@ func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {
 	return s.apiTokenRepo.Delete(tenantID, id)
 }
 
+func (s *AdminService) CleanupExpiredAPITokens(tenantID uint64, now time.Time) (*domain.APITokenCleanupResult, error) {
+	deletedTokens, err := s.apiTokenRepo.DeleteExpired(tenantID, now, domain.APITokenInactiveExpiry)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]domain.APITokenCleanupItem, 0, len(deletedTokens))
+	for _, token := range deletedTokens {
+		items = append(items, domain.APITokenCleanupItem{
+			ID:          token.ID,
+			Name:        token.Name,
+			TokenPrefix: token.TokenPrefix,
+		})
+	}
+
+	return &domain.APITokenCleanupResult{
+		DeletedCount: len(items),
+		Tokens:       items,
+	}, nil
+}
+
 // ===== Invite Code API =====
 
 func (s *AdminService) GetInviteCodes(tenantID uint64) ([]*domain.InviteCode, error) {

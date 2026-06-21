@@ -25,6 +25,7 @@ import {
   useCreateAPIToken,
   useUpdateAPIToken,
   useDeleteAPIToken,
+  useCleanupExpiredAPITokens,
   useProjects,
   useProxyStatus,
   useSettings,
@@ -70,6 +71,7 @@ export function APITokensPage() {
   const createToken = useCreateAPIToken();
   const updateToken = useUpdateAPIToken();
   const deleteToken = useDeleteAPIToken();
+  const cleanupExpiredTokens = useCleanupExpiredAPITokens();
 
   const apiTokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
 
@@ -83,6 +85,8 @@ export function APITokensPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingToken, setEditingToken] = useState<APIToken | null>(null);
   const [deletingToken, setDeletingToken] = useState<APIToken | null>(null);
+  const [cleanupExpiredDialogOpen, setCleanupExpiredDialogOpen] = useState(false);
+  const [lastCleanupCount, setLastCleanupCount] = useState<number | null>(null);
   const [newTokenDialog, setNewTokenDialog] = useState<{
     token: string;
     name: string;
@@ -104,6 +108,10 @@ export function APITokensPage() {
   const [expiresAt, setExpiresAt] = useState('');
   const [devMode, setDevMode] = useState(false);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
+
+  const isExpired = (token: APIToken) => isAPITokenExpired(token);
+  const expiredTokens = useMemo(() => (tokens ?? []).filter(isExpired), [tokens]);
+  const expiredTokenCount = expiredTokens.length;
 
   const resetForm = () => {
     setName('');
@@ -176,6 +184,15 @@ export function APITokensPage() {
     if (!deletingToken) return;
     deleteToken.mutate(deletingToken.id, {
       onSuccess: () => setDeletingToken(null),
+    });
+  };
+
+  const handleCleanupExpiredTokens = () => {
+    cleanupExpiredTokens.mutate(undefined, {
+      onSuccess: (result) => {
+        setCleanupExpiredDialogOpen(false);
+        setLastCleanupCount(result.deletedCount);
+      },
     });
   };
 
@@ -273,8 +290,6 @@ export function APITokensPage() {
     return project?.name || t('apiTokens.unknownProject', { id: projectId });
   };
 
-  const isExpired = (token: APIToken) => isAPITokenExpired(token);
-
   const formatDateTime = (value?: string) => {
     if (!value) return t('apiTokens.never');
     return new Date(value).toLocaleString(i18n.resolvedLanguage ?? i18n.language, {
@@ -368,6 +383,35 @@ export function APITokensPage() {
               </div>
             ) : tokens && tokens.length > 0 ? (
               <Card className="border-border bg-surface-primary">
+                <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-medium">{t('apiTokens.listTitle')}</p>
+                    <p className="text-sm text-text-muted">
+                      {expiredTokenCount > 0
+                        ? t('apiTokens.expiredSummary', { count: expiredTokenCount })
+                        : t('apiTokens.noExpiredTokens')}
+                    </p>
+                    {lastCleanupCount !== null && (
+                      <p className="text-xs text-text-muted">
+                        {t('apiTokens.cleanupExpired.lastResult', { count: lastCleanupCount })}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCleanupExpiredDialogOpen(true)}
+                    disabled={expiredTokenCount === 0 || cleanupExpiredTokens.isPending}
+                    className="self-start text-destructive hover:text-destructive sm:self-auto"
+                  >
+                    {cleanupExpiredTokens.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    {t('apiTokens.cleanupExpired.button', { count: expiredTokenCount })}
+                  </Button>
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -729,6 +773,53 @@ export function APITokensPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cleanup Expired Confirmation */}
+      <Dialog
+        open={cleanupExpiredDialogOpen}
+        onOpenChange={(open: boolean) => !open && setCleanupExpiredDialogOpen(false)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('apiTokens.cleanupExpired.title')}</DialogTitle>
+            <DialogDescription>
+              {t('apiTokens.cleanupExpired.description', {
+                count: expiredTokenCount,
+              })}
+            </DialogDescription>
+            {expiredTokenCount > 0 && (
+              <ul className="space-y-1 rounded-lg border border-border bg-surface-secondary p-3 text-xs text-text-secondary">
+                {expiredTokens.slice(0, 5).map((token) => (
+                  <li key={token.id} className="flex items-center justify-between gap-3">
+                    <span className="truncate">{token.name}</span>
+                    <code className="shrink-0 font-mono text-text-muted">{token.tokenPrefix}</code>
+                  </li>
+                ))}
+                {expiredTokenCount > 5 && (
+                  <li className="text-text-muted">
+                    {t('apiTokens.cleanupExpired.more', { count: expiredTokenCount - 5 })}
+                  </li>
+                )}
+              </ul>
+            )}
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCleanupExpiredDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCleanupExpiredTokens}
+              disabled={cleanupExpiredTokens.isPending || expiredTokenCount === 0}
+            >
+              {cleanupExpiredTokens.isPending && (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              )}
+              {t('apiTokens.cleanupExpired.confirm', { count: expiredTokenCount })}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

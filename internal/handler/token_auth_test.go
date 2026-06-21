@@ -68,6 +68,10 @@ func (r *tokenAuthTestRepo) Update(token *domain.APIToken) error {
 
 func (r *tokenAuthTestRepo) Delete(tenantID uint64, id uint64) error { return nil }
 
+func (r *tokenAuthTestRepo) DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error) {
+	return []*domain.APIToken{}, nil
+}
+
 func (r *tokenAuthTestRepo) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	if r.token == nil || r.token.ID != id {
 		return nil, domain.ErrNotFound
@@ -231,10 +235,10 @@ func TestInactiveAPITokenExpiredBoundary(t *testing.T) {
 		want       bool
 	}{
 		{name: "missing last used", want: false},
-		{name: "exactly ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry)), want: false},
-		{name: "over ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry - time.Nanosecond)), want: true},
+		{name: "exactly ten days", lastUsedAt: ptrTime(now.Add(-domain.APITokenInactiveExpiry)), want: false},
+		{name: "over ten days", lastUsedAt: ptrTime(now.Add(-domain.APITokenInactiveExpiry - time.Nanosecond)), want: true},
 		{name: "fifteen days", lastUsedAt: ptrTime(now.Add(-15 * 24 * time.Hour)), want: true},
-		{name: "within ten days", lastUsedAt: ptrTime(now.Add(-APITokenInactiveExpiry + time.Nanosecond)), want: false},
+		{name: "within ten days", lastUsedAt: ptrTime(now.Add(-domain.APITokenInactiveExpiry + time.Nanosecond)), want: false},
 	}
 
 	for _, tt := range tests {

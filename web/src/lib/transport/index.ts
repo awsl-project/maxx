@@ -96,6 +96,8 @@ export type {
   InviteCodeCreateResult,
   // API Token
   APIToken,
+  APITokenCleanupItem,
+  APITokenCleanupResult,
   APITokenCreateResult,
   CreateAPITokenData,
   // Usage Stats

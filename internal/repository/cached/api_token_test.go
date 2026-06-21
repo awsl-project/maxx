@@ -28,6 +28,15 @@ func (r *apiTokenTestRepo) Update(token *domain.APIToken) error {
 
 func (r *apiTokenTestRepo) Delete(tenantID uint64, id uint64) error { return nil }
 
+func (r *apiTokenTestRepo) DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error) {
+	if r.token == nil {
+		return []*domain.APIToken{}, nil
+	}
+	clone := *r.token
+	r.token = nil
+	return []*domain.APIToken{&clone}, nil
+}
+
 func (r *apiTokenTestRepo) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	if r.token == nil || r.token.ID != id {
 		return nil, domain.ErrNotFound
@@ -104,5 +113,34 @@ func TestAPITokenRepositoryUpdateLastSeenKeepsLastIPWhenIPIsEmpty(t *testing.T) 
 	}
 	if cachedToken.LastIPAt == nil || !cachedToken.LastIPAt.Equal(firstSeenAt) {
 		t.Fatalf("LastIPAt = %v, want %v", cachedToken.LastIPAt, firstSeenAt)
+	}
+}
+
+func TestAPITokenRepositoryDeleteExpiredClearsTokenCache(t *testing.T) {
+	baseRepo := &apiTokenTestRepo{}
+	repo := NewAPITokenRepository(baseRepo)
+	token := &domain.APIToken{
+		TenantID:    1,
+		Token:       "maxx_expired_cached_token",
+		TokenPrefix: "maxx_exp...",
+		Name:        "expired-cached-token",
+		IsEnabled:   true,
+	}
+	if err := repo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := repo.GetByToken(1, token.Token); err != nil {
+		t.Fatalf("GetByToken(before cleanup) error = %v", err)
+	}
+
+	deleted, err := repo.DeleteExpired(1, time.Now(), domain.APITokenInactiveExpiry)
+	if err != nil {
+		t.Fatalf("DeleteExpired() error = %v", err)
+	}
+	if len(deleted) != 1 {
+		t.Fatalf("deleted count = %d, want 1", len(deleted))
+	}
+	if _, err := repo.GetByToken(1, token.Token); err != domain.ErrNotFound {
+		t.Fatalf("GetByToken(after cleanup) error = %v, want ErrNotFound", err)
 	}
 }

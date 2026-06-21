@@ -1303,6 +1303,11 @@ func (h *AdminHandler) handleCooldowns(w http.ResponseWriter, r *http.Request, p
 // API Token handlers
 func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, id uint64) {
 	tenantID := maxxctx.GetTenantID(r.Context())
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if strings.HasSuffix(path, "/api-tokens/cleanup-expired") {
+		h.handleCleanupExpiredAPITokens(w, r, tenantID)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -1422,6 +1427,21 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (h *AdminHandler) handleCleanupExpiredAPITokens(w http.ResponseWriter, r *http.Request, tenantID uint64) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	result, err := h.svc.CleanupExpiredAPITokens(tenantID, time.Now())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Model Mapping handlers

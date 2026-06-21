@@ -1169,6 +1169,7 @@
     "title": "API 令牌",
     "description": "管理用于代理身份验证的 API 令牌",
     "createToken": "创建令牌",
+    "listTitle": "令牌列表",
     "noTokens": "暂无 API 令牌",
     "noTokensHint": "创建令牌以进行代理请求身份验证",
     "authEnabled": "API 令牌身份验证",
@@ -1188,6 +1189,8 @@
     "never": "从未",
     "active": "活跃",
     "expired": "已过期",
+    "expiredSummary": "当前有 {{count}} 个已过期令牌可清理",
+    "noExpiredTokens": "当前没有已过期令牌",
     "global": "全局",
     "notSpecified": "未指定",
     "generateCodexConfig": "生成 Codex 配置",
@@ -1207,6 +1210,14 @@
     "deleteDialog": {
       "title": "删除 API 令牌",
       "description": "确定要删除「{{name}}」吗？此操作无法撤销。使用此令牌的任何应用程序将无法再进行身份验证。"
+    },
+    "cleanupExpired": {
+      "button": "清理已过期令牌 ({{count}})",
+      "title": "清理已过期令牌",
+      "description": "将删除 {{count}} 个已过期 API 令牌。此操作无法撤销，使用这些令牌的应用将无法再通过身份验证。",
+      "confirm": "清理 {{count}} 个令牌",
+      "more": "以及另外 {{count}} 个令牌",
+      "lastResult": "上次已清理 {{count}} 个已过期令牌。"
     },
     "newTokenDialog": {
       "title": "令牌创建成功",

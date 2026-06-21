@@ -409,6 +409,10 @@ func (r *selfServiceAPITokenRepo) Delete(tenantID uint64, id uint64) error {
 	return domain.ErrNotFound
 }
 
+func (r *selfServiceAPITokenRepo) DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error) {
+	return []*domain.APIToken{}, nil
+}
+
 func (r *selfServiceAPITokenRepo) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	for _, token := range r.tokens {
 		if token.ID == id && token.TenantID == tenantID {

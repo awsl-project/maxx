@@ -981,10 +981,27 @@ type APIToken struct {
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
 }
 
+// APITokenInactiveExpiry is the inactivity window after a token was last used.
+// Tokens without LastUsedAt are not affected by this rule.
+const APITokenInactiveExpiry = 10 * 24 * time.Hour
+
 // APITokenCreateResult 创建 Token 的返回结果（包含明文 Token，仅返回一次）
 type APITokenCreateResult struct {
 	Token    string    `json:"token"`    // 明文 Token（仅创建时返回）
 	APIToken *APIToken `json:"apiToken"` // Token 元数据
+}
+
+// APITokenCleanupItem is the public summary returned for a token removed by a cleanup operation.
+type APITokenCleanupItem struct {
+	ID          uint64 `json:"id"`
+	Name        string `json:"name"`
+	TokenPrefix string `json:"tokenPrefix"`
+}
+
+// APITokenCleanupResult reports the outcome of a bulk expired-token cleanup.
+type APITokenCleanupResult struct {
+	DeletedCount int                   `json:"deletedCount"`
+	Tokens       []APITokenCleanupItem `json:"tokens"`
 }
 
 // ModelMappingScope 模型映射作用域

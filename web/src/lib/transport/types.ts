@@ -904,6 +904,17 @@ export interface APITokenCreateResult {
   apiToken: APIToken;
 }
 
+export interface APITokenCleanupItem {
+  id: number;
+  name: string;
+  tokenPrefix: string;
+}
+
+export interface APITokenCleanupResult {
+  deletedCount: number;
+  tokens: APITokenCleanupItem[];
+}
+
 export interface CreateAPITokenData {
   name: string;
   description?: string;

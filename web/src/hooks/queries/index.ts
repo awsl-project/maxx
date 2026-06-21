@@ -108,6 +108,7 @@ export {
   useCreateAPIToken,
   useUpdateAPIToken,
   useDeleteAPIToken,
+  useCleanupExpiredAPITokens,
 } from './use-api-tokens';
 
 // Invite Code hooks

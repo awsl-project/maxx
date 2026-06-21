@@ -82,6 +82,25 @@ func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 	return nil
 }
 
+func (r *APITokenRepository) DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error) {
+	tokens, err := r.repo.DeleteExpired(tenantID, now, inactiveExpiry)
+	if err != nil {
+		return nil, err
+	}
+	if len(tokens) == 0 {
+		return tokens, nil
+	}
+
+	r.mu.Lock()
+	for _, t := range tokens {
+		delete(r.cache, t.ID)
+		delete(r.tokenCache, t.Token)
+	}
+	r.mu.Unlock()
+	r.bc.publish(OpReload, 0)
+	return tokens, nil
+}
+
 func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	r.mu.RLock()
 	if t, ok := r.cache[id]; ok && (tenantID == domain.TenantIDAll || t.TenantID == tenantID) {

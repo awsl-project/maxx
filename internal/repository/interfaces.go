@@ -282,6 +282,7 @@ type APITokenRepository interface {
 	Create(token *domain.APIToken) error
 	Update(token *domain.APIToken) error
 	Delete(tenantID uint64, id uint64) error
+	DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error)
 	GetByID(tenantID uint64, id uint64) (*domain.APIToken, error)
 	GetByToken(tenantID uint64, token string) (*domain.APIToken, error)
 	List(tenantID uint64) ([]*domain.APIToken, error)

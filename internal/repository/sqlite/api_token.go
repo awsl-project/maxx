@@ -55,6 +55,43 @@ func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
 		}).Error
 }
 
+func (r *APITokenRepository) DeleteExpired(tenantID uint64, now time.Time, inactiveExpiry time.Duration) ([]*domain.APIToken, error) {
+	nowMs := now.UnixMilli()
+	inactiveBeforeMs := now.Add(-inactiveExpiry).UnixMilli()
+
+	var models []APIToken
+	query := tenantScope(r.db.gorm, tenantID).
+		Where("deleted_at = 0").
+		Where("(expires_at > 0 AND expires_at < ?) OR (last_used_at > 0 AND last_used_at < ?)", nowMs, inactiveBeforeMs).
+		Order("created_at DESC")
+	if err := query.Find(&models).Error; err != nil {
+		return nil, err
+	}
+	if len(models) == 0 {
+		return []*domain.APIToken{}, nil
+	}
+
+	ids := make([]uint64, 0, len(models))
+	tokens := make([]*domain.APIToken, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+		tokens = append(tokens, r.toDomain(&model))
+	}
+
+	deletedAt := time.Now().UnixMilli()
+	if err := tenantScope(r.db.gorm.Model(&APIToken{}), tenantID).
+		Where("id IN ?", ids).
+		Where("deleted_at = 0").
+		Updates(map[string]any{
+			"deleted_at": deletedAt,
+			"updated_at": deletedAt,
+		}).Error; err != nil {
+		return nil, err
+	}
+
+	return tokens, nil
+}
+
 func (r *APITokenRepository) GetByID(tenantID uint64, id uint64) (*domain.APIToken, error) {
 	var model APIToken
 	if err := tenantScope(r.db.gorm, tenantID).First(&model, id).Error; err != nil {

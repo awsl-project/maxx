@@ -75,3 +75,15 @@ export function useDeleteAPIToken() {
     },
   });
 }
+
+// 清理过期 API Tokens
+export function useCleanupExpiredAPITokens() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => getTransport().cleanupExpiredAPITokens(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: apiTokenKeys.lists() });
+    },
+  });
+}

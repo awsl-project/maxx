@@ -60,6 +60,7 @@ import type {
   CreateUserData,
   UpdateUserData,
   APIToken,
+  APITokenCleanupResult,
   APITokenCreateResult,
   CreateAPITokenData,
   RoutePositionUpdate,
@@ -253,6 +254,7 @@ export interface Transport {
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
   deleteAPIToken(id: number): Promise<void>;
+  cleanupExpiredAPITokens(): Promise<APITokenCleanupResult>;
 
   // ===== Invite Code API =====
   getInviteCodes(): Promise<InviteCode[]>;
