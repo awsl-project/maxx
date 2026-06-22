@@ -173,6 +173,11 @@ export interface Project {
   name: string;
   slug: string;
   enabledCustomRoutes: ClientType[];
+  lastRequestAt?: string;
+  lastSuccessfulRequestAt?: string;
+  requestCount30d?: number;
+  successfulRequestCount30d?: number;
+  totalRequestCount?: number;
 }
 
 export type CreateProjectData = Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'slug'> & {

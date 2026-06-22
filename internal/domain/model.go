@@ -359,6 +359,25 @@ type Project struct {
 
 	// 启用自定义路由的 ClientType 列表，空数组表示所有 ClientType 都使用全局路由
 	EnabledCustomRoutes []ClientType `json:"enabledCustomRoutes"`
+
+	// 使用统计由 proxy_requests 聚合填充，用于项目清理候选检测；不落 projects 表。
+	LastRequestAt             *time.Time `json:"lastRequestAt,omitempty"`
+	LastSuccessfulRequestAt   *time.Time `json:"lastSuccessfulRequestAt,omitempty"`
+	RequestCount30d           int64      `json:"requestCount30d"`
+	SuccessfulRequestCount30d int64      `json:"successfulRequestCount30d"`
+	TotalRequestCount         int64      `json:"totalRequestCount"`
+}
+
+// ProjectUsageSummary is derived from proxy_requests and attached to Project reads.
+// It intentionally stays outside the projects table so cleanup detection does not
+// depend on write-path migrations or stale denormalized fields.
+type ProjectUsageSummary struct {
+	ProjectID                 uint64
+	LastRequestAt             *time.Time
+	LastSuccessfulRequestAt   *time.Time
+	RequestCount30d           int64
+	SuccessfulRequestCount30d int64
+	TotalRequestCount         int64
 }
 
 type Session struct {

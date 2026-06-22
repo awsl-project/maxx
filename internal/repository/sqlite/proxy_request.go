@@ -368,6 +368,49 @@ func (r *ProxyRequestRepository) HasRecentRequests(since time.Time) (bool, error
 	return count > 0, nil
 }
 
+// GetProjectUsageSummaries aggregates request activity by project for cleanup detection.
+func (r *ProxyRequestRepository) GetProjectUsageSummaries(tenantID uint64, since time.Time) (map[uint64]domain.ProjectUsageSummary, error) {
+	sinceTs := toTimestamp(since)
+	type usageRow struct {
+		ProjectID                 uint64
+		LastRequestAt             int64
+		LastSuccessfulRequestAt   int64
+		RequestCount30d           int64
+		SuccessfulRequestCount30d int64
+		TotalRequestCount         int64
+	}
+
+	var rows []usageRow
+	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select(`
+			project_id,
+			MAX(created_at) AS last_request_at,
+			MAX(CASE WHEN status = ? THEN created_at ELSE 0 END) AS last_successful_request_at,
+			SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS request_count30d,
+			SUM(CASE WHEN status = ? AND created_at >= ? THEN 1 ELSE 0 END) AS successful_request_count30d,
+			COUNT(*) AS total_request_count
+		`, "COMPLETED", sinceTs, "COMPLETED", sinceTs).
+		Where("project_id > 0").
+		Group("project_id")
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	summaries := make(map[uint64]domain.ProjectUsageSummary, len(rows))
+	for _, row := range rows {
+		summary := domain.ProjectUsageSummary{
+			ProjectID:                 row.ProjectID,
+			LastRequestAt:             fromTimestampPtr(row.LastRequestAt),
+			LastSuccessfulRequestAt:   fromTimestampPtr(row.LastSuccessfulRequestAt),
+			RequestCount30d:           row.RequestCount30d,
+			SuccessfulRequestCount30d: row.SuccessfulRequestCount30d,
+			TotalRequestCount:         row.TotalRequestCount,
+		}
+		summaries[row.ProjectID] = summary
+	}
+	return summaries, nil
+}
+
 // UpdateCost updates only the cost field of a request
 func (r *ProxyRequestRepository) UpdateCost(id uint64, cost uint64) error {
 	return r.db.gorm.Model(&ProxyRequest{}).Where("id = ?", id).Update("cost", cost).Error

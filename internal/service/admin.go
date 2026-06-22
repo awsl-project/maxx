@@ -433,16 +433,64 @@ func isValidRouteClientType(clientType domain.ClientType) bool {
 
 // ===== Project API =====
 
+const projectUsageRecentWindow = 30 * 24 * time.Hour
+
 func (s *AdminService) GetProjects(tenantID uint64) ([]*domain.Project, error) {
-	return s.projectRepo.List(tenantID)
+	projects, err := s.projectRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectUsage(tenantID, projects); err != nil {
+		return nil, err
+	}
+	return projects, nil
 }
 
 func (s *AdminService) GetProject(tenantID uint64, id uint64) (*domain.Project, error) {
-	return s.projectRepo.GetByID(tenantID, id)
+	project, err := s.projectRepo.GetByID(tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectUsage(tenantID, []*domain.Project{project}); err != nil {
+		return nil, err
+	}
+	return project, nil
 }
 
 func (s *AdminService) GetProjectBySlug(tenantID uint64, slug string) (*domain.Project, error) {
-	return s.projectRepo.GetBySlug(tenantID, slug)
+	project, err := s.projectRepo.GetBySlug(tenantID, slug)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectUsage(tenantID, []*domain.Project{project}); err != nil {
+		return nil, err
+	}
+	return project, nil
+}
+
+func (s *AdminService) attachProjectUsage(tenantID uint64, projects []*domain.Project) error {
+	if s.proxyRequestRepo == nil || len(projects) == 0 {
+		return nil
+	}
+	summaries, err := s.proxyRequestRepo.GetProjectUsageSummaries(tenantID, time.Now().Add(-projectUsageRecentWindow))
+	if err != nil {
+		return err
+	}
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+		summary, ok := summaries[project.ID]
+		if !ok {
+			continue
+		}
+		project.LastRequestAt = summary.LastRequestAt
+		project.LastSuccessfulRequestAt = summary.LastSuccessfulRequestAt
+		project.RequestCount30d = summary.RequestCount30d
+		project.SuccessfulRequestCount30d = summary.SuccessfulRequestCount30d
+		project.TotalRequestCount = summary.TotalRequestCount
+	}
+	return nil
 }
 
 func (s *AdminService) CreateProject(tenantID uint64, project *domain.Project) error {
