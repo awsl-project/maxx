@@ -214,6 +214,19 @@ export interface RoutePositionUpdate {
   position: number;
 }
 
+export interface RouteBulkDeleteRequest {
+  ids: number[];
+  clientType: ClientType;
+  projectID: number;
+}
+
+export interface RouteBulkDeleteResult {
+  deletedCount: number;
+  deletedIDs: number[];
+  skippedIDs: number[];
+  notFoundIDs: number[];
+}
+
 // ===== RetryConfig =====
 
 export interface RetryConfig {

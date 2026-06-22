@@ -86,6 +86,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "routes":
 		if len(parts) > 2 && parts[2] == "batch-positions" {
 			h.handleBatchUpdateRoutePositions(w, r)
+		} else if len(parts) > 2 && parts[2] == "bulk-delete" {
+			h.handleBulkDeleteRoutes(w, r)
 		} else {
 			h.handleRoutes(w, r, id)
 		}
@@ -491,6 +493,28 @@ func (h *AdminHandler) handleBatchUpdateRoutePositions(w http.ResponseWriter, r 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "positions updated successfully"})
+}
+
+func (h *AdminHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req domain.RouteBulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.BulkDeleteRoutes(tenantID, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Project handlers

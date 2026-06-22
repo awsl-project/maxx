@@ -207,6 +207,31 @@ func (r *selfServiceRouteRepo) Delete(tenantID uint64, id uint64) error {
 	return domain.ErrNotFound
 }
 
+func (r *selfServiceRouteRepo) BulkDelete(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error) {
+	result := &domain.RouteBulkDeleteResult{}
+	requested := make(map[uint64]struct{}, len(req.IDs))
+	for _, id := range req.IDs {
+		requested[id] = struct{}{}
+	}
+
+	kept := r.routes[:0]
+	for _, route := range r.routes {
+		if _, ok := requested[route.ID]; !ok || route.TenantID != tenantID {
+			kept = append(kept, route)
+			continue
+		}
+		if route.ClientType != req.ClientType || route.ProjectID != req.ProjectID {
+			result.SkippedIDs = append(result.SkippedIDs, route.ID)
+			kept = append(kept, route)
+			continue
+		}
+		result.DeletedIDs = append(result.DeletedIDs, route.ID)
+	}
+	r.routes = kept
+	result.DeletedCount = len(result.DeletedIDs)
+	return result, nil
+}
+
 func (r *selfServiceRouteRepo) GetByID(tenantID uint64, id uint64) (*domain.Route, error) {
 	for _, route := range r.routes {
 		if route.ID == id && route.TenantID == tenantID {

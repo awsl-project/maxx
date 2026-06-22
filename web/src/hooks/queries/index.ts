@@ -37,6 +37,7 @@ export {
   useCreateRoute,
   useUpdateRoute,
   useDeleteRoute,
+  useBulkDeleteRoutes,
   useToggleRoute,
   useUpdateRoutePositions,
 } from './use-routes';

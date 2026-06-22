@@ -3,7 +3,12 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getTransport, type Route, type CreateRouteData } from '@/lib/transport';
+import {
+  getTransport,
+  type Route,
+  type CreateRouteData,
+  type RouteBulkDeleteRequest,
+} from '@/lib/transport';
 
 // Query Keys
 export const routeKeys = {
@@ -63,6 +68,18 @@ export function useDeleteRoute() {
 
   return useMutation({
     mutationFn: (id: number) => getTransport().deleteRoute(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+    },
+  });
+}
+
+// 批量删除 Route
+export function useBulkDeleteRoutes() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: RouteBulkDeleteRequest) => getTransport().bulkDeleteRoutes(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
     },

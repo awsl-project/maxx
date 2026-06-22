@@ -421,6 +421,23 @@ type RoutePositionUpdate struct {
 	Position int    `json:"position"`
 }
 
+// RouteBulkDeleteRequest deletes route bindings within an explicit client/project scope.
+// The scope guard prevents a stale or malicious UI selection from deleting routes
+// from another client tab or project/global context.
+type RouteBulkDeleteRequest struct {
+	IDs        []uint64   `json:"ids"`
+	ClientType ClientType `json:"clientType"`
+	ProjectID  uint64     `json:"projectID"`
+}
+
+// RouteBulkDeleteResult reports what the scoped bulk delete actually changed.
+type RouteBulkDeleteResult struct {
+	DeletedCount int      `json:"deletedCount"`
+	DeletedIDs   []uint64 `json:"deletedIDs"`
+	SkippedIDs   []uint64 `json:"skippedIDs"`
+	NotFoundIDs  []uint64 `json:"notFoundIDs"`
+}
+
 type RequestInfo struct {
 	Method  string            `json:"method"`
 	Headers map[string]string `json:"headers"`

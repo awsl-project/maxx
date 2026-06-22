@@ -59,6 +59,7 @@ type RouteRepository interface {
 	Create(route *domain.Route) error
 	Update(route *domain.Route) error
 	Delete(tenantID uint64, id uint64) error
+	BulkDelete(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error)
 	GetByID(tenantID uint64, id uint64) (*domain.Route, error)
 	// FindByKey finds a route by the unique key (projectID, providerID, clientType)
 	FindByKey(tenantID uint64, projectID, providerID uint64, clientType domain.ClientType) (*domain.Route, error)

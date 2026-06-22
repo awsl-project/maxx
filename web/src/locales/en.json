@@ -642,7 +642,23 @@
     "affinityOff": "Affinity off",
     "affinityScopeToken": "by token",
     "affinityScopeConversation": "by conversation",
-    "affinityTooltip": "Session affinity (sticky): under weighted_random, a session keeps hitting the same provider within the TTL to maximize prompt-cache hits. Configure it on the Routing strategies page."
+    "affinityTooltip": "Session affinity (sticky): under weighted_random, a session keeps hitting the same provider within the TTL to maximize prompt-cache hits. Configure it on the Routing strategies page.",
+    "globalScope": "Global",
+    "projectScope": "Project",
+    "bulkSelectVisible": "Select visible routes ({{count}})",
+    "bulkFilteredSelection": "filtered by current search",
+    "bulkSelectedCount": "{{count}} selected",
+    "bulkDelete": "Delete selected",
+    "selectRoute": "Select route for {{name}}",
+    "bulkDeleteDialog": {
+      "title": "Delete selected routes?",
+      "description": "This will remove {{count}} {{client}} route binding(s) from {{scope}} only. Provider records and credentials will not be deleted.",
+      "providersPreview": "Providers",
+      "moreProviders": "and {{count}} more",
+      "streamingWarning": "{{count}} active streaming request(s) are currently using selected provider(s). Deleting routes may interrupt new routing decisions.",
+      "confirm": "Delete routes",
+      "deleting": "Deleting..."
+    }
   },
   "console": {
     "title": "Console",

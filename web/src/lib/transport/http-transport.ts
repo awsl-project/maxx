@@ -64,6 +64,8 @@ import type {
   APITokenCleanupResult,
   APITokenCreateResult,
   CreateAPITokenData,
+  RouteBulkDeleteRequest,
+  RouteBulkDeleteResult,
   RoutePositionUpdate,
   UsageStats,
   UsageStatsFilter,
@@ -312,6 +314,14 @@ export class HttpTransport implements Transport {
 
   async deleteRoute(id: number): Promise<void> {
     await this.client.delete(`/routes/${id}`);
+  }
+
+  async bulkDeleteRoutes(data: RouteBulkDeleteRequest): Promise<RouteBulkDeleteResult> {
+    const { data: result } = await this.client.post<RouteBulkDeleteResult>(
+      '/routes/bulk-delete',
+      data,
+    );
+    return result;
   }
 
   async batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void> {
@@ -563,18 +573,14 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async getBedrockDiscoveredModels(
-    providerId: number,
-  ): Promise<BedrockDiscoveredModelsResult> {
+  async getBedrockDiscoveredModels(providerId: number): Promise<BedrockDiscoveredModelsResult> {
     const { data } = await this.client.get<BedrockDiscoveredModelsResult>(
       `/providers/${providerId}/bedrock-models`,
     );
     return data;
   }
 
-  async refreshBedrockDiscoveredModels(
-    providerId: number,
-  ): Promise<BedrockDiscoveredModelsResult> {
+  async refreshBedrockDiscoveredModels(providerId: number): Promise<BedrockDiscoveredModelsResult> {
     // POST forces a fresh ListInferenceProfiles + ListFoundationModels
     // round-trip, bypassing the server-side TTL. Use this only when the
     // operator clicks the refresh button — routine page loads should
@@ -768,7 +774,10 @@ export class HttpTransport implements Transport {
     return this.expectArray<Cooldown>(data, '/cooldowns');
   }
 
-  async clearCooldown(providerId: number, options?: { clientType?: string; model?: string }): Promise<void> {
+  async clearCooldown(
+    providerId: number,
+    options?: { clientType?: string; model?: string },
+  ): Promise<void> {
     const searchParams = new URLSearchParams();
     if (options?.clientType) searchParams.set('clientType', options.clientType);
     if (options?.model) searchParams.set('model', options.model);
@@ -776,7 +785,12 @@ export class HttpTransport implements Transport {
     await this.adminClient.delete(`/cooldowns/${providerId}${qs ? `?${qs}` : ''}`);
   }
 
-  async setCooldown(providerId: number, untilTime: string, clientType?: string, model?: string): Promise<void> {
+  async setCooldown(
+    providerId: number,
+    untilTime: string,
+    clientType?: string,
+    model?: string,
+  ): Promise<void> {
     await this.adminClient.put(`/cooldowns/${providerId}`, { untilTime, clientType, model });
   }
 

@@ -63,6 +63,8 @@ import type {
   APITokenCleanupResult,
   APITokenCreateResult,
   CreateAPITokenData,
+  RouteBulkDeleteRequest,
+  RouteBulkDeleteResult,
   RoutePositionUpdate,
   UsageStats,
   UsageStatsFilter,
@@ -104,6 +106,7 @@ export interface Transport {
   createRoute(data: CreateRouteData): Promise<Route>;
   updateRoute(id: number, data: Partial<Route>): Promise<Route>;
   deleteRoute(id: number): Promise<void>;
+  bulkDeleteRoutes(data: RouteBulkDeleteRequest): Promise<RouteBulkDeleteResult>;
   batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void>;
 
   // ===== Session API =====
@@ -214,8 +217,16 @@ export interface Transport {
 
   // ===== Cooldown API =====
   getCooldowns(): Promise<Cooldown[]>;
-  clearCooldown(providerId: number, options?: { clientType?: string; model?: string }): Promise<void>;
-  setCooldown(providerId: number, untilTime: string, clientType?: string, model?: string): Promise<void>;
+  clearCooldown(
+    providerId: number,
+    options?: { clientType?: string; model?: string },
+  ): Promise<void>;
+  setCooldown(
+    providerId: number,
+    untilTime: string,
+    clientType?: string,
+    model?: string,
+  ): Promise<void>;
 
   // ===== Auth API =====
   getAuthStatus(): Promise<AuthStatus>;

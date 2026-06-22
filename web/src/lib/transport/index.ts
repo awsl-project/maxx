@@ -20,6 +20,8 @@ export type {
   Route,
   CreateRouteData,
   RoutePositionUpdate,
+  RouteBulkDeleteRequest,
+  RouteBulkDeleteResult,
   RetryConfig,
   CreateRetryConfigData,
   RoutingStrategy,

@@ -82,6 +82,35 @@ func (r *RouteRepository) Delete(tenantID uint64, id uint64) error {
 	return nil
 }
 
+func (r *RouteRepository) BulkDelete(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error) {
+	result, err := r.repo.BulkDelete(tenantID, req)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || len(result.DeletedIDs) == 0 {
+		return result, nil
+	}
+
+	deleted := make(map[uint64]struct{}, len(result.DeletedIDs))
+	for _, id := range result.DeletedIDs {
+		deleted[id] = struct{}{}
+	}
+
+	r.mu.Lock()
+	filtered := r.cache[:0]
+	for _, rt := range r.cache {
+		if _, ok := deleted[rt.ID]; ok && (tenantID == domain.TenantIDAll || rt.TenantID == tenantID) {
+			continue
+		}
+		filtered = append(filtered, rt)
+	}
+	r.cache = filtered
+	r.mu.Unlock()
+
+	r.bc.publish(OpReload, 0)
+	return result, nil
+}
+
 func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain.RoutePositionUpdate) error {
 	if err := r.repo.BatchUpdatePositions(tenantID, updates); err != nil {
 		return err

@@ -3,10 +3,19 @@
  * Used by both global routes and project routes
  */
 
-import { useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { Plus, RefreshCw, Zap, Workflow, Settings2, Pin } from 'lucide-react';
+import {
+  AlertTriangle,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Zap,
+  Workflow,
+  Settings2,
+  Pin,
+} from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -30,10 +39,12 @@ import {
   useCreateRoute,
   useToggleRoute,
   useDeleteRoute,
+  useBulkDeleteRoutes,
   useUpdateRoutePositions,
   useProviderStats,
   useProxyRequestUpdates,
   useRoutingStrategies,
+  useProjects,
   routeKeys,
 } from '@/hooks/queries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -52,7 +63,19 @@ import {
   ProviderRowContent,
 } from '@/pages/client-routes/components/provider-row';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
-import { Button, Badge, buttonVariants } from '../ui';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  Badge,
+  buttonVariants,
+} from '../ui';
 import { cn } from '@/lib/utils';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CooldownsProvider } from '@/contexts/cooldowns-context';
@@ -217,6 +240,8 @@ function ClientTypeRoutesContentInner({
 }: ClientTypeRoutesContentProps) {
   const { t } = useTranslation();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedRouteIds, setSelectedRouteIds] = useState<Set<number>>(() => new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const stableProviderStats = useStableProviderStats(providerStats);
   const queryClient = useQueryClient();
@@ -237,6 +262,7 @@ function ClientTypeRoutesContentInner({
 
   const { data: allRoutes, isLoading: routesLoading } = useRoutes();
   const { data: providers = [], isLoading: providersLoading } = useProviders();
+  const { data: projects = [] } = useProjects();
   const { data: strategies = [] } = useRoutingStrategies();
 
   // Resolve the effective strategy for this scope, mirroring the backend's
@@ -264,6 +290,7 @@ function ClientTypeRoutesContentInner({
   const createRoute = useCreateRoute();
   const toggleRoute = useToggleRoute();
   const deleteRoute = useDeleteRoute();
+  const bulkDeleteRoutes = useBulkDeleteRoutes();
   const updatePositions = useUpdateRoutePositions();
 
   const loading = routesLoading || providersLoading;
@@ -329,6 +356,50 @@ function ClientTypeRoutesContentInner({
 
   const streamingThrottleMs = items.length > 200 ? 1000 : 0;
   const { countsByProviderAndClient } = useStreamingRequests({ throttleMs: streamingThrottleMs });
+
+  const visibleRouteIds = useMemo(
+    () => items.flatMap((item) => (item.route ? [item.route.id] : [])),
+    [items],
+  );
+
+  const visibleRouteIdSet = useMemo(() => new Set(visibleRouteIds), [visibleRouteIds]);
+
+  useEffect(() => {
+    setSelectedRouteIds((prev) => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (visibleRouteIdSet.has(id)) {
+          next.add(id);
+        }
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleRouteIdSet]);
+
+  const selectedItems = useMemo(
+    () => items.filter((item) => item.route && selectedRouteIds.has(item.route.id)),
+    [items, selectedRouteIds],
+  );
+
+  const selectedProviderNames = useMemo(
+    () => selectedItems.map((item) => item.provider.name),
+    [selectedItems],
+  );
+
+  const selectedStreamingCount = useMemo(() => {
+    return selectedItems.reduce((total, item) => {
+      return total + (countsByProviderAndClient.get(`${item.provider.id}:${clientType}`) || 0);
+    }, 0);
+  }, [clientType, countsByProviderAndClient, selectedItems]);
+
+  const scopeName = useMemo(() => {
+    if (projectID === 0) return t('routes.globalScope');
+    return projects.find((project) => project.id === projectID)?.name ?? t('routes.projectScope');
+  }, [projectID, projects, t]);
+
+  const allVisibleSelected =
+    visibleRouteIds.length > 0 && selectedRouteIds.size === visibleRouteIds.length;
+  const someVisibleSelected = selectedRouteIds.size > 0 && !allVisibleSelected;
 
   // Get available providers (without routes yet), grouped by type and sorted alphabetically
   const groupedAvailableProviders = useMemo((): Record<ProviderTypeKey, Provider[]> => {
@@ -427,6 +498,37 @@ function ClientTypeRoutesContentInner({
     deleteRoute.mutate(routeId);
   };
 
+  const handleToggleRouteSelection = (routeId: number, checked: boolean) => {
+    setSelectedRouteIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(routeId);
+      } else {
+        next.delete(routeId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleAllVisible = (checked: boolean) => {
+    setSelectedRouteIds(checked ? new Set(visibleRouteIds) : new Set());
+  };
+
+  const handleConfirmBulkDelete = () => {
+    const ids = selectedItems.flatMap((item) => (item.route ? [item.route.id] : []));
+    if (ids.length === 0) return;
+
+    bulkDeleteRoutes.mutate(
+      { ids, clientType, projectID },
+      {
+        onSuccess: () => {
+          setSelectedRouteIds(new Set());
+          setBulkDeleteOpen(false);
+        },
+      },
+    );
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
     document.body.classList.add('is-dragging');
@@ -502,6 +604,44 @@ function ClientTypeRoutesContentInner({
             stickyTTLSeconds={strategyInfo.stickyTTLSeconds}
           />
 
+          {items.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 px-4 py-3 shadow-sm">
+              <label className="flex items-center gap-3 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  aria-checked={someVisibleSelected ? 'mixed' : allVisibleSelected}
+                  onChange={(event) => handleToggleAllVisible(event.target.checked)}
+                  className="h-4 w-4 rounded border-border accent-destructive"
+                />
+                <span>
+                  {t('routes.bulkSelectVisible', { count: visibleRouteIds.length })}
+                  {normalizedQuery && (
+                    <span className="ml-1 text-muted-foreground/70">
+                      {t('routes.bulkFilteredSelection')}
+                    </span>
+                  )}
+                </span>
+              </label>
+              <div className="flex items-center gap-2">
+                {selectedRouteIds.size > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {t('routes.bulkSelectedCount', { count: selectedRouteIds.size })}
+                  </span>
+                )}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={selectedRouteIds.size === 0 || bulkDeleteRoutes.isPending}
+                  onClick={() => setBulkDeleteOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {t('routes.bulkDelete')}
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Routes List */}
           {items.length > 0 ? (
             <DndContext
@@ -513,20 +653,38 @@ function ClientTypeRoutesContentInner({
               <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
                 <div className="space-y-2">
                   {items.map((item, index) => (
-                    <SortableProviderRow
+                    <div
                       key={item.id}
-                      item={item}
-                      index={index}
-                      clientType={clientType}
-                      streamingCount={
-                        countsByProviderAndClient.get(`${item.provider.id}:${clientType}`) || 0
-                      }
-                      stats={stableProviderStats[item.provider.id]}
-                      isToggling={toggleRoute.isPending || createRoute.isPending}
-                      showWeight={isWeighted}
-                      onToggle={() => handleToggle(item)}
-                      onDelete={item.route ? () => handleDeleteRoute(item.route!.id) : undefined}
-                    />
+                      className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={item.route ? selectedRouteIds.has(item.route.id) : false}
+                        disabled={!item.route || bulkDeleteRoutes.isPending}
+                        aria-label={t('routes.selectRoute', { name: item.provider.name })}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => {
+                          if (item.route) {
+                            handleToggleRouteSelection(item.route.id, event.target.checked);
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-border accent-destructive"
+                      />
+                      <SortableProviderRow
+                        item={item}
+                        index={index}
+                        clientType={clientType}
+                        streamingCount={
+                          countsByProviderAndClient.get(`${item.provider.id}:${clientType}`) || 0
+                        }
+                        stats={stableProviderStats[item.provider.id]}
+                        isToggling={toggleRoute.isPending || createRoute.isPending}
+                        showWeight={isWeighted}
+                        onToggle={() => handleToggle(item)}
+                        onDelete={item.route ? () => handleDeleteRoute(item.route!.id) : undefined}
+                      />
+                    </div>
                   ))}
                 </div>
               </SortableContext>
@@ -644,6 +802,69 @@ function ClientTypeRoutesContentInner({
               </div>
             </div>
           )}
+
+          <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('routes.bulkDeleteDialog.title')}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('routes.bulkDeleteDialog.description', {
+                    count: selectedItems.length,
+                    client: getClientName(clientType),
+                    scope: scopeName,
+                  })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <div className="space-y-3 text-sm">
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {t('routes.bulkDeleteDialog.providersPreview')}
+                  </div>
+                  <ul className="space-y-1 text-foreground">
+                    {selectedProviderNames.slice(0, 5).map((name, index) => (
+                      <li key={`${name}-${index}`} className="truncate">
+                        {name}
+                      </li>
+                    ))}
+                  </ul>
+                  {selectedProviderNames.length > 5 && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      {t('routes.bulkDeleteDialog.moreProviders', {
+                        count: selectedProviderNames.length - 5,
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {selectedStreamingCount > 0 && (
+                  <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      {t('routes.bulkDeleteDialog.streamingWarning', {
+                        count: selectedStreamingCount,
+                      })}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={bulkDeleteRoutes.isPending}>
+                  {t('common.cancel')}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={selectedItems.length === 0 || bulkDeleteRoutes.isPending}
+                  onClick={handleConfirmBulkDelete}
+                >
+                  {bulkDeleteRoutes.isPending
+                    ? t('routes.bulkDeleteDialog.deleting')
+                    : t('routes.bulkDeleteDialog.confirm')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
     </div>

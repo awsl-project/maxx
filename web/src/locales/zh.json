@@ -641,7 +641,23 @@
     "affinityOff": "亲和关闭",
     "affinityScopeToken": "按 token",
     "affinityScopeConversation": "按会话",
-    "affinityTooltip": "会话亲和(sticky):加权随机下,同一会话在 TTL 内持续命中同一 provider,以最大化 prompt 缓存命中。可在「路由策略」页配置。"
+    "affinityTooltip": "会话亲和(sticky):加权随机下,同一会话在 TTL 内持续命中同一 provider,以最大化 prompt 缓存命中。可在「路由策略」页配置。",
+    "globalScope": "全局",
+    "projectScope": "项目",
+    "bulkSelectVisible": "选择当前可见路由（{{count}}）",
+    "bulkFilteredSelection": "已按当前搜索过滤",
+    "bulkSelectedCount": "已选择 {{count}} 条",
+    "bulkDelete": "删除所选",
+    "selectRoute": "选择 {{name}} 的路由",
+    "bulkDeleteDialog": {
+      "title": "删除所选路由？",
+      "description": "这只会从 {{scope}} 删除 {{count}} 条 {{client}} 路由绑定，不会删除 Provider 本体或凭据。",
+      "providersPreview": "提供商",
+      "moreProviders": "以及 {{count}} 个",
+      "streamingWarning": "当前有 {{count}} 个流式请求正在使用选中的提供商。删除路由可能影响后续路由决策。",
+      "confirm": "删除路由",
+      "deleting": "删除中..."
+    }
   },
   "console": {
     "title": "控制台",

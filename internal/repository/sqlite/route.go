@@ -45,6 +45,78 @@ func (r *RouteRepository) Delete(tenantID uint64, id uint64) error {
 		}).Error
 }
 
+func (r *RouteRepository) BulkDelete(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error) {
+	result := &domain.RouteBulkDeleteResult{}
+	if len(req.IDs) == 0 {
+		return result, nil
+	}
+
+	seen := make(map[uint64]struct{}, len(req.IDs))
+	ids := make([]uint64, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	err := r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		var models []Route
+		if err := tenantScope(tx, tenantID).
+			Where("id IN ? AND deleted_at = 0", ids).
+			Find(&models).Error; err != nil {
+			return err
+		}
+
+		found := make(map[uint64]struct{}, len(models))
+		deleteIDs := make([]uint64, 0, len(models))
+		for _, model := range models {
+			found[model.ID] = struct{}{}
+			if model.ClientType == string(req.ClientType) && model.ProjectID == req.ProjectID {
+				deleteIDs = append(deleteIDs, model.ID)
+			} else {
+				result.SkippedIDs = append(result.SkippedIDs, model.ID)
+			}
+		}
+
+		for _, id := range ids {
+			if _, ok := found[id]; !ok {
+				result.NotFoundIDs = append(result.NotFoundIDs, id)
+			}
+		}
+
+		if len(deleteIDs) == 0 {
+			return nil
+		}
+
+		now := time.Now().UnixMilli()
+		if err := tenantScope(tx.Model(&Route{}), tenantID).
+			Where("id IN ? AND deleted_at = 0", deleteIDs).
+			Updates(map[string]any{
+				"deleted_at": now,
+				"updated_at": now,
+			}).Error; err != nil {
+			return err
+		}
+
+		result.DeletedIDs = deleteIDs
+		result.DeletedCount = len(deleteIDs)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 func (r *RouteRepository) BatchUpdatePositions(tenantID uint64, updates []domain.RoutePositionUpdate) error {
 	if len(updates) == 0 {
 		return nil

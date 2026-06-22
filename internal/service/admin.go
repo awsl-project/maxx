@@ -412,6 +412,25 @@ func (s *AdminService) DeleteRoute(tenantID uint64, id uint64) error {
 	return s.routeRepo.Delete(tenantID, id)
 }
 
+func (s *AdminService) BulkDeleteRoutes(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error) {
+	if len(req.IDs) == 0 {
+		return nil, fmt.Errorf("ids required")
+	}
+	if !isValidRouteClientType(req.ClientType) {
+		return nil, fmt.Errorf("invalid clientType")
+	}
+	return s.routeRepo.BulkDelete(tenantID, req)
+}
+
+func isValidRouteClientType(clientType domain.ClientType) bool {
+	switch clientType {
+	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex, domain.ClientTypeGemini:
+		return true
+	default:
+		return false
+	}
+}
+
 // ===== Project API =====
 
 func (s *AdminService) GetProjects(tenantID uint64) ([]*domain.Project, error) {
