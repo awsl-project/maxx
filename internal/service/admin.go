@@ -441,7 +441,7 @@ func (s *AdminService) GetProjects(tenantID uint64) ([]*domain.Project, error) {
 		return nil, err
 	}
 	if err := s.attachProjectUsage(tenantID, projects); err != nil {
-		return nil, err
+		log.Printf("warn: attach project usage summaries failed: %v", err)
 	}
 	return projects, nil
 }
@@ -452,7 +452,7 @@ func (s *AdminService) GetProject(tenantID uint64, id uint64) (*domain.Project, 
 		return nil, err
 	}
 	if err := s.attachProjectUsage(tenantID, []*domain.Project{project}); err != nil {
-		return nil, err
+		log.Printf("warn: attach project usage summary failed for project %d: %v", id, err)
 	}
 	return project, nil
 }
@@ -463,7 +463,7 @@ func (s *AdminService) GetProjectBySlug(tenantID uint64, slug string) (*domain.P
 		return nil, err
 	}
 	if err := s.attachProjectUsage(tenantID, []*domain.Project{project}); err != nil {
-		return nil, err
+		log.Printf("warn: attach project usage summary failed for project slug %q: %v", slug, err)
 	}
 	return project, nil
 }
@@ -472,7 +472,17 @@ func (s *AdminService) attachProjectUsage(tenantID uint64, projects []*domain.Pr
 	if s.proxyRequestRepo == nil || len(projects) == 0 {
 		return nil
 	}
-	summaries, err := s.proxyRequestRepo.GetProjectUsageSummaries(tenantID, time.Now().Add(-projectUsageRecentWindow))
+	projectIDs := make([]uint64, 0, len(projects))
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+		projectIDs = append(projectIDs, project.ID)
+	}
+	if len(projectIDs) == 0 {
+		return nil
+	}
+	summaries, err := s.proxyRequestRepo.GetProjectUsageSummaries(tenantID, time.Now().Add(-projectUsageRecentWindow), projectIDs...)
 	if err != nil {
 		return err
 	}

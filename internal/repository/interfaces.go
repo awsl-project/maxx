@@ -172,7 +172,7 @@ type ProxyRequestRepository interface {
 	// HasRecentRequests 检查指定时间之后是否有请求记录
 	HasRecentRequests(since time.Time) (bool, error)
 	// GetProjectUsageSummaries aggregates per-project request activity for cleanup detection.
-	GetProjectUsageSummaries(tenantID uint64, since time.Time) (map[uint64]domain.ProjectUsageSummary, error)
+	GetProjectUsageSummaries(tenantID uint64, since time.Time, projectIDs ...uint64) (map[uint64]domain.ProjectUsageSummary, error)
 	// UpdateCost updates only the cost field of a request
 	UpdateCost(id uint64, cost uint64) error
 	// UpdateCostAtomically updates the request cost AND a batch of attempt cost updates

@@ -230,6 +230,7 @@ export function ProjectsPage() {
                   type="button"
                   variant={showInactiveOnly ? 'default' : 'outline'}
                   size="sm"
+                  aria-pressed={showInactiveOnly}
                   onClick={() => setShowInactiveOnly((value) => !value)}
                 >
                   {t('projects.showInactiveOnly')}
@@ -263,7 +264,15 @@ export function ProjectsPage() {
                     'group border-border bg-surface-primary cursor-pointer hover:border-accent/50 hover:shadow-card-hover transition-all duration-200 flex flex-col',
                     activity?.inactive && 'border-amber-500/40 bg-amber-500/5',
                   )}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleRowClick(project.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleRowClick(project.id);
+                    }
+                  }}
                 >
                   <CardHeader className="pb-4">
                     <div className="flex items-center gap-3 mb-2">
@@ -274,13 +283,18 @@ export function ProjectsPage() {
                         <Hash size={10} className="shrink-0" />
                         <span className="truncate">{project.slug}</span>
                       </div>
-                      <Badge variant={activity?.inactive ? 'warning' : 'outline'} className="shrink-0">
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <CardTitle className="text-base font-semibold leading-tight truncate">
+                        {project.name}
+                      </CardTitle>
+                      <Badge
+                        variant={activity?.inactive ? 'warning' : 'outline'}
+                        className="h-auto min-h-5 max-w-full whitespace-normal break-words text-left leading-tight"
+                      >
                         {badgeLabel}
                       </Badge>
                     </div>
-                    <CardTitle className="text-base font-semibold leading-tight truncate">
-                      {project.name}
-                    </CardTitle>
                   </CardHeader>
                   <CardContent className="pt-0 flex-1 space-y-2 text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-3">
@@ -298,7 +312,8 @@ export function ProjectsPage() {
                     <div className="flex items-center justify-between gap-3">
                       <span>{t('projects.recentRequests')}</span>
                       <span className="font-mono text-foreground">
-                        {activity?.requestCount30d ?? 0} / {activity?.successfulRequestCount30d ?? 0}
+                        {activity?.requestCount30d ?? 0} /{' '}
+                        {activity?.successfulRequestCount30d ?? 0}
                       </span>
                     </div>
                   </CardContent>

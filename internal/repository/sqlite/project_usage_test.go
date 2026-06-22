@@ -81,4 +81,18 @@ func TestProxyRequestGetProjectUsageSummaries(t *testing.T) {
 	if _, ok := summaries[otherTenantProject.ID]; ok {
 		t.Fatalf("summary leaked other tenant project id %d", otherTenantProject.ID)
 	}
+
+	filtered, err := requestRepo.GetProjectUsageSummaries(1, now.Add(-30*24*time.Hour), projectB.ID)
+	if err != nil {
+		t.Fatalf("get filtered summaries: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("filtered summary length = %d, want 1", len(filtered))
+	}
+	if _, ok := filtered[projectB.ID]; !ok {
+		t.Fatalf("filtered summary missing project id %d", projectB.ID)
+	}
+	if _, ok := filtered[projectA.ID]; ok {
+		t.Fatalf("filtered summary included unrequested project id %d", projectA.ID)
+	}
 }

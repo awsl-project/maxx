@@ -369,7 +369,7 @@ func (r *ProxyRequestRepository) HasRecentRequests(since time.Time) (bool, error
 }
 
 // GetProjectUsageSummaries aggregates request activity by project for cleanup detection.
-func (r *ProxyRequestRepository) GetProjectUsageSummaries(tenantID uint64, since time.Time) (map[uint64]domain.ProjectUsageSummary, error) {
+func (r *ProxyRequestRepository) GetProjectUsageSummaries(tenantID uint64, since time.Time, projectIDs ...uint64) (map[uint64]domain.ProjectUsageSummary, error) {
 	sinceTs := toTimestamp(since)
 	type usageRow struct {
 		ProjectID                 uint64
@@ -390,8 +390,11 @@ func (r *ProxyRequestRepository) GetProjectUsageSummaries(tenantID uint64, since
 			SUM(CASE WHEN status = ? AND created_at >= ? THEN 1 ELSE 0 END) AS successful_request_count30d,
 			COUNT(*) AS total_request_count
 		`, "COMPLETED", sinceTs, "COMPLETED", sinceTs).
-		Where("project_id > 0").
-		Group("project_id")
+		Where("project_id > 0")
+	if len(projectIDs) > 0 {
+		query = query.Where("project_id IN ?", projectIDs)
+	}
+	query = query.Group("project_id")
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err
 	}
