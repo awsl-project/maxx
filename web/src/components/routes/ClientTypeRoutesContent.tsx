@@ -356,7 +356,7 @@ function SyncRoutesDialog({ clientType, projectID, routes, projects }: SyncRoute
         size="sm"
         onClick={() => setOpen(true)}
         disabled={sourceOptions.length === 0}
-        className="h-8 shrink-0 text-xs"
+        className="h-7 shrink-0 text-xs"
       >
         <CopyPlus className="mr-1.5 h-3.5 w-3.5" />
         {t('routes.syncFromProject')}
@@ -832,7 +832,7 @@ function ClientTypeRoutesContentInner({
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-[1400px] space-y-6">
           {/* Effective routing strategy for this scope */}
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
             <div className="min-w-0 flex-1">
               <RoutingStrategyBanner
                 type={strategyInfo.type}
