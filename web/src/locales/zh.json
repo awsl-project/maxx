@@ -657,6 +657,25 @@
       "streamingWarning": "当前有 {{count}} 个流式请求正在使用选中的提供商。删除路由可能影响后续路由决策。",
       "confirm": "删除路由",
       "deleting": "删除中..."
+    },
+    "syncFromProject": "从项目同步",
+    "syncDialog": {
+      "title": "从其他项目同步路由",
+      "description": "将 {{client}} 路由配置复制到 {{target}}。",
+      "source": "来源",
+      "mode": "模式",
+      "defaultRoutes": "默认路由（全局）",
+      "sourceInheritsGlobal": "该项目未为此客户端启用自定义路由，实际来源将使用默认路由。",
+      "overwrite": "覆盖当前路由",
+      "addMissing": "仅添加缺失提供商",
+      "preview": "预览",
+      "created": "新增 {{count}}",
+      "updated": "更新 {{count}}",
+      "deleted": "删除 {{count}}",
+      "skipped": "跳过 {{count}}",
+      "globalTargetWarning": "目标是默认路由，可能影响所有继承全局路由的项目。",
+      "failed": "同步路由失败",
+      "confirm": "同步路由"
     }
   },
   "console": {

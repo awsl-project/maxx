@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -183,6 +184,15 @@ type selfServiceRouteRepo struct {
 }
 
 func (r *selfServiceRouteRepo) Create(route *domain.Route) error {
+	if route.ID == 0 {
+		var maxID uint64
+		for _, existing := range r.routes {
+			if existing.ID > maxID {
+				maxID = existing.ID
+			}
+		}
+		route.ID = maxID + 1
+	}
 	r.routes = append(r.routes, route)
 	return nil
 }
@@ -1328,6 +1338,124 @@ func TestSelfServiceHandler_ListRoutes_MemberAllowed(t *testing.T) {
 	}
 }
 
+func TestSelfServiceHandler_SyncRoutesFromProject_OverwriteDefaultToProject(t *testing.T) {
+	routeRepo := &selfServiceRouteRepo{
+		routes: []*domain.Route{
+			{ID: 1, TenantID: 1, ProjectID: 0, ClientType: domain.ClientTypeClaude, ProviderID: 10, Position: 1, Weight: 3, RetryConfigID: 7, IsEnabled: true, IsNative: true},
+			{ID: 2, TenantID: 1, ProjectID: 0, ClientType: domain.ClientTypeClaude, ProviderID: 11, Position: 2, Weight: 1, IsEnabled: false},
+			{ID: 3, TenantID: 1, ProjectID: 42, ClientType: domain.ClientTypeClaude, ProviderID: 10, Position: 4, Weight: 9, RetryConfigID: 1, IsEnabled: false},
+			{ID: 4, TenantID: 1, ProjectID: 42, ClientType: domain.ClientTypeClaude, ProviderID: 99, Position: 5, Weight: 1, IsEnabled: true},
+			{ID: 5, TenantID: 1, ProjectID: 42, ClientType: domain.ClientTypeOpenAI, ProviderID: 99, Position: 1, Weight: 1, IsEnabled: true},
+		},
+	}
+	projectRepo := &selfServiceProjectRepo{
+		projects: []*domain.Project{{ID: 42, TenantID: 1, Name: "demo", Slug: "demo"}},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{},
+		routeRepo:    routeRepo,
+		projectRepo:  projectRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/sync-from-project", `{"sourceProjectID":0,"targetProjectID":42,"clientType":"claude","mode":"overwrite"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result domain.RouteSyncResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.CreatedCount != 1 || result.UpdatedCount != 1 || result.DeletedCount != 1 || !result.EnabledCustomRoutes {
+		t.Fatalf("result = %+v, want 1 created, 1 updated, 1 deleted, custom routes enabled", result)
+	}
+
+	project, err := projectRepo.GetByID(1, 42)
+	if err != nil {
+		t.Fatalf("get project: %v", err)
+	}
+	if !containsClientType(project.EnabledCustomRoutes, domain.ClientTypeClaude) {
+		t.Fatalf("enabledCustomRoutes = %+v, want claude", project.EnabledCustomRoutes)
+	}
+
+	targetRoutes := syncTestRoutesFor(routeRepo.routes, 42, domain.ClientTypeClaude)
+	if len(targetRoutes) != 2 {
+		t.Fatalf("target routes = %+v, want 2", targetRoutes)
+	}
+	if targetRoutes[0].ProviderID != 10 || !targetRoutes[0].IsEnabled || !targetRoutes[0].IsNative || targetRoutes[0].Weight != 3 || targetRoutes[0].RetryConfigID != 7 || targetRoutes[0].Position != 1 {
+		t.Fatalf("updated route = %+v, want copied provider 10 config", targetRoutes[0])
+	}
+	if targetRoutes[1].ProviderID != 11 || targetRoutes[1].IsEnabled || targetRoutes[1].Position != 2 {
+		t.Fatalf("created route = %+v, want copied provider 11 config", targetRoutes[1])
+	}
+	if len(syncTestRoutesFor(routeRepo.routes, 42, domain.ClientTypeOpenAI)) != 1 {
+		t.Fatalf("openai routes changed unexpectedly: %+v", routeRepo.routes)
+	}
+}
+
+func TestSelfServiceHandler_SyncRoutesFromProject_AddMissingUsesEffectiveSource(t *testing.T) {
+	routeRepo := &selfServiceRouteRepo{
+		routes: []*domain.Route{
+			{ID: 1, TenantID: 1, ProjectID: 0, ClientType: domain.ClientTypeCodex, ProviderID: 10, Position: 1, Weight: 2, IsEnabled: true},
+			{ID: 2, TenantID: 1, ProjectID: 7, ClientType: domain.ClientTypeCodex, ProviderID: 77, Position: 1, Weight: 1, IsEnabled: true},
+			{ID: 3, TenantID: 1, ProjectID: 42, ClientType: domain.ClientTypeCodex, ProviderID: 20, Position: 1, Weight: 1, IsEnabled: true},
+		},
+	}
+	projectRepo := &selfServiceProjectRepo{
+		projects: []*domain.Project{
+			{ID: 7, TenantID: 1, Name: "inherits-global", Slug: "inherits-global"},
+			{ID: 42, TenantID: 1, Name: "target", Slug: "target", EnabledCustomRoutes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{},
+		routeRepo:    routeRepo,
+		projectRepo:  projectRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/sync-from-project", `{"sourceProjectID":7,"targetProjectID":42,"clientType":"codex","mode":"add_missing"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result domain.RouteSyncResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.EffectiveSourceProjectID != 0 || result.CreatedCount != 1 || result.UpdatedCount != 0 || result.DeletedCount != 0 {
+		t.Fatalf("result = %+v, want inherited global source and one add-missing create", result)
+	}
+	targetRoutes := syncTestRoutesFor(routeRepo.routes, 42, domain.ClientTypeCodex)
+	if len(targetRoutes) != 2 {
+		t.Fatalf("target routes = %+v, want existing + one missing", targetRoutes)
+	}
+	if targetRoutes[1].ProviderID != 10 || targetRoutes[1].Position != 2 || targetRoutes[1].Weight != 2 {
+		t.Fatalf("created missing route = %+v, want appended copied global provider", targetRoutes[1])
+	}
+}
+
+func containsClientType(values []domain.ClientType, want domain.ClientType) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func syncTestRoutesFor(routes []*domain.Route, projectID uint64, clientType domain.ClientType) []*domain.Route {
+	var result []*domain.Route
+	for _, route := range routes {
+		if route.ProjectID == projectID && route.ClientType == clientType {
+			result = append(result, route)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Position < result[j].Position })
+	return result
+}
+
 func TestSelfServiceHandler_InvalidResourceIDs_ReturnBadRequest(t *testing.T) {
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
 		providerRepo:      &selfServiceProviderRepo{},
@@ -1456,6 +1584,7 @@ func TestSelfServiceHandler_MemberForbiddenOnConfigurationWrites(t *testing.T) {
 		{name: "create route", method: http.MethodPost, path: "/routes", body: `{"providerID":1,"clientType":"claude"}`},
 		{name: "update route", method: http.MethodPut, path: "/routes/1", body: `{"isEnabled":true}`},
 		{name: "delete route", method: http.MethodDelete, path: "/routes/1"},
+		{name: "sync routes", method: http.MethodPost, path: "/routes/sync-from-project", body: `{"sourceProjectID":0,"targetProjectID":1,"clientType":"claude"}`},
 		{name: "batch route positions", method: http.MethodPut, path: "/routes/batch-positions", body: `[]`},
 		{name: "create retry config", method: http.MethodPost, path: "/retry-configs", body: `{"name":"cfg"}`},
 		{name: "update retry config", method: http.MethodPut, path: "/retry-configs/1", body: `{"name":"cfg"}`},

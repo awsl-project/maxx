@@ -658,6 +658,25 @@
       "streamingWarning": "{{count}} active streaming request(s) are currently using selected provider(s). Deleting routes may interrupt new routing decisions.",
       "confirm": "Delete routes",
       "deleting": "Deleting..."
+    },
+    "syncFromProject": "Sync from project",
+    "syncDialog": {
+      "title": "Sync routes from another project",
+      "description": "Copy {{client}} route settings into {{target}}.",
+      "source": "Source",
+      "mode": "Mode",
+      "defaultRoutes": "Default routes (global)",
+      "sourceInheritsGlobal": "This project does not enable custom routes for this client, so the effective source is Default routes.",
+      "overwrite": "Overwrite current routes",
+      "addMissing": "Add missing providers only",
+      "preview": "Preview",
+      "created": "Create {{count}}",
+      "updated": "Update {{count}}",
+      "deleted": "Delete {{count}}",
+      "skipped": "Skip {{count}}",
+      "globalTargetWarning": "The target is Default routes. This may affect every project that inherits global routing.",
+      "failed": "Failed to sync routes",
+      "confirm": "Sync routes"
     }
   },
   "console": {

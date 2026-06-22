@@ -8,7 +8,9 @@ import {
   type Route,
   type CreateRouteData,
   type RouteBulkDeleteRequest,
+  type RouteSyncRequest,
 } from '@/lib/transport';
+import { projectKeys } from './use-projects';
 
 // Query Keys
 export const routeKeys = {
@@ -82,6 +84,19 @@ export function useBulkDeleteRoutes() {
     mutationFn: (data: RouteBulkDeleteRequest) => getTransport().bulkDeleteRoutes(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+    },
+  });
+}
+
+// 从默认路由或其他项目同步当前 client type 的路由配置
+export function useSyncRoutesFromProject() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: RouteSyncRequest) => getTransport().syncRoutesFromProject(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
     },
   });
 }

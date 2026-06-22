@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  CopyPlus,
   Plus,
   RefreshCw,
   Trash2,
@@ -40,6 +41,7 @@ import {
   useToggleRoute,
   useDeleteRoute,
   useBulkDeleteRoutes,
+  useSyncRoutesFromProject,
   useUpdateRoutePositions,
   useProviderStats,
   useProxyRequestUpdates,
@@ -55,6 +57,9 @@ import type {
   ClientType,
   Provider,
   ProviderStats,
+  Project,
+  Route,
+  RouteSyncMode,
   RoutingStrategyType,
   RoutingStickyScope,
 } from '@/lib/transport';
@@ -75,6 +80,17 @@ import {
   Button,
   Badge,
   buttonVariants,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '../ui';
 import { cn } from '@/lib/utils';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
@@ -218,6 +234,227 @@ function RoutingStrategyBanner({
         {t('routes.strategyConfigure')}
       </Link>
     </div>
+  );
+}
+
+function projectHasCustomRoutes(project: Project | undefined, clientType: ClientType): boolean {
+  return (project?.enabledCustomRoutes ?? []).includes(clientType);
+}
+
+function routesForScope(routes: Route[] | undefined, projectID: number, clientType: ClientType) {
+  return (routes ?? [])
+    .filter((route) => route.projectID === projectID && route.clientType === clientType)
+    .slice()
+    .sort((a, b) => (a.position === b.position ? a.id - b.id : a.position - b.position));
+}
+
+function routeConfigDiffers(target: Route, source: Route, position: number): boolean {
+  return (
+    target.isEnabled !== source.isEnabled ||
+    target.isNative !== source.isNative ||
+    target.position !== position ||
+    (target.weight || 1) !== (source.weight || 1) ||
+    target.retryConfigID !== source.retryConfigID
+  );
+}
+
+interface SyncRoutesDialogProps {
+  clientType: ClientType;
+  projectID: number;
+  routes: Route[] | undefined;
+  projects: Project[];
+}
+
+function SyncRoutesDialog({ clientType, projectID, routes, projects }: SyncRoutesDialogProps) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const sourceOptions = useMemo(() => {
+    const options = projectID === 0 ? [] : [{ id: 0, label: t('common.default'), isGlobal: true }];
+    for (const project of projects) {
+      if (project.id === projectID) continue;
+      options.push({ id: project.id, label: project.name, isGlobal: false });
+    }
+    return options;
+  }, [projectID, projects, t]);
+  const initialSourceID = sourceOptions.find((option) => option.id !== projectID)?.id ?? 0;
+  const [sourceProjectID, setSourceProjectID] = useState<number>(initialSourceID);
+  const [mode, setMode] = useState<RouteSyncMode>('overwrite');
+  const syncRoutes = useSyncRoutesFromProject();
+
+  useEffect(() => {
+    if (!sourceOptions.some((option) => option.id === sourceProjectID)) {
+      setSourceProjectID(sourceOptions[0]?.id ?? 0);
+    }
+  }, [sourceOptions, sourceProjectID]);
+
+  const sourceProject = projects.find((project) => project.id === sourceProjectID);
+  const sourceUsesGlobal = sourceProjectID > 0 && !projectHasCustomRoutes(sourceProject, clientType);
+  const effectiveSourceProjectID = sourceUsesGlobal ? 0 : sourceProjectID;
+  const sourceRoutes = routesForScope(routes, effectiveSourceProjectID, clientType);
+  const targetRoutes = routesForScope(routes, projectID, clientType);
+
+  const preview = useMemo(() => {
+    const targetByProvider = new Map(targetRoutes.map((route) => [route.providerID, route]));
+    const sourceProviderIDs = new Set(sourceRoutes.map((route) => route.providerID));
+
+    if (mode === 'add_missing') {
+      let created = 0;
+      let skipped = 0;
+      for (const source of sourceRoutes) {
+        if (targetByProvider.has(source.providerID)) {
+          skipped++;
+        } else {
+          created++;
+        }
+      }
+      return { created, updated: 0, deleted: 0, skipped };
+    }
+
+    let created = 0;
+    let updated = 0;
+    for (const [index, source] of sourceRoutes.entries()) {
+      const target = targetByProvider.get(source.providerID);
+      if (!target) {
+        created++;
+      } else if (routeConfigDiffers(target, source, index + 1)) {
+        updated++;
+      }
+    }
+
+    let deleted = 0;
+    for (const target of targetRoutes) {
+      if (!sourceProviderIDs.has(target.providerID)) deleted++;
+    }
+
+    return { created, updated, deleted, skipped: 0 };
+  }, [mode, sourceRoutes, targetRoutes]);
+
+  const canSync = sourceOptions.length > 0 && !syncRoutes.isPending;
+  const targetLabel = projectID === 0 ? t('common.default') : projects.find((p) => p.id === projectID)?.name;
+
+  const handleSync = () => {
+    syncRoutes.mutate(
+      {
+        sourceProjectID,
+        targetProjectID: projectID,
+        clientType,
+        mode,
+      },
+      {
+        onSuccess: () => {
+          setOpen(false);
+        },
+      },
+    );
+  };
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        disabled={sourceOptions.length === 0}
+        className="h-8 shrink-0 text-xs"
+      >
+        <CopyPlus className="mr-1.5 h-3.5 w-3.5" />
+        {t('routes.syncFromProject')}
+      </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('routes.syncDialog.title')}</DialogTitle>
+            <DialogDescription>
+              {t('routes.syncDialog.description', {
+                client: getClientName(clientType),
+                target: targetLabel ?? t('common.default'),
+              })}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('routes.syncDialog.source')}
+              </label>
+              <Select
+                value={String(sourceProjectID)}
+                onValueChange={(value) => setSourceProjectID(Number(value))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {sourceOptions.map((option) => (
+                    <SelectItem key={option.id} value={String(option.id)}>
+                      {option.isGlobal
+                        ? t('routes.syncDialog.defaultRoutes')
+                        : option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {sourceUsesGlobal && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  {t('routes.syncDialog.sourceInheritsGlobal')}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('routes.syncDialog.mode')}
+              </label>
+              <Select value={mode} onValueChange={(value) => setMode(value as RouteSyncMode)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="overwrite">{t('routes.syncDialog.overwrite')}</SelectItem>
+                  <SelectItem value="add_missing">{t('routes.syncDialog.addMissing')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm">
+              <div className="mb-2 font-medium">{t('routes.syncDialog.preview')}</div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+                <span>{t('routes.syncDialog.created', { count: preview.created })}</span>
+                <span>{t('routes.syncDialog.updated', { count: preview.updated })}</span>
+                <span>{t('routes.syncDialog.deleted', { count: preview.deleted })}</span>
+                <span>{t('routes.syncDialog.skipped', { count: preview.skipped })}</span>
+              </div>
+            </div>
+
+            {projectID === 0 && (
+              <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{t('routes.syncDialog.globalTargetWarning')}</span>
+              </div>
+            )}
+
+            {syncRoutes.error && (
+              <p className="text-xs text-destructive">
+                {syncRoutes.error instanceof Error
+                  ? syncRoutes.error.message
+                  : t('routes.syncDialog.failed')}
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={syncRoutes.isPending}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleSync} disabled={!canSync}>
+              {syncRoutes.isPending ? t('common.saving') : t('routes.syncDialog.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -595,14 +832,24 @@ function ClientTypeRoutesContentInner({
       <div className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-[1400px] space-y-6">
           {/* Effective routing strategy for this scope */}
-          <RoutingStrategyBanner
-            type={strategyInfo.type}
-            inherited={strategyInfo.inherited}
-            isDefault={strategyInfo.isDefault}
-            stickyEnabled={strategyInfo.stickyEnabled}
-            stickyScope={strategyInfo.stickyScope}
-            stickyTTLSeconds={strategyInfo.stickyTTLSeconds}
-          />
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
+            <div className="min-w-0 flex-1">
+              <RoutingStrategyBanner
+                type={strategyInfo.type}
+                inherited={strategyInfo.inherited}
+                isDefault={strategyInfo.isDefault}
+                stickyEnabled={strategyInfo.stickyEnabled}
+                stickyScope={strategyInfo.stickyScope}
+                stickyTTLSeconds={strategyInfo.stickyTTLSeconds}
+              />
+            </div>
+            <SyncRoutesDialog
+              clientType={clientType}
+              projectID={projectID}
+              routes={allRoutes}
+              projects={projects}
+            />
+          </div>
 
           {items.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 px-4 py-3 shadow-sm">

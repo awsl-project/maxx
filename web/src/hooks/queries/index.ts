@@ -38,6 +38,7 @@ export {
   useUpdateRoute,
   useDeleteRoute,
   useBulkDeleteRoutes,
+  useSyncRoutesFromProject,
   useToggleRoute,
   useUpdateRoutePositions,
 } from './use-routes';

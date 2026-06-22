@@ -66,6 +66,8 @@ import type {
   CreateAPITokenData,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
+  RouteSyncRequest,
+  RouteSyncResult,
   RoutePositionUpdate,
   UsageStats,
   UsageStatsFilter,
@@ -319,6 +321,14 @@ export class HttpTransport implements Transport {
   async bulkDeleteRoutes(data: RouteBulkDeleteRequest): Promise<RouteBulkDeleteResult> {
     const { data: result } = await this.client.post<RouteBulkDeleteResult>(
       '/routes/bulk-delete',
+      data,
+    );
+    return result;
+  }
+
+  async syncRoutesFromProject(data: RouteSyncRequest): Promise<RouteSyncResult> {
+    const { data: result } = await this.client.post<RouteSyncResult>(
+      '/routes/sync-from-project',
       data,
     );
     return result;

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -420,6 +421,205 @@ func (s *AdminService) BulkDeleteRoutes(tenantID uint64, req domain.RouteBulkDel
 		return nil, fmt.Errorf("invalid clientType")
 	}
 	return s.routeRepo.BulkDelete(tenantID, req)
+}
+
+func (s *AdminService) SyncRoutesFromProject(tenantID uint64, req domain.RouteSyncRequest) (*domain.RouteSyncResult, error) {
+	if !isValidRouteClientType(req.ClientType) {
+		return nil, fmt.Errorf("invalid clientType")
+	}
+	if req.Mode == "" {
+		req.Mode = domain.RouteSyncModeOverwrite
+	}
+	if req.Mode != domain.RouteSyncModeOverwrite && req.Mode != domain.RouteSyncModeAddMissing {
+		return nil, fmt.Errorf("invalid mode")
+	}
+
+	if req.SourceProjectID > 0 {
+		if _, err := s.projectRepo.GetByID(tenantID, req.SourceProjectID); err != nil {
+			return nil, fmt.Errorf("source project not found")
+		}
+	}
+
+	var targetProject *domain.Project
+	if req.TargetProjectID > 0 {
+		project, err := s.projectRepo.GetByID(tenantID, req.TargetProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("target project not found")
+		}
+		targetProject = project
+	}
+
+	effectiveSourceProjectID := req.SourceProjectID
+	if req.SourceProjectID > 0 {
+		sourceProject, err := s.projectRepo.GetByID(tenantID, req.SourceProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("source project not found")
+		}
+		if !projectHasCustomRoutes(sourceProject, req.ClientType) {
+			effectiveSourceProjectID = 0
+		}
+	}
+
+	routes, err := s.routeRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceRoutes := filterRoutesByScope(routes, effectiveSourceProjectID, req.ClientType)
+	targetRoutes := filterRoutesByScope(routes, req.TargetProjectID, req.ClientType)
+	targetByProvider := make(map[uint64]*domain.Route, len(targetRoutes))
+	for _, route := range targetRoutes {
+		targetByProvider[route.ProviderID] = route
+	}
+
+	result := &domain.RouteSyncResult{
+		SourceProjectID:          req.SourceProjectID,
+		EffectiveSourceProjectID: effectiveSourceProjectID,
+		TargetProjectID:          req.TargetProjectID,
+		ClientType:               req.ClientType,
+		Mode:                     req.Mode,
+		Routes:                   []*domain.Route{},
+	}
+
+	if req.Mode == domain.RouteSyncModeAddMissing {
+		maxPosition := 0
+		for _, route := range targetRoutes {
+			if route.Position > maxPosition {
+				maxPosition = route.Position
+			}
+		}
+		for _, source := range sourceRoutes {
+			if _, exists := targetByProvider[source.ProviderID]; exists {
+				result.SkippedCount++
+				continue
+			}
+			maxPosition++
+			created := cloneRouteForTarget(source, tenantID, req.TargetProjectID, maxPosition)
+			if err := s.routeRepo.Create(created); err != nil {
+				return nil, err
+			}
+			result.CreatedCount++
+			result.Routes = append(result.Routes, created)
+		}
+	} else {
+		sourceProviderIDs := make(map[uint64]struct{}, len(sourceRoutes))
+		for index, source := range sourceRoutes {
+			sourceProviderIDs[source.ProviderID] = struct{}{}
+			position := index + 1
+			if target, exists := targetByProvider[source.ProviderID]; exists {
+				if copyRouteFields(target, source, position) {
+					if err := s.routeRepo.Update(target); err != nil {
+						return nil, err
+					}
+					result.UpdatedCount++
+				}
+				result.Routes = append(result.Routes, target)
+				continue
+			}
+
+			created := cloneRouteForTarget(source, tenantID, req.TargetProjectID, position)
+			if err := s.routeRepo.Create(created); err != nil {
+				return nil, err
+			}
+			result.CreatedCount++
+			result.Routes = append(result.Routes, created)
+		}
+
+		for _, target := range targetRoutes {
+			if _, keep := sourceProviderIDs[target.ProviderID]; keep {
+				continue
+			}
+			if err := s.routeRepo.Delete(tenantID, target.ID); err != nil {
+				return nil, err
+			}
+			result.DeletedCount++
+		}
+	}
+
+	if targetProject != nil && !projectHasCustomRoutes(targetProject, req.ClientType) {
+		targetProject.EnabledCustomRoutes = append(targetProject.EnabledCustomRoutes, req.ClientType)
+		if err := s.projectRepo.Update(targetProject); err != nil {
+			return nil, err
+		}
+		result.EnabledCustomRoutes = true
+	}
+
+	return result, nil
+}
+
+func filterRoutesByScope(routes []*domain.Route, projectID uint64, clientType domain.ClientType) []*domain.Route {
+	filtered := make([]*domain.Route, 0)
+	for _, route := range routes {
+		if route.ProjectID == projectID && route.ClientType == clientType {
+			filtered = append(filtered, route)
+		}
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		if filtered[i].Position == filtered[j].Position {
+			return filtered[i].ID < filtered[j].ID
+		}
+		return filtered[i].Position < filtered[j].Position
+	})
+	return filtered
+}
+
+func cloneRouteForTarget(source *domain.Route, tenantID, targetProjectID uint64, position int) *domain.Route {
+	return &domain.Route{
+		TenantID:      tenantID,
+		IsEnabled:     source.IsEnabled,
+		IsNative:      source.IsNative,
+		ProjectID:     targetProjectID,
+		ClientType:    source.ClientType,
+		ProviderID:    source.ProviderID,
+		Position:      position,
+		Weight:        normalizedRouteWeight(source.Weight),
+		RetryConfigID: source.RetryConfigID,
+	}
+}
+
+func copyRouteFields(target, source *domain.Route, position int) bool {
+	changed := false
+	if target.IsEnabled != source.IsEnabled {
+		target.IsEnabled = source.IsEnabled
+		changed = true
+	}
+	if target.IsNative != source.IsNative {
+		target.IsNative = source.IsNative
+		changed = true
+	}
+	if target.Position != position {
+		target.Position = position
+		changed = true
+	}
+	weight := normalizedRouteWeight(source.Weight)
+	if target.Weight != weight {
+		target.Weight = weight
+		changed = true
+	}
+	if target.RetryConfigID != source.RetryConfigID {
+		target.RetryConfigID = source.RetryConfigID
+		changed = true
+	}
+	return changed
+}
+
+func normalizedRouteWeight(weight int) int {
+	if weight <= 0 {
+		return 1
+	}
+	return weight
+}
+
+func projectHasCustomRoutes(project *domain.Project, clientType domain.ClientType) bool {
+	if project == nil {
+		return false
+	}
+	for _, enabled := range project.EnabledCustomRoutes {
+		if enabled == clientType {
+			return true
+		}
+	}
+	return false
 }
 
 func isValidRouteClientType(clientType domain.ClientType) bool {

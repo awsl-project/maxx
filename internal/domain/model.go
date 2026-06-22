@@ -438,6 +438,37 @@ type RouteBulkDeleteResult struct {
 	NotFoundIDs  []uint64 `json:"notFoundIDs"`
 }
 
+type RouteSyncMode string
+
+const (
+	RouteSyncModeOverwrite  RouteSyncMode = "overwrite"
+	RouteSyncModeAddMissing RouteSyncMode = "add_missing"
+)
+
+// RouteSyncRequest copies the route set for one client type from another
+// project/global scope into the target project/global scope.
+// ProjectID 0 means the global/default route scope.
+type RouteSyncRequest struct {
+	SourceProjectID uint64        `json:"sourceProjectID"`
+	TargetProjectID uint64        `json:"targetProjectID"`
+	ClientType      ClientType    `json:"clientType"`
+	Mode            RouteSyncMode `json:"mode"`
+}
+
+type RouteSyncResult struct {
+	SourceProjectID          uint64        `json:"sourceProjectID"`
+	EffectiveSourceProjectID uint64        `json:"effectiveSourceProjectID"`
+	TargetProjectID          uint64        `json:"targetProjectID"`
+	ClientType               ClientType    `json:"clientType"`
+	Mode                     RouteSyncMode `json:"mode"`
+	CreatedCount             int           `json:"createdCount"`
+	UpdatedCount             int           `json:"updatedCount"`
+	DeletedCount             int           `json:"deletedCount"`
+	SkippedCount             int           `json:"skippedCount"`
+	EnabledCustomRoutes      bool          `json:"enabledCustomRoutes"`
+	Routes                   []*Route      `json:"routes"`
+}
+
 type RequestInfo struct {
 	Method  string            `json:"method"`
 	Headers map[string]string `json:"headers"`

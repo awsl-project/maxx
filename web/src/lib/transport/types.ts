@@ -227,6 +227,29 @@ export interface RouteBulkDeleteResult {
   notFoundIDs: number[];
 }
 
+export type RouteSyncMode = 'overwrite' | 'add_missing';
+
+export interface RouteSyncRequest {
+  sourceProjectID: number;
+  targetProjectID: number;
+  clientType: ClientType;
+  mode: RouteSyncMode;
+}
+
+export interface RouteSyncResult {
+  sourceProjectID: number;
+  effectiveSourceProjectID: number;
+  targetProjectID: number;
+  clientType: ClientType;
+  mode: RouteSyncMode;
+  createdCount: number;
+  updatedCount: number;
+  deletedCount: number;
+  skippedCount: number;
+  enabledCustomRoutes: boolean;
+  routes: Route[];
+}
+
 // ===== RetryConfig =====
 
 export interface RetryConfig {

@@ -65,6 +65,8 @@ import type {
   CreateAPITokenData,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
+  RouteSyncRequest,
+  RouteSyncResult,
   RoutePositionUpdate,
   UsageStats,
   UsageStatsFilter,
@@ -107,6 +109,7 @@ export interface Transport {
   updateRoute(id: number, data: Partial<Route>): Promise<Route>;
   deleteRoute(id: number): Promise<void>;
   bulkDeleteRoutes(data: RouteBulkDeleteRequest): Promise<RouteBulkDeleteResult>;
+  syncRoutesFromProject(data: RouteSyncRequest): Promise<RouteSyncResult>;
   batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void>;
 
   // ===== Session API =====

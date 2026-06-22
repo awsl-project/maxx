@@ -106,6 +106,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case len(parts) == 2:
 			h.handleRoutes(w, r, 0)
+		case len(parts) == 3 && parts[2] == "sync-from-project":
+			h.handleSyncRoutesFromProject(w, r)
 		case len(parts) == 3 && parts[2] == "batch-positions":
 			h.handleBatchUpdateRoutePositions(w, r)
 		case len(parts) == 3 && parts[2] == "bulk-delete":
@@ -633,6 +635,31 @@ func (h *SelfServiceHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *ht
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 	result, err := h.svc.BulkDeleteRoutes(tenantID, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *SelfServiceHandler) handleSyncRoutesFromProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var req domain.RouteSyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.SyncRoutesFromProject(tenantID, req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
