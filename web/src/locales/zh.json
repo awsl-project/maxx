@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "save": "保存",
     "cancel": "取消",
@@ -59,7 +59,8 @@
     "clear": "清除",
     "unknown": "未知",
     "back": "返回",
-    "useCLIProxyAPI": "使用 CLIProxyAPI"
+    "useCLIProxyAPI": "使用 CLIProxyAPI",
+    "count": "数量"
   },
   "clientTypes": {
     "claude": "Claude",
@@ -261,6 +262,26 @@
       "unchanged": "未变更",
       "lines": "行",
       "button": "差异"
+    },
+    "errorMode": {
+      "all": "全部",
+      "only": "只看错误",
+      "exclude": "隐藏错误"
+    },
+    "errorStats": {
+      "action": "错误统计",
+      "title": "错误请求统计",
+      "description": "基于当前筛选条件统计错误请求、状态码、Provider、模型和时间趋势。",
+      "empty": "当前筛选条件下暂无请求数据",
+      "noData": "无数据",
+      "totalRequests": "总请求数",
+      "errorRequests": "错误请求数",
+      "errorRate": "错误率",
+      "statusDistribution": "状态分布",
+      "httpStatusDistribution": "HTTP 状态码分布",
+      "providerTop": "Provider 错误 Top",
+      "modelTop": "模型错误 Top",
+      "trend": "请求/错误趋势"
     }
   },
   "providers": {

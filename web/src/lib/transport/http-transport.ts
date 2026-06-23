@@ -18,6 +18,8 @@ import type {
   RoutingStrategy,
   CreateRoutingStrategyData,
   ProxyRequest,
+  ProxyRequestErrorMode,
+  ProxyRequestErrorStats,
   ProxyUpstreamAttempt,
   ProxyStatus,
   ProviderStats,
@@ -439,6 +441,7 @@ export class HttpTransport implements Transport {
     projectId?: number,
     startTime?: string,
     endTime?: string,
+    errorMode?: ProxyRequestErrorMode,
   ): Promise<number> {
     const params: Record<string, string> = {};
     if (providerId !== undefined) {
@@ -459,8 +462,31 @@ export class HttpTransport implements Transport {
     if (endTime !== undefined) {
       params.endTime = endTime;
     }
+    if (errorMode !== undefined && errorMode !== 'all') {
+      params.errorMode = errorMode;
+    }
     const { data } = await this.adminClient.get<number>('/requests/count', { params });
     return data ?? 0;
+  }
+
+  async getProxyRequestErrorStats(
+    params?: CursorPaginationParams,
+  ): Promise<ProxyRequestErrorStats> {
+    const { data } = await this.adminClient.get<ProxyRequestErrorStats>('/requests/error-stats', {
+      params,
+    });
+    return (
+      data ?? {
+        totalRequests: 0,
+        errorRequests: 0,
+        errorRate: 0,
+        statusCounts: [],
+        httpStatusCounts: [],
+        providerCounts: [],
+        modelCounts: [],
+        trend: [],
+      }
+    );
   }
 
   async getActiveProxyRequests(): Promise<ProxyRequest[]> {

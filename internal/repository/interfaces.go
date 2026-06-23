@@ -125,6 +125,48 @@ type ProxyRequestFilter struct {
 	ProjectID  *uint64 // Project ID，nil 表示不过滤
 	StartTime  *time.Time
 	EndTime    *time.Time
+	ErrorMode  ProxyRequestErrorMode // 错误请求过滤模式
+}
+
+type ProxyRequestErrorMode string
+
+const (
+	ProxyRequestErrorModeAll     ProxyRequestErrorMode = "all"
+	ProxyRequestErrorModeOnly    ProxyRequestErrorMode = "only"
+	ProxyRequestErrorModeExclude ProxyRequestErrorMode = "exclude"
+)
+
+type ProxyRequestCountBucket struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+type ProxyRequestHTTPStatusBucket struct {
+	StatusCode int   `json:"statusCode"`
+	Count      int64 `json:"count"`
+}
+
+type ProxyRequestProviderBucket struct {
+	ProviderID uint64 `json:"providerId"`
+	Count      int64  `json:"count"`
+}
+
+type ProxyRequestTrendPoint struct {
+	StartTime     int64 `json:"startTime"`
+	EndTime       int64 `json:"endTime"`
+	TotalRequests int64 `json:"totalRequests"`
+	ErrorRequests int64 `json:"errorRequests"`
+}
+
+type ProxyRequestErrorStats struct {
+	TotalRequests    int64                          `json:"totalRequests"`
+	ErrorRequests    int64                          `json:"errorRequests"`
+	ErrorRate        float64                        `json:"errorRate"`
+	StatusCounts     []ProxyRequestCountBucket      `json:"statusCounts"`
+	HTTPStatusCounts []ProxyRequestHTTPStatusBucket `json:"httpStatusCounts"`
+	ProviderCounts   []ProxyRequestProviderBucket   `json:"providerCounts"`
+	ModelCounts      []ProxyRequestCountBucket      `json:"modelCounts"`
+	Trend            []ProxyRequestTrendPoint       `json:"trend"`
 }
 
 func (f *ProxyRequestFilter) IsEmpty() bool {
@@ -137,7 +179,8 @@ func (f *ProxyRequestFilter) IsEmpty() bool {
 		f.APITokenID == nil &&
 		f.ProjectID == nil &&
 		f.StartTime == nil &&
-		f.EndTime == nil
+		f.EndTime == nil &&
+		(f.ErrorMode == "" || f.ErrorMode == ProxyRequestErrorModeAll)
 }
 
 type ProxyRequestRepository interface {
@@ -155,6 +198,8 @@ type ProxyRequestRepository interface {
 	Count(tenantID uint64) (int64, error)
 	// CountWithFilter 带过滤条件的计数
 	CountWithFilter(tenantID uint64, filter *ProxyRequestFilter) (int64, error)
+	// GetErrorStats 获取错误请求统计
+	GetErrorStats(tenantID uint64, filter *ProxyRequestFilter) (*ProxyRequestErrorStats, error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 	UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error)
 	// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their

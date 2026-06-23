@@ -1,9 +1,11 @@
-﻿import { useState, useMemo, useRef, useEffect, type UIEvent } from 'react';
+﻿import { useState, useMemo, useRef, useEffect, type UIEvent, type ReactNode } from 'react';
 import { useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   useInfiniteProxyRequests,
+  useProxyRequestErrorStats,
   useProxyRequestUpdates,
   useProxyRequestsCount,
   useProviders,
@@ -21,12 +23,25 @@ import {
   CalendarRange,
   X,
   Clock,
+  BarChart3,
 } from 'lucide-react';
 import { format as formatDate } from 'date-fns';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import type {
   APIToken,
   Project,
+  CursorPaginationParams,
   ProxyRequest,
+  ProxyRequestErrorMode,
+  ProxyRequestErrorStats,
   ProxyRequestStatus,
   Provider,
 } from '@/lib/transport';
@@ -47,6 +62,11 @@ import {
   SelectGroup,
   SelectLabel,
   Input,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -236,6 +256,8 @@ export function RequestsPage() {
   );
   // Status 过滤器
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
+  const [errorMode, setErrorMode] = useState<ProxyRequestErrorMode>('all');
+  const [errorStatsOpen, setErrorStatsOpen] = useState(false);
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
@@ -264,7 +286,9 @@ export function RequestsPage() {
   const waitingProjectFilterValidation =
     filterMode === 'project' && selectedProjectId !== undefined && !projectsIsSuccess;
   const waitingFilterValidation =
-    waitingProviderFilterValidation || waitingTokenFilterValidation || waitingProjectFilterValidation;
+    waitingProviderFilterValidation ||
+    waitingTokenFilterValidation ||
+    waitingProjectFilterValidation;
   const requestsQueryEnabled = !waitingFilterValidation;
 
   // 使用 Infinite Query
@@ -276,6 +300,7 @@ export function RequestsPage() {
       activeProjectId,
       activeStartTime,
       activeEndTime,
+      errorMode,
       requestsQueryEnabled,
     );
 
@@ -286,6 +311,7 @@ export function RequestsPage() {
     activeProjectId,
     activeStartTime,
     activeEndTime,
+    errorMode,
     requestsQueryEnabled,
   );
 
@@ -307,6 +333,29 @@ export function RequestsPage() {
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
   // Create API Token ID to name mapping
   const tokenMap = useMemo(() => new Map(apiTokens.map((t) => [t.id, t.name])), [apiTokens]);
+
+  const errorStatsParams = useMemo<CursorPaginationParams>(() => {
+    const params: CursorPaginationParams = {};
+    if (activeProviderId !== undefined) params.providerId = activeProviderId;
+    if (selectedStatus !== undefined) params.status = selectedStatus;
+    if (activeTokenId !== undefined) params.apiTokenId = activeTokenId;
+    if (activeProjectId !== undefined) params.projectId = activeProjectId;
+    if (activeStartTime !== undefined) params.startTime = activeStartTime;
+    if (activeEndTime !== undefined) params.endTime = activeEndTime;
+    return params;
+  }, [
+    activeEndTime,
+    activeProjectId,
+    activeProviderId,
+    activeStartTime,
+    activeTokenId,
+    selectedStatus,
+  ]);
+
+  const { data: errorStats, isFetching: errorStatsFetching } = useProxyRequestErrorStats(
+    errorStatsParams,
+    errorStatsOpen && requestsQueryEnabled,
+  );
 
   // 使用 totalCount
   const total = typeof totalCount === 'number' ? totalCount : 0;
@@ -573,6 +622,11 @@ export function RequestsPage() {
     scrollContainerRef.current?.scrollTo({ top: 0 });
   };
 
+  const handleErrorModeChange = (mode: ProxyRequestErrorMode) => {
+    setErrorMode(mode);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  };
+
   const handleTimeRangeChange = (nextStart: Date | undefined, nextEnd: Date | undefined) => {
     setStartDate(nextStart);
     setEndDate(nextEnd);
@@ -667,6 +721,17 @@ export function RequestsPage() {
         )}
         {/* Status Filter */}
         <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
+        <ErrorModeFilter mode={errorMode} onSelect={handleErrorModeChange} />
+        <button
+          onClick={() => setErrorStatsOpen(true)}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+            'bg-error/10 hover:bg-error/15 border border-error/30 text-error',
+          )}
+        >
+          <BarChart3 size={14} />
+          <span>{t('requests.errorStats.action')}</span>
+        </button>
         <TimeRangeFilter
           startDate={startDate}
           endDate={endDate}
@@ -687,6 +752,14 @@ export function RequestsPage() {
           <span>{t('requests.refresh')}</span>
         </button>
       </PageHeader>
+
+      <ErrorStatsDialog
+        open={errorStatsOpen}
+        onOpenChange={setErrorStatsOpen}
+        stats={errorStats}
+        loading={errorStatsFetching}
+        providerMap={providerMap}
+      />
 
       {/* Content */}
       <div className="flex-1 min-h-0 flex flex-col">
@@ -1521,12 +1594,7 @@ function DateTimePicker({
         <span>{value ? formatDate(value, 'MM/dd HH:mm') : label}</span>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
-        <Calendar
-          mode="single"
-          selected={value}
-          onSelect={handleDateSelect}
-          autoFocus
-        />
+        <Calendar mode="single" selected={value} onSelect={handleDateSelect} autoFocus />
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
           <Clock size={14} className="text-muted-foreground" />
           <Input
@@ -1579,6 +1647,260 @@ function TimeRangeFilter({
           <X size={13} />
         </button>
       )}
+    </div>
+  );
+}
+
+function formatStatusLabel(status: string, t: TFunction): string {
+  const key = status.toLowerCase();
+  const label = t(`requests.status.${key}`);
+  return label === `requests.status.${key}` ? status : label;
+}
+
+function formatRequestNumber(value: number | undefined): string {
+  return (value ?? 0).toLocaleString();
+}
+
+function formatErrorRate(value: number | undefined): string {
+  return `${((value ?? 0) * 100).toFixed(1)}%`;
+}
+
+function ErrorModeFilter({
+  mode,
+  onSelect,
+}: {
+  mode: ProxyRequestErrorMode;
+  onSelect: (mode: ProxyRequestErrorMode) => void;
+}) {
+  const { t } = useTranslation();
+  const options: ProxyRequestErrorMode[] = ['all', 'only', 'exclude'];
+
+  return (
+    <div className="flex items-center rounded-lg border border-border/50 bg-muted/40 p-0.5">
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onSelect(option)}
+          className={cn(
+            'px-2.5 py-1 rounded-md text-xs md:text-sm font-medium transition-all whitespace-nowrap',
+            mode === option
+              ? 'bg-error/15 text-error shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+          )}
+        >
+          {t(`requests.errorMode.${option}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ErrorStatsDialog({
+  open,
+  onOpenChange,
+  stats,
+  loading,
+  providerMap,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  stats: ProxyRequestErrorStats | undefined;
+  loading: boolean;
+  providerMap: Map<number, string>;
+}) {
+  const { t } = useTranslation();
+  const statusData = useMemo(
+    () =>
+      (stats?.statusCounts ?? []).map((item) => ({
+        name: formatStatusLabel(item.name, t),
+        count: item.count,
+      })),
+    [stats?.statusCounts, t],
+  );
+  const httpStatusData = useMemo(
+    () =>
+      (stats?.httpStatusCounts ?? []).map((item) => ({
+        name: String(item.statusCode),
+        count: item.count,
+      })),
+    [stats?.httpStatusCounts],
+  );
+  const providerData = useMemo(
+    () =>
+      (stats?.providerCounts ?? []).map((item) => ({
+        name: providerMap.get(item.providerId) ?? `#${item.providerId || '-'}`,
+        count: item.count,
+      })),
+    [providerMap, stats?.providerCounts],
+  );
+  const modelData = useMemo(
+    () =>
+      (stats?.modelCounts ?? []).map((item) => ({
+        name: item.name || t('common.unknown'),
+        count: item.count,
+      })),
+    [stats?.modelCounts, t],
+  );
+  const trendData = useMemo(
+    () =>
+      (stats?.trend ?? []).map((item) => ({
+        time: formatDate(new Date(item.startTime), 'MM-dd HH:mm'),
+        totalRequests: item.totalRequests,
+        errorRequests: item.errorRequests,
+      })),
+    [stats?.trend],
+  );
+
+  const empty = !loading && (!stats || stats.totalRequests === 0);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(72rem,calc(100vw-1.5rem))] max-w-[min(72rem,calc(100vw-1.5rem))] max-h-[calc(100vh-2rem)] overflow-y-auto grid-cols-[minmax(0,1fr)]">
+        <DialogHeader>
+          <DialogTitle>{t('requests.errorStats.title')}</DialogTitle>
+          <DialogDescription>{t('requests.errorStats.description')}</DialogDescription>
+        </DialogHeader>
+
+        {loading && !stats ? (
+          <div className="flex items-center justify-center py-16 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin mr-2" />
+            {t('common.loading')}
+          </div>
+        ) : empty ? (
+          <div className="rounded-xl border border-border bg-muted/20 p-8 text-center text-muted-foreground">
+            {t('requests.errorStats.empty')}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <StatCard
+                label={t('requests.errorStats.totalRequests')}
+                value={formatRequestNumber(stats?.totalRequests)}
+              />
+              <StatCard
+                label={t('requests.errorStats.errorRequests')}
+                value={formatRequestNumber(stats?.errorRequests)}
+                tone="error"
+              />
+              <StatCard
+                label={t('requests.errorStats.errorRate')}
+                value={formatErrorRate(stats?.errorRate)}
+                tone="error"
+              />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <ChartPanel title={t('requests.errorStats.statusDistribution')}>
+                <DistributionList data={statusData} />
+              </ChartPanel>
+              <ChartPanel title={t('requests.errorStats.httpStatusDistribution')}>
+                <DistributionList data={httpStatusData} />
+              </ChartPanel>
+              <ChartPanel title={t('requests.errorStats.providerTop')}>
+                <DistributionList data={providerData} />
+              </ChartPanel>
+              <ChartPanel title={t('requests.errorStats.modelTop')}>
+                <DistributionList data={modelData} />
+              </ChartPanel>
+            </div>
+
+            <ChartPanel title={t('requests.errorStats.trend')}>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="time" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Line
+                      type="monotone"
+                      dataKey="totalRequests"
+                      name={t('requests.errorStats.totalRequests')}
+                      stroke="var(--color-chart-1)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="errorRequests"
+                      name={t('requests.errorStats.errorRequests')}
+                      stroke="var(--color-chart-6)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </ChartPanel>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string;
+  value: string;
+  tone?: 'default' | 'error';
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={cn('mt-1 text-2xl font-semibold', tone === 'error' && 'text-error')}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ChartPanel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-border bg-card p-4 min-w-0">
+      <h3 className="text-sm font-semibold mb-3">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DistributionList({ data }: { data: { name: string; count: number }[] }) {
+  const { t } = useTranslation();
+  const maxCount = Math.max(...data.map((item) => item.count), 0);
+
+  if (data.length === 0 || maxCount === 0) {
+    return (
+      <div className="flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border/70 bg-muted/20 text-sm text-muted-foreground">
+        {t('requests.errorStats.noData')}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 py-1">
+      {data.map((item) => {
+        const percent = Math.max(6, (item.count / maxCount) * 100);
+        return (
+          <div key={item.name} className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate text-foreground/90">{item.name}</span>
+              <span className="font-mono text-xs font-medium text-muted-foreground">
+                {formatRequestNumber(item.count)}
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-[var(--color-chart-6)]"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

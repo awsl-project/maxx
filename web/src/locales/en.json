@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "save": "Save",
     "cancel": "Cancel",
@@ -59,7 +59,8 @@
     "clear": "Clear",
     "unknown": "Unknown",
     "back": "Back",
-    "useCLIProxyAPI": "Use CLIProxyAPI"
+    "useCLIProxyAPI": "Use CLIProxyAPI",
+    "count": "Count"
   },
   "clientTypes": {
     "claude": "Claude",
@@ -262,6 +263,26 @@
       "unchanged": "Unchanged",
       "lines": "lines",
       "button": "Diff"
+    },
+    "errorMode": {
+      "all": "All",
+      "only": "Errors only",
+      "exclude": "Hide errors"
+    },
+    "errorStats": {
+      "action": "Error stats",
+      "title": "Error request statistics",
+      "description": "Summarizes error requests, status codes, providers, models, and trends for the current filters.",
+      "empty": "No request data for the current filters",
+      "noData": "No data",
+      "totalRequests": "Total requests",
+      "errorRequests": "Error requests",
+      "errorRate": "Error rate",
+      "statusDistribution": "Status distribution",
+      "httpStatusDistribution": "HTTP status distribution",
+      "providerTop": "Provider error top",
+      "modelTop": "Model error top",
+      "trend": "Request/error trend"
     }
   },
   "providers": {

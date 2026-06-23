@@ -77,6 +77,7 @@ export {
   useProxyRequests,
   useInfiniteProxyRequests,
   useProxyRequestsCount,
+  useProxyRequestErrorStats,
   useProxyRequest,
   useProxyUpstreamAttempts,
   useProxyRequestUpdates,

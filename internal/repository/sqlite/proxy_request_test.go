@@ -724,3 +724,144 @@ func TestProxyUpstreamAttemptClearDetailOlderThan_UsesSentinelIndex(t *testing.T
 		t.Fatalf("plan should not require TEMP B-TREE sort, got:\n%s", plan)
 	}
 }
+
+func TestProxyRequestErrorModeFiltersStatusAndHTTPFailures(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	requests := []*domain.ProxyRequest{
+		buildTestProxyRequest("COMPLETED", 1),
+		buildTestProxyRequest("FAILED", 2),
+		buildTestProxyRequest("REJECTED", 3),
+		buildTestProxyRequest("COMPLETED", 4),
+		buildTestProxyRequest("CANCELLED", 5),
+	}
+	requests[3].StatusCode = 502
+	for _, request := range requests {
+		if err := repo.Create(request); err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+	}
+
+	errorFilter := &repository.ProxyRequestFilter{ErrorMode: repository.ProxyRequestErrorModeOnly}
+	errorCount, err := repo.CountWithFilter(1, errorFilter)
+	if err != nil {
+		t.Fatalf("CountWithFilter only failed: %v", err)
+	}
+	if errorCount != 3 {
+		t.Fatalf("error count = %d, want 3", errorCount)
+	}
+
+	errorItems, err := repo.ListCursor(1, 10, 0, 0, errorFilter)
+	if err != nil {
+		t.Fatalf("ListCursor only failed: %v", err)
+	}
+	expectedErrorIDs := []uint64{requests[3].ID, requests[2].ID, requests[1].ID}
+	if got := collectRequestIDs(errorItems); fmt.Sprint(got) != fmt.Sprint(expectedErrorIDs) {
+		t.Fatalf("error ids = %v, want %v", got, expectedErrorIDs)
+	}
+
+	excludeFilter := &repository.ProxyRequestFilter{ErrorMode: repository.ProxyRequestErrorModeExclude}
+	nonErrorCount, err := repo.CountWithFilter(1, excludeFilter)
+	if err != nil {
+		t.Fatalf("CountWithFilter exclude failed: %v", err)
+	}
+	if nonErrorCount != 2 {
+		t.Fatalf("non-error count = %d, want 2", nonErrorCount)
+	}
+
+	nonErrorItems, err := repo.ListCursor(1, 10, 0, 0, excludeFilter)
+	if err != nil {
+		t.Fatalf("ListCursor exclude failed: %v", err)
+	}
+	expectedNonErrorIDs := []uint64{requests[4].ID, requests[0].ID}
+	if got := collectRequestIDs(nonErrorItems); fmt.Sprint(got) != fmt.Sprint(expectedNonErrorIDs) {
+		t.Fatalf("non-error ids = %v, want %v", got, expectedNonErrorIDs)
+	}
+}
+
+func TestProxyRequestErrorStatsAggregatesCurrentFilter(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	requests := []*domain.ProxyRequest{
+		buildTestProxyRequest("COMPLETED", 1),
+		buildTestProxyRequest("FAILED", 2),
+		buildTestProxyRequest("REJECTED", 3),
+		buildTestProxyRequest("COMPLETED", 4),
+		buildTestProxyRequest("CANCELLED", 5),
+	}
+	requests[0].ProviderID = 7
+	requests[0].RequestModel = "claude-sonnet"
+	requests[1].ProviderID = 7
+	requests[1].RequestModel = "claude-sonnet"
+	requests[2].ProviderID = 8
+	requests[2].RequestModel = "gpt-5"
+	requests[3].ProviderID = 7
+	requests[3].RequestModel = "claude-sonnet"
+	requests[3].StatusCode = 502
+	requests[4].ProviderID = 9
+	requests[4].RequestModel = "cancelled-model"
+	for _, request := range requests {
+		if err := repo.Create(request); err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+	}
+
+	stats, err := repo.GetErrorStats(1, nil)
+	if err != nil {
+		t.Fatalf("GetErrorStats failed: %v", err)
+	}
+	if stats.TotalRequests != 5 {
+		t.Fatalf("total requests = %d, want 5", stats.TotalRequests)
+	}
+	if stats.ErrorRequests != 3 {
+		t.Fatalf("error requests = %d, want 3", stats.ErrorRequests)
+	}
+	if stats.ErrorRate != 0.6 {
+		t.Fatalf("error rate = %v, want 0.6", stats.ErrorRate)
+	}
+
+	statusCounts := map[string]int64{}
+	for _, item := range stats.StatusCounts {
+		statusCounts[item.Name] = item.Count
+	}
+	if statusCounts["FAILED"] != 1 || statusCounts["REJECTED"] != 1 || statusCounts["COMPLETED"] != 1 || statusCounts["CANCELLED"] != 0 {
+		t.Fatalf("unexpected status counts: %#v", statusCounts)
+	}
+
+	httpCounts := map[int]int64{}
+	for _, item := range stats.HTTPStatusCounts {
+		httpCounts[item.StatusCode] = item.Count
+	}
+	if httpCounts[502] != 1 {
+		t.Fatalf("unexpected HTTP status counts: %#v", httpCounts)
+	}
+
+	providerCounts := map[uint64]int64{}
+	for _, item := range stats.ProviderCounts {
+		providerCounts[item.ProviderID] = item.Count
+	}
+	if providerCounts[7] != 2 || providerCounts[8] != 1 {
+		t.Fatalf("unexpected provider counts: %#v", providerCounts)
+	}
+
+	modelCounts := map[string]int64{}
+	for _, item := range stats.ModelCounts {
+		modelCounts[item.Name] = item.Count
+	}
+	if modelCounts["claude-sonnet"] != 2 || modelCounts["gpt-5"] != 1 {
+		t.Fatalf("unexpected model counts: %#v", modelCounts)
+	}
+	if len(stats.Trend) == 0 {
+		t.Fatal("expected non-empty trend")
+	}
+}

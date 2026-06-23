@@ -318,6 +318,41 @@ export type ProxyRequestStatus =
   | 'CANCELLED'
   | 'REJECTED';
 
+export type ProxyRequestErrorMode = 'all' | 'only' | 'exclude';
+
+export interface ProxyRequestCountBucket {
+  name: string;
+  count: number;
+}
+
+export interface ProxyRequestHTTPStatusBucket {
+  statusCode: number;
+  count: number;
+}
+
+export interface ProxyRequestProviderBucket {
+  providerId: number;
+  count: number;
+}
+
+export interface ProxyRequestTrendPoint {
+  startTime: number;
+  endTime: number;
+  totalRequests: number;
+  errorRequests: number;
+}
+
+export interface ProxyRequestErrorStats {
+  totalRequests: number;
+  errorRequests: number;
+  errorRate: number;
+  statusCounts: ProxyRequestCountBucket[];
+  httpStatusCounts: ProxyRequestHTTPStatusBucket[];
+  providerCounts: ProxyRequestProviderBucket[];
+  modelCounts: ProxyRequestCountBucket[];
+  trend: ProxyRequestTrendPoint[];
+}
+
 export interface ProxyRequest {
   id: number;
   createdAt: string;
@@ -424,6 +459,8 @@ export interface CursorPaginationParams {
   startTime?: string;
   /** 按创建时间终点过滤（ISO 字符串或毫秒时间戳字符串） */
   endTime?: string;
+  /** 错误请求过滤模式 */
+  errorMode?: ProxyRequestErrorMode;
 }
 
 /** 游标分页响应 */

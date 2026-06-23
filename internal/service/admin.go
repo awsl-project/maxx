@@ -864,6 +864,10 @@ func (s *AdminService) GetProxyRequestsCountWithFilter(tenantID uint64, filter *
 	return s.proxyRequestRepo.CountWithFilter(tenantID, filter)
 }
 
+func (s *AdminService) GetProxyRequestErrorStats(tenantID uint64, filter *repository.ProxyRequestFilter) (*repository.ProxyRequestErrorStats, error) {
+	return s.proxyRequestRepo.GetErrorStats(tenantID, filter)
+}
+
 func (s *AdminService) GetProxyRequest(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {
 	return s.proxyRequestRepo.GetByID(tenantID, id)
 }

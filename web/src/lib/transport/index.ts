@@ -33,6 +33,8 @@ export type {
   RoutingStickyScope,
   CreateRoutingStrategyData,
   ProxyRequest,
+  ProxyRequestErrorMode,
+  ProxyRequestErrorStats,
   ProxyRequestStatus,
   ProxyUpstreamAttempt,
   ProxyUpstreamAttemptStatus,

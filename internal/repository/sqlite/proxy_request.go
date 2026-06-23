@@ -19,6 +19,73 @@ type ProxyRequestRepository struct {
 
 var activeProxyRequestStatuses = []string{"PENDING", "IN_PROGRESS"}
 
+var proxyRequestErrorStatuses = []string{"FAILED", "REJECTED"}
+
+func cloneProxyRequestFilter(filter *repository.ProxyRequestFilter) *repository.ProxyRequestFilter {
+	if filter == nil {
+		return &repository.ProxyRequestFilter{}
+	}
+	cloned := *filter
+	return &cloned
+}
+
+func applyProxyRequestErrorMode(query *gorm.DB, mode repository.ProxyRequestErrorMode) *gorm.DB {
+	switch mode {
+	case repository.ProxyRequestErrorModeOnly:
+		return query.Where("status IN ? OR status_code >= ?", proxyRequestErrorStatuses, 400)
+	case repository.ProxyRequestErrorModeExclude:
+		return query.Where("status NOT IN ? AND status_code < ?", proxyRequestErrorStatuses, 400)
+	default:
+		return query
+	}
+}
+
+func applyProxyRequestFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
+	if filter == nil {
+		return query
+	}
+	if filter.ProviderID != nil {
+		query = query.Where("provider_id = ?", *filter.ProviderID)
+	}
+	if filter.Status != nil {
+		query = query.Where("status = ?", *filter.Status)
+	}
+	if filter.APITokenID != nil {
+		query = query.Where("api_token_id = ?", *filter.APITokenID)
+	}
+	if filter.ProjectID != nil {
+		query = query.Where("project_id = ?", *filter.ProjectID)
+	}
+	if filter.StartTime != nil {
+		query = query.Where("created_at >= ?", toTimestamp(*filter.StartTime))
+	}
+	if filter.EndTime != nil {
+		query = query.Where("created_at <= ?", toTimestamp(*filter.EndTime))
+	}
+	return applyProxyRequestErrorMode(query, filter.ErrorMode)
+}
+
+func proxyRequestTrendBucketSize(startMs, endMs int64) int64 {
+	if endMs <= startMs {
+		return int64(time.Hour / time.Millisecond)
+	}
+	duration := endMs - startMs
+	for _, bucket := range []int64{
+		int64(time.Minute / time.Millisecond),
+		int64(5 * time.Minute / time.Millisecond),
+		int64(15 * time.Minute / time.Millisecond),
+		int64(time.Hour / time.Millisecond),
+		int64(6 * time.Hour / time.Millisecond),
+		int64(24 * time.Hour / time.Millisecond),
+		int64(7 * 24 * time.Hour / time.Millisecond),
+	} {
+		if duration/bucket <= 30 {
+			return bucket
+		}
+	}
+	return int64(30 * 24 * time.Hour / time.Millisecond)
+}
+
 func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
 	r := &ProxyRequestRepository{db: db}
 	// 初始化时从数据库加载计数
@@ -108,26 +175,7 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 	}
 
 	// 应用过滤条件
-	if filter != nil {
-		if filter.ProviderID != nil {
-			baseQuery = baseQuery.Where("provider_id = ?", *filter.ProviderID)
-		}
-		if filter.Status != nil {
-			baseQuery = baseQuery.Where("status = ?", *filter.Status)
-		}
-		if filter.APITokenID != nil {
-			baseQuery = baseQuery.Where("api_token_id = ?", *filter.APITokenID)
-		}
-		if filter.ProjectID != nil {
-			baseQuery = baseQuery.Where("project_id = ?", *filter.ProjectID)
-		}
-		if filter.StartTime != nil {
-			baseQuery = baseQuery.Where("created_at >= ?", toTimestamp(*filter.StartTime))
-		}
-		if filter.EndTime != nil {
-			baseQuery = baseQuery.Where("created_at <= ?", toTimestamp(*filter.EndTime))
-		}
-	}
+	baseQuery = applyProxyRequestFilter(baseQuery, filter)
 
 	orderBy := "id DESC"
 	if after > 0 {
@@ -176,30 +224,147 @@ func (r *ProxyRequestRepository) CountWithFilter(tenantID uint64, filter *reposi
 	// 有过滤条件时需要查询数据库
 	var count int64
 	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID)
-	if filter != nil {
-		if filter.ProviderID != nil {
-			query = query.Where("provider_id = ?", *filter.ProviderID)
-		}
-		if filter.Status != nil {
-			query = query.Where("status = ?", *filter.Status)
-		}
-		if filter.APITokenID != nil {
-			query = query.Where("api_token_id = ?", *filter.APITokenID)
-		}
-		if filter.ProjectID != nil {
-			query = query.Where("project_id = ?", *filter.ProjectID)
-		}
-		if filter.StartTime != nil {
-			query = query.Where("created_at >= ?", toTimestamp(*filter.StartTime))
-		}
-		if filter.EndTime != nil {
-			query = query.Where("created_at <= ?", toTimestamp(*filter.EndTime))
-		}
-	}
+	query = applyProxyRequestFilter(query, filter)
 	if err := query.Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
+}
+
+func (r *ProxyRequestRepository) GetErrorStats(tenantID uint64, filter *repository.ProxyRequestFilter) (*repository.ProxyRequestErrorStats, error) {
+	baseFilter := cloneProxyRequestFilter(filter)
+	baseFilter.ErrorMode = repository.ProxyRequestErrorModeAll
+
+	totalRequests, err := r.CountWithFilter(tenantID, baseFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	errorFilter := cloneProxyRequestFilter(baseFilter)
+	errorFilter.ErrorMode = repository.ProxyRequestErrorModeOnly
+	errorRequests, err := r.CountWithFilter(tenantID, errorFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &repository.ProxyRequestErrorStats{
+		TotalRequests:    totalRequests,
+		ErrorRequests:    errorRequests,
+		StatusCounts:     []repository.ProxyRequestCountBucket{},
+		HTTPStatusCounts: []repository.ProxyRequestHTTPStatusBucket{},
+		ProviderCounts:   []repository.ProxyRequestProviderBucket{},
+		ModelCounts:      []repository.ProxyRequestCountBucket{},
+		Trend:            []repository.ProxyRequestTrendPoint{},
+	}
+	if totalRequests > 0 {
+		stats.ErrorRate = float64(errorRequests) / float64(totalRequests)
+	}
+
+	statusQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select("status AS name, COUNT(*) AS count").
+		Group("status").
+		Order("count DESC")
+	statusQuery = applyProxyRequestFilter(statusQuery, errorFilter)
+	if err := statusQuery.Scan(&stats.StatusCounts).Error; err != nil {
+		return nil, err
+	}
+
+	httpStatusQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select("status_code AS status_code, COUNT(*) AS count").
+		Where("status_code >= ?", 400).
+		Group("status_code").
+		Order("count DESC").
+		Limit(20)
+	httpStatusQuery = applyProxyRequestFilter(httpStatusQuery, baseFilter)
+	if err := httpStatusQuery.Scan(&stats.HTTPStatusCounts).Error; err != nil {
+		return nil, err
+	}
+
+	providerQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select("provider_id AS provider_id, COUNT(*) AS count").
+		Group("provider_id").
+		Order("count DESC").
+		Limit(10)
+	providerQuery = applyProxyRequestFilter(providerQuery, errorFilter)
+	if err := providerQuery.Scan(&stats.ProviderCounts).Error; err != nil {
+		return nil, err
+	}
+
+	modelQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Select("request_model AS name, COUNT(*) AS count").
+		Where("request_model <> ''").
+		Group("request_model").
+		Order("count DESC").
+		Limit(10)
+	modelQuery = applyProxyRequestFilter(modelQuery, errorFilter)
+	if err := modelQuery.Scan(&stats.ModelCounts).Error; err != nil {
+		return nil, err
+	}
+
+	startMs := int64(0)
+	endMs := int64(0)
+	if baseFilter.StartTime != nil {
+		startMs = toTimestamp(*baseFilter.StartTime)
+	}
+	if baseFilter.EndTime != nil {
+		endMs = toTimestamp(*baseFilter.EndTime)
+	}
+	if startMs == 0 || endMs == 0 {
+		var bounds struct {
+			MinCreatedAt int64
+			MaxCreatedAt int64
+		}
+		boundsQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+			Select("COALESCE(MIN(created_at), 0) AS min_created_at, COALESCE(MAX(created_at), 0) AS max_created_at")
+		boundsQuery = applyProxyRequestFilter(boundsQuery, baseFilter)
+		if err := boundsQuery.Scan(&bounds).Error; err != nil {
+			return nil, err
+		}
+		if startMs == 0 {
+			startMs = bounds.MinCreatedAt
+		}
+		if endMs == 0 {
+			endMs = bounds.MaxCreatedAt
+		}
+	}
+
+	if startMs > 0 && endMs >= startMs {
+		bucketSize := proxyRequestTrendBucketSize(startMs, endMs)
+		bucketStart := (startMs / bucketSize) * bucketSize
+		for bucketStart <= endMs {
+			bucketEnd := bucketStart + bucketSize - 1
+			if bucketEnd > endMs {
+				bucketEnd = endMs
+			}
+
+			bucketStartTime := time.UnixMilli(bucketStart).UTC()
+			bucketEndTime := time.UnixMilli(bucketEnd).UTC()
+			bucketFilter := cloneProxyRequestFilter(baseFilter)
+			bucketFilter.StartTime = &bucketStartTime
+			bucketFilter.EndTime = &bucketEndTime
+			total, err := r.CountWithFilter(tenantID, bucketFilter)
+			if err != nil {
+				return nil, err
+			}
+
+			bucketErrorFilter := cloneProxyRequestFilter(bucketFilter)
+			bucketErrorFilter.ErrorMode = repository.ProxyRequestErrorModeOnly
+			errors, err := r.CountWithFilter(tenantID, bucketErrorFilter)
+			if err != nil {
+				return nil, err
+			}
+
+			stats.Trend = append(stats.Trend, repository.ProxyRequestTrendPoint{
+				StartTime:     bucketStart,
+				EndTime:       bucketEnd,
+				TotalRequests: total,
+				ErrorRequests: errors,
+			})
+			bucketStart += bucketSize
+		}
+	}
+
+	return stats, nil
 }
 
 // 死实例孤儿请求的回收宽限期。当一个请求的 instance_id 不在活实例列表里时,

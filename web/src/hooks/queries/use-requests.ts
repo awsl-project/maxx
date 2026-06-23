@@ -8,6 +8,7 @@ import {
   getTransport,
   type ProxyRequest,
   type ProxyUpstreamAttempt,
+  type ProxyRequestErrorMode,
   type CursorPaginationParams,
   type CursorPaginationResult,
 } from '@/lib/transport';
@@ -18,12 +19,36 @@ export const requestKeys = {
   all: ['requests'] as const,
   lists: () => [...requestKeys.all, 'list'] as const,
   list: (params?: CursorPaginationParams) => [...requestKeys.lists(), params] as const,
-  infinite: (providerId?: number, status?: string, apiTokenId?: number, projectId?: number, startTime?: string, endTime?: string) =>
-    [...requestKeys.all, 'infinite', providerId, status, apiTokenId, projectId, startTime, endTime] as const,
+  infinite: (
+    providerId?: number,
+    status?: string,
+    apiTokenId?: number,
+    projectId?: number,
+    startTime?: string,
+    endTime?: string,
+    errorMode?: ProxyRequestErrorMode,
+  ) =>
+    [
+      ...requestKeys.all,
+      'infinite',
+      providerId,
+      status,
+      apiTokenId,
+      projectId,
+      startTime,
+      endTime,
+      errorMode,
+    ] as const,
+  errorStats: (params?: CursorPaginationParams) =>
+    [...requestKeys.all, 'error-stats', params] as const,
   details: () => [...requestKeys.all, 'detail'] as const,
   detail: (id: number) => [...requestKeys.details(), id] as const,
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
 };
+
+function isProxyRequestError(request: ProxyRequest): boolean {
+  return request.status === 'FAILED' || request.status === 'REJECTED' || request.statusCode >= 400;
+}
 
 function matchesRequestTimeRange(
   request: ProxyRequest,
@@ -62,10 +87,19 @@ export function useInfiniteProxyRequests(
   projectId?: number,
   startTime?: string,
   endTime?: string,
+  errorMode?: ProxyRequestErrorMode,
   enabled = true,
 ) {
   return useInfiniteQuery({
-    queryKey: requestKeys.infinite(providerId, status, apiTokenId, projectId, startTime, endTime),
+    queryKey: requestKeys.infinite(
+      providerId,
+      status,
+      apiTokenId,
+      projectId,
+      startTime,
+      endTime,
+      errorMode,
+    ),
     queryFn: ({ pageParam }) =>
       getTransport().getProxyRequests({
         limit: 100,
@@ -76,6 +110,7 @@ export function useInfiniteProxyRequests(
         projectId,
         startTime,
         endTime,
+        errorMode: errorMode === 'all' ? undefined : errorMode,
       }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.lastId : undefined),
     initialPageParam: undefined as number | undefined,
@@ -95,16 +130,43 @@ export function useProxyRequestsCount(
   projectId?: number,
   startTime?: string,
   endTime?: string,
+  errorMode?: ProxyRequestErrorMode,
   enabled = true,
 ) {
   return useQuery({
-    queryKey: ['requestsCount', providerId, status, apiTokenId, projectId, startTime, endTime] as const,
+    queryKey: [
+      'requestsCount',
+      providerId,
+      status,
+      apiTokenId,
+      projectId,
+      startTime,
+      endTime,
+      errorMode,
+    ] as const,
     queryFn: () =>
-      getTransport().getProxyRequestsCount(providerId, status, apiTokenId, projectId, startTime, endTime),
+      getTransport().getProxyRequestsCount(
+        providerId,
+        status,
+        apiTokenId,
+        projectId,
+        startTime,
+        endTime,
+        errorMode,
+      ),
     enabled,
     staleTime: 5_000,
     refetchInterval: enabled ? 10_000 : false,
     refetchIntervalInBackground: false,
+  });
+}
+
+export function useProxyRequestErrorStats(params?: CursorPaginationParams, enabled = true) {
+  return useQuery({
+    queryKey: requestKeys.errorStats(params),
+    queryFn: () => getTransport().getProxyRequestErrorStats(params),
+    enabled,
+    staleTime: 5_000,
   });
 }
 
@@ -244,6 +306,7 @@ export function useProxyRequestUpdates() {
           const filterProjectId = params?.projectId;
           const filterStartTime = params?.startTime;
           const filterEndTime = params?.endTime;
+          const filterErrorMode = params?.errorMode;
 
           const matchesFilter = (request: ProxyRequest) => {
             if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
@@ -259,6 +322,12 @@ export function useProxyRequestUpdates() {
               return false;
             }
             if (!matchesRequestTimeRange(request, filterStartTime, filterEndTime)) {
+              return false;
+            }
+            if (filterErrorMode === 'only' && !isProxyRequestError(request)) {
+              return false;
+            }
+            if (filterErrorMode === 'exclude' && isProxyRequestError(request)) {
               return false;
             }
             return true;
@@ -324,6 +393,7 @@ export function useProxyRequestUpdates() {
           const filterProjectId = queryKey[5] as number | undefined;
           const filterStartTime = queryKey[6] as string | undefined;
           const filterEndTime = queryKey[7] as string | undefined;
+          const filterErrorMode = queryKey[8] as ProxyRequestErrorMode | undefined;
 
           const matchesFilter = (request: ProxyRequest) => {
             if (filterProviderId !== undefined && request.providerID !== filterProviderId) {
@@ -339,6 +409,12 @@ export function useProxyRequestUpdates() {
               return false;
             }
             if (!matchesRequestTimeRange(request, filterStartTime, filterEndTime)) {
+              return false;
+            }
+            if (filterErrorMode === 'only' && !isProxyRequestError(request)) {
+              return false;
+            }
+            if (filterErrorMode === 'exclude' && isProxyRequestError(request)) {
               return false;
             }
             return true;
@@ -413,19 +489,32 @@ export function useProxyRequestUpdates() {
               const filterProjectId = query.queryKey[4] as number | undefined;
               const filterStartTime = query.queryKey[5] as string | undefined;
               const filterEndTime = query.queryKey[6] as string | undefined;
-              if (filterProviderId !== undefined && updatedRequest.providerID !== filterProviderId) {
+              const filterErrorMode = query.queryKey[7] as ProxyRequestErrorMode | undefined;
+              if (
+                filterProviderId !== undefined &&
+                updatedRequest.providerID !== filterProviderId
+              ) {
                 continue;
               }
               if (filterStatus !== undefined && updatedRequest.status !== filterStatus) {
                 continue;
               }
-              if (filterAPITokenId !== undefined && updatedRequest.apiTokenID !== filterAPITokenId) {
+              if (
+                filterAPITokenId !== undefined &&
+                updatedRequest.apiTokenID !== filterAPITokenId
+              ) {
                 continue;
               }
               if (filterProjectId !== undefined && updatedRequest.projectID !== filterProjectId) {
                 continue;
               }
               if (!matchesRequestTimeRange(updatedRequest, filterStartTime, filterEndTime)) {
+                continue;
+              }
+              if (filterErrorMode === 'only' && !isProxyRequestError(updatedRequest)) {
+                continue;
+              }
+              if (filterErrorMode === 'exclude' && isProxyRequestError(updatedRequest)) {
                 continue;
               }
               queryClient.setQueryData<number>(query.queryKey, (old) => (old ?? 0) + 1);
@@ -451,6 +540,7 @@ export function useProxyRequestUpdates() {
       if (invalidateCooldowns) {
         queryClient.invalidateQueries({ queryKey: ['cooldowns'] });
       }
+      queryClient.invalidateQueries({ queryKey: [...requestKeys.all, 'error-stats'] });
 
       flushAttempts();
     };
@@ -465,10 +555,13 @@ export function useProxyRequestUpdates() {
       }, flushIntervalMs);
     };
 
-    const unsubscribeRequest = transport.subscribe<ProxyRequest>('proxy_request_update', (updatedRequest) => {
-      pendingRequests.set(updatedRequest.id, updatedRequest);
-      scheduleFlush();
-    });
+    const unsubscribeRequest = transport.subscribe<ProxyRequest>(
+      'proxy_request_update',
+      (updatedRequest) => {
+        pendingRequests.set(updatedRequest.id, updatedRequest);
+        scheduleFlush();
+      },
+    );
 
     // 订阅 ProxyUpstreamAttempt 更新事件
     const unsubscribeAttempt = transport.subscribe<ProxyUpstreamAttempt>(
@@ -503,7 +596,10 @@ export function useProxyRequestUpdates() {
       knownRequestIds.clear();
 
       void queryClient.refetchQueries({ queryKey: requestKeys.lists(), type: 'active' });
-      void queryClient.refetchQueries({ queryKey: [...requestKeys.all, 'infinite'], type: 'active' });
+      void queryClient.refetchQueries({
+        queryKey: [...requestKeys.all, 'infinite'],
+        type: 'active',
+      });
       void queryClient.refetchQueries({ queryKey: requestKeys.details(), type: 'active' });
       void queryClient.refetchQueries({ queryKey: ['requestsCount'], type: 'active' });
       void queryClient.refetchQueries({ queryKey: ['dashboard'], type: 'active' });

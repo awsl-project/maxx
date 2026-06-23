@@ -16,6 +16,8 @@ import type {
   RoutingStrategy,
   CreateRoutingStrategyData,
   ProxyRequest,
+  ProxyRequestErrorMode,
+  ProxyRequestErrorStats,
   ProxyUpstreamAttempt,
   CursorPaginationParams,
   CursorPaginationResult,
@@ -143,7 +145,9 @@ export interface Transport {
     projectId?: number,
     startTime?: string,
     endTime?: string,
+    errorMode?: ProxyRequestErrorMode,
   ): Promise<number>;
+  getProxyRequestErrorStats(params?: CursorPaginationParams): Promise<ProxyRequestErrorStats>;
   getActiveProxyRequests(): Promise<ProxyRequest[]>;
   getProxyRequest(id: number): Promise<ProxyRequest>;
   getProxyUpstreamAttempts(proxyRequestId: number): Promise<ProxyUpstreamAttempt[]>;
