@@ -80,6 +80,26 @@ describe('bulk custom provider import parser', () => {
     });
   });
 
+  it('allows omitted response mapping and multiple mapping groups', () => {
+    const result = parseBulkCustomProviderCommands(
+      'provider add --name mimo --base-url https://api.example.com --api-key sk-test --clients claude --models claude-*,gpt-* --map "claude-*=mimo-claude,gpt-*=mimo-gpt" --map "*=mimo-v2.5-pro"',
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.commands[0]).toMatchObject({
+      supportModels: ['claude-*', 'gpt-*'],
+      modelMapping: {
+        'claude-*': 'mimo-claude',
+        'gpt-*': 'mimo-gpt',
+        '*': 'mimo-v2.5-pro',
+      },
+      responseModelMapping: {},
+    });
+
+    const data = toCreateProviderData(result.commands[0]);
+    expect(data.config?.custom?.responseModelMapping).toBeUndefined();
+  });
+
   it('reports line-scoped errors and keeps valid commands', () => {
     const result = parseBulkCustomProviderCommands(`
 provider add --name ok --base-url https://api.example.com --api-key sk-test --clients claude --map *=mimo-v2.5-pro
