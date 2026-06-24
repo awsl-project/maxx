@@ -176,6 +176,16 @@ func (s *AdminService) DeleteProvider(tenantID uint64, id uint64) error {
 			s.routeRepo.Delete(tenantID, route.ID)
 		}
 	}
+
+	// Delete provider-scoped model mappings so provider deletion does not leave
+	// orphaned mapping rules behind.
+	mappings, _ := s.modelMappingRepo.List(tenantID)
+	for _, mapping := range mappings {
+		if mapping.Scope == domain.ModelMappingScopeProvider && mapping.ProviderID == id {
+			s.modelMappingRepo.Delete(tenantID, mapping.ID)
+		}
+	}
+
 	// Remove adapter from cache
 	if s.adapterRefresher != nil {
 		s.adapterRefresher.RemoveAdapter(id)

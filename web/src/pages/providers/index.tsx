@@ -1,5 +1,15 @@
-import { useMemo, useRef, useState, type ComponentProps, type MouseEvent } from 'react';
-import { Plus, Layers, Download, Upload, Search, RefreshCw, Terminal } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type MouseEvent } from 'react';
+import {
+  Plus,
+  Layers,
+  Download,
+  Upload,
+  Search,
+  RefreshCw,
+  Terminal,
+  Trash2,
+  AlertTriangle,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -11,9 +21,12 @@ import {
   useProxyRequestUpdates,
   useCreateProvider,
   useCreateModelMapping,
+  useDeleteProvider,
+  useRoutes,
+  useModelMappings,
 } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
-import type { Provider, ImportResult } from '@/lib/transport';
+import type { Provider, ImportResult, Route, ModelMapping } from '@/lib/transport';
 import { getTransport } from '@/lib/transport';
 import { ProviderRow } from './components/provider-row';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,6 +42,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/layout/page-header';
 import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
@@ -92,15 +115,32 @@ function ManageProvidersButton({
   );
 }
 
+type ProviderBulkDeletePreviewItem = {
+  provider: Provider;
+  routes: Route[];
+  modelMappings: ModelMapping[];
+  streamingCount: number;
+};
+
+type ProviderBulkDeleteStatus = {
+  deleted: number;
+  failed: Array<{ id: number; name: string; message: string }>;
+} | null;
+
 export function ProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { data: providers, isLoading } = useProviders();
+  const { data: routes } = useRoutes();
+  const { data: modelMappings } = useModelMappings();
   const { data: providerStats = {} } = useAllProviderStats();
   const { countsByProvider } = useStreamingRequests();
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null);
+  const [bulkDeleteStatus, setBulkDeleteStatus] = useState<ProviderBulkDeleteStatus>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProviderIds, setSelectedProviderIds] = useState<Set<number>>(new Set());
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isRefreshingQuotas, setIsRefreshingQuotas] = useState(false);
   const [isRefreshingCodex, setIsRefreshingCodex] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
@@ -114,8 +154,10 @@ export function ProvidersPage() {
   const queryClient = useQueryClient();
   const createProvider = useCreateProvider();
   const createModelMapping = useCreateModelMapping();
+  const deleteProvider = useDeleteProvider();
   const canManageProviderSettings = user?.role === 'admin';
   const providerReadOnlyHint = t('providers.readOnlyHint');
+  const isBulkDeleting = deleteProvider.isPending;
 
   // 订阅请求更新事件，确保 providerStats 实时刷新
   useProxyRequestUpdates();
@@ -184,6 +226,57 @@ export function ProvidersPage() {
 
     return groups;
   }, [providers, searchQuery]);
+
+  const visibleProviderIds = useMemo(
+    () =>
+      (Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[]).flatMap((typeKey) =>
+        groupedProviders[typeKey].map((provider) => provider.id),
+      ),
+    [groupedProviders],
+  );
+
+  const selectedProviders = useMemo(
+    () => providers?.filter((provider) => selectedProviderIds.has(provider.id)) ?? [],
+    [providers, selectedProviderIds],
+  );
+
+  const selectedVisibleProviderCount = visibleProviderIds.filter((id) =>
+    selectedProviderIds.has(id),
+  ).length;
+  const allVisibleProvidersSelected =
+    visibleProviderIds.length > 0 && selectedVisibleProviderCount === visibleProviderIds.length;
+
+  const bulkDeletePreview = useMemo<ProviderBulkDeletePreviewItem[]>(
+    () =>
+      selectedProviders.map((provider) => ({
+        provider,
+        routes: (routes ?? []).filter((route) => route.providerID === provider.id),
+        modelMappings: (modelMappings ?? []).filter(
+          (mapping) => mapping.scope === 'provider' && mapping.providerID === provider.id,
+        ),
+        streamingCount: countsByProvider.get(provider.id) || 0,
+      })),
+    [countsByProvider, modelMappings, routes, selectedProviders],
+  );
+
+  const bulkDeleteRouteCount = bulkDeletePreview.reduce((sum, item) => sum + item.routes.length, 0);
+  const bulkDeleteMappingCount = bulkDeletePreview.reduce(
+    (sum, item) => sum + item.modelMappings.length,
+    0,
+  );
+  const bulkDeleteStreamingCount = bulkDeletePreview.reduce(
+    (sum, item) => sum + item.streamingCount,
+    0,
+  );
+
+  useEffect(() => {
+    if (!providers) return;
+    const providerIds = new Set(providers.map((provider) => provider.id));
+    setSelectedProviderIds((previous) => {
+      const next = new Set(Array.from(previous).filter((id) => providerIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [providers]);
 
   // Export providers as JSON file
   const handleExport = async () => {
@@ -297,6 +390,70 @@ export function ProvidersPage() {
         setIsBulkImportOpen(false);
         setBulkImportStatus(null);
       }, 800);
+    }
+  };
+
+  const handleToggleProviderSelection = (providerId: number, checked: boolean) => {
+    setSelectedProviderIds((previous) => {
+      const next = new Set(previous);
+      if (checked) {
+        next.add(providerId);
+      } else {
+        next.delete(providerId);
+      }
+      return next;
+    });
+    setBulkDeleteStatus(null);
+  };
+
+  const handleToggleVisibleProviderSelection = () => {
+    setSelectedProviderIds((previous) => {
+      const next = new Set(previous);
+      if (allVisibleProvidersSelected) {
+        visibleProviderIds.forEach((id) => next.delete(id));
+      } else {
+        visibleProviderIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+    setBulkDeleteStatus(null);
+  };
+
+  const handleClearProviderSelection = () => {
+    setSelectedProviderIds(new Set());
+    setBulkDeleteStatus(null);
+  };
+
+  const handleBulkDeleteProviders = async () => {
+    if (!canManageProviderSettings || selectedProviders.length === 0 || isBulkDeleting) return;
+
+    const failed: Array<{ id: number; name: string; message: string }> = [];
+    let deleted = 0;
+
+    for (const provider of selectedProviders) {
+      try {
+        await deleteProvider.mutateAsync(provider.id);
+        deleted += 1;
+      } catch (error) {
+        failed.push({
+          id: provider.id,
+          name: provider.name,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['providers'] });
+    queryClient.invalidateQueries({ queryKey: ['routes'] });
+    queryClient.invalidateQueries({ queryKey: ['model-mappings'] });
+    setBulkDeleteStatus({ deleted, failed });
+
+    if (failed.length === 0) {
+      setSelectedProviderIds(new Set());
+      setIsBulkDeleteOpen(false);
+      setTimeout(() => setBulkDeleteStatus(null), 5000);
+    } else {
+      setSelectedProviderIds(new Set(failed.map((item) => item.id)));
     }
   };
 
@@ -423,6 +580,49 @@ export function ProvidersPage() {
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="mx-auto max-w-7xl">
+          {canManageProviderSettings && providers && providers.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/80 p-3 shadow-sm">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleToggleVisibleProviderSelection}
+                disabled={visibleProviderIds.length === 0 || isBulkDeleting}
+              >
+                {allVisibleProvidersSelected
+                  ? t('providers.bulkDelete.clearVisible')
+                  : t('providers.bulkDelete.selectVisible', { count: visibleProviderIds.length })}
+              </Button>
+              <div className="text-sm text-muted-foreground">
+                {t('providers.bulkDelete.selectedCount', {
+                  count: selectedProviderIds.size,
+                })}
+              </div>
+              {selectedProviderIds.size > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearProviderSelection}
+                  disabled={isBulkDeleting}
+                >
+                  {t('common.cancel')}
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="ml-auto gap-2"
+                onClick={() => setIsBulkDeleteOpen(true)}
+                disabled={selectedProviderIds.size === 0 || isBulkDeleting}
+              >
+                <Trash2 size={14} />
+                {t('providers.bulkDelete.open')}
+              </Button>
+            </div>
+          )}
+
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-text-muted">{t('common.loading')}</div>
@@ -555,20 +755,58 @@ export function ProvidersPage() {
                           )}
                         </div>
                         <div className="space-y-3">
-                          {typeProviders.map((provider) => (
-                            <ProviderRow
-                              key={provider.id}
-                              provider={provider}
-                              stats={providerStats[provider.id]}
-                              streamingCount={countsByProvider.get(provider.id) || 0}
-                              onClick={
-                                canManageProviderSettings
-                                  ? () => navigate(`/providers/${provider.id}/edit`)
-                                  : undefined
-                              }
-                              title={!canManageProviderSettings ? providerReadOnlyHint : undefined}
-                            />
-                          ))}
+                          {typeProviders.map((provider) => {
+                            const isSelected = selectedProviderIds.has(provider.id);
+                            return (
+                              <div key={provider.id} className="relative">
+                                {canManageProviderSettings && (
+                                  <label
+                                    className={cn(
+                                      'absolute left-3 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border bg-background/90 shadow-sm backdrop-blur transition-all',
+                                      isSelected
+                                        ? 'border-primary bg-primary/10 ring-2 ring-primary/15'
+                                        : 'border-border/80 opacity-70 hover:opacity-100',
+                                    )}
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="h-3.5 w-3.5 accent-primary"
+                                      aria-label={t('providers.bulkDelete.selectProvider', {
+                                        name: provider.name,
+                                      })}
+                                      checked={isSelected}
+                                      disabled={isBulkDeleting}
+                                      onChange={(event) =>
+                                        handleToggleProviderSelection(
+                                          provider.id,
+                                          event.target.checked,
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                )}
+                                <ProviderRow
+                                  provider={provider}
+                                  stats={providerStats[provider.id]}
+                                  streamingCount={countsByProvider.get(provider.id) || 0}
+                                  className={cn(
+                                    canManageProviderSettings && 'pl-12',
+                                    isSelected &&
+                                      'border-primary/50 bg-primary/5 ring-1 ring-primary/20',
+                                  )}
+                                  onClick={
+                                    canManageProviderSettings
+                                      ? () => navigate(`/providers/${provider.id}/edit`)
+                                      : undefined
+                                  }
+                                  title={
+                                    !canManageProviderSettings ? providerReadOnlyHint : undefined
+                                  }
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
                       </section>
                     );
@@ -711,6 +949,109 @@ export function ProvidersPage() {
         </DialogContent>
       </Dialog>
 
+      <AlertDialog
+        open={isBulkDeleteOpen}
+        onOpenChange={(open) => {
+          if (!isBulkDeleting) setIsBulkDeleteOpen(open);
+        }}
+      >
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('providers.bulkDelete.dialogTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('providers.bulkDelete.dialogDescription', {
+                count: selectedProviders.length,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-4">
+            {(bulkDeleteRouteCount > 0 || bulkDeleteStreamingCount > 0) && (
+              <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  {bulkDeleteRouteCount > 0 && (
+                    <p>
+                      {t('providers.bulkDelete.routeWarning', {
+                        count: bulkDeleteRouteCount,
+                      })}
+                    </p>
+                  )}
+                  {bulkDeleteStreamingCount > 0 && (
+                    <p>
+                      {t('providers.bulkDelete.streamingWarning', {
+                        count: bulkDeleteStreamingCount,
+                      })}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                  {t('providers.bulkDelete.providers')}
+                </div>
+                <div className="mt-1 text-lg font-semibold">{selectedProviders.length}</div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                  {t('providers.bulkDelete.routes')}
+                </div>
+                <div className="mt-1 text-lg font-semibold">{bulkDeleteRouteCount}</div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                  {t('providers.bulkDelete.modelMappings')}
+                </div>
+                <div className="mt-1 text-lg font-semibold">{bulkDeleteMappingCount}</div>
+              </div>
+            </div>
+
+            <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-border p-3 text-sm">
+              {bulkDeletePreview.map((item) => (
+                <div key={item.provider.id} className="rounded-md bg-muted/40 p-2">
+                  <div className="font-medium text-foreground">{item.provider.name}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {t('providers.bulkDelete.itemDetails', {
+                      routes: item.routes.length,
+                      mappings: item.modelMappings.length,
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {bulkDeleteStatus?.failed.length ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                {bulkDeleteStatus.failed.map((item) => (
+                  <div key={item.id}>
+                    {item.name}: {item.message}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={selectedProviders.length === 0 || isBulkDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                handleBulkDeleteProviders();
+              }}
+            >
+              {isBulkDeleting
+                ? t('providers.bulkDelete.deleting')
+                : t('providers.bulkDelete.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Import Status Toast */}
       {importStatus && (
         <div className="fixed bottom-6 right-6 bg-card border border-border rounded-lg shadow-lg p-4">
@@ -728,6 +1069,14 @@ export function ProvidersPage() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteStatus && bulkDeleteStatus.failed.length === 0 && (
+        <div className="fixed bottom-6 right-6 bg-card border border-border rounded-lg shadow-lg p-4">
+          <div className="text-sm font-medium text-text-primary">
+            {t('providers.bulkDelete.completed', { count: bulkDeleteStatus.deleted })}
           </div>
         </div>
       )}

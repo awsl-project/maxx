@@ -50,6 +50,7 @@ interface ProviderRowProps {
   streamingCount: number;
   onClick?: () => void;
   title?: string;
+  className?: string;
 }
 
 // 获取 Claude 模型额度百分比和重置时间
@@ -202,7 +203,14 @@ function getCodexWeekQuotaInfo(
   };
 }
 
-export function ProviderRow({ provider, stats, streamingCount, onClick, title }: ProviderRowProps) {
+export function ProviderRow({
+  provider,
+  stats,
+  streamingCount,
+  onClick,
+  title,
+  className,
+}: ProviderRowProps) {
   const { t } = useTranslation();
   // 使用通用配置系统
   const typeConfig = getProviderTypeConfig(provider.type);
@@ -265,9 +273,19 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
           : isInteractive
             ? 'bg-card/60 border-border hover:bg-card hover:border-primary/40 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)] hover:scale-[1.01] shadow-sm'
             : 'bg-card/60 border-border shadow-sm',
+        className,
       )}
       style={{
-        borderColor: streamingCount > 0 ? `${color}60` : healthLevel === 'frozen' ? 'rgb(6 182 212 / 0.3)' : healthLevel === 'limited' ? 'rgb(234 179 8 / 0.3)' : healthLevel === 'degraded' ? 'rgb(249 115 22 / 0.2)' : undefined,
+        borderColor:
+          streamingCount > 0
+            ? `${color}60`
+            : healthLevel === 'frozen'
+              ? 'rgb(6 182 212 / 0.3)'
+              : healthLevel === 'limited'
+                ? 'rgb(234 179 8 / 0.3)'
+                : healthLevel === 'degraded'
+                  ? 'rgb(249 115 22 / 0.2)'
+                  : undefined,
         boxShadow: streamingCount > 0 ? `0 0 20px ${color}15` : undefined,
       }}
     >
@@ -524,13 +542,19 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
           {healthLevel === 'frozen' && worstCooldown && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
               <Snowflake size={12} className="text-cyan-500 animate-pulse" />
-              <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-cyan-500 tabular-nums" />
+              <CooldownTimer
+                cooldown={worstCooldown}
+                className="text-[11px] font-mono font-bold text-cyan-500 tabular-nums"
+              />
             </div>
           )}
           {healthLevel === 'limited' && worstCooldown && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
               <Snowflake size={12} className="text-yellow-500" />
-              <CooldownTimer cooldown={worstCooldown} className="text-[11px] font-mono font-bold text-yellow-500 tabular-nums" />
+              <CooldownTimer
+                cooldown={worstCooldown}
+                className="text-[11px] font-mono font-bold text-yellow-500 tabular-nums"
+              />
             </div>
           )}
           {healthLevel === 'degraded' && modelCooldowns.length > 0 && (
@@ -539,8 +563,13 @@ export function ProviderRow({ provider, stats, streamingCount, onClick, title }:
               <div className="flex items-center gap-1.5 flex-wrap">
                 {modelCooldowns.slice(0, 3).map((cd, i) => (
                   <div key={i} className="flex items-center gap-1">
-                    <span className="text-[10px] font-mono text-orange-400 truncate max-w-[120px]">{cd.model}</span>
-                    <CooldownTimer cooldown={cd} className="text-[10px] font-mono font-bold text-orange-500 tabular-nums" />
+                    <span className="text-[10px] font-mono text-orange-400 truncate max-w-[120px]">
+                      {cd.model}
+                    </span>
+                    <CooldownTimer
+                      cooldown={cd}
+                      className="text-[10px] font-mono font-bold text-orange-500 tabular-nums"
+                    />
                   </div>
                 ))}
                 {modelCooldowns.length > 3 && (
