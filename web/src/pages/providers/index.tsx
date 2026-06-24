@@ -238,6 +238,11 @@ export function ProvidersPage() {
     }
   };
 
+  const handleBulkImportOpenChange = (open: boolean) => {
+    if (isBulkImporting && !open) return;
+    setIsBulkImportOpen(open);
+  };
+
   const handleBulkImport = async () => {
     if (
       !canManageProviderSettings ||
@@ -258,14 +263,21 @@ export function ProvidersPage() {
         imported += 1;
 
         for (const [pattern, target] of Object.entries(command.modelMapping)) {
-          await createModelMapping.mutateAsync({
-            scope: 'provider',
-            providerID: provider.id,
-            pattern,
-            target,
-            isEnabled: true,
-          });
-          mappings += 1;
+          try {
+            await createModelMapping.mutateAsync({
+              scope: 'provider',
+              providerID: provider.id,
+              pattern,
+              target,
+              isEnabled: true,
+            });
+            mappings += 1;
+          } catch (error) {
+            importErrors.push({
+              lineNumber: command.lineNumber,
+              message: `${pattern} -> ${target}: ${error instanceof Error ? error.message : String(error)}`,
+            });
+          }
         }
       } catch (error) {
         importErrors.push({
@@ -568,8 +580,8 @@ export function ProvidersPage() {
         </div>
       </div>
 
-      <Dialog open={isBulkImportOpen} onOpenChange={setIsBulkImportOpen}>
-        <DialogContent className="max-w-3xl">
+      <Dialog open={isBulkImportOpen} onOpenChange={handleBulkImportOpenChange}>
+        <DialogContent className="max-w-3xl" showCloseButton={!isBulkImporting}>
           <DialogHeader>
             <DialogTitle>{t('providers.bulkImport.title')}</DialogTitle>
             <DialogDescription>{t('providers.bulkImport.description')}</DialogDescription>
@@ -677,7 +689,11 @@ export function ProvidersPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setIsBulkImportOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => handleBulkImportOpenChange(false)}
+              disabled={isBulkImporting}
+            >
               {t('common.cancel')}
             </Button>
             <Button
