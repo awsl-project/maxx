@@ -1756,7 +1756,7 @@ function ErrorStatsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(72rem,calc(100vw-1.5rem))] max-w-[min(72rem,calc(100vw-1.5rem))] max-h-[calc(100vh-2rem)] overflow-y-auto grid-cols-[minmax(0,1fr)]">
+      <DialogContent className="w-[min(96rem,calc(100vw-2rem))] max-w-[min(96rem,calc(100vw-2rem))] sm:max-w-[min(96rem,calc(100vw-2rem))] max-h-[calc(100vh-2rem)] overflow-y-auto grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>{t('requests.errorStats.title')}</DialogTitle>
           <DialogDescription>{t('requests.errorStats.description')}</DialogDescription>
