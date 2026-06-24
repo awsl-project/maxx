@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ComponentProps, type MouseEvent } from 'react';
-import { Plus, Layers, Download, Upload, Search, RefreshCw } from 'lucide-react';
+import { Plus, Layers, Download, Upload, Search, RefreshCw, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -9,6 +9,8 @@ import {
   useSettings,
   useUpdateSetting,
   useProxyRequestUpdates,
+  useCreateProvider,
+  useCreateModelMapping,
 } from '@/hooks/queries';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import type { Provider, ImportResult } from '@/lib/transport';
@@ -17,6 +19,16 @@ import { ProviderRow } from './components/provider-row';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/layout/page-header';
 import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
@@ -25,6 +37,11 @@ import { CodexQuotasProvider } from '@/contexts/codex-quotas-context';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
+import {
+  parseBulkCustomProviderCommands,
+  toCreateProviderData,
+  type BulkCustomProviderParseError,
+} from './utils/bulk-custom-provider-import';
 
 type ManageProvidersButtonProps = Omit<ComponentProps<typeof Button>, 'disabled'> & {
   canManage: boolean;
@@ -86,8 +103,17 @@ export function ProvidersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshingQuotas, setIsRefreshingQuotas] = useState(false);
   const [isRefreshingCodex, setIsRefreshingCodex] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [bulkImportCommands, setBulkImportCommands] = useState('');
+  const [bulkImportStatus, setBulkImportStatus] = useState<{
+    imported: number;
+    mappings: number;
+    errors: BulkCustomProviderParseError[];
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+  const createProvider = useCreateProvider();
+  const createModelMapping = useCreateModelMapping();
   const canManageProviderSettings = user?.role === 'admin';
   const providerReadOnlyHint = t('providers.readOnlyHint');
 
@@ -101,6 +127,11 @@ export function ProvidersPage() {
   const updateSetting = useUpdateSetting();
   const autoSortAntigravity = settings?.auto_sort_antigravity === 'true';
   const autoSortCodex = settings?.auto_sort_codex === 'true';
+  const bulkImportPreview = useMemo(
+    () => parseBulkCustomProviderCommands(bulkImportCommands),
+    [bulkImportCommands],
+  );
+  const isBulkImporting = createProvider.isPending || createModelMapping.isPending;
 
   const handleToggleAutoSortAntigravity = (checked: boolean) => {
     updateSetting.mutate({
@@ -207,6 +238,56 @@ export function ProvidersPage() {
     }
   };
 
+  const handleBulkImport = async () => {
+    if (
+      !canManageProviderSettings ||
+      bulkImportPreview.errors.length > 0 ||
+      bulkImportPreview.commands.length === 0 ||
+      isBulkImporting
+    ) {
+      return;
+    }
+
+    const importErrors: BulkCustomProviderParseError[] = [];
+    let imported = 0;
+    let mappings = 0;
+
+    for (const command of bulkImportPreview.commands) {
+      try {
+        const provider = await createProvider.mutateAsync(toCreateProviderData(command));
+        imported += 1;
+
+        for (const [pattern, target] of Object.entries(command.modelMapping)) {
+          await createModelMapping.mutateAsync({
+            scope: 'provider',
+            providerID: provider.id,
+            pattern,
+            target,
+            isEnabled: true,
+          });
+          mappings += 1;
+        }
+      } catch (error) {
+        importErrors.push({
+          lineNumber: command.lineNumber,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    setBulkImportStatus({ imported, mappings, errors: importErrors });
+    queryClient.invalidateQueries({ queryKey: ['providers'] });
+    queryClient.invalidateQueries({ queryKey: ['routes'] });
+
+    if (importErrors.length === 0) {
+      setBulkImportCommands('');
+      setTimeout(() => {
+        setIsBulkImportOpen(false);
+        setBulkImportStatus(null);
+      }, 800);
+    }
+  };
+
   // Refresh Antigravity quotas
   const handleRefreshQuotas = async () => {
     if (!canManageProviderSettings || isRefreshingQuotas) return;
@@ -306,6 +387,17 @@ export function ProvidersPage() {
             <span>{t('common.export')}</span>
           </ManageProvidersButton>
         )}
+        <ManageProvidersButton
+          canManage={canManageProviderSettings}
+          blockedReason={t('providers.addProviderAdminOnly')}
+          onClick={() => setIsBulkImportOpen(true)}
+          className="flex items-center gap-2"
+          title={canManageProviderSettings ? t('providers.bulkImport.open') : undefined}
+          variant="outline"
+        >
+          <Terminal size={14} />
+          <span>{t('providers.bulkImport.open')}</span>
+        </ManageProvidersButton>
         <ManageProvidersButton
           canManage={canManageProviderSettings}
           blockedReason={t('providers.addProviderAdminOnly')}
@@ -475,6 +567,133 @@ export function ProvidersPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={isBulkImportOpen} onOpenChange={setIsBulkImportOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{t('providers.bulkImport.title')}</DialogTitle>
+            <DialogDescription>{t('providers.bulkImport.description')}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+              <div className="mb-2 font-medium text-foreground">
+                {t('providers.bulkImport.exampleTitle')}
+              </div>
+              <code className="block whitespace-pre-wrap break-all">
+                provider add --name "Mimo" --base-url "https://api.example.com" --api-key "sk-..."
+                --clients claude,openai --models claude-sonnet-4,gpt-5 --map "*=mimo-v2.5-pro"
+                --response-map "mimo-v2.5-pro=claude-sonnet-4"
+              </code>
+            </div>
+
+            <Textarea
+              value={bulkImportCommands}
+              onChange={(event) => {
+                setBulkImportCommands(event.target.value);
+                setBulkImportStatus(null);
+              }}
+              placeholder={t('providers.bulkImport.placeholder')}
+              className="min-h-52 font-mono text-xs"
+            />
+
+            <div className="rounded-lg border border-border p-3">
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-medium">{t('providers.bulkImport.preview')}</span>
+                <Badge variant="secondary">
+                  {t('providers.bulkImport.providersCount', {
+                    count: bulkImportPreview.commands.length,
+                  })}
+                </Badge>
+                <Badge variant={bulkImportPreview.errors.length > 0 ? 'danger' : 'success'}>
+                  {t('providers.bulkImport.errorsCount', {
+                    count: bulkImportPreview.errors.length,
+                  })}
+                </Badge>
+              </div>
+
+              {bulkImportPreview.commands.length > 0 && (
+                <div className="max-h-40 space-y-2 overflow-y-auto text-xs">
+                  {bulkImportPreview.commands.map((command) => (
+                    <div key={command.lineNumber} className="rounded-md bg-muted/40 p-2">
+                      <div className="font-medium text-foreground">
+                        {t('providers.bulkImport.lineProvider', {
+                          line: command.lineNumber,
+                          name: command.name,
+                        })}
+                      </div>
+                      <div className="mt-1 text-muted-foreground">
+                        {t('providers.bulkImport.previewDetails', {
+                          clients: command.clients.join(', '),
+                          models: command.supportModels.length,
+                          mappings: Object.keys(command.modelMapping).length,
+                          responseMappings: Object.keys(command.responseModelMapping).length,
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {bulkImportPreview.errors.length > 0 && (
+                <div className="mt-3 max-h-32 space-y-1 overflow-y-auto text-xs text-red-400">
+                  {bulkImportPreview.errors.map((error, index) => (
+                    <div key={`${error.lineNumber}-${index}`}>
+                      {t('providers.bulkImport.lineError', {
+                        line: error.lineNumber,
+                        message: error.message,
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {bulkImportStatus && (
+                <div
+                  className={cn(
+                    'mt-3 rounded-md p-2 text-xs',
+                    bulkImportStatus.errors.length > 0
+                      ? 'bg-red-500/10 text-red-400'
+                      : 'bg-emerald-500/10 text-emerald-400',
+                  )}
+                >
+                  <div>
+                    {t('providers.bulkImport.importResult', {
+                      providers: bulkImportStatus.imported,
+                      mappings: bulkImportStatus.mappings,
+                    })}
+                  </div>
+                  {bulkImportStatus.errors.map((error, index) => (
+                    <div key={`${error.lineNumber}-${index}`}>
+                      {t('providers.bulkImport.lineError', {
+                        line: error.lineNumber,
+                        message: error.message,
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setIsBulkImportOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleBulkImport}
+              disabled={
+                !canManageProviderSettings ||
+                isBulkImporting ||
+                bulkImportPreview.errors.length > 0 ||
+                bulkImportPreview.commands.length === 0
+              }
+            >
+              {isBulkImporting ? t('common.saving') : t('providers.bulkImport.submit')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Import Status Toast */}
       {importStatus && (
