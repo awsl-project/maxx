@@ -6,6 +6,7 @@ package e2e_test
 // The captured "verify> ..." log lines are the evidence.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -347,6 +348,73 @@ func togglableMock() (*httptest.Server, *hitMock, func(int)) {
 		})
 	}))
 	return hm.server, hm, func(code int) { status.Store(int32(code)) }
+}
+
+func TestVerifyRoutingStreamDisconnectBeforeFirstChunkFailsOver(t *testing.T) {
+	env := NewProxyTestEnv(t)
+
+	var brokenHits atomic.Int64
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		brokenHits.Add(1)
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("test server does not support hijacking")
+		}
+		conn, bufrw, err := hj.Hijack()
+		if err != nil {
+			t.Fatalf("hijack upstream connection: %v", err)
+		}
+		_, _ = fmt.Fprint(bufrw, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n")
+		_ = bufrw.Flush()
+		_ = conn.Close()
+	}))
+	defer broken.Close()
+
+	var fallbackHits atomic.Int64
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fallbackHits.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"id\":\"chatcmpl-fallback\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"fallback-ok\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer fallback.Close()
+
+	brokenID := createProvider(t, env, "broken-stream", broken.URL, []string{"openai"})
+	fallbackID := createProvider(t, env, "fallback-stream", fallback.URL, []string{"openai"})
+
+	for i, pid := range []uint64{brokenID, fallbackID} {
+		resp := env.AdminPost("/api/admin/routes", map[string]any{
+			"isEnabled":  true,
+			"clientType": "openai",
+			"providerID": pid,
+			"position":   i + 1,
+			"weight":     1,
+		})
+		if resp.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("create route %d: status=%d body=%s", i+1, resp.StatusCode, body)
+		}
+		resp.Body.Close()
+	}
+
+	req := openaiRequest("gpt-4o")
+	req["stream"] = true
+	resp := env.ProxyPost("/v1/chat/completions", req, nil)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("proxy status=%d body=%s", resp.StatusCode, body)
+	}
+	if brokenHits.Load() != 1 {
+		t.Fatalf("broken upstream hits=%d, want 1", brokenHits.Load())
+	}
+	if fallbackHits.Load() != 1 {
+		t.Fatalf("fallback upstream hits=%d, want 1", fallbackHits.Load())
+	}
+	if !bytes.Contains(body, []byte("fallback-ok")) {
+		t.Fatalf("fallback response body missing marker: %s", body)
+	}
 }
 
 // TestVerifyRoutingErrorClass exercises the failure / sticky-update story:

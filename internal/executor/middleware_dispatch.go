@@ -313,6 +313,29 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			}
 
 			proxyErr, ok := err.(*domain.ProxyError)
+			if responseCapture.WroteToClient() {
+				log.Printf("[Executor] Response already committed; not failing over after provider %d error: %v", matchedRoute.Provider.ID, err)
+				proxyReq.Status = "FAILED"
+				proxyReq.EndTime = time.Now()
+				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
+				proxyReq.Error = err.Error()
+				proxyReq.StatusCode = responseCapture.StatusCode()
+				if !clearDetail {
+					proxyReq.ResponseInfo = &domain.ResponseInfo{
+						Status:  responseCapture.StatusCode(),
+						Headers: responseCapture.CapturedHeaders(),
+						Body:    responseCapture.Body(),
+					}
+				}
+				clearProxyRequestDetail(proxyReq, clearDetail)
+				_ = e.proxyRequestRepo.Update(proxyReq)
+				if e.broadcaster != nil {
+					e.broadcaster.BroadcastProxyRequest(proxyReq)
+				}
+				state.lastErr = err
+				c.Err = err
+				return
+			}
 			if ok && ctx.Err() != nil {
 				proxyReq.Status = "CANCELLED"
 				proxyReq.EndTime = time.Now()
@@ -331,6 +354,25 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				}
 				state.lastErr = ctx.Err()
 				c.Err = state.lastErr
+				return
+			}
+
+			if ok && proxyErr.Scope == domain.ScopeRequest && !proxyErr.Retryable {
+				log.Printf("[Executor] Request-scoped non-retryable error; not failing over after provider %d: %v", matchedRoute.Provider.ID, err)
+				proxyReq.Status = "FAILED"
+				proxyReq.EndTime = time.Now()
+				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
+				proxyReq.Error = err.Error()
+				if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+					proxyReq.StatusCode = proxyErr.HTTPStatusCode
+				}
+				clearProxyRequestDetail(proxyReq, clearDetail)
+				_ = e.proxyRequestRepo.Update(proxyReq)
+				if e.broadcaster != nil {
+					e.broadcaster.BroadcastProxyRequest(proxyReq)
+				}
+				state.lastErr = err
+				c.Err = err
 				return
 			}
 

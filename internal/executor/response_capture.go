@@ -39,6 +39,7 @@ type ResponseCapture struct {
 	statusCode int
 	body       bytes.Buffer
 	headers    http.Header
+	wrote      bool
 
 	// maxBytes 是 body 缓冲的上界(字节);超过后停止缓冲但继续转发。0 表示不限。
 	maxBytes int
@@ -61,6 +62,7 @@ func NewResponseCapture(w http.ResponseWriter) *ResponseCapture {
 // WriteHeader captures the status code and forwards to underlying writer
 func (rc *ResponseCapture) WriteHeader(code int) {
 	rc.statusCode = code
+	rc.wrote = true
 	rc.ResponseWriter.WriteHeader(code)
 }
 
@@ -72,9 +74,18 @@ func (rc *ResponseCapture) WriteHeader(code int) {
 func (rc *ResponseCapture) Write(b []byte) (int, error) {
 	n, err := rc.ResponseWriter.Write(b)
 	if n > 0 {
+		rc.wrote = true
 		rc.captureBounded(b[:n])
 	}
 	return n, err
+}
+
+// WroteToClient reports whether any response header or body byte has already
+// been forwarded to the downstream client. Once true, the executor must not
+// transparently fail over to another provider: doing so could splice two
+// upstream responses into one client-visible stream.
+func (rc *ResponseCapture) WroteToClient() bool {
+	return rc.wrote
 }
 
 // captureBounded appends b to the snapshot buffer without exceeding maxBytes.

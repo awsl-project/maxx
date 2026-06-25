@@ -519,7 +519,11 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	// Copy upstream headers (except those we override)
 	copyResponseHeaders(c.Writer.Header(), resp.Header)
 	c.Writer.WriteHeader(resp.StatusCode)
-	_, _ = c.Writer.Write(body)
+	if _, err := c.Writer.Write(body); err != nil {
+		proxyErr := domain.NewProxyErrorWithMessage(err, false, "client disconnected")
+		proxyErr.Scope = domain.ScopeRequest
+		return proxyErr
+	}
 	return nil
 }
 
@@ -782,7 +786,16 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 			if sseError != nil {
 				return sseError
 			}
-			return nil // Upstream closed normally
+			if !firstChunkSent {
+				proxyErr := domain.NewProxyErrorWithMessage(err, true, "upstream stream read error before response started")
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonNetworkError
+				return proxyErr
+			}
+			proxyErr := domain.NewProxyErrorWithMessage(err, false, "upstream stream read error after response started")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			return proxyErr
 		}
 	}
 }
