@@ -1,5 +1,16 @@
-import { GripVertical, Zap, RefreshCw, Activity, Snowflake, Info } from 'lucide-react';
-import { Button, Switch } from '@/components/ui';
+import { GripVertical, Zap, RefreshCw, Activity, Snowflake, Info, KeyRound } from 'lucide-react';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Switch,
+} from '@/components/ui';
 import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { MarqueeBackground } from '@/components/ui/marquee-background';
 import { useSortable } from '@dnd-kit/sortable';
@@ -17,10 +28,15 @@ import { CooldownTimer } from '@/components/cooldown-timer';
 import type { ProviderConfigItem } from '../types';
 import { useAntigravityQuotaFromContext } from '@/contexts/antigravity-quotas-context';
 import { useCooldownsContext } from '@/contexts/cooldowns-context';
-import { useUpdateRoute } from '@/hooks/queries';
+import { useUpdateProvider, useUpdateRoute } from '@/hooks/queries';
 import { ProviderDetailsDialog } from '@/components/provider-details-dialog';
 import { useEffect, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  buildCustomProviderApiKeyUpdate,
+  canQuickEditCustomProviderKey,
+  normalizeCustomProviderApiKeyInput,
+} from '../utils/custom-provider-key';
 
 // Inline weight editor, shown on each route row only when the effective routing
 // strategy is weighted_random. Commits on blur / Enter and is debounced by the
@@ -89,6 +105,109 @@ function RouteWeightControlBase({ route }: { route: Route }) {
   );
 }
 const RouteWeightControl = memo(RouteWeightControlBase);
+
+function CustomProviderKeyQuickEdit({ provider }: { provider: ProviderConfigItem['provider'] }) {
+  const { t } = useTranslation();
+  const updateProvider = useUpdateProvider();
+  const [open, setOpen] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const close = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setApiKey('');
+      setError(null);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const nextKey = normalizeCustomProviderApiKeyInput(apiKey);
+    if (!nextKey) {
+      close(false);
+      return;
+    }
+
+    setError(null);
+    try {
+      await updateProvider.mutateAsync({
+        id: provider.id,
+        data: buildCustomProviderApiKeyUpdate(provider, nextKey),
+      });
+      close(false);
+    } catch (err) {
+      console.error('Failed to update custom provider key:', err);
+      setError(t('routes.customProviderKey.updateFailed'));
+    }
+  };
+
+  return (
+    <div
+      className="relative z-10 flex items-center shrink-0"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        aria-disabled={updateProvider.isPending}
+        data-testid={`custom-provider-key-edit-${provider.id}`}
+        className={cn(
+          'inline-flex h-6 items-center justify-center gap-1 rounded-full border border-transparent bg-muted/45 px-2 text-[10px] font-bold text-muted-foreground transition-colors hover:border-primary/20 hover:bg-primary/10 hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:ring-[2px] outline-none',
+          updateProvider.isPending && 'pointer-events-none opacity-50',
+        )}
+        onClick={() => close(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            close(true);
+          }
+        }}
+        title={t('routes.customProviderKey.tooltip')}
+      >
+        <KeyRound size={11} />
+        {t('routes.customProviderKey.button')}
+      </div>
+      <Dialog open={open} onOpenChange={close}>
+        <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>{t('routes.customProviderKey.title')}</DialogTitle>
+              <DialogDescription>
+                {t('routes.customProviderKey.description', { name: provider.name })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor={`custom-provider-key-${provider.id}`}>{t('provider.apiKey')}</Label>
+              <Input
+                id={`custom-provider-key-${provider.id}`}
+                type="password"
+                autoComplete="off"
+                value={apiKey}
+                placeholder={t('routes.customProviderKey.placeholder')}
+                onChange={(e) => setApiKey(e.target.value)}
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('routes.customProviderKey.scopeHint')}
+              </p>
+              {error && <p className="text-xs text-destructive">{error}</p>}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => close(false)}>
+                {t('provider.cancel')}
+              </Button>
+              <Button type="submit" disabled={updateProvider.isPending}>
+                {updateProvider.isPending ? t('common.saving') : t('routes.customProviderKey.save')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 // 格式化 Token 数量
 function formatTokens(count: number): string {
@@ -641,6 +760,10 @@ function ProviderRowContentBase({
         <div className="relative z-10 flex items-center shrink-0">
           <StreamingBadge count={streamingCount} color={color} />
         </div>
+      )}
+      {/* Custom provider key quick edit: route UI edits provider-level key only. */}
+      {item.route && canQuickEditCustomProviderKey(provider) && (
+        <CustomProviderKeyQuickEdit provider={provider} />
       )}
       {/* Weight editor (weighted_random strategy only) */}
       {showWeight && item.route && <RouteWeightControl route={item.route} />}

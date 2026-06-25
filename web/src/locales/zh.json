@@ -744,6 +744,16 @@
       "globalTargetWarning": "目标是默认路由，可能影响所有继承全局路由的项目。",
       "failed": "同步路由失败",
       "confirm": "同步路由"
+    },
+    "customProviderKey": {
+      "button": "改 Key",
+      "tooltip": "快速修改该自定义提供商的 API Key",
+      "title": "修改自定义提供商 Key",
+      "description": "更新自定义提供商「{{name}}」上保存的 API Key；留空则保持当前 Key 不变。",
+      "scopeHint": "输入非空值时会修改提供商级 Key，所有引用该自定义提供商的路由都会使用新 Key。",
+      "updateFailed": "自定义提供商 Key 更新失败。",
+      "save": "保存 Key",
+      "placeholder": "留空保持当前 Key"
     }
   },
   "console": {

@@ -747,6 +747,16 @@
       "globalTargetWarning": "The target is Default routes. This may affect every project that inherits global routing.",
       "failed": "Failed to sync routes",
       "confirm": "Sync routes"
+    },
+    "customProviderKey": {
+      "button": "Edit key",
+      "tooltip": "Quickly update this custom provider API key",
+      "title": "Edit custom provider key",
+      "description": "Update the API key saved on custom provider {{name}}. Leave empty to keep the current key.",
+      "scopeHint": "Non-empty values update the provider-level key. Every route using this custom provider will use the new key.",
+      "updateFailed": "Failed to update the custom provider key.",
+      "save": "Save key",
+      "placeholder": "Leave empty to keep current key"
     }
   },
   "console": {
