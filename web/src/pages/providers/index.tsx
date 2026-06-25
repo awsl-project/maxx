@@ -819,13 +819,16 @@ export function ProvidersPage() {
       </div>
 
       <Dialog open={isBulkImportOpen} onOpenChange={handleBulkImportOpenChange}>
-        <DialogContent className="max-w-3xl" showCloseButton={!isBulkImporting}>
-          <DialogHeader>
+        <DialogContent
+          className="grid max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-3xl"
+          showCloseButton={!isBulkImporting}
+        >
+          <DialogHeader className="px-6 pt-6 pr-12 pb-4">
             <DialogTitle>{t('providers.bulkImport.title')}</DialogTitle>
             <DialogDescription>{t('providers.bulkImport.description')}</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
             <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
               <div className="mb-2 font-medium text-foreground">
                 {t('providers.bulkImport.exampleTitle')}
@@ -844,7 +847,7 @@ export function ProvidersPage() {
                 setBulkImportStatus(null);
               }}
               placeholder={t('providers.bulkImport.placeholder')}
-              className="min-h-52 font-mono text-xs"
+              className="h-52 max-h-72 overflow-y-auto field-sizing-fixed font-mono text-xs"
             />
 
             <div className="rounded-lg border border-border p-3">
@@ -926,7 +929,7 @@ export function ProvidersPage() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="border-t border-border bg-background px-6 py-4">
             <Button
               variant="secondary"
               onClick={() => handleBulkImportOpenChange(false)}
