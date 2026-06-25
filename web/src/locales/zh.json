@@ -315,6 +315,7 @@
       "open": "删除选中项",
       "selectVisible": "选择当前可见提供商（{{count}}）",
       "clearVisible": "清除当前可见选择",
+      "invertVisible": "反选当前可见",
       "selectedCount": "已选择 {{count}} 个提供商",
       "selectProvider": "选择提供商 {{name}}",
       "dialogTitle": "删除选中的提供商？",

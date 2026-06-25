@@ -70,6 +70,7 @@ import {
   toCreateProviderData,
   type BulkCustomProviderParseError,
 } from './utils/bulk-custom-provider-import';
+import { invertVisibleProviderSelection } from './utils/selection';
 
 type ManageProvidersButtonProps = Omit<ComponentProps<typeof Button>, 'disabled'> & {
   canManage: boolean;
@@ -397,6 +398,13 @@ export function ProvidersPage() {
     setBulkDeleteStatus(null);
   };
 
+  const handleInvertVisibleProviderSelection = () => {
+    setSelectedProviderIds((previous) =>
+      invertVisibleProviderSelection(previous, visibleProviderIds),
+    );
+    setBulkDeleteStatus(null);
+  };
+
   const handleClearProviderSelection = () => {
     setSelectedProviderIds(new Set());
     setBulkDeleteStatus(null);
@@ -570,6 +578,15 @@ export function ProvidersPage() {
                 {allVisibleProvidersSelected
                   ? t('providers.bulkDelete.clearVisible')
                   : t('providers.bulkDelete.selectVisible', { count: visibleProviderIds.length })}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleInvertVisibleProviderSelection}
+                disabled={visibleProviderIds.length === 0 || isBulkDeleting}
+              >
+                {t('providers.bulkDelete.invertVisible')}
               </Button>
               <div className="text-sm text-muted-foreground">
                 {t('providers.bulkDelete.selectedCount', {

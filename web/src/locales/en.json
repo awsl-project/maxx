@@ -318,6 +318,7 @@
       "open": "Delete selected",
       "selectVisible": "Select visible providers ({{count}})",
       "clearVisible": "Clear visible selection",
+      "invertVisible": "Invert visible selection",
       "selectedCount": "{{count}} provider(s) selected",
       "selectProvider": "Select provider {{name}}",
       "dialogTitle": "Delete selected providers?",
