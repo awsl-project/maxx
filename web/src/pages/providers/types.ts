@@ -90,6 +90,34 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
   },
 };
 
+export const PROVIDER_TYPE_ORDER = Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[];
+
+export function getKnownProviderTypeKey(type: string): ProviderTypeKey {
+  return type in PROVIDER_TYPE_CONFIGS ? (type as ProviderTypeKey) : 'custom';
+}
+
+export function createProviderTypeGroups<T extends Pick<Provider, 'name' | 'type'>>(
+  providers: readonly T[] | undefined,
+): Record<ProviderTypeKey, T[]> {
+  const groups = PROVIDER_TYPE_ORDER.reduce(
+    (acc, typeKey) => {
+      acc[typeKey] = [];
+      return acc;
+    },
+    {} as Record<ProviderTypeKey, T[]>,
+  );
+
+  providers?.forEach((provider) => {
+    groups[getKnownProviderTypeKey(provider.type)].push(provider);
+  });
+
+  for (const key of PROVIDER_TYPE_ORDER) {
+    groups[key].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  return groups;
+}
+
 // 获取 Provider 类型配置的辅助函数
 export function getProviderTypeConfig(type: string): ProviderTypeConfig {
   return PROVIDER_TYPE_CONFIGS[type as ProviderTypeKey] || PROVIDER_TYPE_CONFIGS.custom;

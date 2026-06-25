@@ -54,7 +54,12 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/layout/page-header';
-import { PROVIDER_TYPE_CONFIGS, type ProviderTypeKey } from './types';
+import {
+  PROVIDER_TYPE_CONFIGS,
+  PROVIDER_TYPE_ORDER,
+  createProviderTypeGroups,
+  type ProviderTypeKey,
+} from './types';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CodexQuotasProvider } from '@/contexts/codex-quotas-context';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -190,17 +195,6 @@ export function ProvidersPage() {
   };
 
   const groupedProviders = useMemo(() => {
-    // 按类型分组，使用配置系统中定义的类型
-    const groups: Record<ProviderTypeKey, Provider[]> = {
-      antigravity: [],
-      bedrock: [],
-      kiro: [],
-      codex: [],
-      claude: [],
-      custom: [],
-    };
-
-    // Filter providers by search query
     const filteredProviders = providers?.filter((p) => {
       if (!searchQuery.trim()) return true;
       const query = searchQuery.toLowerCase();
@@ -208,28 +202,12 @@ export function ProvidersPage() {
       const displayInfo = config?.getDisplayInfo(p) || '';
       return p.name.toLowerCase().includes(query) || displayInfo.toLowerCase().includes(query);
     });
-
-    filteredProviders?.forEach((p) => {
-      const type = p.type as ProviderTypeKey;
-      if (groups[type]) {
-        groups[type].push(p);
-      } else {
-        // 未知类型归入 custom
-        groups.custom.push(p);
-      }
-    });
-
-    // 按名称字母顺序排列
-    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
-      groups[key].sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    return groups;
+    return createProviderTypeGroups(filteredProviders);
   }, [providers, searchQuery]);
 
   const visibleProviderIds = useMemo(
     () =>
-      (Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[]).flatMap((typeKey) =>
+      PROVIDER_TYPE_ORDER.flatMap((typeKey) =>
         groupedProviders[typeKey].map((provider) => provider.id),
       ),
     [groupedProviders],
@@ -648,7 +626,7 @@ export function ProvidersPage() {
               <CodexQuotasProvider>
                 <div className="space-y-8">
                   {/* 动态渲染各类型分组 */}
-                  {(Object.keys(PROVIDER_TYPE_CONFIGS) as ProviderTypeKey[]).map((typeKey) => {
+                  {PROVIDER_TYPE_ORDER.map((typeKey) => {
                     const typeProviders = groupedProviders[typeKey];
                     if (typeProviders.length === 0) return null;
 

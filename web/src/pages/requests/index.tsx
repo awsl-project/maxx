@@ -75,17 +75,11 @@ import { PageHeader } from '@/components/layout/page-header';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useAuth } from '@/lib/auth-context';
 import { calculateVirtualRange } from './virtual-range';
-
-type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
-
-const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'codex', 'custom'];
-
-const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
-  antigravity: 'Antigravity',
-  kiro: 'Kiro',
-  codex: 'Codex',
-  custom: 'Custom',
-};
+import {
+  PROVIDER_TYPE_CONFIGS,
+  PROVIDER_TYPE_ORDER,
+  createProviderTypeGroups,
+} from '@/pages/providers/types';
 
 type RequestFilterMode = 'token' | 'provider' | 'project';
 
@@ -1409,28 +1403,7 @@ function ProviderFilter({
 
   // Group providers by type and sort alphabetically
   const groupedProviders = useMemo(() => {
-    const groups: Record<ProviderTypeKey, Provider[]> = {
-      antigravity: [],
-      kiro: [],
-      codex: [],
-      custom: [],
-    };
-
-    providers.forEach((p) => {
-      const type = p.type as ProviderTypeKey;
-      if (groups[type]) {
-        groups[type].push(p);
-      } else {
-        groups.custom.push(p);
-      }
-    });
-
-    // Sort alphabetically within each group
-    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
-      groups[key].sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    return groups;
+    return createProviderTypeGroups<Provider>(providers);
   }, [providers]);
 
   // Get selected provider name for display
@@ -1458,7 +1431,7 @@ function ProviderFilter({
           if (typeProviders.length === 0) return null;
           return (
             <SelectGroup key={typeKey}>
-              <SelectLabel>{PROVIDER_TYPE_LABELS[typeKey]}</SelectLabel>
+              <SelectLabel>{PROVIDER_TYPE_CONFIGS[typeKey].label}</SelectLabel>
               {typeProviders.map((provider) => (
                 <SelectItem key={provider.id} value={String(provider.id)}>
                   {provider.name}

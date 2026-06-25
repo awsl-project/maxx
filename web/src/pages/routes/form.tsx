@@ -4,17 +4,11 @@ import { Button, Input } from '@/components/ui';
 import { useCreateRoute, useUpdateRoute, useProviders, useProjects } from '@/hooks/queries';
 import type { ClientType, Route, Provider } from '@/lib/transport';
 import { ModelMappingEditor } from '@/pages/providers/components/model-mapping-editor';
-
-type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
-
-const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'codex', 'custom'];
-
-const PROVIDER_TYPE_LABELS: Record<ProviderTypeKey, string> = {
-  antigravity: 'Antigravity',
-  kiro: 'Kiro',
-  codex: 'Codex',
-  custom: 'Custom',
-};
+import {
+  PROVIDER_TYPE_CONFIGS,
+  PROVIDER_TYPE_ORDER,
+  createProviderTypeGroups,
+} from '@/pages/providers/types';
 
 interface RouteFormProps {
   route?: Route;
@@ -41,28 +35,7 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
 
   // Group providers by type and sort alphabetically
   const groupedProviders = useMemo(() => {
-    const groups: Record<ProviderTypeKey, Provider[]> = {
-      antigravity: [],
-      kiro: [],
-      codex: [],
-      custom: [],
-    };
-
-    providers?.forEach((p) => {
-      const type = p.type as ProviderTypeKey;
-      if (groups[type]) {
-        groups[type].push(p);
-      } else {
-        groups.custom.push(p);
-      }
-    });
-
-    // Sort alphabetically within each group
-    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
-      groups[key].sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    return groups;
+    return createProviderTypeGroups<Provider>(providers);
   }, [providers]);
 
   useEffect(() => {
@@ -141,7 +114,7 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
               const typeProviders = groupedProviders[typeKey];
               if (typeProviders.length === 0) return null;
               return (
-                <optgroup key={typeKey} label={PROVIDER_TYPE_LABELS[typeKey]}>
+                <optgroup key={typeKey} label={PROVIDER_TYPE_CONFIGS[typeKey].label}>
                   {typeProviders.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}

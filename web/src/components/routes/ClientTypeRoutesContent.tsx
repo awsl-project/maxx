@@ -96,16 +96,12 @@ import {
 import { cn } from '@/lib/utils';
 import { AntigravityQuotasProvider } from '@/contexts/antigravity-quotas-context';
 import { CooldownsProvider } from '@/contexts/cooldowns-context';
-
-type ProviderTypeKey = 'antigravity' | 'kiro' | 'codex' | 'custom';
-
-const PROVIDER_TYPE_ORDER: ProviderTypeKey[] = ['antigravity', 'kiro', 'codex', 'custom'];
-
-const PROVIDER_TYPE_LABELS: Record<Exclude<ProviderTypeKey, 'custom'>, string> = {
-  antigravity: 'Antigravity',
-  kiro: 'Kiro',
-  codex: 'Codex',
-};
+import {
+  PROVIDER_TYPE_CONFIGS,
+  PROVIDER_TYPE_ORDER,
+  createProviderTypeGroups,
+  type ProviderTypeKey,
+} from '@/pages/providers/types';
 
 function isSameProviderStats(a: ProviderStats, b: ProviderStats): boolean {
   return (
@@ -645,13 +641,6 @@ function ClientTypeRoutesContentInner({
 
   // Get available providers (without routes yet), grouped by type and sorted alphabetically
   const groupedAvailableProviders = useMemo((): Record<ProviderTypeKey, Provider[]> => {
-    const groups: Record<ProviderTypeKey, Provider[]> = {
-      antigravity: [],
-      kiro: [],
-      codex: [],
-      custom: [],
-    };
-
     let available = providers.filter((p) => !routeByProviderId.has(Number(p.id)));
 
     // Apply search filter
@@ -663,22 +652,7 @@ function ClientTypeRoutesContentInner({
       );
     }
 
-    // Group by type
-    available.forEach((p) => {
-      const type = p.type as ProviderTypeKey;
-      if (groups[type]) {
-        groups[type].push(p);
-      } else {
-        groups.custom.push(p);
-      }
-    });
-
-    // Sort alphabetically within each group
-    for (const key of Object.keys(groups) as ProviderTypeKey[]) {
-      groups[key].sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    return groups;
+    return createProviderTypeGroups(available);
   }, [providers, normalizedQuery, routeByProviderId]);
 
   // Check if there are any available providers
@@ -996,7 +970,7 @@ function ClientTypeRoutesContentInner({
                         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                           {typeKey === 'custom'
                             ? t('routes.providerType.custom')
-                            : PROVIDER_TYPE_LABELS[typeKey]}
+                            : PROVIDER_TYPE_CONFIGS[typeKey].label}
                         </span>
                         <div className="h-px flex-1 bg-border/50" />
                       </div>
