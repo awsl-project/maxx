@@ -112,6 +112,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleBatchUpdateRoutePositions(w, r)
 		case len(parts) == 3 && parts[2] == "bulk-delete":
 			h.handleBulkDeleteRoutes(w, r)
+		case len(parts) == 3 && parts[2] == "claude-provider-batch-test":
+			h.handleClaudeProviderBatchTest(w, r)
 		case len(parts) == 3:
 			id, ok := parseSelfServiceID(w, "route", parts[2])
 			if !ok {
@@ -635,6 +637,31 @@ func (h *SelfServiceHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *ht
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 	result, err := h.svc.BulkDeleteRoutes(tenantID, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *SelfServiceHandler) handleClaudeProviderBatchTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var req service.ClaudeProviderBatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.ClaudeProviderBatchTest(r.Context(), tenantID, req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

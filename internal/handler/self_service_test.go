@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -22,6 +23,15 @@ type selfServiceProviderRepo struct {
 }
 
 func (r *selfServiceProviderRepo) Create(provider *domain.Provider) error {
+	if provider.ID == 0 {
+		var maxID uint64
+		for _, existing := range r.providers {
+			if existing.ID > maxID {
+				maxID = existing.ID
+			}
+		}
+		provider.ID = maxID + 1
+	}
 	r.providers = append(r.providers, provider)
 	return nil
 }
@@ -1335,6 +1345,79 @@ func TestSelfServiceHandler_ListRoutes_MemberAllowed(t *testing.T) {
 	}
 	if len(routes) != 1 || routes[0].ProviderID != 10 {
 		t.Fatalf("routes = %+v, want only tenant route", routes)
+	}
+}
+
+func TestSelfServiceHandler_ClaudeProviderBatchTest_PersistsOnlyUsableProviders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/ok/"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock"}`))
+		case strings.HasPrefix(r.URL.Path, "/auth/"):
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"type":"authentication_error","message":"invalid api key"}}`))
+		case strings.HasPrefix(r.URL.Path, "/model/"):
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"type":"not_found_error","message":"model not found"}}`))
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{}
+	routeRepo := &selfServiceRouteRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		routeRepo:    routeRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := fmt.Sprintf(`{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":8,
+		"concurrency":3,
+		"persistMode":"passed",
+		"createRoutes":true,
+		"candidates":[
+			{"type":"custom","name":"ok","config":{"custom":{"baseURL":"%s/ok","apiKey":"sk-ok","modelMapping":{"claude-sonnet-4":"mock-sonnet"}}},"supportedClientTypes":["claude"]},
+			{"type":"custom","name":"auth","config":{"custom":{"baseURL":"%s/auth","apiKey":"sk-auth"}},"supportedClientTypes":["claude"]},
+			{"type":"custom","name":"model","config":{"custom":{"baseURL":"%s/model","apiKey":"sk-model"}},"supportedClientTypes":["claude"]}
+		]
+	}`, upstream.URL, upstream.URL, upstream.URL)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.TestedCount != 3 || result.UsableCount != 1 || result.PersistedCount != 1 || result.RoutesCreated != 1 {
+		t.Fatalf("result = %+v, want one usable provider persisted with one route", result)
+	}
+	if len(providerRepo.providers) != 1 || providerRepo.providers[0].Name != "ok" {
+		t.Fatalf("providers = %+v, want only usable provider persisted", providerRepo.providers)
+	}
+	if len(routeRepo.routes) != 1 || routeRepo.routes[0].ClientType != domain.ClientTypeClaude || !routeRepo.routes[0].IsEnabled || routeRepo.routes[0].ProviderID != providerRepo.providers[0].ID {
+		t.Fatalf("routes = %+v, want enabled Claude route for persisted provider", routeRepo.routes)
+	}
+	statuses := map[string]bool{}
+	for _, item := range result.Results {
+		statuses[item.Status] = true
+		if strings.Contains(item.Error, "sk-") || strings.Contains(item.Message, "sk-") {
+			t.Fatalf("sensitive key leaked in result item: %+v", item)
+		}
+	}
+	for _, status := range []string{service.ClaudeProviderBatchStatusUsable, service.ClaudeProviderBatchStatusAuthFailed, service.ClaudeProviderBatchStatusModelUnsupported} {
+		if !statuses[status] {
+			t.Fatalf("statuses = %+v, missing %s", statuses, status)
+		}
 	}
 }
 

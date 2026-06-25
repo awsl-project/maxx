@@ -255,6 +255,63 @@ export interface RouteSyncResult {
   routes: Route[];
 }
 
+export type ClaudeProviderBatchPersistMode = 'none' | 'passed' | 'all_disabled';
+
+export interface ClaudeProviderBatchRequest {
+  existingProviderIDs?: number[];
+  candidates?: CreateProviderData[];
+  projectID: number;
+  testModel?: string;
+  maxTokens?: number;
+  concurrency?: number;
+  persistMode?: ClaudeProviderBatchPersistMode;
+  createRoutes?: boolean;
+  overwriteExisting?: boolean;
+  routeWeight?: number;
+}
+
+export interface ClaudeProviderBatchProviderResult {
+  index: number;
+  source: 'existing' | 'candidate' | string;
+  existingID?: number;
+  providerID?: number;
+  routeID?: number;
+  name: string;
+  type: string;
+  baseURL?: string;
+  modelMapping?: Record<string, string>;
+  requestedModel: string;
+  mappedModel: string;
+  action: string;
+  status: string;
+  httpStatus?: number;
+  ok: boolean;
+  persisted: boolean;
+  routeCreated: boolean;
+  routeUpdated: boolean;
+  routeEnabled: boolean;
+  message?: string;
+  error?: string;
+  durationMs: number;
+}
+
+export interface ClaudeProviderBatchResponse {
+  clientType: ClientType;
+  projectID: number;
+  testModel: string;
+  persistMode: ClaudeProviderBatchPersistMode;
+  createRoutes: boolean;
+  concurrency: number;
+  results: ClaudeProviderBatchProviderResult[];
+  testedCount: number;
+  usableCount: number;
+  persistedCount: number;
+  routesCreated: number;
+  routesUpdated: number;
+  routesDisabled: number;
+  routesSkipped: number;
+}
+
 // ===== RetryConfig =====
 
 export interface RetryConfig {

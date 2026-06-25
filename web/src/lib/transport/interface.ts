@@ -70,6 +70,8 @@ import type {
   RouteSyncRequest,
   RouteSyncResult,
   RoutePositionUpdate,
+  ClaudeProviderBatchRequest,
+  ClaudeProviderBatchResponse,
   UsageStats,
   UsageStatsFilter,
   RecalculateCostsResult,
@@ -113,6 +115,10 @@ export interface Transport {
   bulkDeleteRoutes(data: RouteBulkDeleteRequest): Promise<RouteBulkDeleteResult>;
   syncRoutesFromProject(data: RouteSyncRequest): Promise<RouteSyncResult>;
   batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void>;
+  claudeProviderBatchTest(
+    data: ClaudeProviderBatchRequest,
+    signal?: AbortSignal,
+  ): Promise<ClaudeProviderBatchResponse>;
 
   // ===== Session API =====
   getSessions(): Promise<Session[]>;

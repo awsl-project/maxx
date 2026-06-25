@@ -67,6 +67,7 @@ import {
   SortableProviderRow,
   ProviderRowContent,
 } from '@/pages/client-routes/components/provider-row';
+import { ClaudeProviderBatchTestDialog } from '@/pages/client-routes/components/claude-provider-batch-test-dialog';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
 import {
   AlertDialog,
@@ -288,7 +289,8 @@ function SyncRoutesDialog({ clientType, projectID, routes, projects }: SyncRoute
   }, [sourceOptions, sourceProjectID]);
 
   const sourceProject = projects.find((project) => project.id === sourceProjectID);
-  const sourceUsesGlobal = sourceProjectID > 0 && !projectHasCustomRoutes(sourceProject, clientType);
+  const sourceUsesGlobal =
+    sourceProjectID > 0 && !projectHasCustomRoutes(sourceProject, clientType);
   const effectiveSourceProjectID = sourceUsesGlobal ? 0 : sourceProjectID;
   const sourceRoutes = routesForScope(routes, effectiveSourceProjectID, clientType);
   const targetRoutes = routesForScope(routes, projectID, clientType);
@@ -330,7 +332,8 @@ function SyncRoutesDialog({ clientType, projectID, routes, projects }: SyncRoute
   }, [mode, sourceRoutes, targetRoutes]);
 
   const canSync = sourceOptions.length > 0 && !syncRoutes.isPending;
-  const targetLabel = projectID === 0 ? t('common.default') : projects.find((p) => p.id === projectID)?.name;
+  const targetLabel =
+    projectID === 0 ? t('common.default') : projects.find((p) => p.id === projectID)?.name;
 
   const handleSync = () => {
     syncRoutes.mutate(
@@ -389,9 +392,7 @@ function SyncRoutesDialog({ clientType, projectID, routes, projects }: SyncRoute
                 <SelectContent>
                   {sourceOptions.map((option) => (
                     <SelectItem key={option.id} value={String(option.id)}>
-                      {option.isGlobal
-                        ? t('routes.syncDialog.defaultRoutes')
-                        : option.label}
+                      {option.isGlobal ? t('routes.syncDialog.defaultRoutes') : option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -445,7 +446,11 @@ function SyncRoutesDialog({ clientType, projectID, routes, projects }: SyncRoute
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={syncRoutes.isPending}>
+            <Button
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={syncRoutes.isPending}
+            >
               {t('common.cancel')}
             </Button>
             <Button onClick={handleSync} disabled={!canSync}>
@@ -843,12 +848,21 @@ function ClientTypeRoutesContentInner({
                 stickyTTLSeconds={strategyInfo.stickyTTLSeconds}
               />
             </div>
-            <SyncRoutesDialog
-              clientType={clientType}
-              projectID={projectID}
-              routes={allRoutes}
-              projects={projects}
-            />
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {clientType === 'claude' && (
+                <ClaudeProviderBatchTestDialog
+                  providers={providers}
+                  routes={allRoutes ?? []}
+                  projectID={projectID}
+                />
+              )}
+              <SyncRoutesDialog
+                clientType={clientType}
+                projectID={projectID}
+                routes={allRoutes}
+                projects={projects}
+              />
+            </div>
           </div>
 
           {items.length > 0 && (

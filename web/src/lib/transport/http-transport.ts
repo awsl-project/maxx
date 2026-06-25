@@ -71,6 +71,8 @@ import type {
   RouteSyncRequest,
   RouteSyncResult,
   RoutePositionUpdate,
+  ClaudeProviderBatchRequest,
+  ClaudeProviderBatchResponse,
   UsageStats,
   UsageStatsFilter,
   RecalculateCostsResult,
@@ -338,6 +340,21 @@ export class HttpTransport implements Transport {
 
   async batchUpdateRoutePositions(updates: RoutePositionUpdate[]): Promise<void> {
     await this.client.put('/routes/batch-positions', updates);
+  }
+
+  async claudeProviderBatchTest(
+    payload: ClaudeProviderBatchRequest,
+    signal?: AbortSignal,
+  ): Promise<ClaudeProviderBatchResponse> {
+    const { data } = await this.client.post<ClaudeProviderBatchResponse>(
+      '/routes/claude-provider-batch-test',
+      payload,
+      { signal },
+    );
+    return this.expectObject<ClaudeProviderBatchResponse>(
+      data,
+      '/routes/claude-provider-batch-test',
+    );
   }
 
   // ===== Session API =====

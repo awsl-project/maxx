@@ -7,6 +7,7 @@ import {
   getTransport,
   type Route,
   type CreateRouteData,
+  type ClaudeProviderBatchRequest,
   type RouteBulkDeleteRequest,
   type RouteSyncRequest,
 } from '@/lib/transport';
@@ -135,6 +136,20 @@ export function useUpdateRoutePositions() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+    },
+  });
+}
+
+// Claude 路由页：批量测试/导入 provider，并可按结果创建 Claude route
+export function useClaudeProviderBatchTest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ data, signal }: { data: ClaudeProviderBatchRequest; signal?: AbortSignal }) =>
+      getTransport().claudeProviderBatchTest(data, signal),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['providers'] });
     },
   });
 }

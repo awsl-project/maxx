@@ -41,6 +41,7 @@ export {
   useSyncRoutesFromProject,
   useToggleRoute,
   useUpdateRoutePositions,
+  useClaudeProviderBatchTest,
 } from './use-routes';
 
 // Session hooks
