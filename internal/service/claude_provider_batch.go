@@ -214,7 +214,7 @@ func (s *AdminService) prepareClaudeBatchProviders(tenantID uint64, req ClaudePr
 		default:
 			result.Action = "create_provider"
 		}
-		if req.CreateRoutes {
+		if req.CreateRoutes && source != "existing" {
 			result.Action += "+claude_route"
 		}
 		if errStatus != "" {
@@ -456,7 +456,8 @@ func (s *AdminService) persistClaudeBatchResults(tenantID uint64, req ClaudeProv
 		}
 		var providerID uint64
 		if item.source == "existing" {
-			providerID = item.existingID
+			result.ProviderID = item.existingID
+			continue
 		} else if item.duplicate != nil && req.OverwriteExisting {
 			provider.ID = item.duplicate.ID
 			provider.TenantID = tenantID

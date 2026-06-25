@@ -751,7 +751,7 @@
     "claudeBatchTest": {
       "button": "Batch test providers",
       "title": "Claude provider batch test",
-      "description": "Only affects the current Claude routes page. Preview first, then run rate-limited concurrent tests; by default only providers that pass are saved, with Claude routes created according to the selected option.",
+      "description": "Only affects the current Claude routes page. Preview first, then run rate-limited concurrent tests; new configs are saved only after passing, while failed existing providers require explicit removal confirmation.",
       "candidateTitle": "Provider configs to test",
       "parserBadge": "Uses provider add parsing",
       "parseErrorLine": "Line {{line}}: {{message}}",
@@ -764,10 +764,6 @@
       "testModel": "Test model",
       "maxTokens": "max_tokens",
       "concurrency": "Concurrency (max 5)",
-      "persistMode": "Save strategy",
-      "persistPassed": "Save only providers that pass",
-      "persistAllDisabled": "Save all, disable routes for failed items",
-      "persistNone": "Test only, do not write",
       "createRoutes": "Create/update Claude routes",
       "overwriteExisting": "Explicitly allow replacing same-name/same-baseURL providers",
       "previewTitle": "Preview and results",
@@ -785,11 +781,11 @@
       "testing": "Testing…",
       "run": "Start concurrent test",
       "actions": {
-        "testExistingRoute": "Test only / update existing route",
-        "testAddRoute": "Test only / add Claude route",
-        "updateProviderRoute": "Update provider, then handle route by result",
+        "testExistingRoute": "Test existing provider; confirm removal if it fails",
+        "testAddRoute": "Test existing provider; confirm removal if it fails",
+        "updateProviderRoute": "Update provider and handle route after passing",
         "duplicateTestOnly": "Duplicate: test only by default, no overwrite",
-        "createProviderRoute": "Create provider, then handle route by result"
+        "createProviderRoute": "Create provider and handle route after passing"
       },
       "errors": {
         "clientNotClaude": "This config does not declare clients=claude"
@@ -806,7 +802,13 @@
         "persistenceFailed": "Save failed",
         "unsupportedProvider": "Unsupported",
         "notTested": "Not tested"
-      }
+      },
+      "autoSavePassedHint": "Fixed rule: new configs are added only after passing; existing providers are tested only and are never silently deleted.",
+      "failedExistingTitle": "Existing providers pending removal confirmation",
+      "failedExistingDescription": "These existing Claude providers failed the test. Select and confirm removal to delete them globally from the Providers tab and clean up routes/project references that use them.",
+      "removeSelectedFailedExisting": "Remove selected failed items ({{count}})",
+      "confirmRemoveFailedExisting": "Remove {{count}} existing provider(s)? This deletes them globally from the Providers tab and cleans up {{routeCount}} route/project reference(s). This cannot be undone.",
+      "routeReferenceCount": "Routes {{count}}"
     },
     "customProviderKey": {
       "button": "Edit key",

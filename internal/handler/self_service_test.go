@@ -1421,6 +1421,98 @@ func TestSelfServiceHandler_ClaudeProviderBatchTest_PersistsOnlyUsableProviders(
 	}
 }
 
+func TestSelfServiceHandler_ClaudeProviderBatchTest_ExistingProvidersAreTestOnly(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock"}`))
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{
+		ID:       10,
+		TenantID: domain.DefaultTenantID,
+		Name:     "existing-ok",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: upstream.URL,
+			APIKey:  "sk-existing",
+			ModelMapping: map[string]string{
+				"claude-sonnet-4": "mock-sonnet",
+			},
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}}}
+	routeRepo := &selfServiceRouteRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        routeRepo,
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", `{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":8,
+		"concurrency":1,
+		"persistMode":"passed",
+		"createRoutes":true,
+		"existingProviderIDs":[10]
+	}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.TestedCount != 1 || result.UsableCount != 1 || result.PersistedCount != 0 || result.RoutesCreated != 0 || result.RoutesUpdated != 0 {
+		t.Fatalf("result = %+v, want existing provider tested without persistence or route mutation", result)
+	}
+	if len(result.Results) != 1 || result.Results[0].ExistingID != 10 || result.Results[0].ProviderID != 10 || result.Results[0].Status != service.ClaudeProviderBatchStatusUsable {
+		t.Fatalf("results = %+v, want existing usable provider marked without mutation", result.Results)
+	}
+	if len(providerRepo.providers) != 1 || providerRepo.providers[0].ID != 10 {
+		t.Fatalf("providers = %+v, want existing provider kept", providerRepo.providers)
+	}
+	if len(routeRepo.routes) != 0 {
+		t.Fatalf("routes = %+v, want no route created for existing provider", routeRepo.routes)
+	}
+}
+
+func TestSelfServiceHandler_DeleteProviderRemovesRouteReferences(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{
+		{ID: 10, TenantID: domain.DefaultTenantID, Name: "delete-me", Type: "custom"},
+		{ID: 11, TenantID: domain.DefaultTenantID, Name: "keep-me", Type: "custom"},
+	}}
+	routeRepo := &selfServiceRouteRepo{routes: []*domain.Route{
+		{ID: 1, TenantID: domain.DefaultTenantID, ProviderID: 10, ProjectID: 0, ClientType: domain.ClientTypeClaude, Position: 1, Weight: 1, IsEnabled: true},
+		{ID: 2, TenantID: domain.DefaultTenantID, ProviderID: 10, ProjectID: 42, ClientType: domain.ClientTypeClaude, Position: 1, Weight: 1, IsEnabled: true},
+		{ID: 3, TenantID: domain.DefaultTenantID, ProviderID: 11, ProjectID: 0, ClientType: domain.ClientTypeClaude, Position: 2, Weight: 1, IsEnabled: true},
+	}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        routeRepo,
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequest(http.MethodDelete, "/providers/10"))
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if len(providerRepo.providers) != 1 || providerRepo.providers[0].ID != 11 {
+		t.Fatalf("providers = %+v, want only unrelated provider", providerRepo.providers)
+	}
+	if len(routeRepo.routes) != 1 || routeRepo.routes[0].ID != 3 {
+		t.Fatalf("routes = %+v, want only unrelated route", routeRepo.routes)
+	}
+}
+
 func TestSelfServiceHandler_SyncRoutesFromProject_OverwriteDefaultToProject(t *testing.T) {
 	routeRepo := &selfServiceRouteRepo{
 		routes: []*domain.Route{

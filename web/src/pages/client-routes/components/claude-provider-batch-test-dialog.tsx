@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { FlaskConical, Loader2, Play, ShieldCheck } from 'lucide-react';
+import { FlaskConical, Loader2, Play, ShieldCheck, Trash2 } from 'lucide-react';
 
 import {
   Badge,
@@ -18,13 +18,12 @@ import {
 } from '@/components/ui';
 import { Textarea } from '@/components/ui/textarea';
 import type {
-  ClaudeProviderBatchPersistMode,
   ClaudeProviderBatchProviderResult,
   CreateProviderData,
   Provider,
   Route,
 } from '@/lib/transport';
-import { useClaudeProviderBatchTest } from '@/hooks/queries';
+import { useClaudeProviderBatchTest, useDeleteProvider } from '@/hooks/queries';
 import { cn } from '@/lib/utils';
 import {
   parseBulkCustomProviderCommands,
@@ -135,11 +134,14 @@ export function ClaudeProviderBatchTestDialog({
   const [testModel, setTestModel] = useState(DEFAULT_TEST_MODEL);
   const [maxTokens, setMaxTokens] = useState(16);
   const [concurrency, setConcurrency] = useState(4);
-  const [persistMode, setPersistMode] = useState<ClaudeProviderBatchPersistMode>('passed');
+  const [selectedFailedExistingIDs, setSelectedFailedExistingIDs] = useState<number[]>([]);
+  const [removedExistingIDs, setRemovedExistingIDs] = useState<number[]>([]);
+  const [removalError, setRemovalError] = useState<string | null>(null);
   const [createRoutes, setCreateRoutes] = useState(true);
   const [overwriteExisting, setOverwriteExisting] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const batchTest = useClaudeProviderBatchTest();
+  const deleteProvider = useDeleteProvider();
 
   const claudeProviders = useMemo(
     () =>
@@ -182,6 +184,12 @@ export function ClaudeProviderBatchTestDialog({
     return map;
   }, [providers]);
 
+  const providerByID = useMemo(() => {
+    const map = new Map<number, Provider>();
+    for (const provider of providers) map.set(Number(provider.id), provider);
+    return map;
+  }, [providers]);
+
   const existingRouteProviderIDs = useMemo(
     () =>
       new Set(
@@ -191,6 +199,14 @@ export function ClaudeProviderBatchTestDialog({
       ),
     [routes, projectID],
   );
+
+  const routeCountByProviderID = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const route of routes) {
+      map.set(route.providerID, (map.get(route.providerID) ?? 0) + 1);
+    }
+    return map;
+  }, [routes]);
 
   const previewItems = useMemo<PreviewItem[]>(() => {
     const selectedExisting = claudeProviders
@@ -254,6 +270,29 @@ export function ClaudeProviderBatchTestDialog({
   );
 
   const resultMap = resultByIndex(batchTest.data?.results);
+  const removedExistingIDSet = useMemo(() => new Set(removedExistingIDs), [removedExistingIDs]);
+  const failedExistingResults = useMemo(
+    () =>
+      (batchTest.data?.results ?? []).filter(
+        (result) =>
+          result.source === 'existing' &&
+          result.existingID &&
+          !result.ok &&
+          !removedExistingIDSet.has(result.existingID),
+      ),
+    [batchTest.data?.results, removedExistingIDSet],
+  );
+  const selectedFailedExistingResults = useMemo(
+    () =>
+      failedExistingResults.filter((result) =>
+        selectedFailedExistingIDs.includes(result.existingID ?? 0),
+      ),
+    [failedExistingResults, selectedFailedExistingIDs],
+  );
+  const selectedFailedExistingRouteCount = selectedFailedExistingResults.reduce(
+    (count, result) => count + (routeCountByProviderID.get(result.existingID ?? 0) ?? 0),
+    0,
+  );
   const canRun =
     previewItems.some((item) => item.selected && !item.error) && parsePreview.errors.length === 0;
 
@@ -275,6 +314,9 @@ export function ClaudeProviderBatchTestDialog({
 
   const handleRun = async () => {
     abortRef.current?.abort();
+    setSelectedFailedExistingIDs([]);
+    setRemovedExistingIDs([]);
+    setRemovalError(null);
     const controller = new AbortController();
     abortRef.current = controller;
     await batchTest.mutateAsync({
@@ -286,12 +328,43 @@ export function ClaudeProviderBatchTestDialog({
         testModel: testModel.trim() || DEFAULT_TEST_MODEL,
         maxTokens,
         concurrency,
-        persistMode,
+        persistMode: 'passed',
         createRoutes,
         overwriteExisting,
         routeWeight: 1,
       },
     });
+  };
+
+  const handleToggleFailedExisting = (providerID: number, checked: boolean) => {
+    setSelectedFailedExistingIDs((current) =>
+      checked ? [...new Set([...current, providerID])] : current.filter((id) => id !== providerID),
+    );
+  };
+
+  const handleRemoveSelectedFailedExisting = async () => {
+    const targets = selectedFailedExistingResults.filter((result) => result.existingID);
+    if (targets.length === 0) return;
+    const confirmed = window.confirm(
+      t('routes.claudeBatchTest.confirmRemoveFailedExisting', {
+        count: targets.length,
+        routeCount: selectedFailedExistingRouteCount,
+      }),
+    );
+    if (!confirmed) return;
+
+    setRemovalError(null);
+    try {
+      for (const result of targets) {
+        await deleteProvider.mutateAsync(result.existingID!);
+      }
+      const removedIDs = targets.map((result) => result.existingID!);
+      setRemovedExistingIDs((current) => [...new Set([...current, ...removedIDs])]);
+      setSelectedFailedExistingIDs((current) => current.filter((id) => !removedIDs.includes(id)));
+      setSelectedExistingIDs((current) => current.filter((id) => !removedIDs.includes(id)));
+    } catch (error) {
+      setRemovalError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const handleCancel = () => {
@@ -414,7 +487,7 @@ export function ClaudeProviderBatchTestDialog({
             </div>
           </section>
 
-          <section className="grid min-w-0 gap-3 md:grid-cols-4">
+          <section className="grid min-w-0 gap-3 md:grid-cols-3">
             <label className="space-y-1 text-xs">
               <span className="text-muted-foreground">{t('routes.claudeBatchTest.testModel')}</span>
               <Input value={testModel} onChange={(event) => setTestModel(event.target.value)} />
@@ -443,27 +516,12 @@ export function ClaudeProviderBatchTestDialog({
                 }
               />
             </label>
-            <label className="space-y-1 text-xs">
-              <span className="text-muted-foreground">
-                {t('routes.claudeBatchTest.persistMode')}
-              </span>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={persistMode}
-                onChange={(event) =>
-                  setPersistMode(event.target.value as ClaudeProviderBatchPersistMode)
-                }
-              >
-                <option value="passed">{t('routes.claudeBatchTest.persistPassed')}</option>
-                <option value="all_disabled">
-                  {t('routes.claudeBatchTest.persistAllDisabled')}
-                </option>
-                <option value="none">{t('routes.claudeBatchTest.persistNone')}</option>
-              </select>
-            </label>
           </section>
 
           <section className="flex min-w-0 flex-wrap items-center gap-4 rounded-lg border border-border p-3 text-sm">
+            <span className="text-xs text-muted-foreground">
+              {t('routes.claudeBatchTest.autoSavePassedHint')}
+            </span>
             <label className="flex items-center gap-2">
               <Switch checked={createRoutes} onCheckedChange={setCreateRoutes} />
               {t('routes.claudeBatchTest.createRoutes')}
@@ -578,6 +636,79 @@ export function ClaudeProviderBatchTestDialog({
               )}
             </div>
           </section>
+
+          {failedExistingResults.length > 0 && (
+            <section className="min-w-0 space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    {t('routes.claudeBatchTest.failedExistingTitle')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('routes.claudeBatchTest.failedExistingDescription')}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={selectedFailedExistingResults.length === 0 || deleteProvider.isPending}
+                  onClick={handleRemoveSelectedFailedExisting}
+                >
+                  {deleteProvider.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  {t('routes.claudeBatchTest.removeSelectedFailedExisting', {
+                    count: selectedFailedExistingResults.length,
+                  })}
+                </Button>
+              </div>
+              <div className="divide-y divide-amber-500/20 rounded-md border border-amber-500/20 bg-background/60">
+                {failedExistingResults.map((result) => {
+                  const providerID = result.existingID ?? 0;
+                  const provider = providerByID.get(providerID);
+                  const routeCount = routeCountByProviderID.get(providerID) ?? 0;
+                  return (
+                    <label key={providerID || result.index} className="flex gap-3 p-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={selectedFailedExistingIDs.includes(providerID)}
+                        onChange={(event) =>
+                          handleToggleFailedExisting(providerID, event.target.checked)
+                        }
+                      />
+                      <span className="min-w-0 flex-1 space-y-1">
+                        <span className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="truncate font-medium">{result.name}</span>
+                          <Badge variant={resultBadgeVariant(result.status)}>
+                            {resultLabel(result.status, t)}
+                          </Badge>
+                          <Badge variant="outline">
+                            {t('routes.claudeBatchTest.routeReferenceCount', { count: routeCount })}
+                          </Badge>
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {maskURL(providerBaseURL(provider) || result.baseURL || '')}
+                        </span>
+                        {(result.error || result.message) && (
+                          <span
+                            className="block truncate text-xs text-red-500"
+                            title={result.error || result.message}
+                          >
+                            {result.error || result.message}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {removalError && <p className="text-xs text-red-500">{removalError}</p>}
+            </section>
+          )}
         </div>
 
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">

@@ -748,7 +748,7 @@
     "claudeBatchTest": {
       "button": "批量测试提供商",
       "title": "Claude 提供商批量测试",
-      "description": "仅作用于当前 Claude 路由页。先预览，再并发限流测试；默认只保存通过测试的 provider，并按选项创建 Claude route。",
+      "description": "仅作用于当前 Claude 路由页。先预览，再并发限流测试；新配置只有通过测试才会自动保存并按选项创建 Claude route；已存在 provider 失败后需手动确认移除。",
       "candidateTitle": "待测试 provider 配置",
       "parserBadge": "复用 provider add 解析",
       "parseErrorLine": "第 {{line}} 行：{{message}}",
@@ -761,10 +761,6 @@
       "testModel": "测试模型",
       "maxTokens": "max_tokens",
       "concurrency": "并发数（最多 5）",
-      "persistMode": "保存策略",
-      "persistPassed": "仅保存通过测试的 provider",
-      "persistAllDisabled": "保存全部，失败项 route 禁用",
-      "persistNone": "只测试，不写入",
       "createRoutes": "创建/更新 Claude route",
       "overwriteExisting": "允许显式覆盖同名/同 baseURL provider",
       "previewTitle": "预览与结果",
@@ -782,11 +778,11 @@
       "testing": "测试中…",
       "run": "开始并发测试",
       "actions": {
-        "testExistingRoute": "只测试 / 更新已有 route",
-        "testAddRoute": "只测试 / 添加 Claude route",
-        "updateProviderRoute": "更新 provider，再按结果处理 route",
+        "testExistingRoute": "测试已有 provider；失败后可确认移除",
+        "testAddRoute": "测试已有 provider；失败后可确认移除",
+        "updateProviderRoute": "通过后更新 provider 并处理 route",
         "duplicateTestOnly": "重复：默认只测试，不覆盖",
-        "createProviderRoute": "新建 provider，再按结果处理 route"
+        "createProviderRoute": "通过后新建 provider 并处理 route"
       },
       "errors": {
         "clientNotClaude": "该配置未声明 clients=claude"
@@ -803,7 +799,13 @@
         "persistenceFailed": "保存失败",
         "unsupportedProvider": "不支持",
         "notTested": "未测试"
-      }
+      },
+      "autoSavePassedHint": "规则固定：待测试配置仅通过后自动添加；已存在 provider 只测试，不会静默删除。",
+      "failedExistingTitle": "待确认移除的已存在 provider",
+      "failedExistingDescription": "这些已存在 Claude provider 未通过测试。勾选后确认移除，会从 Providers tab 全局删除，并清理引用它们的 route/project 配置。",
+      "removeSelectedFailedExisting": "移除选中失败项（{{count}}）",
+      "confirmRemoveFailedExisting": "确认移除 {{count}} 个已存在 provider？这会从 Providers tab 全局删除，并清理 {{routeCount}} 条引用 route/project 配置。此操作不可撤销。",
+      "routeReferenceCount": "引用 route {{count}}"
     },
     "customProviderKey": {
       "button": "改 Key",
