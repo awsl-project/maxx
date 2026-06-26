@@ -482,6 +482,7 @@ function ClientTypeRoutesContentInner({
   const [selectedAvailableProviderIds, setSelectedAvailableProviderIds] = useState<Set<number>>(
     () => new Set(),
   );
+  const [bulkAddError, setBulkAddError] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const stableProviderStats = useStableProviderStats(providerStats);
@@ -744,6 +745,7 @@ function ClientTypeRoutesContentInner({
   };
 
   const handleToggleAvailableProviderSelection = (providerId: number, checked: boolean) => {
+    setBulkAddError(null);
     setSelectedAvailableProviderIds((prev) => {
       const next = new Set(prev);
       if (checked) {
@@ -756,6 +758,7 @@ function ClientTypeRoutesContentInner({
   };
 
   const handleToggleAllVisibleAvailableProviders = (checked: boolean) => {
+    setBulkAddError(null);
     setSelectedAvailableProviderIds((prev) => {
       if (!checked) {
         const next = new Set(prev);
@@ -770,20 +773,23 @@ function ClientTypeRoutesContentInner({
   };
 
   const handleInvertVisibleAvailableProviders = () => {
+    setBulkAddError(null);
     setSelectedAvailableProviderIds((prev) =>
       invertVisibleProviderSelection(prev, visibleAvailableProviderIds),
     );
   };
 
   const handleClearAvailableProviderSelection = () => {
+    setBulkAddError(null);
     setSelectedAvailableProviderIds(new Set());
   };
 
   const handleBulkAddRoutes = async () => {
     if (selectedAvailableProviders.length === 0 || createRoute.isPending) return;
 
+    setBulkAddError(null);
     const startingPosition = items.length + 1;
-    await Promise.all(
+    const results = await Promise.allSettled(
       selectedAvailableProviders.map((provider, index) =>
         createRoute.mutateAsync({
           isEnabled: true,
@@ -797,7 +803,24 @@ function ClientTypeRoutesContentInner({
         }),
       ),
     );
-    setSelectedAvailableProviderIds(new Set());
+
+    const failedProviderIds = new Set<number>();
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        const provider = selectedAvailableProviders[index];
+        failedProviderIds.add(Number(provider.id));
+        console.error('Failed to bulk add provider route', {
+          providerID: provider.id,
+          providerName: provider.name,
+          error: result.reason,
+        });
+      }
+    });
+
+    setSelectedAvailableProviderIds(failedProviderIds);
+    if (failedProviderIds.size > 0) {
+      setBulkAddError(t('routes.bulkAddProvidersFailed', { count: failedProviderIds.size }));
+    }
   };
 
   const handleDeleteRoute = (routeId: number) => {
@@ -1110,6 +1133,11 @@ function ClientTypeRoutesContentInner({
                   </Button>
                 </div>
               </div>
+              {bulkAddError && (
+                <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {bulkAddError}
+                </div>
+              )}
               <div className="space-y-6">
                 {PROVIDER_TYPE_ORDER.map((typeKey) => {
                   const typeProviders = groupedAvailableProviders[typeKey];

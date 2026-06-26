@@ -706,6 +706,7 @@
     "bulkSelectedProvidersCount": "{{count}} provider(s) selected",
     "bulkAddSelectedProviders": "Add {{count}} selected",
     "bulkAddingProviders": "Adding...",
+    "bulkAddProvidersFailed": "Failed to add {{count}} provider(s). They remain selected so you can retry.",
     "selectAvailableProvider": "Select available provider {{name}}",
     "strategyLabel": "Routing strategy",
     "strategyInherited": "inherited from Global",

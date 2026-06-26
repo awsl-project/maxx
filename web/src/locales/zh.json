@@ -703,6 +703,7 @@
     "bulkSelectedProvidersCount": "已选择 {{count}} 个提供方",
     "bulkAddSelectedProviders": "添加所选 {{count}} 个",
     "bulkAddingProviders": "添加中...",
+    "bulkAddProvidersFailed": "{{count}} 个提供方添加失败，已保留选中，请稍后重试。",
     "selectAvailableProvider": "选择可添加提供方 {{name}}",
     "strategyLabel": "路由策略",
     "strategyInherited": "继承自全局",
