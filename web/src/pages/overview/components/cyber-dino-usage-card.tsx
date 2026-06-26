@@ -84,80 +84,195 @@ function CyberDinoSvg({
   intensity: number;
   motion: CyberDinoUsagePreferences['motion'];
 }) {
-  const flameScale = 0.45 + intensity * 0.16;
+  const flameScale = 0.62 + intensity * 0.12;
   const alive = motion === 'alive';
   const calm = motion === 'calm';
+  const flameOpacity = 0.55 + intensity * 0.1;
 
   return (
     <div
-      className={cn(
-        'relative mx-auto h-56 w-full max-w-[22rem] overflow-hidden rounded-3xl border border-border/50 bg-gradient-to-b from-background/20 to-background/70',
-        alive && 'animate-pulse',
-      )}
+      className="relative mx-auto h-56 w-full max-w-[22rem] overflow-hidden rounded-3xl border border-cyan-400/15 bg-[radial-gradient(circle_at_50%_18%,rgba(34,211,238,0.16),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.42),rgba(2,6,23,0.72))]"
       style={{
-        boxShadow: `0 0 ${18 + intensity * 8}px ${flame.primary}30, inset 0 0 42px ${dino.secondary}24`,
+        boxShadow: `0 0 ${14 + intensity * 6}px ${flame.primary}22, inset 0 0 42px ${dino.secondary}1f`,
       }}
       aria-hidden="true"
     >
       <div
-        className="absolute inset-x-8 bottom-4 h-14 rounded-full blur-2xl"
-        style={{ background: `radial-gradient(circle, ${flame.primary}66, transparent 70%)` }}
+        className="absolute left-1/2 top-8 h-36 w-36 -translate-x-1/2 rounded-full blur-3xl"
+        style={{ background: `radial-gradient(circle, ${dino.primary}24, transparent 72%)` }}
       />
-      <svg viewBox="0 0 420 250" className="absolute inset-0 h-full w-full">
+      <div
+        className="absolute inset-x-12 bottom-8 h-16 rounded-full blur-2xl"
+        style={{
+          background: `radial-gradient(circle, ${flame.primary}55, ${flame.secondary}22 46%, transparent 76%)`,
+        }}
+      />
+
+      <svg viewBox="0 0 420 260" className="absolute inset-0 h-full w-full">
         <defs>
-          <linearGradient id="dinoBody" x1="0" x2="1" y1="0" y2="1">
+          <linearGradient
+            id="dinoShell"
+            x1="95"
+            x2="330"
+            y1="58"
+            y2="196"
+            gradientUnits="userSpaceOnUse"
+          >
             <stop offset="0%" stopColor={dino.primary} />
-            <stop offset="55%" stopColor={dino.secondary} />
+            <stop offset="58%" stopColor={dino.secondary} />
             <stop offset="100%" stopColor={dino.accent} />
+          </linearGradient>
+          <linearGradient
+            id="dinoBelly"
+            x1="125"
+            x2="270"
+            y1="118"
+            y2="195"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="#020617" stopOpacity="0.16" />
           </linearGradient>
           <linearGradient id="flameBody" x1="0" x2="0" y1="1" y2="0">
             <stop offset="0%" stopColor={flame.secondary} />
-            <stop offset="58%" stopColor={flame.primary} />
+            <stop offset="62%" stopColor={flame.primary} />
             <stop offset="100%" stopColor={flame.accent} />
           </linearGradient>
-          <filter id="softGlow" x="-35%" y="-35%" width="170%" height="170%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
+          <filter id="mascotGlow" x="-35%" y="-35%" width="170%" height="170%">
+            <feGaussianBlur stdDeviation="3.5" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-          <pattern id="circuitPattern" width="24" height="24" patternUnits="userSpaceOnUse">
-            <path d="M 0 12 H 24 M 12 0 V 24" stroke={dino.accent} strokeOpacity="0.28" strokeWidth="1" />
-          </pattern>
         </defs>
 
-        <g opacity="0.28">
-          <path d="M30 205 H390" stroke={dino.primary} strokeWidth="1" strokeDasharray="8 8" />
-          <path d="M60 170 H360" stroke={dino.secondary} strokeWidth="1" strokeDasharray="5 10" />
-          <path d="M105 38 V220 M205 28 V225 M305 42 V220" stroke={dino.primary} strokeWidth="1" strokeDasharray="4 12" />
+        <g opacity="0.18">
+          <path d="M68 198 H352" stroke={dino.primary} strokeWidth="1" strokeDasharray="9 10" />
+          <path
+            d="M98 72 H322 M86 112 H338"
+            stroke={dino.accent}
+            strokeWidth="1"
+            strokeDasharray="3 13"
+          />
+          <path
+            d="M118 42 V224 M210 32 V232 M302 48 V220"
+            stroke={dino.primary}
+            strokeWidth="1"
+            strokeDasharray="4 12"
+          />
         </g>
+
+        <ellipse cx="214" cy="218" rx="132" ry="16" fill="#020617" opacity="0.42" />
 
         <g
-          filter="url(#softGlow)"
-          transform={`translate(0 ${calm ? 2 : 0}) scale(1 ${flameScale}) translate(0 ${138 - 138 / flameScale})`}
+          filter="url(#mascotGlow)"
+          opacity={flameOpacity}
+          transform={`translate(0 ${calm ? 3 : 0}) scale(1 ${flameScale}) translate(0 ${134 - 134 / flameScale})`}
+          style={{ transformOrigin: '210px 218px' }}
+          className={alive ? 'motion-safe:animate-pulse' : undefined}
         >
-          <path d="M154 212 C140 175 172 171 165 134 C202 164 185 184 202 212 Z" fill="url(#flameBody)" opacity="0.78" />
-          <path d="M205 218 C184 169 222 155 214 108 C266 155 236 181 262 218 Z" fill="url(#flameBody)" opacity="0.92" />
-          <path d="M265 215 C247 178 282 166 270 130 C315 163 293 186 316 215 Z" fill="url(#flameBody)" opacity="0.82" />
-          <path d="M214 218 C202 188 224 178 221 146 C247 178 237 196 247 218 Z" fill={flame.accent} opacity="0.8" />
+          <path
+            d="M155 220 C139 182 170 176 166 143 C198 166 187 195 207 220 Z"
+            fill="url(#flameBody)"
+          />
+          <path
+            d="M202 222 C179 174 222 155 213 111 C268 158 236 190 260 222 Z"
+            fill="url(#flameBody)"
+          />
+          <path
+            d="M260 220 C243 184 282 170 272 137 C313 166 296 194 318 220 Z"
+            fill="url(#flameBody)"
+          />
+          <path
+            d="M211 222 C199 192 225 181 222 151 C249 181 236 202 248 222 Z"
+            fill={flame.accent}
+            opacity="0.86"
+          />
         </g>
 
-        <g transform="translate(22 10)">
-          <path d="M135 124 L50 100 L118 155 Z" fill={dino.secondary} stroke={dino.primary} strokeWidth="3" />
-          <path d="M118 92 L235 72 L324 125 L304 184 L154 190 L92 143 Z" fill="url(#dinoBody)" stroke={dino.primary} strokeWidth="3" />
-          <path d="M118 92 L235 72 L204 134 L92 143 Z" fill={dino.secondary} opacity="0.76" />
-          <path d="M204 134 L324 125 L304 184 L154 190 L92 143 Z" fill="url(#circuitPattern)" opacity="0.7" />
-          <path d="M292 46 L367 64 L392 103 L359 136 L295 126 L260 86 Z" fill="url(#dinoBody)" stroke={dino.primary} strokeWidth="3" />
-          <path d="M360 92 L410 102 L384 126 L350 122 Z" fill={dino.secondary} stroke={dino.primary} strokeWidth="3" />
-          <circle cx="337" cy="78" r="7" fill="#020617" />
-          <circle cx="339" cy="76" r="2.5" fill={flame.accent} />
-          <path d="M142 90 L160 48 L186 94 Z M202 76 L222 32 L250 80 Z M294 47 L314 12 L343 57 Z" fill={dino.accent} stroke={dino.primary} strokeWidth="2" />
-          <path d="M151 183 L193 181 L185 232 L157 232 Z M250 181 L292 178 L284 232 L256 232 Z" fill={dino.secondary} stroke={dino.primary} strokeWidth="3" />
-          <path d="M148 230 H210 L190 246 H132 Z M248 230 H310 L291 246 H234 Z" fill="#0f172a" stroke={dino.primary} strokeWidth="3" />
-          <path d="M305 144 L360 168 L339 190 L291 158 Z" fill={dino.secondary} stroke={dino.primary} strokeWidth="3" />
-          <path d="M142 123 L205 112 M211 154 L286 151 M302 68 L350 82" stroke="#031c24" strokeWidth="6" strokeLinecap="round" opacity="0.45" />
-          <path d="M142 123 L205 112 M211 154 L286 151 M302 68 L350 82" stroke={dino.primary} strokeWidth="1.5" strokeLinecap="round" opacity="0.85" />
+        <g filter="url(#mascotGlow)">
+          <path
+            d="M113 139 C84 133 61 117 49 95 C82 98 112 111 135 132 Z"
+            fill={dino.secondary}
+            stroke={dino.primary}
+            strokeWidth="3"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M108 134 C116 87 157 60 213 63 C270 66 318 96 331 143 C345 194 304 216 222 215 C142 214 98 190 108 134 Z"
+            fill="url(#dinoShell)"
+            stroke={dino.primary}
+            strokeWidth="4"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M142 147 C160 122 209 114 257 127 C288 136 305 158 298 179 C289 207 244 213 191 204 C148 197 123 174 142 147 Z"
+            fill="url(#dinoBelly)"
+            opacity="0.9"
+          />
+          <path
+            d="M270 73 C291 52 330 55 352 80 C371 101 369 132 348 149 C322 170 280 157 265 127 C255 107 255 88 270 73 Z"
+            fill="url(#dinoShell)"
+            stroke={dino.primary}
+            strokeWidth="4"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M340 105 C362 100 384 106 397 121 C382 134 359 139 340 132 Z"
+            fill={dino.secondary}
+            stroke={dino.primary}
+            strokeWidth="3"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M291 92 H340 C347 92 353 98 353 105 V110 C353 117 347 123 340 123 H291 C284 123 278 117 278 110 V105 C278 98 284 92 291 92 Z"
+            fill="#020617"
+            opacity="0.78"
+          />
+          <path
+            d="M289 108 H343"
+            stroke={flame.accent}
+            strokeWidth="3"
+            strokeLinecap="round"
+            opacity="0.94"
+          />
+          <circle cx="333" cy="105" r="4" fill={flame.primary} />
+
+          <path
+            d="M154 72 L169 38 L191 76 Z M207 63 L224 30 L248 68 Z M281 66 L300 35 L322 76 Z"
+            fill={dino.accent}
+            stroke={dino.primary}
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M153 200 L187 200 L183 234 H158 Z M245 201 L281 199 L276 234 H250 Z"
+            fill={dino.secondary}
+            stroke={dino.primary}
+            strokeWidth="3"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M145 232 H194 C198 232 201 235 201 239 V242 H139 V239 C139 235 142 232 145 232 Z M239 232 H289 C293 232 296 235 296 239 V242 H233 V239 C233 235 236 232 239 232 Z"
+            fill="#020617"
+            stroke={dino.primary}
+            strokeWidth="3"
+          />
+          <path
+            d="M131 146 C159 156 181 156 207 145 M161 184 C195 194 245 193 276 178 M206 94 C223 88 242 89 260 98"
+            stroke="#020617"
+            strokeWidth="6"
+            strokeLinecap="round"
+            opacity="0.18"
+          />
+          <path
+            d="M131 146 C159 156 181 156 207 145 M161 184 C195 194 245 193 276 178 M206 94 C223 88 242 89 260 98"
+            stroke={dino.primary}
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            opacity="0.7"
+          />
         </g>
       </svg>
     </div>
@@ -179,7 +294,9 @@ function MaterialSelector<ID extends string>({
 
   return (
     <div className="space-y-2">
-      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{title}</div>
+      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        {title}
+      </div>
       <div className="grid grid-cols-2 gap-2">
         {options.map((option) => {
           const selected = option.id === value;
@@ -200,7 +317,9 @@ function MaterialSelector<ID extends string>({
               <span className="flex items-center gap-2 text-xs font-medium">
                 <span
                   className="h-3 w-3 rounded-full border border-white/30"
-                  style={{ background: `linear-gradient(135deg, ${option.primary}, ${option.secondary})` }}
+                  style={{
+                    background: `linear-gradient(135deg, ${option.primary}, ${option.secondary})`,
+                  }}
                 />
                 {t(option.labelKey)}
               </span>
@@ -232,7 +351,9 @@ export function CyberDinoUsageBadge() {
         />
         <span
           className="absolute bottom-0 h-4 w-2 rounded-t-full"
-          style={{ background: `linear-gradient(${flame.accent}, ${flame.primary}, ${flame.secondary})` }}
+          style={{
+            background: `linear-gradient(${flame.accent}, ${flame.primary}, ${flame.secondary})`,
+          }}
         />
         <span
           className="absolute top-0 h-3 w-6 rounded-[55%_45%_45%_55%] border border-white/30"
@@ -263,7 +384,9 @@ export function CyberDinoUsageCard() {
               <Sparkles className="h-4 w-4 text-cyan-400" />
               {t('dashboard.cyberDino.title')}
             </CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.cyberDino.description')}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('dashboard.cyberDino.description')}
+            </p>
           </div>
           <div className="rounded-full border border-orange-400/30 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-300">
             {t(`dashboard.cyberDino.levels.${burnLevel.tone}`)} · {burnLevel.level}/4
@@ -302,7 +425,9 @@ export function CyberDinoUsageCard() {
                 <div className="mt-2 text-xs text-muted-foreground">
                   {burnLevel.nextThreshold
                     ? t('dashboard.cyberDino.nextLevelHint', {
-                        tokens: formatNumber(Math.max(0, burnLevel.nextThreshold - totals.totalTokens)),
+                        tokens: formatNumber(
+                          Math.max(0, burnLevel.nextThreshold - totals.totalTokens),
+                        ),
                       })
                     : t('dashboard.cyberDino.maxLevelHint')}
                 </div>
@@ -310,10 +435,22 @@ export function CyberDinoUsageCard() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-4">
-              <Metric label={t('dashboard.cyberDino.inputTokens')} value={formatNumber(totals.inputTokens)} />
-              <Metric label={t('dashboard.cyberDino.outputTokens')} value={formatNumber(totals.outputTokens)} />
-              <Metric label={t('dashboard.cyberDino.cacheTokens')} value={formatNumber(totals.cacheTokens)} />
-              <Metric label={t('dashboard.cyberDino.requests')} value={formatNumber(totals.requests)} />
+              <Metric
+                label={t('dashboard.cyberDino.inputTokens')}
+                value={formatNumber(totals.inputTokens)}
+              />
+              <Metric
+                label={t('dashboard.cyberDino.outputTokens')}
+                value={formatNumber(totals.outputTokens)}
+              />
+              <Metric
+                label={t('dashboard.cyberDino.cacheTokens')}
+                value={formatNumber(totals.cacheTokens)}
+              />
+              <Metric
+                label={t('dashboard.cyberDino.requests')}
+                value={formatNumber(totals.requests)}
+              />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -321,13 +458,17 @@ export function CyberDinoUsageCard() {
                 title={t('dashboard.cyberDino.dinoMaterial')}
                 options={DINO_MATERIALS}
                 value={preferences.dinoMaterial}
-                onChange={(dinoMaterial) => setPreferences((current) => ({ ...current, dinoMaterial }))}
+                onChange={(dinoMaterial) =>
+                  setPreferences((current) => ({ ...current, dinoMaterial }))
+                }
               />
               <MaterialSelector
                 title={t('dashboard.cyberDino.flameMaterial')}
                 options={FLAME_MATERIALS}
                 value={preferences.flameMaterial}
-                onChange={(flameMaterial) => setPreferences((current) => ({ ...current, flameMaterial }))}
+                onChange={(flameMaterial) =>
+                  setPreferences((current) => ({ ...current, flameMaterial }))
+                }
               />
             </div>
 
@@ -341,7 +482,12 @@ export function CyberDinoUsageCard() {
           </div>
 
           <div className="space-y-3">
-            <CyberDinoSvg dino={dino} flame={flame} intensity={burnLevel.level} motion={preferences.motion} />
+            <CyberDinoSvg
+              dino={dino}
+              flame={flame}
+              intensity={burnLevel.level}
+              motion={preferences.motion}
+            />
             <div className="grid grid-cols-3 gap-2">
               {(['alive', 'calm', 'off'] as const).map((motion) => (
                 <button
