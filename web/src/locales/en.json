@@ -815,6 +815,8 @@
       "autoSavePassedHint": "Fixed rule: new configs are added only after passing; existing providers are tested only and are never silently deleted.",
       "failedExistingTitle": "Existing providers pending removal confirmation",
       "failedExistingDescription": "These existing Claude providers failed the test. Select and confirm removal to delete them globally from the Providers tab and clean up routes/project references that use them.",
+      "selectAllFailedExisting": "Select all failed items",
+      "clearFailedExistingSelection": "Clear failed selection",
       "removeSelectedFailedExisting": "Remove selected failed items ({{count}})",
       "confirmRemoveFailedExisting": "Remove {{count}} existing provider(s)? This deletes them globally from the Providers tab and cleans up {{routeCount}} route/project reference(s). This cannot be undone.",
       "removeFailedExistingError": "Failed to remove {{count}} provider(s)",

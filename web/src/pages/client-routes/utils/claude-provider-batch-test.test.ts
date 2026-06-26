@@ -11,6 +11,7 @@ import {
   getFailedExistingResultSignature,
   isClaudeBatchTestExcludedProvider,
   isClaudeBatchTestSelectableProvider,
+  settleProviderRemovalsSequentially,
   summarizeClaudeBatchDisplayResults,
 } from './claude-provider-batch-test';
 
@@ -122,6 +123,37 @@ describe('Claude provider batch test helpers', () => {
       { status: 'fulfilled', value: undefined },
     ];
 
+    expect(collectSuccessfulRemovedExistingIDs(targets, settled)).toEqual([1, 3]);
+  });
+
+  it('removes selected failed providers sequentially instead of firing a concurrent delete burst', async () => {
+    const calls: number[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    const settled = await settleProviderRemovalsSequentially(
+      [{ existingID: 10 }, { existingID: 20 }, { existingID: 30 }],
+      async (providerID) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        calls.push(providerID);
+        await Promise.resolve();
+        inFlight -= 1;
+      },
+    );
+
+    expect(calls).toEqual([10, 20, 30]);
+    expect(maxInFlight).toBe(1);
+    expect(settled.map((item) => item.status)).toEqual(['fulfilled', 'fulfilled', 'fulfilled']);
+  });
+
+  it('keeps successful sequential removals ordered when one provider delete fails', async () => {
+    const targets = [{ existingID: 1 }, { existingID: 2 }, { existingID: 3 }];
+    const settled = await settleProviderRemovalsSequentially(targets, async (providerID) => {
+      if (providerID === 2) throw new Error('delete failed');
+    });
+
+    expect(settled.map((item) => item.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
     expect(collectSuccessfulRemovedExistingIDs(targets, settled)).toEqual([1, 3]);
   });
 

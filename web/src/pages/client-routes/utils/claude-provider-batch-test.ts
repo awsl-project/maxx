@@ -80,6 +80,25 @@ export function collectSuccessfulRemovedExistingIDs<T extends { existingID?: num
     .map((target) => target.existingID!);
 }
 
+export async function settleProviderRemovalsSequentially<T extends { existingID?: number }>(
+  targets: T[],
+  removeProvider: (providerID: number) => Promise<unknown>,
+): Promise<PromiseSettledResult<unknown>[]> {
+  const settled: PromiseSettledResult<unknown>[] = [];
+  for (const target of targets) {
+    if (!target.existingID) {
+      settled.push({ status: 'rejected', reason: new Error('missing existing provider id') });
+      continue;
+    }
+    try {
+      settled.push({ status: 'fulfilled', value: await removeProvider(target.existingID) });
+    } catch (reason) {
+      settled.push({ status: 'rejected', reason });
+    }
+  }
+  return settled;
+}
+
 export function getFailedExistingResultSignature(
   results: Pick<ClaudeProviderBatchProviderResult, 'existingID' | 'status' | 'error' | 'message'>[],
 ) {
