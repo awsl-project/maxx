@@ -13,7 +13,8 @@ export type MonthlyUsageTotals = {
   totalTokens: number;
   inputTokens: number;
   outputTokens: number;
-  cacheTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   requests: number;
   cost: number;
 };
@@ -113,18 +114,18 @@ export const DEFAULT_CYBER_DINO_USAGE_PREFERENCES: CyberDinoUsagePreferences = {
 export function getCurrentMonthUsageWindow(now = new Date()): { start: Date; end: Date } {
   return {
     start: new Date(now.getFullYear(), now.getMonth(), 1),
-    end: now,
+    end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
   };
 }
 
 export function aggregateMonthlyUsage(stats: UsageStats[] | undefined): MonthlyUsageTotals {
   return (stats ?? []).reduce<MonthlyUsageTotals>(
     (totals, item) => {
-      const cacheTokens = item.cacheRead + item.cacheWrite;
       totals.inputTokens += item.inputTokens;
       totals.outputTokens += item.outputTokens;
-      totals.cacheTokens += cacheTokens;
-      totals.totalTokens += item.inputTokens + item.outputTokens + cacheTokens;
+      totals.cacheReadTokens += item.cacheRead;
+      totals.cacheWriteTokens += item.cacheWrite;
+      totals.totalTokens += item.inputTokens + item.outputTokens + item.cacheRead + item.cacheWrite;
       totals.requests += item.totalRequests;
       totals.cost += item.cost;
       return totals;
@@ -133,7 +134,8 @@ export function aggregateMonthlyUsage(stats: UsageStats[] | undefined): MonthlyU
       totalTokens: 0,
       inputTokens: 0,
       outputTokens: 0,
-      cacheTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       requests: 0,
       cost: 0,
     },
@@ -175,9 +177,7 @@ function isMotionPreference(value: unknown): value is CyberDinoUsagePreferences[
   return value === 'calm' || value === 'alive' || value === 'off';
 }
 
-export function normalizeCyberDinoUsagePreferences(
-  value: unknown,
-): CyberDinoUsagePreferences {
+export function normalizeCyberDinoUsagePreferences(value: unknown): CyberDinoUsagePreferences {
   if (!value || typeof value !== 'object') {
     return DEFAULT_CYBER_DINO_USAGE_PREFERENCES;
   }

@@ -160,14 +160,13 @@
     "cyberDino": {
       "title": "Cyber Dino",
       "description": "Monthly token usage drives the flame under the dino. Materials change the look, not the usage signal.",
-      "badgeTooltip": "{{tokens}} tokens burned this month",
+      "badgeTooltip": "{{tokens}} {{unit}} burned this month",
       "monthlyBurn": "Burned this month",
       "nextLevel": "Next flame level",
-      "nextLevelHint": "{{tokens}} tokens to go",
+      "nextLevelHint": "{{tokens}} {{unit}} to go",
       "maxLevelHint": "Maximum fire reached",
       "inputTokens": "Input",
       "outputTokens": "Output",
-      "cacheTokens": "Cache",
       "requests": "Requests",
       "dinoMaterial": "Dino material",
       "flameMaterial": "Flame material",
@@ -220,7 +219,10 @@
           "label": "Glitch Violet",
           "description": "Violet-pink glitch flame for monster usage."
         }
-      }
+      },
+      "tokenUnit": "tokens",
+      "cacheReadTokens": "Cache read",
+      "cacheWriteTokens": "Cache write"
     }
   },
   "requests": {

@@ -35,24 +35,39 @@ function usage(partial: Partial<UsageStats>): UsageStats {
 }
 
 describe('cyber dino monthly usage helpers', () => {
-  it('builds a current-month local time window', () => {
+  it('builds a stable current-month local time window', () => {
     const { start, end } = getCurrentMonthUsageWindow(new Date(2099, 5, 26, 19, 30));
 
     expect(start).toEqual(new Date(2099, 5, 1));
-    expect(end).toEqual(new Date(2099, 5, 26, 19, 30));
+    expect(end).toEqual(new Date(2099, 6, 1));
   });
 
-  it('aggregates input, output and cache tokens into the token burn total', () => {
+  it('aggregates input, output, cache read and cache write tokens into the token burn total', () => {
     const totals = aggregateMonthlyUsage([
-      usage({ inputTokens: 100, outputTokens: 50, cacheRead: 25, cacheWrite: 10, totalRequests: 2, cost: 123 }),
-      usage({ inputTokens: 200, outputTokens: 75, cacheRead: 5, cacheWrite: 15, totalRequests: 3, cost: 456 }),
+      usage({
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheRead: 25,
+        cacheWrite: 10,
+        totalRequests: 2,
+        cost: 123,
+      }),
+      usage({
+        inputTokens: 200,
+        outputTokens: 75,
+        cacheRead: 5,
+        cacheWrite: 15,
+        totalRequests: 3,
+        cost: 456,
+      }),
     ]);
 
     expect(totals).toEqual({
       totalTokens: 480,
       inputTokens: 300,
       outputTokens: 125,
-      cacheTokens: 55,
+      cacheReadTokens: 30,
+      cacheWriteTokens: 25,
       requests: 5,
       cost: 579,
     });

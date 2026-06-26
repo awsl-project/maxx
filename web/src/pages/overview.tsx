@@ -45,7 +45,10 @@ import { CooldownTimer } from '@/components/cooldown-timer';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import { AreaChart, Area, XAxis, YAxis } from 'recharts';
 import { cn } from '@/lib/utils';
-import { CyberDinoUsageBadge, CyberDinoUsageCard } from './overview/components/cyber-dino-usage-card';
+import {
+  CyberDinoUsageBadge,
+  CyberDinoUsageCard,
+} from './overview/components/cyber-dino-usage-card';
 
 // 格式化数字（K, M, B）
 function formatNumber(num: number): string {
@@ -148,7 +151,9 @@ function StatCard({
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
               {title}
             </p>
-            <p className="text-2xl font-bold text-foreground font-mono tracking-tight truncate">{value}</p>
+            <p className="text-2xl font-bold text-foreground font-mono tracking-tight truncate">
+              {value}
+            </p>
             <div className="flex items-center gap-2">
               {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
               {trend !== undefined && <TrendIndicator value={trend} />}
@@ -342,8 +347,6 @@ export function OverviewPage() {
             />
           </div>
 
-          <CyberDinoUsageCard />
-
           {/* Cooldown Alert Banner — shown at top when any provider has active cooldowns */}
           {activeCooldowns.length > 0 && (
             <div className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
@@ -354,7 +357,10 @@ export function OverviewPage() {
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {activeCooldowns.slice(0, 6).map((cd) => {
-                    const name = cd.providerName || providers?.find((p) => p.id === cd.providerID)?.name || `#${cd.providerID}`;
+                    const name =
+                      cd.providerName ||
+                      providers?.find((p) => p.id === cd.providerID)?.name ||
+                      `#${cd.providerID}`;
                     return (
                       <div
                         key={`banner-${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}
@@ -362,7 +368,9 @@ export function OverviewPage() {
                       >
                         <span className="truncate max-w-[140px]">
                           {name}
-                          {cd.model && <span className="text-muted-foreground/60"> / {cd.model}</span>}
+                          {cd.model && (
+                            <span className="text-muted-foreground/60"> / {cd.model}</span>
+                          )}
                         </span>
                         <span className="font-mono text-amber-600 dark:text-amber-400 shrink-0">
                           <CooldownTimer cooldown={cd} />
@@ -374,6 +382,8 @@ export function OverviewPage() {
               </div>
             </div>
           )}
+
+          <CyberDinoUsageCard />
 
           {/* 第二行：趋势图 + 使用统计 */}
           <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
@@ -602,7 +612,10 @@ export function OverviewPage() {
                           <span>{t('dashboard.cooldownActive')}</span>
                         </div>
                         {activeCooldowns.slice(0, 4).map((cd) => {
-                          const providerName = cd.providerName || providers?.find((p) => p.id === cd.providerID)?.name || `Provider #${cd.providerID}`;
+                          const providerName =
+                            cd.providerName ||
+                            providers?.find((p) => p.id === cd.providerID)?.name ||
+                            `Provider #${cd.providerID}`;
                           return (
                             <div
                               key={`${cd.providerID}-${cd.clientType || ''}-${cd.model || ''}`}

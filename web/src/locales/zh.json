@@ -159,14 +159,13 @@
     "cyberDino": {
       "title": "赛博小恐龙",
       "description": "当月 token 用量越高，脚下火焰烧得越凶。材质只改外观，火焰强度由真实用量驱动。",
-      "badgeTooltip": "本月已燃烧 {{tokens}} tokens",
+      "badgeTooltip": "本月已燃烧 {{tokens}} {{unit}}",
       "monthlyBurn": "本月已燃烧",
       "nextLevel": "下一档火焰",
-      "nextLevelHint": "还差 {{tokens}} tokens",
+      "nextLevelHint": "还差 {{tokens}} {{unit}}",
       "maxLevelHint": "已经是最高火力",
       "inputTokens": "输入",
       "outputTokens": "输出",
-      "cacheTokens": "缓存",
       "requests": "请求",
       "dinoMaterial": "小恐龙材质",
       "flameMaterial": "火焰材质",
@@ -219,7 +218,10 @@
           "label": "故障紫焰",
           "description": "紫粉故障火焰，适合爆量时的怪物感。"
         }
-      }
+      },
+      "tokenUnit": "tokens",
+      "cacheReadTokens": "缓存读",
+      "cacheWriteTokens": "缓存写"
     }
   },
   "requests": {

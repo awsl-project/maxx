@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type SetStateAction, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flame, Gauge, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
@@ -19,6 +19,7 @@ import {
 } from './cyber-dino-usage';
 
 const STORAGE_KEY = 'maxx-cyber-dino-usage-preferences';
+const PREFERENCES_EVENT = 'maxx-cyber-dino-usage-preferences-change';
 
 function formatNumber(num: number): string {
   if (num >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1)}B`;
@@ -27,8 +28,8 @@ function formatNumber(num: number): string {
   return num.toLocaleString();
 }
 
-function formatResetDate(date: Date): string {
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+function formatResetDate(date: Date, locale: string): string {
+  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
 }
 
 function nextMonthStart(now = new Date()): Date {
@@ -46,16 +47,53 @@ function loadPreferences(): CyberDinoUsagePreferences {
   }
 }
 
+function savePreferences(preferences: CyberDinoUsagePreferences) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+  } catch {
+    // Cosmetic preferences should never break the dashboard.
+  }
+}
+
 function useCyberDinoUsagePreferences() {
-  const [preferences, setPreferences] = useState<CyberDinoUsagePreferences>(loadPreferences);
+  const [preferences, setPreferencesState] = useState<CyberDinoUsagePreferences>(loadPreferences);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
-    } catch {
-      // Cosmetic preferences should never break the dashboard.
-    }
-  }, [preferences]);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY) return;
+      try {
+        setPreferencesState(
+          normalizeCyberDinoUsagePreferences(event.newValue ? JSON.parse(event.newValue) : null),
+        );
+      } catch {
+        setPreferencesState(DEFAULT_CYBER_DINO_USAGE_PREFERENCES);
+      }
+    };
+    const handleLocalChange = (event: Event) => {
+      setPreferencesState(
+        normalizeCyberDinoUsagePreferences(
+          (event as CustomEvent<CyberDinoUsagePreferences>).detail,
+        ),
+      );
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener(PREFERENCES_EVENT, handleLocalChange);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(PREFERENCES_EVENT, handleLocalChange);
+    };
+  }, []);
+
+  const setPreferences = (next: SetStateAction<CyberDinoUsagePreferences>) => {
+    setPreferencesState((current) => {
+      const resolved = typeof next === 'function' ? next(current) : next;
+      const normalized = normalizeCyberDinoUsagePreferences(resolved);
+      savePreferences(normalized);
+      window.dispatchEvent(new CustomEvent(PREFERENCES_EVENT, { detail: normalized }));
+      return normalized;
+    });
+  };
 
   return [preferences, setPreferences] as const;
 }
@@ -384,7 +422,10 @@ export function CyberDinoUsageBadge() {
   return (
     <div
       className="hidden items-center gap-2 rounded-full border border-cyan-400/30 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground shadow-[0_0_18px_rgba(34,211,238,0.12)] sm:inline-flex"
-      title={t('dashboard.cyberDino.badgeTooltip', { tokens: formatNumber(totals.totalTokens) })}
+      title={t('dashboard.cyberDino.badgeTooltip', {
+        tokens: formatNumber(totals.totalTokens),
+        unit: t('dashboard.cyberDino.tokenUnit'),
+      })}
     >
       <span className="relative inline-flex h-5 w-8 items-center justify-center" aria-hidden="true">
         <span
@@ -408,14 +449,14 @@ export function CyberDinoUsageBadge() {
 }
 
 export function CyberDinoUsageCard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [preferences, setPreferences] = useCyberDinoUsagePreferences();
   const { totals, isLoading } = useMonthlyUsageTotals();
   const burnLevel = getBurnLevel(totals.totalTokens);
   const burnProgress = getBurnProgress(totals.totalTokens, burnLevel);
   const dino = materialByID(DINO_MATERIALS, preferences.dinoMaterial);
   const flame = materialByID(FLAME_MATERIALS, preferences.flameMaterial);
-  const resetDate = formatResetDate(nextMonthStart());
+  const resetDate = formatResetDate(nextMonthStart(), i18n.language);
 
   return (
     <Card className="overflow-hidden border-cyan-500/20 bg-card/50 backdrop-blur-sm shadow-[0_0_35px_rgba(34,211,238,0.08)]">
@@ -447,7 +488,9 @@ export function CyberDinoUsageCard() {
                   <span className="font-mono text-4xl font-bold tracking-tight text-cyan-300 md:text-5xl">
                     {isLoading ? '—' : formatNumber(totals.totalTokens)}
                   </span>
-                  <span className="pb-1 text-sm font-medium text-muted-foreground">tokens</span>
+                  <span className="pb-1 text-sm font-medium text-muted-foreground">
+                    {t('dashboard.cyberDino.tokenUnit')}
+                  </span>
                 </div>
               </div>
               <div className="rounded-2xl border border-border/60 bg-background/35 p-3">
@@ -470,13 +513,14 @@ export function CyberDinoUsageCard() {
                         tokens: formatNumber(
                           Math.max(0, burnLevel.nextThreshold - totals.totalTokens),
                         ),
+                        unit: t('dashboard.cyberDino.tokenUnit'),
                       })
                     : t('dashboard.cyberDino.maxLevelHint')}
                 </div>
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <Metric
                 label={t('dashboard.cyberDino.inputTokens')}
                 value={formatNumber(totals.inputTokens)}
@@ -486,8 +530,12 @@ export function CyberDinoUsageCard() {
                 value={formatNumber(totals.outputTokens)}
               />
               <Metric
-                label={t('dashboard.cyberDino.cacheTokens')}
-                value={formatNumber(totals.cacheTokens)}
+                label={t('dashboard.cyberDino.cacheReadTokens')}
+                value={formatNumber(totals.cacheReadTokens)}
+              />
+              <Metric
+                label={t('dashboard.cyberDino.cacheWriteTokens')}
+                value={formatNumber(totals.cacheWriteTokens)}
               />
               <Metric
                 label={t('dashboard.cyberDino.requests')}
