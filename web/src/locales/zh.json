@@ -813,6 +813,7 @@
       "failedExistingDescription": "这些已存在 Claude provider 未通过测试。勾选后确认移除，会从 Providers tab 全局删除，并清理引用它们的 route/project 配置。",
       "removeSelectedFailedExisting": "移除选中失败项（{{count}}）",
       "confirmRemoveFailedExisting": "确认移除 {{count}} 个已存在 provider？这会从 Providers tab 全局删除，并清理 {{routeCount}} 条引用 route/project 配置。此操作不可撤销。",
+      "removeFailedExistingError": "{{count}} 个 provider 移除失败",
       "routeReferenceCount": "引用 route {{count}}"
     },
     "customProviderKey": {

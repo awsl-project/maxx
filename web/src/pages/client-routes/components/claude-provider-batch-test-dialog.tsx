@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { FlaskConical, Loader2, Play, ShieldCheck, Trash2 } from 'lucide-react';
@@ -30,6 +30,14 @@ import {
   toCreateProviderData,
   type BulkCustomProviderCommand,
 } from '@/pages/providers/utils/bulk-custom-provider-import';
+import {
+  collectSuccessfulRemovedExistingIDs,
+  filterRemovedExistingResults,
+  getClaudeBatchCandidateResultKey,
+  getClaudeBatchExistingResultKey,
+  getClaudeBatchResultKey,
+  summarizeClaudeBatchDisplayResults,
+} from '@/pages/client-routes/utils/claude-provider-batch-test';
 
 interface ClaudeProviderBatchTestDialogProps {
   providers: Provider[];
@@ -118,8 +126,15 @@ function resultLabel(status: string | undefined, t: TFunction) {
   }
 }
 
-function resultByIndex(results: ClaudeProviderBatchProviderResult[] | undefined) {
-  return new Map((results ?? []).map((result) => [result.index, result]));
+function resultKeyForItem(item: PreviewItem) {
+  if (item.source === 'existing' && item.providerID) {
+    return getClaudeBatchExistingResultKey(item.providerID);
+  }
+  return getClaudeBatchCandidateResultKey(item.name, item.baseURL);
+}
+
+function resultByPreviewKey(results: ClaudeProviderBatchProviderResult[] | undefined) {
+  return new Map((results ?? []).map((result) => [getClaudeBatchResultKey(result), result]));
 }
 
 export function ClaudeProviderBatchTestDialog({
@@ -140,18 +155,31 @@ export function ClaudeProviderBatchTestDialog({
   const [createRoutes, setCreateRoutes] = useState(true);
   const [overwriteExisting, setOverwriteExisting] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const failedExistingSectionRef = useRef<HTMLElement | null>(null);
   const batchTest = useClaudeProviderBatchTest();
   const deleteProvider = useDeleteProvider();
 
+  const removedExistingIDSet = useMemo(() => new Set(removedExistingIDs), [removedExistingIDs]);
+
+  const activeProviders = useMemo(
+    () => providers.filter((provider) => !removedExistingIDSet.has(provider.id)),
+    [providers, removedExistingIDSet],
+  );
+
+  const activeRoutes = useMemo(
+    () => routes.filter((route) => !removedExistingIDSet.has(route.providerID)),
+    [routes, removedExistingIDSet],
+  );
+
   const claudeProviders = useMemo(
     () =>
-      providers.filter(
+      activeProviders.filter(
         (provider) =>
           provider.type === 'custom' &&
           (provider.supportedClientTypes?.length === 0 ||
             provider.supportedClientTypes?.includes('claude')),
       ),
-    [providers],
+    [activeProviders],
   );
 
   const claudeProviderIDs = useMemo(
@@ -171,42 +199,42 @@ export function ClaudeProviderBatchTestDialog({
 
   const existingByName = useMemo(() => {
     const map = new Map<string, Provider>();
-    for (const provider of providers) map.set(provider.name.trim().toLowerCase(), provider);
+    for (const provider of activeProviders) map.set(provider.name.trim().toLowerCase(), provider);
     return map;
-  }, [providers]);
+  }, [activeProviders]);
 
   const existingByBaseURL = useMemo(() => {
     const map = new Map<string, Provider>();
-    for (const provider of providers) {
+    for (const provider of activeProviders) {
       const baseURL = providerBaseURL(provider);
       if (baseURL) map.set(baseURL, provider);
     }
     return map;
-  }, [providers]);
+  }, [activeProviders]);
 
   const providerByID = useMemo(() => {
     const map = new Map<number, Provider>();
-    for (const provider of providers) map.set(Number(provider.id), provider);
+    for (const provider of activeProviders) map.set(Number(provider.id), provider);
     return map;
-  }, [providers]);
+  }, [activeProviders]);
 
   const existingRouteProviderIDs = useMemo(
     () =>
       new Set(
-        routes
+        activeRoutes
           .filter((route) => route.clientType === 'claude' && route.projectID === projectID)
           .map((route) => route.providerID),
       ),
-    [routes, projectID],
+    [activeRoutes, projectID],
   );
 
   const routeCountByProviderID = useMemo(() => {
     const map = new Map<number, number>();
-    for (const route of routes) {
+    for (const route of activeRoutes) {
       map.set(route.providerID, (map.get(route.providerID) ?? 0) + 1);
     }
     return map;
-  }, [routes]);
+  }, [activeRoutes]);
 
   const previewItems = useMemo<PreviewItem[]>(() => {
     const selectedExisting = claudeProviders
@@ -269,18 +297,18 @@ export function ClaudeProviderBatchTestDialog({
     [previewItems],
   );
 
-  const resultMap = resultByIndex(batchTest.data?.results);
-  const removedExistingIDSet = useMemo(() => new Set(removedExistingIDs), [removedExistingIDs]);
+  const displayResults = useMemo(
+    () => filterRemovedExistingResults(batchTest.data?.results, removedExistingIDSet),
+    [batchTest.data?.results, removedExistingIDSet],
+  );
+  const resultMap = resultByPreviewKey(displayResults);
+  const displaySummary = summarizeClaudeBatchDisplayResults(displayResults);
   const failedExistingResults = useMemo(
     () =>
-      (batchTest.data?.results ?? []).filter(
-        (result) =>
-          result.source === 'existing' &&
-          result.existingID &&
-          !result.ok &&
-          !removedExistingIDSet.has(result.existingID),
+      displayResults.filter(
+        (result) => result.source === 'existing' && result.existingID && !result.ok,
       ),
-    [batchTest.data?.results, removedExistingIDSet],
+    [displayResults],
   );
   const selectedFailedExistingResults = useMemo(
     () =>
@@ -295,6 +323,11 @@ export function ClaudeProviderBatchTestDialog({
   );
   const canRun =
     previewItems.some((item) => item.selected && !item.error) && parsePreview.errors.length === 0;
+
+  useEffect(() => {
+    if (failedExistingResults.length === 0) return;
+    failedExistingSectionRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [failedExistingResults.length]);
 
   const handleToggleExisting = (providerID: number, checked: boolean) => {
     setSelectedExistingIDs((current) =>
@@ -354,16 +387,29 @@ export function ClaudeProviderBatchTestDialog({
     if (!confirmed) return;
 
     setRemovalError(null);
-    try {
-      for (const result of targets) {
-        await deleteProvider.mutateAsync(result.existingID!);
-      }
-      const removedIDs = targets.map((result) => result.existingID!);
+    const settled = await Promise.allSettled(
+      targets.map((result) => deleteProvider.mutateAsync(result.existingID!)),
+    );
+    const removedIDs = collectSuccessfulRemovedExistingIDs(targets, settled);
+    const failedCount = settled.filter((result) => result.status === 'rejected').length;
+
+    if (removedIDs.length > 0) {
       setRemovedExistingIDs((current) => [...new Set([...current, ...removedIDs])]);
       setSelectedFailedExistingIDs((current) => current.filter((id) => !removedIDs.includes(id)));
       setSelectedExistingIDs((current) => current.filter((id) => !removedIDs.includes(id)));
-    } catch (error) {
-      setRemovalError(error instanceof Error ? error.message : String(error));
+    }
+
+    if (failedCount > 0) {
+      const firstFailure = settled.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      setRemovalError(
+        `${t('routes.claudeBatchTest.removeFailedExistingError', { count: failedCount })}: ${
+          firstFailure?.reason instanceof Error
+            ? firstFailure.reason.message
+            : String(firstFailure?.reason ?? '')
+        }`,
+      );
     }
   };
 
@@ -532,6 +578,82 @@ export function ClaudeProviderBatchTestDialog({
             </label>
           </section>
 
+          {failedExistingResults.length > 0 && (
+            <section
+              ref={failedExistingSectionRef}
+              className="min-w-0 space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    {t('routes.claudeBatchTest.failedExistingTitle')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('routes.claudeBatchTest.failedExistingDescription')}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={selectedFailedExistingResults.length === 0 || deleteProvider.isPending}
+                  onClick={handleRemoveSelectedFailedExisting}
+                >
+                  {deleteProvider.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  {t('routes.claudeBatchTest.removeSelectedFailedExisting', {
+                    count: selectedFailedExistingResults.length,
+                  })}
+                </Button>
+              </div>
+              <div className="divide-y divide-amber-500/20 rounded-md border border-amber-500/20 bg-background/60">
+                {failedExistingResults.map((result) => {
+                  const providerID = result.existingID ?? 0;
+                  const provider = providerByID.get(providerID);
+                  const routeCount = routeCountByProviderID.get(providerID) ?? 0;
+                  return (
+                    <label key={providerID || result.index} className="flex gap-3 p-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={selectedFailedExistingIDs.includes(providerID)}
+                        onChange={(event) =>
+                          handleToggleFailedExisting(providerID, event.target.checked)
+                        }
+                      />
+                      <span className="min-w-0 flex-1 space-y-1">
+                        <span className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="truncate font-medium">{result.name}</span>
+                          <Badge variant={resultBadgeVariant(result.status)}>
+                            {resultLabel(result.status, t)}
+                          </Badge>
+                          <Badge variant="outline">
+                            {t('routes.claudeBatchTest.routeReferenceCount', { count: routeCount })}
+                          </Badge>
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {maskURL(providerBaseURL(provider) || result.baseURL || '')}
+                        </span>
+                        {(result.error || result.message) && (
+                          <span
+                            className="block truncate text-xs text-red-500"
+                            title={result.error || result.message}
+                          >
+                            {result.error || result.message}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {removalError && <p className="text-xs text-red-500">{removalError}</p>}
+            </section>
+          )}
+
           <section className="min-w-0 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-medium">{t('routes.claudeBatchTest.previewTitle')}</p>
@@ -541,17 +663,17 @@ export function ClaudeProviderBatchTestDialog({
                 </span>
                 <span>
                   {t('routes.claudeBatchTest.countUsable', {
-                    count: batchTest.data?.usableCount ?? 0,
+                    count: displaySummary.usableCount,
                   })}
                 </span>
                 <span>
                   {t('routes.claudeBatchTest.countSaved', {
-                    count: batchTest.data?.persistedCount ?? 0,
+                    count: displaySummary.persistedCount,
                   })}
                 </span>
                 <span>
                   {t('routes.claudeBatchTest.countRoutesCreated', {
-                    count: batchTest.data?.routesCreated ?? 0,
+                    count: displaySummary.routesCreated,
                   })}
                 </span>
               </div>
@@ -563,8 +685,8 @@ export function ClaudeProviderBatchTestDialog({
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {previewItems.map((item, visibleIndex) => {
-                    const result = resultMap.get(visibleIndex);
+                  {previewItems.map((item) => {
+                    const result = resultMap.get(resultKeyForItem(item));
                     return (
                       <div
                         key={item.key}
@@ -636,79 +758,6 @@ export function ClaudeProviderBatchTestDialog({
               )}
             </div>
           </section>
-
-          {failedExistingResults.length > 0 && (
-            <section className="min-w-0 space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-                    {t('routes.claudeBatchTest.failedExistingTitle')}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('routes.claudeBatchTest.failedExistingDescription')}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={selectedFailedExistingResults.length === 0 || deleteProvider.isPending}
-                  onClick={handleRemoveSelectedFailedExisting}
-                >
-                  {deleteProvider.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4 mr-2" />
-                  )}
-                  {t('routes.claudeBatchTest.removeSelectedFailedExisting', {
-                    count: selectedFailedExistingResults.length,
-                  })}
-                </Button>
-              </div>
-              <div className="divide-y divide-amber-500/20 rounded-md border border-amber-500/20 bg-background/60">
-                {failedExistingResults.map((result) => {
-                  const providerID = result.existingID ?? 0;
-                  const provider = providerByID.get(providerID);
-                  const routeCount = routeCountByProviderID.get(providerID) ?? 0;
-                  return (
-                    <label key={providerID || result.index} className="flex gap-3 p-3 text-sm">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={selectedFailedExistingIDs.includes(providerID)}
-                        onChange={(event) =>
-                          handleToggleFailedExisting(providerID, event.target.checked)
-                        }
-                      />
-                      <span className="min-w-0 flex-1 space-y-1">
-                        <span className="flex min-w-0 flex-wrap items-center gap-2">
-                          <span className="truncate font-medium">{result.name}</span>
-                          <Badge variant={resultBadgeVariant(result.status)}>
-                            {resultLabel(result.status, t)}
-                          </Badge>
-                          <Badge variant="outline">
-                            {t('routes.claudeBatchTest.routeReferenceCount', { count: routeCount })}
-                          </Badge>
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {maskURL(providerBaseURL(provider) || result.baseURL || '')}
-                        </span>
-                        {(result.error || result.message) && (
-                          <span
-                            className="block truncate text-xs text-red-500"
-                            title={result.error || result.message}
-                          >
-                            {result.error || result.message}
-                          </span>
-                        )}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-              {removalError && <p className="text-xs text-red-500">{removalError}</p>}
-            </section>
-          )}
         </div>
 
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
