@@ -156,7 +156,72 @@
     "viewAll": "View All",
     "activeSessions": "Active Sessions",
     "requests": "Requests",
-    "cost": "Cost"
+    "cost": "Cost",
+    "cyberDino": {
+      "title": "Cyber Dino",
+      "description": "Monthly token usage drives the flame under the dino. Materials change the look, not the usage signal.",
+      "badgeTooltip": "{{tokens}} tokens burned this month",
+      "monthlyBurn": "Burned this month",
+      "nextLevel": "Next flame level",
+      "nextLevelHint": "{{tokens}} tokens to go",
+      "maxLevelHint": "Maximum fire reached",
+      "inputTokens": "Input",
+      "outputTokens": "Output",
+      "cacheTokens": "Cache",
+      "requests": "Requests",
+      "dinoMaterial": "Dino material",
+      "flameMaterial": "Flame material",
+      "mappingHint": "Flame size is mapped from monthly token totals; materials do not change the usage meaning.",
+      "resetHint": "Monthly stats reset on {{date}}",
+      "levels": {
+        "idle": "Sparks",
+        "warm": "Warm burn",
+        "steady": "Steady burn",
+        "hot": "Blaze mode",
+        "inferno": "Cyber inferno"
+      },
+      "motion": {
+        "alive": "Alive",
+        "calm": "Calm",
+        "off": "Off"
+      },
+      "dinoMaterials": {
+        "cyberMetal": {
+          "label": "Cyber Metal",
+          "description": "Cyan-violet neon metal, the default dino skin."
+        },
+        "hologram": {
+          "label": "Hologram",
+          "description": "Light holographic projection material."
+        },
+        "carbonFiber": {
+          "label": "Carbon Fiber",
+          "description": "Dark carbon fiber with a restrained tone."
+        },
+        "pixelNeon": {
+          "label": "Pixel Neon",
+          "description": "High-contrast pixel material with a game-like feel."
+        }
+      },
+      "flameMaterials": {
+        "bluePlasma": {
+          "label": "Blue Plasma",
+          "description": "Cool cyber flame for the default theme."
+        },
+        "lavaCore": {
+          "label": "Lava Core",
+          "description": "Orange-red high-heat flame with stronger urgency."
+        },
+        "toxicNeon": {
+          "label": "Toxic Neon",
+          "description": "Green-cyan flame with an anomalous vibe."
+        },
+        "glitchViolet": {
+          "label": "Glitch Violet",
+          "description": "Violet-pink glitch flame for monster usage."
+        }
+      }
+    }
   },
   "requests": {
     "title": "Requests",

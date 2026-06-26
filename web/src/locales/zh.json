@@ -155,7 +155,72 @@
     "viewAll": "查看全部",
     "activeSessions": "活跃会话",
     "requests": "请求",
-    "cost": "成本"
+    "cost": "成本",
+    "cyberDino": {
+      "title": "赛博小恐龙",
+      "description": "当月 token 用量越高，脚下火焰烧得越凶。材质只改外观，火焰强度由真实用量驱动。",
+      "badgeTooltip": "本月已燃烧 {{tokens}} tokens",
+      "monthlyBurn": "本月已燃烧",
+      "nextLevel": "下一档火焰",
+      "nextLevelHint": "还差 {{tokens}} tokens",
+      "maxLevelHint": "已经是最高火力",
+      "inputTokens": "输入",
+      "outputTokens": "输出",
+      "cacheTokens": "缓存",
+      "requests": "请求",
+      "dinoMaterial": "小恐龙材质",
+      "flameMaterial": "火焰材质",
+      "mappingHint": "火焰大小按当月 token 总量分档，材质不会篡改用量语义。",
+      "resetHint": "月度统计将在 {{date}} 重置",
+      "levels": {
+        "idle": "小火星",
+        "warm": "轻度燃烧",
+        "steady": "稳定燃烧",
+        "hot": "烈焰模式",
+        "inferno": "赛博地狱火"
+      },
+      "motion": {
+        "alive": "动效",
+        "calm": "轻微",
+        "off": "关闭"
+      },
+      "dinoMaterials": {
+        "cyberMetal": {
+          "label": "赛博金属",
+          "description": "青紫霓虹金属，小恐龙默认皮肤。"
+        },
+        "hologram": {
+          "label": "全息幻影",
+          "description": "浅色全息投影，偏轻盈的材质。"
+        },
+        "carbonFiber": {
+          "label": "碳纤维",
+          "description": "深色碳纤维，偏冷静克制。"
+        },
+        "pixelNeon": {
+          "label": "像素霓虹",
+          "description": "像素风高亮材质，偏游戏化。"
+        }
+      },
+      "flameMaterials": {
+        "bluePlasma": {
+          "label": "蓝紫等离子",
+          "description": "冷色赛博火焰，适合默认主题。"
+        },
+        "lavaCore": {
+          "label": "熔岩核心",
+          "description": "橙红高温火焰，表达更强烈。"
+        },
+        "toxicNeon": {
+          "label": "毒性霓虹",
+          "description": "绿青色火焰，带异常感。"
+        },
+        "glitchViolet": {
+          "label": "故障紫焰",
+          "description": "紫粉故障火焰，适合爆量时的怪物感。"
+        }
+      }
+    }
   },
   "requests": {
     "title": "请求",

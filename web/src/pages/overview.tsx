@@ -45,6 +45,7 @@ import { CooldownTimer } from '@/components/cooldown-timer';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import { AreaChart, Area, XAxis, YAxis } from 'recharts';
 import { cn } from '@/lib/utils';
+import { CyberDinoUsageBadge, CyberDinoUsageCard } from './overview/components/cyber-dino-usage-card';
 
 // 格式化数字（K, M, B）
 function formatNumber(num: number): string {
@@ -289,6 +290,7 @@ export function OverviewPage() {
         iconClassName="text-indigo-500"
         title={t('dashboard.title')}
         description={t('dashboard.description')}
+        actions={<CyberDinoUsageBadge />}
       />
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
@@ -339,6 +341,8 @@ export function OverviewPage() {
               )}
             />
           </div>
+
+          <CyberDinoUsageCard />
 
           {/* Cooldown Alert Banner — shown at top when any provider has active cooldowns */}
           {activeCooldowns.length > 0 && (
