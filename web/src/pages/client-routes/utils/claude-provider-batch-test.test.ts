@@ -6,7 +6,9 @@ import {
   filterRemovedExistingResults,
   getClaudeBatchCandidateResultKey,
   getClaudeBatchExistingResultKey,
+  getClaudeBatchOccurrenceMatchKeys,
   getClaudeBatchResultKey,
+  getFailedExistingResultSignature,
   summarizeClaudeBatchDisplayResults,
 } from './claude-provider-batch-test';
 
@@ -88,5 +90,24 @@ describe('Claude provider batch test helpers', () => {
     ];
 
     expect(collectSuccessfulRemovedExistingIDs(targets, settled)).toEqual([1, 3]);
+  });
+
+  it('adds occurrence suffixes so duplicate candidate keys do not overwrite each other', () => {
+    const candidateKey = getClaudeBatchCandidateResultKey('Same Provider', 'https://api.test/');
+
+    expect(getClaudeBatchOccurrenceMatchKeys([candidateKey, candidateKey, 'existing-7'])).toEqual([
+      `${candidateKey}#0`,
+      `${candidateKey}#1`,
+      'existing-7#0',
+    ]);
+  });
+
+  it('builds a failed existing signature from the result identity and failure details', () => {
+    expect(
+      getFailedExistingResultSignature([
+        result({ existingID: 1, status: 'request_failed', error: 'timeout', message: 'slow' }),
+        result({ existingID: 2, status: 'upstream_5xx', error: '500', message: 'bad gateway' }),
+      ]),
+    ).toBe('1:request_failed:timeout:slow|2:upstream_5xx:500:bad gateway');
   });
 });

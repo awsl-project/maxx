@@ -17,6 +17,19 @@ export function getClaudeBatchResultKey(
   return getClaudeBatchCandidateResultKey(result.name, result.baseURL ?? '');
 }
 
+export function getClaudeBatchResultMatchKey(baseKey: string, occurrence: number) {
+  return `${baseKey}#${occurrence}`;
+}
+
+export function getClaudeBatchOccurrenceMatchKeys(baseKeys: string[]) {
+  const occurrenceByBaseKey = new Map<string, number>();
+  return baseKeys.map((baseKey) => {
+    const occurrence = occurrenceByBaseKey.get(baseKey) ?? 0;
+    occurrenceByBaseKey.set(baseKey, occurrence + 1);
+    return getClaudeBatchResultMatchKey(baseKey, occurrence);
+  });
+}
+
 export function filterRemovedExistingResults(
   results: ClaudeProviderBatchProviderResult[] | undefined,
   removedExistingIDs: Set<number>,
@@ -44,4 +57,15 @@ export function collectSuccessfulRemovedExistingIDs<T extends { existingID?: num
   return targets
     .filter((target, index) => Boolean(target.existingID) && settled[index]?.status === 'fulfilled')
     .map((target) => target.existingID!);
+}
+
+export function getFailedExistingResultSignature(
+  results: Pick<ClaudeProviderBatchProviderResult, 'existingID' | 'status' | 'error' | 'message'>[],
+) {
+  return results
+    .map(
+      (result) =>
+        `${result.existingID ?? 0}:${result.status ?? ''}:${result.error ?? ''}:${result.message ?? ''}`,
+    )
+    .join('|');
 }

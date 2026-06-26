@@ -35,7 +35,9 @@ import {
   filterRemovedExistingResults,
   getClaudeBatchCandidateResultKey,
   getClaudeBatchExistingResultKey,
+  getClaudeBatchOccurrenceMatchKeys,
   getClaudeBatchResultKey,
+  getFailedExistingResultSignature,
   summarizeClaudeBatchDisplayResults,
 } from '@/pages/client-routes/utils/claude-provider-batch-test';
 
@@ -133,8 +135,15 @@ function resultKeyForItem(item: PreviewItem) {
   return getClaudeBatchCandidateResultKey(item.name, item.baseURL);
 }
 
-function resultByPreviewKey(results: ClaudeProviderBatchProviderResult[] | undefined) {
-  return new Map((results ?? []).map((result) => [getClaudeBatchResultKey(result), result]));
+function resultByPreviewMatchKey(results: ClaudeProviderBatchProviderResult[] | undefined) {
+  const items = results ?? [];
+  const matchKeys = getClaudeBatchOccurrenceMatchKeys(items.map(getClaudeBatchResultKey));
+  return new Map(matchKeys.map((matchKey, index) => [matchKey, items[index]]));
+}
+
+function previewResultMatchKeys(items: PreviewItem[]) {
+  const matchKeys = getClaudeBatchOccurrenceMatchKeys(items.map(resultKeyForItem));
+  return new Map(matchKeys.map((matchKey, index) => [items[index].key, matchKey]));
 }
 
 export function ClaudeProviderBatchTestDialog({
@@ -152,6 +161,7 @@ export function ClaudeProviderBatchTestDialog({
   const [selectedFailedExistingIDs, setSelectedFailedExistingIDs] = useState<number[]>([]);
   const [removedExistingIDs, setRemovedExistingIDs] = useState<number[]>([]);
   const [removalError, setRemovalError] = useState<string | null>(null);
+  const [isRemovingFailedExisting, setIsRemovingFailedExisting] = useState(false);
   const [createRoutes, setCreateRoutes] = useState(true);
   const [overwriteExisting, setOverwriteExisting] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -301,7 +311,11 @@ export function ClaudeProviderBatchTestDialog({
     () => filterRemovedExistingResults(batchTest.data?.results, removedExistingIDSet),
     [batchTest.data?.results, removedExistingIDSet],
   );
-  const resultMap = resultByPreviewKey(displayResults);
+  const resultMap = resultByPreviewMatchKey(displayResults);
+  const previewResultMatchKeyMap = useMemo(
+    () => previewResultMatchKeys(previewItems),
+    [previewItems],
+  );
   const displaySummary = summarizeClaudeBatchDisplayResults(displayResults);
   const failedExistingResults = useMemo(
     () =>
@@ -321,13 +335,14 @@ export function ClaudeProviderBatchTestDialog({
     (count, result) => count + (routeCountByProviderID.get(result.existingID ?? 0) ?? 0),
     0,
   );
+  const failedExistingResultSignature = getFailedExistingResultSignature(failedExistingResults);
   const canRun =
     previewItems.some((item) => item.selected && !item.error) && parsePreview.errors.length === 0;
 
   useEffect(() => {
     if (failedExistingResults.length === 0) return;
     failedExistingSectionRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [failedExistingResults.length]);
+  }, [failedExistingResults.length, failedExistingResultSignature]);
 
   const handleToggleExisting = (providerID: number, checked: boolean) => {
     setSelectedExistingIDs((current) =>
@@ -377,7 +392,7 @@ export function ClaudeProviderBatchTestDialog({
 
   const handleRemoveSelectedFailedExisting = async () => {
     const targets = selectedFailedExistingResults.filter((result) => result.existingID);
-    if (targets.length === 0) return;
+    if (targets.length === 0 || isRemovingFailedExisting) return;
     const confirmed = window.confirm(
       t('routes.claudeBatchTest.confirmRemoveFailedExisting', {
         count: targets.length,
@@ -387,29 +402,34 @@ export function ClaudeProviderBatchTestDialog({
     if (!confirmed) return;
 
     setRemovalError(null);
-    const settled = await Promise.allSettled(
-      targets.map((result) => deleteProvider.mutateAsync(result.existingID!)),
-    );
-    const removedIDs = collectSuccessfulRemovedExistingIDs(targets, settled);
-    const failedCount = settled.filter((result) => result.status === 'rejected').length;
-
-    if (removedIDs.length > 0) {
-      setRemovedExistingIDs((current) => [...new Set([...current, ...removedIDs])]);
-      setSelectedFailedExistingIDs((current) => current.filter((id) => !removedIDs.includes(id)));
-      setSelectedExistingIDs((current) => current.filter((id) => !removedIDs.includes(id)));
-    }
-
-    if (failedCount > 0) {
-      const firstFailure = settled.find(
-        (result): result is PromiseRejectedResult => result.status === 'rejected',
+    setIsRemovingFailedExisting(true);
+    try {
+      const settled = await Promise.allSettled(
+        targets.map((result) => deleteProvider.mutateAsync(result.existingID!)),
       );
-      setRemovalError(
-        `${t('routes.claudeBatchTest.removeFailedExistingError', { count: failedCount })}: ${
-          firstFailure?.reason instanceof Error
-            ? firstFailure.reason.message
-            : String(firstFailure?.reason ?? '')
-        }`,
-      );
+      const removedIDs = collectSuccessfulRemovedExistingIDs(targets, settled);
+      const failedCount = settled.filter((result) => result.status === 'rejected').length;
+
+      if (removedIDs.length > 0) {
+        setRemovedExistingIDs((current) => [...new Set([...current, ...removedIDs])]);
+        setSelectedFailedExistingIDs((current) => current.filter((id) => !removedIDs.includes(id)));
+        setSelectedExistingIDs((current) => current.filter((id) => !removedIDs.includes(id)));
+      }
+
+      if (failedCount > 0) {
+        const firstFailure = settled.find(
+          (result): result is PromiseRejectedResult => result.status === 'rejected',
+        );
+        setRemovalError(
+          `${t('routes.claudeBatchTest.removeFailedExistingError', { count: failedCount })}: ${
+            firstFailure?.reason instanceof Error
+              ? firstFailure.reason.message
+              : String(firstFailure?.reason ?? '')
+          }`,
+        );
+      }
+    } finally {
+      setIsRemovingFailedExisting(false);
     }
   };
 
@@ -596,10 +616,10 @@ export function ClaudeProviderBatchTestDialog({
                   type="button"
                   variant="destructive"
                   size="sm"
-                  disabled={selectedFailedExistingResults.length === 0 || deleteProvider.isPending}
+                  disabled={selectedFailedExistingResults.length === 0 || isRemovingFailedExisting}
                   onClick={handleRemoveSelectedFailedExisting}
                 >
-                  {deleteProvider.isPending ? (
+                  {isRemovingFailedExisting ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <Trash2 className="h-4 w-4 mr-2" />
@@ -686,7 +706,7 @@ export function ClaudeProviderBatchTestDialog({
               ) : (
                 <div className="divide-y divide-border">
                   {previewItems.map((item) => {
-                    const result = resultMap.get(resultKeyForItem(item));
+                    const result = resultMap.get(previewResultMatchKeyMap.get(item.key) ?? '');
                     return (
                       <div
                         key={item.key}
