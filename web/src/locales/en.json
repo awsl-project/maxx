@@ -765,6 +765,7 @@
       "parseErrorLine": "Line {{line}}: {{message}}",
       "existingTitle": "Existing Claude providers",
       "existingSelectedCount": "Selected {{selected}} / {{total}}",
+      "excludedExistingCount": "Hidden {{count}} export-excluded providers",
       "selectAllExisting": "Select all",
       "clearExistingSelection": "Clear selection",
       "noExistingProviders": "No custom Claude providers are available.",

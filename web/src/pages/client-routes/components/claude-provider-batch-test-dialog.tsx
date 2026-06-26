@@ -38,6 +38,8 @@ import {
   getClaudeBatchOccurrenceMatchKeys,
   getClaudeBatchResultKey,
   getFailedExistingResultSignature,
+  isClaudeBatchTestExcludedProvider,
+  isClaudeBatchTestSelectableProvider,
   summarizeClaudeBatchDisplayResults,
 } from '@/pages/client-routes/utils/claude-provider-batch-test';
 
@@ -182,20 +184,19 @@ export function ClaudeProviderBatchTestDialog({
   );
 
   const claudeProviders = useMemo(
-    () =>
-      activeProviders.filter(
-        (provider) =>
-          provider.type === 'custom' &&
-          (provider.supportedClientTypes?.length === 0 ||
-            provider.supportedClientTypes?.includes('claude')),
-      ),
+    () => activeProviders.filter(isClaudeBatchTestSelectableProvider),
     [activeProviders],
   );
+
+  const excludedExistingProviderCount = activeProviders.filter(
+    isClaudeBatchTestExcludedProvider,
+  ).length;
 
   const claudeProviderIDs = useMemo(
     () => claudeProviders.map((provider) => provider.id),
     [claudeProviders],
   );
+  const claudeProviderIDSet = useMemo(() => new Set(claudeProviderIDs), [claudeProviderIDs]);
 
   const selectedExistingCount = useMemo(
     () => selectedExistingIDs.filter((id) => claudeProviderIDs.includes(id)).length,
@@ -204,6 +205,13 @@ export function ClaudeProviderBatchTestDialog({
 
   const allExistingSelected =
     claudeProviderIDs.length > 0 && selectedExistingCount === claudeProviderIDs.length;
+
+  useEffect(() => {
+    setSelectedExistingIDs((current) => {
+      if (current.every((id) => claudeProviderIDSet.has(id))) return current;
+      return current.filter((id) => claudeProviderIDSet.has(id));
+    });
+  }, [claudeProviderIDSet]);
 
   const parsePreview = useMemo(() => parseBulkCustomProviderCommands(commandsText), [commandsText]);
 
@@ -370,7 +378,7 @@ export function ClaudeProviderBatchTestDialog({
     await batchTest.mutateAsync({
       signal: controller.signal,
       data: {
-        existingProviderIDs: selectedExistingIDs,
+        existingProviderIDs: selectedExistingIDs.filter((id) => claudeProviderIDSet.has(id)),
         candidates: selectedCandidateData,
         projectID,
         testModel: testModel.trim() || DEFAULT_TEST_MODEL,
@@ -502,6 +510,13 @@ export function ClaudeProviderBatchTestDialog({
                       total: claudeProviderIDs.length,
                     })}
                   </p>
+                  {excludedExistingProviderCount > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('routes.claudeBatchTest.excludedExistingCount', {
+                        count: excludedExistingProviderCount,
+                      })}
+                    </p>
+                  )}
                 </div>
                 <Button
                   type="button"

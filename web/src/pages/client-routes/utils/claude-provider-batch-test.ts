@@ -1,4 +1,25 @@
-import type { ClaudeProviderBatchProviderResult } from '@/lib/transport';
+import type { ClaudeProviderBatchProviderResult, Provider } from '@/lib/transport';
+
+type ClaudeBatchProviderSelectionFields = Pick<
+  Provider,
+  'type' | 'supportedClientTypes' | 'excludeFromExport'
+>;
+
+function supportsClaudeBatchTest(provider: ClaudeBatchProviderSelectionFields) {
+  return (
+    provider.type === 'custom' &&
+    (provider.supportedClientTypes?.length === 0 ||
+      provider.supportedClientTypes?.includes('claude'))
+  );
+}
+
+export function isClaudeBatchTestSelectableProvider(provider: ClaudeBatchProviderSelectionFields) {
+  return supportsClaudeBatchTest(provider) && !provider.excludeFromExport;
+}
+
+export function isClaudeBatchTestExcludedProvider(provider: ClaudeBatchProviderSelectionFields) {
+  return supportsClaudeBatchTest(provider) && !!provider.excludeFromExport;
+}
 
 export function getClaudeBatchExistingResultKey(providerID: number) {
   return `existing-${providerID}`;

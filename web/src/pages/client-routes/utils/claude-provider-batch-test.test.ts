@@ -9,6 +9,8 @@ import {
   getClaudeBatchOccurrenceMatchKeys,
   getClaudeBatchResultKey,
   getFailedExistingResultSignature,
+  isClaudeBatchTestExcludedProvider,
+  isClaudeBatchTestSelectableProvider,
   summarizeClaudeBatchDisplayResults,
 } from './claude-provider-batch-test';
 
@@ -37,6 +39,37 @@ function result(
 }
 
 describe('Claude provider batch test helpers', () => {
+  it('excludes export-hidden providers from the Claude batch-test selectable list', () => {
+    expect(
+      isClaudeBatchTestSelectableProvider({
+        type: 'custom',
+        supportedClientTypes: ['claude'],
+        excludeFromExport: false,
+      }),
+    ).toBe(true);
+    expect(
+      isClaudeBatchTestSelectableProvider({
+        type: 'custom',
+        supportedClientTypes: [],
+        excludeFromExport: false,
+      }),
+    ).toBe(true);
+    const exportHiddenClaudeProvider = {
+      type: 'custom' as const,
+      supportedClientTypes: ['claude'],
+      excludeFromExport: true,
+    };
+    expect(isClaudeBatchTestSelectableProvider(exportHiddenClaudeProvider)).toBe(false);
+    expect(isClaudeBatchTestExcludedProvider(exportHiddenClaudeProvider)).toBe(true);
+    const openAIOnlyProvider = {
+      type: 'custom' as const,
+      supportedClientTypes: ['openai'],
+      excludeFromExport: false,
+    };
+    expect(isClaudeBatchTestSelectableProvider(openAIOnlyProvider)).toBe(false);
+    expect(isClaudeBatchTestExcludedProvider(openAIOnlyProvider)).toBe(false);
+  });
+
   it('keys existing results by provider id and candidates by normalized name/base URL', () => {
     expect(getClaudeBatchExistingResultKey(42)).toBe('existing-42');
     expect(getClaudeBatchCandidateResultKey('  Provider X ', 'https://example.com///')).toBe(

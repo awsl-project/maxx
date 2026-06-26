@@ -762,6 +762,7 @@
       "parseErrorLine": "第 {{line}} 行：{{message}}",
       "existingTitle": "已存在 Claude provider",
       "existingSelectedCount": "已选 {{selected}} / {{total}}",
+      "excludedExistingCount": "已隐藏 {{count}} 个不导出的 provider",
       "selectAllExisting": "全选",
       "clearExistingSelection": "取消全选",
       "noExistingProviders": "没有可选的 custom Claude provider。",
