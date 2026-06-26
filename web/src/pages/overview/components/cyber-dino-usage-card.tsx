@@ -84,195 +84,237 @@ function CyberDinoSvg({
   intensity: number;
   motion: CyberDinoUsagePreferences['motion'];
 }) {
-  const flameScale = 0.62 + intensity * 0.12;
+  const flameScale = 0.74 + intensity * 0.1;
   const alive = motion === 'alive';
   const calm = motion === 'calm';
-  const flameOpacity = 0.55 + intensity * 0.1;
+  const burnOpacity = 0.52 + intensity * 0.1;
+  const scanlineOpacity = 0.1 + intensity * 0.035;
 
   return (
     <div
-      className="relative mx-auto h-56 w-full max-w-[22rem] overflow-hidden rounded-3xl border border-cyan-400/15 bg-[radial-gradient(circle_at_50%_18%,rgba(34,211,238,0.16),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.42),rgba(2,6,23,0.72))]"
+      className="relative mx-auto h-56 w-full max-w-[22rem] overflow-hidden rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.86),rgba(2,6,23,0.92))] shadow-2xl"
       style={{
-        boxShadow: `0 0 ${14 + intensity * 6}px ${flame.primary}22, inset 0 0 42px ${dino.secondary}1f`,
+        boxShadow: `0 18px 60px ${flame.secondary}20, inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 54px ${dino.secondary}1c`,
       }}
       aria-hidden="true"
     >
       <div
-        className="absolute left-1/2 top-8 h-36 w-36 -translate-x-1/2 rounded-full blur-3xl"
-        style={{ background: `radial-gradient(circle, ${dino.primary}24, transparent 72%)` }}
+        className="absolute -left-12 top-4 h-40 w-40 rounded-full blur-3xl"
+        style={{ background: `${dino.primary}20` }}
       />
       <div
-        className="absolute inset-x-12 bottom-8 h-16 rounded-full blur-2xl"
-        style={{
-          background: `radial-gradient(circle, ${flame.primary}55, ${flame.secondary}22 46%, transparent 76%)`,
-        }}
+        className="absolute -right-14 bottom-0 h-44 w-44 rounded-full blur-3xl"
+        style={{ background: `${flame.primary}22` }}
       />
+      <div className="absolute inset-x-8 top-6 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.28em] text-white/35">
+        <span>Token Burn</span>
+        <span>Lv.{intensity}</span>
+      </div>
 
       <svg viewBox="0 0 420 260" className="absolute inset-0 h-full w-full">
         <defs>
           <linearGradient
-            id="dinoShell"
-            x1="95"
+            id="emblemFrame"
+            x1="90"
             x2="330"
-            y1="58"
-            y2="196"
+            y1="42"
+            y2="222"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.24" />
+            <stop offset="52%" stopColor={dino.primary} stopOpacity="0.16" />
+            <stop offset="100%" stopColor={flame.secondary} stopOpacity="0.18" />
+          </linearGradient>
+          <linearGradient
+            id="mascotFill"
+            x1="120"
+            x2="306"
+            y1="76"
+            y2="185"
             gradientUnits="userSpaceOnUse"
           >
             <stop offset="0%" stopColor={dino.primary} />
-            <stop offset="58%" stopColor={dino.secondary} />
+            <stop offset="62%" stopColor={dino.secondary} />
             <stop offset="100%" stopColor={dino.accent} />
           </linearGradient>
           <linearGradient
-            id="dinoBelly"
-            x1="125"
-            x2="270"
-            y1="118"
-            y2="195"
+            id="mascotPlate"
+            x1="160"
+            x2="276"
+            y1="112"
+            y2="174"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="#020617" stopOpacity="0.16" />
+            <stop offset="0%" stopColor="#f8fafc" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#020617" stopOpacity="0.1" />
           </linearGradient>
-          <linearGradient id="flameBody" x1="0" x2="0" y1="1" y2="0">
+          <linearGradient id="flameGlyph" x1="0" x2="0" y1="1" y2="0">
             <stop offset="0%" stopColor={flame.secondary} />
-            <stop offset="62%" stopColor={flame.primary} />
+            <stop offset="58%" stopColor={flame.primary} />
             <stop offset="100%" stopColor={flame.accent} />
           </linearGradient>
-          <filter id="mascotGlow" x="-35%" y="-35%" width="170%" height="170%">
-            <feGaussianBlur stdDeviation="3.5" result="blur" />
+          <filter id="premiumGlow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <pattern id="microGrid" width="18" height="18" patternUnits="userSpaceOnUse">
+            <path
+              d="M18 0H0V18"
+              fill="none"
+              stroke="#94a3b8"
+              strokeOpacity="0.13"
+              strokeWidth="1"
+            />
+          </pattern>
         </defs>
 
-        <g opacity="0.18">
-          <path d="M68 198 H352" stroke={dino.primary} strokeWidth="1" strokeDasharray="9 10" />
-          <path
-            d="M98 72 H322 M86 112 H338"
-            stroke={dino.accent}
-            strokeWidth="1"
-            strokeDasharray="3 13"
-          />
-          <path
-            d="M118 42 V224 M210 32 V232 M302 48 V220"
-            stroke={dino.primary}
-            strokeWidth="1"
-            strokeDasharray="4 12"
-          />
-        </g>
-
-        <ellipse cx="214" cy="218" rx="132" ry="16" fill="#020617" opacity="0.42" />
+        <rect x="34" y="36" width="352" height="188" rx="34" fill="url(#microGrid)" opacity="0.8" />
+        <path
+          d="M126 50 H294 C330 50 358 78 358 114 V146 C358 192 322 222 266 222 H154 C98 222 62 192 62 146 V114 C62 78 90 50 126 50 Z"
+          fill="url(#emblemFrame)"
+          stroke="#ffffff"
+          strokeOpacity="0.13"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M90 195 H330"
+          stroke={flame.primary}
+          strokeOpacity="0.28"
+          strokeWidth="1"
+          strokeDasharray="8 10"
+        />
+        <path
+          d="M96 82 H150 M270 82 H324"
+          stroke={dino.primary}
+          strokeOpacity="0.46"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M104 98 H132 M288 98 H316"
+          stroke={dino.accent}
+          strokeOpacity="0.34"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
 
         <g
-          filter="url(#mascotGlow)"
-          opacity={flameOpacity}
-          transform={`translate(0 ${calm ? 3 : 0}) scale(1 ${flameScale}) translate(0 ${134 - 134 / flameScale})`}
-          style={{ transformOrigin: '210px 218px' }}
+          opacity={burnOpacity}
+          filter="url(#premiumGlow)"
+          transform={`translate(0 ${calm ? 2 : 0}) scale(1 ${flameScale}) translate(0 ${166 - 166 / flameScale})`}
+          style={{ transformOrigin: '210px 213px' }}
           className={alive ? 'motion-safe:animate-pulse' : undefined}
         >
+          <ellipse cx="210" cy="215" rx="72" ry="13" fill={flame.secondary} opacity="0.34" />
           <path
-            d="M155 220 C139 182 170 176 166 143 C198 166 187 195 207 220 Z"
-            fill="url(#flameBody)"
+            d="M171 216 C158 186 182 178 178 151 C204 172 194 195 211 216 Z"
+            fill="url(#flameGlyph)"
           />
           <path
-            d="M202 222 C179 174 222 155 213 111 C268 158 236 190 260 222 Z"
-            fill="url(#flameBody)"
+            d="M207 218 C189 181 219 165 214 130 C256 166 231 195 252 218 Z"
+            fill="url(#flameGlyph)"
           />
           <path
-            d="M260 220 C243 184 282 170 272 137 C313 166 296 194 318 220 Z"
-            fill="url(#flameBody)"
+            d="M248 216 C236 188 261 180 254 154 C286 176 273 197 289 216 Z"
+            fill="url(#flameGlyph)"
           />
           <path
-            d="M211 222 C199 192 225 181 222 151 C249 181 236 202 248 222 Z"
+            d="M211 217 C202 196 220 188 218 166 C239 190 229 203 238 217 Z"
             fill={flame.accent}
-            opacity="0.86"
+            opacity="0.82"
           />
         </g>
 
-        <g filter="url(#mascotGlow)">
+        <g filter="url(#premiumGlow)">
           <path
-            d="M113 139 C84 133 61 117 49 95 C82 98 112 111 135 132 Z"
+            d="M126 135 C103 131 82 120 69 101 C100 100 129 110 150 129 Z"
             fill={dino.secondary}
             stroke={dino.primary}
+            strokeOpacity="0.9"
             strokeWidth="3"
             strokeLinejoin="round"
           />
           <path
-            d="M108 134 C116 87 157 60 213 63 C270 66 318 96 331 143 C345 194 304 216 222 215 C142 214 98 190 108 134 Z"
-            fill="url(#dinoShell)"
+            d="M126 130 C134 93 169 73 216 75 C264 77 302 102 314 138 C327 178 294 198 226 198 C161 198 118 174 126 130 Z"
+            fill="url(#mascotFill)"
             stroke={dino.primary}
-            strokeWidth="4"
+            strokeWidth="3.5"
             strokeLinejoin="round"
           />
           <path
-            d="M142 147 C160 122 209 114 257 127 C288 136 305 158 298 179 C289 207 244 213 191 204 C148 197 123 174 142 147 Z"
-            fill="url(#dinoBelly)"
-            opacity="0.9"
+            d="M160 142 C177 123 218 118 256 129 C282 136 295 153 289 169 C282 190 245 196 199 188 C164 183 145 160 160 142 Z"
+            fill="url(#mascotPlate)"
           />
           <path
-            d="M270 73 C291 52 330 55 352 80 C371 101 369 132 348 149 C322 170 280 157 265 127 C255 107 255 88 270 73 Z"
-            fill="url(#dinoShell)"
+            d="M272 85 C291 69 324 73 341 94 C356 113 352 139 333 151 C309 166 274 151 264 124 C258 108 260 95 272 85 Z"
+            fill="url(#mascotFill)"
             stroke={dino.primary}
-            strokeWidth="4"
+            strokeWidth="3.5"
             strokeLinejoin="round"
           />
           <path
-            d="M340 105 C362 100 384 106 397 121 C382 134 359 139 340 132 Z"
+            d="M326 111 C347 107 367 113 379 126 C365 138 344 142 326 136 Z"
             fill={dino.secondary}
             stroke={dino.primary}
+            strokeOpacity="0.9"
             strokeWidth="3"
             strokeLinejoin="round"
           />
           <path
-            d="M291 92 H340 C347 92 353 98 353 105 V110 C353 117 347 123 340 123 H291 C284 123 278 117 278 110 V105 C278 98 284 92 291 92 Z"
+            d="M286 100 H329 C337 100 343 106 343 114 C343 121 337 127 329 127 H286 C278 127 272 121 272 114 C272 106 278 100 286 100 Z"
             fill="#020617"
-            opacity="0.78"
+            opacity="0.86"
           />
           <path
-            d="M289 108 H343"
+            d="M285 114 H333"
             stroke={flame.accent}
             strokeWidth="3"
             strokeLinecap="round"
-            opacity="0.94"
+            opacity="0.95"
           />
-          <circle cx="333" cy="105" r="4" fill={flame.primary} />
-
+          <circle cx="323" cy="113" r="3.5" fill={flame.primary} />
           <path
-            d="M154 72 L169 38 L191 76 Z M207 63 L224 30 L248 68 Z M281 66 L300 35 L322 76 Z"
+            d="M163 78 L177 50 L197 82 Z M211 75 L226 48 L248 79 Z M276 83 L292 57 L313 88 Z"
             fill={dino.accent}
             stroke={dino.primary}
             strokeWidth="2"
             strokeLinejoin="round"
           />
           <path
-            d="M153 200 L187 200 L183 234 H158 Z M245 201 L281 199 L276 234 H250 Z"
+            d="M169 190 L198 190 L193 220 H173 Z M239 191 L269 190 L264 220 H244 Z"
             fill={dino.secondary}
             stroke={dino.primary}
             strokeWidth="3"
             strokeLinejoin="round"
           />
           <path
-            d="M145 232 H194 C198 232 201 235 201 239 V242 H139 V239 C139 235 142 232 145 232 Z M239 232 H289 C293 232 296 235 296 239 V242 H233 V239 C233 235 236 232 239 232 Z"
+            d="M160 219 H206 C211 219 215 223 215 228 V230 H154 V226 C154 222 157 219 160 219 Z M233 219 H279 C284 219 288 223 288 228 V230 H227 V226 C227 222 230 219 233 219 Z"
             fill="#020617"
             stroke={dino.primary}
-            strokeWidth="3"
+            strokeOpacity="0.86"
+            strokeWidth="2.5"
           />
           <path
-            d="M131 146 C159 156 181 156 207 145 M161 184 C195 194 245 193 276 178 M206 94 C223 88 242 89 260 98"
+            d="M155 143 C182 153 207 153 233 143 M183 176 C213 185 250 183 276 169 M205 104 C220 99 239 100 255 108"
             stroke="#020617"
             strokeWidth="6"
             strokeLinecap="round"
-            opacity="0.18"
+            opacity="0.16"
           />
           <path
-            d="M131 146 C159 156 181 156 207 145 M161 184 C195 194 245 193 276 178 M206 94 C223 88 242 89 260 98"
+            d="M155 143 C182 153 207 153 233 143 M183 176 C213 185 250 183 276 169 M205 104 C220 99 239 100 255 108"
             stroke={dino.primary}
-            strokeWidth="1.6"
+            strokeWidth="1.5"
             strokeLinecap="round"
-            opacity="0.7"
+            opacity="0.68"
           />
+        </g>
+
+        <g opacity={scanlineOpacity}>
+          <path d="M72 70 H348 M62 124 H358 M82 178 H338" stroke="#e2e8f0" strokeWidth="1" />
         </g>
       </svg>
     </div>
