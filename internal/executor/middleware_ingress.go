@@ -86,52 +86,6 @@ func (e *Executor) ingress(c *flow.Ctx) {
 		}
 	}
 
-	proxyReq := &domain.ProxyRequest{
-		TenantID:     state.tenantID,
-		InstanceID:   e.instanceID,
-		RequestID:    generateRequestID(),
-		SessionID:    state.sessionID,
-		ClientType:   state.clientType,
-		ProjectID:    state.projectID,
-		RequestModel: state.requestModel,
-		StartTime:    time.Now(),
-		IsStream:     state.isStream,
-		Status:       "PENDING",
-		APITokenID:   state.apiTokenID,
-		DevMode:      state.apiTokenDevMode,
-	}
-
-	clearDetail := e.shouldClearRequestDetailFor(state)
-	if !clearDetail {
-		requestURI := state.requestURI
-		requestHeaders := state.requestHeaders
-		requestBody := state.requestBody
-		headers := flattenHeaders(requestHeaders)
-		if c.Request != nil {
-			if c.Request.Host != "" {
-				if headers == nil {
-					headers = make(map[string]string)
-				}
-				headers["Host"] = c.Request.Host
-			}
-			proxyReq.RequestInfo = &domain.RequestInfo{
-				Method:  c.Request.Method,
-				URL:     requestURI,
-				Headers: headers,
-				Body:    domain.RequestBodySnapshot(requestBody, requestHeaders.Get("Content-Type"), state.apiTokenDevMode),
-			}
-		}
-	}
-
-	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
-		log.Printf("[Executor] Failed to create proxy request: %v", err)
-	}
-
-	if e.broadcaster != nil {
-		e.broadcaster.BroadcastProxyRequest(proxyReq)
-	}
-
-	state.proxyReq = proxyReq
 	state.ctx = ctx
 
 	if state.projectID == 0 && e.projectWaiter != nil {
@@ -158,15 +112,12 @@ func (e *Executor) ingress(c *flow.Ctx) {
 				}
 			}
 
+			proxyReq := e.newProxyRequest(c, state, status)
 			proxyReq.Status = status
 			proxyReq.Error = errorMsg
 			proxyReq.EndTime = time.Now()
 			proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-			_ = e.proxyRequestRepo.Update(proxyReq)
-
-			if e.broadcaster != nil {
-				e.broadcaster.BroadcastProxyRequest(proxyReq)
-			}
+			e.createProxyRequest(proxyReq)
 
 			proxyErr := domain.NewProxyErrorWithMessage(err, false, "project binding required: "+err.Error())
 			proxyErr.Scope = domain.ScopeRequest
@@ -177,9 +128,61 @@ func (e *Executor) ingress(c *flow.Ctx) {
 		}
 
 		state.projectID = session.ProjectID
-		proxyReq.ProjectID = state.projectID
 		state.ctx = ctx
 	}
 
 	c.Next()
+}
+
+func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string) *domain.ProxyRequest {
+	proxyReq := &domain.ProxyRequest{
+		TenantID:     state.tenantID,
+		InstanceID:   e.instanceID,
+		RequestID:    generateRequestID(),
+		SessionID:    state.sessionID,
+		ClientType:   state.clientType,
+		ProjectID:    state.projectID,
+		RequestModel: state.requestModel,
+		StartTime:    time.Now(),
+		IsStream:     state.isStream,
+		Status:       status,
+		APITokenID:   state.apiTokenID,
+		DevMode:      state.apiTokenDevMode,
+	}
+
+	clearDetail := e.shouldClearRequestDetailFor(state)
+	if !clearDetail {
+		requestURI := state.requestURI
+		requestHeaders := state.requestHeaders
+		requestBody := state.requestBody
+		headers := flattenHeaders(requestHeaders)
+		if c.Request != nil {
+			if c.Request.Host != "" {
+				if headers == nil {
+					headers = make(map[string]string)
+				}
+				headers["Host"] = c.Request.Host
+			}
+			proxyReq.RequestInfo = &domain.RequestInfo{
+				Method:  c.Request.Method,
+				URL:     requestURI,
+				Headers: headers,
+				Body:    domain.RequestBodySnapshot(requestBody, requestHeaders.Get("Content-Type"), state.apiTokenDevMode),
+			}
+		}
+	}
+
+	return proxyReq
+}
+
+func (e *Executor) createProxyRequest(proxyReq *domain.ProxyRequest) {
+	if proxyReq == nil {
+		return
+	}
+	if err := e.proxyRequestRepo.Create(proxyReq); err != nil {
+		log.Printf("[Executor] Failed to create proxy request: %v", err)
+	}
+	if e.broadcaster != nil {
+		e.broadcaster.BroadcastProxyRequest(proxyReq)
+	}
 }
