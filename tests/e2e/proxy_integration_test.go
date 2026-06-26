@@ -1076,7 +1076,7 @@ func TestProxyNoMatchingRoute(t *testing.T) {
 	env := NewProxyTestEnv(t)
 
 	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
-	AssertStatus(t, resp, http.StatusBadGateway)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
 
 	var payload map[string]map[string]any
 	DecodeJSON(t, resp, &payload)
@@ -1089,6 +1089,46 @@ func TestProxyNoMatchingRoute(t *testing.T) {
 	}
 	if got := payload["error"]["retryable"]; got != false {
 		t.Fatalf("error.retryable = %v, want false", got)
+	}
+	assertNoProxyRequestsRecorded(t, env)
+}
+
+func TestProxyRouteWithoutConfiguredProviderDoesNotRecordRequest(t *testing.T) {
+	env := NewProxyTestEnv(t)
+
+	routeResp := env.AdminPost("/api/admin/routes", map[string]any{
+		"isEnabled":  true,
+		"isNative":   false,
+		"clientType": "openai",
+		"providerID": 999999,
+		"projectID":  0,
+		"position":   1,
+	})
+	AssertStatus(t, routeResp, http.StatusCreated)
+
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "route match failed") || !strings.Contains(msg, "no routes available") {
+		t.Fatalf("error.message = %q, want to contain route match failed and no routes available", msg)
+	}
+	assertNoProxyRequestsRecorded(t, env)
+}
+
+func assertNoProxyRequestsRecorded(t *testing.T, env *ProxyTestEnv) {
+	t.Helper()
+
+	requestsResp := env.doRequest(http.MethodGet, "/api/admin/requests?limit=20", nil, env.Token)
+	AssertStatus(t, requestsResp, http.StatusOK)
+	var requests struct {
+		Items []map[string]any `json:"items"`
+	}
+	DecodeJSON(t, requestsResp, &requests)
+	if len(requests.Items) != 0 {
+		t.Fatalf("expected route-match rejection to stay out of requests tab, got %d requests: %#v", len(requests.Items), requests.Items)
 	}
 }
 

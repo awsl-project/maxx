@@ -2,8 +2,7 @@ package executor
 
 import (
 	"fmt"
-	"log"
-	"time"
+	"net/http"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -20,7 +19,6 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 		return
 	}
 
-	proxyReq := state.proxyReq
 	result, err := e.router.Match(&router.MatchContext{
 		Ctx:          state.ctx,
 		TenantID:     state.tenantID,
@@ -31,18 +29,9 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 		SessionID:    state.sessionID,
 	})
 	if err != nil {
-		proxyReq.Status = "FAILED"
-		proxyReq.Error = "no routes available"
-		proxyReq.EndTime = time.Now()
-		proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-		if err := e.proxyRequestRepo.Update(proxyReq); err != nil {
-			log.Printf("[Executor] failed to update proxy request: %v", err)
-		}
-		if e.broadcaster != nil {
-			e.broadcaster.BroadcastProxyRequest(proxyReq)
-		}
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, fmt.Sprintf("route match failed: %v", err))
 		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.HTTPStatusCode = http.StatusServiceUnavailable
 		state.lastErr = proxyErr
 		c.Err = proxyErr
 		c.Abort()
@@ -50,31 +39,18 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 	}
 
 	if len(result.Routes) == 0 {
-		proxyReq.Status = "FAILED"
-		proxyReq.Error = "no routes configured"
-		proxyReq.EndTime = time.Now()
-		proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-		if err := e.proxyRequestRepo.Update(proxyReq); err != nil {
-			log.Printf("[Executor] failed to update proxy request: %v", err)
-		}
-		if e.broadcaster != nil {
-			e.broadcaster.BroadcastProxyRequest(proxyReq)
-		}
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, "no routes configured")
 		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.HTTPStatusCode = http.StatusServiceUnavailable
 		state.lastErr = proxyErr
 		c.Err = proxyErr
 		c.Abort()
 		return
 	}
 
-	proxyReq.Status = "IN_PROGRESS"
-	if err := e.proxyRequestRepo.Update(proxyReq); err != nil {
-		log.Printf("[Executor] failed to update proxy request: %v", err)
-	}
-	if e.broadcaster != nil {
-		e.broadcaster.BroadcastProxyRequest(proxyReq)
-	}
+	proxyReq := e.newProxyRequest(c, state, "IN_PROGRESS")
+	e.createProxyRequest(proxyReq)
+	state.proxyReq = proxyReq
 	state.routes = result.Routes
 	state.stickyWrite = result.Sticky
 
