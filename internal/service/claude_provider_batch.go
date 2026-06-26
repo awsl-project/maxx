@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	customadapter "github.com/awsl-project/maxx/internal/adapter/provider/custom"
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
@@ -270,6 +271,7 @@ func baseClaudeBatchResult(index int, source string, existingID uint64, provider
 		if provider.Config != nil && provider.Config.Custom != nil {
 			result.ModelMapping = cloneStringMap(provider.Config.Custom.ModelMapping)
 			result.MappedModel = mapClaudeBatchModel(requestedModel, provider.Config.Custom.ModelMapping)
+			result.BaseURL = maskURL(normalizedProviderClientBaseURL(provider, domain.ClientTypeClaude))
 		}
 	}
 	if result.MappedModel == "" {
@@ -298,24 +300,15 @@ func testClaudeBatchProvider(ctx context.Context, item *claudeBatchPreparedProvi
 		}},
 	}
 	payload, _ := json.Marshal(body)
-	endpoint := strings.TrimRight(custom.BaseURL, "/") + "/v1/messages"
-	if !strings.Contains(endpoint, "?") {
-		endpoint += "?beta=true"
-	}
-
 	testCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	started := time.Now()
-	httpReq, err := http.NewRequestWithContext(testCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	httpReq, err := customadapter.NewClaudeMessagesTestRequest(testCtx, item.provider, normalizedProviderClientBaseURL(item.provider, domain.ClientTypeClaude), payload)
 	if err != nil {
 		result.Status = ClaudeProviderBatchStatusValidationFailed
 		result.Error = "invalid base URL"
 		return result
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Anthropic-Version", "2023-06-01")
-	httpReq.Header.Set("User-Agent", "maxx-claude-provider-batch-test")
-	setClaudeBatchAuthHeader(httpReq, custom.APIKey)
 
 	resp, err := (&http.Client{Timeout: 22 * time.Second}).Do(httpReq)
 	result.DurationMS = time.Since(started).Milliseconds()
@@ -352,7 +345,7 @@ func validateClaudeBatchProvider(provider *domain.Provider) error {
 	if provider.Config == nil || provider.Config.Custom == nil {
 		return fmt.Errorf("custom provider config is required")
 	}
-	if strings.TrimSpace(provider.Config.Custom.BaseURL) == "" {
+	if normalizedProviderClientBaseURL(provider, domain.ClientTypeClaude) == "" {
 		return fmt.Errorf("base URL is required")
 	}
 	if strings.TrimSpace(provider.Config.Custom.APIKey) == "" && strings.TrimSpace(provider.Config.Custom.Backend) != "ollama" {
@@ -581,6 +574,17 @@ func normalizedProviderBaseURL(provider *domain.Provider) string {
 	return strings.TrimRight(strings.TrimSpace(provider.Config.Custom.BaseURL), "/")
 }
 
+func normalizedProviderClientBaseURL(provider *domain.Provider, clientType domain.ClientType) string {
+	if provider == nil || provider.Config == nil || provider.Config.Custom == nil {
+		return ""
+	}
+	custom := provider.Config.Custom
+	if clientBaseURL := strings.TrimSpace(custom.ClientBaseURL[clientType]); clientBaseURL != "" {
+		return strings.TrimRight(clientBaseURL, "/")
+	}
+	return normalizedProviderBaseURL(provider)
+}
+
 func mapClaudeBatchModel(requested string, mapping map[string]string) string {
 	requested = strings.TrimSpace(requested)
 	if requested == "" {
@@ -589,21 +593,13 @@ func mapClaudeBatchModel(requested string, mapping map[string]string) string {
 	if mapped := strings.TrimSpace(mapping[requested]); mapped != "" {
 		return mapped
 	}
-	if mapped := strings.TrimSpace(mapping["*"]); mapped != "" {
-		return mapped
+	for pattern, mapped := range mapping {
+		mapped = strings.TrimSpace(mapped)
+		if mapped != "" && domain.MatchWildcard(pattern, requested) {
+			return mapped
+		}
 	}
 	return requested
-}
-
-func setClaudeBatchAuthHeader(req *http.Request, apiKey string) {
-	if strings.TrimSpace(apiKey) == "" {
-		return
-	}
-	if req.URL != nil && strings.EqualFold(req.URL.Scheme, "https") && strings.EqualFold(req.URL.Host, "api.anthropic.com") {
-		req.Header.Set("x-api-key", apiKey)
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
 }
 
 func sanitizeClaudeBatchError(message string) string {

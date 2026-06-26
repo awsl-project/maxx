@@ -1482,6 +1482,188 @@ func TestSelfServiceHandler_ClaudeProviderBatchTest_ExistingProvidersAreTestOnly
 	}
 }
 
+func TestSelfServiceHandler_ClaudeProviderBatchTest_UsesClaudeClientBaseURL(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/claude/") {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":{"message":"wrong base URL"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock"}`))
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{
+		ID:       10,
+		TenantID: domain.DefaultTenantID,
+		Name:     "existing-client-base-url",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: upstream.URL + "/generic",
+			ClientBaseURL: map[domain.ClientType]string{
+				domain.ClientTypeClaude: upstream.URL + "/claude",
+			},
+			APIKey: "sk-existing",
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", `{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":8,
+		"concurrency":1,
+		"persistMode":"passed",
+		"existingProviderIDs":[10]
+	}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Results) != 1 || result.Results[0].Status != service.ClaudeProviderBatchStatusUsable {
+		t.Fatalf("results = %+v, want client-specific Claude base URL to be tested successfully", result.Results)
+	}
+	if !strings.Contains(result.Results[0].BaseURL, "/claude") || strings.Contains(result.Results[0].BaseURL, "/generic") {
+		t.Fatalf("BaseURL = %q, want masked Claude client-specific base URL", result.Results[0].BaseURL)
+	}
+}
+
+func TestSelfServiceHandler_ClaudeProviderBatchTest_UsesWildcardProviderModelMapping(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if payload.Model != "mock-sonnet" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"type":"not_found_error","message":"model not found"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock-sonnet"}`))
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{
+		ID:       10,
+		TenantID: domain.DefaultTenantID,
+		Name:     "existing-wildcard-mapping",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: upstream.URL,
+			APIKey:  "sk-existing",
+			ModelMapping: map[string]string{
+				"claude-*": "mock-sonnet",
+			},
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", `{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":8,
+		"concurrency":1,
+		"persistMode":"passed",
+		"existingProviderIDs":[10]
+	}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Results) != 1 || result.Results[0].Status != service.ClaudeProviderBatchStatusUsable || result.Results[0].MappedModel != "mock-sonnet" {
+		t.Fatalf("results = %+v, want wildcard provider model mapping to be applied before testing", result.Results)
+	}
+}
+
+func TestSelfServiceHandler_ClaudeProviderBatchTest_HonorsBedrockDisguiseHeaders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, header := range []string{"Anthropic-Beta", "Anthropic-Version", "X-App", "X-Stainless-Runtime"} {
+			if value := strings.TrimSpace(r.Header.Get(header)); value != "" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"message":"unexpected Claude identity header"}}`))
+				return
+			}
+		}
+		if userAgent := r.Header.Get("User-Agent"); !strings.Contains(userAgent, "aws-sdk-go-v2") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"unexpected user agent"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"mock"}`))
+	}))
+	defer upstream.Close()
+
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{
+		ID:       10,
+		TenantID: domain.DefaultTenantID,
+		Name:     "existing-bedrock-disguise",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: upstream.URL,
+			APIKey:  "sk-existing",
+			Disguise: &domain.ProviderConfigCustomDisguise{
+				Type: domain.DisguiseTypeBedrock,
+			},
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/routes/claude-provider-batch-test", `{
+		"projectID":0,
+		"testModel":"claude-sonnet-4",
+		"maxTokens":2048,
+		"concurrency":1,
+		"persistMode":"passed",
+		"existingProviderIDs":[10]
+	}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result service.ClaudeProviderBatchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Results) != 1 || result.Results[0].Status != service.ClaudeProviderBatchStatusUsable {
+		t.Fatalf("results = %+v, want bedrock disguise request headers to match custom adapter behavior", result.Results)
+	}
+}
+
 func TestSelfServiceHandler_DeleteProviderRemovesRouteReferences(t *testing.T) {
 	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{
 		{ID: 10, TenantID: domain.DefaultTenantID, Name: "delete-me", Type: "custom"},
