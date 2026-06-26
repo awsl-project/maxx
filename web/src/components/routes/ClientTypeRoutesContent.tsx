@@ -9,7 +9,6 @@ import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   CopyPlus,
-  Plus,
   RefreshCw,
   Trash2,
   Zap,
@@ -102,6 +101,7 @@ import {
   createProviderTypeGroups,
   type ProviderTypeKey,
 } from '@/pages/providers/types';
+import { invertVisibleProviderSelection } from '@/pages/providers/utils/selection';
 
 function isSameProviderStats(a: ProviderStats, b: ProviderStats): boolean {
   return (
@@ -479,6 +479,9 @@ function ClientTypeRoutesContentInner({
   const { t } = useTranslation();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedRouteIds, setSelectedRouteIds] = useState<Set<number>>(() => new Set());
+  const [selectedAvailableProviderIds, setSelectedAvailableProviderIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const stableProviderStats = useStableProviderStats(providerStats);
@@ -639,9 +642,33 @@ function ClientTypeRoutesContentInner({
     visibleRouteIds.length > 0 && selectedRouteIds.size === visibleRouteIds.length;
   const someVisibleSelected = selectedRouteIds.size > 0 && !allVisibleSelected;
 
+  const availableProviders = useMemo(() => {
+    return providers.filter((p) => !routeByProviderId.has(Number(p.id)));
+  }, [providers, routeByProviderId]);
+
+  const availableProviderIdSet = useMemo(() => {
+    return new Set(availableProviders.map((provider) => Number(provider.id)));
+  }, [availableProviders]);
+
+  useEffect(() => {
+    setSelectedAvailableProviderIds((prev) => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (availableProviderIdSet.has(id)) {
+          next.add(id);
+        }
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [availableProviderIdSet]);
+
+  useEffect(() => {
+    setSelectedAvailableProviderIds(new Set());
+  }, [clientType, projectID]);
+
   // Get available providers (without routes yet), grouped by type and sorted alphabetically
   const groupedAvailableProviders = useMemo((): Record<ProviderTypeKey, Provider[]> => {
-    let available = providers.filter((p) => !routeByProviderId.has(Number(p.id)));
+    let available = availableProviders;
 
     // Apply search filter
     if (normalizedQuery) {
@@ -653,7 +680,26 @@ function ClientTypeRoutesContentInner({
     }
 
     return createProviderTypeGroups(available);
-  }, [providers, normalizedQuery, routeByProviderId]);
+  }, [availableProviders, normalizedQuery]);
+
+  const visibleAvailableProviderIds = useMemo(() => {
+    return PROVIDER_TYPE_ORDER.flatMap((type) =>
+      groupedAvailableProviders[type].map((provider) => Number(provider.id)),
+    );
+  }, [groupedAvailableProviders]);
+
+  const selectedAvailableProviders = useMemo(() => {
+    return availableProviders.filter((provider) =>
+      selectedAvailableProviderIds.has(Number(provider.id)),
+    );
+  }, [availableProviders, selectedAvailableProviderIds]);
+
+  const allVisibleAvailableSelected =
+    visibleAvailableProviderIds.length > 0 &&
+    visibleAvailableProviderIds.every((id) => selectedAvailableProviderIds.has(id));
+  const someVisibleAvailableSelected =
+    visibleAvailableProviderIds.some((id) => selectedAvailableProviderIds.has(id)) &&
+    !allVisibleAvailableSelected;
 
   // Check if there are any available providers
   const hasAvailableProviders = useMemo(() => {
@@ -697,17 +743,61 @@ function ClientTypeRoutesContentInner({
     }
   };
 
-  const handleAddRoute = (provider: Provider, isNative: boolean) => {
-    createRoute.mutate({
-      isEnabled: true,
-      isNative,
-      projectID,
-      clientType,
-      providerID: provider.id,
-      position: items.length + 1,
-      weight: 1,
-      retryConfigID: 0,
+  const handleToggleAvailableProviderSelection = (providerId: number, checked: boolean) => {
+    setSelectedAvailableProviderIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(providerId);
+      } else {
+        next.delete(providerId);
+      }
+      return next;
     });
+  };
+
+  const handleToggleAllVisibleAvailableProviders = (checked: boolean) => {
+    setSelectedAvailableProviderIds((prev) => {
+      if (!checked) {
+        const next = new Set(prev);
+        for (const providerId of visibleAvailableProviderIds) {
+          next.delete(providerId);
+        }
+        return next;
+      }
+
+      return new Set([...prev, ...visibleAvailableProviderIds]);
+    });
+  };
+
+  const handleInvertVisibleAvailableProviders = () => {
+    setSelectedAvailableProviderIds((prev) =>
+      invertVisibleProviderSelection(prev, visibleAvailableProviderIds),
+    );
+  };
+
+  const handleClearAvailableProviderSelection = () => {
+    setSelectedAvailableProviderIds(new Set());
+  };
+
+  const handleBulkAddRoutes = async () => {
+    if (selectedAvailableProviders.length === 0 || createRoute.isPending) return;
+
+    const startingPosition = items.length + 1;
+    await Promise.all(
+      selectedAvailableProviders.map((provider, index) =>
+        createRoute.mutateAsync({
+          isEnabled: true,
+          isNative: (provider.supportedClientTypes || []).includes(clientType),
+          projectID,
+          clientType,
+          providerID: provider.id,
+          position: startingPosition + index,
+          weight: 1,
+          retryConfigID: 0,
+        }),
+      ),
+    );
+    setSelectedAvailableProviderIds(new Set());
   };
 
   const handleDeleteRoute = (routeId: number) => {
@@ -953,11 +1043,72 @@ function ClientTypeRoutesContentInner({
           {/* Add Route Section - Grouped by Type */}
           {hasAvailableProviders && (
             <div className="pt-4 border-t border-border/50 ">
-              <div className="flex items-center gap-2 mb-6">
-                <Plus size={14} style={{ color }} />
-                <span className="text-caption font-medium text-muted-foreground">
-                  {t('routes.availableProviders')}
-                </span>
+              <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-2">
+                  <Settings2 size={14} style={{ color }} />
+                  <span className="text-caption font-medium text-muted-foreground">
+                    {t('routes.availableProviders')}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-background/80 px-3 py-2 shadow-sm">
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleAvailableSelected}
+                      aria-checked={
+                        someVisibleAvailableSelected ? 'mixed' : allVisibleAvailableSelected
+                      }
+                      onChange={(event) =>
+                        handleToggleAllVisibleAvailableProviders(event.target.checked)
+                      }
+                      className="h-4 w-4 rounded border-border accent-primary"
+                    />
+                    <span>
+                      {t('routes.bulkSelectVisibleProviders', {
+                        count: visibleAvailableProviderIds.length,
+                      })}
+                      {normalizedQuery && (
+                        <span className="ml-1 text-muted-foreground/70">
+                          {t('routes.bulkFilteredSelection')}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={visibleAvailableProviderIds.length === 0 || createRoute.isPending}
+                    onClick={handleInvertVisibleAvailableProviders}
+                  >
+                    {t('routes.bulkInvertVisibleProviders')}
+                  </Button>
+                  {selectedAvailableProviders.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {t('routes.bulkSelectedProvidersCount', {
+                        count: selectedAvailableProviders.length,
+                      })}
+                    </span>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={selectedAvailableProviders.length === 0 || createRoute.isPending}
+                    onClick={handleClearAvailableProviderSelection}
+                  >
+                    {t('common.clear')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={selectedAvailableProviders.length === 0 || createRoute.isPending}
+                    onClick={handleBulkAddRoutes}
+                  >
+                    {createRoute.isPending
+                      ? t('routes.bulkAddingProviders')
+                      : t('routes.bulkAddSelectedProviders', {
+                          count: selectedAvailableProviders.length,
+                        })}
+                  </Button>
+                </div>
               </div>
               <div className="space-y-6">
                 {PROVIDER_TYPE_ORDER.map((typeKey) => {
@@ -976,17 +1127,25 @@ function ClientTypeRoutesContentInner({
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         {typeProviders.map((provider) => {
+                          const providerId = Number(provider.id);
+                          const isSelected = selectedAvailableProviderIds.has(providerId);
                           const isNative = (provider.supportedClientTypes || []).includes(
                             clientType,
                           );
                           const providerColor = getProviderColor(provider.type as ProviderType);
                           return (
-                            <Button
+                            <div
                               key={provider.id}
-                              variant={null}
-                              onClick={() => handleAddRoute(provider, isNative)}
-                              disabled={createRoute.isPending}
-                              className="h-auto group relative flex items-center justify-between gap-4 p-4 rounded-xl border border-border/40 bg-background hover:bg-secondary/50 hover:border-border shadow-sm hover:shadow transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
+                              onClick={() => {
+                                if (!createRoute.isPending) {
+                                  handleToggleAvailableProviderSelection(providerId, !isSelected);
+                                }
+                              }}
+                              className={cn(
+                                'h-auto group relative flex cursor-pointer items-center justify-between gap-4 p-4 rounded-xl border border-border/40 bg-background hover:bg-secondary/50 hover:border-border shadow-sm hover:shadow transition-all duration-300 text-left overflow-hidden',
+                                isSelected && 'border-primary/70 bg-primary/10 shadow-primary/10',
+                                createRoute.isPending && 'cursor-not-allowed opacity-50',
+                              )}
                             >
                               {/* Left: Provider Icon & Info */}
                               <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -1021,13 +1180,24 @@ function ClientTypeRoutesContentInner({
                                 </div>
                               </div>
 
-                              {/* Right: Add Icon */}
-                              <Plus
-                                size={20}
-                                style={{ color: providerColor }}
-                                className="opacity-50 group-hover:opacity-100 group-hover:scale-110 transition-all duration-300 shrink-0"
+                              {/* Right: Bulk add selection */}
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                disabled={createRoute.isPending}
+                                aria-label={t('routes.selectAvailableProvider', {
+                                  name: provider.name,
+                                })}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) =>
+                                  handleToggleAvailableProviderSelection(
+                                    providerId,
+                                    event.target.checked,
+                                  )
+                                }
+                                className="h-5 w-5 shrink-0 rounded border-border accent-primary"
                               />
-                            </Button>
+                            </div>
                           );
                         })}
                       </div>
