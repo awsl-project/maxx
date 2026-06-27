@@ -112,13 +112,13 @@ export async function settleProviderRemovalsInBulk<T extends { existingID?: numb
     if (!target.existingID) {
       return { status: 'rejected', reason: new Error('missing existing provider id') };
     }
-    if (deletedIDs.has(target.existingID)) {
+    if (deletedIDs.has(target.existingID) || notFoundIDs.has(target.existingID)) {
       return { status: 'fulfilled', value: result };
     }
-    const reason = notFoundIDs.has(target.existingID)
-      ? new Error(`provider ${target.existingID} not found`)
-      : new Error(`provider ${target.existingID} was not deleted`);
-    return { status: 'rejected', reason };
+    return {
+      status: 'rejected',
+      reason: new Error(`provider ${target.existingID} was not deleted`),
+    };
   });
 }
 

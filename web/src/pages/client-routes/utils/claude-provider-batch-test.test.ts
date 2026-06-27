@@ -157,12 +157,26 @@ describe('Claude provider batch test helpers', () => {
     expect(collectSuccessfulRemovedExistingIDs(targets, settled)).toEqual([]);
   });
 
-  it('keeps providers selected when the bulk delete response does not delete them', async () => {
+  it('treats not-found providers as removed because the cleanup target is already gone', async () => {
     const targets = [{ existingID: 1 }, { existingID: 2 }, { existingID: 3 }];
     const settled = await settleProviderRemovalsInBulk(targets, async () => ({
       deletedCount: 2,
       deletedIDs: [1, 3],
       notFoundIDs: [2],
+      routeDeletedCount: 2,
+      modelMappingDeletedCount: 1,
+    }));
+
+    expect(settled.map((item) => item.status)).toEqual(['fulfilled', 'fulfilled', 'fulfilled']);
+    expect(collectSuccessfulRemovedExistingIDs(targets, settled)).toEqual([1, 2, 3]);
+  });
+
+  it('keeps providers selected when the bulk delete response neither deletes nor reports them missing', async () => {
+    const targets = [{ existingID: 1 }, { existingID: 2 }, { existingID: 3 }];
+    const settled = await settleProviderRemovalsInBulk(targets, async () => ({
+      deletedCount: 2,
+      deletedIDs: [1, 3],
+      notFoundIDs: [],
       routeDeletedCount: 2,
       modelMappingDeletedCount: 1,
     }));
