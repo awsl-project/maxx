@@ -71,6 +71,10 @@ import {
   type BulkCustomProviderParseError,
 } from './utils/bulk-custom-provider-import';
 import { invertVisibleProviderSelection } from './utils/selection';
+import {
+  buildProviderBulkDeleteStatus,
+  type ProviderBulkDeleteStatus,
+} from './utils/provider-bulk-delete';
 
 type ManageProvidersButtonProps = Omit<ComponentProps<typeof Button>, 'disabled'> & {
   canManage: boolean;
@@ -128,11 +132,6 @@ type ProviderBulkDeletePreviewItem = {
   streamingCount: number;
 };
 
-type ProviderBulkDeleteStatus = {
-  deleted: number;
-  failed: Array<{ id: number; name: string; message: string }>;
-} | null;
-
 export function ProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -143,7 +142,7 @@ export function ProvidersPage() {
   const { data: providerStats = {} } = useAllProviderStats();
   const { countsByProvider } = useStreamingRequests();
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null);
-  const [bulkDeleteStatus, setBulkDeleteStatus] = useState<ProviderBulkDeleteStatus>(null);
+  const [bulkDeleteStatus, setBulkDeleteStatus] = useState<ProviderBulkDeleteStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProviderIds, setSelectedProviderIds] = useState<Set<number>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
@@ -417,25 +416,20 @@ export function ProvidersPage() {
       const result = await bulkDeleteProviders.mutateAsync(
         selectedProviders.map((provider) => provider.id),
       );
-      const deletedIDs = new Set(result.deletedIDs);
-      const failed = selectedProviders
-        .filter((provider) => !deletedIDs.has(provider.id))
-        .map((provider) => ({
-          id: provider.id,
-          name: provider.name,
-          message: result.notFoundIDs.includes(provider.id)
-            ? t('providers.notFound')
-            : t('providers.bulkDelete.notDeleted'),
-        }));
+      const status = buildProviderBulkDeleteStatus(
+        selectedProviders,
+        result,
+        t('providers.bulkDelete.notDeleted'),
+      );
 
-      setBulkDeleteStatus({ deleted: result.deletedCount, failed });
+      setBulkDeleteStatus(status);
 
-      if (failed.length === 0) {
+      if (status.failed.length === 0) {
         setSelectedProviderIds(new Set());
         setIsBulkDeleteOpen(false);
         setTimeout(() => setBulkDeleteStatus(null), 5000);
       } else {
-        setSelectedProviderIds(new Set(failed.map((item) => item.id)));
+        setSelectedProviderIds(new Set(status.failed.map((item) => item.id)));
       }
     } catch (error) {
       setBulkDeleteStatus({
