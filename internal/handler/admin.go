@@ -250,6 +250,13 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 	}
 }
 
+func bulkDeleteErrorStatus(err error) int {
+	if errors.Is(err, service.ErrIDsRequired) || errors.Is(err, service.ErrInvalidRouteClientType) {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
 func (h *AdminHandler) handleBulkDeleteProviders(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -265,7 +272,7 @@ func (h *AdminHandler) handleBulkDeleteProviders(w http.ResponseWriter, r *http.
 	tenantID := maxxctx.GetTenantID(r.Context())
 	result, err := h.svc.BulkDeleteProviders(tenantID, req)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -536,7 +543,7 @@ func (h *AdminHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *http.Req
 	tenantID := maxxctx.GetTenantID(r.Context())
 	result, err := h.svc.BulkDeleteRoutes(tenantID, req)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
 		return
 	}
 

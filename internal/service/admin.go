@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -32,6 +33,12 @@ type ProviderAdapterRefresher interface {
 	// by admin endpoints that reach into adapter-specific runtime state.
 	GetAdapter(providerID uint64) (provider.ProviderAdapter, bool)
 }
+
+// ErrIDsRequired marks bulk-delete requests missing a non-empty ID list.
+var ErrIDsRequired = errors.New("ids required")
+
+// ErrInvalidRouteClientType marks bulk route-delete requests with an unsupported client type.
+var ErrInvalidRouteClientType = errors.New("invalid clientType")
 
 // GetProviderAdapter exposes the cached adapter for a provider so HTTP
 // handlers can call adapter-specific methods (e.g. Bedrock discovery).
@@ -201,7 +208,7 @@ type providerBulkDeleteRouteScope struct {
 func (s *AdminService) BulkDeleteProviders(tenantID uint64, req domain.ProviderBulkDeleteRequest) (*domain.ProviderBulkDeleteResult, error) {
 	ids := uniqueNonZeroIDs(req.IDs)
 	if len(ids) == 0 {
-		return nil, fmt.Errorf("ids required")
+		return nil, ErrIDsRequired
 	}
 
 	if deleter, ok := s.providerRepo.(repository.ProviderBulkDeleteRepository); ok {
@@ -584,17 +591,17 @@ func (s *AdminService) DeleteRoute(tenantID uint64, id uint64) error {
 
 func (s *AdminService) BulkDeleteRoutes(tenantID uint64, req domain.RouteBulkDeleteRequest) (*domain.RouteBulkDeleteResult, error) {
 	if len(req.IDs) == 0 {
-		return nil, fmt.Errorf("ids required")
+		return nil, ErrIDsRequired
 	}
 	if !isValidRouteClientType(req.ClientType) {
-		return nil, fmt.Errorf("invalid clientType")
+		return nil, ErrInvalidRouteClientType
 	}
 	return s.routeRepo.BulkDelete(tenantID, req)
 }
 
 func (s *AdminService) SyncRoutesFromProject(tenantID uint64, req domain.RouteSyncRequest) (*domain.RouteSyncResult, error) {
 	if !isValidRouteClientType(req.ClientType) {
-		return nil, fmt.Errorf("invalid clientType")
+		return nil, ErrInvalidRouteClientType
 	}
 	if req.Mode == "" {
 		req.Mode = domain.RouteSyncModeOverwrite

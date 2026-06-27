@@ -491,7 +491,7 @@ func (h *SelfServiceHandler) handleBulkDeleteProviders(w http.ResponseWriter, r 
 	tenantID := maxxctx.GetTenantID(r.Context())
 	result, err := h.svc.BulkDeleteProviders(tenantID, req)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -665,7 +665,7 @@ func (h *SelfServiceHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *ht
 	tenantID := maxxctx.GetTenantID(r.Context())
 	result, err := h.svc.BulkDeleteRoutes(tenantID, req)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, bulkDeleteErrorStatus(err), map[string]string{"error": err.Error()})
 		return
 	}
 

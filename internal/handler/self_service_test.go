@@ -2165,3 +2165,34 @@ func TestSelfServiceHandler_ListEndpoints_EmptySlicesSerializeAsJSONArray(t *tes
 		})
 	}
 }
+
+func TestSelfServiceHandler_BulkDeleteProvidersErrorStatusCodes(t *testing.T) {
+	baseRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{ID: 10, TenantID: domain.DefaultTenantID, Name: "delete-me", Type: "custom"}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     baseRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	badRequestRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRequestRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[]}`))
+	if badRequestRec.Code != http.StatusBadRequest {
+		t.Fatalf("empty ids status = %d, want %d, body = %s", badRequestRec.Code, http.StatusBadRequest, badRequestRec.Body.String())
+	}
+
+	internalErrorHandler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepoWithListError{
+			selfServiceProviderRepo: baseRepo,
+			listErr:                 errors.New("repository unavailable"),
+		},
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+	internalErrorRec := httptest.NewRecorder()
+	internalErrorHandler.ServeHTTP(internalErrorRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[10]}`))
+	if internalErrorRec.Code != http.StatusInternalServerError {
+		t.Fatalf("repository error status = %d, want %d, body = %s", internalErrorRec.Code, http.StatusInternalServerError, internalErrorRec.Body.String())
+	}
+}
