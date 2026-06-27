@@ -68,10 +68,7 @@ import {
 } from '@/pages/client-routes/components/provider-row';
 import { ClaudeProviderBatchTestDialog } from '@/pages/client-routes/components/claude-provider-batch-test-dialog';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
-import {
-  createBulkAddRouteFailure,
-  type BulkAddRouteFailure,
-} from './bulk-add-failures';
+import { createBulkAddRouteFailure, type BulkAddRouteFailure } from './bulk-add-failures';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1171,14 +1168,19 @@ function ClientTypeRoutesContentInner({
                       </div>
                       <ul className="max-h-48 space-y-2 overflow-auto rounded-md border border-destructive/20 bg-background/60 p-2 text-xs">
                         {bulkAddFailures.slice(0, 12).map((failure) => (
-                          <li key={failure.providerID} className="grid gap-1 sm:grid-cols-[1fr_2fr]">
+                          <li
+                            key={failure.providerID}
+                            className="grid gap-1 sm:grid-cols-[1fr_2fr]"
+                          >
                             <span className="font-medium text-foreground">
                               {failure.providerName}
                               <span className="ml-1 text-muted-foreground">
                                 #{failure.providerID} · {failure.providerType}
                               </span>
                             </span>
-                            <span className="break-words text-destructive/90">{failure.message}</span>
+                            <span className="break-words text-destructive/90">
+                              {failure.message}
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -1194,7 +1196,9 @@ function ClientTypeRoutesContentInner({
                           type="button"
                           variant="destructive"
                           size="sm"
-                          disabled={selectedAvailableProviders.length === 0 || createRoute.isPending}
+                          disabled={
+                            selectedAvailableProviders.length === 0 || createRoute.isPending
+                          }
                           onClick={handleBulkAddRoutes}
                         >
                           {t('routes.bulkRetryFailedProviders', {
