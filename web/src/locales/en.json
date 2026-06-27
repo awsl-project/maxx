@@ -331,7 +331,8 @@
       "itemDetails": "Routes: {{routes}} · Provider mappings: {{mappings}}",
       "confirm": "Delete providers",
       "deleting": "Deleting...",
-      "completed": "Deleted {{count}} provider(s)."
+      "completed": "Deleted {{count}} provider(s).",
+      "notDeleted": "Provider was not deleted"
     },
     "refreshQuotas": "Refresh quotas for all Antigravity providers",
     "refreshCodex": "Refresh subscription info for all Codex providers",

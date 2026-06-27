@@ -14,6 +14,8 @@ export type {
   DisguiseType,
   ProviderConfigAntigravity,
   CreateProviderData,
+  ProviderBulkDeleteRequest,
+  ProviderBulkDeleteResult,
   Project,
   CreateProjectData,
   Session,

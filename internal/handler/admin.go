@@ -82,7 +82,11 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "restart":
 		h.handleRestart(w, r)
 	case "providers":
-		h.handleProviders(w, r, id)
+		if len(parts) == 3 && parts[2] == "bulk-delete" {
+			h.handleBulkDeleteProviders(w, r)
+		} else {
+			h.handleProviders(w, r, id)
+		}
 	case "routes":
 		if len(parts) > 2 && parts[2] == "batch-positions" {
 			h.handleBatchUpdateRoutePositions(w, r)
@@ -244,6 +248,28 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (h *AdminHandler) handleBulkDeleteProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req domain.ProviderBulkDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.BulkDeleteProviders(tenantID, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleBedrockDiscoveredModels surfaces the runtime discovery catalog

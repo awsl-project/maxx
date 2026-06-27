@@ -11,7 +11,7 @@ import {
   getFailedExistingResultSignature,
   isClaudeBatchTestExcludedProvider,
   isClaudeBatchTestSelectableProvider,
-  settleProviderRemovalsSequentially,
+  settleProviderRemovalsInBulk,
   summarizeClaudeBatchDisplayResults,
 } from './claude-provider-batch-test';
 
@@ -126,32 +126,46 @@ describe('Claude provider batch test helpers', () => {
     expect(collectSuccessfulRemovedExistingIDs(targets, settled)).toEqual([1, 3]);
   });
 
-  it('removes selected failed providers sequentially instead of firing a concurrent delete burst', async () => {
-    const calls: number[] = [];
-    let inFlight = 0;
-    let maxInFlight = 0;
+  it('removes selected failed providers with one bulk delete request', async () => {
+    const calls: number[][] = [];
 
-    const settled = await settleProviderRemovalsSequentially(
+    const settled = await settleProviderRemovalsInBulk(
       [{ existingID: 10 }, { existingID: 20 }, { existingID: 30 }],
-      async (providerID) => {
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        calls.push(providerID);
-        await Promise.resolve();
-        inFlight -= 1;
+      async (providerIDs) => {
+        calls.push(providerIDs);
+        return {
+          deletedCount: 3,
+          deletedIDs: [10, 20, 30],
+          notFoundIDs: [],
+          routeDeletedCount: 4,
+          modelMappingDeletedCount: 2,
+        };
       },
     );
 
-    expect(calls).toEqual([10, 20, 30]);
-    expect(maxInFlight).toBe(1);
+    expect(calls).toEqual([[10, 20, 30]]);
     expect(settled.map((item) => item.status)).toEqual(['fulfilled', 'fulfilled', 'fulfilled']);
   });
 
-  it('keeps successful sequential removals ordered when one provider delete fails', async () => {
-    const targets = [{ existingID: 1 }, { existingID: 2 }, { existingID: 3 }];
-    const settled = await settleProviderRemovalsSequentially(targets, async (providerID) => {
-      if (providerID === 2) throw new Error('delete failed');
+  it('marks every requested provider as failed when the bulk delete request fails', async () => {
+    const targets = [{ existingID: 1 }, { existingID: 2 }];
+    const settled = await settleProviderRemovalsInBulk(targets, async () => {
+      throw new Error('bulk delete failed');
     });
+
+    expect(settled.map((item) => item.status)).toEqual(['rejected', 'rejected']);
+    expect(collectSuccessfulRemovedExistingIDs(targets, settled)).toEqual([]);
+  });
+
+  it('keeps providers selected when the bulk delete response does not delete them', async () => {
+    const targets = [{ existingID: 1 }, { existingID: 2 }, { existingID: 3 }];
+    const settled = await settleProviderRemovalsInBulk(targets, async () => ({
+      deletedCount: 2,
+      deletedIDs: [1, 3],
+      notFoundIDs: [2],
+      routeDeletedCount: 2,
+      modelMappingDeletedCount: 1,
+    }));
 
     expect(settled.map((item) => item.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
     expect(collectSuccessfulRemovedExistingIDs(targets, settled)).toEqual([1, 3]);

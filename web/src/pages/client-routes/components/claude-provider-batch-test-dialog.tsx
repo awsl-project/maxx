@@ -23,7 +23,7 @@ import type {
   Provider,
   Route,
 } from '@/lib/transport';
-import { useClaudeProviderBatchTest, useDeleteProvider } from '@/hooks/queries';
+import { useBulkDeleteProviders, useClaudeProviderBatchTest } from '@/hooks/queries';
 import { cn } from '@/lib/utils';
 import {
   parseBulkCustomProviderCommands,
@@ -40,7 +40,7 @@ import {
   getFailedExistingResultSignature,
   isClaudeBatchTestExcludedProvider,
   isClaudeBatchTestSelectableProvider,
-  settleProviderRemovalsSequentially,
+  settleProviderRemovalsInBulk,
   summarizeClaudeBatchDisplayResults,
 } from '@/pages/client-routes/utils/claude-provider-batch-test';
 
@@ -170,7 +170,7 @@ export function ClaudeProviderBatchTestDialog({
   const abortRef = useRef<AbortController | null>(null);
   const failedExistingSectionRef = useRef<HTMLElement | null>(null);
   const batchTest = useClaudeProviderBatchTest();
-  const deleteProvider = useDeleteProvider();
+  const bulkDeleteProviders = useBulkDeleteProviders();
 
   const removedExistingIDSet = useMemo(() => new Set(removedExistingIDs), [removedExistingIDs]);
 
@@ -441,8 +441,8 @@ export function ClaudeProviderBatchTestDialog({
     setRemovalError(null);
     setIsRemovingFailedExisting(true);
     try {
-      const settled = await settleProviderRemovalsSequentially(targets, (providerID) =>
-        deleteProvider.mutateAsync(providerID),
+      const settled = await settleProviderRemovalsInBulk(targets, (providerIDs) =>
+        bulkDeleteProviders.mutateAsync(providerIDs),
       );
       const removedIDs = collectSuccessfulRemovedExistingIDs(targets, settled);
       const failedCount = settled.filter((result) => result.status === 'rejected').length;

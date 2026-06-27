@@ -10,6 +10,7 @@ export {
   useCreateProvider,
   useUpdateProvider,
   useDeleteProvider,
+  useBulkDeleteProviders,
   useProviderStats,
   useAllProviderStats,
   useAntigravityQuota,

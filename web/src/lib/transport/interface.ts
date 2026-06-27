@@ -6,6 +6,8 @@
 import type {
   Provider,
   CreateProviderData,
+  ProviderBulkDeleteRequest,
+  ProviderBulkDeleteResult,
   Project,
   CreateProjectData,
   Session,
@@ -95,6 +97,7 @@ export interface Transport {
   createProvider(data: CreateProviderData): Promise<Provider>;
   updateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
   deleteProvider(id: number): Promise<void>;
+  bulkDeleteProviders(data: ProviderBulkDeleteRequest): Promise<ProviderBulkDeleteResult>;
   exportProviders(): Promise<Provider[]>;
   importProviders(providers: Provider[]): Promise<ImportResult>;
 

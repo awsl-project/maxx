@@ -193,6 +193,128 @@ func (s *AdminService) DeleteProvider(tenantID uint64, id uint64) error {
 	return s.providerRepo.Delete(tenantID, id)
 }
 
+type providerBulkDeleteRouteScope struct {
+	projectID  uint64
+	clientType domain.ClientType
+}
+
+func (s *AdminService) BulkDeleteProviders(tenantID uint64, req domain.ProviderBulkDeleteRequest) (*domain.ProviderBulkDeleteResult, error) {
+	ids := uniqueNonZeroIDs(req.IDs)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("ids required")
+	}
+
+	result := &domain.ProviderBulkDeleteResult{}
+
+	providers, err := s.providerRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	providerByID := make(map[uint64]*domain.Provider, len(providers))
+	for _, provider := range providers {
+		providerByID[provider.ID] = provider
+	}
+
+	deleteSet := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := providerByID[id]; ok {
+			deleteSet[id] = struct{}{}
+			result.DeletedIDs = append(result.DeletedIDs, id)
+		} else {
+			result.NotFoundIDs = append(result.NotFoundIDs, id)
+		}
+	}
+	if len(deleteSet) == 0 {
+		return result, nil
+	}
+
+	if err := s.bulkDeleteProviderRoutes(tenantID, deleteSet, result); err != nil {
+		return nil, err
+	}
+	if err := s.bulkDeleteProviderModelMappings(tenantID, deleteSet, result); err != nil {
+		return nil, err
+	}
+
+	for _, id := range result.DeletedIDs {
+		if s.adapterRefresher != nil {
+			s.adapterRefresher.RemoveAdapter(id)
+		}
+		if err := s.providerRepo.Delete(tenantID, id); err != nil {
+			return nil, err
+		}
+		result.DeletedCount++
+	}
+
+	return result, nil
+}
+
+func (s *AdminService) bulkDeleteProviderRoutes(tenantID uint64, providerIDs map[uint64]struct{}, result *domain.ProviderBulkDeleteResult) error {
+	routes, err := s.routeRepo.List(tenantID)
+	if err != nil {
+		return err
+	}
+
+	routeIDsByScope := make(map[providerBulkDeleteRouteScope][]uint64)
+	for _, route := range routes {
+		if _, ok := providerIDs[route.ProviderID]; !ok {
+			continue
+		}
+		scope := providerBulkDeleteRouteScope{projectID: route.ProjectID, clientType: route.ClientType}
+		routeIDsByScope[scope] = append(routeIDsByScope[scope], route.ID)
+	}
+
+	for scope, routeIDs := range routeIDsByScope {
+		deleteResult, err := s.routeRepo.BulkDelete(tenantID, domain.RouteBulkDeleteRequest{
+			IDs:        routeIDs,
+			ClientType: scope.clientType,
+			ProjectID:  scope.projectID,
+		})
+		if err != nil {
+			return err
+		}
+		if deleteResult != nil {
+			result.RouteDeletedCount += deleteResult.DeletedCount
+		}
+	}
+	return nil
+}
+
+func (s *AdminService) bulkDeleteProviderModelMappings(tenantID uint64, providerIDs map[uint64]struct{}, result *domain.ProviderBulkDeleteResult) error {
+	mappings, err := s.modelMappingRepo.List(tenantID)
+	if err != nil {
+		return err
+	}
+	for _, mapping := range mappings {
+		if mapping.Scope != domain.ModelMappingScopeProvider {
+			continue
+		}
+		if _, ok := providerIDs[mapping.ProviderID]; !ok {
+			continue
+		}
+		if err := s.modelMappingRepo.Delete(tenantID, mapping.ID); err != nil {
+			return err
+		}
+		result.ModelMappingDeletedCount++
+	}
+	return nil
+}
+
+func uniqueNonZeroIDs(rawIDs []uint64) []uint64 {
+	seen := make(map[uint64]struct{}, len(rawIDs))
+	ids := make([]uint64, 0, len(rawIDs))
+	for _, id := range rawIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func preserveExcludedProviderWriteOnlyMode(existing, incoming *domain.Provider) {
 	if existing == nil || incoming == nil || !existing.ExcludeFromExport {
 		return
