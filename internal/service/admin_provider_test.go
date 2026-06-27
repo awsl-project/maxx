@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -196,6 +197,83 @@ func TestAdminServiceBulkDeleteProvidersCleansReferencesInOnePass(t *testing.T) 
 	if !containsModelMappingID(remainingMappings, mappings[2].ID) || !containsModelMappingID(remainingMappings, mappings[3].ID) {
 		t.Fatalf("unrelated mappings were deleted: %+v", remainingMappings)
 	}
+}
+
+func TestAdminServiceBulkDeleteProvidersRollsBackReferencesWhenProviderDeleteFails(t *testing.T) {
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("NewDBWithDSN() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	providerRepo := sqlite.NewProviderRepository(db)
+	routeRepo := sqlite.NewRouteRepository(db)
+	modelMappingRepo := sqlite.NewModelMappingRepository(db)
+
+	provider := newTestCustomProvider("rollback-provider")
+	if err := providerRepo.Create(provider); err != nil {
+		t.Fatalf("Create(provider) error = %v", err)
+	}
+
+	route := &domain.Route{TenantID: domain.DefaultTenantID, ProviderID: provider.ID, ClientType: domain.ClientTypeClaude, ProjectID: 0, Position: 1, Weight: 1, IsEnabled: true}
+	if err := routeRepo.Create(route); err != nil {
+		t.Fatalf("Create(route) error = %v", err)
+	}
+
+	mapping := &domain.ModelMapping{TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeProvider, ProviderID: provider.ID, Pattern: "rollback-*", Target: "upstream"}
+	if err := modelMappingRepo.Create(mapping); err != nil {
+		t.Fatalf("Create(mapping) error = %v", err)
+	}
+
+	triggerSQL := fmt.Sprintf(`
+		CREATE TRIGGER fail_provider_soft_delete
+		BEFORE UPDATE OF deleted_at ON providers
+		WHEN OLD.id = %d AND NEW.deleted_at != 0
+		BEGIN
+			SELECT RAISE(ABORT, 'provider delete blocked');
+		END;
+	`, provider.ID)
+	if err := db.GormDB().Exec(triggerSQL).Error; err != nil {
+		t.Fatalf("create trigger error = %v", err)
+	}
+
+	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, "", nil, nil, nil)
+	if _, err := svc.BulkDeleteProviders(domain.DefaultTenantID, domain.ProviderBulkDeleteRequest{IDs: []uint64{provider.ID}}); err == nil {
+		t.Fatal("BulkDeleteProviders() error = nil, want provider delete failure")
+	}
+
+	providers, err := providerRepo.List(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("List(providers) error = %v", err)
+	}
+	if !containsProviderID(providers, provider.ID) {
+		t.Fatalf("provider was deleted despite transaction rollback: %+v", providers)
+	}
+
+	routes, err := routeRepo.List(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("List(routes) error = %v", err)
+	}
+	if len(routes) != 1 || routes[0].ID != route.ID {
+		t.Fatalf("routes after failed bulk delete = %+v, want original route", routes)
+	}
+
+	mappings, err := modelMappingRepo.List(domain.DefaultTenantID)
+	if err != nil {
+		t.Fatalf("List(mappings) error = %v", err)
+	}
+	if !containsModelMappingID(mappings, mapping.ID) {
+		t.Fatalf("provider mapping was deleted despite transaction rollback: %+v", mappings)
+	}
+}
+
+func containsProviderID(providers []*domain.Provider, id uint64) bool {
+	for _, provider := range providers {
+		if provider.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func newTestCustomProvider(name string) *domain.Provider {

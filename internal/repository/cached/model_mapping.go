@@ -70,6 +70,14 @@ func (r *ModelMappingRepository) sortCache() {
 	})
 }
 
+func (r *ModelMappingRepository) Reload() error {
+	if err := r.Load(); err != nil {
+		return err
+	}
+	r.bc.publish(OpReload, 0)
+	return nil
+}
+
 func (r *ModelMappingRepository) Create(mapping *domain.ModelMapping) error {
 	if err := r.repo.Create(mapping); err != nil {
 		return err

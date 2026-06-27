@@ -204,6 +204,32 @@ func (s *AdminService) BulkDeleteProviders(tenantID uint64, req domain.ProviderB
 		return nil, fmt.Errorf("ids required")
 	}
 
+	if deleter, ok := s.providerRepo.(repository.ProviderBulkDeleteRepository); ok {
+		result, err := deleter.BulkDeleteWithReferences(tenantID, ids)
+		if err != nil {
+			return nil, err
+		}
+		if err := reloadRepositoryCache(s.providerRepo); err != nil {
+			return nil, err
+		}
+		if err := reloadRepositoryCache(s.routeRepo); err != nil {
+			return nil, err
+		}
+		if err := reloadRepositoryCache(s.modelMappingRepo); err != nil {
+			return nil, err
+		}
+		if s.adapterRefresher != nil && result != nil {
+			for _, id := range result.DeletedIDs {
+				s.adapterRefresher.RemoveAdapter(id)
+			}
+		}
+		return result, nil
+	}
+
+	return s.bulkDeleteProvidersWithoutTransaction(tenantID, ids)
+}
+
+func (s *AdminService) bulkDeleteProvidersWithoutTransaction(tenantID uint64, ids []uint64) (*domain.ProviderBulkDeleteResult, error) {
 	result := &domain.ProviderBulkDeleteResult{}
 
 	providers, err := s.providerRepo.List(tenantID)
@@ -246,6 +272,17 @@ func (s *AdminService) BulkDeleteProviders(tenantID uint64, req domain.ProviderB
 	}
 
 	return result, nil
+}
+
+type repositoryCacheReloader interface {
+	Reload() error
+}
+
+func reloadRepositoryCache(repo any) error {
+	if reloader, ok := repo.(repositoryCacheReloader); ok {
+		return reloader.Reload()
+	}
+	return nil
 }
 
 func (s *AdminService) bulkDeleteProviderRoutes(tenantID uint64, providerIDs map[uint64]struct{}, result *domain.ProviderBulkDeleteResult) error {

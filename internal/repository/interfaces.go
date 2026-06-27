@@ -55,6 +55,13 @@ type ProviderRepository interface {
 	List(tenantID uint64) ([]*domain.Provider, error)
 }
 
+// ProviderBulkDeleteRepository is implemented by repositories that can delete
+// providers and their provider-scoped references atomically. Services should
+// prefer this optional capability over composing Delete calls themselves.
+type ProviderBulkDeleteRepository interface {
+	BulkDeleteWithReferences(tenantID uint64, ids []uint64) (*domain.ProviderBulkDeleteResult, error)
+}
+
 type RouteRepository interface {
 	Create(route *domain.Route) error
 	Update(route *domain.Route) error
