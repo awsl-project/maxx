@@ -193,7 +193,6 @@ function CyberDinoSvg({
       <div className="absolute inset-x-0 bottom-0 flex h-4 overflow-hidden">
         {Array.from({ length: 12 }).map((_, index) => (
           <span
-            // eslint-disable-next-line react/no-array-index-key
             key={index}
             className="h-8 w-10 -skew-x-12"
             style={{ background: index % 2 === 0 ? flame.accent : '#020617' }}
