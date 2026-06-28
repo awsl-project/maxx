@@ -68,6 +68,7 @@ import {
 } from '@/pages/client-routes/components/provider-row';
 import { ClaudeProviderBatchTestDialog } from '@/pages/client-routes/components/claude-provider-batch-test-dialog';
 import type { ProviderConfigItem } from '@/pages/client-routes/types';
+import { createBulkAddRouteFailure, type BulkAddRouteFailure } from './bulk-add-failures';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -483,6 +484,7 @@ function ClientTypeRoutesContentInner({
     () => new Set(),
   );
   const [bulkAddError, setBulkAddError] = useState<string | null>(null);
+  const [bulkAddFailures, setBulkAddFailures] = useState<BulkAddRouteFailure[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const stableProviderStats = useStableProviderStats(providerStats);
@@ -695,6 +697,11 @@ function ClientTypeRoutesContentInner({
     );
   }, [availableProviders, selectedAvailableProviderIds]);
 
+  const bulkAddFailedProviderIdSet = useMemo(
+    () => new Set(bulkAddFailures.map((failure) => failure.providerID)),
+    [bulkAddFailures],
+  );
+
   const allVisibleAvailableSelected =
     visibleAvailableProviderIds.length > 0 &&
     visibleAvailableProviderIds.every((id) => selectedAvailableProviderIds.has(id));
@@ -746,6 +753,7 @@ function ClientTypeRoutesContentInner({
 
   const handleToggleAvailableProviderSelection = (providerId: number, checked: boolean) => {
     setBulkAddError(null);
+    setBulkAddFailures([]);
     setSelectedAvailableProviderIds((prev) => {
       const next = new Set(prev);
       if (checked) {
@@ -759,6 +767,7 @@ function ClientTypeRoutesContentInner({
 
   const handleToggleAllVisibleAvailableProviders = (checked: boolean) => {
     setBulkAddError(null);
+    setBulkAddFailures([]);
     setSelectedAvailableProviderIds((prev) => {
       if (!checked) {
         const next = new Set(prev);
@@ -774,6 +783,7 @@ function ClientTypeRoutesContentInner({
 
   const handleInvertVisibleAvailableProviders = () => {
     setBulkAddError(null);
+    setBulkAddFailures([]);
     setSelectedAvailableProviderIds((prev) =>
       invertVisibleProviderSelection(prev, visibleAvailableProviderIds),
     );
@@ -781,6 +791,7 @@ function ClientTypeRoutesContentInner({
 
   const handleClearAvailableProviderSelection = () => {
     setBulkAddError(null);
+    setBulkAddFailures([]);
     setSelectedAvailableProviderIds(new Set());
   };
 
@@ -788,9 +799,11 @@ function ClientTypeRoutesContentInner({
     if (selectedAvailableProviders.length === 0 || createRoute.isPending) return;
 
     setBulkAddError(null);
+    setBulkAddFailures([]);
     const startingPosition = items.length + 1;
+    const targetProviders = selectedAvailableProviders;
     const results = await Promise.allSettled(
-      selectedAvailableProviders.map((provider, index) =>
+      targetProviders.map((provider, index) =>
         createRoute.mutateAsync({
           isEnabled: true,
           isNative: (provider.supportedClientTypes || []).includes(clientType),
@@ -804,11 +817,12 @@ function ClientTypeRoutesContentInner({
       ),
     );
 
-    const failedProviderIds = new Set<number>();
+    const failures: BulkAddRouteFailure[] = [];
     results.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const provider = selectedAvailableProviders[index];
-        failedProviderIds.add(Number(provider.id));
+        const provider = targetProviders[index];
+        const failure = createBulkAddRouteFailure(provider, result.reason);
+        failures.push(failure);
         console.error('Failed to bulk add provider route', {
           providerID: provider.id,
           providerName: provider.name,
@@ -817,9 +831,16 @@ function ClientTypeRoutesContentInner({
       }
     });
 
+    const failedProviderIds = new Set(failures.map((failure) => failure.providerID));
     setSelectedAvailableProviderIds(failedProviderIds);
-    if (failedProviderIds.size > 0) {
-      setBulkAddError(t('routes.bulkAddProvidersFailed', { count: failedProviderIds.size }));
+    setBulkAddFailures(failures);
+    if (failures.length > 0) {
+      setBulkAddError(
+        t('routes.bulkAddProvidersFailed', {
+          count: failures.length,
+          total: targetProviders.length,
+        }),
+      );
     }
   };
 
@@ -1134,8 +1155,68 @@ function ClientTypeRoutesContentInner({
                 </div>
               </div>
               {bulkAddError && (
-                <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {bulkAddError}
+                <div
+                  role="alert"
+                  aria-live="polite"
+                  className="mb-4 space-y-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive"
+                >
+                  <div className="font-medium">{bulkAddError}</div>
+                  {bulkAddFailures.length > 0 && (
+                    <>
+                      <div className="text-xs text-destructive/80">
+                        {t('routes.bulkAddProvidersFailureHint')}
+                      </div>
+                      <ul className="max-h-48 space-y-2 overflow-auto rounded-md border border-destructive/20 bg-background/60 p-2 text-xs">
+                        {bulkAddFailures.slice(0, 12).map((failure) => (
+                          <li
+                            key={failure.providerID}
+                            className="grid gap-1 sm:grid-cols-[1fr_2fr]"
+                          >
+                            <span className="font-medium text-foreground">
+                              {failure.providerName}
+                              <span className="ml-1 text-muted-foreground">
+                                #{failure.providerID} · {failure.providerType}
+                              </span>
+                            </span>
+                            <span className="break-words text-destructive/90">
+                              {failure.message}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {bulkAddFailures.length > 12 && (
+                        <div className="text-xs text-destructive/80">
+                          {t('routes.bulkAddProvidersMoreFailures', {
+                            count: bulkAddFailures.length - 12,
+                          })}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={
+                            selectedAvailableProviders.length === 0 || createRoute.isPending
+                          }
+                          onClick={handleBulkAddRoutes}
+                        >
+                          {t('routes.bulkRetryFailedProviders', {
+                            count: selectedAvailableProviders.length,
+                          })}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={createRoute.isPending}
+                          onClick={handleClearAvailableProviderSelection}
+                        >
+                          {t('common.clear')}
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
               <div className="space-y-6">
@@ -1157,6 +1238,7 @@ function ClientTypeRoutesContentInner({
                         {typeProviders.map((provider) => {
                           const providerId = Number(provider.id);
                           const isSelected = selectedAvailableProviderIds.has(providerId);
+                          const hasBulkAddFailure = bulkAddFailedProviderIdSet.has(providerId);
                           const isNative = (provider.supportedClientTypes || []).includes(
                             clientType,
                           );
@@ -1172,6 +1254,8 @@ function ClientTypeRoutesContentInner({
                               className={cn(
                                 'h-auto group relative flex cursor-pointer items-center justify-between gap-4 p-4 rounded-xl border border-border/40 bg-background hover:bg-secondary/50 hover:border-border shadow-sm hover:shadow transition-all duration-300 text-left overflow-hidden',
                                 isSelected && 'border-primary/70 bg-primary/10 shadow-primary/10',
+                                hasBulkAddFailure &&
+                                  'border-destructive/70 bg-destructive/10 shadow-destructive/10',
                                 createRoute.isPending && 'cursor-not-allowed opacity-50',
                               )}
                             >
@@ -1202,6 +1286,12 @@ function ClientTypeRoutesContentInner({
                                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">
                                         <RefreshCw size={10} />
                                         CONV
+                                      </span>
+                                    )}
+                                    {hasBulkAddFailure && (
+                                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-destructive/15 text-destructive whitespace-nowrap">
+                                        <AlertTriangle size={10} />
+                                        {t('routes.bulkAddProviderFailedBadge')}
                                       </span>
                                     )}
                                   </div>
