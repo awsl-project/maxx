@@ -7,23 +7,24 @@ import (
 )
 
 var (
-	ErrNotFound            = errors.New("not found")
-	ErrAlreadyExists       = errors.New("already exists")
-	ErrSlugExists          = errors.New("slug already exists")
-	ErrInvalidInput        = errors.New("invalid input")
-	ErrInvalidState        = errors.New("invalid state")
-	ErrNoRoutes            = errors.New("no routes available")
-	ErrAllRoutesFailed     = errors.New("all routes failed")
-	ErrFirstByteTimeout    = errors.New("first byte timeout")
-	ErrStreamIdleTimeout   = errors.New("stream idle timeout")
-	ErrUpstreamError       = errors.New("upstream error")
-	ErrFormatConversion    = errors.New("format conversion error")
-	ErrUnsupportedFormat   = errors.New("unsupported format")
-	ErrInviteCodeRequired  = errors.New("invite code required")
-	ErrInviteCodeInvalid   = errors.New("invite code invalid")
-	ErrInviteCodeExpired   = errors.New("invite code expired")
-	ErrInviteCodeExhausted = errors.New("invite code exhausted")
-	ErrInviteCodeDisabled  = errors.New("invite code disabled")
+	ErrNotFound             = errors.New("not found")
+	ErrAlreadyExists        = errors.New("already exists")
+	ErrSlugExists           = errors.New("slug already exists")
+	ErrInvalidInput         = errors.New("invalid input")
+	ErrInvalidState         = errors.New("invalid state")
+	ErrNoRoutes             = errors.New("no routes available")
+	ErrNoAvailableProviders = errors.New("no available providers")
+	ErrAllRoutesFailed      = errors.New("all routes failed")
+	ErrFirstByteTimeout     = errors.New("first byte timeout")
+	ErrStreamIdleTimeout    = errors.New("stream idle timeout")
+	ErrUpstreamError        = errors.New("upstream error")
+	ErrFormatConversion     = errors.New("format conversion error")
+	ErrUnsupportedFormat    = errors.New("unsupported format")
+	ErrInviteCodeRequired   = errors.New("invite code required")
+	ErrInviteCodeInvalid    = errors.New("invite code invalid")
+	ErrInviteCodeExpired    = errors.New("invite code expired")
+	ErrInviteCodeExhausted  = errors.New("invite code exhausted")
+	ErrInviteCodeDisabled   = errors.New("invite code disabled")
 )
 
 // ErrorScope defines what resource is broken, determining cooldown granularity
@@ -55,6 +56,7 @@ const (
 type ProxyError struct {
 	Err     error
 	Message string
+	Code    string
 
 	// Classification
 	Scope          ErrorScope     // What resource is broken (determines cooldown granularity)
@@ -62,8 +64,8 @@ type ProxyError struct {
 	HTTPStatusCode int            // Original HTTP status code
 
 	// Cooldown hints
-	RetryAfter         time.Duration // Suggested retry delay
-	CooldownUntil      *time.Time    // Absolute cooldown end time
+	RetryAfter         time.Duration  // Suggested retry delay
+	CooldownUntil      *time.Time     // Absolute cooldown end time
 	CooldownUpdateChan chan time.Time // Channel for async cooldown updates (optional)
 
 	// Retry

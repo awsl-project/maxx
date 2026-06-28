@@ -1111,14 +1111,101 @@ func TestProxyRouteWithoutConfiguredProviderDoesNotRecordRequest(t *testing.T) {
 
 	var payload map[string]map[string]any
 	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "no_available_provider" {
+		t.Fatalf("error.code = %v, want no_available_provider", got)
+	}
 	msg, _ := payload["error"]["message"].(string)
-	if !strings.Contains(msg, "route match failed") || !strings.Contains(msg, "no routes available") {
-		t.Fatalf("error.message = %q, want to contain route match failed and no routes available", msg)
+	if !strings.Contains(msg, "no available provider") {
+		t.Fatalf("error.message = %q, want to contain no available provider", msg)
 	}
 	assertNoProxyRequestsRecorded(t, env)
 }
 
+func TestProxyMatchedRouteWithUnsupportedProviderModelDoesNotRecordRequest(t *testing.T) {
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai-model-filter", "http://127.0.0.1:1", []string{"openai"})
+
+	providerResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", providerID), map[string]any{
+		"name":                 "mock-openai-model-filter",
+		"type":                 "custom",
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"only-this-model"},
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "http://127.0.0.1:1",
+				"apiKey":  "sk-mock-test-key",
+			},
+		},
+	})
+	AssertStatus(t, providerResp, http.StatusOK)
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "no_available_provider" {
+		t.Fatalf("error.code = %v, want no_available_provider", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "no available provider") {
+		t.Fatalf("error.message = %q, want to contain no available provider", msg)
+	}
+	assertNoProxyRequestsRecorded(t, env)
+}
+
+func TestProxyMatchedRouteWithCooldownProviderDoesNotRecordAdditionalRequest(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"message": "Rate limit exceeded",
+				"type":    "rate_limit_error",
+			},
+		})
+	}))
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-cooldown-provider", mock.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusTooManyRequests)
+	if got := len(getProxyRequests(t, env)); got != 1 {
+		t.Fatalf("expected first upstream failure to be recorded, got %d requests", got)
+	}
+
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "no_available_provider" {
+		t.Fatalf("error.code = %v, want no_available_provider", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "no available provider") {
+		t.Fatalf("error.message = %q, want to contain no available provider", msg)
+	}
+	if got := len(getProxyRequests(t, env)); got != 1 {
+		t.Fatalf("expected cooldown route-match rejection to stay out of requests tab, got %d requests", got)
+	}
+}
+
 func assertNoProxyRequestsRecorded(t *testing.T, env *ProxyTestEnv) {
+	t.Helper()
+
+	requests := getProxyRequests(t, env)
+	if len(requests) != 0 {
+		t.Fatalf("expected route-match rejection to stay out of requests tab, got %d requests: %#v", len(requests), requests)
+	}
+}
+
+func getProxyRequests(t *testing.T, env *ProxyTestEnv) []map[string]any {
 	t.Helper()
 
 	requestsResp := env.doRequest(http.MethodGet, "/api/admin/requests?limit=20", nil, env.Token)
@@ -1127,9 +1214,7 @@ func assertNoProxyRequestsRecorded(t *testing.T, env *ProxyTestEnv) {
 		Items []map[string]any `json:"items"`
 	}
 	DecodeJSON(t, requestsResp, &requests)
-	if len(requests.Items) != 0 {
-		t.Fatalf("expected route-match rejection to stay out of requests tab, got %d requests: %#v", len(requests.Items), requests.Items)
-	}
+	return requests.Items
 }
 
 func TestProxyCodexToGeminiStreamingSSE(t *testing.T) {

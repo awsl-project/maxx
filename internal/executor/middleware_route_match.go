@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -29,7 +30,14 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 		SessionID:    state.sessionID,
 	})
 	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, fmt.Sprintf("route match failed: %v", err))
+		message := fmt.Sprintf("route match failed: %v", err)
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, message)
+		if errors.Is(err, domain.ErrNoAvailableProviders) {
+			proxyErr = domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, false, "no available provider for matched route")
+			proxyErr.Code = "no_available_provider"
+		} else if errors.Is(err, domain.ErrNoRoutes) {
+			proxyErr.Code = "no_routes_available"
+		}
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.HTTPStatusCode = http.StatusServiceUnavailable
 		state.lastErr = proxyErr
@@ -39,8 +47,9 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 	}
 
 	if len(result.Routes) == 0 {
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, "no routes configured")
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, false, "no available provider for matched route")
 		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Code = "no_available_provider"
 		proxyErr.HTTPStatusCode = http.StatusServiceUnavailable
 		state.lastErr = proxyErr
 		c.Err = proxyErr
