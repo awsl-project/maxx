@@ -157,8 +157,8 @@
     "requests": "请求",
     "cost": "成本",
     "cyberDino": {
-      "title": "赛博小恐龙",
-      "description": "当月 token 用量越高，脚下火焰烧得越凶。材质只改外观，火焰强度由真实用量驱动。",
+      "title": "路由小怪物",
+      "description": "当月 token 用量越高，logo 下方火焰烧得越凶。材质只改外观，火焰强度由真实用量驱动。",
       "badgeTooltip": "本月已燃烧 {{tokens}} {{unit}}",
       "monthlyBurn": "本月已燃烧",
       "nextLevel": "下一档火焰",
@@ -167,7 +167,7 @@
       "inputTokens": "输入",
       "outputTokens": "输出",
       "requests": "请求",
-      "dinoMaterial": "小恐龙材质",
+      "dinoMaterial": "怪物材质",
       "flameMaterial": "火焰材质",
       "mappingHint": "火焰大小按当月 token 总量分档，材质不会篡改用量语义。",
       "resetHint": "月度统计将在 {{date}} 重置",
@@ -186,7 +186,7 @@
       "dinoMaterials": {
         "cyberMetal": {
           "label": "赛博金属",
-          "description": "青紫霓虹金属，小恐龙默认皮肤。"
+          "description": "青紫霓虹金属，怪物 logo 默认皮肤。"
         },
         "hologram": {
           "label": "全息幻影",

@@ -158,8 +158,8 @@
     "requests": "Requests",
     "cost": "Cost",
     "cyberDino": {
-      "title": "Cyber Dino",
-      "description": "Monthly token usage drives the flame under the dino. Materials change the look, not the usage signal.",
+      "title": "Routing Gremlin",
+      "description": "Monthly token usage drives the flame under the logo mascot. Materials change the look, not the usage signal.",
       "badgeTooltip": "{{tokens}} {{unit}} burned this month",
       "monthlyBurn": "Burned this month",
       "nextLevel": "Next flame level",
@@ -168,7 +168,7 @@
       "inputTokens": "Input",
       "outputTokens": "Output",
       "requests": "Requests",
-      "dinoMaterial": "Dino material",
+      "dinoMaterial": "Gremlin material",
       "flameMaterial": "Flame material",
       "mappingHint": "Flame size is mapped from monthly token totals; materials do not change the usage meaning.",
       "resetHint": "Monthly stats reset on {{date}}",
@@ -187,7 +187,7 @@
       "dinoMaterials": {
         "cyberMetal": {
           "label": "Cyber Metal",
-          "description": "Cyan-violet neon metal, the default dino skin."
+          "description": "Cyan-violet neon metal, the default gremlin logo skin."
         },
         "hologram": {
           "label": "Hologram",

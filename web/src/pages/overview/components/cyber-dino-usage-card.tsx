@@ -125,236 +125,81 @@ function CyberDinoSvg({
   const flameScale = 0.74 + intensity * 0.1;
   const alive = motion === 'alive';
   const calm = motion === 'calm';
-  const burnOpacity = 0.52 + intensity * 0.1;
-  const scanlineOpacity = 0.1 + intensity * 0.035;
+  const burnOpacity = 0.5 + intensity * 0.1;
+  const scanlineOpacity = 0.12 + intensity * 0.035;
 
   return (
     <div
-      className="relative mx-auto h-56 w-full max-w-[22rem] overflow-hidden rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.86),rgba(2,6,23,0.92))] shadow-2xl"
+      className="relative mx-auto h-56 w-full max-w-[22rem] overflow-hidden rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(13,11,18,0.96),rgba(2,6,23,0.94))] shadow-2xl"
       style={{
-        boxShadow: `0 18px 60px ${flame.secondary}20, inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 54px ${dino.secondary}1c`,
+        boxShadow: `0 18px 60px ${flame.secondary}22, inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 54px ${dino.secondary}1c`,
       }}
       aria-hidden="true"
     >
       <div
         className="absolute -left-12 top-4 h-40 w-40 rounded-full blur-3xl"
-        style={{ background: `${dino.primary}20` }}
+        style={{ background: `${dino.primary}22` }}
       />
       <div
         className="absolute -right-14 bottom-0 h-44 w-44 rounded-full blur-3xl"
-        style={{ background: `${flame.primary}22` }}
+        style={{ background: `${flame.primary}26` }}
       />
-      <div className="absolute inset-x-8 top-6 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.28em] text-white/35">
-        <span>Token Burn</span>
+      <div className="absolute inset-x-8 top-6 z-10 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.28em] text-white/40">
+        <span>Routing Gremlin</span>
         <span>Lv.{intensity}</span>
       </div>
 
-      <svg viewBox="0 0 420 260" className="absolute inset-0 h-full w-full">
-        <defs>
-          <linearGradient
-            id="emblemFrame"
-            x1="90"
-            x2="330"
-            y1="42"
-            y2="222"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.24" />
-            <stop offset="52%" stopColor={dino.primary} stopOpacity="0.16" />
-            <stop offset="100%" stopColor={flame.secondary} stopOpacity="0.18" />
-          </linearGradient>
-          <linearGradient
-            id="mascotFill"
-            x1="120"
-            x2="306"
-            y1="76"
-            y2="185"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop offset="0%" stopColor={dino.primary} />
-            <stop offset="62%" stopColor={dino.secondary} />
-            <stop offset="100%" stopColor={dino.accent} />
-          </linearGradient>
-          <linearGradient
-            id="mascotPlate"
-            x1="160"
-            x2="276"
-            y1="112"
-            y2="174"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop offset="0%" stopColor="#f8fafc" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="#020617" stopOpacity="0.1" />
-          </linearGradient>
-          <linearGradient id="flameGlyph" x1="0" x2="0" y1="1" y2="0">
-            <stop offset="0%" stopColor={flame.secondary} />
-            <stop offset="58%" stopColor={flame.primary} />
-            <stop offset="100%" stopColor={flame.accent} />
-          </linearGradient>
-          <filter id="premiumGlow" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <pattern id="microGrid" width="18" height="18" patternUnits="userSpaceOnUse">
-            <path
-              d="M18 0H0V18"
-              fill="none"
-              stroke="#94a3b8"
-              strokeOpacity="0.13"
-              strokeWidth="1"
-            />
-          </pattern>
-        </defs>
+      <div className="absolute inset-8 top-12 rounded-[1.25rem] border border-white/10 bg-black/25" />
+      <div
+        className="absolute inset-x-10 bottom-8 h-10 origin-bottom rounded-[50%_50%_18%_18%] blur-md transition-transform"
+        style={{
+          background: `linear-gradient(90deg, ${flame.secondary}, ${flame.primary}, ${flame.accent})`,
+          opacity: burnOpacity,
+          transform: `scale(${1 + intensity * 0.08}, ${flameScale})`,
+        }}
+      />
+      <div
+        className="absolute bottom-11 left-1/2 h-24 w-28 -translate-x-1/2 origin-bottom rounded-[45%_55%_18%_18%] opacity-80 blur-sm"
+        style={{
+          background: `radial-gradient(circle at 50% 18%, ${flame.accent}, ${flame.primary} 48%, ${flame.secondary} 82%)`,
+          transform: `translateX(-50%) scaleY(${flameScale})`,
+        }}
+      />
 
-        <rect x="34" y="36" width="352" height="188" rx="34" fill="url(#microGrid)" opacity="0.8" />
-        <path
-          d="M126 50 H294 C330 50 358 78 358 114 V146 C358 192 322 222 266 222 H154 C98 222 62 192 62 146 V114 C62 78 90 50 126 50 Z"
-          fill="url(#emblemFrame)"
-          stroke="#ffffff"
-          strokeOpacity="0.13"
-          strokeWidth="1.5"
+      <div
+        className={cn(
+          'absolute left-1/2 top-[4.1rem] z-20 flex h-32 w-32 -translate-x-1/2 items-center justify-center rounded-[1.25rem] border-2 bg-black/55 p-2 shadow-[10px_10px_0_rgba(34,211,238,0.65)]',
+          alive && 'motion-safe:animate-pulse',
+          calm && 'translate-y-1',
+        )}
+        style={{ borderColor: dino.primary }}
+      >
+        <img
+          src="/logo.png"
+          alt=""
+          className="h-full w-full object-contain [image-rendering:pixelated]"
+          draggable={false}
         />
-        <path
-          d="M90 195 H330"
-          stroke={flame.primary}
-          strokeOpacity="0.28"
-          strokeWidth="1"
-          strokeDasharray="8 10"
-        />
-        <path
-          d="M96 82 H150 M270 82 H324"
-          stroke={dino.primary}
-          strokeOpacity="0.46"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <path
-          d="M104 98 H132 M288 98 H316"
-          stroke={dino.accent}
-          strokeOpacity="0.34"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
+      </div>
 
-        <g
-          opacity={burnOpacity}
-          filter="url(#premiumGlow)"
-          transform={`translate(0 ${calm ? 2 : 0}) scale(1 ${flameScale}) translate(0 ${166 - 166 / flameScale})`}
-          style={{ transformOrigin: '210px 213px' }}
-          className={alive ? 'motion-safe:animate-pulse' : undefined}
-        >
-          <ellipse cx="210" cy="215" rx="72" ry="13" fill={flame.secondary} opacity="0.34" />
-          <path
-            d="M171 216 C158 186 182 178 178 151 C204 172 194 195 211 216 Z"
-            fill="url(#flameGlyph)"
+      <div className="absolute inset-x-10 bottom-5 z-30 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.22em] text-white/55">
+        <span>logo-linked</span>
+        <span>token fire</span>
+      </div>
+      <div
+        className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(255,255,255,0.08)_0,rgba(255,255,255,0.08)_1px,transparent_1px,transparent_5px)]"
+        style={{ opacity: scanlineOpacity }}
+      />
+      <div className="absolute inset-x-0 bottom-0 flex h-4 overflow-hidden">
+        {Array.from({ length: 12 }).map((_, index) => (
+          <span
+            // eslint-disable-next-line react/no-array-index-key
+            key={index}
+            className="h-8 w-10 -skew-x-12"
+            style={{ background: index % 2 === 0 ? flame.accent : '#020617' }}
           />
-          <path
-            d="M207 218 C189 181 219 165 214 130 C256 166 231 195 252 218 Z"
-            fill="url(#flameGlyph)"
-          />
-          <path
-            d="M248 216 C236 188 261 180 254 154 C286 176 273 197 289 216 Z"
-            fill="url(#flameGlyph)"
-          />
-          <path
-            d="M211 217 C202 196 220 188 218 166 C239 190 229 203 238 217 Z"
-            fill={flame.accent}
-            opacity="0.82"
-          />
-        </g>
-
-        <g filter="url(#premiumGlow)">
-          <path
-            d="M126 135 C103 131 82 120 69 101 C100 100 129 110 150 129 Z"
-            fill={dino.secondary}
-            stroke={dino.primary}
-            strokeOpacity="0.9"
-            strokeWidth="3"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M126 130 C134 93 169 73 216 75 C264 77 302 102 314 138 C327 178 294 198 226 198 C161 198 118 174 126 130 Z"
-            fill="url(#mascotFill)"
-            stroke={dino.primary}
-            strokeWidth="3.5"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M160 142 C177 123 218 118 256 129 C282 136 295 153 289 169 C282 190 245 196 199 188 C164 183 145 160 160 142 Z"
-            fill="url(#mascotPlate)"
-          />
-          <path
-            d="M272 85 C291 69 324 73 341 94 C356 113 352 139 333 151 C309 166 274 151 264 124 C258 108 260 95 272 85 Z"
-            fill="url(#mascotFill)"
-            stroke={dino.primary}
-            strokeWidth="3.5"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M326 111 C347 107 367 113 379 126 C365 138 344 142 326 136 Z"
-            fill={dino.secondary}
-            stroke={dino.primary}
-            strokeOpacity="0.9"
-            strokeWidth="3"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M286 100 H329 C337 100 343 106 343 114 C343 121 337 127 329 127 H286 C278 127 272 121 272 114 C272 106 278 100 286 100 Z"
-            fill="#020617"
-            opacity="0.86"
-          />
-          <path
-            d="M285 114 H333"
-            stroke={flame.accent}
-            strokeWidth="3"
-            strokeLinecap="round"
-            opacity="0.95"
-          />
-          <circle cx="323" cy="113" r="3.5" fill={flame.primary} />
-          <path
-            d="M163 78 L177 50 L197 82 Z M211 75 L226 48 L248 79 Z M276 83 L292 57 L313 88 Z"
-            fill={dino.accent}
-            stroke={dino.primary}
-            strokeWidth="2"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M169 190 L198 190 L193 220 H173 Z M239 191 L269 190 L264 220 H244 Z"
-            fill={dino.secondary}
-            stroke={dino.primary}
-            strokeWidth="3"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M160 219 H206 C211 219 215 223 215 228 V230 H154 V226 C154 222 157 219 160 219 Z M233 219 H279 C284 219 288 223 288 228 V230 H227 V226 C227 222 230 219 233 219 Z"
-            fill="#020617"
-            stroke={dino.primary}
-            strokeOpacity="0.86"
-            strokeWidth="2.5"
-          />
-          <path
-            d="M155 143 C182 153 207 153 233 143 M183 176 C213 185 250 183 276 169 M205 104 C220 99 239 100 255 108"
-            stroke="#020617"
-            strokeWidth="6"
-            strokeLinecap="round"
-            opacity="0.16"
-          />
-          <path
-            d="M155 143 C182 153 207 153 233 143 M183 176 C213 185 250 183 276 169 M205 104 C220 99 239 100 255 108"
-            stroke={dino.primary}
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            opacity="0.68"
-          />
-        </g>
-
-        <g opacity={scanlineOpacity}>
-          <path d="M72 70 H348 M62 124 H358 M82 178 H338" stroke="#e2e8f0" strokeWidth="1" />
-        </g>
-      </svg>
+        ))}
+      </div>
     </div>
   );
 }
@@ -427,20 +272,20 @@ export function CyberDinoUsageBadge() {
         unit: t('dashboard.cyberDino.tokenUnit'),
       })}
     >
-      <span className="relative inline-flex h-5 w-8 items-center justify-center" aria-hidden="true">
+      <span className="relative inline-flex h-6 w-6 items-center justify-center" aria-hidden="true">
         <span
-          className="absolute bottom-0 h-3 w-3 rounded-full blur-[3px]"
-          style={{ background: flame.primary, opacity: 0.45 + level.level * 0.1 }}
+          className="absolute inset-0 rounded-md blur-[3px]"
+          style={{ background: flame.primary, opacity: 0.35 + level.level * 0.08 }}
         />
         <span
-          className="absolute bottom-0 h-4 w-2 rounded-t-full"
-          style={{
-            background: `linear-gradient(${flame.accent}, ${flame.primary}, ${flame.secondary})`,
-          }}
+          className="absolute inset-0 rounded-md border"
+          style={{ borderColor: dino.primary, background: '#020617' }}
         />
-        <span
-          className="absolute top-0 h-3 w-6 rounded-[55%_45%_45%_55%] border border-white/30"
-          style={{ background: `linear-gradient(135deg, ${dino.primary}, ${dino.secondary})` }}
+        <img
+          src="/logo.png"
+          alt=""
+          className="relative h-5 w-5 object-contain [image-rendering:pixelated]"
+          draggable={false}
         />
       </span>
       <span className="font-mono">{formatNumber(totals.totalTokens)}</span>
