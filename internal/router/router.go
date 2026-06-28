@@ -290,7 +290,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	r.mu.RUnlock()
 
 	if len(matched) == 0 {
-		return nil, domain.ErrNoRoutes
+		return nil, domain.ErrNoAvailableProviders
 	}
 
 	// Sticky / session-affinity layer. Only meaningful when:

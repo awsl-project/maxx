@@ -403,12 +403,16 @@ func writeProxyError(w http.ResponseWriter, err *domain.ProxyError) {
 		statusCode = err.HTTPStatusCode
 	}
 	w.WriteHeader(statusCode)
+	payload := map[string]interface{}{
+		"message":   err.Error(),
+		"type":      "upstream_error",
+		"retryable": err.Retryable,
+	}
+	if err.Code != "" {
+		payload["code"] = err.Code
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]interface{}{
-			"message":   err.Error(),
-			"type":      "upstream_error",
-			"retryable": err.Retryable,
-		},
+		"error": payload,
 	})
 }
 
@@ -458,13 +462,17 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	}
 	w.WriteHeader(statusCode)
 
+	payload := map[string]interface{}{
+		"message":   err.Error(),
+		"type":      "upstream_error",
+		"retryable": err.Retryable,
+	}
+	if err.Code != "" {
+		payload["code"] = err.Code
+	}
 	errorEvent := map[string]interface{}{
-		"type": "error",
-		"error": map[string]interface{}{
-			"message":   err.Error(),
-			"type":      "upstream_error",
-			"retryable": err.Retryable,
-		},
+		"type":  "error",
+		"error": payload,
 	}
 	data, _ := json.Marshal(errorEvent)
 	w.Write([]byte("data: "))
