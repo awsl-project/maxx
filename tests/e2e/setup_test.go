@@ -210,7 +210,7 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 	// end-to-end. The project proxy safely 404s on non-project paths, so a nil
 	// proxy handler is fine for the routes these tests exercise.
 	if opts.mountRoot {
-		projectProxyHandler := handler.NewProjectProxyHandler(nil, modelsHandler, cachedProjectRepo)
+		projectProxyHandler := handler.NewProjectProxyHandler(nil, protectedModelsHandler, cachedProjectRepo)
 		if opts.serveStatic {
 			staticHandler := handler.NewStaticHandler()
 			mux.Handle("/", handler.NewCombinedHandler(projectProxyHandler, staticHandler))

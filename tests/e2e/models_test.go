@@ -181,3 +181,74 @@ func TestGetModels_APITokenAuthAndModelSources(t *testing.T) {
 		}
 	}
 }
+
+func TestGetModels_ProjectAndProviderScopedRoutesRequireAPIToken(t *testing.T) {
+	env := NewProxyTestEnv(t)
+
+	projectResp := env.AdminPost("/api/admin/projects", map[string]any{
+		"name":                "models scoped project",
+		"slug":                "models-scoped-project",
+		"enabledCustomRoutes": []string{},
+	})
+	AssertStatus(t, projectResp, http.StatusCreated)
+	projectResp.Body.Close()
+
+	providerResp := env.AdminPost("/api/admin/providers", map[string]any{
+		"name": "models scoped provider",
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "https://models-scoped-provider.example.test",
+				"apiKey":  "sk-models-scoped-provider",
+			},
+		},
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"gpt-models-scoped-provider"},
+	})
+	AssertStatus(t, providerResp, http.StatusCreated)
+	var provider map[string]any
+	DecodeJSON(t, providerResp, &provider)
+	providerID := int(provider["id"].(float64))
+
+	resp := env.AdminPut("/api/admin/settings/api_token_auth_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = env.AdminPost("/api/admin/api-tokens", map[string]any{
+		"name":        "scoped-models-list-token",
+		"description": "Token for project/provider scoped model-list e2e coverage",
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	tokenStr, ok := created["token"].(string)
+	if !ok || tokenStr == "" {
+		t.Fatalf("Expected token string, got %v", created["token"])
+	}
+
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "project scoped", path: "/project/models-scoped-project/v1/models"},
+		{name: "provider scoped", path: "/provider/" + itoa(uint64(providerID)) + "/v1/models"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := env.doRequest(http.MethodGet, tc.path, nil, "")
+			AssertStatus(t, resp, http.StatusUnauthorized)
+			resp.Body.Close()
+
+			resp = env.doRequest(http.MethodGet, tc.path, nil, "maxx_wrong")
+			AssertStatus(t, resp, http.StatusUnauthorized)
+			resp.Body.Close()
+
+			resp = env.doRequest(http.MethodGet, tc.path, nil, tokenStr)
+			AssertStatus(t, resp, http.StatusOK)
+			var result map[string]any
+			DecodeJSON(t, resp, &result)
+			if result["object"] != "list" {
+				t.Fatalf("Expected object 'list', got %v", result["object"])
+			}
+		})
+	}
+}
