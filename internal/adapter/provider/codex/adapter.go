@@ -17,6 +17,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	cliproxyapi "github.com/awsl-project/maxx/internal/adapter/provider/cliproxyapi_codex"
+	"github.com/awsl-project/maxx/internal/codexguard"
 	"github.com/awsl-project/maxx/internal/codexutil"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -547,11 +548,43 @@ func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response)
 		}
 	}
 
+	if proxyErr := codexReasoningGuardProxyError(c, body); proxyErr != nil {
+		return proxyErr
+	}
+
 	// Copy response headers
 	copyResponseHeaders(c.Writer.Header(), resp.Header)
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
 	_, _ = c.Writer.Write(body)
+	return nil
+}
+
+func codexReasoningGuardProxyError(c *flow.Ctx, body []byte) *domain.ProxyError {
+	v, ok := c.Get(flow.KeyCodexReasoningGuard)
+	if !ok {
+		return nil
+	}
+	cfg, ok := v.(codexguard.Config)
+	if !ok || !cfg.Enabled || cfg.Mode != codexguard.ModeNonStream {
+		return nil
+	}
+
+	tokens, err := codexguard.ExtractReasoningTokensFromJSON(body)
+	if err != nil {
+		log.Printf("[Codex] reasoning guard skipped invalid JSON response: %v", err)
+		return nil
+	}
+	for _, token := range tokens {
+		if codexguard.IsBlockedToken(token, cfg.BlockedReasoningTokens) {
+			guardErr := codexguard.NewReasoningGuardError(token, cfg)
+			proxyErr := domain.NewProxyErrorWithMessage(guardErr, false, "codex reasoning guard triggered")
+			proxyErr.Scope = domain.ScopeRequest
+			proxyErr.HTTPStatusCode = guardErr.StatusCode
+			proxyErr.Code = guardErr.ErrorCode
+			return proxyErr
+		}
+	}
 	return nil
 }
 
