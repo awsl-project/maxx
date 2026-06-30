@@ -165,7 +165,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	}
 
 	// Normalize OpenAI Responses payloads sent to chat/completions
-	if strings.HasPrefix(r.URL.Path, "/v1/chat/completions") {
+	if isOpenAIChatCompletionsPath(r.URL.Path) {
 		if normalized, ok := normalizeOpenAIChatCompletionsPayload(body); ok {
 			body = normalized
 		}
@@ -482,4 +482,8 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+func isOpenAIChatCompletionsPath(path string) bool {
+	return strings.HasPrefix(path, "/v1/chat/completions") || strings.HasPrefix(path, "/chat/completions")
 }

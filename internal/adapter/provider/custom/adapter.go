@@ -890,7 +890,31 @@ func updateModelInMultipartForm(body []byte, req *http.Request, model string) ([
 }
 
 func buildUpstreamURL(baseURL string, requestPath string) string {
-	return strings.TrimSuffix(baseURL, "/") + requestPath
+	baseURL = strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
+	requestPath = normalizeOpenAIUpstreamRequestPath(requestPath)
+
+	// OpenAI-compatible configs are commonly entered either as the API origin
+	// (https://api.openai.com) or as the versioned API root
+	// (https://api.openai.com/v1). The request URI is already versioned for the
+	// canonical proxy routes, so avoid forwarding /v1/v1/... upstream.
+	if strings.HasSuffix(baseURL, "/v1") && strings.HasPrefix(requestPath, "/v1/") {
+		requestPath = strings.TrimPrefix(requestPath, "/v1")
+	}
+
+	return baseURL + requestPath
+}
+
+func normalizeOpenAIUpstreamRequestPath(requestPath string) string {
+	switch {
+	case strings.HasPrefix(requestPath, "/chat/completions"):
+		return "/v1" + requestPath
+	case strings.HasPrefix(requestPath, "/images/"):
+		return "/v1" + requestPath
+	case requestPath == "/models" || strings.HasPrefix(requestPath, "/models?"):
+		return "/v1" + requestPath
+	default:
+		return requestPath
+	}
 }
 
 // isMultipartForm reports whether the request body is multipart/form-data
