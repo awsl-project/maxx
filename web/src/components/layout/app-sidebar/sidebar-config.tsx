@@ -107,7 +107,6 @@ export const sidebarConfig: SidebarConfig = {
           icon: Key,
           labelKey: 'nav.apiTokens',
           adminOnly: true,
-          authOnly: true,
         },
         {
           type: 'standard',
