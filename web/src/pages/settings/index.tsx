@@ -72,7 +72,7 @@ const PAYLOAD_OVERRIDE_RESERVED_ROOTS = new Set(['model', 'stream']);
 const CODEX_REASONING_GUARD_SETTING_KEY = 'codex_reasoning_guard';
 const DEFAULT_CODEX_REASONING_GUARD_SETTING = JSON.stringify(
   {
-    enabled: true,
+    enabled: false,
     blocked_reasoning_tokens: [516, 1034, 1552],
     max_attempts: 2,
     status_code: 502,

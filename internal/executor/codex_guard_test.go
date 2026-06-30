@@ -174,8 +174,8 @@ func TestGetCodexGuardConfig(t *testing.T) {
 
 		got := e.getCodexGuardConfig()
 
-		if !got.Enabled {
-			t.Fatal("Enabled = false, want true")
+		if got.Enabled {
+			t.Fatal("Enabled = true, want false")
 		}
 		if got.MaxAttempts != codexguard.DefaultConfig().MaxAttempts {
 			t.Fatalf("MaxAttempts = %d, want default", got.MaxAttempts)
@@ -210,7 +210,7 @@ func TestDispatchRetriesCodexReasoningGuardWithoutOrdinaryRetryBudget(t *testing
 	proxyRepo := &codexGuardProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	adapter := &codexGuardSequenceAdapter{errors: []error{guardErr}}
-	e := newCodexGuardTestExecutor(proxyRepo, attemptRepo, nil)
+	e := newCodexGuardTestExecutor(proxyRepo, attemptRepo, enabledCodexGuardSettings())
 
 	c := newCodexGuardDispatchCtx(adapter)
 	e.dispatch(c)
@@ -243,7 +243,7 @@ func TestDispatchStopsAfterCodexReasoningGuardAttemptsExhausted(t *testing.T) {
 	proxyRepo := &codexGuardProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	adapter := &codexGuardSequenceAdapter{errors: []error{guardErr, guardErr}}
-	e := newCodexGuardTestExecutor(proxyRepo, attemptRepo, nil)
+	e := newCodexGuardTestExecutor(proxyRepo, attemptRepo, enabledCodexGuardSettings())
 
 	c := newCodexGuardDispatchCtx(adapter)
 	e.dispatch(c)
@@ -272,6 +272,12 @@ func TestDispatchStopsAfterCodexReasoningGuardAttemptsExhausted(t *testing.T) {
 	}
 	if last.StatusCode != 502 {
 		t.Fatalf("final proxy request status code = %d, want 502", last.StatusCode)
+	}
+}
+
+func enabledCodexGuardSettings() map[string]string {
+	return map[string]string{
+		domain.SettingKeyCodexReasoningGuard: `{"enabled":true,"blocked_reasoning_tokens":[516,1034,1552],"max_attempts":2,"status_code":502,"error_code":"reasoning_guard_triggered","mode":"non_stream"}`,
 	}
 }
 

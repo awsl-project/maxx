@@ -10,8 +10,8 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if !cfg.Enabled {
-		t.Fatal("Enabled = false, want true")
+	if cfg.Enabled {
+		t.Fatal("Enabled = true, want false")
 	}
 	if !reflect.DeepEqual(cfg.BlockedReasoningTokens, []int{516, 1034, 1552}) {
 		t.Fatalf("BlockedReasoningTokens = %#v, want %#v", cfg.BlockedReasoningTokens, []int{516, 1034, 1552})
@@ -139,8 +139,9 @@ func TestValidateConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "empty blocked token",
+			name: "empty blocked token when enabled",
 			mutate: func(cfg *Config) {
+				cfg.Enabled = true
 				cfg.BlockedReasoningTokens = nil
 			},
 		},
@@ -242,7 +243,9 @@ func TestIsBlockedToken(t *testing.T) {
 }
 
 func TestSSEInspectorMultipleData(t *testing.T) {
-	inspector, err := NewSSEInspector(DefaultConfig())
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	inspector, err := NewSSEInspector(cfg)
 	if err != nil {
 		t.Fatalf("NewSSEInspector returned error: %v", err)
 	}

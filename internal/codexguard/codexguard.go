@@ -37,7 +37,7 @@ func DefaultConfig() Config {
 	blocked := append([]int(nil), defaultBlockedReasoningTokens...)
 
 	return Config{
-		Enabled:                true,
+		Enabled:                false,
 		BlockedReasoningTokens: blocked,
 		MaxAttempts:            2,
 		StatusCode:             DefaultStatusCode,
