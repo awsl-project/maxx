@@ -38,17 +38,28 @@ func TestDetectClientTypeRecognizesImagesPath(t *testing.T) {
 	// Images generation body has neither messages/input/contents — only path can classify it.
 	body := []byte(`{"model":"gpt-image-2","prompt":"a cat","n":1,"size":"1024x1024"}`)
 
-	req := httptest.NewRequest("POST", "/v1/images/generations", strings.NewReader(string(body)))
-	if got := adapter.DetectClientType(req, body); got != domain.ClientTypeOpenAI {
-		t.Fatalf("DetectClientType = %s, want %s", got, domain.ClientTypeOpenAI)
-	}
-	if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeOpenAI {
-		t.Fatalf("Match = (%s, %v), want (%s, true)", got, ok, domain.ClientTypeOpenAI)
+	for _, path := range []string{"/v1/images/generations", "/images/generations"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(string(body)))
+		if got := adapter.DetectClientType(req, body); got != domain.ClientTypeOpenAI {
+			t.Fatalf("DetectClientType(%s) = %s, want %s", path, got, domain.ClientTypeOpenAI)
+		}
+		if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeOpenAI {
+			t.Fatalf("Match(%s) = (%s, %v), want (%s, true)", path, got, ok, domain.ClientTypeOpenAI)
+		}
+
+		// Model must be extractable from the body for routing/pricing.
+		if got := adapter.ExtractModel(req, body, domain.ClientTypeOpenAI); got != "gpt-image-2" {
+			t.Fatalf("ExtractModel(%s) = %q, want %q", path, got, "gpt-image-2")
+		}
 	}
 
-	// Model must be extractable from the body for routing/pricing.
-	if got := adapter.ExtractModel(req, body, domain.ClientTypeOpenAI); got != "gpt-image-2" {
-		t.Fatalf("ExtractModel = %q, want %q", got, "gpt-image-2")
+	chatBody := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
+	chatReq := httptest.NewRequest("POST", "/chat/completions", strings.NewReader(string(chatBody)))
+	if got := adapter.DetectClientType(chatReq, chatBody); got != domain.ClientTypeOpenAI {
+		t.Fatalf("DetectClientType(/chat/completions) = %s, want %s", got, domain.ClientTypeOpenAI)
+	}
+	if got, ok := adapter.Match(chatReq); !ok || got != domain.ClientTypeOpenAI {
+		t.Fatalf("Match(/chat/completions) = (%s, %v), want (%s, true)", got, ok, domain.ClientTypeOpenAI)
 	}
 }
 

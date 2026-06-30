@@ -45,9 +45,9 @@ func (a *Adapter) Match(req *http.Request) (domain.ClientType, bool) {
 		return domain.ClientTypeCodex, true
 	case strings.HasPrefix(path, "/v1/responses"):
 		return domain.ClientTypeCodex, true
-	case strings.HasPrefix(path, "/v1/chat/completions"):
+	case isOpenAIChatCompletionsPath(path):
 		return domain.ClientTypeOpenAI, true
-	case strings.HasPrefix(path, "/v1/images/"):
+	case isOpenAIImagesPath(path):
 		// OpenAI Images API (generations/edits). Body carries no messages/input,
 		// so body-detection can't classify it — key off the path.
 		return domain.ClientTypeOpenAI, true
@@ -220,9 +220,9 @@ func (a *Adapter) DetectClientType(req *http.Request, body []byte) domain.Client
 		return domain.ClientTypeCodex
 	case strings.HasPrefix(path, "/responses"):
 		return domain.ClientTypeCodex
-	case strings.HasPrefix(path, "/v1/chat/completions"):
+	case isOpenAIChatCompletionsPath(path):
 		return domain.ClientTypeOpenAI
-	case strings.HasPrefix(path, "/v1/images/"):
+	case isOpenAIImagesPath(path):
 		// OpenAI Images API (generations/edits). Body carries no messages/input,
 		// so body-detection can't classify it — key off the path.
 		return domain.ClientTypeOpenAI
@@ -273,6 +273,14 @@ func (a *Adapter) detectFromBodyBytes(body []byte) domain.ClientType {
 	}
 
 	return ""
+}
+
+func isOpenAIChatCompletionsPath(path string) bool {
+	return strings.HasPrefix(path, "/v1/chat/completions") || strings.HasPrefix(path, "/chat/completions")
+}
+
+func isOpenAIImagesPath(path string) bool {
+	return strings.HasPrefix(path, "/v1/images/") || strings.HasPrefix(path, "/images/")
 }
 
 func isClaudeUserAgent(userAgent string) bool {

@@ -541,6 +541,54 @@ func TestProxyOpenAIPassthrough(t *testing.T) {
 	}
 }
 
+func TestProxyOpenAIRootAliasPassthrough(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockOpenAIUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai-root-alias", mock.URL, []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.ProxyPost("/chat/completions", openaiRequest("gpt-4o"), nil)
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+
+	_, path, _, _ := captured.Get()
+	if path != "/v1/chat/completions" {
+		t.Errorf("Expected upstream path /v1/chat/completions, got %s", path)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if gjson.GetBytes(respBody, "object").String() != "chat.completion" {
+		t.Errorf("Response should have object=chat.completion, got: %s", string(respBody))
+	}
+}
+
+func TestProxyOpenAIProviderBaseURLWithV1DoesNotDoublePrefix(t *testing.T) {
+	captured := &capturedRequest{}
+	mock := newMockOpenAIUpstream(t, captured)
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+	providerID := createProvider(t, env, "mock-openai-versioned-root", mock.URL+"/v1", []string{"openai"})
+	createRoute(t, env, "openai", providerID)
+
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+
+	_, path, _, _ := captured.Get()
+	if path != "/v1/chat/completions" {
+		t.Errorf("Expected upstream path /v1/chat/completions, got %s", path)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if gjson.GetBytes(respBody, "object").String() != "chat.completion" {
+		t.Errorf("Response should have object=chat.completion, got: %s", string(respBody))
+	}
+}
+
 func TestProxyCodexPassthrough(t *testing.T) {
 	captured := &capturedRequest{}
 	mock := newMockCodexUpstream(t, captured)
