@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
@@ -189,6 +190,44 @@ func (m *TokenAuthMiddleware) ValidateRequest(req *http.Request, clientType doma
 	}(apiToken.TenantID, apiToken.ID, clientIP, lastSeenAt)
 
 	return apiToken, nil
+}
+
+// WrapModelList protects GET model-list endpoints with the same API-token gate
+// as proxy requests when token auth is enabled. Keeping this as a small wrapper
+// avoids routing GET /v1/models through ProxyHandler's POST-only request pipeline.
+func (m *TokenAuthMiddleware) WrapModelList(next http.Handler) http.Handler {
+	if next == nil {
+		return nil
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiToken, err := m.ValidateRequest(r, modelListClientType(r))
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		tenantID := domain.DefaultTenantID
+		if apiToken != nil && apiToken.TenantID > 0 {
+			tenantID = apiToken.TenantID
+		}
+		ctx := maxxctx.WithTenantID(r.Context(), tenantID)
+		if apiToken != nil {
+			ctx = maxxctx.WithAPITokenID(ctx, apiToken.ID)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func modelListClientType(r *http.Request) domain.ClientType {
+	if r != nil {
+		if r.URL != nil && r.URL.Path == "/v1beta/models" {
+			return domain.ClientTypeGemini
+		}
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("User-Agent"))), "claude-cli") {
+			return domain.ClientTypeClaude
+		}
+	}
+	return domain.ClientTypeOpenAI
 }
 
 func (m *TokenAuthMiddleware) GetConcurrentLimit() int {

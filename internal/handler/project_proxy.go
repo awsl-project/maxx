@@ -13,14 +13,14 @@ import (
 // like /{slug}/v1/messages, /{slug}/v1/chat/completions, etc.
 type ProjectProxyHandler struct {
 	proxyHandler  *ProxyHandler
-	modelsHandler *ModelsHandler
+	modelsHandler http.Handler
 	projectRepo   repository.ProjectRepository
 }
 
 // NewProjectProxyHandler creates a new project proxy handler
 func NewProjectProxyHandler(
 	proxyHandler *ProxyHandler,
-	modelsHandler *ModelsHandler,
+	modelsHandler http.Handler,
 	projectRepo repository.ProjectRepository,
 ) *ProjectProxyHandler {
 	return &ProjectProxyHandler{

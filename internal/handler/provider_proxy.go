@@ -21,7 +21,7 @@ import (
 // requested provider without going through the generic route selection / retry chain.
 type ProviderProxyHandler struct {
 	proxyHandler     *ProxyHandler
-	modelsHandler    *ModelsHandler
+	modelsHandler    http.Handler
 	providerRepo     repository.ProviderRepository
 	routeRepo        repository.RouteRepository
 	proxyRequestRepo repository.ProxyRequestRepository
@@ -30,7 +30,7 @@ type ProviderProxyHandler struct {
 // NewProviderProxyHandler creates a new provider proxy handler.
 func NewProviderProxyHandler(
 	proxyHandler *ProxyHandler,
-	modelsHandler *ModelsHandler,
+	modelsHandler http.Handler,
 	providerRepo repository.ProviderRepository,
 	routeRepo repository.RouteRepository,
 	proxyRequestRepo repository.ProxyRequestRepository,

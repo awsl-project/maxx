@@ -180,6 +180,8 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 
 	// Create models handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
+	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(cachedAPITokenRepo, settingRepo)
+	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 
 	// Setup routes (mirroring main.go)
 	mux := http.NewServeMux()
@@ -191,9 +193,9 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
 	handler.RegisterSelfServiceRoutes(mux, authMiddleware.Wrap, adminHandler, selfServiceHandler)
 
-	// Models endpoint (public)
+	// Models endpoint (public unless API-token auth is enabled)
 	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
-		ModelsHandler: modelsHandler,
+		ModelsHandler: protectedModelsHandler,
 	})
 
 	// Health check
@@ -208,7 +210,7 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 	// end-to-end. The project proxy safely 404s on non-project paths, so a nil
 	// proxy handler is fine for the routes these tests exercise.
 	if opts.mountRoot {
-		projectProxyHandler := handler.NewProjectProxyHandler(nil, modelsHandler, cachedProjectRepo)
+		projectProxyHandler := handler.NewProjectProxyHandler(nil, protectedModelsHandler, cachedProjectRepo)
 		if opts.serveStatic {
 			staticHandler := handler.NewStaticHandler()
 			mux.Handle("/", handler.NewCombinedHandler(projectProxyHandler, staticHandler))
