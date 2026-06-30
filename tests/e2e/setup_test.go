@@ -180,6 +180,8 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 
 	// Create models handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
+	tokenAuthMiddleware := handler.NewTokenAuthMiddleware(cachedAPITokenRepo, settingRepo)
+	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 
 	// Setup routes (mirroring main.go)
 	mux := http.NewServeMux()
@@ -191,9 +193,9 @@ func newTestEnv(t *testing.T, opts testEnvOptions) *TestEnv {
 	selfServiceHandler := handler.NewSelfServiceHandler(adminService)
 	handler.RegisterSelfServiceRoutes(mux, authMiddleware.Wrap, adminHandler, selfServiceHandler)
 
-	// Models endpoint (public)
+	// Models endpoint (public unless API-token auth is enabled)
 	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
-		ModelsHandler: modelsHandler,
+		ModelsHandler: protectedModelsHandler,
 	})
 
 	// Health check

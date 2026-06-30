@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 )
@@ -153,6 +155,85 @@ func TestTokenAuthValidateRequestUpdatesLastSeenWithClientIP(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for UpdateLastSeen call")
+	}
+}
+
+func TestTokenAuthWrapModelListRequiresTokenWhenEnabled(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	apiToken := &domain.APIToken{
+		TenantID:    7,
+		Token:       "maxx_models_token_123",
+		TokenPrefix: "maxx_models...",
+		Name:        "models-token",
+		IsEnabled:   true,
+	}
+	if err := cachedRepo.Create(apiToken); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := maxxctx.GetTenantID(r.Context()); got != 7 {
+			t.Fatalf("tenant id = %d, want 7", got)
+		}
+		if got := maxxctx.GetAPITokenID(r.Context()); got != apiToken.ID {
+			t.Fatalf("api token id = %d, want %d", got, apiToken.ID)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+	})
+	handler := middleware.WrapModelList(next)
+
+	missingReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	missingRec := httptest.NewRecorder()
+	handler.ServeHTTP(missingRec, missingReq)
+	if missingRec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing-token status = %d, want 401", missingRec.Code)
+	}
+
+	badReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	badReq.Header.Set("Authorization", "Bearer maxx_wrong")
+	badRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad-token status = %d, want 401", badRec.Code)
+	}
+
+	validReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	validReq.Header.Set("Authorization", "Bearer "+apiToken.Token)
+	validRec := httptest.NewRecorder()
+	handler.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("valid-token status = %d, want 200", validRec.Code)
+	}
+}
+
+func TestTokenAuthWrapModelListAcceptsGeminiKeyHeader(t *testing.T) {
+	repo := newTokenAuthTestRepo()
+	cachedRepo := cached.NewAPITokenRepository(repo)
+	apiToken := &domain.APIToken{
+		TenantID:    domain.DefaultTenantID,
+		Token:       "maxx_models_gemini_token",
+		TokenPrefix: "maxx_models...",
+		Name:        "gemini-models-token",
+		IsEnabled:   true,
+	}
+	if err := cachedRepo.Create(apiToken); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	middleware := NewTokenAuthMiddleware(cachedRepo, tokenAuthTestSettingRepo{})
+	handler := middleware.WrapModelList(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	req.Header.Set("x-goog-api-key", apiToken.Token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Gemini key header status = %d, want 200", rec.Code)
 	}
 }
 

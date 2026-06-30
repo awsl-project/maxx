@@ -516,6 +516,7 @@ func main() {
 
 	// Use already-created cached project repository for project proxy handler
 	modelsHandler := handler.NewModelsHandler(responseModelRepo, cachedProviderRepo, cachedModelMappingRepo)
+	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, modelsHandler, cachedProjectRepo)
 	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, modelsHandler, cachedProviderRepo, cachedRouteRepo, proxyRequestRepo)
 
@@ -541,7 +542,7 @@ func main() {
 	// Proxy routes - catch all AI API endpoints
 	core.RegisterProxyRoutes(mux, core.ProxyRouteHandlers{
 		ProxyHandler:         proxyHandler,
-		ModelsHandler:        modelsHandler,
+		ModelsHandler:        protectedModelsHandler,
 		ProviderProxyHandler: providerProxyHandler,
 	})
 

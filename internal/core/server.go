@@ -98,9 +98,14 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 	mux.Handle("/api/codex/", http.StripPrefix("/api", components.CodexHandler))
 	mux.Handle("/api/claude/", http.StripPrefix("/api", components.ClaudeHandler))
 
+	modelsHandler := http.Handler(components.ModelsHandler)
+	if components.ProtectedModelsHandler != nil {
+		modelsHandler = components.ProtectedModelsHandler
+	}
+
 	RegisterProxyRoutes(mux, ProxyRouteHandlers{
 		ProxyHandler:         components.ProxyHandler,
-		ModelsHandler:        components.ModelsHandler,
+		ModelsHandler:        modelsHandler,
 		ProviderProxyHandler: components.ProviderProxyHandler,
 	})
 
