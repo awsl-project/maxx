@@ -126,7 +126,8 @@ type LauncherApp struct {
 	serverReady bool
 	starting    bool
 
-	lifecycleMu  sync.Mutex
+	lifecycleMu  sync.Mutex // protects startup/shutdown ordering
+	shuttingDown bool
 	shutdownOnce sync.Once
 	quitOnce     sync.Once
 	trayQuitMu   sync.RWMutex
@@ -180,6 +181,15 @@ func (a *LauncherApp) Startup(ctx context.Context) {
 func (a *LauncherApp) startServerAsync() {
 	a.lifecycleMu.Lock()
 	defer a.lifecycleMu.Unlock()
+
+	if a.shuttingDown {
+		log.Println("[Launcher] Skip server startup: application is shutting down")
+		a.mu.Lock()
+		a.starting = false
+		a.serverReady = false
+		a.mu.Unlock()
+		return
+	}
 
 	a.mu.Lock()
 	a.starting = true
@@ -396,6 +406,8 @@ func (a *LauncherApp) shutdownResources(ctx context.Context) {
 	a.shutdownOnce.Do(func() {
 		a.lifecycleMu.Lock()
 		defer a.lifecycleMu.Unlock()
+
+		a.shuttingDown = true
 
 		if ctx == nil {
 			ctx = context.Background()

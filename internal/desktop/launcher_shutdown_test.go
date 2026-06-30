@@ -37,3 +37,29 @@ func TestTrayQuitFuncCanBeRegisteredAndInvoked(t *testing.T) {
 		t.Fatalf("tray quit calls = %d, want 1", calls)
 	}
 }
+
+func TestStartServerAsyncSkipsAfterShutdownBegins(t *testing.T) {
+	app := &LauncherApp{}
+
+	app.shutdownResources(context.Background())
+	app.startServerAsync()
+
+	if app.server != nil {
+		t.Fatalf("server = %#v, want nil after startup is skipped", app.server)
+	}
+	if app.dbRepos != nil {
+		t.Fatalf("dbRepos = %#v, want nil after startup is skipped", app.dbRepos)
+	}
+	if app.components != nil {
+		t.Fatalf("components = %#v, want nil after startup is skipped", app.components)
+	}
+
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+	if app.starting {
+		t.Fatal("starting = true, want false after startup is skipped")
+	}
+	if app.serverReady {
+		t.Fatal("serverReady = true, want false after startup is skipped")
+	}
+}
