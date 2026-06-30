@@ -69,6 +69,19 @@ function parseRetentionInteger(value: string): number | null {
 
 const PAYLOAD_OVERRIDE_SETTING_KEY = 'payload_override_rules';
 const PAYLOAD_OVERRIDE_RESERVED_ROOTS = new Set(['model', 'stream']);
+const CODEX_REASONING_GUARD_SETTING_KEY = 'codex_reasoning_guard';
+const DEFAULT_CODEX_REASONING_GUARD_SETTING = JSON.stringify(
+  {
+    enabled: false,
+    blocked_reasoning_tokens: [516, 1034, 1552],
+    max_attempts: 2,
+    status_code: 502,
+    error_code: 'reasoning_guard_triggered',
+    mode: 'non_stream',
+  },
+  null,
+  2,
+);
 
 type PayloadOverrideProtocol = 'codex';
 
@@ -289,6 +302,7 @@ export function SettingsPage() {
               <DataRetentionSection />
               <ForceProjectSection />
               <PayloadOverrideSection />
+              <CodexReasoningGuardSection />
               <APITokenConcurrencySection />
               <AntigravitySection />
               <PprofSection />
@@ -1227,6 +1241,183 @@ function PayloadOverrideSection() {
             {t('settings.payloadOverrides.addRule')}
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CodexReasoningGuardSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const deleteSetting = useDeleteSetting();
+  const { t } = useTranslation();
+
+  const hasStoredSetting = Boolean(
+    settings && Object.prototype.hasOwnProperty.call(settings, CODEX_REASONING_GUARD_SETTING_KEY),
+  );
+  const rawSetting = hasStoredSetting ? (settings?.[CODEX_REASONING_GUARD_SETTING_KEY] ?? '') : '';
+  const serverText = hasStoredSetting ? rawSetting : DEFAULT_CODEX_REASONING_GUARD_SETTING;
+  const editorLabel = t('settings.codexReasoningGuard.editorLabel');
+  const [draft, setDraft] = useState('');
+  const [initialized, setInitialized] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !initialized) {
+      setDraft(serverText);
+      setInitialized(true);
+      setIsDirty(false);
+    }
+  }, [initialized, isLoading, serverText]);
+
+  useEffect(() => {
+    if (initialized && !isDirty) {
+      setDraft(serverText);
+    }
+  }, [initialized, isDirty, serverText]);
+
+  useEffect(() => {
+    if (initialized && isDirty && draft === serverText) {
+      setIsDirty(false);
+    }
+  }, [initialized, isDirty, draft, serverText]);
+
+  const validationError = (() => {
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      return t('settings.codexReasoningGuard.errors.required');
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return t('settings.codexReasoningGuard.errors.invalidJson');
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return t('settings.codexReasoningGuard.errors.objectRequired');
+    }
+
+    const cfg = parsed as Record<string, unknown>;
+    if (typeof cfg.enabled !== 'boolean') {
+      return t('settings.codexReasoningGuard.errors.enabledRequired');
+    }
+    if (
+      !Array.isArray(cfg.blocked_reasoning_tokens) ||
+      cfg.blocked_reasoning_tokens.length === 0 ||
+      cfg.blocked_reasoning_tokens.some(
+        (token) => !Number.isInteger(token) || (token as number) < 0,
+      )
+    ) {
+      return t('settings.codexReasoningGuard.errors.tokensRequired');
+    }
+    if (
+      !Number.isInteger(cfg.max_attempts) ||
+      (cfg.max_attempts as number) < 1 ||
+      (cfg.max_attempts as number) > 10
+    ) {
+      return t('settings.codexReasoningGuard.errors.maxAttempts');
+    }
+    if (
+      !Number.isInteger(cfg.status_code) ||
+      (cfg.status_code as number) < 400 ||
+      (cfg.status_code as number) > 599
+    ) {
+      return t('settings.codexReasoningGuard.errors.statusCode');
+    }
+    if (typeof cfg.error_code !== 'string' || !cfg.error_code.trim()) {
+      return t('settings.codexReasoningGuard.errors.errorCode');
+    }
+    if (cfg.mode !== 'non_stream') {
+      return t('settings.codexReasoningGuard.errors.mode');
+    }
+
+    return '';
+  })();
+
+  const isPending = updateSetting.isPending || deleteSetting.isPending;
+  const hasChanges = initialized && isDirty && draft !== serverText;
+
+  const handleSave = async () => {
+    if (validationError) {
+      return;
+    }
+    const parsed = JSON.parse(draft) as Record<string, unknown>;
+    await updateSetting.mutateAsync({
+      key: CODEX_REASONING_GUARD_SETTING_KEY,
+      value: JSON.stringify(parsed),
+    });
+    setIsDirty(false);
+  };
+
+  const handleReset = async () => {
+    if (hasStoredSetting) {
+      await deleteSetting.mutateAsync(CODEX_REASONING_GUARD_SETTING_KEY);
+    }
+    setDraft(DEFAULT_CODEX_REASONING_GUARD_SETTING);
+    setIsDirty(false);
+  };
+
+  if (isLoading || !initialized) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Braces className="h-4 w-4 text-muted-foreground" />
+              {t('settings.codexReasoningGuard.title')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.codexReasoningGuard.desc')}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              disabled={isPending}
+            >
+              {t('common.reset')}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={!hasChanges || !!validationError || isPending}
+              size="sm"
+            >
+              {isPending ? t('common.saving') : t('common.save')}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        {validationError && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {validationError}
+          </div>
+        )}
+
+        <Textarea
+          aria-label={editorLabel}
+          value={draft}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setIsDirty(true);
+          }}
+          rows={10}
+          disabled={isPending}
+          className="font-mono text-xs"
+          spellCheck={false}
+        />
+
+        <p className="text-xs text-muted-foreground">
+          {t('settings.codexReasoningGuard.hint')}
+        </p>
       </CardContent>
     </Card>
   );

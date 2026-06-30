@@ -364,9 +364,18 @@ MAXX_CORS_ALLOW_ORIGINS=https://ui.example.com,http://localhost:3000 maxx
 | `timezone` | 时区设置 | `Asia/Shanghai` |
 | `quota_refresh_interval` | Antigravity 配额刷新间隔（分钟） | `0`（禁用） |
 | `auto_sort_antigravity` | 自动排序 Antigravity 路由 | `false` |
+| `codex_reasoning_guard` | Codex 非流式 reasoning token guard retry 配置 | 默认关闭 |
 | `enable_pprof` | 启用 pprof 性能分析 | `false` |
 | `pprof_port` | pprof 服务端口 | `6060` |
 | `pprof_password` | pprof 访问密码 | （空） |
+
+Codex reasoning guard 默认关闭。启用后，它会在非流式 Codex 响应写回客户端之前检查
+`reasoning_tokens`。命中配置值时，maxx 会对同一路由/供应商重新发起一次上游请求。
+默认拦截值为 `516`、`1034`、`1552`；`max_attempts` 包含首次上游请求。
+
+```bash
+maxx-cli settings set codex_reasoning_guard '{"enabled":true,"blocked_reasoning_tokens":[516,1034,1552],"max_attempts":2,"status_code":502,"error_code":"reasoning_guard_triggered","mode":"non_stream"}'
+```
 
 ### 数据库配置
 

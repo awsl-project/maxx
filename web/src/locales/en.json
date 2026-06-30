@@ -1295,6 +1295,23 @@
         "loadUnsupportedProtocol": "The saved override rules contain an unsupported protocol. This UI currently supports codex only."
       }
     },
+    "codexReasoningGuard": {
+      "title": "Codex Reasoning Guard",
+      "desc": "Retry the same route before writing to the client when a response hits configured reasoning token rules.",
+      "hint": "Phase 1 only applies to non-stream responses. max_attempts is the total upstream attempt count including the first request.",
+      "editorLabel": "Codex reasoning guard JSON configuration",
+      "errors": {
+        "required": "Configuration cannot be empty.",
+        "invalidJson": "Configuration must be valid JSON.",
+        "objectRequired": "Top-level configuration must be an object.",
+        "enabledRequired": "enabled must be a boolean.",
+        "tokensRequired": "blocked_reasoning_tokens must be a non-empty array of integers.",
+        "maxAttempts": "max_attempts must be an integer from 1 to 10.",
+        "statusCode": "status_code must be an integer from 400 to 599.",
+        "errorCode": "error_code cannot be empty.",
+        "mode": "mode must currently be non_stream."
+      }
+    },
     "themeDefault": "Default",
     "themeLuxury": "Luxury"
   },

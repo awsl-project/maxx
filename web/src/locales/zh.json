@@ -1292,6 +1292,23 @@
         "loadUnsupportedProtocol": "当前已保存的覆盖规则包含暂不支持的 protocol。当前界面仅支持 codex。"
       }
     },
+    "codexReasoningGuard": {
+      "title": "Codex reasoning guard",
+      "desc": "命中 reasoning token 规则时在写回客户端前重试同一路由。",
+      "hint": "第一阶段仅支持非流式响应。max_attempts 表示包含首次请求在内的上游尝试总数。",
+      "editorLabel": "Codex reasoning guard JSON 配置",
+      "errors": {
+        "required": "配置不能为空。",
+        "invalidJson": "配置必须是合法 JSON。",
+        "objectRequired": "配置顶层必须是对象。",
+        "enabledRequired": "enabled 必须是布尔值。",
+        "tokensRequired": "blocked_reasoning_tokens 必须是非空整数数组。",
+        "maxAttempts": "max_attempts 必须是 1 到 10 之间的整数。",
+        "statusCode": "status_code 必须是 400 到 599 之间的整数。",
+        "errorCode": "error_code 不能为空。",
+        "mode": "mode 当前必须是 non_stream。"
+      }
+    },
     "themeDefault": "默认",
     "themeLuxury": "奢华"
   },

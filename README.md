@@ -378,9 +378,19 @@ Configurable via Admin UI:
 | `timezone` | Timezone setting | `Asia/Shanghai` |
 | `quota_refresh_interval` | Antigravity quota refresh (minutes) | `0` (disabled) |
 | `auto_sort_antigravity` | Auto-sort Antigravity routes | `false` |
+| `codex_reasoning_guard` | Codex non-stream reasoning token guard retry config | disabled by default |
 | `enable_pprof` | Enable pprof profiling | `false` |
 | `pprof_port` | Pprof server port | `6060` |
 | `pprof_password` | Pprof access password | (empty) |
+
+Codex reasoning guard is disabled by default. When enabled, it retries the same
+route/provider before writing a non-stream Codex response to the client when
+`reasoning_tokens` matches a configured value. The default blocked values are
+`516`, `1034`, and `1552`; `max_attempts` counts the first upstream request.
+
+```bash
+maxx-cli settings set codex_reasoning_guard '{"enabled":true,"blocked_reasoning_tokens":[516,1034,1552],"max_attempts":2,"status_code":502,"error_code":"reasoning_guard_triggered","mode":"non_stream"}'
+```
 
 ### Database Configuration
 

@@ -28,4 +28,5 @@ const (
 	KeyUpstreamAttempt     = "upstream_attempt"
 	KeyEventChan           = "event_chan"
 	KeyBroadcaster         = "broadcaster"
+	KeyCodexReasoningGuard = "codex_reasoning_guard"
 )
