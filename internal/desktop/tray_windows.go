@@ -30,10 +30,14 @@ type TrayManager struct {
 
 // NewTrayManager 创建托盘管理器
 func NewTrayManager(ctx context.Context, app *LauncherApp) *TrayManager {
-	return &TrayManager{
+	manager := &TrayManager{
 		ctx: ctx,
 		app: app,
 	}
+	if app != nil {
+		app.SetTrayQuitFunc(systray.Quit)
+	}
+	return manager
 }
 
 // Start 启动托盘
@@ -160,6 +164,7 @@ func (t *TrayManager) quit() {
 	log.Println("[Tray] Quitting application...")
 	if t.app != nil {
 		t.app.Quit()
+		return
 	}
 	systray.Quit()
 }

@@ -125,6 +125,12 @@ type LauncherApp struct {
 	serverError error
 	serverReady bool
 	starting    bool
+
+	lifecycleMu  sync.Mutex
+	shutdownOnce sync.Once
+	quitOnce     sync.Once
+	trayQuitMu   sync.RWMutex
+	trayQuit     func()
 }
 
 // NewLauncherApp 创建启动器应用
@@ -172,6 +178,9 @@ func (a *LauncherApp) Startup(ctx context.Context) {
 
 // startServerAsync 异步启动服务器
 func (a *LauncherApp) startServerAsync() {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+
 	a.mu.Lock()
 	a.starting = true
 	a.serverError = nil
@@ -365,22 +374,69 @@ func (a *LauncherApp) RestartServer() error {
 	return nil
 }
 
+// SetTrayQuitFunc registers a platform tray shutdown hook.
+// Windows systray runs its own event loop; every Quit path must stop it or the
+// desktop process can remain alive after Wails has been asked to exit.
+func (a *LauncherApp) SetTrayQuitFunc(fn func()) {
+	a.trayQuitMu.Lock()
+	defer a.trayQuitMu.Unlock()
+	a.trayQuit = fn
+}
+
+func (a *LauncherApp) quitTray() {
+	a.trayQuitMu.RLock()
+	fn := a.trayQuit
+	a.trayQuitMu.RUnlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+func (a *LauncherApp) shutdownResources(ctx context.Context) {
+	a.shutdownOnce.Do(func() {
+		a.lifecycleMu.Lock()
+		defer a.lifecycleMu.Unlock()
+
+		if ctx == nil {
+			ctx = context.Background()
+		}
+
+		// Stop the managed HTTP server first so no new handlers can race with
+		// coordinator/database teardown.
+		if a.server != nil {
+			if err := a.server.Stop(ctx); err != nil {
+				log.Printf("[Launcher] Failed to stop server: %v", err)
+			}
+			a.server = nil
+		}
+
+		if a.components != nil && a.components.CoordinatorCleanup != nil {
+			a.components.CoordinatorCleanup()
+		}
+		a.components = nil
+
+		if a.dbRepos != nil {
+			if err := core.CloseDatabase(a.dbRepos); err != nil {
+				log.Printf("[Launcher] Failed to close database: %v", err)
+			}
+			a.dbRepos = nil
+		}
+	})
+}
+
 // Quit 退出应用（暴露给前端）
 func (a *LauncherApp) Quit() {
-	log.Println("[Launcher] Quitting application...")
+	a.quitOnce.Do(func() {
+		log.Println("[Launcher] Quitting application...")
 
-	// 停止服务器
-	if a.server != nil {
-		a.server.Stop(a.ctx)
-	}
+		a.shutdownResources(a.ctx)
+		// Stop the tray event loop on platforms that provide one before asking Wails
+		// to quit; otherwise the process may stay resident after user-visible quit.
+		a.quitTray()
 
-	// 关闭数据库
-	if a.dbRepos != nil {
-		core.CloseDatabase(a.dbRepos)
-	}
-
-	// 退出应用
-	runtime.Quit(a.ctx)
+		// 退出应用
+		runtime.Quit(a.ctx)
+	})
 }
 
 // ShowWindow 显示窗口（供托盘调用）
@@ -467,23 +523,7 @@ func (a *LauncherApp) HideWindow() {
 // Shutdown Wails 关闭回调
 func (a *LauncherApp) Shutdown(ctx context.Context) {
 	log.Println("[Launcher] ========== Application Shutdown ==========")
-
-	if a.server != nil {
-		if err := a.server.Stop(ctx); err != nil {
-			log.Printf("[Launcher] Failed to stop server: %v", err)
-		}
-	}
-
-	if a.components != nil && a.components.CoordinatorCleanup != nil {
-		a.components.CoordinatorCleanup()
-	}
-
-	if a.dbRepos != nil {
-		if err := core.CloseDatabase(a.dbRepos); err != nil {
-			log.Printf("[Launcher] Failed to close database: %v", err)
-		}
-	}
-
+	a.shutdownResources(ctx)
 	log.Println("[Launcher] ========== Application Shutdown Complete ==========")
 }
 
