@@ -542,7 +542,9 @@ func TestHandleNonStreamResponseReturnsReasoningGuardBeforeWritingClient(t *test
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
 	rec := httptest.NewRecorder()
 	ctx := flow.NewCtx(rec, req)
-	ctx.Set(flow.KeyCodexReasoningGuard, codexguard.DefaultConfig())
+	cfg := codexguard.DefaultConfig()
+	cfg.Enabled = true
+	ctx.Set(flow.KeyCodexReasoningGuard, cfg)
 
 	body := `{"id":"resp_1","object":"response","model":"gpt-5","usage":{"output_tokens_details":{"reasoning_tokens":516}}}`
 	resp := &http.Response{

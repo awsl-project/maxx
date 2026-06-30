@@ -40,7 +40,9 @@ func TestCodexReasoningGuardProxyError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
 	rec := httptest.NewRecorder()
 	ctx := flow.NewCtx(rec, req)
-	ctx.Set(flow.KeyCodexReasoningGuard, codexguard.DefaultConfig())
+	cfg := codexguard.DefaultConfig()
+	cfg.Enabled = true
+	ctx.Set(flow.KeyCodexReasoningGuard, cfg)
 
 	err := codexReasoningGuardProxyError(ctx, []byte(`{"usage":{"output_tokens_details":{"reasoning_tokens":516}}}`))
 	if err == nil {
