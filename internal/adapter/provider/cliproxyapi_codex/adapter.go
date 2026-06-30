@@ -313,6 +313,10 @@ func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseW
 		return proxyErr
 	}
 
+	if proxyErr := codexReasoningGuardProxyError(c, resp.Payload); proxyErr != nil {
+		return proxyErr
+	}
+
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
 		// Send response info
 		eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -334,10 +338,6 @@ func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseW
 		if model := extractModelFromResponse(resp.Payload); model != "" {
 			eventChan.SendResponseModel(model)
 		}
-	}
-
-	if proxyErr := codexReasoningGuardProxyError(c, resp.Payload); proxyErr != nil {
-		return proxyErr
 	}
 
 	w.Header().Set("Content-Type", "application/json")

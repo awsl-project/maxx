@@ -112,7 +112,12 @@ func ExtractReasoningTokensFromJSON(data []byte) ([]int, error) {
 	if err := dec.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("parse reasoning token JSON: %w", err)
 	}
-	if dec.More() {
+
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return nil, fmt.Errorf("parse reasoning token JSON: %w", err)
+		}
 		return nil, errors.New("parse reasoning token JSON: trailing data")
 	}
 

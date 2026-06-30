@@ -526,6 +526,10 @@ func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response)
 		return proxyErr
 	}
 
+	if proxyErr := codexReasoningGuardProxyError(c, body); proxyErr != nil {
+		return proxyErr
+	}
+
 	// Send events via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
 		eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -546,10 +550,6 @@ func (a *CodexAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response)
 		if model := extractModelFromResponse(body); model != "" {
 			eventChan.SendResponseModel(model)
 		}
-	}
-
-	if proxyErr := codexReasoningGuardProxyError(c, body); proxyErr != nil {
-		return proxyErr
 	}
 
 	// Copy response headers

@@ -16,8 +16,8 @@ func (e *Executor) getCodexGuardConfig() codexguard.Config {
 
 	raw, err := e.settingsRepo.Get(domain.SettingKeyCodexReasoningGuard)
 	if err != nil {
-		log.Printf("[Executor] failed to load %s setting, using defaults: %v", domain.SettingKeyCodexReasoningGuard, err)
-		return cfg
+		log.Printf("[Executor] failed to load %s setting, disabling guard: %v", domain.SettingKeyCodexReasoningGuard, err)
+		return disabledCodexGuardConfig()
 	}
 	if strings.TrimSpace(raw) == "" {
 		return cfg
@@ -25,10 +25,16 @@ func (e *Executor) getCodexGuardConfig() codexguard.Config {
 
 	parsed, err := codexguard.ParseConfigJSON([]byte(raw))
 	if err != nil {
-		log.Printf("[Executor] invalid %s setting, using defaults: %v", domain.SettingKeyCodexReasoningGuard, err)
-		return cfg
+		log.Printf("[Executor] invalid %s setting, disabling guard: %v", domain.SettingKeyCodexReasoningGuard, err)
+		return disabledCodexGuardConfig()
 	}
 	return parsed
+}
+
+func disabledCodexGuardConfig() codexguard.Config {
+	cfg := codexguard.DefaultConfig()
+	cfg.Enabled = false
+	return cfg
 }
 
 func shouldRetryCodexGuard(err error, cfg codexguard.Config, guardFailures int) bool {

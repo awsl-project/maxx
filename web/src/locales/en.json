@@ -1299,6 +1299,7 @@
       "title": "Codex Reasoning Guard",
       "desc": "Retry the same route before writing to the client when a response hits configured reasoning token rules.",
       "hint": "Phase 1 only applies to non-stream responses. max_attempts is the total upstream attempt count including the first request.",
+      "editorLabel": "Codex reasoning guard JSON configuration",
       "errors": {
         "required": "Configuration cannot be empty.",
         "invalidJson": "Configuration must be valid JSON.",

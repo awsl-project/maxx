@@ -1252,8 +1252,12 @@ function CodexReasoningGuardSection() {
   const deleteSetting = useDeleteSetting();
   const { t } = useTranslation();
 
-  const rawSetting = settings?.[CODEX_REASONING_GUARD_SETTING_KEY] ?? '';
-  const serverText = rawSetting.trim() || DEFAULT_CODEX_REASONING_GUARD_SETTING;
+  const hasStoredSetting = Boolean(
+    settings && Object.prototype.hasOwnProperty.call(settings, CODEX_REASONING_GUARD_SETTING_KEY),
+  );
+  const rawSetting = hasStoredSetting ? (settings?.[CODEX_REASONING_GUARD_SETTING_KEY] ?? '') : '';
+  const serverText = hasStoredSetting ? rawSetting : DEFAULT_CODEX_REASONING_GUARD_SETTING;
+  const editorLabel = t('settings.codexReasoningGuard.editorLabel');
   const [draft, setDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -1271,6 +1275,12 @@ function CodexReasoningGuardSection() {
       setDraft(serverText);
     }
   }, [initialized, isDirty, serverText]);
+
+  useEffect(() => {
+    if (initialized && isDirty && draft === serverText) {
+      setIsDirty(false);
+    }
+  }, [initialized, isDirty, draft, serverText]);
 
   const validationError = (() => {
     const trimmed = draft.trim();
@@ -1327,7 +1337,7 @@ function CodexReasoningGuardSection() {
   })();
 
   const isPending = updateSetting.isPending || deleteSetting.isPending;
-  const hasChanges = initialized && isDirty;
+  const hasChanges = initialized && isDirty && draft !== serverText;
 
   const handleSave = async () => {
     if (validationError) {
@@ -1342,7 +1352,7 @@ function CodexReasoningGuardSection() {
   };
 
   const handleReset = async () => {
-    if (rawSetting.trim()) {
+    if (hasStoredSetting) {
       await deleteSetting.mutateAsync(CODEX_REASONING_GUARD_SETTING_KEY);
     }
     setDraft(DEFAULT_CODEX_REASONING_GUARD_SETTING);
@@ -1393,6 +1403,7 @@ function CodexReasoningGuardSection() {
         )}
 
         <Textarea
+          aria-label={editorLabel}
           value={draft}
           onChange={(event) => {
             setDraft(event.target.value);

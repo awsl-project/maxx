@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -97,9 +98,13 @@ func (r *codexGuardProxyRequestRepo) ClearDetailOlderThan(time.Time, []string) (
 
 type codexGuardSettingsRepo struct {
 	values map[string]string
+	getErr error
 }
 
 func (r *codexGuardSettingsRepo) Get(key string) (string, error) {
+	if r.getErr != nil {
+		return "", r.getErr
+	}
 	if r.values == nil {
 		return "", nil
 	}
@@ -161,6 +166,43 @@ func (a *codexGuardSequenceAdapter) Execute(c *flow.Ctx, _ *domain.Provider) err
 	c.Writer.WriteHeader(http.StatusOK)
 	_, _ = c.Writer.Write([]byte(`{"ok":true}`))
 	return nil
+}
+
+func TestGetCodexGuardConfig(t *testing.T) {
+	t.Run("unset uses defaults", func(t *testing.T) {
+		e := &Executor{settingsRepo: &codexGuardSettingsRepo{}}
+
+		got := e.getCodexGuardConfig()
+
+		if !got.Enabled {
+			t.Fatal("Enabled = false, want true")
+		}
+		if got.MaxAttempts != codexguard.DefaultConfig().MaxAttempts {
+			t.Fatalf("MaxAttempts = %d, want default", got.MaxAttempts)
+		}
+	})
+
+	t.Run("settings read error disables guard", func(t *testing.T) {
+		e := &Executor{settingsRepo: &codexGuardSettingsRepo{getErr: errors.New("read failed")}}
+
+		got := e.getCodexGuardConfig()
+
+		if got.Enabled {
+			t.Fatal("Enabled = true, want false")
+		}
+	})
+
+	t.Run("invalid stored config disables guard", func(t *testing.T) {
+		e := &Executor{settingsRepo: &codexGuardSettingsRepo{values: map[string]string{
+			domain.SettingKeyCodexReasoningGuard: `{"max_attempts":0}`,
+		}}}
+
+		got := e.getCodexGuardConfig()
+
+		if got.Enabled {
+			t.Fatal("Enabled = true, want false")
+		}
+	})
 }
 
 func TestDispatchRetriesCodexReasoningGuardWithoutOrdinaryRetryBudget(t *testing.T) {

@@ -215,6 +215,21 @@ func TestExtractReasoningTokensFromJSONInvalidReasoningToken(t *testing.T) {
 	}
 }
 
+func TestExtractReasoningTokensFromJSONRejectsTrailingData(t *testing.T) {
+	tests := []string{
+		`{"reasoning_tokens":516} {"reasoning_tokens":1034}`,
+		`{"reasoning_tokens":516}]`,
+	}
+
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			if _, err := ExtractReasoningTokensFromJSON([]byte(input)); err == nil {
+				t.Fatal("ExtractReasoningTokensFromJSON returned nil error")
+			}
+		})
+	}
+}
+
 func TestIsBlockedToken(t *testing.T) {
 	blocked := []int{516, 1034, 1552}
 
