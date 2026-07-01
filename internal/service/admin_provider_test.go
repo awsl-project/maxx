@@ -286,6 +286,9 @@ func TestAdminServiceBulkDeleteProvidersReturnsResultWhenPostCommitReloadFails(t
 	if err != nil {
 		t.Fatalf("BulkDeleteProviders() error = %v, want nil because delete already committed", err)
 	}
+	if repo.reloadCalls != 1 {
+		t.Fatalf("Reload() calls = %d, want 1", repo.reloadCalls)
+	}
 	if result != repo.result {
 		t.Fatalf("BulkDeleteProviders() result = %#v, want original committed result %#v", result, repo.result)
 	}
@@ -323,8 +326,9 @@ func TestAdminServiceBulkDeleteProvidersFallbackDoesNotRemoveAdapterWhenDeleteFa
 }
 
 type bulkDeleteReloadFailingProviderRepo struct {
-	result    *domain.ProviderBulkDeleteResult
-	reloadErr error
+	result      *domain.ProviderBulkDeleteResult
+	reloadErr   error
+	reloadCalls int
 }
 
 func (r *bulkDeleteReloadFailingProviderRepo) Create(provider *domain.Provider) error  { return nil }
@@ -339,7 +343,10 @@ func (r *bulkDeleteReloadFailingProviderRepo) List(tenantID uint64) ([]*domain.P
 func (r *bulkDeleteReloadFailingProviderRepo) BulkDeleteWithReferences(tenantID uint64, ids []uint64) (*domain.ProviderBulkDeleteResult, error) {
 	return r.result, nil
 }
-func (r *bulkDeleteReloadFailingProviderRepo) Reload() error { return r.reloadErr }
+func (r *bulkDeleteReloadFailingProviderRepo) Reload() error {
+	r.reloadCalls++
+	return r.reloadErr
+}
 
 type deleteFailingProviderRepo struct {
 	base      providerRepositoryMethods
