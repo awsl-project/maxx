@@ -1,8 +1,10 @@
 package antigravity
 
 import (
+	"net/http"
 	"testing"
 
+	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/tidwall/gjson"
 )
 
@@ -40,5 +42,26 @@ func TestApplyAntigravityRequestTuning(t *testing.T) {
 	}
 	if !gjson.GetBytes(out, "request.tools.0.functionDeclarations.0.parameters").Exists() {
 		t.Fatalf("expected parameters to exist after rename")
+	}
+}
+
+func TestClassifyAntigravityHTTPError402InsufficientBalanceIsKeyQuota(t *testing.T) {
+	proxyErr := domain.NewProxyErrorWithMessage(
+		domain.ErrUpstreamError,
+		true,
+		"upstream returned status 402",
+	)
+	proxyErr.HTTPStatusCode = http.StatusPaymentRequired
+
+	classifyAntigravityHTTPError(proxyErr, http.StatusPaymentRequired)
+
+	if proxyErr.Scope != domain.ScopeKey {
+		t.Fatalf("Scope = %v, want ScopeKey", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonQuotaExhausted {
+		t.Fatalf("Reason = %v, want CooldownReasonQuotaExhausted", proxyErr.Reason)
+	}
+	if proxyErr.Retryable {
+		t.Fatal("402 insufficient balance should not retry the same provider")
 	}
 }
