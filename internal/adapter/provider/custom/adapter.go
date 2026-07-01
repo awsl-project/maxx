@@ -1191,6 +1191,14 @@ func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientT
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
 		proxyErr.Retryable = false
 
+	// 402 — account/key has no remaining balance. Treat it as key-level
+	// quota exhaustion so routing can fail over to another provider instead of
+	// aborting the whole request as a client/request error.
+	case statusCode == http.StatusPaymentRequired:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		proxyErr.Retryable = false
+
 	// 403 — check if model-specific or account-level
 	case statusCode == 403:
 		if containsAny(bodyLower, "model", "access denied for model", "permission denied for model") {

@@ -292,6 +292,22 @@ func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown
 }
 
+func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *domain.ProxyError) {
+	if !shouldSkipErrorCooldown(provider) || proxyErr == nil {
+		return
+	}
+	if proxyErr.HTTPStatusCode < 400 || proxyErr.HTTPStatusCode >= 600 {
+		return
+	}
+
+	// disableErrorCooldown means upstream HTTP errors should not poison the
+	// provider with cooldown state. Keep that same switch from turning 4xx
+	// classifications into request-level early exits: when the provider opts out
+	// of error cooldowns, every upstream HTTP error follows the route retry
+	// policy first, then normal failover.
+	proxyErr.Retryable = true
+}
+
 // handleAsyncCooldownUpdate listens for async cooldown updates from providers
 func (e *Executor) handleAsyncCooldownUpdate(updateChan chan time.Time, provider *domain.Provider, clientType string, model string) {
 	defer func() { <-e.cooldownSem }()

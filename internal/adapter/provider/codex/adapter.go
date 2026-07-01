@@ -932,6 +932,11 @@ func classifyCodexHTTPError(statusCode int, body []byte, headers http.Header, mo
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
 		proxyErr.Retryable = false
 
+	case statusCode == http.StatusPaymentRequired:
+		proxyErr.Scope = domain.ScopeKey
+		proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+		proxyErr.Retryable = false
+
 	case statusCode == 403:
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
