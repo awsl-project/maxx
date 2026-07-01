@@ -212,6 +212,18 @@ export interface Route {
   modelMapping?: Record<string, string>;
 }
 
+export interface ProviderBulkDeleteRequest {
+  ids: number[];
+}
+
+export interface ProviderBulkDeleteResult {
+  deletedCount: number;
+  deletedIDs: number[];
+  notFoundIDs: number[];
+  routeDeletedCount: number;
+  modelMappingDeletedCount: number;
+}
+
 export type CreateRouteData = Omit<Route, 'id' | 'createdAt' | 'updatedAt'>;
 
 export interface RoutePositionUpdate {

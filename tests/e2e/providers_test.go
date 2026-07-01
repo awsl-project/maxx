@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+
+	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
 
 func TestListProviders_Empty(t *testing.T) {
@@ -239,6 +242,94 @@ func TestCreateProvider_EmptyBody(t *testing.T) {
 	}
 }
 
+func TestBulkDeleteProvidersEndToEndCleansReferencesAndPreservesScope(t *testing.T) {
+	env := NewTestEnv(t)
+
+	projectID := createE2EProject(t, env, "bulk-delete-project", "bulk-delete-project")
+	deleteAID := createE2EProvider(t, env, "bulk-delete-a")
+	deleteBID := createE2EProvider(t, env, "bulk-delete-b")
+	keepID := createE2EProvider(t, env, "bulk-delete-keep")
+
+	createE2ERoute(t, env, deleteAID, 0, "claude")
+	createE2ERoute(t, env, deleteAID, projectID, "claude")
+	createE2ERoute(t, env, deleteBID, projectID, "openai")
+	keepRouteID := createE2ERoute(t, env, keepID, projectID, "claude")
+
+	createE2EProviderModelMapping(t, env, deleteAID, "delete-a-*", "target-a")
+	createE2EProviderModelMapping(t, env, deleteBID, "delete-b-*", "target-b")
+	keepMappingID := createE2EProviderModelMapping(t, env, keepID, "keep-*", "target-keep")
+	globalMappingID := createE2EGlobalModelMapping(t, env, "global-*", "target-global")
+
+	otherTenantID, otherProviderID := seedOtherTenantProviderReferences(t, env)
+
+	resp := env.AdminPost("/api/admin/providers/bulk-delete", map[string]any{
+		"ids": []uint64{deleteAID, deleteBID, 999999},
+	})
+	AssertStatus(t, resp, http.StatusOK)
+
+	var result domain.ProviderBulkDeleteResult
+	DecodeJSON(t, resp, &result)
+	assertUintSet(t, "deletedIDs", result.DeletedIDs, []uint64{deleteAID, deleteBID})
+	assertUintSet(t, "notFoundIDs", result.NotFoundIDs, []uint64{999999})
+	if result.DeletedCount != 2 {
+		t.Fatalf("expected 2 deleted providers, got %d", result.DeletedCount)
+	}
+	if result.RouteDeletedCount != 3 {
+		t.Fatalf("expected 3 deleted routes, got %d", result.RouteDeletedCount)
+	}
+	if result.ModelMappingDeletedCount != 2 {
+		t.Fatalf("expected 2 deleted provider mappings, got %d", result.ModelMappingDeletedCount)
+	}
+
+	resp = env.AdminGet("/api/admin/providers")
+	AssertStatus(t, resp, http.StatusOK)
+	var providers []map[string]any
+	DecodeJSON(t, resp, &providers)
+	assertListedIDs(t, "providers after bulk delete", providers, []uint64{keepID})
+
+	resp = env.AdminGet("/api/admin/routes")
+	AssertStatus(t, resp, http.StatusOK)
+	var routes []map[string]any
+	DecodeJSON(t, resp, &routes)
+	assertListedIDs(t, "routes after bulk delete", routes, []uint64{keepRouteID})
+	if gotProviderID := uint64(routes[0]["providerID"].(float64)); gotProviderID != keepID {
+		t.Fatalf("expected remaining route to belong to provider %d, got %d", keepID, gotProviderID)
+	}
+
+	resp = env.AdminGet("/api/admin/model-mappings")
+	AssertStatus(t, resp, http.StatusOK)
+	var mappings []map[string]any
+	DecodeJSON(t, resp, &mappings)
+	assertListedIDs(t, "model mappings after bulk delete", mappings, []uint64{keepMappingID, globalMappingID})
+	for _, mapping := range mappings {
+		if providerID, ok := mapping["providerID"].(float64); ok && uint64(providerID) != 0 && uint64(providerID) != keepID {
+			t.Fatalf("unexpected provider-scoped mapping remained after bulk delete: %#v", mapping)
+		}
+	}
+
+	otherProviders, err := sqlite.NewProviderRepository(env.DB).List(otherTenantID)
+	if err != nil {
+		t.Fatalf("list other tenant providers: %v", err)
+	}
+	assertDomainProviderIDs(t, "other tenant providers", otherProviders, []uint64{otherProviderID})
+
+	otherRoutes, err := sqlite.NewRouteRepository(env.DB).List(otherTenantID)
+	if err != nil {
+		t.Fatalf("list other tenant routes: %v", err)
+	}
+	if len(otherRoutes) != 1 || otherRoutes[0].ProviderID != otherProviderID {
+		t.Fatalf("expected other tenant route to remain for provider %d, got %#v", otherProviderID, otherRoutes)
+	}
+
+	otherMappings, err := sqlite.NewModelMappingRepository(env.DB).List(otherTenantID)
+	if err != nil {
+		t.Fatalf("list other tenant mappings: %v", err)
+	}
+	if len(otherMappings) != 1 || otherMappings[0].ProviderID != otherProviderID {
+		t.Fatalf("expected other tenant provider mapping to remain for provider %d, got %#v", otherProviderID, otherMappings)
+	}
+}
+
 func TestProviders_Unauthorized(t *testing.T) {
 	env := NewTestEnv(t)
 
@@ -370,4 +461,170 @@ func TestCreateProvider_SQLInjection(t *testing.T) {
 	resp = env.AdminGet(fmt.Sprintf("/api/admin/providers/%d", id))
 	AssertStatus(t, resp, http.StatusOK)
 	resp.Body.Close()
+}
+
+func createE2EProvider(t *testing.T, env *TestEnv, name string) uint64 {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/providers", map[string]any{
+		"name": name,
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "https://api.example.com/" + name,
+				"apiKey":  "sk-test-key",
+			},
+		},
+		"supportedClientTypes": []string{"claude", "openai"},
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	return uint64(created["id"].(float64))
+}
+
+func createE2EProject(t *testing.T, env *TestEnv, name, slug string) uint64 {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/projects", map[string]any{
+		"name":                name,
+		"slug":                slug,
+		"enabledCustomRoutes": []string{"claude", "openai"},
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	return uint64(created["id"].(float64))
+}
+
+func createE2ERoute(t *testing.T, env *TestEnv, providerID, projectID uint64, clientType string) uint64 {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/routes", map[string]any{
+		"isEnabled":  true,
+		"isNative":   true,
+		"projectID":  projectID,
+		"clientType": clientType,
+		"providerID": providerID,
+		"position":   1,
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	return uint64(created["id"].(float64))
+}
+
+func createE2EProviderModelMapping(t *testing.T, env *TestEnv, providerID uint64, pattern, target string) uint64 {
+	t.Helper()
+	return createE2EModelMapping(t, env, map[string]any{
+		"scope":      "provider",
+		"providerID": providerID,
+		"pattern":    pattern,
+		"target":     target,
+		"priority":   10,
+	})
+}
+
+func createE2EGlobalModelMapping(t *testing.T, env *TestEnv, pattern, target string) uint64 {
+	t.Helper()
+	return createE2EModelMapping(t, env, map[string]any{
+		"scope":    "global",
+		"pattern":  pattern,
+		"target":   target,
+		"priority": 20,
+	})
+}
+
+func createE2EModelMapping(t *testing.T, env *TestEnv, body map[string]any) uint64 {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/model-mappings", body)
+	AssertStatus(t, resp, http.StatusCreated)
+	var created map[string]any
+	DecodeJSON(t, resp, &created)
+	return uint64(created["id"].(float64))
+}
+
+func seedOtherTenantProviderReferences(t *testing.T, env *TestEnv) (uint64, uint64) {
+	t.Helper()
+	tenantRepo := sqlite.NewTenantRepository(env.DB)
+	otherTenant := &domain.Tenant{Name: "Other Tenant", Slug: "other-tenant"}
+	if err := tenantRepo.Create(otherTenant); err != nil {
+		t.Fatalf("create other tenant: %v", err)
+	}
+
+	providerRepo := sqlite.NewProviderRepository(env.DB)
+	otherProvider := &domain.Provider{
+		TenantID: otherTenant.ID,
+		Name:     "other-tenant-provider",
+		Type:     "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: "https://api.example.com/other",
+			APIKey:  "sk-other",
+		}},
+		SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude},
+	}
+	if err := providerRepo.Create(otherProvider); err != nil {
+		t.Fatalf("create other tenant provider: %v", err)
+	}
+
+	routeRepo := sqlite.NewRouteRepository(env.DB)
+	if err := routeRepo.Create(&domain.Route{
+		TenantID:   otherTenant.ID,
+		IsEnabled:  true,
+		IsNative:   true,
+		ProjectID:  0,
+		ClientType: domain.ClientTypeClaude,
+		ProviderID: otherProvider.ID,
+		Position:   1,
+	}); err != nil {
+		t.Fatalf("create other tenant route: %v", err)
+	}
+
+	mappingRepo := sqlite.NewModelMappingRepository(env.DB)
+	if err := mappingRepo.Create(&domain.ModelMapping{
+		TenantID:   otherTenant.ID,
+		Scope:      domain.ModelMappingScopeProvider,
+		ProviderID: otherProvider.ID,
+		Pattern:    "other-*",
+		Target:     "other-target",
+		Priority:   1,
+	}); err != nil {
+		t.Fatalf("create other tenant mapping: %v", err)
+	}
+
+	return otherTenant.ID, otherProvider.ID
+}
+
+func assertListedIDs(t *testing.T, label string, items []map[string]any, want []uint64) {
+	t.Helper()
+	got := make([]uint64, 0, len(items))
+	for _, item := range items {
+		got = append(got, uint64(item["id"].(float64)))
+	}
+	assertUintSet(t, label, got, want)
+}
+
+func assertDomainProviderIDs(t *testing.T, label string, items []*domain.Provider, want []uint64) {
+	t.Helper()
+	got := make([]uint64, 0, len(items))
+	for _, item := range items {
+		got = append(got, item.ID)
+	}
+	assertUintSet(t, label, got, want)
+}
+
+func assertUintSet(t *testing.T, label string, got []uint64, want []uint64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s: expected ids %v, got %v", label, want, got)
+	}
+	counts := make(map[uint64]int, len(want))
+	for _, id := range want {
+		counts[id]++
+	}
+	for _, id := range got {
+		counts[id]--
+	}
+	for id, count := range counts {
+		if count != 0 {
+			t.Fatalf("%s: expected ids %v, got %v; id %d count delta %d", label, want, got, id, count)
+		}
+	}
 }

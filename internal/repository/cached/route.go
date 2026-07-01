@@ -37,6 +37,14 @@ func (r *RouteRepository) Load() error {
 	return nil
 }
 
+func (r *RouteRepository) Reload() error {
+	if err := r.Load(); err != nil {
+		return err
+	}
+	r.bc.publish(OpReload, 0)
+	return nil
+}
+
 func (r *RouteRepository) Create(route *domain.Route) error {
 	if err := r.repo.Create(route); err != nil {
 		return err

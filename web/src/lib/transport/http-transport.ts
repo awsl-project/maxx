@@ -8,6 +8,8 @@ import type { Transport, TransportConfig } from './interface';
 import type {
   Provider,
   CreateProviderData,
+  ProviderBulkDeleteRequest,
+  ProviderBulkDeleteResult,
   Project,
   CreateProjectData,
   Session,
@@ -253,6 +255,14 @@ export class HttpTransport implements Transport {
 
   async deleteProvider(id: number): Promise<void> {
     await this.client.delete(`/providers/${id}`);
+  }
+
+  async bulkDeleteProviders(data: ProviderBulkDeleteRequest): Promise<ProviderBulkDeleteResult> {
+    const { data: result } = await this.client.post<ProviderBulkDeleteResult>(
+      '/providers/bulk-delete',
+      data,
+    );
+    return result;
   }
 
   async exportProviders(): Promise<Provider[]> {

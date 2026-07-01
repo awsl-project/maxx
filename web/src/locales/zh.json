@@ -328,7 +328,8 @@
       "itemDetails": "路由：{{routes}} · Provider 映射：{{mappings}}",
       "confirm": "删除提供商",
       "deleting": "删除中...",
-      "completed": "已删除 {{count}} 个提供商。"
+      "completed": "已删除 {{count}} 个提供商。",
+      "notDeleted": "提供商未被删除"
     },
     "refreshQuotas": "刷新所有 Antigravity 的额度",
     "refreshCodex": "刷新所有 Codex 的订阅信息",

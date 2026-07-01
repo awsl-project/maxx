@@ -343,6 +343,20 @@ type Provider struct {
 	ExcludeFromExport bool `json:"excludeFromExport,omitempty"`
 }
 
+// ProviderBulkDeleteRequest deletes providers and all provider-scoped references in one request.
+type ProviderBulkDeleteRequest struct {
+	IDs []uint64 `json:"ids"`
+}
+
+// ProviderBulkDeleteResult reports the affected providers and cleaned references.
+type ProviderBulkDeleteResult struct {
+	DeletedCount             int      `json:"deletedCount"`
+	DeletedIDs               []uint64 `json:"deletedIDs"`
+	NotFoundIDs              []uint64 `json:"notFoundIDs"`
+	RouteDeletedCount        int      `json:"routeDeletedCount"`
+	ModelMappingDeletedCount int      `json:"modelMappingDeletedCount"`
+}
+
 type Project struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`

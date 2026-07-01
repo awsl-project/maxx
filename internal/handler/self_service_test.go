@@ -1695,6 +1695,84 @@ func TestSelfServiceHandler_DeleteProviderRemovesRouteReferences(t *testing.T) {
 	}
 }
 
+func TestSelfServiceHandler_BulkDeleteProvidersRequiresAdminAndCleansReferences(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{providers: []*domain.Provider{
+		{ID: 10, TenantID: domain.DefaultTenantID, Name: "delete-a", Type: "custom"},
+		{ID: 11, TenantID: domain.DefaultTenantID, Name: "delete-b", Type: "custom"},
+		{ID: 12, TenantID: domain.DefaultTenantID, Name: "keep", Type: "custom"},
+	}}
+	routeRepo := &selfServiceRouteRepo{routes: []*domain.Route{
+		{ID: 1, TenantID: domain.DefaultTenantID, ProviderID: 10, ProjectID: 0, ClientType: domain.ClientTypeClaude, Position: 1, Weight: 1, IsEnabled: true},
+		{ID: 2, TenantID: domain.DefaultTenantID, ProviderID: 11, ProjectID: 42, ClientType: domain.ClientTypeOpenAI, Position: 1, Weight: 1, IsEnabled: true},
+		{ID: 3, TenantID: domain.DefaultTenantID, ProviderID: 12, ProjectID: 0, ClientType: domain.ClientTypeClaude, Position: 2, Weight: 1, IsEnabled: true},
+	}}
+	modelMappingRepo := &selfServiceModelMappingRepo{mappings: []*domain.ModelMapping{
+		{ID: 1, TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeProvider, ProviderID: 10, Pattern: "a-*", Target: "a"},
+		{ID: 2, TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeProvider, ProviderID: 11, Pattern: "b-*", Target: "b"},
+		{ID: 3, TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeProvider, ProviderID: 12, Pattern: "keep-*", Target: "keep"},
+		{ID: 4, TenantID: domain.DefaultTenantID, Scope: domain.ModelMappingScopeGlobal, Pattern: "global-*", Target: "global"},
+	}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     providerRepo,
+		routeRepo:        routeRepo,
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: modelMappingRepo,
+	})
+
+	memberRec := httptest.NewRecorder()
+	handler.ServeHTTP(memberRec, newSelfServiceRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[10]}`))
+	if memberRec.Code != http.StatusForbidden {
+		t.Fatalf("member status = %d, want %d, body = %s", memberRec.Code, http.StatusForbidden, memberRec.Body.String())
+	}
+
+	adminRec := httptest.NewRecorder()
+	handler.ServeHTTP(adminRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[10,11,10,999999]}`))
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d, want %d, body = %s", adminRec.Code, http.StatusOK, adminRec.Body.String())
+	}
+
+	var result domain.ProviderBulkDeleteResult
+	if err := json.Unmarshal(adminRec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.DeletedCount != 2 || result.RouteDeletedCount != 2 || result.ModelMappingDeletedCount != 2 {
+		t.Fatalf("result = %+v, want counts for providers/routes/mappings", result)
+	}
+	if !containsUint64(result.DeletedIDs, 10) || !containsUint64(result.DeletedIDs, 11) || !containsUint64(result.NotFoundIDs, 999999) {
+		t.Fatalf("result IDs = %+v", result)
+	}
+	if len(providerRepo.providers) != 1 || providerRepo.providers[0].ID != 12 {
+		t.Fatalf("providers = %+v, want only unrelated provider", providerRepo.providers)
+	}
+	if len(routeRepo.routes) != 1 || routeRepo.routes[0].ID != 3 {
+		t.Fatalf("routes = %+v, want only unrelated route", routeRepo.routes)
+	}
+	if containsSelfServiceModelMappingID(modelMappingRepo.mappings, 1) || containsSelfServiceModelMappingID(modelMappingRepo.mappings, 2) {
+		t.Fatalf("deleted provider mappings still visible: %+v", modelMappingRepo.mappings)
+	}
+	if !containsSelfServiceModelMappingID(modelMappingRepo.mappings, 3) || !containsSelfServiceModelMappingID(modelMappingRepo.mappings, 4) {
+		t.Fatalf("unrelated mappings were deleted: %+v", modelMappingRepo.mappings)
+	}
+}
+
+func containsUint64(ids []uint64, want uint64) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSelfServiceModelMappingID(mappings []*domain.ModelMapping, want uint64) bool {
+	for _, mapping := range mappings {
+		if mapping.ID == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSelfServiceHandler_SyncRoutesFromProject_OverwriteDefaultToProject(t *testing.T) {
 	routeRepo := &selfServiceRouteRepo{
 		routes: []*domain.Route{
@@ -2085,5 +2163,36 @@ func TestSelfServiceHandler_ListEndpoints_EmptySlicesSerializeAsJSONArray(t *tes
 				t.Fatalf("body = %q, want []", body)
 			}
 		})
+	}
+}
+
+func TestSelfServiceHandler_BulkDeleteProvidersErrorStatusCodes(t *testing.T) {
+	baseRepo := &selfServiceProviderRepo{providers: []*domain.Provider{{ID: 10, TenantID: domain.DefaultTenantID, Name: "delete-me", Type: "custom"}}}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo:     baseRepo,
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+
+	badRequestRec := httptest.NewRecorder()
+	handler.ServeHTTP(badRequestRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[]}`))
+	if badRequestRec.Code != http.StatusBadRequest {
+		t.Fatalf("empty ids status = %d, want %d, body = %s", badRequestRec.Code, http.StatusBadRequest, badRequestRec.Body.String())
+	}
+
+	internalErrorHandler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepoWithListError{
+			selfServiceProviderRepo: baseRepo,
+			listErr:                 errors.New("repository unavailable"),
+		},
+		routeRepo:        &selfServiceRouteRepo{},
+		projectRepo:      &selfServiceProjectRepo{},
+		modelMappingRepo: &selfServiceModelMappingRepo{},
+	})
+	internalErrorRec := httptest.NewRecorder()
+	internalErrorHandler.ServeHTTP(internalErrorRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[10]}`))
+	if internalErrorRec.Code != http.StatusInternalServerError {
+		t.Fatalf("repository error status = %d, want %d, body = %s", internalErrorRec.Code, http.StatusInternalServerError, internalErrorRec.Body.String())
 	}
 }

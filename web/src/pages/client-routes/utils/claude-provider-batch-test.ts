@@ -1,4 +1,8 @@
-import type { ClaudeProviderBatchProviderResult, Provider } from '@/lib/transport';
+import type {
+  ClaudeProviderBatchProviderResult,
+  Provider,
+  ProviderBulkDeleteResult,
+} from '@/lib/transport';
 
 type ClaudeBatchProviderSelectionFields = Pick<
   Provider,
@@ -80,23 +84,42 @@ export function collectSuccessfulRemovedExistingIDs<T extends { existingID?: num
     .map((target) => target.existingID!);
 }
 
-export async function settleProviderRemovalsSequentially<T extends { existingID?: number }>(
+export async function settleProviderRemovalsInBulk<T extends { existingID?: number }>(
   targets: T[],
-  removeProvider: (providerID: number) => Promise<unknown>,
+  removeProviders: (providerIDs: number[]) => Promise<ProviderBulkDeleteResult>,
 ): Promise<PromiseSettledResult<unknown>[]> {
-  const settled: PromiseSettledResult<unknown>[] = [];
-  for (const target of targets) {
-    if (!target.existingID) {
-      settled.push({ status: 'rejected', reason: new Error('missing existing provider id') });
-      continue;
-    }
-    try {
-      settled.push({ status: 'fulfilled', value: await removeProvider(target.existingID) });
-    } catch (reason) {
-      settled.push({ status: 'rejected', reason });
-    }
+  const providerIDs = targets.map((target) => target.existingID).filter((id): id is number => !!id);
+  if (providerIDs.length === 0) {
+    return targets.map(() => ({
+      status: 'rejected',
+      reason: new Error('missing existing provider id'),
+    }));
   }
-  return settled;
+
+  let result: ProviderBulkDeleteResult;
+  try {
+    result = await removeProviders(providerIDs);
+  } catch (reason) {
+    return targets.map((target) => ({
+      status: 'rejected',
+      reason: target.existingID ? reason : new Error('missing existing provider id'),
+    }));
+  }
+  const deletedIDs = new Set(result.deletedIDs);
+  const notFoundIDs = new Set(result.notFoundIDs);
+
+  return targets.map((target) => {
+    if (!target.existingID) {
+      return { status: 'rejected', reason: new Error('missing existing provider id') };
+    }
+    if (deletedIDs.has(target.existingID) || notFoundIDs.has(target.existingID)) {
+      return { status: 'fulfilled', value: result };
+    }
+    return {
+      status: 'rejected',
+      reason: new Error(`provider ${target.existingID} was not deleted`),
+    };
+  });
 }
 
 export function getFailedExistingResultSignature(

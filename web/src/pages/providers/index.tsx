@@ -21,7 +21,7 @@ import {
   useProxyRequestUpdates,
   useCreateProvider,
   useCreateModelMapping,
-  useDeleteProvider,
+  useBulkDeleteProviders,
   useRoutes,
   useModelMappings,
 } from '@/hooks/queries';
@@ -71,6 +71,10 @@ import {
   type BulkCustomProviderParseError,
 } from './utils/bulk-custom-provider-import';
 import { invertVisibleProviderSelection } from './utils/selection';
+import {
+  buildProviderBulkDeleteStatus,
+  type ProviderBulkDeleteStatus,
+} from './utils/provider-bulk-delete';
 
 type ManageProvidersButtonProps = Omit<ComponentProps<typeof Button>, 'disabled'> & {
   canManage: boolean;
@@ -128,11 +132,6 @@ type ProviderBulkDeletePreviewItem = {
   streamingCount: number;
 };
 
-type ProviderBulkDeleteStatus = {
-  deleted: number;
-  failed: Array<{ id: number; name: string; message: string }>;
-} | null;
-
 export function ProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -143,7 +142,7 @@ export function ProvidersPage() {
   const { data: providerStats = {} } = useAllProviderStats();
   const { countsByProvider } = useStreamingRequests();
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null);
-  const [bulkDeleteStatus, setBulkDeleteStatus] = useState<ProviderBulkDeleteStatus>(null);
+  const [bulkDeleteStatus, setBulkDeleteStatus] = useState<ProviderBulkDeleteStatus | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProviderIds, setSelectedProviderIds] = useState<Set<number>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
@@ -160,10 +159,10 @@ export function ProvidersPage() {
   const queryClient = useQueryClient();
   const createProvider = useCreateProvider();
   const createModelMapping = useCreateModelMapping();
-  const deleteProvider = useDeleteProvider();
+  const bulkDeleteProviders = useBulkDeleteProviders();
   const canManageProviderSettings = user?.role === 'admin';
   const providerReadOnlyHint = t('providers.readOnlyHint');
-  const isBulkDeleting = deleteProvider.isPending;
+  const isBulkDeleting = bulkDeleteProviders.isPending;
 
   // 订阅请求更新事件，确保 providerStats 实时刷新
   useProxyRequestUpdates();
@@ -413,33 +412,34 @@ export function ProvidersPage() {
   const handleBulkDeleteProviders = async () => {
     if (!canManageProviderSettings || selectedProviders.length === 0 || isBulkDeleting) return;
 
-    const failed: Array<{ id: number; name: string; message: string }> = [];
-    let deleted = 0;
+    try {
+      const result = await bulkDeleteProviders.mutateAsync(
+        selectedProviders.map((provider) => provider.id),
+      );
+      const status = buildProviderBulkDeleteStatus(
+        selectedProviders,
+        result,
+        t('providers.bulkDelete.notDeleted'),
+      );
 
-    for (const provider of selectedProviders) {
-      try {
-        await deleteProvider.mutateAsync(provider.id);
-        deleted += 1;
-      } catch (error) {
-        failed.push({
+      setBulkDeleteStatus(status);
+
+      if (status.failed.length === 0) {
+        setSelectedProviderIds(new Set());
+        setIsBulkDeleteOpen(false);
+        setTimeout(() => setBulkDeleteStatus(null), 5000);
+      } else {
+        setSelectedProviderIds(new Set(status.failed.map((item) => item.id)));
+      }
+    } catch (error) {
+      setBulkDeleteStatus({
+        deleted: 0,
+        failed: selectedProviders.map((provider) => ({
           id: provider.id,
           name: provider.name,
           message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    queryClient.invalidateQueries({ queryKey: ['providers'] });
-    queryClient.invalidateQueries({ queryKey: ['routes'] });
-    queryClient.invalidateQueries({ queryKey: ['model-mappings'] });
-    setBulkDeleteStatus({ deleted, failed });
-
-    if (failed.length === 0) {
-      setSelectedProviderIds(new Set());
-      setIsBulkDeleteOpen(false);
-      setTimeout(() => setBulkDeleteStatus(null), 5000);
-    } else {
-      setSelectedProviderIds(new Set(failed.map((item) => item.id)));
+        })),
+      });
     }
   };
 

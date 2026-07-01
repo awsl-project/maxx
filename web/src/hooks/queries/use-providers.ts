@@ -82,6 +82,20 @@ export function useDeleteProvider() {
   });
 }
 
+// 批量删除 Provider
+export function useBulkDeleteProviders() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (ids: number[]) => getTransport().bulkDeleteProviders({ ids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: providerKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: routeKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['model-mappings'] });
+    },
+  });
+}
+
 // 获取 Provider 统计信息
 export function useProviderStats(clientType?: string, projectId?: number) {
   return useQuery({
