@@ -1557,7 +1557,7 @@
     "endpointOverride": "Endpoint Override",
     "errorCooldownTitle": "3. Error Cooldown",
     "disableErrorCooldown": "Disable Error Cooldown",
-    "disableErrorCooldownDesc": "When enabled, errors won't trigger automatic cooldown. Manual freezes and explicit cooldown times still apply.",
+    "disableErrorCooldownDesc": "When enabled, upstream errors from this provider won't create new automatic cooldowns. Related request errors will continue according to the current retry policy. Existing cooldowns must expire or be cleared manually.",
     "responsesPassthrough": "Passthrough Responses Path",
     "responsesPassthroughDesc": "For Codex Responses requests, forward the client's original path (e.g. /v1/responses) instead of a hardcoded /responses. Turn off only for upstreams that expect /responses, or when the Base URL already ends with /v1.",
     "excludeFromExport": "Do not export this provider",
