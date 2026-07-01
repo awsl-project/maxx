@@ -112,11 +112,6 @@ func (r *ProviderRepository) BulkDeleteWithReferences(tenantID uint64, rawIDs []
 	return result, nil
 }
 
-type providerRouteScope struct {
-	projectID  uint64
-	clientType string
-}
-
 func bulkSoftDeleteProviderRoutesTx(tx *gorm.DB, tenantID uint64, providerIDs map[uint64]struct{}) (int, error) {
 	if len(providerIDs) == 0 {
 		return 0, nil
@@ -126,34 +121,17 @@ func bulkSoftDeleteProviderRoutesTx(tx *gorm.DB, tenantID uint64, providerIDs ma
 		ids = append(ids, id)
 	}
 
-	var routes []Route
-	if err := tenantScope(tx, tenantID).
-		Where("provider_id IN ? AND deleted_at = 0", ids).
-		Find(&routes).Error; err != nil {
-		return 0, err
-	}
-
-	routeIDsByScope := make(map[providerRouteScope][]uint64)
-	for _, route := range routes {
-		scope := providerRouteScope{projectID: route.ProjectID, clientType: route.ClientType}
-		routeIDsByScope[scope] = append(routeIDsByScope[scope], route.ID)
-	}
-
-	deleted := 0
 	now := time.Now().UnixMilli()
-	for scope, routeIDs := range routeIDsByScope {
-		res := tenantScope(tx.Model(&Route{}), tenantID).
-			Where("id IN ? AND project_id = ? AND client_type = ? AND deleted_at = 0", routeIDs, scope.projectID, scope.clientType).
-			Updates(map[string]any{
-				"deleted_at": now,
-				"updated_at": now,
-			})
-		if res.Error != nil {
-			return 0, res.Error
-		}
-		deleted += int(res.RowsAffected)
+	res := tenantScope(tx.Model(&Route{}), tenantID).
+		Where("provider_id IN ? AND deleted_at = 0", ids).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		})
+	if res.Error != nil {
+		return 0, res.Error
 	}
-	return deleted, nil
+	return int(res.RowsAffected), nil
 }
 
 func bulkSoftDeleteProviderModelMappingsTx(tx *gorm.DB, tenantID uint64, providerIDs []uint64) (int, error) {

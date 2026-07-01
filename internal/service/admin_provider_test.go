@@ -1,9 +1,11 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
+	provideradapter "github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 )
@@ -265,6 +267,117 @@ func TestAdminServiceBulkDeleteProvidersRollsBackReferencesWhenProviderDeleteFai
 	if !containsModelMappingID(mappings, mapping.ID) {
 		t.Fatalf("provider mapping was deleted despite transaction rollback: %+v", mappings)
 	}
+}
+
+func TestAdminServiceBulkDeleteProvidersReturnsResultWhenPostCommitReloadFails(t *testing.T) {
+	repo := &bulkDeleteReloadFailingProviderRepo{
+		result: &domain.ProviderBulkDeleteResult{
+			DeletedIDs:        []uint64{42},
+			DeletedCount:      1,
+			NotFoundIDs:       []uint64{99},
+			RouteDeletedCount: 2,
+		},
+		reloadErr: errors.New("reload failed after commit"),
+	}
+	adapter := &recordingProviderAdapterRefresher{}
+	svc := NewAdminService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "", adapter, nil, nil)
+
+	result, err := svc.BulkDeleteProviders(domain.DefaultTenantID, domain.ProviderBulkDeleteRequest{IDs: []uint64{42, 99}})
+	if err != nil {
+		t.Fatalf("BulkDeleteProviders() error = %v, want nil because delete already committed", err)
+	}
+	if result != repo.result {
+		t.Fatalf("BulkDeleteProviders() result = %#v, want original committed result %#v", result, repo.result)
+	}
+	if len(adapter.removed) != 1 || adapter.removed[0] != 42 {
+		t.Fatalf("removed adapters = %v, want [42]", adapter.removed)
+	}
+}
+
+func TestAdminServiceBulkDeleteProvidersFallbackDoesNotRemoveAdapterWhenDeleteFails(t *testing.T) {
+	db, err := sqlite.NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("NewDBWithDSN() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	baseProviderRepo := sqlite.NewProviderRepository(db)
+	provider := newTestCustomProvider("delete-fails")
+	if err := baseProviderRepo.Create(provider); err != nil {
+		t.Fatalf("Create(provider) error = %v", err)
+	}
+
+	providerRepo := &deleteFailingProviderRepo{base: baseProviderRepo, deleteErr: errors.New("delete blocked")}
+	routeRepo := sqlite.NewRouteRepository(db)
+	modelMappingRepo := sqlite.NewModelMappingRepository(db)
+	adapter := &recordingProviderAdapterRefresher{}
+	svc := NewAdminService(providerRepo, routeRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, modelMappingRepo, nil, nil, nil, "", adapter, nil, nil)
+
+	_, err = svc.BulkDeleteProviders(domain.DefaultTenantID, domain.ProviderBulkDeleteRequest{IDs: []uint64{provider.ID}})
+	if err == nil {
+		t.Fatal("BulkDeleteProviders() error = nil, want delete failure")
+	}
+	if len(adapter.removed) != 0 {
+		t.Fatalf("removed adapters = %v, want none when provider delete fails", adapter.removed)
+	}
+}
+
+type bulkDeleteReloadFailingProviderRepo struct {
+	result    *domain.ProviderBulkDeleteResult
+	reloadErr error
+}
+
+func (r *bulkDeleteReloadFailingProviderRepo) Create(provider *domain.Provider) error  { return nil }
+func (r *bulkDeleteReloadFailingProviderRepo) Update(provider *domain.Provider) error  { return nil }
+func (r *bulkDeleteReloadFailingProviderRepo) Delete(tenantID uint64, id uint64) error { return nil }
+func (r *bulkDeleteReloadFailingProviderRepo) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
+	return nil, nil
+}
+func (r *bulkDeleteReloadFailingProviderRepo) List(tenantID uint64) ([]*domain.Provider, error) {
+	return nil, nil
+}
+func (r *bulkDeleteReloadFailingProviderRepo) BulkDeleteWithReferences(tenantID uint64, ids []uint64) (*domain.ProviderBulkDeleteResult, error) {
+	return r.result, nil
+}
+func (r *bulkDeleteReloadFailingProviderRepo) Reload() error { return r.reloadErr }
+
+type deleteFailingProviderRepo struct {
+	base      providerRepositoryMethods
+	deleteErr error
+}
+
+type providerRepositoryMethods interface {
+	Create(provider *domain.Provider) error
+	Update(provider *domain.Provider) error
+	Delete(tenantID uint64, id uint64) error
+	GetByID(tenantID uint64, id uint64) (*domain.Provider, error)
+	List(tenantID uint64) ([]*domain.Provider, error)
+}
+
+func (r *deleteFailingProviderRepo) Create(provider *domain.Provider) error {
+	return r.base.Create(provider)
+}
+func (r *deleteFailingProviderRepo) Update(provider *domain.Provider) error {
+	return r.base.Update(provider)
+}
+func (r *deleteFailingProviderRepo) Delete(tenantID uint64, id uint64) error { return r.deleteErr }
+func (r *deleteFailingProviderRepo) GetByID(tenantID uint64, id uint64) (*domain.Provider, error) {
+	return r.base.GetByID(tenantID, id)
+}
+func (r *deleteFailingProviderRepo) List(tenantID uint64) ([]*domain.Provider, error) {
+	return r.base.List(tenantID)
+}
+
+type recordingProviderAdapterRefresher struct {
+	removed []uint64
+}
+
+func (r *recordingProviderAdapterRefresher) RefreshAdapter(p *domain.Provider) error { return nil }
+func (r *recordingProviderAdapterRefresher) RemoveAdapter(providerID uint64) {
+	r.removed = append(r.removed, providerID)
+}
+func (r *recordingProviderAdapterRefresher) GetAdapter(providerID uint64) (provideradapter.ProviderAdapter, bool) {
+	return nil, false
 }
 
 func containsProviderID(providers []*domain.Provider, id uint64) bool {

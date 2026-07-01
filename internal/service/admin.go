@@ -216,15 +216,9 @@ func (s *AdminService) BulkDeleteProviders(tenantID uint64, req domain.ProviderB
 		if err != nil {
 			return nil, err
 		}
-		if err := reloadRepositoryCache(s.providerRepo); err != nil {
-			return nil, err
-		}
-		if err := reloadRepositoryCache(s.routeRepo); err != nil {
-			return nil, err
-		}
-		if err := reloadRepositoryCache(s.modelMappingRepo); err != nil {
-			return nil, err
-		}
+		reloadRepositoryCacheBestEffort("provider", s.providerRepo)
+		reloadRepositoryCacheBestEffort("route", s.routeRepo)
+		reloadRepositoryCacheBestEffort("model mapping", s.modelMappingRepo)
 		if s.adapterRefresher != nil && result != nil {
 			for _, id := range result.DeletedIDs {
 				s.adapterRefresher.RemoveAdapter(id)
@@ -269,11 +263,11 @@ func (s *AdminService) bulkDeleteProvidersWithoutTransaction(tenantID uint64, id
 	}
 
 	for _, id := range result.DeletedIDs {
-		if s.adapterRefresher != nil {
-			s.adapterRefresher.RemoveAdapter(id)
-		}
 		if err := s.providerRepo.Delete(tenantID, id); err != nil {
 			return nil, err
+		}
+		if s.adapterRefresher != nil {
+			s.adapterRefresher.RemoveAdapter(id)
 		}
 		result.DeletedCount++
 	}
@@ -290,6 +284,12 @@ func reloadRepositoryCache(repo any) error {
 		return reloader.Reload()
 	}
 	return nil
+}
+
+func reloadRepositoryCacheBestEffort(name string, repo any) {
+	if err := reloadRepositoryCache(repo); err != nil {
+		log.Printf("[Admin] provider bulk delete succeeded but %s cache reload failed: %v", name, err)
+	}
 }
 
 func (s *AdminService) bulkDeleteProviderRoutes(tenantID uint64, providerIDs map[uint64]struct{}, result *domain.ProviderBulkDeleteResult) error {
