@@ -370,6 +370,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				return
 			}
 
+			if ok {
+				applyDisabledErrorCooldownRetryPolicy(matchedRoute.Provider, proxyErr)
+			}
+
 			if ok && proxyErr.Scope == domain.ScopeRequest && !proxyErr.Retryable {
 				log.Printf("[Executor] Request-scoped non-retryable error; not failing over after provider %d: %v", matchedRoute.Provider.ID, err)
 				proxyReq.Status = "FAILED"
