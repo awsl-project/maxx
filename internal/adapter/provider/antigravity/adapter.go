@@ -345,7 +345,11 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 
 					// Set status code and classify error scope/reason
 					proxyErr.HTTPStatusCode = resp.StatusCode
-					if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+					if resp.StatusCode == http.StatusPaymentRequired {
+						proxyErr.Scope = domain.ScopeKey
+						proxyErr.Reason = domain.CooldownReasonQuotaExhausted
+						proxyErr.Retryable = false
+					} else if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 						proxyErr.Scope = domain.ScopeKey
 						proxyErr.Reason = domain.CooldownReasonAuthFailure
 						proxyErr.Retryable = false
@@ -1129,8 +1133,8 @@ func (a *AntigravityAdapter) handleCollectedStreamResponse(c *flow.Ctx, resp *ht
 				domain.ClientTypeGemini, domain.ClientTypeOpenAI, geminiResponse)
 			if convErr != nil {
 				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrFormatConversion, false, "failed to transform response")
-			proxyErr.Scope = domain.ScopeRequest
-			return proxyErr
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
 			}
 		default:
 			responseBody = geminiResponse
