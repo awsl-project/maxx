@@ -207,6 +207,11 @@ type ProxyRequestRepository interface {
 	CountWithFilter(tenantID uint64, filter *ProxyRequestFilter) (int64, error)
 	// GetErrorStats 获取错误请求统计
 	GetErrorStats(tenantID uint64, filter *ProxyRequestFilter) (*ProxyRequestErrorStats, error)
+	// CountFailedWithFilter counts terminal failed/error request records matching the filter.
+	CountFailedWithFilter(tenantID uint64, filter *ProxyRequestFilter) (int64, error)
+	// DeleteFailedWithFilter deletes terminal failed/error request records matching the filter.
+	// Implementations must also delete upstream attempts for those requests.
+	DeleteFailedWithFilter(tenantID uint64, filter *ProxyRequestFilter) (deletedRequests int64, deletedAttempts int64, err error)
 	// UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
 	UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error)
 	// MarkStaleAsFailed marks IN_PROGRESS/PENDING requests as FAILED when their

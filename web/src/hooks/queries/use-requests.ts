@@ -2,7 +2,7 @@
  * ProxyRequest React Query Hooks
  */
 
-import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useInfiniteQuery, useMutation } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import {
   getTransport,
@@ -167,6 +167,31 @@ export function useProxyRequestErrorStats(params?: CursorPaginationParams, enabl
     queryFn: () => getTransport().getProxyRequestErrorStats(params),
     enabled,
     staleTime: 5_000,
+  });
+}
+
+export function useCleanupFailedProxyRequestsCount(
+  params?: CursorPaginationParams,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...requestKeys.all, 'cleanup-failed-count', params] as const,
+    queryFn: () => getTransport().getCleanupFailedProxyRequestsCount(params),
+    enabled,
+    staleTime: 5_000,
+  });
+}
+
+export function useCleanupFailedProxyRequests() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params?: CursorPaginationParams) =>
+      getTransport().cleanupFailedProxyRequests(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: requestKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['requestsCount'] });
+    },
   });
 }
 

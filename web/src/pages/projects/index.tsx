@@ -15,8 +15,16 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from '@/components/ui';
-import { useProjects, useCreateProject } from '@/hooks/queries';
+import { useProjects, useCreateProject, useArchiveInactiveProjects } from '@/hooks/queries';
 import {
   Plus,
   X,
@@ -55,10 +63,12 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const { data: projects, isLoading } = useProjects();
   const createProject = useCreateProject();
+  const archiveInactiveProjects = useArchiveInactiveProjects();
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [inactiveThresholdDays, setInactiveThresholdDays] = useState(90);
   const [showInactiveOnly, setShowInactiveOnly] = useState(false);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [activityNow] = useState(() => Date.now());
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -97,6 +107,16 @@ export function ProjectsPage() {
       active: states.filter((state) => state.status === 'active').length,
     };
   }, [activityByProject]);
+
+  const cleanupCandidateCount = summary.inactive + summary.neverUsed;
+
+  const handleArchiveInactive = () => {
+    archiveInactiveProjects.mutate(inactiveThresholdDays, {
+      onSuccess: () => {
+        setArchiveDialogOpen(false);
+      },
+    });
+  };
 
   const sortedProjects = useMemo(() => {
     if (!projects) {
@@ -235,6 +255,20 @@ export function ProjectsPage() {
                 >
                   {t('projects.showInactiveOnly')}
                 </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={cleanupCandidateCount === 0 || archiveInactiveProjects.isPending}
+                  onClick={() => setArchiveDialogOpen(true)}
+                >
+                  {archiveInactiveProjects.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Archive className="mr-2 h-4 w-4" />
+                  )}
+                  {t('projects.archiveInactive')}
+                </Button>
               </div>
             </div>
           </CardContent>
@@ -338,6 +372,35 @@ export function ProjectsPage() {
           </div>
         )}
       </div>
+
+      <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
+        <AlertDialogContent className="border-destructive/30 bg-card shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-foreground">
+              {t('projects.archiveInactiveDialog.title')}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-foreground/90">
+              {t('projects.archiveInactiveDialog.description', {
+                count: cleanupCandidateCount,
+                days: inactiveThresholdDays,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={archiveInactiveProjects.isPending}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={archiveInactiveProjects.isPending || cleanupCandidateCount === 0}
+              onClick={handleArchiveInactive}
+            >
+              {archiveInactiveProjects.isPending
+                ? t('projects.archiveInactiveDialog.archiving')
+                : t('projects.archiveInactiveDialog.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

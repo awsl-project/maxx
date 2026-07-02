@@ -28,6 +28,7 @@ export {
   useCreateProject,
   useUpdateProject,
   useDeleteProject,
+  useArchiveInactiveProjects,
 } from './use-projects';
 
 // Route hooks
@@ -80,6 +81,8 @@ export {
   useInfiniteProxyRequests,
   useProxyRequestsCount,
   useProxyRequestErrorStats,
+  useCleanupFailedProxyRequestsCount,
+  useCleanupFailedProxyRequests,
   useProxyRequest,
   useProxyUpstreamAttempts,
   useProxyRequestUpdates,

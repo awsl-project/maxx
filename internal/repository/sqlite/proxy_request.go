@@ -41,6 +41,14 @@ func applyProxyRequestErrorMode(query *gorm.DB, mode repository.ProxyRequestErro
 }
 
 func applyProxyRequestFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
+	query = applyProxyRequestBaseFilter(query, filter)
+	if filter == nil {
+		return query
+	}
+	return applyProxyRequestErrorMode(query, filter.ErrorMode)
+}
+
+func applyProxyRequestBaseFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
 	if filter == nil {
 		return query
 	}
@@ -62,7 +70,14 @@ func applyProxyRequestFilter(query *gorm.DB, filter *repository.ProxyRequestFilt
 	if filter.EndTime != nil {
 		query = query.Where("created_at <= ?", toTimestamp(*filter.EndTime))
 	}
-	return applyProxyRequestErrorMode(query, filter.ErrorMode)
+	return query
+}
+
+func applyProxyRequestCleanupFailedFilter(query *gorm.DB, filter *repository.ProxyRequestFilter) *gorm.DB {
+	query = applyProxyRequestBaseFilter(query, filter)
+	return query.
+		Where("status NOT IN ?", activeProxyRequestStatuses).
+		Where("status IN ? OR status_code >= ?", proxyRequestErrorStatuses, 400)
 }
 
 func proxyRequestTrendBucketSize(startMs, endMs int64) int64 {
@@ -456,6 +471,79 @@ func (r *ProxyRequestRepository) FixFailedRequestsWithoutEndTime() (int64, error
 }
 
 // UpdateProjectIDBySessionID 批量更新指定 sessionID 的所有请求的 projectID
+
+// CountFailedWithFilter counts terminal failed/error request records matching the filter.
+func (r *ProxyRequestRepository) CountFailedWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
+	var count int64
+	query := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID)
+	query = applyProxyRequestCleanupFailedFilter(query, filter)
+	if err := query.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// DeleteFailedWithFilter deletes terminal failed/error request records matching the filter and their attempts.
+func (r *ProxyRequestRepository) DeleteFailedWithFilter(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, int64, error) {
+	const batchSize = 500
+
+	var totalRequests int64
+	var totalAttempts int64
+	var lastID uint64
+
+	for {
+		baseQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+			Select("id").
+			Where("id > ?", lastID)
+		baseQuery = applyProxyRequestCleanupFailedFilter(baseQuery, filter)
+
+		var ids []uint64
+		if err := baseQuery.Order("id").Limit(batchSize).Pluck("id", &ids).Error; err != nil {
+			return totalRequests, totalAttempts, err
+		}
+		if len(ids) == 0 {
+			return totalRequests, totalAttempts, nil
+		}
+		lastID = ids[len(ids)-1]
+
+		var batchRequests int64
+		var batchAttempts int64
+		if err := r.db.gorm.Transaction(func(tx *gorm.DB) error {
+			eligibleParents := tenantScope(tx.Model(&ProxyRequest{}), tenantID).
+				Select("id").
+				Where("id IN ?", ids)
+			eligibleParents = applyProxyRequestCleanupFailedFilter(eligibleParents, filter)
+
+			attemptRes := tx.Where("proxy_request_id IN (?)", eligibleParents).Delete(&ProxyUpstreamAttempt{})
+			if attemptRes.Error != nil {
+				return attemptRes.Error
+			}
+			batchAttempts = attemptRes.RowsAffected
+
+			requestQuery := tenantScope(tx.Where("id IN ?", ids), tenantID)
+			requestQuery = applyProxyRequestCleanupFailedFilter(requestQuery, filter)
+			requestRes := requestQuery.Delete(&ProxyRequest{})
+			if requestRes.Error != nil {
+				return requestRes.Error
+			}
+			batchRequests = requestRes.RowsAffected
+			return nil
+		}); err != nil {
+			return totalRequests, totalAttempts, err
+		}
+
+		if batchRequests > 0 {
+			atomic.AddInt64(&r.count, -batchRequests)
+		}
+		totalRequests += batchRequests
+		totalAttempts += batchAttempts
+
+		if len(ids) < batchSize {
+			return totalRequests, totalAttempts, nil
+		}
+	}
+}
+
 func (r *ProxyRequestRepository) UpdateProjectIDBySessionID(tenantID uint64, sessionID string, projectID uint64) (int64, error) {
 	now := time.Now().UnixMilli()
 	result := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).

@@ -552,6 +552,12 @@ func (h *AdminHandler) handleBulkDeleteRoutes(w http.ResponseWriter, r *http.Req
 
 // Project handlers
 func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
+	// Check for archive inactive endpoint: /admin/projects/archive-inactive
+	if len(parts) > 2 && parts[2] == "archive-inactive" {
+		h.handleArchiveInactiveProjects(w, r)
+		return
+	}
+
 	// Check for by-slug endpoint: /admin/projects/by-slug/{slug}
 	if len(parts) > 2 && parts[2] == "by-slug" {
 		h.handleProjectBySlug(w, r, parts)
@@ -637,6 +643,34 @@ func (h *AdminHandler) handleProjects(w http.ResponseWriter, r *http.Request, id
 }
 
 // handleProjectBySlug handles GET /admin/projects/by-slug/{slug}
+
+func (h *AdminHandler) handleArchiveInactiveProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var body struct {
+		ThresholdDays int `json:"thresholdDays"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if body.ThresholdDays <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "thresholdDays must be positive"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.ArchiveInactiveProjects(tenantID, body.ThresholdDays)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *AdminHandler) handleProjectBySlug(w http.ResponseWriter, r *http.Request, parts []string) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -991,6 +1025,18 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check for cleanup failed count endpoint: /admin/requests/cleanup-failed-count
+	if len(parts) > 2 && parts[2] == "cleanup-failed-count" {
+		h.handleCleanupFailedProxyRequestsCount(w, r)
+		return
+	}
+
+	// Check for cleanup failed endpoint: /admin/requests/cleanup-failed
+	if len(parts) > 2 && parts[2] == "cleanup-failed" {
+		h.handleCleanupFailedProxyRequests(w, r)
+		return
+	}
+
 	// Check for sub-resource: /admin/requests/{id}/attempts
 	if len(parts) > 3 && parts[3] == "attempts" && id > 0 {
 		h.handleProxyUpstreamAttempts(w, r, id)
@@ -1046,6 +1092,49 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 }
 
 // ProxyRequestsCount handler
+
+func (h *AdminHandler) handleCleanupFailedProxyRequestsCount(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	filter, err := parseProxyRequestFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	count, err := h.svc.CountFailedProxyRequests(tenantID, filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, count)
+}
+
+func (h *AdminHandler) handleCleanupFailedProxyRequests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	filter, err := parseProxyRequestFilter(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.CleanupFailedProxyRequests(tenantID, filter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})

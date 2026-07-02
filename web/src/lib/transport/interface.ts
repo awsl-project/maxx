@@ -10,6 +10,7 @@ import type {
   ProviderBulkDeleteResult,
   Project,
   CreateProjectData,
+  ProjectArchiveInactiveResult,
   Session,
   Route,
   CreateRouteData,
@@ -20,6 +21,7 @@ import type {
   ProxyRequest,
   ProxyRequestErrorMode,
   ProxyRequestErrorStats,
+  ProxyRequestCleanupFailedResult,
   ProxyUpstreamAttempt,
   CursorPaginationParams,
   CursorPaginationResult,
@@ -108,6 +110,7 @@ export interface Transport {
   createProject(data: CreateProjectData): Promise<Project>;
   updateProject(id: number, data: Partial<Project>): Promise<Project>;
   deleteProject(id: number): Promise<void>;
+  archiveInactiveProjects(thresholdDays: number): Promise<ProjectArchiveInactiveResult>;
 
   // ===== Route API =====
   getRoutes(): Promise<Route[]>;
@@ -157,6 +160,10 @@ export interface Transport {
     errorMode?: ProxyRequestErrorMode,
   ): Promise<number>;
   getProxyRequestErrorStats(params?: CursorPaginationParams): Promise<ProxyRequestErrorStats>;
+  getCleanupFailedProxyRequestsCount(params?: CursorPaginationParams): Promise<number>;
+  cleanupFailedProxyRequests(
+    params?: CursorPaginationParams,
+  ): Promise<ProxyRequestCleanupFailedResult>;
   getActiveProxyRequests(): Promise<ProxyRequest[]>;
   getProxyRequest(id: number): Promise<ProxyRequest>;
   getProxyUpstreamAttempts(proxyRequestId: number): Promise<ProxyUpstreamAttempt[]>;

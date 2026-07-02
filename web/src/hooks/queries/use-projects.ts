@@ -79,3 +79,15 @@ export function useDeleteProject() {
     },
   });
 }
+
+// 归档非活跃 Projects
+export function useArchiveInactiveProjects() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (thresholdDays: number) => getTransport().archiveInactiveProjects(thresholdDays),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+    },
+  });
+}

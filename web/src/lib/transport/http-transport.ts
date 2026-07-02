@@ -12,6 +12,7 @@ import type {
   ProviderBulkDeleteResult,
   Project,
   CreateProjectData,
+  ProjectArchiveInactiveResult,
   Session,
   Route,
   CreateRouteData,
@@ -22,6 +23,7 @@ import type {
   ProxyRequest,
   ProxyRequestErrorMode,
   ProxyRequestErrorStats,
+  ProxyRequestCleanupFailedResult,
   ProxyUpstreamAttempt,
   ProxyStatus,
   ProviderStats,
@@ -306,6 +308,16 @@ export class HttpTransport implements Transport {
     await this.client.delete(`/projects/${id}`);
   }
 
+  async archiveInactiveProjects(thresholdDays: number): Promise<ProjectArchiveInactiveResult> {
+    const { data } = await this.client.post<ProjectArchiveInactiveResult>(
+      '/projects/archive-inactive',
+      {
+        thresholdDays,
+      },
+    );
+    return data;
+  }
+
   // ===== Route API =====
 
   async getRoutes(): Promise<Route[]> {
@@ -514,6 +526,24 @@ export class HttpTransport implements Transport {
         trend: [],
       }
     );
+  }
+
+  async getCleanupFailedProxyRequestsCount(params?: CursorPaginationParams): Promise<number> {
+    const { data } = await this.adminClient.get<number>('/requests/cleanup-failed-count', {
+      params,
+    });
+    return data ?? 0;
+  }
+
+  async cleanupFailedProxyRequests(
+    params?: CursorPaginationParams,
+  ): Promise<ProxyRequestCleanupFailedResult> {
+    const { data } = await this.adminClient.post<ProxyRequestCleanupFailedResult>(
+      '/requests/cleanup-failed',
+      undefined,
+      { params },
+    );
+    return data ?? { deletedCount: 0, deletedAttemptCount: 0 };
   }
 
   async getActiveProxyRequests(): Promise<ProxyRequest[]> {
