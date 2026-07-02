@@ -92,18 +92,21 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				convertedBody, convErr = e.converter.TransformRequest(
 					clientType, currentClientType, requestBody, mappedModel, state.isStream)
 				if convErr != nil {
-					log.Printf("[Executor] Request conversion failed: %v, proceeding with original format", convErr)
-					needsConversion = false
-					currentClientType = clientType
-				} else {
-					requestBody = convertedBody
+					log.Printf("[Executor] Request conversion failed: %v; refusing to send original %s payload to %s provider %s",
+						convErr, clientType, currentClientType, matchedRoute.Provider.Name)
+					proxyErr := domain.NewProxyErrorWithMessage(convErr, true, "request format conversion failed")
+					proxyErr.Scope = domain.ScopeRequest
+					state.lastErr = proxyErr
+					continue
+				}
 
-					originalURI := requestURI
-					convertedURI := ConvertRequestURI(requestURI, clientType, currentClientType, mappedModel, state.isStream)
-					if convertedURI != originalURI {
-						requestURI = convertedURI
-						log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
-					}
+				requestBody = convertedBody
+
+				originalURI := requestURI
+				convertedURI := ConvertRequestURI(requestURI, clientType, currentClientType, mappedModel, state.isStream)
+				if convertedURI != originalURI {
+					requestURI = convertedURI
+					log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
 				}
 			}
 		}
@@ -186,6 +189,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			if needsConversion && convertingWriter != nil && !state.isStream {
 				if finalizeErr := convertingWriter.Finalize(); finalizeErr != nil {
 					log.Printf("[Executor] Response conversion finalize failed: %v", finalizeErr)
+					proxyErr := domain.NewProxyErrorWithMessage(finalizeErr, true, "response format conversion failed")
+					proxyErr.Scope = domain.ScopeProvider
+					proxyErr.Reason = domain.CooldownReasonServerError
+					err = proxyErr
 				}
 			}
 			if err == nil && modifierWriter != nil {

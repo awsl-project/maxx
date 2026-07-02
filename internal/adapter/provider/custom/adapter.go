@@ -19,6 +19,7 @@ import (
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/adapter/provider/custom/error_fixer"
+	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -520,6 +521,12 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	copyResponseHeaders(c.Writer.Header(), resp.Header)
 	c.Writer.WriteHeader(resp.StatusCode)
 	if _, err := c.Writer.Write(body); err != nil {
+		if converter.IsResponseConversionError(err) {
+			proxyErr := domain.NewProxyErrorWithMessage(err, true, "response format conversion failed")
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonServerError
+			return proxyErr
+		}
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "client disconnected")
 		proxyErr.Scope = domain.ScopeRequest
 		return proxyErr
@@ -748,8 +755,14 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 				if len(processedLine) > 0 {
 					_, writeErr := c.Writer.Write([]byte(processedLine))
 					if writeErr != nil {
-						// Client disconnected
 						sendFinalEvents()
+						if converter.IsResponseConversionError(writeErr) {
+							proxyErr := domain.NewProxyErrorWithMessage(writeErr, true, "response format conversion failed")
+							proxyErr.Scope = domain.ScopeProvider
+							proxyErr.Reason = domain.CooldownReasonServerError
+							return proxyErr
+						}
+						// Client disconnected
 						proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
 						proxyErr.Scope = domain.ScopeRequest
 						return proxyErr

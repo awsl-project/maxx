@@ -200,8 +200,7 @@ func (c *ConvertingResponseWriter) writeStream(b []byte) (int, error) {
 	// Convert the chunk
 	converted, err := c.converter.TransformStreamChunk(c.targetType, c.originalType, b, c.streamState)
 	if err != nil {
-		// On conversion error, pass through original data
-		return c.underlying.Write(b)
+		return 0, converter.NewResponseConversionError(err)
 	}
 
 	if len(converted) > 0 {
@@ -232,9 +231,11 @@ func (c *ConvertingResponseWriter) Finalize() error {
 
 	// Convert the response
 	converted, err := c.converter.TransformResponseWithState(c.targetType, c.originalType, body, c.streamState)
-	if err != nil || converted == nil {
-		// On conversion error or nil result, use original body
-		converted = body
+	if err != nil {
+		return converter.NewResponseConversionError(err)
+	}
+	if converted == nil {
+		return converter.NewResponseConversionError(converter.ErrNilConvertedResponse)
 	}
 
 	// Update Content-Type header based on original client type
