@@ -81,9 +81,11 @@ func (rc *ResponseCapture) Write(b []byte) (int, error) {
 }
 
 // WroteToClient reports whether any response header or body byte has already
-// been forwarded to the downstream client. Once true, the executor must not
-// transparently fail over to another provider: doing so could splice two
-// upstream responses into one client-visible stream.
+// been forwarded to the downstream client. Once true, the executor normally
+// must not transparently fail over to another provider: doing so could splice
+// two upstream responses into one client-visible stream. The only current
+// exception is the explicit disable-error-cooldown policy for provider-level
+// stream read failures, where failover is intentionally allowed by dispatch.
 func (rc *ResponseCapture) WroteToClient() bool {
 	return rc.wrote
 }

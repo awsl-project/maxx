@@ -326,7 +326,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			}
 
 			proxyErr, ok := err.(*domain.ProxyError)
-			if responseCapture.WroteToClient() {
+			if ok {
+				applyDisabledErrorCooldownRetryPolicy(matchedRoute.Provider, proxyErr)
+			}
+			if responseCapture.WroteToClient() && !shouldRetryCommittedResponseError(matchedRoute.Provider, proxyErr) {
 				log.Printf("[Executor] Response already committed; not failing over after provider %d error: %v", matchedRoute.Provider.ID, err)
 				proxyReq.Status = "FAILED"
 				proxyReq.EndTime = time.Now()
@@ -368,10 +371,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				state.lastErr = ctx.Err()
 				c.Err = state.lastErr
 				return
-			}
-
-			if ok {
-				applyDisabledErrorCooldownRetryPolicy(matchedRoute.Provider, proxyErr)
 			}
 
 			if ok && proxyErr.Scope == domain.ScopeRequest && !proxyErr.Retryable {
