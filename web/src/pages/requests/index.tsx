@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
+  useCleanupFailedProxyRequests,
+  useCleanupFailedProxyRequestsCount,
   useInfiniteProxyRequests,
   useProxyRequestErrorStats,
   useProxyRequestUpdates,
@@ -24,6 +26,7 @@ import {
   X,
   Clock,
   BarChart3,
+  Trash2,
 } from 'lucide-react';
 import { format as formatDate } from 'date-fns';
 import {
@@ -67,6 +70,15 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  Button,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from '@/components/ui';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -252,6 +264,7 @@ export function RequestsPage() {
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(undefined);
   const [errorMode, setErrorMode] = useState<ProxyRequestErrorMode>('all');
   const [errorStatsOpen, setErrorStatsOpen] = useState(false);
+  const [cleanupFailedOpen, setCleanupFailedOpen] = useState(false);
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
 
@@ -309,6 +322,30 @@ export function RequestsPage() {
     requestsQueryEnabled,
   );
 
+  const cleanupFailedCountParams = useMemo<CursorPaginationParams>(() => {
+    const params: CursorPaginationParams = {};
+    if (activeProviderId !== undefined) params.providerId = activeProviderId;
+    if (selectedStatus !== undefined) params.status = selectedStatus;
+    if (activeTokenId !== undefined) params.apiTokenId = activeTokenId;
+    if (activeProjectId !== undefined) params.projectId = activeProjectId;
+    if (activeStartTime !== undefined) params.startTime = activeStartTime;
+    if (activeEndTime !== undefined) params.endTime = activeEndTime;
+    return params;
+  }, [
+    activeEndTime,
+    activeProjectId,
+    activeProviderId,
+    activeStartTime,
+    activeTokenId,
+    selectedStatus,
+  ]);
+
+  const { data: failedCount, refetch: refetchFailedCount } = useCleanupFailedProxyRequestsCount(
+    cleanupFailedCountParams,
+    requestsQueryEnabled,
+  );
+  const cleanupFailedRequests = useCleanupFailedProxyRequests();
+
   // Check if API Token auth is enabled
   const apiTokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
 
@@ -350,6 +387,17 @@ export function RequestsPage() {
     errorStatsParams,
     errorStatsOpen && requestsQueryEnabled,
   );
+
+  const handleCleanupFailedRequests = () => {
+    cleanupFailedRequests.mutate(cleanupFailedCountParams, {
+      onSuccess: () => {
+        setCleanupFailedOpen(false);
+        void refetch();
+        void refetchCount();
+        void refetchFailedCount();
+      },
+    });
+  };
 
   // 使用 totalCount
   const total = typeof totalCount === 'number' ? totalCount : 0;
@@ -726,6 +774,20 @@ export function RequestsPage() {
           <BarChart3 size={14} />
           <span>{t('requests.errorStats.action')}</span>
         </button>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={(failedCount ?? 0) === 0 || cleanupFailedRequests.isPending}
+          onClick={() => setCleanupFailedOpen(true)}
+        >
+          {cleanupFailedRequests.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="mr-2 h-4 w-4" />
+          )}
+          {t('requests.cleanupFailed.action')}
+        </Button>
         <TimeRangeFilter
           startDate={startDate}
           endDate={endDate}
@@ -754,6 +816,32 @@ export function RequestsPage() {
         loading={errorStatsFetching}
         providerMap={providerMap}
       />
+
+      <AlertDialog open={cleanupFailedOpen} onOpenChange={setCleanupFailedOpen}>
+        <AlertDialogContent className="border-destructive/30 bg-card shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-foreground">
+              {t('requests.cleanupFailed.title')}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-foreground/90">
+              {t('requests.cleanupFailed.description', { count: failedCount ?? 0 })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cleanupFailedRequests.isPending}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cleanupFailedRequests.isPending || (failedCount ?? 0) === 0}
+              onClick={handleCleanupFailedRequests}
+            >
+              {cleanupFailedRequests.isPending
+                ? t('requests.cleanupFailed.cleaning')
+                : t('requests.cleanupFailed.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Content */}
       <div className="flex-1 min-h-0 flex flex-col">

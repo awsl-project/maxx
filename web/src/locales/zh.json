@@ -282,6 +282,13 @@
       "providerTop": "Provider 错误 Top",
       "modelTop": "模型错误 Top",
       "trend": "请求/错误趋势"
+    },
+    "cleanupFailed": {
+      "action": "清理失败记录",
+      "title": "清理失败请求记录？",
+      "description": "将删除当前筛选条件下 {{count}} 条失败/错误请求记录，并同步删除对应 upstream attempts。成功请求和活跃请求不会被删除。",
+      "confirm": "清理失败记录",
+      "cleaning": "清理中..."
     }
   },
   "providers": {
@@ -645,6 +652,13 @@
       "description": "该项目的请求历史",
       "comingSoon": "项目请求追踪即将上线",
       "comingSoonNote": "该功能需要在 ProxyRequest 记录中增加 projectID。"
+    },
+    "archiveInactive": "归档闲置项目",
+    "archiveInactiveDialog": {
+      "title": "归档闲置项目？",
+      "description": "将归档 {{count}} 个从未使用或 {{days}} 天未使用的项目。项目会软删除，成功/失败请求记录不会被删除。",
+      "confirm": "归档项目",
+      "archiving": "归档中..."
     }
   },
   "routes": {

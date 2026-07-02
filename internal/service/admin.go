@@ -892,6 +892,51 @@ func (s *AdminService) DeleteProject(tenantID uint64, id uint64) error {
 	return s.projectRepo.Delete(tenantID, id)
 }
 
+func (s *AdminService) ArchiveInactiveProjects(tenantID uint64, thresholdDays int) (*domain.ProjectArchiveInactiveResult, error) {
+	if thresholdDays <= 0 {
+		return nil, errors.New("thresholdDays must be positive")
+	}
+
+	if s.proxyRequestRepo == nil {
+		return nil, errors.New("proxy request repository is required for inactive project archive")
+	}
+
+	projects, err := s.projectRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectUsage(tenantID, projects); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	archivedIDs := make([]uint64, 0)
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+		inactive := false
+		if project.LastRequestAt == nil {
+			inactive = true
+		} else if int(now.Sub(*project.LastRequestAt)/(24*time.Hour)) >= thresholdDays {
+			inactive = true
+		}
+		if !inactive {
+			continue
+		}
+		if err := s.projectRepo.Delete(tenantID, project.ID); err != nil {
+			return nil, err
+		}
+		archivedIDs = append(archivedIDs, project.ID)
+	}
+
+	return &domain.ProjectArchiveInactiveResult{
+		ArchivedCount: len(archivedIDs),
+		ArchivedIDs:   archivedIDs,
+		ThresholdDays: thresholdDays,
+	}, nil
+}
+
 // ===== Session API =====
 
 func (s *AdminService) GetSessions(tenantID uint64) ([]*domain.Session, error) {
@@ -1042,6 +1087,26 @@ func (s *AdminService) GetProxyRequestsCountWithFilter(tenantID uint64, filter *
 
 func (s *AdminService) GetProxyRequestErrorStats(tenantID uint64, filter *repository.ProxyRequestFilter) (*repository.ProxyRequestErrorStats, error) {
 	return s.proxyRequestRepo.GetErrorStats(tenantID, filter)
+}
+
+func (s *AdminService) CountFailedProxyRequests(tenantID uint64, filter *repository.ProxyRequestFilter) (int64, error) {
+	return s.proxyRequestRepo.CountFailedWithFilter(tenantID, filter)
+}
+
+func (s *AdminService) CleanupFailedProxyRequests(tenantID uint64, filter *repository.ProxyRequestFilter) (*domain.ProxyRequestCleanupFailedResult, error) {
+	cleanupFilter := repository.ProxyRequestFilter{}
+	if filter != nil {
+		cleanupFilter = *filter
+	}
+	cleanupFilter.ErrorMode = repository.ProxyRequestErrorModeOnly
+	deletedRequests, deletedAttempts, err := s.proxyRequestRepo.DeleteFailedWithFilter(tenantID, &cleanupFilter)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.ProxyRequestCleanupFailedResult{
+		DeletedCount:        deletedRequests,
+		DeletedAttemptCount: deletedAttempts,
+	}, nil
 }
 
 func (s *AdminService) GetProxyRequest(tenantID uint64, id uint64) (*domain.ProxyRequest, error) {

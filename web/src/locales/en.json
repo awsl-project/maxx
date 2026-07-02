@@ -283,6 +283,13 @@
       "providerTop": "Provider error top",
       "modelTop": "Model error top",
       "trend": "Request/error trend"
+    },
+    "cleanupFailed": {
+      "action": "Clean failed records",
+      "title": "Clean failed request records?",
+      "description": "This will delete {{count}} failed/error request records matching the current filters and their upstream attempts. Successful and active requests are not deleted.",
+      "confirm": "Clean failed records",
+      "cleaning": "Cleaning..."
     }
   },
   "providers": {
@@ -648,6 +655,13 @@
       "description": "Request history for this project",
       "comingSoon": "Request tracking by project coming soon",
       "comingSoonNote": "This feature requires adding projectID to ProxyRequest records."
+    },
+    "archiveInactive": "Archive inactive projects",
+    "archiveInactiveDialog": {
+      "title": "Archive inactive projects?",
+      "description": "This will archive {{count}} projects that were never used or have been idle for {{days}} days. Projects are soft-deleted; successful/failed request records are not deleted.",
+      "confirm": "Archive projects",
+      "archiving": "Archiving..."
     }
   },
   "routes": {

@@ -54,6 +54,14 @@ func (r *codexGuardProxyRequestRepo) GetErrorStats(uint64, *repository.ProxyRequ
 	return nil, nil
 }
 
+func (r *codexGuardProxyRequestRepo) CountFailedWithFilter(uint64, *repository.ProxyRequestFilter) (int64, error) {
+	return 0, nil
+}
+
+func (r *codexGuardProxyRequestRepo) DeleteFailedWithFilter(uint64, *repository.ProxyRequestFilter) (int64, int64, error) {
+	return 0, 0, nil
+}
+
 func (r *codexGuardProxyRequestRepo) UpdateProjectIDBySessionID(uint64, string, uint64) (int64, error) {
 	return 0, nil
 }

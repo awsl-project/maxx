@@ -129,6 +129,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case len(parts) == 2:
 			h.handleProjects(w, r, 0, parts)
+		case len(parts) == 3 && parts[2] == "archive-inactive":
+			h.handleArchiveInactiveProjects(w, r)
 		case len(parts) >= 3 && parts[2] == "by-slug":
 			if len(parts) > 4 {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -452,6 +454,36 @@ func (h *SelfServiceHandler) handleProjects(w http.ResponseWriter, r *http.Reque
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (h *SelfServiceHandler) handleArchiveInactiveProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if !h.requireAdmin(w, r) {
+		return
+	}
+
+	var body struct {
+		ThresholdDays int `json:"thresholdDays"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if body.ThresholdDays <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "thresholdDays must be positive"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	result, err := h.svc.ArchiveInactiveProjects(tenantID, body.ThresholdDays)
+	if err != nil {
+		writeSelfServiceInternalError(w, "ArchiveInactiveProjects failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *SelfServiceHandler) handleProjectBySlug(w http.ResponseWriter, r *http.Request, parts []string) {

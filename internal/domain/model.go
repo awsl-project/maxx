@@ -394,6 +394,13 @@ type ProjectUsageSummary struct {
 	TotalRequestCount         int64
 }
 
+// ProjectArchiveInactiveResult reports which inactive projects were archived.
+type ProjectArchiveInactiveResult struct {
+	ArchivedCount int      `json:"archivedCount"`
+	ArchivedIDs   []uint64 `json:"archivedIDs"`
+	ThresholdDays int      `json:"thresholdDays"`
+}
+
 type Session struct {
 	ID        uint64    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -590,6 +597,12 @@ type ProxyRequest struct {
 
 	// 是否开发者模式请求（由 Token 开关决定）
 	DevMode bool `json:"devMode"`
+}
+
+// ProxyRequestCleanupFailedResult reports removed failed request records and attempts.
+type ProxyRequestCleanupFailedResult struct {
+	DeletedCount        int64 `json:"deletedCount"`
+	DeletedAttemptCount int64 `json:"deletedAttemptCount"`
 }
 
 type ProxyUpstreamAttempt struct {

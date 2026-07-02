@@ -184,6 +184,12 @@ export type CreateProjectData = Omit<Project, 'id' | 'createdAt' | 'updatedAt' |
   slug?: string;
 };
 
+export interface ProjectArchiveInactiveResult {
+  archivedCount: number;
+  archivedIDs: number[];
+  thresholdDays: number;
+}
+
 // ===== Session =====
 
 export interface Session {
@@ -420,6 +426,11 @@ export interface ProxyRequestErrorStats {
   providerCounts: ProxyRequestProviderBucket[];
   modelCounts: ProxyRequestCountBucket[];
   trend: ProxyRequestTrendPoint[];
+}
+
+export interface ProxyRequestCleanupFailedResult {
+  deletedCount: number;
+  deletedAttemptCount: number;
 }
 
 export interface ProxyRequest {

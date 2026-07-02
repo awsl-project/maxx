@@ -865,3 +865,81 @@ func TestProxyRequestErrorStatsAggregatesCurrentFilter(t *testing.T) {
 		t.Fatal("expected non-empty trend")
 	}
 }
+
+func TestProxyRequestDeleteFailedWithFilterDeletesAttemptsAndPreservesNonErrors(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+
+	failed := buildTestProxyRequest("FAILED", 100)
+	failed.StatusCode = 500
+	failed.ProjectID = 10
+	completed := buildTestProxyRequest("COMPLETED", 101)
+	completed.ProjectID = 10
+	active := buildTestProxyRequest("IN_PROGRESS", 102)
+	active.StatusCode = 500
+	active.ProjectID = 10
+	rejectedOtherProject := buildTestProxyRequest("REJECTED", 103)
+	rejectedOtherProject.StatusCode = 403
+	rejectedOtherProject.ProjectID = 99
+
+	for _, req := range []*domain.ProxyRequest{failed, completed, active, rejectedOtherProject} {
+		if err := repo.Create(req); err != nil {
+			t.Fatalf("create request %s: %v", req.Status, err)
+		}
+	}
+
+	seedAttemptForRequest(t, attemptRepo, db, failed.ID, time.Now())
+	seedAttemptForRequest(t, attemptRepo, db, completed.ID, time.Now())
+	seedAttemptForRequest(t, attemptRepo, db, active.ID, time.Now())
+	seedAttemptForRequest(t, attemptRepo, db, rejectedOtherProject.ID, time.Now())
+
+	filter := &repository.ProxyRequestFilter{ProjectID: &failed.ProjectID}
+	candidateCount, err := repo.CountFailedWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("CountFailedWithFilter: %v", err)
+	}
+	if candidateCount != 1 {
+		t.Fatalf("cleanup candidate count = %d, want 1", candidateCount)
+	}
+
+	deletedRequests, deletedAttempts, err := repo.DeleteFailedWithFilter(1, filter)
+	if err != nil {
+		t.Fatalf("DeleteFailedWithFilter: %v", err)
+	}
+	if deletedRequests != 1 || deletedAttempts != 1 {
+		t.Fatalf("deleted requests/attempts = %d/%d, want 1/1", deletedRequests, deletedAttempts)
+	}
+
+	if _, err := repo.GetByID(1, failed.ID); err == nil {
+		t.Fatalf("failed request still exists after cleanup")
+	}
+	for _, req := range []*domain.ProxyRequest{completed, active, rejectedOtherProject} {
+		if _, err := repo.GetByID(req.TenantID, req.ID); err != nil {
+			t.Fatalf("request %d (%s) should be preserved: %v", req.ID, req.Status, err)
+		}
+	}
+
+	var orphanAttempts int64
+	if err := db.gorm.Model(&ProxyUpstreamAttempt{}).Where("proxy_request_id = ?", failed.ID).Count(&orphanAttempts).Error; err != nil {
+		t.Fatalf("count deleted attempts: %v", err)
+	}
+	if orphanAttempts != 0 {
+		t.Fatalf("failed request attempts left behind = %d, want 0", orphanAttempts)
+	}
+
+	var retainedAttempts int64
+	if err := db.gorm.Model(&ProxyUpstreamAttempt{}).
+		Where("proxy_request_id IN ?", []uint64{completed.ID, active.ID, rejectedOtherProject.ID}).
+		Count(&retainedAttempts).Error; err != nil {
+		t.Fatalf("count retained attempts: %v", err)
+	}
+	if retainedAttempts != 3 {
+		t.Fatalf("retained attempts = %d, want 3", retainedAttempts)
+	}
+}
