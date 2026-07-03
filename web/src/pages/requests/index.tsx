@@ -1057,24 +1057,24 @@ function RequestsOperationsPanel({
   return (
     <section
       data-testid="requests-operations-panel"
-      className="border-b border-border/70 bg-card/35 px-4 py-3 md:px-6"
+      className="border-b border-border/70 bg-card/35 px-4 py-2 md:px-6"
     >
-      <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <RequestsMetricCard
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-border/70 bg-background/65 p-2 shadow-sm">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
+          <RequestsMetricPill
             testId="requests-metric-total"
             label={t('requests.layout.total')}
             value={stats.totalCount.toLocaleString()}
             detail={loadedLabel}
           />
-          <RequestsMetricCard
+          <RequestsMetricPill
             testId="requests-metric-active"
             label={t('requests.layout.active')}
             value={stats.activeCount.toLocaleString()}
             detail={t('requests.layout.activeHint')}
             tone={stats.activeCount > 0 ? 'info' : 'default'}
           />
-          <RequestsMetricCard
+          <RequestsMetricPill
             testId="requests-metric-error-rate"
             label={t('requests.layout.errorRate')}
             value={`${(stats.errorRate * 100).toFixed(1)}%`}
@@ -1083,7 +1083,7 @@ function RequestsOperationsPanel({
             })}
             tone={stats.failedCount > 0 ? 'danger' : 'default'}
           />
-          <RequestsMetricCard
+          <RequestsMetricPill
             testId="requests-metric-p95"
             label={t('requests.layout.p95Latency')}
             value={formatOverviewDuration(stats.p95DurationNs)}
@@ -1091,29 +1091,15 @@ function RequestsOperationsPanel({
           />
         </div>
 
-        <div className="grid gap-2 rounded-xl border border-border/70 bg-background/60 p-3 shadow-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-20 shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t('requests.layout.scope')}
-            </span>
-            {filters}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-20 shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t('requests.layout.status')}
-            </span>
+        <div className="flex min-w-0 flex-[2_1_620px] flex-wrap items-center justify-end gap-x-2 gap-y-1.5">
+          <RequestsToolbarGroup label={t('requests.layout.scope')}>{filters}</RequestsToolbarGroup>
+          <RequestsToolbarGroup label={t('requests.layout.status')}>
             {statusFilters}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-20 shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t('requests.layout.time')}
-            </span>
+          </RequestsToolbarGroup>
+          <RequestsToolbarGroup label={t('requests.layout.time')}>
             {timeFilter}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
-            <span className="w-20 shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t('requests.layout.actions')}
-            </span>
+          </RequestsToolbarGroup>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-l border-border/70 pl-2">
             {actions}
           </div>
         </div>
@@ -1122,7 +1108,18 @@ function RequestsOperationsPanel({
   );
 }
 
-function RequestsMetricCard({
+function RequestsToolbarGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg border border-border/55 bg-card/60 px-2 py-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function RequestsMetricPill({
   testId,
   label,
   value,
@@ -1138,25 +1135,28 @@ function RequestsMetricCard({
   return (
     <div
       data-testid={testId}
+      title={`${label}: ${value} · ${detail}`}
       className={cn(
-        'rounded-xl border bg-background/70 px-3 py-2.5 shadow-sm',
+        'flex min-h-7 items-center gap-2 rounded-lg border bg-card/70 px-2.5 py-1 shadow-sm',
         tone === 'danger' ? 'border-error/35 bg-error/5' : 'border-border/70',
         tone === 'info' && 'border-info/35 bg-info/5',
       )}
     >
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span
         className={cn(
-          'mt-1 text-xl font-semibold leading-none text-foreground',
+          'text-sm font-semibold leading-none text-foreground',
           tone === 'danger' && 'text-error',
           tone === 'info' && 'text-info',
         )}
       >
         {value}
-      </div>
-      <div className="mt-1 truncate text-[11px] text-muted-foreground" title={detail}>
+      </span>
+      <span className="hidden max-w-32 truncate text-[11px] text-muted-foreground 2xl:inline">
         {detail}
-      </div>
+      </span>
     </div>
   );
 }
