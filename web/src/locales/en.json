@@ -290,6 +290,20 @@
       "description": "This will delete {{count}} failed/error request records matching the current filters and their upstream attempts. Successful and active requests are not deleted.",
       "confirm": "Clean failed records",
       "cleaning": "Cleaning..."
+    },
+    "layout": {
+      "total": "Total requests",
+      "loadedCount": "{{loaded}} loaded / {{total}} total",
+      "active": "Active now",
+      "activeHint": "Pending or streaming requests",
+      "errorRate": "Error rate",
+      "failedCount": "{{failed}} failed or rejected",
+      "p95Latency": "P95 latency",
+      "busiestProvider": "Top provider: {{provider}}",
+      "scope": "Scope",
+      "status": "Status",
+      "time": "Time",
+      "actions": "Actions"
     }
   },
   "providers": {
