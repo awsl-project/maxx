@@ -263,10 +263,12 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 			continue
 		}
 
-		// Check if provider supports the request model
-		// SupportModels check is done BEFORE mapping
-		// If SupportModels is configured, check if the request model is supported
-		if len(prov.SupportModels) > 0 && requestModel != "" {
+		// Check if provider supports the request model only when the adapter
+		// natively speaks the request protocol. Converted routes (for example an
+		// OpenAI chat route targeting a Claude provider) map the model later in
+		// dispatch, so applying provider-native SupportModels to the pre-mapped
+		// request model here would incorrectly drop valid cross-protocol routes.
+		if adapterSupportsClientType(adp, clientType) && len(prov.SupportModels) > 0 && requestModel != "" {
 			if !r.isModelSupported(requestModel, prov.SupportModels) {
 				continue
 			}
@@ -334,6 +336,15 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	}
 
 	return &MatchResult{Routes: matched, Sticky: stickyWrite}, nil
+}
+
+func adapterSupportsClientType(adapter provider.ProviderAdapter, clientType domain.ClientType) bool {
+	for _, supported := range adapter.SupportedClientTypes() {
+		if supported == clientType {
+			return true
+		}
+	}
+	return false
 }
 
 // isModelSupported checks if a model matches any pattern in the support list
