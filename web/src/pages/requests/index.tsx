@@ -113,64 +113,6 @@ function isServerRestartedFailure(request: Pick<ProxyRequest, 'status' | 'error'
   return request.status === 'FAILED' && request.error.trim() === 'Server restarted';
 }
 
-type RequestsOverviewStats = {
-  loadedCount: number;
-  totalCount: number;
-  activeCount: number;
-  failedCount: number;
-  errorRate: number;
-  p95DurationNs: number | null;
-  busiestProvider: string;
-};
-
-function percentile(values: number[], ratio: number): number | null {
-  if (values.length === 0) {
-    return null;
-  }
-
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * ratio) - 1));
-  return sorted[index];
-}
-
-function buildRequestsOverviewStats(
-  requests: ProxyRequest[],
-  totalCount: number,
-  activeCount: number,
-  providerMap: Map<number, string>,
-): RequestsOverviewStats {
-  const failedCount = requests.reduce((count, request) => {
-    return request.status === 'FAILED' || request.status === 'REJECTED' ? count + 1 : count;
-  }, 0);
-  const durationSamples = requests
-    .map((request) => request.duration)
-    .filter((duration): duration is number => Number.isFinite(duration) && duration > 0);
-  const providerCounts = new Map<number, number>();
-
-  requests.forEach((request) => {
-    if (request.providerID > 0) {
-      providerCounts.set(request.providerID, (providerCounts.get(request.providerID) ?? 0) + 1);
-    }
-  });
-
-  const busiestProviderId = Array.from(providerCounts.entries()).sort(
-    (a, b) => b[1] - a[1],
-  )[0]?.[0];
-
-  return {
-    loadedCount: requests.length,
-    totalCount,
-    activeCount,
-    failedCount,
-    errorRate: requests.length > 0 ? failedCount / requests.length : 0,
-    p95DurationNs: percentile(durationSamples, 0.95),
-    busiestProvider:
-      busiestProviderId !== undefined
-        ? (providerMap.get(busiestProviderId) ?? `#${busiestProviderId}`)
-        : '-',
-  };
-}
-
 /** Reads a positive numeric value from localStorage, returning undefined if absent or invalid. */
 function readStoredNumber(key: string): number | undefined {
   if (typeof window === 'undefined') {
@@ -477,10 +419,6 @@ export function RequestsPage() {
     }, 0);
   }, [allRequests]);
   const hasActiveRequests = activeCount > 0;
-  const requestsOverviewStats = useMemo(
-    () => buildRequestsOverviewStats(allRequests, total, activeCount, providerMap),
-    [activeCount, allRequests, providerMap, total],
-  );
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   // 高频实时更新时，仅保留可视区域附近的桌面行，减少表格重排和重绘成本。
@@ -797,96 +735,79 @@ export function RequestsPage() {
         iconClassName="text-emerald-500"
         title={t('requests.title')}
         description={t('requests.description', { count: total })}
-      />
-
-      <RequestsOperationsPanel
-        stats={requestsOverviewStats}
-        filters={
-          <>
-            <FilterModeSelect
-              mode={filterMode}
-              hasProjects={hasProjects}
-              onSelect={handleFilterModeChange}
-            />
-            {filterMode === 'provider' ? (
-              <ProviderFilter
-                providers={providers}
-                selectedProviderId={selectedProviderId}
-                onSelect={handleProviderFilterChange}
-              />
-            ) : filterMode === 'project' ? (
-              <ProjectFilter
-                projects={projects}
-                selectedProjectId={selectedProjectId}
-                onSelect={handleProjectFilterChange}
-              />
-            ) : (
-              <TokenFilter
-                tokens={apiTokens}
-                selectedTokenId={selectedTokenId}
-                onSelect={handleTokenFilterChange}
-              />
-            )}
-          </>
-        }
-        statusFilters={
-          <>
-            <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
-            <ErrorModeFilter mode={errorMode} onSelect={handleErrorModeChange} />
-          </>
-        }
-        timeFilter={
-          <TimeRangeFilter
-            startDate={startDate}
-            endDate={endDate}
-            onChange={handleTimeRangeChange}
-            onClear={handleClearTimeRange}
+      >
+        {/* Filter Mode + Dynamic Target Filter */}
+        <FilterModeSelect
+          mode={filterMode}
+          hasProjects={hasProjects}
+          onSelect={handleFilterModeChange}
+        />
+        {filterMode === 'provider' ? (
+          <ProviderFilter
+            providers={providers}
+            selectedProviderId={selectedProviderId}
+            onSelect={handleProviderFilterChange}
           />
-        }
-        actions={
-          <>
-            <button
-              type="button"
-              onClick={() => setErrorStatsOpen(true)}
-              className={cn(
-                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                'bg-error/10 hover:bg-error/15 border border-error/30 text-error',
-              )}
-            >
-              <BarChart3 size={14} />
-              <span>{t('requests.errorStats.action')}</span>
-            </button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              disabled={(failedCount ?? 0) === 0 || cleanupFailedRequests.isPending}
-              onClick={() => setCleanupFailedOpen(true)}
-            >
-              {cleanupFailedRequests.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="mr-2 h-4 w-4" />
-              )}
-              {t('requests.cleanupFailed.action')}
-            </Button>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={isFetching || waitingFilterValidation}
-              className={cn(
-                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
-                'text-muted-foreground hover:text-foreground',
-                (isFetching || waitingFilterValidation) && 'opacity-50 cursor-not-allowed',
-              )}
-            >
-              <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
-              <span>{t('requests.refresh')}</span>
-            </button>
-          </>
-        }
-      />
+        ) : filterMode === 'project' ? (
+          <ProjectFilter
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            onSelect={handleProjectFilterChange}
+          />
+        ) : (
+          <TokenFilter
+            tokens={apiTokens}
+            selectedTokenId={selectedTokenId}
+            onSelect={handleTokenFilterChange}
+          />
+        )}
+        {/* Status Filter */}
+        <StatusFilter selectedStatus={selectedStatus} onSelect={handleStatusFilterChange} />
+        <ErrorModeFilter mode={errorMode} onSelect={handleErrorModeChange} />
+        <button
+          onClick={() => setErrorStatsOpen(true)}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+            'bg-error/10 hover:bg-error/15 border border-error/30 text-error',
+          )}
+        >
+          <BarChart3 size={14} />
+          <span>{t('requests.errorStats.action')}</span>
+        </button>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={(failedCount ?? 0) === 0 || cleanupFailedRequests.isPending}
+          onClick={() => setCleanupFailedOpen(true)}
+        >
+          {cleanupFailedRequests.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="mr-2 h-4 w-4" />
+          )}
+          {t('requests.cleanupFailed.action')}
+        </Button>
+        <TimeRangeFilter
+          startDate={startDate}
+          endDate={endDate}
+          onChange={handleTimeRangeChange}
+          onClear={handleClearTimeRange}
+        />
+        <button
+          onClick={handleRefresh}
+          disabled={isFetching || waitingFilterValidation}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+            'bg-muted/50 hover:bg-muted border border-border/50 hover:border-border',
+            'text-muted-foreground hover:text-foreground',
+            (isFetching || waitingFilterValidation) && 'opacity-50 cursor-not-allowed',
+          )}
+        >
+          <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+          <span>{t('requests.refresh')}</span>
+        </button>
+      </PageHeader>
 
       <ErrorStatsDialog
         open={errorStatsOpen}
@@ -1019,144 +940,6 @@ export function RequestsPage() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function formatOverviewDuration(ns: number | null): string {
-  if (ns === null || ns <= 0) {
-    return '-';
-  }
-
-  const milliseconds = ns / 1_000_000;
-  if (milliseconds < 1000) {
-    return `${Math.round(milliseconds)}ms`;
-  }
-  return `${(milliseconds / 1000).toFixed(2)}s`;
-}
-
-function RequestsOperationsPanel({
-  stats,
-  filters,
-  statusFilters,
-  timeFilter,
-  actions,
-}: {
-  stats: RequestsOverviewStats;
-  filters: ReactNode;
-  statusFilters: ReactNode;
-  timeFilter: ReactNode;
-  actions: ReactNode;
-}) {
-  const { t } = useTranslation();
-  const loadedLabel = t('requests.layout.loadedCount', {
-    loaded: stats.loadedCount.toLocaleString(),
-    total: stats.totalCount.toLocaleString(),
-  });
-
-  return (
-    <section
-      data-testid="requests-operations-panel"
-      className="border-b border-border/70 bg-card/35 px-4 py-2 md:px-6"
-    >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-border/70 bg-background/65 p-2 shadow-sm">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
-          <RequestsMetricPill
-            testId="requests-metric-total"
-            label={t('requests.layout.total')}
-            value={stats.totalCount.toLocaleString()}
-            detail={loadedLabel}
-          />
-          <RequestsMetricPill
-            testId="requests-metric-active"
-            label={t('requests.layout.active')}
-            value={stats.activeCount.toLocaleString()}
-            detail={t('requests.layout.activeHint')}
-            tone={stats.activeCount > 0 ? 'info' : 'default'}
-          />
-          <RequestsMetricPill
-            testId="requests-metric-error-rate"
-            label={t('requests.layout.errorRate')}
-            value={`${(stats.errorRate * 100).toFixed(1)}%`}
-            detail={t('requests.layout.failedCount', {
-              failed: stats.failedCount.toLocaleString(),
-            })}
-            tone={stats.failedCount > 0 ? 'danger' : 'default'}
-          />
-          <RequestsMetricPill
-            testId="requests-metric-p95"
-            label={t('requests.layout.p95Latency')}
-            value={formatOverviewDuration(stats.p95DurationNs)}
-            detail={t('requests.layout.busiestProvider', { provider: stats.busiestProvider })}
-          />
-        </div>
-
-        <div className="flex min-w-0 flex-[2_1_620px] flex-wrap items-center justify-end gap-x-2 gap-y-1.5">
-          <RequestsToolbarGroup label={t('requests.layout.scope')}>{filters}</RequestsToolbarGroup>
-          <RequestsToolbarGroup label={t('requests.layout.status')}>
-            {statusFilters}
-          </RequestsToolbarGroup>
-          <RequestsToolbarGroup label={t('requests.layout.time')}>
-            {timeFilter}
-          </RequestsToolbarGroup>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-l border-border/70 pl-2">
-            {actions}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function RequestsToolbarGroup({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg border border-border/55 bg-card/60 px-2 py-1">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      {children}
-    </div>
-  );
-}
-
-function RequestsMetricPill({
-  testId,
-  label,
-  value,
-  detail,
-  tone = 'default',
-}: {
-  testId?: string;
-  label: string;
-  value: string;
-  detail: string;
-  tone?: 'default' | 'info' | 'danger';
-}) {
-  return (
-    <div
-      data-testid={testId}
-      title={`${label}: ${value} · ${detail}`}
-      className={cn(
-        'flex min-h-7 items-center gap-2 rounded-lg border bg-card/70 px-2.5 py-1 shadow-sm',
-        tone === 'danger' ? 'border-error/35 bg-error/5' : 'border-border/70',
-        tone === 'info' && 'border-info/35 bg-info/5',
-      )}
-    >
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      <span
-        className={cn(
-          'text-sm font-semibold leading-none text-foreground',
-          tone === 'danger' && 'text-error',
-          tone === 'info' && 'text-info',
-        )}
-      >
-        {value}
-      </span>
-      <span className="hidden max-w-32 truncate text-[11px] text-muted-foreground 2xl:inline">
-        {detail}
-      </span>
     </div>
   );
 }

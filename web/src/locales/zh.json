@@ -289,20 +289,6 @@
       "description": "将删除当前筛选条件下 {{count}} 条失败/错误请求记录，并同步删除对应 upstream attempts。成功请求和活跃请求不会被删除。",
       "confirm": "清理失败记录",
       "cleaning": "清理中..."
-    },
-    "layout": {
-      "total": "总请求数",
-      "loadedCount": "已加载 {{loaded}} / 共 {{total}}",
-      "active": "当前活跃",
-      "activeHint": "等待中或流式传输请求",
-      "errorRate": "错误率",
-      "failedCount": "{{failed}} 条失败或拒绝",
-      "p95Latency": "P95 延迟",
-      "busiestProvider": "最高频 Provider：{{provider}}",
-      "scope": "范围",
-      "status": "状态",
-      "time": "时间",
-      "actions": "操作"
     }
   },
   "providers": {
