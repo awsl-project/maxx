@@ -30,6 +30,8 @@ const state = {
   calls: [],
 };
 
+const RESPONSE_MODELS = ['gpt-4o-mini', 'claude-sonnet-4', 'gemini-2.5-pro', 'gpt-5'];
+
 const settings = {
   api_token_auth_enabled: 'true',
   force_project_binding: 'false',
@@ -156,6 +158,7 @@ async function installMock(page, user) {
     }
     if (path === '/api/api-tokens') return json(state.tokens.map(sanitize));
     if (path === '/api/admin/api-tokens') return json(state.tokens);
+    if (path === '/api/response-models') return json(RESPONSE_MODELS);
     if (path === '/api/admin/projects' || path === '/api/projects') return json([]);
     if (path === '/api/admin/requests/count') return json(0);
     if (path === '/api/admin/requests')
@@ -223,6 +226,10 @@ async function run() {
   await userPage.goto(`${BASE_URL}/`);
   await assertVisible(userPage, '暂无专用 Key');
   await assertVisible(userPage, '快速示例');
+  await assertVisible(userPage, '当前可用模型');
+  for (const model of RESPONSE_MODELS) {
+    await assertVisible(userPage, model);
+  }
   for (const url of [
     `${BASE_URL}/v1`,
     BASE_URL,

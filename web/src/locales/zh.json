@@ -166,7 +166,10 @@
     "routeClaude": "Claude",
     "routeGemini": "Gemini",
     "routeResponses": "Responses",
-    "routeOpenAICodex": "OpenAI / Codex"
+    "routeOpenAICodex": "OpenAI / Codex",
+    "availableModels": "当前可用模型",
+    "moreModels": "+{{count}} 个",
+    "noModels": "暂无模型"
   },
   "dashboard": {
     "title": "仪表板",

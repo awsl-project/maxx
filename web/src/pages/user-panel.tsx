@@ -20,6 +20,7 @@ import {
   useProxyStatus,
   usePublicSettings,
   useRegenerateUserPanelAPIToken,
+  useResponseModels,
   useUsageStats,
   useUserPanelAPIToken,
 } from '@/hooks/queries';
@@ -138,6 +139,7 @@ export function UserPanelPage() {
   const { user, logout } = useAuth();
   const { data: proxyStatus } = useProxyStatus();
   const { data: settings } = usePublicSettings();
+  const { data: responseModels = [], isLoading: modelsLoading } = useResponseModels();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
@@ -169,6 +171,8 @@ export function UserPanelPage() {
   const month = useMemo(() => buildUsageSummary(monthStats), [monthStats]);
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const activeTokens = userPanelToken && getTokenStatus(userPanelToken) === 'active' ? 1 : 0;
+  const visibleModels = responseModels.slice(0, 8);
+  const hiddenModelCount = Math.max(responseModels.length - visibleModels.length, 0);
 
   const tenantLabel = user?.tenantName?.trim()
     ? user.tenantName.trim()
@@ -410,6 +414,35 @@ export function UserPanelPage() {
                   {t('userPanel.yourKey')}
                   {'>'}
                 </code>
+              </div>
+              <div className="rounded-xl border border-border bg-muted/25 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('userPanel.availableModels')}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {modelsLoading ? (
+                    <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
+                  ) : visibleModels.length > 0 ? (
+                    <>
+                      {visibleModels.map((model) => (
+                        <Badge
+                          key={model}
+                          variant="outline"
+                          className="max-w-full truncate text-xs"
+                        >
+                          {model}
+                        </Badge>
+                      ))}
+                      {hiddenModelCount > 0 ? (
+                        <Badge variant="secondary" className="text-xs">
+                          {t('userPanel.moreModels', { count: hiddenModelCount })}
+                        </Badge>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">{t('userPanel.noModels')}</span>
+                  )}
+                </div>
               </div>
               <div className="rounded-xl border border-border bg-muted/25 p-4">
                 <div className="flex items-center justify-between gap-3">
