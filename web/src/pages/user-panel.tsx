@@ -20,7 +20,6 @@ import {
   useProxyStatus,
   usePublicSettings,
   useRegenerateUserPanelAPIToken,
-  useResponseModels,
   useUsageStats,
   useUserPanelAPIToken,
 } from '@/hooks/queries';
@@ -139,11 +138,10 @@ export function UserPanelPage() {
   const { user, logout } = useAuth();
   const { data: proxyStatus } = useProxyStatus();
   const { data: settings } = usePublicSettings();
-  const { data: responseModels = [], isLoading: modelsLoading } = useResponseModels();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
-  const [baseURLCopied, setBaseURLCopied] = useState(false);
+  const [copiedEndpointId, setCopiedEndpointId] = useState('');
   const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
@@ -171,8 +169,6 @@ export function UserPanelPage() {
   const month = useMemo(() => buildUsageSummary(monthStats), [monthStats]);
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const activeTokens = userPanelToken && getTokenStatus(userPanelToken) === 'active' ? 1 : 0;
-  const visibleModels = responseModels.slice(0, 8);
-  const hiddenModelCount = Math.max(responseModels.length - visibleModels.length, 0);
 
   const tenantLabel = user?.tenantName?.trim()
     ? user.tenantName.trim()
@@ -195,11 +191,11 @@ export function UserPanelPage() {
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'`;
 
-  const handleCopyBaseURL = async () => {
-    if (!openAICodexBaseURL || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(openAICodexBaseURL);
-    setBaseURLCopied(true);
-    window.setTimeout(() => setBaseURLCopied(false), 1600);
+  const handleCopyEndpoint = async (endpointId: string, url: string) => {
+    if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(url);
+    setCopiedEndpointId(endpointId);
+    window.setTimeout(() => setCopiedEndpointId(''), 1600);
   };
 
   const handleCopyOneTimeToken = async () => {
@@ -379,28 +375,27 @@ export function UserPanelPage() {
             </CardHeader>
             <CardContent className="space-y-4 pt-5">
               <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {t('userPanel.baseURL')}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-2"
-                    onClick={handleCopyBaseURL}
-                  >
-                    <Copy className="size-3.5" />
-                    {baseURLCopied ? t('common.copied') : t('common.copy')}
-                  </Button>
-                </div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('userPanel.baseURL')}
+                </p>
                 <div className="mt-3 space-y-2">
                   {endpointHints.map((endpoint) => (
                     <div
                       key={endpoint.id}
-                      className="grid gap-1 rounded-lg bg-background px-3 py-2 text-xs sm:grid-cols-[104px_1fr] sm:items-center"
+                      className="grid gap-2 rounded-lg bg-background px-3 py-2 text-xs sm:grid-cols-[104px_1fr_auto] sm:items-center"
                     >
                       <span className="font-medium text-foreground">{endpoint.label}</span>
                       <code className="break-all text-muted-foreground">{endpoint.url || '—'}</code>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-2"
+                        aria-label={`${t('common.copy')} ${endpoint.label}`}
+                        onClick={() => handleCopyEndpoint(endpoint.id, endpoint.url)}
+                      >
+                        <Copy className="size-3.5" />
+                        {copiedEndpointId === endpoint.id ? t('common.copied') : t('common.copy')}
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -414,35 +409,6 @@ export function UserPanelPage() {
                   {t('userPanel.yourKey')}
                   {'>'}
                 </code>
-              </div>
-              <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('userPanel.availableModels')}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {modelsLoading ? (
-                    <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
-                  ) : visibleModels.length > 0 ? (
-                    <>
-                      {visibleModels.map((model) => (
-                        <Badge
-                          key={model}
-                          variant="outline"
-                          className="max-w-full truncate text-xs"
-                        >
-                          {model}
-                        </Badge>
-                      ))}
-                      {hiddenModelCount > 0 ? (
-                        <Badge variant="secondary" className="text-xs">
-                          {t('userPanel.moreModels', { count: hiddenModelCount })}
-                        </Badge>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">{t('userPanel.noModels')}</span>
-                  )}
-                </div>
               </div>
               <div className="rounded-xl border border-border bg-muted/25 p-4">
                 <div className="flex items-center justify-between gap-3">

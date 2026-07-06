@@ -2087,23 +2087,44 @@ function MultiTenantUISection() {
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
 
-  const enabled = settings?.ui_multitenant_enabled === 'true';
-  const layout: MultiTenantUILayout =
+  const settingsEnabled = settings?.ui_multitenant_enabled === 'true';
+  const settingsLayout: MultiTenantUILayout =
     settings?.[MULTITENANT_UI_LAYOUT_SETTING_KEY] === 'user_panel' ? 'user_panel' : 'current';
+  const [localEnabled, setLocalEnabled] = useState(settingsEnabled);
+  const [localLayout, setLocalLayout] = useState<MultiTenantUILayout>(settingsLayout);
+
+  useEffect(() => {
+    setLocalEnabled(settingsEnabled);
+    setLocalLayout(settingsLayout);
+  }, [settingsEnabled, settingsLayout]);
 
   const handleToggle = async (checked: boolean) => {
-    await updateSetting.mutateAsync({
-      key: 'ui_multitenant_enabled',
-      value: checked ? 'true' : 'false',
-    });
+    const previous = localEnabled;
+    setLocalEnabled(checked);
+    try {
+      await updateSetting.mutateAsync({
+        key: 'ui_multitenant_enabled',
+        value: checked ? 'true' : 'false',
+      });
+    } catch (error) {
+      setLocalEnabled(previous);
+      throw error;
+    }
   };
 
   const handleLayoutChange = async (value: string) => {
     const nextLayout: MultiTenantUILayout = value === 'user_panel' ? 'user_panel' : 'current';
-    await updateSetting.mutateAsync({
-      key: MULTITENANT_UI_LAYOUT_SETTING_KEY,
-      value: nextLayout,
-    });
+    const previous = localLayout;
+    setLocalLayout(nextLayout);
+    try {
+      await updateSetting.mutateAsync({
+        key: MULTITENANT_UI_LAYOUT_SETTING_KEY,
+        value: nextLayout,
+      });
+    } catch (error) {
+      setLocalLayout(previous);
+      throw error;
+    }
   };
 
   if (isLoading) return null;
@@ -2128,13 +2149,13 @@ function MultiTenantUISection() {
           </div>
           <Switch
             aria-label={t('settings.enableMultiTenantUI')}
-            checked={enabled}
+            checked={localEnabled}
             onCheckedChange={handleToggle}
             disabled={updateSetting.isPending}
           />
         </div>
 
-        {enabled && (
+        {localEnabled && (
           <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <Label className="text-sm font-medium text-foreground">
@@ -2145,13 +2166,13 @@ function MultiTenantUISection() {
               </p>
             </div>
             <Select
-              value={layout}
+              value={localLayout}
               onValueChange={(value) => value && handleLayoutChange(value)}
               disabled={updateSetting.isPending}
             >
               <SelectTrigger className="w-full sm:w-56">
                 <SelectValue>
-                  {layout === 'user_panel'
+                  {localLayout === 'user_panel'
                     ? t('settings.multiTenantUILayoutUserPanel')
                     : t('settings.multiTenantUILayoutCurrent')}
                 </SelectValue>

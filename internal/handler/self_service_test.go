@@ -427,9 +427,17 @@ func (r *selfServiceSettingsRepo) Delete(key string) error {
 
 type selfServiceAPITokenRepo struct {
 	tokens []*domain.APIToken
+	nextID uint64
 }
 
 func (r *selfServiceAPITokenRepo) Create(token *domain.APIToken) error {
+	if token.ID == 0 {
+		r.nextID++
+		if r.nextID < 1000 {
+			r.nextID = 1000
+		}
+		token.ID = r.nextID
+	}
 	r.tokens = append(r.tokens, token)
 	return nil
 }
@@ -492,6 +500,8 @@ func (r *selfServiceAPITokenRepo) UpdateLastSeen(_ uint64, _ uint64, _ string, _
 
 type selfServiceUsageStatsRepo struct {
 	providerStats  map[uint64]*domain.ProviderStats
+	stats          []*domain.UsageStats
+	filters        []repository.UsageStatsFilter
 	lastTenantID   uint64
 	lastClientType string
 	lastProjectID  uint64
@@ -499,8 +509,20 @@ type selfServiceUsageStatsRepo struct {
 
 func (r *selfServiceUsageStatsRepo) Upsert(_ *domain.UsageStats) error        { return nil }
 func (r *selfServiceUsageStatsRepo) BatchUpsert(_ []*domain.UsageStats) error { return nil }
-func (r *selfServiceUsageStatsRepo) Query(_ uint64, _ repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
-	return nil, nil
+func (r *selfServiceUsageStatsRepo) Query(tenantID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+	r.lastTenantID = tenantID
+	r.filters = append(r.filters, filter)
+	var result []*domain.UsageStats
+	for _, stat := range r.stats {
+		if stat == nil || stat.TenantID != tenantID {
+			continue
+		}
+		if filter.APITokenID != nil && stat.APITokenID != *filter.APITokenID {
+			continue
+		}
+		result = append(result, stat)
+	}
+	return result, nil
 }
 func (r *selfServiceUsageStatsRepo) QueryDashboardData(_ uint64) (*domain.DashboardData, error) {
 	return nil, nil
@@ -2106,6 +2128,95 @@ func TestSelfServiceHandler_GetAPIToken_MemberRedactsPlaintextToken(t *testing.T
 	}
 }
 
+func TestSelfServiceHandler_UserPanelRegenerateDisablesOldTokenAndKeepsHistory(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "User Console Key (user 9)", Description: marker, IsEnabled: true},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token/regenerate"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if len(tokenRepo.tokens) != 2 {
+		t.Fatalf("tokens = %d, want old disabled + new active", len(tokenRepo.tokens))
+	}
+	var oldToken, newToken *domain.APIToken
+	for _, token := range tokenRepo.tokens {
+		switch token.ID {
+		case 10:
+			oldToken = token
+		default:
+			newToken = token
+		}
+	}
+	if oldToken == nil || oldToken.IsEnabled {
+		t.Fatalf("old token = %+v, want disabled historical token", oldToken)
+	}
+	if newToken == nil || !newToken.IsEnabled || newToken.Description != marker {
+		t.Fatalf("new token = %+v, want active replacement with same marker", newToken)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelUsageStatsFollowRegeneratedKeyHistory(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	usageRepo := &selfServiceUsageStatsRepo{
+		stats: []*domain.UsageStats{
+			{ID: 1, TenantID: 1, APITokenID: 10, TotalRequests: 96, SuccessfulRequests: 80, FailedRequests: 16, Model: "old-key-model"},
+			{ID: 2, TenantID: 1, APITokenID: 11, TotalRequests: 55, SuccessfulRequests: 40, FailedRequests: 15, Model: "new-key-model"},
+			{ID: 3, TenantID: 1, APITokenID: 99, TotalRequests: 999, SuccessfulRequests: 999, Model: "other-key-model"},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: &selfServiceAPITokenRepo{tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Description: marker, IsEnabled: false},
+			{ID: 11, TenantID: 1, Description: marker, IsEnabled: true},
+			{ID: 99, TenantID: 1, Description: "regular", IsEnabled: true},
+		}},
+		usageStatsRepo: usageRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/usage-stats?granularity=hour"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var stats []domain.UsageStats
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("stats = %+v, want old and new user panel token stats only", stats)
+	}
+	var total uint64
+	for _, stat := range stats {
+		total += stat.TotalRequests
+		if stat.APITokenID == 99 {
+			t.Fatalf("regular token stat leaked into user panel stats: %+v", stat)
+		}
+	}
+	if total != 151 {
+		t.Fatalf("total requests = %d, want 151", total)
+	}
+	if len(usageRepo.filters) != 2 {
+		t.Fatalf("filters = %+v, want one query per historical user panel token", usageRepo.filters)
+	}
+}
+
 func TestSelfServiceHandler_ListResponseModels_MemberAllowed(t *testing.T) {
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
 		providerRepo:      &selfServiceProviderRepo{},
@@ -2194,5 +2305,80 @@ func TestSelfServiceHandler_BulkDeleteProvidersErrorStatusCodes(t *testing.T) {
 	internalErrorHandler.ServeHTTP(internalErrorRec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers/bulk-delete", `{"ids":[10]}`))
 	if internalErrorRec.Code != http.StatusInternalServerError {
 		t.Fatalf("repository error status = %d, want %d, body = %s", internalErrorRec.Code, http.StatusInternalServerError, internalErrorRec.Body.String())
+	}
+}
+
+func newAdminHandlerForSelfServiceTestDeps(deps selfServiceTestDeps) *AdminHandler {
+	adminSvc := service.NewAdminService(
+		deps.providerRepo,
+		deps.routeRepo,
+		deps.projectRepo,
+		nil,
+		deps.retryConfigRepo,
+		nil,
+		nil,
+		nil,
+		deps.settingsRepo,
+		deps.apiTokenRepo,
+		nil,
+		nil,
+		deps.modelMappingRepo,
+		deps.usageStatsRepo,
+		deps.responseModelRepo,
+		deps.modelPriceRepo,
+		"",
+		nil,
+		nil,
+		nil,
+	)
+	return NewAdminHandler(adminSvc, nil, "")
+}
+
+func TestAdminHandler_UserPanelMemberUsageStatsFollowRegeneratedKeyHistory(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	usageRepo := &selfServiceUsageStatsRepo{
+		stats: []*domain.UsageStats{
+			{ID: 1, TenantID: 1, APITokenID: 10, TotalRequests: 96, SuccessfulRequests: 80, FailedRequests: 16, Model: "old-key-model"},
+			{ID: 2, TenantID: 1, APITokenID: 11, TotalRequests: 55715, SuccessfulRequests: 12120, FailedRequests: 43595, Model: "new-key-model"},
+			{ID: 3, TenantID: 1, APITokenID: 99, TotalRequests: 999, SuccessfulRequests: 999, Model: "other-key-model"},
+		},
+	}
+	handler := newAdminHandlerForSelfServiceTestDeps(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: &selfServiceAPITokenRepo{tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Description: marker, IsEnabled: false},
+			{ID: 11, TenantID: 1, Description: marker, IsEnabled: true},
+			{ID: 99, TenantID: 1, Description: "regular", IsEnabled: true},
+		}},
+		usageStatsRepo: usageRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, withSelfServiceContext(httptest.NewRequest(http.MethodGet, "/admin/usage-stats?granularity=hour", nil), domain.UserRoleMember))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var stats []domain.UsageStats
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("stats = %+v, want old and new user panel token stats only", stats)
+	}
+	var total uint64
+	for _, stat := range stats {
+		total += stat.TotalRequests
+		if stat.APITokenID == 99 {
+			t.Fatalf("regular token stat leaked into member user panel stats: %+v", stat)
+		}
+	}
+	if total != 55811 {
+		t.Fatalf("total requests = %d, want 55811", total)
+	}
+	if len(usageRepo.filters) != 2 {
+		t.Fatalf("filters = %+v, want one query per historical user panel token", usageRepo.filters)
 	}
 }
