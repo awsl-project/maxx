@@ -1055,7 +1055,8 @@
     "passkeyHint": "If this device already has a Passkey, you can sign in with it directly. For first-time setup, sign in with account credentials first.",
     "passkeyUsernameHint": "Username is optional. If provided, the system will try that account first for Passkey verification.",
     "passkeyUnsupportedHint": "This browser or device does not support Passkey. Use account login instead.",
-    "passkeyManageHint": "First-time setup path: sign in first, then open “Manage Passkeys” from the user menu in the bottom-right corner."
+    "passkeyManageHint": "First-time setup path: sign in first, then open “Manage Passkeys” from the user menu in the bottom-right corner.",
+    "adminTitle": "Admin Login"
   },
   "inviteCodes": {
     "title": "Invite Codes",

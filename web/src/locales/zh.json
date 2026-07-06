@@ -1052,7 +1052,8 @@
     "passkeyHint": "如果当前设备已经绑定过 Passkey，可直接使用它登录；首次绑定请先用账号密码登录。",
     "passkeyUsernameHint": "用户名可不填；若填写，系统会优先按该账号发起 Passkey 验证。",
     "passkeyUnsupportedHint": "当前设备或浏览器不支持 Passkey，请改用账号密码登录。",
-    "passkeyManageHint": "首次绑定路径：先登录，再打开右下角用户菜单中的“管理 Passkeys”。"
+    "passkeyManageHint": "首次绑定路径：先登录，再打开右下角用户菜单中的“管理 Passkeys”。",
+    "adminTitle": "管理员登录"
   },
   "inviteCodes": {
     "title": "邀请码",
