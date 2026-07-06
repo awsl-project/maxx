@@ -161,7 +161,12 @@
     "noDedicatedKeyDescription": "创建后会同步到管理员后台。",
     "createKey": "创建 Key",
     "quickStart": "快速示例",
-    "noUsageHint": "暂无调用，复制 Key 后开始统计。"
+    "noUsageHint": "暂无调用，复制 Key 后开始统计。",
+    "endpointURLs": "接口地址",
+    "routeOpenAI": "OpenAI",
+    "routeClaude": "Claude",
+    "routeGemini": "Gemini",
+    "routeResponses": "Responses"
   },
   "dashboard": {
     "title": "仪表板",

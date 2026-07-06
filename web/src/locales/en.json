@@ -161,7 +161,12 @@
     "noDedicatedKeyDescription": "Create one; admin tokens sync automatically.",
     "createKey": "Create key",
     "quickStart": "Quick start",
-    "noUsageHint": "No usage yet. Copy the key to start tracking."
+    "noUsageHint": "No usage yet. Copy the key to start tracking.",
+    "endpointURLs": "Endpoint URLs",
+    "routeOpenAI": "OpenAI",
+    "routeClaude": "Claude",
+    "routeGemini": "Gemini",
+    "routeResponses": "Responses"
   },
   "dashboard": {
     "title": "Dashboard",

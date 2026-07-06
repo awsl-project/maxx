@@ -141,7 +141,7 @@ export function UserPanelPage() {
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
-  const [copied, setCopied] = useState(false);
+  const [endpointCopied, setEndpointCopied] = useState('');
   const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
@@ -177,17 +177,27 @@ export function UserPanelPage() {
       : t('nav.tenantUnknown');
   const authProtected = settings?.api_token_auth_enabled === 'true';
   const proxyOnline = proxyStatus?.running ?? true;
-  const baseURL = typeof window === 'undefined' ? '' : `${window.location.origin}/v1`;
-  const curlExample = `curl ${baseURL}/chat/completions \
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const endpointURLs = [
+    { id: 'openai', label: t('userPanel.routeOpenAI'), url: `${origin}/v1/chat/completions` },
+    { id: 'claude', label: t('userPanel.routeClaude'), url: `${origin}/v1/messages` },
+    {
+      id: 'gemini',
+      label: t('userPanel.routeGemini'),
+      url: `${origin}/v1beta/models/{model}:generateContent`,
+    },
+    { id: 'responses', label: t('userPanel.routeResponses'), url: `${origin}/v1/responses` },
+  ];
+  const curlExample = `curl ${endpointURLs[0].url} \
   -H "Authorization: Bearer <${t('userPanel.yourKey')}>" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'`;
 
-  const handleCopyBaseURL = async () => {
-    if (!baseURL || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(baseURL);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+  const handleCopyEndpoint = async (id: string, url: string) => {
+    if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(url);
+    setEndpointCopied(id);
+    window.setTimeout(() => setEndpointCopied(''), 1600);
   };
 
   const handleCopyOneTimeToken = async () => {
@@ -367,21 +377,29 @@ export function UserPanelPage() {
             </CardHeader>
             <CardContent className="space-y-4 pt-5">
               <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {t('userPanel.baseURL')}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-2"
-                    onClick={handleCopyBaseURL}
-                  >
-                    <Copy className="size-3.5" />
-                    {copied ? t('common.copied') : t('common.copy')}
-                  </Button>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('userPanel.endpointURLs')}
+                </p>
+                <div className="mt-3 space-y-2">
+                  {endpointURLs.map((endpoint) => (
+                    <div
+                      key={endpoint.id}
+                      className="grid gap-2 rounded-lg bg-background px-3 py-2 text-xs sm:grid-cols-[76px_1fr_auto] sm:items-center"
+                    >
+                      <span className="font-medium text-foreground">{endpoint.label}</span>
+                      <code className="break-all text-muted-foreground">{endpoint.url}</code>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1.5 justify-self-start px-2 sm:justify-self-end"
+                        onClick={() => handleCopyEndpoint(endpoint.id, endpoint.url)}
+                      >
+                        <Copy className="size-3" />
+                        {endpointCopied === endpoint.id ? t('common.copied') : t('common.copy')}
+                      </Button>
+                    </div>
+                  ))}
                 </div>
-                <p className="mt-3 break-all font-mono text-sm">{baseURL || '—'}</p>
               </div>
               <div className="rounded-xl border border-border bg-muted/25 p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
