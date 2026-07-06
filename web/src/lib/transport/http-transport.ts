@@ -70,6 +70,7 @@ import type {
   APITokenCleanupResult,
   APITokenCreateResult,
   CreateAPITokenData,
+  UserPanelAPITokenResponse,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
   RouteSyncRequest,
@@ -1039,6 +1040,21 @@ export class HttpTransport implements Transport {
   async getVisibleAPITokens(): Promise<APIToken[]> {
     const { data } = await this.client.get<APIToken[]>('/api-tokens');
     return this.expectArray<APIToken>(data, '/api-tokens');
+  }
+
+  async getUserPanelAPIToken(): Promise<UserPanelAPITokenResponse> {
+    const { data } = await this.client.get<UserPanelAPITokenResponse>('/user-panel-token');
+    return data;
+  }
+
+  async createUserPanelAPIToken(): Promise<APITokenCreateResult> {
+    const { data } = await this.client.post<APITokenCreateResult>('/user-panel-token');
+    return data;
+  }
+
+  async regenerateUserPanelAPIToken(): Promise<APITokenCreateResult> {
+    const { data } = await this.client.post<APITokenCreateResult>('/user-panel-token/regenerate');
+    return data;
   }
 
   async createAPIToken(payload: CreateAPITokenData): Promise<APITokenCreateResult> {

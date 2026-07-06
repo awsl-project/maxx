@@ -2,13 +2,16 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/service"
 )
 
@@ -19,7 +22,10 @@ var publicSettingsAllowlist = map[string]struct{}{
 	"auto_sort_antigravity":  {},
 	"auto_sort_codex":        {},
 	"ui_multitenant_enabled": {},
+	"ui_multitenant_layout":  {},
 }
+
+const userPanelAPITokenDescriptionPrefix = "managed-by=maxx-user-panel;user-id="
 
 // SelfServiceHandler exposes tenant-scoped provider/project APIs for authenticated users.
 type SelfServiceHandler struct {
@@ -194,6 +200,12 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleProxyStatus(w, r)
+	case "usage-stats":
+		if len(parts) != 2 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		h.handleUsageStats(w, r)
 	case "api-tokens":
 		switch {
 		case len(parts) == 2:
@@ -204,6 +216,15 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.handleAPITokens(w, r, id)
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+	case "user-panel-token":
+		switch {
+		case len(parts) == 2:
+			h.handleUserPanelAPIToken(w, r, false)
+		case len(parts) == 3 && parts[2] == "regenerate":
+			h.handleUserPanelAPIToken(w, r, true)
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}
@@ -1044,6 +1065,182 @@ func (h *SelfServiceHandler) handleSettings(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	writeJSON(w, http.StatusOK, filtered)
+}
+
+func (h *SelfServiceHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	query := r.URL.Query()
+	filter := repository.UsageStatsFilter{}
+
+	switch query.Get("granularity") {
+	case "minute":
+		filter.Granularity = domain.GranularityMinute
+	case "day":
+		filter.Granularity = domain.GranularityDay
+	case "month":
+		filter.Granularity = domain.GranularityMonth
+	default:
+		filter.Granularity = domain.GranularityHour
+	}
+
+	if startStr := query.Get("start"); startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			utc := t.UTC()
+			filter.StartTime = &utc
+		}
+	}
+	if endStr := query.Get("end"); endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			utc := t.UTC()
+			filter.EndTime = &utc
+		}
+	}
+	if routeIDStr := query.Get("routeId"); routeIDStr != "" {
+		if id, err := strconv.ParseUint(routeIDStr, 10, 64); err == nil {
+			filter.RouteID = &id
+		}
+	}
+	if providerIDStr := query.Get("providerId"); providerIDStr != "" {
+		if id, err := strconv.ParseUint(providerIDStr, 10, 64); err == nil {
+			filter.ProviderID = &id
+		}
+	}
+	if projectIDStr := query.Get("projectId"); projectIDStr != "" {
+		if id, err := strconv.ParseUint(projectIDStr, 10, 64); err == nil {
+			filter.ProjectID = &id
+		}
+	}
+	if clientType := query.Get("clientType"); clientType != "" {
+		filter.ClientType = &clientType
+	}
+	if apiTokenIDStr := query.Get("apiTokenId"); apiTokenIDStr != "" {
+		if id, err := strconv.ParseUint(apiTokenIDStr, 10, 64); err == nil {
+			filter.APITokenID = &id
+		}
+	}
+	if model := query.Get("model"); model != "" {
+		filter.Model = &model
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	stats, err := h.svc.GetUsageStats(tenantID, filter)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUsageStats failed", err)
+		return
+	}
+	if stats == nil {
+		stats = []*domain.UsageStats{}
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (h *SelfServiceHandler) handleUserPanelAPIToken(w http.ResponseWriter, r *http.Request, regenerate bool) {
+	if regenerate {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+	} else if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel token is not enabled"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := h.findUserPanelAPITokens(tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": sanitizeAPIToken(firstUserPanelAPIToken(existing))})
+		return
+	}
+
+	if regenerate {
+		for _, token := range existing {
+			if err := h.svc.DeleteAPIToken(tenantID, token.ID); err != nil {
+				writeSelfServiceInternalError(w, "DeleteUserPanelAPIToken failed", err)
+				return
+			}
+		}
+	} else if firstUserPanelAPIToken(existing) != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":    "user panel token already exists",
+			"apiToken": sanitizeAPIToken(firstUserPanelAPIToken(existing)),
+		})
+		return
+	}
+
+	result, err := h.svc.CreateAPIToken(
+		tenantID,
+		userPanelAPITokenName(userID),
+		userPanelAPITokenDescription(userID),
+		0,
+		nil,
+	)
+	if err != nil {
+		writeSelfServiceInternalError(w, "CreateUserPanelAPIToken failed", err)
+		return
+	}
+	if result != nil {
+		result.APIToken = sanitizeAPIToken(result.APIToken)
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *SelfServiceHandler) userPanelLayoutEnabled() bool {
+	enabled, err := h.svc.GetSetting("ui_multitenant_enabled")
+	if err != nil || enabled != "true" {
+		return false
+	}
+	layout, err := h.svc.GetSetting("ui_multitenant_layout")
+	return err == nil && layout == "user_panel"
+}
+
+func (h *SelfServiceHandler) findUserPanelAPITokens(tenantID uint64, userID uint64) ([]*domain.APIToken, error) {
+	tokens, err := h.svc.GetAPITokens(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	marker := userPanelAPITokenDescription(userID)
+	var matches []*domain.APIToken
+	for _, token := range tokens {
+		if token != nil && token.Description == marker {
+			matches = append(matches, token)
+		}
+	}
+	return matches, nil
+}
+
+func firstUserPanelAPIToken(tokens []*domain.APIToken) *domain.APIToken {
+	if len(tokens) == 0 {
+		return nil
+	}
+	return tokens[0]
+}
+
+func userPanelAPITokenName(userID uint64) string {
+	return fmt.Sprintf("User Console Key (user %d)", userID)
+}
+
+func userPanelAPITokenDescription(userID uint64) string {
+	return fmt.Sprintf("%s%d", userPanelAPITokenDescriptionPrefix, userID)
 }
 
 func (h *SelfServiceHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, id uint64) {

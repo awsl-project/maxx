@@ -82,6 +82,8 @@ const DEFAULT_CODEX_REASONING_GUARD_SETTING = JSON.stringify(
   null,
   2,
 );
+const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
+type MultiTenantUILayout = 'current' | 'user_panel';
 
 type PayloadOverrideProtocol = 'codex';
 
@@ -1415,9 +1417,7 @@ function CodexReasoningGuardSection() {
           spellCheck={false}
         />
 
-        <p className="text-xs text-muted-foreground">
-          {t('settings.codexReasoningGuard.hint')}
-        </p>
+        <p className="text-xs text-muted-foreground">{t('settings.codexReasoningGuard.hint')}</p>
       </CardContent>
     </Card>
   );
@@ -2088,11 +2088,21 @@ function MultiTenantUISection() {
   const { t } = useTranslation();
 
   const enabled = settings?.ui_multitenant_enabled === 'true';
+  const layout: MultiTenantUILayout =
+    settings?.[MULTITENANT_UI_LAYOUT_SETTING_KEY] === 'user_panel' ? 'user_panel' : 'current';
 
   const handleToggle = async (checked: boolean) => {
     await updateSetting.mutateAsync({
       key: 'ui_multitenant_enabled',
       value: checked ? 'true' : 'false',
+    });
+  };
+
+  const handleLayoutChange = async (value: string) => {
+    const nextLayout: MultiTenantUILayout = value === 'user_panel' ? 'user_panel' : 'current';
+    await updateSetting.mutateAsync({
+      key: MULTITENANT_UI_LAYOUT_SETTING_KEY,
+      value: nextLayout,
     });
   };
 
@@ -2107,13 +2117,54 @@ function MultiTenantUISection() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="text-sm font-medium text-foreground">{t('settings.enableMultiTenantUI')}</div>
-            <p className="text-xs text-muted-foreground mt-1">{t('settings.enableMultiTenantUIDesc')}</p>
+            <div className="text-sm font-medium text-foreground">
+              {t('settings.enableMultiTenantUI')}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.enableMultiTenantUIDesc')}
+            </p>
           </div>
-          <Switch checked={enabled} onCheckedChange={handleToggle} disabled={updateSetting.isPending} />
+          <Switch
+            aria-label={t('settings.enableMultiTenantUI')}
+            checked={enabled}
+            onCheckedChange={handleToggle}
+            disabled={updateSetting.isPending}
+          />
         </div>
+
+        {enabled && (
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <Label className="text-sm font-medium text-foreground">
+                {t('settings.multiTenantUILayout')}
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                {t('settings.multiTenantUILayoutDesc')}
+              </p>
+            </div>
+            <Select
+              value={layout}
+              onValueChange={(value) => value && handleLayoutChange(value)}
+              disabled={updateSetting.isPending}
+            >
+              <SelectTrigger className="w-full sm:w-56">
+                <SelectValue>
+                  {layout === 'user_panel'
+                    ? t('settings.multiTenantUILayoutUserPanel')
+                    : t('settings.multiTenantUILayoutCurrent')}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="current">{t('settings.multiTenantUILayoutCurrent')}</SelectItem>
+                <SelectItem value="user_panel">
+                  {t('settings.multiTenantUILayoutUserPanel')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

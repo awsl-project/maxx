@@ -1062,6 +1062,10 @@ export interface APITokenCreateResult {
   apiToken: APIToken;
 }
 
+export interface UserPanelAPITokenResponse {
+  apiToken: APIToken | null;
+}
+
 export interface APITokenCleanupItem {
   id: number;
   name: string;
