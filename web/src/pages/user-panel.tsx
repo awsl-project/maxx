@@ -141,7 +141,7 @@ export function UserPanelPage() {
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
-  const [endpointCopied, setEndpointCopied] = useState('');
+  const [baseURLCopied, setBaseURLCopied] = useState(false);
   const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
@@ -178,26 +178,24 @@ export function UserPanelPage() {
   const authProtected = settings?.api_token_auth_enabled === 'true';
   const proxyOnline = proxyStatus?.running ?? true;
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  const endpointURLs = [
-    { id: 'openai', label: t('userPanel.routeOpenAI'), url: `${origin}/v1/chat/completions` },
-    { id: 'claude', label: t('userPanel.routeClaude'), url: `${origin}/v1/messages` },
-    {
-      id: 'gemini',
-      label: t('userPanel.routeGemini'),
-      url: `${origin}/v1beta/models/{model}:generateContent`,
-    },
-    { id: 'responses', label: t('userPanel.routeResponses'), url: `${origin}/v1/responses` },
+  const openAICodexBaseURL = `${origin}/v1`;
+  const claudeBaseURL = origin;
+  const geminiEndpoint = `${origin}/v1beta/models/{model}:generateContent`;
+  const endpointHints = [
+    { id: 'openai-codex', label: t('userPanel.routeOpenAICodex'), url: openAICodexBaseURL },
+    { id: 'claude', label: t('userPanel.routeClaude'), url: claudeBaseURL },
+    { id: 'gemini', label: t('userPanel.routeGemini'), url: geminiEndpoint },
   ];
-  const curlExample = `curl ${endpointURLs[0].url} \
+  const curlExample = `curl ${openAICodexBaseURL}/chat/completions \
   -H "Authorization: Bearer <${t('userPanel.yourKey')}>" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'`;
 
-  const handleCopyEndpoint = async (id: string, url: string) => {
-    if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(url);
-    setEndpointCopied(id);
-    window.setTimeout(() => setEndpointCopied(''), 1600);
+  const handleCopyBaseURL = async () => {
+    if (!openAICodexBaseURL || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(openAICodexBaseURL);
+    setBaseURLCopied(true);
+    window.setTimeout(() => setBaseURLCopied(false), 1600);
   };
 
   const handleCopyOneTimeToken = async () => {
@@ -377,26 +375,28 @@ export function UserPanelPage() {
             </CardHeader>
             <CardContent className="space-y-4 pt-5">
               <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('userPanel.endpointURLs')}
-                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t('userPanel.baseURL')}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-2"
+                    onClick={handleCopyBaseURL}
+                  >
+                    <Copy className="size-3.5" />
+                    {baseURLCopied ? t('common.copied') : t('common.copy')}
+                  </Button>
+                </div>
                 <div className="mt-3 space-y-2">
-                  {endpointURLs.map((endpoint) => (
+                  {endpointHints.map((endpoint) => (
                     <div
                       key={endpoint.id}
-                      className="grid gap-2 rounded-lg bg-background px-3 py-2 text-xs sm:grid-cols-[76px_1fr_auto] sm:items-center"
+                      className="grid gap-1 rounded-lg bg-background px-3 py-2 text-xs sm:grid-cols-[104px_1fr] sm:items-center"
                     >
                       <span className="font-medium text-foreground">{endpoint.label}</span>
-                      <code className="break-all text-muted-foreground">{endpoint.url}</code>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1.5 justify-self-start px-2 sm:justify-self-end"
-                        onClick={() => handleCopyEndpoint(endpoint.id, endpoint.url)}
-                      >
-                        <Copy className="size-3" />
-                        {endpointCopied === endpoint.id ? t('common.copied') : t('common.copy')}
-                      </Button>
+                      <code className="break-all text-muted-foreground">{endpoint.url || '—'}</code>
                     </div>
                   ))}
                 </div>

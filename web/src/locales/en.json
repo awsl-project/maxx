@@ -162,11 +162,11 @@
     "createKey": "Create key",
     "quickStart": "Quick start",
     "noUsageHint": "No usage yet. Copy the key to start tracking.",
-    "endpointURLs": "Endpoint URLs",
-    "routeOpenAI": "OpenAI",
+    "routeOpenAI": "OpenAI compatible",
     "routeClaude": "Claude",
     "routeGemini": "Gemini",
-    "routeResponses": "Responses"
+    "routeResponses": "Responses",
+    "routeOpenAICodex": "OpenAI / Codex"
   },
   "dashboard": {
     "title": "Dashboard",

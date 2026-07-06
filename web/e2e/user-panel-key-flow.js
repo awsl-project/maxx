@@ -222,20 +222,18 @@ async function run() {
   const userPage = await preparePage(context, MEMBER_USER);
   await userPage.goto(`${BASE_URL}/`);
   await assertVisible(userPage, '暂无专用 Key');
-  await assertVisible(userPage, '接口地址');
   await assertVisible(userPage, '快速示例');
   for (const url of [
-    `${BASE_URL}/v1/chat/completions`,
-    `${BASE_URL}/v1/messages`,
+    `${BASE_URL}/v1`,
+    BASE_URL,
     `${BASE_URL}/v1beta/models/{model}:generateContent`,
-    `${BASE_URL}/v1/responses`,
   ]) {
     await userPage.getByText(url, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
   }
   await userPage.getByRole('button', { name: /复制/ }).first().click();
   const copiedEndpoint = await userPage.evaluate(() => navigator.clipboard.readText());
-  assert.match(copiedEndpoint, /\/v1\/chat\/completions$/, 'endpoint copy should copy OpenAI URL');
-  await userPage.getByRole('button', { name: /复制/ }).nth(4).click();
+  assert.match(copiedEndpoint, /\/v1$/, 'base URL copy should copy OpenAI/Codex base URL');
+  await userPage.getByRole('button', { name: /复制/ }).nth(1).click();
   const copiedExample = await userPage.evaluate(() => navigator.clipboard.readText());
   assert.match(
     copiedExample,
