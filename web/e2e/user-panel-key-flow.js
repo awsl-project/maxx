@@ -249,7 +249,7 @@ async function run() {
   );
   await screenshot(userPage, '01-user-no-key');
 
-  await userPage.getByRole('button', { name: /创建 Key/ }).click();
+  await userPage.getByRole('button', { name: /生成 Key/ }).click();
   await assertVisible(userPage, '请立即复制');
   assert.equal(state.tokens.length, 1, 'create should add exactly one admin-visible token');
   const firstPlain = state.tokens[0].token;
@@ -269,7 +269,7 @@ async function run() {
   assert.equal(duplicateStatus, 409, 'second create without regenerate should be blocked');
 
   await userPage.reload();
-  await assertVisible(userPage, '完整 Key 已隐藏，可重新生成。');
+  await assertVisible(userPage, '完整 Key 已隐藏，只能重新生成。');
   await userPage
     .getByText(firstPlain, { exact: true })
     .waitFor({ state: 'detached', timeout: 10_000 })
