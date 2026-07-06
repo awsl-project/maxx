@@ -23,6 +23,7 @@ import { StatsPage } from '@/pages/stats';
 import { ModelMappingsPage } from '@/pages/model-mappings';
 import { ModelPricesPage } from '@/pages/model-prices';
 import { UsersPage } from '@/pages/users';
+import { UserPanelPage } from '@/pages/user-panel';
 import { AdminRoute } from '@/components/auth/admin-route';
 import { InviteCodesPage } from '@/pages/invite-codes';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
@@ -49,7 +50,8 @@ function MultiTenantUIRoute({ children }: { children: ReactNode }) {
 
 function AppRoutes() {
   const { t } = useTranslation();
-  const { isAuthenticated, isLoading, login } = useAuth();
+  const { isAuthenticated, isLoading, login, user } = useAuth();
+  const publicSettings = usePublicSettings();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -73,6 +75,22 @@ function AppRoutes() {
 
   if (!isAuthenticated) {
     return <LoginPage onSuccess={login} />;
+  }
+
+  if (user?.role !== 'admin' && publicSettings.isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <span className="text-muted-foreground">{t('common.loading')}</span>
+      </div>
+    );
+  }
+
+  if (
+    user?.role !== 'admin' &&
+    publicSettings.data?.ui_multitenant_enabled === 'true' &&
+    publicSettings.data?.ui_multitenant_layout === 'user_panel'
+  ) {
+    return <UserPanelPage />;
   }
 
   return (

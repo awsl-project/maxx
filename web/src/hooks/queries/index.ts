@@ -118,6 +118,12 @@ export {
   useDeleteAPIToken,
   useCleanupExpiredAPITokens,
 } from './use-api-tokens';
+export {
+  userPanelTokenKeys,
+  useUserPanelAPIToken,
+  useCreateUserPanelAPIToken,
+  useRegenerateUserPanelAPIToken,
+} from './use-user-panel-token';
 
 // Invite Code hooks
 export {

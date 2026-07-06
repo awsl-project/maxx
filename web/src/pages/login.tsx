@@ -1,19 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser';
-import {
-  ChevronDownIcon,
-  FingerprintIcon,
-} from 'lucide-react';
+import { ChevronDownIcon, FingerprintIcon } from 'lucide-react';
 import { BackendAddressControl } from '@/components/backend-address-control';
 import { PasswordRulesPopover } from '@/components/auth/password-rules-popover';
 import { FieldError } from '@/components/field-error';
 import { PasswordInput } from '@/components/password-input';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-} from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -29,17 +23,16 @@ import type { AuthUser } from '@/lib/auth-context';
 import { getManagedPasswordError, getManagedPasswordRuleState } from '@/lib/managed-password';
 import { useTransport } from '@/lib/transport';
 import { usePublicSettings } from '@/hooks/queries';
+import { cn } from '@/lib/utils';
 
 interface LoginPageProps {
   onSuccess: (token: string, user?: AuthUser) => void;
 }
 
-type AuthTab = 'login' | 'register';
+type AuthTab = 'login' | 'admin' | 'register';
 type LoginField = 'username' | 'password';
 type RegisterField = 'username' | 'password' | 'confirmPassword' | 'inviteCode';
-type RegisterMappedError =
-  | { field: RegisterField; message: string }
-  | { formError: string };
+type RegisterMappedError = { field: RegisterField; message: string } | { formError: string };
 
 function getRegisterPasswordError(password: string, t: (key: string) => string) {
   return getManagedPasswordError(password, t('login.passwordFormatInvalid'));
@@ -104,6 +97,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
 
   const passkeySupported = browserSupportsWebAuthn();
+  const isAdminLogin = !multiTenantUIEnabled || authTab === 'admin';
   const anyLoading =
     publicSettingsLoading || isLoginLoading || isRegisterLoading || isPasskeyLoading;
   const registerPasswordRuleState = getManagedPasswordRuleState(registerPassword);
@@ -145,9 +139,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     clearLoginMessages();
     clearPasskeyMessages();
 
-    const loginUsernameValue = multiTenantUIEnabled ? loginUsername.trim() : 'admin';
+    const loginUsernameValue = isAdminLogin ? 'admin' : loginUsername.trim();
     const nextErrors: Partial<Record<LoginField, string>> = {};
-    if (multiTenantUIEnabled && !loginUsernameValue) {
+    if (!isAdminLogin && !loginUsernameValue) {
       nextErrors.username = t('login.usernameRequired');
     }
     if (!loginPassword.trim()) {
@@ -176,7 +170,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         setLoginFormError(result.error || t('login.invalidCredentials'));
       }
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string }, status?: number } };
+      const axiosError = err as { response?: { data?: { error?: string }; status?: number } };
       const errorMsg = axiosError?.response?.data?.error;
 
       if (errorMsg === 'account pending approval') {
@@ -227,7 +221,11 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     setIsRegisterLoading(true);
 
     try {
-      const result = await transport.apply(registerUsername.trim(), registerPassword, inviteCode.trim());
+      const result = await transport.apply(
+        registerUsername.trim(),
+        registerPassword,
+        inviteCode.trim(),
+      );
       if (result.success) {
         setSuccessMessage(t('login.registerSuccess'));
         setLoginUsername(registerUsername.trim());
@@ -279,7 +277,10 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       }
 
       const authentication = await startAuthentication({ optionsJSON: beginResult.options });
-      const finishResult = await transport.finishPasskeyLogin(beginResult.sessionID, authentication);
+      const finishResult = await transport.finishPasskeyLogin(
+        beginResult.sessionID,
+        authentication,
+      );
       if (finishResult.success && finishResult.token) {
         onSuccess(finishResult.token, finishResult.user as AuthUser | undefined);
         return;
@@ -293,7 +294,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         setPasskeyError(finishResult.error || t('login.passkeyLoginFailed'));
       }
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string }, status?: number } };
+      const axiosError = err as { response?: { data?: { error?: string }; status?: number } };
       const errorMsg = axiosError?.response?.data?.error;
 
       if (errorMsg === 'account pending approval') {
@@ -350,6 +351,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                     } else {
                       setShowRegisterPasswordRules(false);
                     }
+                    if (value !== 'login') {
+                      setPasskeyExpanded(false);
+                    }
                     setRegisterPasswordsVisible(false);
                     clearLoginMessages();
                     clearRegisterMessages();
@@ -357,39 +361,72 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                   className="w-full"
                 >
                   {multiTenantUIEnabled && (
-                    <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl p-1">
-                    <TabsTrigger value="login" className="rounded-lg text-sm" disabled={anyLoading}>
-                      {t('login.primaryTitle')}
-                    </TabsTrigger>
-                    <TabsTrigger value="register" className="rounded-lg text-sm" disabled={anyLoading}>
-                      {t('login.registerSummaryTitle')}
-                    </TabsTrigger>
+                    <TabsList className="grid h-11 w-full grid-cols-3 rounded-xl p-1">
+                      <TabsTrigger
+                        value="login"
+                        data-active={authTab === 'login' ? '' : undefined}
+                        className={cn(
+                          'rounded-lg text-sm',
+                          authTab === 'login' &&
+                            'border-primary bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30 hover:text-primary-foreground',
+                        )}
+                        disabled={anyLoading}
+                      >
+                        {t('login.primaryTitle')}
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="admin"
+                        data-active={authTab === 'admin' ? '' : undefined}
+                        className={cn(
+                          'rounded-lg text-sm',
+                          authTab === 'admin' &&
+                            'border-primary bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30 hover:text-primary-foreground',
+                        )}
+                        disabled={anyLoading}
+                      >
+                        {t('login.adminTitle')}
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="register"
+                        data-active={authTab === 'register' ? '' : undefined}
+                        className={cn(
+                          'rounded-lg text-sm',
+                          authTab === 'register' &&
+                            'border-primary bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30 hover:text-primary-foreground',
+                        )}
+                        disabled={anyLoading}
+                      >
+                        {t('login.registerSummaryTitle')}
+                      </TabsTrigger>
                     </TabsList>
                   )}
 
                   <TabsContent value="login" className="mt-6 space-y-5">
                     <form onSubmit={handleLogin} className="space-y-5">
-                      {multiTenantUIEnabled && (
+                      {multiTenantUIEnabled && authTab === 'login' && (
                         <div className="space-y-2">
-                        <Label htmlFor="login-username">{t('login.usernameLabel')}</Label>
-                        <Input
-                          id="login-username"
-                          type="text"
-                          value={loginUsername}
-                          placeholder={t('login.usernamePlaceholder')}
-                          autoComplete="username"
-                          autoFocus
-                          disabled={anyLoading}
-                          className="h-11"
-                          aria-invalid={loginFieldErrors.username ? 'true' : undefined}
-                          onChange={(e) => {
-                            setLoginUsername(e.target.value);
-                            setLoginFieldErrors((current) => ({ ...current, username: undefined }));
-                            setLoginFormError('');
-                        setSuccessMessage('');
-                      }}
-                    />
-                        <FieldError message={loginFieldErrors.username} />
+                          <Label htmlFor="login-username">{t('login.usernameLabel')}</Label>
+                          <Input
+                            id="login-username"
+                            type="text"
+                            value={loginUsername}
+                            placeholder={t('login.usernamePlaceholder')}
+                            autoComplete="username"
+                            autoFocus
+                            disabled={anyLoading}
+                            className="h-11"
+                            aria-invalid={loginFieldErrors.username ? 'true' : undefined}
+                            onChange={(e) => {
+                              setLoginUsername(e.target.value);
+                              setLoginFieldErrors((current) => ({
+                                ...current,
+                                username: undefined,
+                              }));
+                              setLoginFormError('');
+                              setSuccessMessage('');
+                            }}
+                          />
+                          <FieldError message={loginFieldErrors.username} />
                         </div>
                       )}
 
@@ -411,16 +448,16 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                             setLoginFormError('');
                           }}
                         />
-                        {multiTenantUIEnabled && (
+                        {multiTenantUIEnabled && authTab === 'login' && (
                           <div className="flex justify-end">
-                          <Button
-                            type="button"
-                            variant="link"
-                            className="text-muted-foreground h-auto px-0 py-0 text-xs"
-                            onClick={() => setForgotPasswordOpen(true)}
-                          >
-                            {t('login.forgotPassword')}
-                          </Button>
+                            <Button
+                              type="button"
+                              variant="link"
+                              className="text-muted-foreground h-auto px-0 py-0 text-xs"
+                              onClick={() => setForgotPasswordOpen(true)}
+                            >
+                              {t('login.forgotPassword')}
+                            </Button>
                           </div>
                         )}
                         <FieldError message={loginFieldErrors.password} />
@@ -432,7 +469,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                         size="lg"
                         disabled={
                           anyLoading ||
-                          (multiTenantUIEnabled && !loginUsername.trim()) ||
+                          (!isAdminLogin && !loginUsername.trim()) ||
                           !loginPassword.trim()
                         }
                       >
@@ -440,133 +477,214 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                       </Button>
                     </form>
 
-                    {multiTenantUIEnabled && (
+                    {multiTenantUIEnabled && authTab === 'login' && (
                       <div className="space-y-3 border-t border-border/60 pt-4">
-                      <button
-                        type="button"
-                        className="flex w-full items-start gap-3 rounded-2xl border border-border/70 bg-muted/25 px-4 py-4 text-left transition-colors hover:bg-muted/45"
-                        onClick={() => setPasskeyExpanded((current) => !current)}
-                        aria-expanded={passkeyExpanded}
-                      >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-foreground ring-1 ring-border">
-                          <FingerprintIcon className="size-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-medium text-foreground">
-                            {t('login.passkeySummaryTitle')}
+                        <button
+                          type="button"
+                          className="flex w-full items-start gap-3 rounded-2xl border border-border/70 bg-muted/25 px-4 py-4 text-left transition-colors hover:bg-muted/45"
+                          onClick={() => setPasskeyExpanded((current) => !current)}
+                          aria-expanded={passkeyExpanded}
+                        >
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-foreground ring-1 ring-border">
+                            <FingerprintIcon className="size-4" />
                           </span>
-                          <span className="text-muted-foreground mt-1 block text-xs leading-5">
-                            {t('login.passkeySummaryDescription')}
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium text-foreground">
+                              {t('login.passkeySummaryTitle')}
+                            </span>
+                            <span className="text-muted-foreground mt-1 block text-xs leading-5">
+                              {t('login.passkeySummaryDescription')}
+                            </span>
                           </span>
-                        </span>
-                        <ChevronDownIcon
-                          className={`mt-1 size-4 shrink-0 transition-transform ${passkeyExpanded ? 'rotate-180' : ''}`}
-                        />
-                      </button>
+                          <ChevronDownIcon
+                            className={`mt-1 size-4 shrink-0 transition-transform ${passkeyExpanded ? 'rotate-180' : ''}`}
+                          />
+                        </button>
 
-                      {passkeyExpanded && (
-                        <div className="space-y-4 rounded-2xl border border-border/70 bg-muted/25 p-4">
-                          <div className="space-y-1">
-                            <p className="text-sm font-medium">{t('login.passkeySummaryTitle')}</p>
-                            <p className="text-muted-foreground text-sm leading-6">
-                              {t('login.passkeyHint')}
-                            </p>
-                          </div>
-
-                          <div className="rounded-lg border border-border/70 bg-background/80 p-3">
-                            <p className="text-sm leading-6 text-foreground">
-                              {t('login.passkeyManageHint')}
-                            </p>
-                          </div>
-
-                          {!passkeySupported && (
-                            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-                              {t('login.passkeyUnsupportedHint')}
+                        {passkeyExpanded && (
+                          <div className="space-y-4 rounded-2xl border border-border/70 bg-muted/25 p-4">
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium">
+                                {t('login.passkeySummaryTitle')}
+                              </p>
+                              <p className="text-muted-foreground text-sm leading-6">
+                                {t('login.passkeyHint')}
+                              </p>
                             </div>
-                          )}
 
-                          {passkeyError && (
-                            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                              {passkeyError}
+                            <div className="rounded-lg border border-border/70 bg-background/80 p-3">
+                              <p className="text-sm leading-6 text-foreground">
+                                {t('login.passkeyManageHint')}
+                              </p>
                             </div>
-                          )}
 
-                          <Button
-                            type="button"
-                            className="w-full"
-                            variant="secondary"
-                            size="lg"
-                            onClick={handlePasskeyLogin}
-                            disabled={anyLoading}
-                          >
-                            {isPasskeyLoading ? t('login.verifying') : t('login.passkeyLogin')}
-                          </Button>
-                        </div>
-                      )}
+                            {!passkeySupported && (
+                              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                                {t('login.passkeyUnsupportedHint')}
+                              </div>
+                            )}
+
+                            {passkeyError && (
+                              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                                {passkeyError}
+                              </div>
+                            )}
+
+                            <Button
+                              type="button"
+                              className="w-full"
+                              variant="secondary"
+                              size="lg"
+                              onClick={handlePasskeyLogin}
+                              disabled={anyLoading}
+                            >
+                              {isPasskeyLoading ? t('login.verifying') : t('login.passkeyLogin')}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </TabsContent>
 
                   {multiTenantUIEnabled && (
-                    <TabsContent value="register" className="mt-6 space-y-5">
-                    <div className="rounded-2xl border border-border/70 bg-muted/25 p-4">
-                      <p className="text-sm font-medium">{t('login.registerSummaryTitle')}</p>
-                      <p className="text-muted-foreground mt-1 text-sm leading-6">
-                        {t('login.registerSummaryDescription')}
-                      </p>
-                    </div>
-
-                    <form onSubmit={handleRegister} className="space-y-5">
-                      {registerFormError && (
-                        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                          {registerFormError}
-                        </div>
-                      )}
-
-                      <div className="space-y-2">
-                        <Label htmlFor="register-username">{t('login.usernameLabel')}</Label>
-                        <Input
-                          id="register-username"
-                          type="text"
-                          value={registerUsername}
-                          placeholder={t('login.usernamePlaceholder')}
-                          autoComplete="username"
-                          disabled={anyLoading}
-                          className="h-11"
-                          aria-invalid={registerFieldErrors.username ? 'true' : undefined}
-                          onChange={(e) => {
-                            setRegisterUsername(e.target.value);
-                            setRegisterFieldErrors((current) => ({ ...current, username: undefined }));
-                            setRegisterFormError('');
-                            setSuccessMessage('');
-                          }}
-                        />
-                        <FieldError message={registerFieldErrors.username} />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="register-password">{t('login.passwordLabel')}</Label>
-                        <div className="relative">
-                          <PasswordInput
-                            id="register-password"
-                            value={registerPassword}
+                    <TabsContent value="admin" className="mt-6 space-y-5">
+                      <form onSubmit={handleLogin} className="space-y-5">
+                        <div className="space-y-2">
+                          <Label htmlFor="admin-password">{t('login.passwordLabel')}</Label>
+                          <Input
+                            id="admin-password"
+                            type="password"
+                            value={loginPassword}
                             placeholder={t('login.passwordPlaceholder')}
+                            autoComplete="current-password"
+                            autoFocus
+                            disabled={anyLoading}
+                            className="h-11"
+                            aria-invalid={loginFieldErrors.password ? 'true' : undefined}
+                            onChange={(e) => {
+                              setLoginPassword(e.target.value);
+                              setLoginFieldErrors((current) => ({
+                                ...current,
+                                password: undefined,
+                              }));
+                              setLoginFormError('');
+                            }}
+                          />
+                          <FieldError message={loginFieldErrors.password} />
+                        </div>
+
+                        <Button
+                          type="submit"
+                          className="w-full"
+                          size="lg"
+                          disabled={anyLoading || !loginPassword.trim()}
+                        >
+                          {isLoginLoading ? t('login.verifying') : t('login.submit')}
+                        </Button>
+                      </form>
+                    </TabsContent>
+                  )}
+
+                  {multiTenantUIEnabled && (
+                    <TabsContent value="register" className="mt-6 space-y-5">
+                      <form onSubmit={handleRegister} className="space-y-5">
+                        {registerFormError && (
+                          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                            {registerFormError}
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <Label htmlFor="register-username">{t('login.usernameLabel')}</Label>
+                          <Input
+                            id="register-username"
+                            type="text"
+                            value={registerUsername}
+                            placeholder={t('login.usernamePlaceholder')}
+                            autoComplete="username"
+                            disabled={anyLoading}
+                            className="h-11"
+                            aria-invalid={registerFieldErrors.username ? 'true' : undefined}
+                            onChange={(e) => {
+                              setRegisterUsername(e.target.value);
+                              setRegisterFieldErrors((current) => ({
+                                ...current,
+                                username: undefined,
+                              }));
+                              setRegisterFormError('');
+                              setSuccessMessage('');
+                            }}
+                          />
+                          <FieldError message={registerFieldErrors.username} />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="register-password">{t('login.passwordLabel')}</Label>
+                          <div className="relative">
+                            <PasswordInput
+                              id="register-password"
+                              value={registerPassword}
+                              placeholder={t('login.passwordPlaceholder')}
+                              autoComplete="new-password"
+                              disabled={anyLoading}
+                              className="h-11"
+                              aria-invalid={registerFieldErrors.password ? 'true' : undefined}
+                              onFocus={() => setShowRegisterPasswordRules(true)}
+                              onBlur={() => setShowRegisterPasswordRules(false)}
+                              onChange={(e) => {
+                                const nextPassword = e.target.value;
+                                const nextPasswordError = getRegisterPasswordError(nextPassword, t);
+                                setRegisterPassword(nextPassword);
+                                setShowRegisterPasswordRules(true);
+                                setRegisterFieldErrors((current) => ({
+                                  ...current,
+                                  password: nextPasswordError,
+                                  confirmPassword:
+                                    confirmPassword && nextPassword !== confirmPassword
+                                      ? t('login.passwordMismatch')
+                                      : undefined,
+                                }));
+                                setRegisterFormError('');
+                              }}
+                              visible={registerPasswordsVisible}
+                              onVisibleChange={setRegisterPasswordsVisible}
+                            />
+                            <PasswordRulesPopover
+                              open={showRegisterPasswordRules}
+                              ruleState={registerPasswordRuleState}
+                              title={t('login.passwordChecklistTitle')}
+                              progressLabel={t('login.passwordCategoryProgress', {
+                                count: registerPasswordRuleState.categoryCount,
+                              })}
+                              minLengthLabel={t('login.passwordRuleMinLength')}
+                              numberLabel={t('login.passwordRuleNumber')}
+                              letterLabel={t('login.passwordRuleLetter')}
+                              punctuationLabel={t('login.passwordRulePunctuation')}
+                              className="sm:left-auto sm:right-0"
+                            />
+                          </div>
+                          <FieldError message={registerPasswordFieldError} />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="register-confirm-password">
+                            {t('login.confirmPasswordLabel')}
+                          </Label>
+                          <PasswordInput
+                            id="register-confirm-password"
+                            value={confirmPassword}
+                            placeholder={t('login.confirmPasswordPlaceholder')}
                             autoComplete="new-password"
                             disabled={anyLoading}
                             className="h-11"
-                            aria-invalid={registerFieldErrors.password ? 'true' : undefined}
-                            onFocus={() => setShowRegisterPasswordRules(true)}
-                            onBlur={() => setShowRegisterPasswordRules(false)}
+                            aria-invalid={registerFieldErrors.confirmPassword ? 'true' : undefined}
                             onChange={(e) => {
-                              const nextPassword = e.target.value;
-                              const nextPasswordError = getRegisterPasswordError(nextPassword, t);
-                              setRegisterPassword(nextPassword);
-                              setShowRegisterPasswordRules(true);
+                              const nextConfirmPassword = e.target.value;
+                              setConfirmPassword(nextConfirmPassword);
                               setRegisterFieldErrors((current) => ({
                                 ...current,
-                                password: nextPasswordError,
                                 confirmPassword:
-                                  confirmPassword && nextPassword !== confirmPassword
+                                  nextConfirmPassword && registerPassword !== nextConfirmPassword
                                     ? t('login.passwordMismatch')
                                     : undefined,
                               }));
@@ -575,83 +693,44 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
                             visible={registerPasswordsVisible}
                             onVisibleChange={setRegisterPasswordsVisible}
                           />
-                          <PasswordRulesPopover
-                            open={showRegisterPasswordRules}
-                            ruleState={registerPasswordRuleState}
-                            title={t('login.passwordChecklistTitle')}
-                            progressLabel={t('login.passwordCategoryProgress', {
-                              count: registerPasswordRuleState.categoryCount,
-                            })}
-                            minLengthLabel={t('login.passwordRuleMinLength')}
-                            numberLabel={t('login.passwordRuleNumber')}
-                            letterLabel={t('login.passwordRuleLetter')}
-                            punctuationLabel={t('login.passwordRulePunctuation')}
-                            className="sm:left-auto sm:right-0"
-                          />
+                          <FieldError message={registerFieldErrors.confirmPassword} />
                         </div>
-                        <FieldError message={registerPasswordFieldError} />
-                      </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="register-confirm-password">{t('login.confirmPasswordLabel')}</Label>
-                        <PasswordInput
-                          id="register-confirm-password"
-                          value={confirmPassword}
-                          placeholder={t('login.confirmPasswordPlaceholder')}
-                          autoComplete="new-password"
-                          disabled={anyLoading}
-                          className="h-11"
-                          aria-invalid={registerFieldErrors.confirmPassword ? 'true' : undefined}
-                          onChange={(e) => {
-                            const nextConfirmPassword = e.target.value;
-                            setConfirmPassword(nextConfirmPassword);
-                            setRegisterFieldErrors((current) => ({
-                              ...current,
-                              confirmPassword:
-                                nextConfirmPassword && registerPassword !== nextConfirmPassword
-                                  ? t('login.passwordMismatch')
-                                  : undefined,
-                            }));
-                            setRegisterFormError('');
-                          }}
-                          visible={registerPasswordsVisible}
-                          onVisibleChange={setRegisterPasswordsVisible}
-                        />
-                        <FieldError message={registerFieldErrors.confirmPassword} />
-                      </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="register-invite-code">{t('login.inviteCodeLabel')}</Label>
+                          <Input
+                            id="register-invite-code"
+                            type="text"
+                            value={inviteCode}
+                            placeholder={t('login.inviteCodePlaceholder')}
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            autoComplete="off"
+                            spellCheck={false}
+                            disabled={anyLoading}
+                            className="h-11"
+                            aria-invalid={registerFieldErrors.inviteCode ? 'true' : undefined}
+                            onChange={(e) => {
+                              setInviteCode(e.target.value);
+                              setRegisterFieldErrors((current) => ({
+                                ...current,
+                                inviteCode: undefined,
+                              }));
+                              setRegisterFormError('');
+                            }}
+                          />
+                          <FieldError message={registerFieldErrors.inviteCode} />
+                        </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="register-invite-code">{t('login.inviteCodeLabel')}</Label>
-                        <Input
-                          id="register-invite-code"
-                          type="text"
-                          value={inviteCode}
-                          placeholder={t('login.inviteCodePlaceholder')}
-                          autoCapitalize="off"
-                          autoCorrect="off"
-                          autoComplete="off"
-                          spellCheck={false}
-                          disabled={anyLoading}
-                          className="h-11"
-                          aria-invalid={registerFieldErrors.inviteCode ? 'true' : undefined}
-                          onChange={(e) => {
-                            setInviteCode(e.target.value);
-                            setRegisterFieldErrors((current) => ({ ...current, inviteCode: undefined }));
-                            setRegisterFormError('');
-                          }}
-                        />
-                        <FieldError message={registerFieldErrors.inviteCode} />
-                      </div>
-
-                      <Button
-                        type="submit"
-                        className="w-full"
-                        size="lg"
-                        disabled={isRegisterSubmitDisabled}
-                      >
-                        {isRegisterLoading ? t('login.registering') : t('login.register')}
-                      </Button>
-                    </form>
+                        <Button
+                          type="submit"
+                          className="w-full"
+                          size="lg"
+                          disabled={isRegisterSubmitDisabled}
+                        >
+                          {isRegisterLoading ? t('login.registering') : t('login.register')}
+                        </Button>
+                      </form>
                     </TabsContent>
                   )}
                 </Tabs>
