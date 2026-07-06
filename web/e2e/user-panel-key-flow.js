@@ -216,6 +216,16 @@ async function assertVisible(page, text) {
   await page.getByText(text, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
 }
 
+async function assertHidden(page, text) {
+  await page.getByText(text, { exact: true }).waitFor({ state: 'detached', timeout: 10_000 });
+}
+
+async function assertUserPanelUsageStatsRemoved(page) {
+  for (const text of ['接口使用统计', '今日调用', '本月调用', '成功率', '常用模型', '预估成本']) {
+    await assertHidden(page, text);
+  }
+}
+
 async function screenshot(page, name) {
   await page.screenshot({ path: `${OUT_DIR}/${name}.png`, fullPage: true });
 }
@@ -244,9 +254,8 @@ async function run() {
   await userPage.goto(`${BASE_URL}/`);
   await assertVisible(userPage, '暂无专用 Key');
   await assertVisible(userPage, '快速示例');
-  await userPage
-    .getByText('当前可用模型', { exact: true })
-    .waitFor({ state: 'detached', timeout: 10_000 });
+  await assertHidden(userPage, '当前可用模型');
+  await assertUserPanelUsageStatsRemoved(userPage);
   const endpoints = [
     { label: 'OpenAI / Codex', url: `${BASE_URL}/v1` },
     { label: 'Claude', url: BASE_URL },
@@ -320,11 +329,12 @@ async function run() {
     .getByText(secondPlain, { exact: true })
     .waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(state.tokens[0].id, 102, 'new token should be the active admin-visible token');
-  assert(
-    (await userPage.getByText('55,811', { exact: true }).count()) >= 2,
-    'today and month totals should inherit old + regenerated key usage',
+  await assertUserPanelUsageStatsRemoved(userPage);
+  assert.equal(
+    state.calls.filter((call) => call.path.includes('/api/usage-stats')).length,
+    0,
+    'user panel must not request usage stats after the usage block is removed',
   );
-  await userPage.getByText(/失败 43611 次/).waitFor({ state: 'visible', timeout: 10_000 });
   await screenshot(userPage, '05-user-regenerated-one-time-key');
 
   await navigateClient(adminPage, '/api-tokens');
@@ -347,7 +357,8 @@ async function run() {
       <body>
         <h1>Mock 交互证据</h1>
         <p>当前 active Token 数：<strong>${state.tokens.filter((token) => token.isEnabled).length}</strong></p>
-        <p>历史 Token 数：<strong>${state.tokens.length}</strong>；旧 token 禁用保留，统计继承。</p>
+        <p>历史 Token 数：<strong>${state.tokens.length}</strong>；旧 token 禁用保留，新 token active。</p>
+        <p>用户面板接口使用统计 UI 已移除，页面未请求 <code>/api/usage-stats</code>。</p>
         <p>当前 Token：<code>${state.tokens.find((token) => token.isEnabled)?.tokenPrefix}</code>，完整值仅在用户创建/重新生成瞬间出现。</p>
         <ul>${state.tokens.map((token) => `<li><code>${token.id}</code> ${token.isEnabled ? 'active' : 'disabled'} total=${state.usageByTokenId.get(token.id)?.total ?? 0}</li>`).join('')}</ul>
         <table>
