@@ -221,11 +221,11 @@ async function run() {
 
   const userPage = await preparePage(context, MEMBER_USER);
   await userPage.goto(`${BASE_URL}/`);
-  await assertVisible(userPage, '还没有用户控制台专用 Key');
+  await assertVisible(userPage, '暂无专用 Key');
   await screenshot(userPage, '01-user-no-key');
 
   await userPage.getByRole('button', { name: /创建 Key/ }).click();
-  await assertVisible(userPage, '现在复制这个 Key');
+  await assertVisible(userPage, '请立即复制');
   assert.equal(state.tokens.length, 1, 'create should add exactly one admin-visible token');
   const firstPlain = state.tokens[0].token;
   await userPage
@@ -244,7 +244,7 @@ async function run() {
   assert.equal(duplicateStatus, 409, 'second create without regenerate should be blocked');
 
   await userPage.reload();
-  await assertVisible(userPage, '创建后完整 Key 会被隐藏；如需新的可用 Key，请重新生成。');
+  await assertVisible(userPage, '完整 Key 已隐藏，可重新生成。');
   await userPage
     .getByText(firstPlain, { exact: true })
     .waitFor({ state: 'detached', timeout: 10_000 })
@@ -261,8 +261,8 @@ async function run() {
   await screenshot(adminPage, '04-admin-token-visible-after-create');
 
   userPage.once('dialog', (dialog) => dialog.accept());
-  await userPage.getByRole('button', { name: /重新生成 Key/ }).click();
-  await assertVisible(userPage, '现在复制这个 Key');
+  await userPage.getByRole('button', { name: /重新生成/ }).click();
+  await assertVisible(userPage, '请立即复制');
   assert.equal(state.tokens.length, 1, 'regenerate should replace old token with one token');
   const secondPlain = state.tokens[0].token;
   assert.notEqual(secondPlain, firstPlain, 'regenerated token should differ from old token');
