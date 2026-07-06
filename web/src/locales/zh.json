@@ -155,11 +155,13 @@
     "copyKey": "复制 Key",
     "existingKeyHint": "完整 Key 已隐藏，可重新生成。",
     "regenerateKey": "重新生成",
-    "regenerateConfirm": "旧 Key 将失效，并生成新 Key。继续？",
+    "regenerateConfirm": "旧 Key 将立即失效，并生成新 Key。继续？",
     "expiresAt": "过期时间",
     "noDedicatedKey": "暂无专用 Key",
     "noDedicatedKeyDescription": "创建后会同步到管理员后台。",
-    "createKey": "创建 Key"
+    "createKey": "创建 Key",
+    "quickStart": "快速示例",
+    "noUsageHint": "暂无调用，复制 Key 后开始统计。"
   },
   "dashboard": {
     "title": "仪表板",

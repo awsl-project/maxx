@@ -222,6 +222,14 @@ async function run() {
   const userPage = await preparePage(context, MEMBER_USER);
   await userPage.goto(`${BASE_URL}/`);
   await assertVisible(userPage, '暂无专用 Key');
+  await assertVisible(userPage, '快速示例');
+  await userPage.getByRole('button', { name: /复制/ }).nth(1).click();
+  const copiedExample = await userPage.evaluate(() => navigator.clipboard.readText());
+  assert.match(
+    copiedExample,
+    /chat\/completions/,
+    'quick start copy should include chat completions URL',
+  );
   await screenshot(userPage, '01-user-no-key');
 
   await userPage.getByRole('button', { name: /创建 Key/ }).click();

@@ -155,11 +155,13 @@
     "copyKey": "Copy key",
     "existingKeyHint": "Full key hidden. Regenerate to replace it.",
     "regenerateKey": "Regenerate",
-    "regenerateConfirm": "The old key will stop working and a new key will be created. Continue?",
+    "regenerateConfirm": "The old key will stop working immediately and a new key will be created. Continue?",
     "expiresAt": "Expires",
     "noDedicatedKey": "No dedicated key",
     "noDedicatedKeyDescription": "Create one; admin tokens sync automatically.",
-    "createKey": "Create key"
+    "createKey": "Create key",
+    "quickStart": "Quick start",
+    "noUsageHint": "No usage yet. Copy the key to start tracking."
   },
   "dashboard": {
     "title": "Dashboard",

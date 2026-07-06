@@ -119,14 +119,14 @@ function StatCard({
 }) {
   return (
     <Card className="border-border bg-card shadow-sm">
-      <CardContent className="flex items-start justify-between gap-3 p-4">
+      <CardContent className="flex min-h-28 items-start justify-between gap-3 p-4">
         <div>
           <p className="text-xs font-medium text-muted-foreground">{title}</p>
-          <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
+          <p className="mt-1.5 text-2xl font-semibold tracking-tight">{value}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{caption}</p>
         </div>
-        <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Icon className="size-5" />
+        <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Icon className="size-4" />
         </div>
       </CardContent>
     </Card>
@@ -142,6 +142,7 @@ export function UserPanelPage() {
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
   const [copied, setCopied] = useState(false);
+  const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
 
@@ -177,6 +178,10 @@ export function UserPanelPage() {
   const authProtected = settings?.api_token_auth_enabled === 'true';
   const proxyOnline = proxyStatus?.running ?? true;
   const baseURL = typeof window === 'undefined' ? '' : `${window.location.origin}/v1`;
+  const curlExample = `curl ${baseURL}/chat/completions \
+  -H "Authorization: Bearer <${t('userPanel.yourKey')}>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'`;
 
   const handleCopyBaseURL = async () => {
     if (!baseURL || typeof navigator === 'undefined' || !navigator.clipboard) return;
@@ -190,6 +195,13 @@ export function UserPanelPage() {
     await navigator.clipboard.writeText(oneTimeToken);
     setKeyCopied(true);
     window.setTimeout(() => setKeyCopied(false), 1600);
+  };
+
+  const handleCopyExample = async () => {
+    if (!curlExample || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(curlExample);
+    setExampleCopied(true);
+    window.setTimeout(() => setExampleCopied(false), 1600);
   };
 
   const handleCreateUserPanelToken = async () => {
@@ -237,34 +249,7 @@ export function UserPanelPage() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <StatCard
-            title={t('userPanel.todayCalls')}
-            value={formatNumber(today.totalRequests)}
-            caption={t('userPanel.last24Hours')}
-            icon={BarChart3}
-          />
-          <StatCard
-            title={t('userPanel.monthCalls')}
-            value={formatNumber(month.totalRequests)}
-            caption={t('userPanel.last30Days')}
-            icon={Activity}
-          />
-          <StatCard
-            title={t('userPanel.successRate')}
-            value={`${month.successRate}%`}
-            caption={t('userPanel.failedCalls', { count: month.failedRequests })}
-            icon={month.failedRequests > 0 ? XCircle : CheckCircle2}
-          />
-          <StatCard
-            title={t('userPanel.activeKeys')}
-            value={formatNumber(activeTokens)}
-            caption={t('userPanel.totalKeys', { count: userPanelToken ? 1 : 0 })}
-            icon={KeyRound}
-          />
-        </section>
-
-        <section className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
           <Card className="border-border bg-card shadow-sm">
             <CardHeader className="border-b border-border">
               <CardTitle className="flex items-center gap-2 text-base font-medium">
@@ -324,7 +309,7 @@ export function UserPanelPage() {
                     </div>
                     <Button
                       variant="outline"
-                      className="gap-2"
+                      className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10"
                       disabled={tokenActionPending}
                       onClick={handleRegenerateUserPanelToken}
                     >
@@ -408,6 +393,25 @@ export function UserPanelPage() {
                   {'>'}
                 </code>
               </div>
+              <div className="rounded-xl border border-border bg-muted/25 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t('userPanel.quickStart')}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-2"
+                    onClick={handleCopyExample}
+                  >
+                    <Copy className="size-3.5" />
+                    {exampleCopied ? t('common.copied') : t('common.copy')}
+                  </Button>
+                </div>
+                <pre className="mt-3 overflow-x-auto rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
+                  <code>{curlExample}</code>
+                </pre>
+              </div>
               <div className="grid gap-3 text-sm text-muted-foreground">
                 <div className="flex items-center justify-between gap-3">
                   <span>{t('userPanel.version')}</span>
@@ -424,6 +428,33 @@ export function UserPanelPage() {
           </Card>
         </section>
 
+        <section className="grid gap-4 md:grid-cols-4">
+          <StatCard
+            title={t('userPanel.todayCalls')}
+            value={formatNumber(today.totalRequests)}
+            caption={t('userPanel.last24Hours')}
+            icon={BarChart3}
+          />
+          <StatCard
+            title={t('userPanel.monthCalls')}
+            value={formatNumber(month.totalRequests)}
+            caption={t('userPanel.last30Days')}
+            icon={Activity}
+          />
+          <StatCard
+            title={t('userPanel.successRate')}
+            value={`${month.successRate}%`}
+            caption={t('userPanel.failedCalls', { count: month.failedRequests })}
+            icon={month.failedRequests > 0 ? XCircle : CheckCircle2}
+          />
+          <StatCard
+            title={t('userPanel.activeKeys')}
+            value={formatNumber(activeTokens)}
+            caption={t('userPanel.totalKeys', { count: userPanelToken ? 1 : 0 })}
+            icon={KeyRound}
+          />
+        </section>
+
         <section className="grid gap-5 lg:grid-cols-3">
           <Card className="border-border bg-card shadow-sm lg:col-span-2">
             <CardHeader className="border-b border-border">
@@ -432,24 +463,33 @@ export function UserPanelPage() {
                 {t('userPanel.usageDetails')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 pt-5 sm:grid-cols-3">
-              <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t('userPanel.topModel')}
+            <CardContent className="space-y-4 pt-5">
+              {month.totalRequests === 0 ? (
+                <p className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                  {t('userPanel.noUsageHint')}
                 </p>
-                <p className="mt-2 truncate font-semibold">{month.topModel}</p>
-              </div>
-              <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <p className="text-xs font-medium text-muted-foreground">{t('userPanel.tokens')}</p>
-                <p className="mt-2 font-semibold">
-                  {formatNumber(month.inputTokens + month.outputTokens)}
-                </p>
-              </div>
-              <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t('userPanel.estimatedCost')}
-                </p>
-                <p className="mt-2 font-semibold">{formatCost(month.cost)}</p>
+              ) : null}
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-border bg-muted/25 p-4">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('userPanel.topModel')}
+                  </p>
+                  <p className="mt-2 truncate font-semibold">{month.topModel}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-muted/25 p-4">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('userPanel.tokens')}
+                  </p>
+                  <p className="mt-2 font-semibold">
+                    {formatNumber(month.inputTokens + month.outputTokens)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-muted/25 p-4">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('userPanel.estimatedCost')}
+                  </p>
+                  <p className="mt-2 font-semibold">{formatCost(month.cost)}</p>
+                </div>
               </div>
             </CardContent>
           </Card>
