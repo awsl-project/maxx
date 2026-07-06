@@ -1,17 +1,5 @@
-import { useMemo, useState } from 'react';
-import {
-  Activity,
-  BarChart3,
-  CheckCircle2,
-  Clock3,
-  Copy,
-  KeyRound,
-  LogOut,
-  Server,
-  ShieldCheck,
-  UserRound,
-  XCircle,
-} from 'lucide-react';
+import { useState } from 'react';
+import { Clock3, Copy, KeyRound, LogOut, Server, ShieldCheck, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { useAuth } from '@/lib/auth-context';
@@ -20,24 +8,10 @@ import {
   useProxyStatus,
   usePublicSettings,
   useRegenerateUserPanelAPIToken,
-  useResponseModels,
-  useUsageStats,
   useUserPanelAPIToken,
 } from '@/hooks/queries';
-import { getTimeRange } from '@/hooks/queries/use-usage-stats';
-import type { APIToken, UsageStats, UsageStatsFilter } from '@/lib/transport';
+import type { APIToken } from '@/lib/transport';
 import { cn } from '@/lib/utils';
-
-interface UsageSummary {
-  totalRequests: number;
-  successfulRequests: number;
-  failedRequests: number;
-  inputTokens: number;
-  outputTokens: number;
-  cost: number;
-  successRate: number;
-  topModel: string;
-}
 
 function maskNumericIdentity(value?: number) {
   if (!value || value <= 0) return '••';
@@ -62,76 +36,10 @@ function formatDateTime(value?: string) {
   }).format(date);
 }
 
-function formatCost(microUsd: number) {
-  if (!microUsd) return '$0.00';
-  return `$${(microUsd / 1_000_000).toFixed(4)}`;
-}
-
-function buildUsageSummary(stats: UsageStats[] | undefined): UsageSummary {
-  const modelCounts = new Map<string, number>();
-  const summary = (stats ?? []).reduce<UsageSummary>(
-    (acc, item) => {
-      acc.totalRequests += item.totalRequests || 0;
-      acc.successfulRequests += item.successfulRequests || 0;
-      acc.failedRequests += item.failedRequests || 0;
-      acc.inputTokens += item.inputTokens || 0;
-      acc.outputTokens += item.outputTokens || 0;
-      acc.cost += item.cost || 0;
-      if (item.model) {
-        modelCounts.set(item.model, (modelCounts.get(item.model) ?? 0) + (item.totalRequests || 0));
-      }
-      return acc;
-    },
-    {
-      totalRequests: 0,
-      successfulRequests: 0,
-      failedRequests: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      cost: 0,
-      successRate: 0,
-      topModel: '—',
-    },
-  );
-
-  summary.successRate = summary.totalRequests
-    ? Math.round((summary.successfulRequests / summary.totalRequests) * 1000) / 10
-    : 0;
-  summary.topModel = Array.from(modelCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
-  return summary;
-}
-
 function getTokenStatus(token: APIToken) {
   if (!token.isEnabled) return 'disabled';
   if (token.expiresAt && new Date(token.expiresAt).getTime() <= Date.now()) return 'expired';
   return 'active';
-}
-
-function StatCard({
-  title,
-  value,
-  caption,
-  icon: Icon,
-}: {
-  title: string;
-  value: string;
-  caption: string;
-  icon: typeof Activity;
-}) {
-  return (
-    <Card className="border-border bg-card shadow-sm">
-      <CardContent className="flex min-h-28 items-start justify-between gap-3 p-4">
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">{title}</p>
-          <p className="mt-1.5 text-2xl font-semibold tracking-tight">{value}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{caption}</p>
-        </div>
-        <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Icon className="size-4" />
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 export function UserPanelPage() {
@@ -139,40 +47,15 @@ export function UserPanelPage() {
   const { user, logout } = useAuth();
   const { data: proxyStatus } = useProxyStatus();
   const { data: settings } = usePublicSettings();
-  const { data: responseModels = [], isLoading: modelsLoading } = useResponseModels();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
-  const [baseURLCopied, setBaseURLCopied] = useState(false);
+  const [copiedEndpointId, setCopiedEndpointId] = useState('');
   const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
 
-  const todayFilter = useMemo<UsageStatsFilter>(() => {
-    const range = getTimeRange('last_24_hours');
-    return {
-      granularity: range.granularity,
-      start: range.start.toISOString(),
-      end: range.end.toISOString(),
-    };
-  }, []);
-  const monthFilter = useMemo<UsageStatsFilter>(() => {
-    const range = getTimeRange('last_30_days');
-    return {
-      granularity: range.granularity,
-      start: range.start.toISOString(),
-      end: range.end.toISOString(),
-    };
-  }, []);
-  const { data: todayStats } = useUsageStats(todayFilter);
-  const { data: monthStats } = useUsageStats(monthFilter);
-
-  const today = useMemo(() => buildUsageSummary(todayStats), [todayStats]);
-  const month = useMemo(() => buildUsageSummary(monthStats), [monthStats]);
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
-  const activeTokens = userPanelToken && getTokenStatus(userPanelToken) === 'active' ? 1 : 0;
-  const visibleModels = responseModels.slice(0, 8);
-  const hiddenModelCount = Math.max(responseModels.length - visibleModels.length, 0);
 
   const tenantLabel = user?.tenantName?.trim()
     ? user.tenantName.trim()
@@ -195,11 +78,11 @@ export function UserPanelPage() {
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'`;
 
-  const handleCopyBaseURL = async () => {
-    if (!openAICodexBaseURL || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(openAICodexBaseURL);
-    setBaseURLCopied(true);
-    window.setTimeout(() => setBaseURLCopied(false), 1600);
+  const handleCopyEndpoint = async (endpointId: string, url: string) => {
+    if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(url);
+    setCopiedEndpointId(endpointId);
+    window.setTimeout(() => setCopiedEndpointId(''), 1600);
   };
 
   const handleCopyOneTimeToken = async () => {
@@ -379,28 +262,27 @@ export function UserPanelPage() {
             </CardHeader>
             <CardContent className="space-y-4 pt-5">
               <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {t('userPanel.baseURL')}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-2"
-                    onClick={handleCopyBaseURL}
-                  >
-                    <Copy className="size-3.5" />
-                    {baseURLCopied ? t('common.copied') : t('common.copy')}
-                  </Button>
-                </div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('userPanel.baseURL')}
+                </p>
                 <div className="mt-3 space-y-2">
                   {endpointHints.map((endpoint) => (
                     <div
                       key={endpoint.id}
-                      className="grid gap-1 rounded-lg bg-background px-3 py-2 text-xs sm:grid-cols-[104px_1fr] sm:items-center"
+                      className="grid gap-2 rounded-lg bg-background px-3 py-2 text-xs sm:grid-cols-[104px_1fr_auto] sm:items-center"
                     >
                       <span className="font-medium text-foreground">{endpoint.label}</span>
                       <code className="break-all text-muted-foreground">{endpoint.url || '—'}</code>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-2"
+                        aria-label={`${t('common.copy')} ${endpoint.label}`}
+                        onClick={() => handleCopyEndpoint(endpoint.id, endpoint.url)}
+                      >
+                        <Copy className="size-3.5" />
+                        {copiedEndpointId === endpoint.id ? t('common.copied') : t('common.copy')}
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -414,35 +296,6 @@ export function UserPanelPage() {
                   {t('userPanel.yourKey')}
                   {'>'}
                 </code>
-              </div>
-              <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('userPanel.availableModels')}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {modelsLoading ? (
-                    <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
-                  ) : visibleModels.length > 0 ? (
-                    <>
-                      {visibleModels.map((model) => (
-                        <Badge
-                          key={model}
-                          variant="outline"
-                          className="max-w-full truncate text-xs"
-                        >
-                          {model}
-                        </Badge>
-                      ))}
-                      {hiddenModelCount > 0 ? (
-                        <Badge variant="secondary" className="text-xs">
-                          {t('userPanel.moreModels', { count: hiddenModelCount })}
-                        </Badge>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">{t('userPanel.noModels')}</span>
-                  )}
-                </div>
               </div>
               <div className="rounded-xl border border-border bg-muted/25 p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -479,73 +332,8 @@ export function UserPanelPage() {
           </Card>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <StatCard
-            title={t('userPanel.todayCalls')}
-            value={formatNumber(today.totalRequests)}
-            caption={t('userPanel.last24Hours')}
-            icon={BarChart3}
-          />
-          <StatCard
-            title={t('userPanel.monthCalls')}
-            value={formatNumber(month.totalRequests)}
-            caption={t('userPanel.last30Days')}
-            icon={Activity}
-          />
-          <StatCard
-            title={t('userPanel.successRate')}
-            value={`${month.successRate}%`}
-            caption={t('userPanel.failedCalls', { count: month.failedRequests })}
-            icon={month.failedRequests > 0 ? XCircle : CheckCircle2}
-          />
-          <StatCard
-            title={t('userPanel.activeKeys')}
-            value={formatNumber(activeTokens)}
-            caption={t('userPanel.totalKeys', { count: userPanelToken ? 1 : 0 })}
-            icon={KeyRound}
-          />
-        </section>
-
         <section className="grid gap-5 lg:grid-cols-3">
-          <Card className="border-border bg-card shadow-sm lg:col-span-2">
-            <CardHeader className="border-b border-border">
-              <CardTitle className="flex items-center gap-2 text-base font-medium">
-                <Activity className="size-4 text-muted-foreground" />
-                {t('userPanel.usageDetails')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-5">
-              {month.totalRequests === 0 ? (
-                <p className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                  {t('userPanel.noUsageHint')}
-                </p>
-              ) : null}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="rounded-xl border border-border bg-muted/25 p-4">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('userPanel.topModel')}
-                  </p>
-                  <p className="mt-2 truncate font-semibold">{month.topModel}</p>
-                </div>
-                <div className="rounded-xl border border-border bg-muted/25 p-4">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('userPanel.tokens')}
-                  </p>
-                  <p className="mt-2 font-semibold">
-                    {formatNumber(month.inputTokens + month.outputTokens)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border bg-muted/25 p-4">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('userPanel.estimatedCost')}
-                  </p>
-                  <p className="mt-2 font-semibold">{formatCost(month.cost)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border bg-card shadow-sm">
+          <Card className="border-border bg-card shadow-sm lg:col-start-3">
             <CardHeader className="border-b border-border">
               <CardTitle className="flex items-center gap-2 text-base font-medium">
                 <ShieldCheck className="size-4 text-muted-foreground" />

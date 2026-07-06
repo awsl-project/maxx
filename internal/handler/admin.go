@@ -1801,12 +1801,32 @@ func (h *AdminHandler) handleUsageStats(w http.ResponseWriter, r *http.Request) 
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
-	stats, err := h.svc.GetUsageStats(tenantID, filter)
+	var stats []*domain.UsageStats
+	var err error
+	if h.userPanelMemberUsageStatsEnabled(r) {
+		stats, err = getUserPanelUsageStatsForUser(h.svc, tenantID, maxxctx.GetUserID(r.Context()), filter)
+	} else {
+		stats, err = h.svc.GetUsageStats(tenantID, filter)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if stats == nil {
+		stats = []*domain.UsageStats{}
+	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func (h *AdminHandler) userPanelMemberUsageStatsEnabled(r *http.Request) bool {
+	if maxxctx.GetUserRole(r.Context()) != string(domain.UserRoleMember) || maxxctx.GetUserID(r.Context()) == 0 {
+		return false
+	}
+	settings, err := h.svc.GetSettings()
+	if err != nil {
+		return false
+	}
+	return settings["ui_multitenant_enabled"] == "true" && settings["ui_multitenant_layout"] == "user_panel"
 }
 
 // handleRecalculateUsageStats handles POST /admin/usage-stats/recalculate

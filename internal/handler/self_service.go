@@ -1127,7 +1127,18 @@ func (h *SelfServiceHandler) handleUsageStats(w http.ResponseWriter, r *http.Req
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
-	stats, err := h.svc.GetUsageStats(tenantID, filter)
+	var stats []*domain.UsageStats
+	var err error
+	if h.userPanelLayoutEnabled() {
+		userID := maxxctx.GetUserID(r.Context())
+		if userID == 0 {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+			return
+		}
+		stats, err = getUserPanelUsageStatsForUser(h.svc, tenantID, userID, filter)
+	} else {
+		stats, err = h.svc.GetUsageStats(tenantID, filter)
+	}
 	if err != nil {
 		writeSelfServiceInternalError(w, "GetUsageStats failed", err)
 		return
@@ -1136,6 +1147,32 @@ func (h *SelfServiceHandler) handleUsageStats(w http.ResponseWriter, r *http.Req
 		stats = []*domain.UsageStats{}
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func getUserPanelUsageStatsForUser(svc *service.AdminService, tenantID uint64, userID uint64, filter repository.UsageStatsFilter) ([]*domain.UsageStats, error) {
+	tokens, err := findUserPanelAPITokensForUser(svc, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(tokens) == 0 {
+		return []*domain.UsageStats{}, nil
+	}
+
+	stats := []*domain.UsageStats{}
+	for _, token := range tokens {
+		if token == nil || token.ID == 0 {
+			continue
+		}
+		tokenFilter := filter
+		tokenID := token.ID
+		tokenFilter.APITokenID = &tokenID
+		tokenStats, err := svc.GetUsageStats(tenantID, tokenFilter)
+		if err != nil {
+			return nil, err
+		}
+		stats = append(stats, tokenStats...)
+	}
+	return stats, nil
 }
 
 func (h *SelfServiceHandler) handleUserPanelAPIToken(w http.ResponseWriter, r *http.Request, regenerate bool) {
@@ -1161,28 +1198,33 @@ func (h *SelfServiceHandler) handleUserPanelAPIToken(w http.ResponseWriter, r *h
 		return
 	}
 
-	existing, err := h.findUserPanelAPITokens(tenantID, userID)
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
 	if err != nil {
 		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
 		return
 	}
 
 	if r.Method == http.MethodGet {
-		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": sanitizeAPIToken(firstUserPanelAPIToken(existing))})
+		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": sanitizeAPIToken(firstActiveUserPanelAPIToken(existing))})
 		return
 	}
 
+	activeToken := firstActiveUserPanelAPIToken(existing)
 	if regenerate {
 		for _, token := range existing {
-			if err := h.svc.DeleteAPIToken(tenantID, token.ID); err != nil {
-				writeSelfServiceInternalError(w, "DeleteUserPanelAPIToken failed", err)
+			if token == nil || !token.IsEnabled {
+				continue
+			}
+			token.IsEnabled = false
+			if err := h.svc.UpdateAPIToken(tenantID, token); err != nil {
+				writeSelfServiceInternalError(w, "DisableUserPanelAPIToken failed", err)
 				return
 			}
 		}
-	} else if firstUserPanelAPIToken(existing) != nil {
+	} else if activeToken != nil {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":    "user panel token already exists",
-			"apiToken": sanitizeAPIToken(firstUserPanelAPIToken(existing)),
+			"apiToken": sanitizeAPIToken(activeToken),
 		})
 		return
 	}
@@ -1213,8 +1255,8 @@ func (h *SelfServiceHandler) userPanelLayoutEnabled() bool {
 	return err == nil && layout == "user_panel"
 }
 
-func (h *SelfServiceHandler) findUserPanelAPITokens(tenantID uint64, userID uint64) ([]*domain.APIToken, error) {
-	tokens, err := h.svc.GetAPITokens(tenantID)
+func findUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint64, userID uint64) ([]*domain.APIToken, error) {
+	tokens, err := svc.GetAPITokens(tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -1228,11 +1270,13 @@ func (h *SelfServiceHandler) findUserPanelAPITokens(tenantID uint64, userID uint
 	return matches, nil
 }
 
-func firstUserPanelAPIToken(tokens []*domain.APIToken) *domain.APIToken {
-	if len(tokens) == 0 {
-		return nil
+func firstActiveUserPanelAPIToken(tokens []*domain.APIToken) *domain.APIToken {
+	for _, token := range tokens {
+		if token != nil && token.IsEnabled {
+			return token
+		}
 	}
-	return tokens[0]
+	return nil
 }
 
 func userPanelAPITokenName(userID uint64) string {

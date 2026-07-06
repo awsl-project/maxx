@@ -27,10 +27,9 @@ const MEMBER_USER = {
 const state = {
   nextTokenIndex: 1,
   tokens: [],
+  usageByTokenId: new Map(),
   calls: [],
 };
-
-const RESPONSE_MODELS = ['gpt-4o-mini', 'claude-sonnet-4', 'gemini-2.5-pro', 'gpt-5'];
 
 const settings = {
   api_token_auth_enabled: 'true',
@@ -67,21 +66,65 @@ function createUserPanelToken(userId) {
     projectID: 0,
     isEnabled: true,
     devMode: false,
-    useCount: index === 1 ? 0 : 0,
+    useCount: 0,
   };
   state.tokens.unshift(token);
+  if (!state.usageByTokenId.has(token.id)) {
+    state.usageByTokenId.set(token.id, {
+      total: index === 1 ? 96 : 55_715,
+      success: index === 1 ? 80 : 12_120,
+      failed: index === 1 ? 16 : 43_595,
+    });
+  }
   return { token: plain, apiToken: sanitize(token) };
 }
 
-function currentUserPanelToken(userId) {
-  return state.tokens.find((token) => token.description === userPanelMarker(userId)) || null;
+function userPanelTokens(userId) {
+  const marker = userPanelMarker(userId);
+  return state.tokens.filter((token) => token.description === marker);
 }
 
-function removeUserPanelTokens(userId) {
-  const marker = userPanelMarker(userId);
-  const removed = state.tokens.filter((token) => token.description === marker);
-  state.tokens = state.tokens.filter((token) => token.description !== marker);
-  return removed;
+function currentUserPanelToken(userId) {
+  return userPanelTokens(userId).find((token) => token.isEnabled) || null;
+}
+
+function disableUserPanelTokens(userId) {
+  const disabled = [];
+  for (const token of userPanelTokens(userId)) {
+    if (!token.isEnabled) continue;
+    token.isEnabled = false;
+    token.updatedAt = nowIso();
+    disabled.push(token);
+  }
+  return disabled;
+}
+
+function usageStatsForUser(userId) {
+  return userPanelTokens(userId).map((token) => {
+    const usage = state.usageByTokenId.get(token.id) || { total: 0, success: 0, failed: 0 };
+    return {
+      id: token.id,
+      createdAt: nowIso(),
+      timeBucket: nowIso(),
+      granularity: 'hour',
+      routeID: 1,
+      providerID: 1,
+      projectID: 0,
+      apiTokenID: token.id,
+      clientType: 'openai',
+      model: token.isEnabled ? 'new-key-model' : 'old-key-model',
+      totalRequests: usage.total,
+      successfulRequests: usage.success,
+      failedRequests: usage.failed,
+      totalDurationMs: 1200,
+      totalTtftMs: 300,
+      inputTokens: usage.total * 10,
+      outputTokens: usage.total * 5,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: usage.total * 100,
+    };
+  });
 }
 
 function record(method, path, status, note = '') {
@@ -104,31 +147,8 @@ async function installMock(page, user) {
     if (path === '/api/proxy-status' || path === '/api/admin/proxy-status') {
       return json({ running: true, address: '127.0.0.1', port: 9880, version: 'v0.99.0-test' });
     }
-    if (path === '/api/usage-stats') {
-      return json([
-        {
-          id: 1,
-          createdAt: nowIso(),
-          timeBucket: nowIso(),
-          granularity: 'hour',
-          routeID: 1,
-          providerID: 1,
-          projectID: 0,
-          apiTokenID: currentUserPanelToken(MEMBER_USER.id)?.id || 0,
-          clientType: 'openai',
-          model: 'gpt-test',
-          totalRequests: 25,
-          successfulRequests: 24,
-          failedRequests: 1,
-          totalDurationMs: 1200,
-          totalTtftMs: 300,
-          inputTokens: 1000,
-          outputTokens: 500,
-          cacheRead: 0,
-          cacheWrite: 0,
-          cost: 1200,
-        },
-      ]);
+    if (path === '/api/usage-stats' || path === '/api/admin/usage-stats') {
+      return json(usageStatsForUser(user.id), 200, 'usage follows all user panel key generations');
     }
     if (path === '/api/user-panel-token' && method === 'GET') {
       return json(
@@ -148,17 +168,17 @@ async function installMock(page, user) {
       return json(createUserPanelToken(user.id), 201, 'create dedicated token');
     }
     if (path === '/api/user-panel-token/regenerate' && method === 'POST') {
-      const removed = removeUserPanelTokens(user.id);
+      const disabled = disableUserPanelTokens(user.id);
       const created = createUserPanelToken(user.id);
       return json(
         created,
         201,
-        `regenerated; removed=${removed.map((token) => token.id).join(',')}`,
+        `regenerated; disabled=${disabled.map((token) => token.id).join(',')}; history preserved`,
       );
     }
     if (path === '/api/api-tokens') return json(state.tokens.map(sanitize));
-    if (path === '/api/admin/api-tokens') return json(state.tokens);
-    if (path === '/api/response-models') return json(RESPONSE_MODELS);
+    if (path === '/api/admin/api-tokens')
+      return json(state.tokens.filter((token) => token.isEnabled));
     if (path === '/api/admin/projects' || path === '/api/projects') return json([]);
     if (path === '/api/admin/requests/count') return json(0);
     if (path === '/api/admin/requests')
@@ -171,8 +191,6 @@ async function installMock(page, user) {
         '/api/routes',
         '/api/admin/model-mappings',
         '/api/model-mappings',
-        '/api/admin/response-models',
-        '/api/response-models',
         '/api/admin/sessions',
         '/api/sessions',
       ].includes(path)
@@ -196,6 +214,16 @@ async function preparePage(context, user) {
 
 async function assertVisible(page, text) {
   await page.getByText(text, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+async function assertHidden(page, text) {
+  await page.getByText(text, { exact: true }).waitFor({ state: 'detached', timeout: 10_000 });
+}
+
+async function assertUserPanelUsageStatsRemoved(page) {
+  for (const text of ['接口使用统计', '今日调用', '本月调用', '成功率', '常用模型', '预估成本']) {
+    await assertHidden(page, text);
+  }
 }
 
 async function screenshot(page, name) {
@@ -226,21 +254,22 @@ async function run() {
   await userPage.goto(`${BASE_URL}/`);
   await assertVisible(userPage, '暂无专用 Key');
   await assertVisible(userPage, '快速示例');
-  await assertVisible(userPage, '当前可用模型');
-  for (const model of RESPONSE_MODELS) {
-    await assertVisible(userPage, model);
+  await assertHidden(userPage, '当前可用模型');
+  await assertUserPanelUsageStatsRemoved(userPage);
+  const endpoints = [
+    { label: 'OpenAI / Codex', url: `${BASE_URL}/v1` },
+    { label: 'Claude', url: BASE_URL },
+    { label: 'Gemini', url: `${BASE_URL}/v1beta/models/{model}:generateContent` },
+  ];
+  for (const endpoint of endpoints) {
+    await userPage
+      .getByText(endpoint.url, { exact: true })
+      .waitFor({ state: 'visible', timeout: 10_000 });
+    await userPage.getByRole('button', { name: `复制 ${endpoint.label}` }).click();
+    const copiedEndpoint = await userPage.evaluate(() => navigator.clipboard.readText());
+    assert.equal(copiedEndpoint, endpoint.url, `${endpoint.label} copy should match endpoint URL`);
   }
-  for (const url of [
-    `${BASE_URL}/v1`,
-    BASE_URL,
-    `${BASE_URL}/v1beta/models/{model}:generateContent`,
-  ]) {
-    await userPage.getByText(url, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
-  }
-  await userPage.getByRole('button', { name: /复制/ }).first().click();
-  const copiedEndpoint = await userPage.evaluate(() => navigator.clipboard.readText());
-  assert.match(copiedEndpoint, /\/v1$/, 'base URL copy should copy OpenAI/Codex base URL');
-  await userPage.getByRole('button', { name: /复制/ }).nth(1).click();
+  await userPage.getByRole('button', { name: /复制/ }).last().click();
   const copiedExample = await userPage.evaluate(() => navigator.clipboard.readText());
   assert.match(
     copiedExample,
@@ -288,13 +317,24 @@ async function run() {
   userPage.once('dialog', (dialog) => dialog.accept());
   await userPage.getByRole('button', { name: /重新生成/ }).click();
   await assertVisible(userPage, '请立即复制');
-  assert.equal(state.tokens.length, 1, 'regenerate should replace old token with one token');
+  assert.equal(
+    state.tokens.filter((token) => token.isEnabled).length,
+    1,
+    'regenerate should leave exactly one active token',
+  );
+  assert.equal(state.tokens.length, 2, 'regenerate should preserve old token history');
   const secondPlain = state.tokens[0].token;
   assert.notEqual(secondPlain, firstPlain, 'regenerated token should differ from old token');
   await userPage
     .getByText(secondPlain, { exact: true })
     .waitFor({ state: 'visible', timeout: 10_000 });
-  assert.equal(state.tokens[0].id, 102, 'new token should be the only admin-visible token');
+  assert.equal(state.tokens[0].id, 102, 'new token should be the active admin-visible token');
+  await assertUserPanelUsageStatsRemoved(userPage);
+  assert.equal(
+    state.calls.filter((call) => call.path.includes('/api/usage-stats')).length,
+    0,
+    'user panel must not request usage stats after the usage block is removed',
+  );
   await screenshot(userPage, '05-user-regenerated-one-time-key');
 
   await navigateClient(adminPage, '/api-tokens');
@@ -316,8 +356,11 @@ async function run() {
       </style></head>
       <body>
         <h1>Mock 交互证据</h1>
-        <p>当前 admin 可见 Token 数：<strong>${state.tokens.length}</strong></p>
-        <p>当前 Token：<code>${state.tokens[0].tokenPrefix}</code>，完整值仅在用户创建/重新生成瞬间出现。</p>
+        <p>当前 active Token 数：<strong>${state.tokens.filter((token) => token.isEnabled).length}</strong></p>
+        <p>历史 Token 数：<strong>${state.tokens.length}</strong>；旧 token 禁用保留，新 token active。</p>
+        <p>用户面板接口使用统计 UI 已移除，页面未请求 <code>/api/usage-stats</code>。</p>
+        <p>当前 Token：<code>${state.tokens.find((token) => token.isEnabled)?.tokenPrefix}</code>，完整值仅在用户创建/重新生成瞬间出现。</p>
+        <ul>${state.tokens.map((token) => `<li><code>${token.id}</code> ${token.isEnabled ? 'active' : 'disabled'} total=${state.usageByTokenId.get(token.id)?.total ?? 0}</li>`).join('')}</ul>
         <table>
           <thead><tr><th>时间</th><th>方法</th><th>路径</th><th>状态</th><th>说明</th></tr></thead>
           <tbody>${state.calls
