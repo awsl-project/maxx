@@ -123,3 +123,30 @@ func TestWriteStreamErrorPreservesStatusAndRetryAfter(t *testing.T) {
 		t.Fatalf("stream body = %q, want error event", rec.Body.String())
 	}
 }
+
+func TestUserPanelAPITokenProjectBindingGuard(t *testing.T) {
+	userPanelToken := &domain.APIToken{
+		Description: userPanelAPITokenDescription(123),
+		ProjectID:   42,
+	}
+	regularToken := &domain.APIToken{
+		Description: "regular token",
+		ProjectID:   42,
+	}
+
+	if !isUserPanelAPIToken(userPanelToken) {
+		t.Fatal("expected managed user panel token to be detected")
+	}
+	if canAPITokenUseProjectBinding(userPanelToken) {
+		t.Fatal("user panel token must not use header/token/session project binding")
+	}
+	if isUserPanelAPIToken(regularToken) {
+		t.Fatal("regular token must not be treated as user panel token")
+	}
+	if !canAPITokenUseProjectBinding(regularToken) {
+		t.Fatal("regular token should keep existing project binding behavior")
+	}
+	if !canAPITokenUseProjectBinding(nil) {
+		t.Fatal("nil token should keep unauthenticated/default project behavior")
+	}
+}

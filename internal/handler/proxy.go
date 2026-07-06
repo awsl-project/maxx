@@ -41,6 +41,14 @@ type ProxyHandler struct {
 	uploadLimiter *uploadLimiter
 }
 
+func isUserPanelAPIToken(apiToken *domain.APIToken) bool {
+	return apiToken != nil && strings.HasPrefix(apiToken.Description, userPanelAPITokenDescriptionPrefix)
+}
+
+func canAPITokenUseProjectBinding(apiToken *domain.APIToken) bool {
+	return !isUserPanelAPIToken(apiToken)
+}
+
 // NewProxyHandler creates a new proxy handler
 func NewProxyHandler(
 	clientAdapter *client.Adapter,
@@ -222,6 +230,11 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 
 	var projectID uint64
 	if pidStr := r.Header.Get("X-Maxx-Project-ID"); pidStr != "" {
+		if isUserPanelAPIToken(apiToken) {
+			writeError(w, http.StatusForbidden, "user panel token cannot select project")
+			c.Abort()
+			return
+		}
 		if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
 			projectID = pid
 			log.Printf("[Proxy] Using project ID from header: %d", projectID)
@@ -230,7 +243,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	c.Set(flow.KeyProjectID, projectID)
 
 	if apiToken != nil {
-		if apiToken.ProjectID > 0 && projectID == 0 {
+		if canAPITokenUseProjectBinding(apiToken) && apiToken.ProjectID > 0 && projectID == 0 {
 			c.Set(flow.KeyProjectID, apiToken.ProjectID)
 		}
 		if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
@@ -263,10 +276,10 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		log.Printf("[Proxy] Failed to load session %s: %v", sessionID, sessionErr)
 	}
 	if session != nil {
-		if session.ProjectID > 0 {
+		if !isUserPanelAPIToken(apiToken) && session.ProjectID > 0 {
 			projectID = session.ProjectID
 			log.Printf("[Proxy] Using project ID from session binding: %d", projectID)
-		} else if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
+		} else if canAPITokenUseProjectBinding(apiToken) && projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
 			projectID = apiToken.ProjectID
 			log.Printf("[Proxy] Using project ID from token: %d", projectID)
 		}
@@ -274,7 +287,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 			log.Printf("[Proxy] Failed to touch session %s: %v", sessionID, touchErr)
 		}
 	} else {
-		if projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
+		if canAPITokenUseProjectBinding(apiToken) && projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
 			projectID = apiToken.ProjectID
 			log.Printf("[Proxy] Using project ID from token for new session: %d", projectID)
 		}
