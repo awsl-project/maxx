@@ -2150,6 +2150,9 @@ func TestSelfServiceHandler_UserPanelTokenCreatedForGlobalRoutes(t *testing.T) {
 	if created.ProjectID != 0 {
 		t.Fatalf("user panel token projectID = %d, want global route scope 0", created.ProjectID)
 	}
+	if created.Name != "user 9" {
+		t.Fatalf("name = %q, want user 9", created.Name)
+	}
 	if created.Description != userPanelAPITokenDescription(9) {
 		t.Fatalf("description = %q, want user panel marker", created.Description)
 	}
@@ -2178,6 +2181,9 @@ func TestSelfServiceHandler_UserPanelExistingTokenProjectBindingIsCleared(t *tes
 	if tokenRepo.tokens[0].ProjectID != 0 {
 		t.Fatalf("existing user panel token projectID = %d, want normalized global route scope 0", tokenRepo.tokens[0].ProjectID)
 	}
+	if tokenRepo.tokens[0].Name != "user 9" {
+		t.Fatalf("existing user panel token name = %q, want user 9", tokenRepo.tokens[0].Name)
+	}
 
 	var result map[string]*domain.APIToken
 	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
@@ -2188,11 +2194,11 @@ func TestSelfServiceHandler_UserPanelExistingTokenProjectBindingIsCleared(t *tes
 	}
 }
 
-func TestSelfServiceHandler_UserPanelRegenerateDisablesOldTokenAndKeepsHistory(t *testing.T) {
+func TestSelfServiceHandler_UserPanelRegenerateRotatesExistingTokenInPlace(t *testing.T) {
 	marker := userPanelAPITokenDescription(9)
 	tokenRepo := &selfServiceAPITokenRepo{
 		tokens: []*domain.APIToken{
-			{ID: 10, TenantID: 1, Name: "User Console Key (user 9)", Description: marker, IsEnabled: true},
+			{ID: 10, TenantID: 1, Name: "User Console Key (user 9)", Description: marker, Token: "old-token", TokenPrefix: "old", IsEnabled: true, ProjectID: 42},
 		},
 	}
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
@@ -2208,23 +2214,77 @@ func TestSelfServiceHandler_UserPanelRegenerateDisablesOldTokenAndKeepsHistory(t
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
-	if len(tokenRepo.tokens) != 2 {
-		t.Fatalf("tokens = %d, want old disabled + new active", len(tokenRepo.tokens))
+	if len(tokenRepo.tokens) != 1 {
+		t.Fatalf("tokens = %d, want one rotated token", len(tokenRepo.tokens))
 	}
-	var oldToken, newToken *domain.APIToken
-	for _, token := range tokenRepo.tokens {
-		switch token.ID {
-		case 10:
-			oldToken = token
-		default:
-			newToken = token
-		}
+	token := tokenRepo.tokens[0]
+	if token.ID != 10 || !token.IsEnabled || token.Description != marker || token.Name != "user 9" || token.ProjectID != 0 {
+		t.Fatalf("token = %+v, want same active normalized user panel token", token)
 	}
-	if oldToken == nil || oldToken.IsEnabled {
-		t.Fatalf("old token = %+v, want disabled historical token", oldToken)
+	if token.Token == "" || token.Token == "old-token" {
+		t.Fatalf("token secret = %q, want rotated non-empty secret", token.Token)
 	}
-	if newToken == nil || !newToken.IsEnabled || newToken.Description != marker {
-		t.Fatalf("new token = %+v, want active replacement with same marker", newToken)
+}
+
+func TestSelfServiceHandler_UserPanelCreateReusesDisabledToken(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "old", Description: marker, Token: "old-token", TokenPrefix: "old", IsEnabled: false, ProjectID: 42},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token"))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if len(tokenRepo.tokens) != 1 {
+		t.Fatalf("tokens = %d, want disabled token reused", len(tokenRepo.tokens))
+	}
+	token := tokenRepo.tokens[0]
+	if token.ID != 10 || !token.IsEnabled || token.Name != "user 9" || token.ProjectID != 0 {
+		t.Fatalf("token = %+v, want reused active normalized token", token)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelDuplicateTokensAreCollapsed(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	older := time.Now().Add(-time.Hour)
+	newer := time.Now()
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "duplicate old", Description: marker, IsEnabled: true, ProjectID: 42, CreatedAt: older},
+			{ID: 11, TenantID: 1, Name: "duplicate new", Description: marker, IsEnabled: true, ProjectID: 7, CreatedAt: newer},
+			{ID: 12, TenantID: 1, Name: "disabled duplicate", Description: marker, IsEnabled: false, ProjectID: 99, CreatedAt: newer.Add(time.Minute)},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/user-panel-token"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(tokenRepo.tokens) != 1 {
+		t.Fatalf("tokens = %d, want duplicates collapsed", len(tokenRepo.tokens))
+	}
+	token := tokenRepo.tokens[0]
+	if token.ID != 11 || token.Name != "user 9" || token.ProjectID != 0 || !token.IsEnabled {
+		t.Fatalf("token = %+v, want newest active canonical normalized", token)
 	}
 }
 

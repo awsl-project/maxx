@@ -1138,10 +1138,10 @@ func TestProxyNoMatchingRoute(t *testing.T) {
 	if got := payload["error"]["retryable"]; got != false {
 		t.Fatalf("error.retryable = %v, want false", got)
 	}
-	assertNoProxyRequestsRecorded(t, env)
+	assertRouteMatchRejectionRecorded(t, env, 1, "no routes available")
 }
 
-func TestProxyRouteWithoutConfiguredProviderDoesNotRecordRequest(t *testing.T) {
+func TestProxyRouteWithoutConfiguredProviderRecordsRejectedRequest(t *testing.T) {
 	env := NewProxyTestEnv(t)
 
 	routeResp := env.AdminPost("/api/admin/routes", map[string]any{
@@ -1166,10 +1166,10 @@ func TestProxyRouteWithoutConfiguredProviderDoesNotRecordRequest(t *testing.T) {
 	if !strings.Contains(msg, "no available provider") {
 		t.Fatalf("error.message = %q, want to contain no available provider", msg)
 	}
-	assertNoProxyRequestsRecorded(t, env)
+	assertRouteMatchRejectionRecorded(t, env, 1, "no available providers")
 }
 
-func TestProxyMatchedRouteWithUnsupportedProviderModelDoesNotRecordRequest(t *testing.T) {
+func TestProxyMatchedRouteWithUnsupportedProviderModelRecordsRejectedRequest(t *testing.T) {
 	env := NewProxyTestEnv(t)
 	providerID := createProvider(t, env, "mock-openai-model-filter", "http://127.0.0.1:1", []string{"openai"})
 
@@ -1200,10 +1200,10 @@ func TestProxyMatchedRouteWithUnsupportedProviderModelDoesNotRecordRequest(t *te
 	if !strings.Contains(msg, "no available provider") {
 		t.Fatalf("error.message = %q, want to contain no available provider", msg)
 	}
-	assertNoProxyRequestsRecorded(t, env)
+	assertRouteMatchRejectionRecorded(t, env, 1, "no available providers")
 }
 
-func TestProxyMatchedRouteWithCooldownProviderDoesNotRecordAdditionalRequest(t *testing.T) {
+func TestProxyMatchedRouteWithCooldownProviderRecordsRejectedRequest(t *testing.T) {
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "30")
@@ -1239,17 +1239,55 @@ func TestProxyMatchedRouteWithCooldownProviderDoesNotRecordAdditionalRequest(t *
 	if !strings.Contains(msg, "no available provider") {
 		t.Fatalf("error.message = %q, want to contain no available provider", msg)
 	}
-	if got := len(getProxyRequests(t, env)); got != 1 {
-		t.Fatalf("expected cooldown route-match rejection to stay out of requests tab, got %d requests", got)
-	}
+	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers")
 }
 
-func assertNoProxyRequestsRecorded(t *testing.T, env *ProxyTestEnv) {
+func assertRouteMatchRejectionRecorded(t *testing.T, env *ProxyTestEnv, wantTotal int, wantErrorPart string) {
 	t.Helper()
 
 	requests := getProxyRequests(t, env)
-	if len(requests) != 0 {
-		t.Fatalf("expected route-match rejection to stay out of requests tab, got %d requests: %#v", len(requests), requests)
+	if len(requests) != wantTotal {
+		t.Fatalf("requests = %d, want %d, got %#v", len(requests), wantTotal, requests)
+	}
+
+	var matched []map[string]any
+	for _, req := range requests {
+		if req["status"] != "REJECTED" {
+			continue
+		}
+		errorMsg, _ := req["error"].(string)
+		if strings.Contains(errorMsg, "route match failed") && strings.Contains(errorMsg, wantErrorPart) {
+			matched = append(matched, req)
+		}
+	}
+	if len(matched) != 1 {
+		t.Fatalf("route-match rejected requests = %d, want 1 in %#v", len(matched), requests)
+	}
+	rejected := matched[0]
+	if got := intFromJSONNumber(t, rejected["statusCode"]); got != http.StatusServiceUnavailable {
+		t.Fatalf("statusCode = %d, want %d", got, http.StatusServiceUnavailable)
+	}
+	if got := intFromJSONNumber(t, rejected["providerID"]); got != 0 {
+		t.Fatalf("providerID = %d, want 0 for route-match rejection", got)
+	}
+	if got := intFromJSONNumber(t, rejected["routeID"]); got != 0 {
+		t.Fatalf("routeID = %d, want 0 for route-match rejection", got)
+	}
+	if got := intFromJSONNumber(t, rejected["proxyUpstreamAttemptCount"]); got != 0 {
+		t.Fatalf("proxyUpstreamAttemptCount = %d, want 0 for route-match rejection", got)
+	}
+}
+
+func intFromJSONNumber(t *testing.T, v any) int {
+	t.Helper()
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	default:
+		t.Fatalf("value %v (%T) is not a JSON number", v, v)
+		return 0
 	}
 }
 

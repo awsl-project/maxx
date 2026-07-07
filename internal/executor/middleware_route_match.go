@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -31,6 +32,14 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 	})
 	if err != nil {
 		message := fmt.Sprintf("route match failed: %v", err)
+		proxyReq := e.newProxyRequest(c, state, "REJECTED")
+		proxyReq.StatusCode = http.StatusServiceUnavailable
+		proxyReq.Error = message
+		proxyReq.EndTime = time.Now()
+		proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
+		e.createProxyRequest(proxyReq)
+		state.proxyReq = proxyReq
+
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, message)
 		if errors.Is(err, domain.ErrNoAvailableProviders) {
 			proxyErr = domain.NewProxyErrorWithMessage(domain.ErrNoAvailableProviders, false, "no available provider for matched route")

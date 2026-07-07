@@ -1349,6 +1349,33 @@ func (s *AdminService) CreateAPIToken(tenantID uint64, name, description string,
 	}, nil
 }
 
+// RotateAPIToken replaces an existing token's secret in place and returns the
+// new plaintext token once. Metadata, usage counters, and request history stay
+// attached to the same APIToken ID.
+func (s *AdminService) RotateAPIToken(tenantID uint64, token *domain.APIToken) (*domain.APITokenCreateResult, error) {
+	if token == nil {
+		return nil, domain.ErrInvalidInput
+	}
+
+	plain, prefix, err := generateAPIToken()
+	if err != nil {
+		return nil, err
+	}
+
+	token.TenantID = tenantID
+	token.Token = plain
+	token.TokenPrefix = prefix
+	token.IsEnabled = true
+	if err := s.apiTokenRepo.Update(token); err != nil {
+		return nil, err
+	}
+
+	return &domain.APITokenCreateResult{
+		Token:    plain,
+		APIToken: token,
+	}, nil
+}
+
 func (s *AdminService) UpdateAPIToken(tenantID uint64, token *domain.APIToken) error {
 	return s.apiTokenRepo.Update(token)
 }

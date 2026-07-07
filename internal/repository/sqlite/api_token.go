@@ -32,17 +32,23 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 
 func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	t.UpdatedAt = time.Now()
+	updates := map[string]any{
+		"updated_at":  toTimestamp(t.UpdatedAt),
+		"name":        t.Name,
+		"description": LongText(t.Description),
+		"project_id":  t.ProjectID,
+		"is_enabled":  boolToInt(t.IsEnabled),
+		"dev_mode":    boolToInt(t.DevMode),
+		"expires_at":  toTimestampPtr(t.ExpiresAt),
+	}
+	if t.Token != "" {
+		updates["token"] = t.Token
+		updates["token_prefix"] = t.TokenPrefix
+	}
+
 	return r.db.gorm.Model(&APIToken{}).
 		Where("id = ?", t.ID).
-		Updates(map[string]any{
-			"updated_at":  toTimestamp(t.UpdatedAt),
-			"name":        t.Name,
-			"description": LongText(t.Description),
-			"project_id":  t.ProjectID,
-			"is_enabled":  boolToInt(t.IsEnabled),
-			"dev_mode":    boolToInt(t.DevMode),
-			"expires_at":  toTimestampPtr(t.ExpiresAt),
-		}).Error
+		Updates(updates).Error
 }
 
 func (r *APITokenRepository) Delete(tenantID uint64, id uint64) error {
