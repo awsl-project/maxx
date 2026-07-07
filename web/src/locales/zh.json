@@ -1795,6 +1795,21 @@
       "name": "自定义提供商",
       "description": "配置您自己的 API 端点"
     },
+    "openrouter": {
+      "name": "OpenRouter",
+      "description": "聚合网关 · 兼容 OpenAI 与 Anthropic",
+      "apiKey": "OpenRouter API Key",
+      "apiKeyHint": "在 https://openrouter.ai/keys 获取你的密钥",
+      "clientsTitle": "客户端类型",
+      "clientsDesc": "OpenRouter 原生支持两种端点。勾选此供应商需要接受的客户端格式（至少一个）。",
+      "clientClaudeDesc": "Claude Code / Anthropic Messages（/v1/messages）",
+      "clientOpenAIDesc": "OpenAI Chat Completions（/v1/chat/completions）",
+      "modelMappingTitle": "模型映射",
+      "modelMappingDesc": "把客户端发送的模型名映射到 OpenRouter 的模型 id（如 claude-3-5-sonnet → anthropic/claude-3.5-sonnet）。留空则原样透传。",
+      "modelMappingFrom": "请求模型",
+      "modelMappingTo": "OpenRouter 模型 id",
+      "modelMappingEmpty": "暂无映射 — 模型原样透传"
+    },
     "templates": {
       "88code": {
         "name": "88 Code",

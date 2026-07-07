@@ -491,6 +491,15 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 				}
 			}
 		}
+	case "openrouter":
+		if existing.Config.OpenRouter != nil {
+			if incoming.Config.OpenRouter == nil {
+				openrouter := *existing.Config.OpenRouter
+				incoming.Config.OpenRouter = &openrouter
+			} else if incoming.Config.OpenRouter.APIKey == "" {
+				incoming.Config.OpenRouter.APIKey = existing.Config.OpenRouter.APIKey
+			}
+		}
 	}
 }
 
@@ -1287,6 +1296,16 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 		// If not set, default to OpenAI
 		if len(provider.SupportedClientTypes) == 0 {
 			provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
+		}
+	case "openrouter":
+		// OpenRouter natively serves both the OpenAI and Anthropic protocols, so
+		// honor whatever the client configured. If left empty, default to both
+		// rather than leaving the provider with no serviceable client types.
+		if len(provider.SupportedClientTypes) == 0 {
+			provider.SupportedClientTypes = []domain.ClientType{
+				domain.ClientTypeClaude,
+				domain.ClientTypeOpenAI,
+			}
 		}
 	}
 }

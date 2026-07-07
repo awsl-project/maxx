@@ -1799,6 +1799,21 @@
       "name": "Custom Provider",
       "description": "Configure your own API endpoint"
     },
+    "openrouter": {
+      "name": "OpenRouter",
+      "description": "Aggregation gateway · OpenAI & Anthropic compatible",
+      "apiKey": "OpenRouter API Key",
+      "apiKeyHint": "Get your key from https://openrouter.ai/keys",
+      "clientsTitle": "Client Types",
+      "clientsDesc": "OpenRouter natively serves both endpoints. Enable the client formats this provider should accept (at least one).",
+      "clientClaudeDesc": "Claude Code / Anthropic Messages (/v1/messages)",
+      "clientOpenAIDesc": "OpenAI Chat Completions (/v1/chat/completions)",
+      "modelMappingTitle": "Model Mapping",
+      "modelMappingDesc": "Map the model name clients send to an OpenRouter model id (e.g. claude-3-5-sonnet → anthropic/claude-3.5-sonnet). Leave empty to pass models through unchanged.",
+      "modelMappingFrom": "Request model",
+      "modelMappingTo": "OpenRouter model id",
+      "modelMappingEmpty": "No mappings — models are passed through as-is"
+    },
     "templates": {
       "88code": {
         "name": "88 Code",

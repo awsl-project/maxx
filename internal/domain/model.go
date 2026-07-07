@@ -292,6 +292,20 @@ type ProviderConfigCLIProxyAPICodex struct {
 	ModelMapping map[string]string `json:"modelMapping,omitempty"`
 }
 
+// ProviderConfigOpenRouter 是 OpenRouter 一级供应商的配置。
+// OpenRouter 是 OpenAI 兼容且带 Anthropic Messages（"Anthropic Skin"）兼容端点的聚合网关，
+// baseURL 固定为 https://openrouter.ai/api，claude 客户端走 /v1/messages、openai 客户端走
+// /v1/chat/completions，鉴权统一用 Authorization: Bearer <apiKey>。运行时由 openrouter 适配器
+// 合成成一个 ProviderConfigCustom 委托给 custom 适配器执行，无需重复实现代理逻辑。
+//
+// 只保留 APIKey：模型映射走通用的 ModelMapping 实体（executor.mapModel 按 provider 类型+ID
+// 泛化匹配，与 custom 一致），不放在这里——因为 custom 适配器运行时并不读取内联的
+// ModelMapping，放进来只会是不生效的死配置。
+type ProviderConfigOpenRouter struct {
+	// API Key（sk-or-...）
+	APIKey string `json:"apiKey"`
+}
+
 type ProviderConfig struct {
 	// 禁用错误自动冷冻（只影响错误触发的冷冻）
 	DisableErrorCooldown bool                       `json:"disableErrorCooldown,omitempty"`
@@ -301,6 +315,7 @@ type ProviderConfig struct {
 	Kiro                 *ProviderConfigKiro        `json:"kiro,omitempty"`
 	Codex                *ProviderConfigCodex       `json:"codex,omitempty"`
 	Claude               *ProviderConfigClaude      `json:"claude,omitempty"`
+	OpenRouter           *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
 	// 内部运行时字段，仅用于 NewAdapter 委托，不序列化
 	CLIProxyAPIAntigravity *ProviderConfigCLIProxyAPIAntigravity `json:"-"`
 	CLIProxyAPICodex       *ProviderConfigCLIProxyAPICodex       `json:"-"`

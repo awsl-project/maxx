@@ -1400,6 +1400,11 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 		claude.AccessToken = ""
 		config.Claude = &claude
 	}
+	if config.OpenRouter != nil {
+		openrouter := *config.OpenRouter
+		openrouter.APIKey = ""
+		config.OpenRouter = &openrouter
+	}
 	sanitized.Config = &config
 	return &sanitized
 }
