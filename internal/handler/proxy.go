@@ -49,6 +49,16 @@ func canAPITokenUseProjectBinding(apiToken *domain.APIToken) bool {
 	return !isUserPanelAPIToken(apiToken)
 }
 
+func apiTokenProjectBinding(apiToken *domain.APIToken, currentProjectID uint64) (uint64, bool) {
+	if apiToken == nil || currentProjectID != 0 || apiToken.ProjectID == 0 {
+		return currentProjectID, false
+	}
+	if !canAPITokenUseProjectBinding(apiToken) {
+		return currentProjectID, false
+	}
+	return apiToken.ProjectID, true
+}
+
 // NewProxyHandler creates a new proxy handler
 func NewProxyHandler(
 	clientAdapter *client.Adapter,
@@ -243,8 +253,8 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 	c.Set(flow.KeyProjectID, projectID)
 
 	if apiToken != nil {
-		if canAPITokenUseProjectBinding(apiToken) && apiToken.ProjectID > 0 && projectID == 0 {
-			c.Set(flow.KeyProjectID, apiToken.ProjectID)
+		if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
+			c.Set(flow.KeyProjectID, tokenProjectID)
 		}
 		if err := h.tokenAuth.AcquireConcurrency(apiToken); err != nil {
 			log.Printf("[Proxy] Token concurrency limit hit: tokenID=%d err=%v", apiToken.ID, err)
@@ -279,16 +289,16 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		if !isUserPanelAPIToken(apiToken) && session.ProjectID > 0 {
 			projectID = session.ProjectID
 			log.Printf("[Proxy] Using project ID from session binding: %d", projectID)
-		} else if canAPITokenUseProjectBinding(apiToken) && projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
-			projectID = apiToken.ProjectID
+		} else if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
+			projectID = tokenProjectID
 			log.Printf("[Proxy] Using project ID from token: %d", projectID)
 		}
 		if touchErr := h.sessionRepo.Touch(tenantID, sessionID, now); touchErr != nil {
 			log.Printf("[Proxy] Failed to touch session %s: %v", sessionID, touchErr)
 		}
 	} else {
-		if canAPITokenUseProjectBinding(apiToken) && projectID == 0 && apiToken != nil && apiToken.ProjectID > 0 {
-			projectID = apiToken.ProjectID
+		if tokenProjectID, ok := apiTokenProjectBinding(apiToken, projectID); ok {
+			projectID = tokenProjectID
 			log.Printf("[Proxy] Using project ID from token for new session: %d", projectID)
 		}
 		session = &domain.Session{

@@ -11,6 +11,10 @@ import {
   useUserPanelAPIToken,
 } from '@/hooks/queries';
 import type { APIToken } from '@/lib/transport';
+import {
+  buildUserPanelChatCompletionsExample,
+  buildUserPanelEndpointHints,
+} from '@/lib/user-panel-endpoints';
 import { cn } from '@/lib/utils';
 
 function maskNumericIdentity(value?: number) {
@@ -65,18 +69,19 @@ export function UserPanelPage() {
   const authProtected = settings?.api_token_auth_enabled === 'true';
   const proxyOnline = proxyStatus?.running ?? true;
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  const openAICodexBaseURL = `${origin}/v1`;
-  const claudeBaseURL = origin;
-  const geminiEndpoint = `${origin}/v1beta/models/{model}:generateContent`;
-  const endpointHints = [
-    { id: 'openai-codex', label: t('userPanel.routeOpenAICodex'), url: openAICodexBaseURL },
-    { id: 'claude', label: t('userPanel.routeClaude'), url: claudeBaseURL },
-    { id: 'gemini', label: t('userPanel.routeGemini'), url: geminiEndpoint },
-  ];
-  const curlExample = `curl ${openAICodexBaseURL}/chat/completions \
-  -H "Authorization: Bearer <${t('userPanel.yourKey')}>" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'`;
+  const endpointHints = buildUserPanelEndpointHints(origin).map((endpoint) => ({
+    ...endpoint,
+    label:
+      endpoint.id === 'openai-codex'
+        ? t('userPanel.routeOpenAICodex')
+        : endpoint.id === 'claude'
+          ? t('userPanel.routeClaude')
+          : t('userPanel.routeGemini'),
+  }));
+  const curlExample = buildUserPanelChatCompletionsExample({
+    origin,
+    tokenLabel: t('userPanel.yourKey'),
+  });
 
   const handleCopyEndpoint = async (endpointId: string, url: string) => {
     if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;

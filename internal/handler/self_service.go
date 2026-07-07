@@ -1203,6 +1203,10 @@ func (h *SelfServiceHandler) handleUserPanelAPIToken(w http.ResponseWriter, r *h
 		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
 		return
 	}
+	if err := ensureUserPanelAPITokensUseGlobalRoutes(h.svc, tenantID, existing); err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
 
 	if r.Method == http.MethodGet {
 		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": sanitizeAPIToken(firstActiveUserPanelAPIToken(existing))})
@@ -1268,6 +1272,19 @@ func findUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint64, u
 		}
 	}
 	return matches, nil
+}
+
+func ensureUserPanelAPITokensUseGlobalRoutes(svc *service.AdminService, tenantID uint64, tokens []*domain.APIToken) error {
+	for _, token := range tokens {
+		if token == nil || token.ProjectID == 0 {
+			continue
+		}
+		token.ProjectID = 0
+		if err := svc.UpdateAPIToken(tenantID, token); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func firstActiveUserPanelAPIToken(tokens []*domain.APIToken) *domain.APIToken {
