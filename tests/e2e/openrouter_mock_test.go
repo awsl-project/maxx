@@ -72,7 +72,8 @@ func writeOpenRouterMockStream(t *testing.T, w http.ResponseWriter, isMessages b
 	t.Helper()
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		t.Fatal("mock upstream: streaming not supported by ResponseWriter")
+		t.Error("mock upstream: streaming not supported by ResponseWriter")
+		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -94,7 +95,8 @@ func writeOpenRouterMockStream(t *testing.T, w http.ResponseWriter, isMessages b
 	}
 	for _, f := range frames {
 		if _, err := io.WriteString(w, f); err != nil {
-			t.Fatalf("mock upstream: write SSE frame: %v", err)
+			t.Errorf("mock upstream: write SSE frame: %v", err)
+			return
 		}
 		flusher.Flush()
 	}
