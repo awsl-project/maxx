@@ -140,11 +140,20 @@ func TestUserPanelAPITokenProjectBindingGuard(t *testing.T) {
 	if canAPITokenUseProjectBinding(userPanelToken) {
 		t.Fatal("user panel token must not use header/token/session project binding")
 	}
+	if got, ok := apiTokenProjectBinding(userPanelToken, 0); ok || got != 0 {
+		t.Fatalf("user panel token project binding = (%d, %v), want (0, false)", got, ok)
+	}
 	if isUserPanelAPIToken(regularToken) {
 		t.Fatal("regular token must not be treated as user panel token")
 	}
 	if !canAPITokenUseProjectBinding(regularToken) {
 		t.Fatal("regular token should keep existing project binding behavior")
+	}
+	if got, ok := apiTokenProjectBinding(regularToken, 0); !ok || got != regularToken.ProjectID {
+		t.Fatalf("regular token project binding = (%d, %v), want (%d, true)", got, ok, regularToken.ProjectID)
+	}
+	if got, ok := apiTokenProjectBinding(regularToken, 7); ok || got != 7 {
+		t.Fatalf("existing project binding = (%d, %v), want (7, false)", got, ok)
 	}
 	if !canAPITokenUseProjectBinding(nil) {
 		t.Fatal("nil token should keep unauthenticated/default project behavior")

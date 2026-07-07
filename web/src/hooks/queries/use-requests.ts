@@ -46,8 +46,13 @@ export const requestKeys = {
   attempts: (id: number) => [...requestKeys.detail(id), 'attempts'] as const,
 };
 
-function isProxyRequestError(request: ProxyRequest): boolean {
-  return request.status === 'FAILED' || request.status === 'REJECTED' || request.statusCode >= 400;
+export function isProxyRequestError(request: ProxyRequest): boolean {
+  return (
+    request.status === 'FAILED' ||
+    request.status === 'CANCELLED' ||
+    request.status === 'REJECTED' ||
+    request.statusCode >= 400
+  );
 }
 
 function matchesRequestTimeRange(
