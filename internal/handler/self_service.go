@@ -1203,33 +1203,42 @@ func (h *SelfServiceHandler) handleUserPanelAPIToken(w http.ResponseWriter, r *h
 		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
 		return
 	}
-	if err := ensureUserPanelAPITokensUseGlobalRoutes(h.svc, tenantID, existing); err != nil {
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
 		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
 		return
 	}
 
 	if r.Method == http.MethodGet {
-		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": sanitizeAPIToken(firstActiveUserPanelAPIToken(existing))})
+		if canonicalToken == nil || !canonicalToken.IsEnabled {
+			writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": nil})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": sanitizeAPIToken(canonicalToken)})
 		return
 	}
 
-	activeToken := firstActiveUserPanelAPIToken(existing)
-	if regenerate {
-		for _, token := range existing {
-			if token == nil || !token.IsEnabled {
-				continue
-			}
-			token.IsEnabled = false
-			if err := h.svc.UpdateAPIToken(tenantID, token); err != nil {
-				writeSelfServiceInternalError(w, "DisableUserPanelAPIToken failed", err)
-				return
-			}
-		}
-	} else if activeToken != nil {
+	if !regenerate && canonicalToken != nil && canonicalToken.IsEnabled {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":    "user panel token already exists",
-			"apiToken": sanitizeAPIToken(activeToken),
+			"apiToken": sanitizeAPIToken(canonicalToken),
 		})
+		return
+	}
+
+	if canonicalToken != nil {
+		canonicalToken.Name = userPanelAPITokenName(userID)
+		canonicalToken.Description = userPanelAPITokenDescription(userID)
+		canonicalToken.ProjectID = 0
+		result, err := h.svc.RotateAPIToken(tenantID, canonicalToken)
+		if err != nil {
+			writeSelfServiceInternalError(w, "RotateUserPanelAPIToken failed", err)
+			return
+		}
+		if result != nil {
+			result.APIToken = sanitizeAPIToken(result.APIToken)
+		}
+		writeJSON(w, http.StatusCreated, result)
 		return
 	}
 
@@ -1274,30 +1283,62 @@ func findUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint64, u
 	return matches, nil
 }
 
-func ensureUserPanelAPITokensUseGlobalRoutes(svc *service.AdminService, tenantID uint64, tokens []*domain.APIToken) error {
+func normalizeUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint64, userID uint64, tokens []*domain.APIToken) (*domain.APIToken, error) {
+	canonical := selectCanonicalUserPanelAPIToken(tokens)
+	if canonical == nil {
+		return nil, nil
+	}
+
+	marker := userPanelAPITokenDescription(userID)
+	name := userPanelAPITokenName(userID)
+	if canonical.Name != name || canonical.Description != marker || canonical.ProjectID != 0 {
+		canonical.Name = name
+		canonical.Description = marker
+		canonical.ProjectID = 0
+		if err := svc.UpdateAPIToken(tenantID, canonical); err != nil {
+			return nil, err
+		}
+	}
+
 	for _, token := range tokens {
-		if token == nil || token.ProjectID == 0 {
+		if token == nil || token.ID == canonical.ID {
 			continue
 		}
-		token.ProjectID = 0
-		if err := svc.UpdateAPIToken(tenantID, token); err != nil {
-			return err
+		if err := svc.ReassignAPITokenHistory(tenantID, token.ID, canonical.ID); err != nil {
+			return nil, err
+		}
+		if err := svc.DeleteAPIToken(tenantID, token.ID); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return canonical, nil
 }
 
-func firstActiveUserPanelAPIToken(tokens []*domain.APIToken) *domain.APIToken {
+func selectCanonicalUserPanelAPIToken(tokens []*domain.APIToken) *domain.APIToken {
+	var best *domain.APIToken
 	for _, token := range tokens {
-		if token != nil && token.IsEnabled {
-			return token
+		if token == nil {
+			continue
+		}
+		if best == nil || isBetterUserPanelAPIToken(token, best) {
+			best = token
 		}
 	}
-	return nil
+	return best
+}
+
+func isBetterUserPanelAPIToken(candidate *domain.APIToken, current *domain.APIToken) bool {
+	if candidate.IsEnabled != current.IsEnabled {
+		return candidate.IsEnabled
+	}
+	if !candidate.CreatedAt.Equal(current.CreatedAt) {
+		return candidate.CreatedAt.After(current.CreatedAt)
+	}
+	return candidate.ID > current.ID
 }
 
 func userPanelAPITokenName(userID uint64) string {
-	return fmt.Sprintf("User Console Key (user %d)", userID)
+	return fmt.Sprintf("user %d", userID)
 }
 
 func userPanelAPITokenDescription(userID uint64) string {

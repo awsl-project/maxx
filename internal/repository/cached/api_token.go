@@ -55,8 +55,15 @@ func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	if exists && old != nil && old.Token != t.Token {
 		delete(r.tokenCache, old.Token)
 	}
+	for tokenValue, cached := range r.tokenCache {
+		if cached != nil && cached.ID == t.ID && tokenValue != t.Token {
+			delete(r.tokenCache, tokenValue)
+		}
+	}
 	r.cache[t.ID] = t
-	r.tokenCache[t.Token] = t
+	if t.Token != "" {
+		r.tokenCache[t.Token] = t
+	}
 	r.mu.Unlock()
 	r.bc.publish(OpUpdate, t.ID)
 	return nil

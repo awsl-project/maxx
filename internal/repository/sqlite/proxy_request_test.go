@@ -949,3 +949,45 @@ func TestProxyRequestDeleteFailedWithFilterDeletesAttemptsAndPreservesNonErrors(
 		t.Fatalf("retained attempts = %d, want 3", retainedAttempts)
 	}
 }
+
+func TestProxyRequestRepositoryReassignAPITokenID(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	reqs := []*domain.ProxyRequest{
+		{TenantID: 1, InstanceID: "i", RequestID: "r1", APITokenID: 10, Status: "COMPLETED", StartTime: time.Now()},
+		{TenantID: 1, InstanceID: "i", RequestID: "r2", APITokenID: 11, Status: "COMPLETED", StartTime: time.Now()},
+		{TenantID: 2, InstanceID: "i", RequestID: "r3", APITokenID: 10, Status: "COMPLETED", StartTime: time.Now()},
+	}
+	for _, req := range reqs {
+		if err := repo.Create(req); err != nil {
+			t.Fatalf("seed request: %v", err)
+		}
+	}
+
+	if err := repo.ReassignAPITokenID(1, 10, 11); err != nil {
+		t.Fatalf("reassign: %v", err)
+	}
+
+	got, err := repo.List(1, 10, 0)
+	if err != nil {
+		t.Fatalf("list tenant 1: %v", err)
+	}
+	for _, req := range got {
+		if req.APITokenID != 11 {
+			t.Fatalf("tenant 1 request = %+v, want APITokenID 11", req)
+		}
+	}
+
+	other, err := repo.List(2, 10, 0)
+	if err != nil {
+		t.Fatalf("list tenant 2: %v", err)
+	}
+	if len(other) != 1 || other[0].APITokenID != 10 {
+		t.Fatalf("tenant 2 requests = %+v, want untouched token 10", other)
+	}
+}

@@ -17,10 +17,15 @@ import (
 )
 
 type codexGuardProxyRequestRepo struct {
+	created []*domain.ProxyRequest
 	updated []*domain.ProxyRequest
 }
 
-func (r *codexGuardProxyRequestRepo) Create(req *domain.ProxyRequest) error { return nil }
+func (r *codexGuardProxyRequestRepo) Create(req *domain.ProxyRequest) error {
+	snap := *req
+	r.created = append(r.created, &snap)
+	return nil
+}
 
 func (r *codexGuardProxyRequestRepo) Update(req *domain.ProxyRequest) error {
 	snap := *req

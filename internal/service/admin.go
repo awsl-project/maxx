@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -1349,12 +1350,77 @@ func (s *AdminService) CreateAPIToken(tenantID uint64, name, description string,
 	}, nil
 }
 
+// RotateAPIToken replaces an existing token's secret in place and returns the
+// new plaintext token once. Metadata, usage counters, and request history stay
+// attached to the same APIToken ID.
+func (s *AdminService) RotateAPIToken(tenantID uint64, token *domain.APIToken) (*domain.APITokenCreateResult, error) {
+	if token == nil {
+		return nil, domain.ErrInvalidInput
+	}
+
+	plain, prefix, err := generateAPIToken()
+	if err != nil {
+		return nil, err
+	}
+
+	token.TenantID = tenantID
+	token.Token = plain
+	token.TokenPrefix = prefix
+	token.IsEnabled = true
+	if err := s.apiTokenRepo.Update(token); err != nil {
+		return nil, err
+	}
+
+	return &domain.APITokenCreateResult{
+		Token:    plain,
+		APIToken: token,
+	}, nil
+}
+
 func (s *AdminService) UpdateAPIToken(tenantID uint64, token *domain.APIToken) error {
 	return s.apiTokenRepo.Update(token)
 }
 
 func (s *AdminService) DeleteAPIToken(tenantID uint64, id uint64) error {
 	return s.apiTokenRepo.Delete(tenantID, id)
+}
+
+type apiTokenHistoryReassigner interface {
+	ReassignAPITokenID(tenantID uint64, fromID uint64, toID uint64) error
+}
+
+// ReassignAPITokenHistory moves historical request/stat rows from one token ID
+// to another before retiring duplicate managed tokens. Repositories opt in so
+// older test doubles and unrelated repository implementations do not need new
+// interface surface.
+func (s *AdminService) ReassignAPITokenHistory(tenantID uint64, fromID uint64, toID uint64) error {
+	if fromID == 0 || toID == 0 || fromID == toID {
+		return nil
+	}
+	if repo, ok := s.proxyRequestRepo.(apiTokenHistoryReassigner); ok && !isNilAPITokenHistoryReassigner(repo) {
+		if err := repo.ReassignAPITokenID(tenantID, fromID, toID); err != nil {
+			return err
+		}
+	}
+	if repo, ok := s.usageStatsRepo.(apiTokenHistoryReassigner); ok && !isNilAPITokenHistoryReassigner(repo) {
+		if err := repo.ReassignAPITokenID(tenantID, fromID, toID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isNilAPITokenHistoryReassigner(repo apiTokenHistoryReassigner) bool {
+	if repo == nil {
+		return true
+	}
+	v := reflect.ValueOf(repo)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 func (s *AdminService) CleanupExpiredAPITokens(tenantID uint64, now time.Time) (*domain.APITokenCleanupResult, error) {
