@@ -240,7 +240,7 @@ export const quickTemplates: QuickTemplate[] = [
     logoUrl: nvidiaLogo,
     supportedClients: ['openai'],
     clientBaseURLs: {
-      openai: 'https://integrate.api.nvidia.com',
+      openai: 'https://integrate.api.nvidia.com/v1',
     },
     modelMappings: [{ pattern: '*', target: 'minimaxai/minimax-m2.1' }],
   },

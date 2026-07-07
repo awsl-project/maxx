@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { PROVIDER_TYPE_ORDER, createProviderTypeGroups, getKnownProviderTypeKey } from './types';
+import {
+  PROVIDER_TYPE_ORDER,
+  createProviderTypeGroups,
+  getKnownProviderTypeKey,
+  quickTemplates,
+} from './types';
 
 describe('provider type helpers', () => {
   it('keeps every configured provider type available for grouped provider UIs', () => {
@@ -40,5 +45,11 @@ describe('provider type helpers', () => {
     expect(getKnownProviderTypeKey('codex')).toBe('codex');
     expect(getKnownProviderTypeKey('custom')).toBe('custom');
     expect(getKnownProviderTypeKey('future-provider')).toBe('custom');
+  });
+
+  it('uses the versioned NVIDIA OpenAI-compatible API root in quick templates', () => {
+    const nvidiaTemplate = quickTemplates.find((template) => template.id === 'nvidia');
+
+    expect(nvidiaTemplate?.clientBaseURLs.openai).toBe('https://integrate.api.nvidia.com/v1');
   });
 });
