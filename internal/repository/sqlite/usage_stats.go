@@ -12,6 +12,7 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/stats"
 	"golang.org/x/sync/errgroup"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -1657,4 +1658,45 @@ func (r *UsageStatsRepository) queryDashboardHistoricalDays(tenantID uint64, sta
 		return nil, err
 	}
 	return out, nil
+}
+
+// ReassignAPITokenID merges historical usage stats from a retired token into
+// the canonical token. It preserves counters when both token IDs already have
+// rows for the same dimensional bucket.
+func (r *UsageStatsRepository) ReassignAPITokenID(tenantID uint64, fromID uint64, toID uint64) error {
+	if fromID == 0 || toID == 0 || fromID == toID {
+		return nil
+	}
+	return r.db.gorm.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`
+			INSERT INTO usage_stats (
+				created_at, tenant_id, time_bucket, granularity, route_id, provider_id,
+				project_id, api_token_id, client_type, model, total_requests,
+				successful_requests, failed_requests, total_duration_ms, total_ttft_ms,
+				input_tokens, output_tokens, cache_read, cache_write, cost
+			)
+			SELECT
+				created_at, tenant_id, time_bucket, granularity, route_id, provider_id,
+				project_id, ?, client_type, model, total_requests,
+				successful_requests, failed_requests, total_duration_ms, total_ttft_ms,
+				input_tokens, output_tokens, cache_read, cache_write, cost
+			FROM usage_stats
+			WHERE tenant_id = ? AND api_token_id = ?
+			ON CONFLICT(tenant_id, granularity, time_bucket, route_id, provider_id, project_id, api_token_id, client_type, model)
+			DO UPDATE SET
+				total_requests = usage_stats.total_requests + excluded.total_requests,
+				successful_requests = usage_stats.successful_requests + excluded.successful_requests,
+				failed_requests = usage_stats.failed_requests + excluded.failed_requests,
+				total_duration_ms = usage_stats.total_duration_ms + excluded.total_duration_ms,
+				total_ttft_ms = usage_stats.total_ttft_ms + excluded.total_ttft_ms,
+				input_tokens = usage_stats.input_tokens + excluded.input_tokens,
+				output_tokens = usage_stats.output_tokens + excluded.output_tokens,
+				cache_read = usage_stats.cache_read + excluded.cache_read,
+				cache_write = usage_stats.cache_write + excluded.cache_write,
+				cost = usage_stats.cost + excluded.cost
+		`, toID, tenantID, fromID).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`DELETE FROM usage_stats WHERE tenant_id = ? AND api_token_id = ?`, tenantID, fromID).Error
+	})
 }

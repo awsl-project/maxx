@@ -1043,3 +1043,14 @@ func (r *ProxyRequestRepository) toDomainList(models []ProxyRequest) []*domain.P
 	}
 	return requests
 }
+
+// ReassignAPITokenID moves proxy request history from a retired token to the
+// canonical token that replaces it.
+func (r *ProxyRequestRepository) ReassignAPITokenID(tenantID uint64, fromID uint64, toID uint64) error {
+	if fromID == 0 || toID == 0 || fromID == toID {
+		return nil
+	}
+	return tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
+		Where("api_token_id = ?", fromID).
+		Update("api_token_id", toID).Error
+}

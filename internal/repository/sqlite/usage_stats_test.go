@@ -161,3 +161,59 @@ func TestQueryDashboardHistoricalDays_EmptyResult(t *testing.T) {
 		t.Errorf("got %d rows, want 0 (DB 空)", len(got))
 	}
 }
+
+func TestUsageStatsRepositoryReassignAPITokenIDMergesHistoricalRows(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewUsageStatsRepository(db)
+	bucket := time.Date(2024, 3, 5, 10, 0, 0, 0, time.UTC)
+	rows := []*UsageStats{
+		{TenantID: 1, TimeBucket: toTimestamp(bucket), Granularity: string(domain.GranularityHour), RouteID: 1, ProviderID: 2, ProjectID: 3, APITokenID: 10, ClientType: "openai", Model: "m", TotalRequests: 4, SuccessfulRequests: 3, FailedRequests: 1, InputTokens: 40, OutputTokens: 20, Cost: 100},
+		{TenantID: 1, TimeBucket: toTimestamp(bucket), Granularity: string(domain.GranularityHour), RouteID: 1, ProviderID: 2, ProjectID: 3, APITokenID: 11, ClientType: "openai", Model: "m", TotalRequests: 7, SuccessfulRequests: 6, FailedRequests: 1, InputTokens: 70, OutputTokens: 30, Cost: 200},
+		{TenantID: 1, TimeBucket: toTimestamp(bucket), Granularity: string(domain.GranularityHour), RouteID: 9, ProviderID: 9, ProjectID: 9, APITokenID: 10, ClientType: "openai", Model: "other", TotalRequests: 5, SuccessfulRequests: 5},
+		{TenantID: 2, TimeBucket: toTimestamp(bucket), Granularity: string(domain.GranularityHour), RouteID: 1, ProviderID: 2, ProjectID: 3, APITokenID: 10, ClientType: "openai", Model: "m", TotalRequests: 999},
+	}
+	if err := db.gorm.Create(&rows).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := repo.ReassignAPITokenID(1, 10, 11); err != nil {
+		t.Fatalf("reassign: %v", err)
+	}
+
+	var oldCount int64
+	if err := db.gorm.Model(&UsageStats{}).Where("tenant_id = ? AND api_token_id = ?", 1, 10).Count(&oldCount).Error; err != nil {
+		t.Fatalf("count old: %v", err)
+	}
+	if oldCount != 0 {
+		t.Fatalf("old tenant rows = %d, want 0", oldCount)
+	}
+
+	var merged UsageStats
+	if err := db.gorm.Where("tenant_id = ? AND api_token_id = ? AND route_id = ? AND model = ?", 1, 11, 1, "m").First(&merged).Error; err != nil {
+		t.Fatalf("load merged: %v", err)
+	}
+	if merged.TotalRequests != 11 || merged.SuccessfulRequests != 9 || merged.FailedRequests != 2 || merged.InputTokens != 110 || merged.OutputTokens != 50 || merged.Cost != 300 {
+		t.Fatalf("merged row = %+v, want summed counters", merged)
+	}
+
+	var moved UsageStats
+	if err := db.gorm.Where("tenant_id = ? AND api_token_id = ? AND route_id = ? AND model = ?", 1, 11, 9, "other").First(&moved).Error; err != nil {
+		t.Fatalf("load moved: %v", err)
+	}
+	if moved.TotalRequests != 5 {
+		t.Fatalf("moved total = %d, want 5", moved.TotalRequests)
+	}
+
+	var otherTenant UsageStats
+	if err := db.gorm.Where("tenant_id = ? AND api_token_id = ?", 2, 10).First(&otherTenant).Error; err != nil {
+		t.Fatalf("load other tenant: %v", err)
+	}
+	if otherTenant.TotalRequests != 999 {
+		t.Fatalf("other tenant total = %d, want untouched 999", otherTenant.TotalRequests)
+	}
+}

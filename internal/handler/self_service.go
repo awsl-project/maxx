@@ -1304,6 +1304,9 @@ func normalizeUserPanelAPITokensForUser(svc *service.AdminService, tenantID uint
 		if token == nil || token.ID == canonical.ID {
 			continue
 		}
+		if err := svc.ReassignAPITokenHistory(tenantID, token.ID, canonical.ID); err != nil {
+			return nil, err
+		}
 		if err := svc.DeleteAPIToken(tenantID, token.ID); err != nil {
 			return nil, err
 		}
