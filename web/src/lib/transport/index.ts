@@ -82,6 +82,8 @@ export type {
   ProviderConfigClaude,
   ClaudeTokenValidationResult,
   ClaudeOAuthResult,
+  // OpenRouter
+  ProviderConfigOpenRouter,
   CodexUsageWindow,
   CodexRateLimitInfo,
   CodexUsageResponse,

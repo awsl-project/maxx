@@ -108,6 +108,12 @@ export interface ProviderConfigBedrock {
   modelMapping?: Record<string, string>;
 }
 
+// OpenRouter 一级供应商配置。baseURL 固定为 https://openrouter.ai/api（由后端合成）。
+// 模型映射走通用的 ModelMapping 实体（按 provider id 匹配），不放在 config 里。
+export interface ProviderConfigOpenRouter {
+  apiKey: string;
+}
+
 // One row in the Bedrock discovery catalog: the Anthropic short name
 // clients send, the invoke-ready Bedrock ID our adapter routes to, and
 // which AWS catalog the entry was sourced from.
@@ -140,6 +146,7 @@ export interface ProviderConfig {
   kiro?: ProviderConfigKiro;
   codex?: ProviderConfigCodex;
   claude?: ProviderConfigClaude;
+  openrouter?: ProviderConfigOpenRouter;
 }
 
 export interface Provider {

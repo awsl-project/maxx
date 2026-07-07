@@ -9,6 +9,7 @@ describe('provider type helpers', () => {
       'codex',
       'claude',
       'bedrock',
+      'openrouter',
       'custom',
     ]);
   });

@@ -20,7 +20,8 @@ export type ProviderType =
   | 'bedrock'
   | 'kiro'
   | 'codex'
-  | 'claude';
+  | 'claude'
+  | 'openrouter';
 
 /**
  * Client 类型定义
