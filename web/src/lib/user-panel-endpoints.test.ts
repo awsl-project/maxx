@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildUserPanelChatCompletionsExample, buildUserPanelEndpointHints } from './user-panel-endpoints';
+import {
+  buildUserPanelChatCompletionsExample,
+  buildUserPanelEndpointHints,
+} from './user-panel-endpoints';
 
 describe('user panel endpoints', () => {
   it('uses global proxy endpoints for managed user console keys', () => {
@@ -20,11 +23,11 @@ describe('user panel endpoints', () => {
     const endpoints = buildUserPanelEndpointHints('https://maxx.example.com');
     const example = buildUserPanelChatCompletionsExample({
       origin: 'https://maxx.example.com',
-      tokenLabel: 'your key',
     });
 
     expect(endpoints.map((endpoint) => endpoint.url).join('\n')).not.toContain('/project/');
     expect(example).toContain('https://maxx.example.com/v1/chat/completions');
     expect(example).not.toContain('/project/');
+    expect(example).not.toContain('Authorization: Bearer');
   });
 });

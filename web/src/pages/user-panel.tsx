@@ -1,28 +1,43 @@
 import { useState } from 'react';
-import { Clock3, Copy, Eye, EyeOff, KeyRound, LogOut, Server, ShieldCheck, UserRound } from 'lucide-react';
+import {
+  Clock3,
+  Copy,
+  Eye,
+  EyeOff,
+  KeyRound,
+  ListChecks,
+  LogOut,
+  Server,
+  UserRound,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui';
+import { LanguageToggle } from '@/components/language-toggle';
 import { useAuth } from '@/lib/auth-context';
 import {
   useCreateUserPanelAPIToken,
+  useProxyRequests,
   useProxyStatus,
-  usePublicSettings,
   useRegenerateUserPanelAPIToken,
   useUserPanelAPIToken,
 } from '@/hooks/queries';
-import type { APIToken } from '@/lib/transport';
+import type { APIToken, ProxyRequest } from '@/lib/transport';
 import {
   buildUserPanelChatCompletionsExample,
   buildUserPanelEndpointHints,
 } from '@/lib/user-panel-endpoints';
-import { cn } from '@/lib/utils';
-
-function maskNumericIdentity(value?: number) {
-  if (!value || value <= 0) return '••';
-  const raw = String(value);
-  if (raw.length <= 2) return `••${raw}`;
-  return `${'•'.repeat(Math.max(2, raw.length - 2))}${raw.slice(-2)}`;
-}
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat().format(value || 0);
@@ -40,17 +55,116 @@ function formatDateTime(value?: string) {
   }).format(date);
 }
 
+function formatDuration(value?: number) {
+  if (!value || value <= 0) return '—';
+  const milliseconds = value / 1_000_000;
+  if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
+  return `${(milliseconds / 1000).toFixed(2)}s`;
+}
+
 function getTokenStatus(token: APIToken) {
   if (!token.isEnabled) return 'disabled';
   if (token.expiresAt && new Date(token.expiresAt).getTime() <= Date.now()) return 'expired';
   return 'active';
 }
 
+function getRequestStatusVariant(request: ProxyRequest) {
+  if (request.status === 'COMPLETED' && request.statusCode < 400) return 'success';
+  if (request.status === 'PENDING' || request.status === 'IN_PROGRESS') return 'warning';
+  if (
+    request.status === 'FAILED' ||
+    request.status === 'CANCELLED' ||
+    request.status === 'REJECTED'
+  ) {
+    return 'danger';
+  }
+  if (request.statusCode >= 400) return 'danger';
+  return 'secondary';
+}
+
+function UserPanelRequestsTab() {
+  const { t } = useTranslation();
+  const { data, isLoading, isError } = useProxyRequests({ limit: 25 });
+  const requests = data?.items ?? [];
+
+  return (
+    <Card className="min-h-[820px] border-border bg-card shadow-sm">
+      <CardHeader className="border-b border-border">
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <ListChecks className="size-4 text-muted-foreground" />
+          {t('userPanel.requestsTab')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex min-h-[744px] flex-col p-5">
+        {isLoading ? (
+          <div className="flex flex-1 items-center justify-center text-center text-sm text-muted-foreground">
+            {t('common.loading')}
+          </div>
+        ) : isError ? (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+              {t('userPanel.requestsLoadFailed')}
+            </div>
+          </div>
+        ) : requests.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <ListChecks className="size-9 text-muted-foreground" />
+            <p className="mt-3 font-medium">{t('userPanel.noRequests')}</p>
+            <p className="mt-2 max-w-md text-sm text-muted-foreground">
+              {t('userPanel.noRequestsDescription')}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border rounded-xl border border-border">
+            {requests.map((request) => (
+              <div key={request.id} className="space-y-3 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="truncate font-mono text-sm font-medium">
+                      {request.requestID || `#${request.id}`}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatDateTime(request.createdAt)} · {request.clientType || '—'} ·{' '}
+                      {request.requestModel || '—'}
+                    </p>
+                  </div>
+                  <Badge variant={getRequestStatusVariant(request)}>
+                    {request.statusCode || '—'} · {request.status || '—'}
+                  </Badge>
+                </div>
+                <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                  <div className="rounded-lg bg-muted/25 px-3 py-2">
+                    <span className="block">{t('userPanel.requestDuration')}</span>
+                    <span className="mt-1 block font-mono text-foreground">
+                      {formatDuration(request.duration)}
+                    </span>
+                  </div>
+                  <div className="rounded-lg bg-muted/25 px-3 py-2">
+                    <span className="block">{t('userPanel.requestInputTokens')}</span>
+                    <span className="mt-1 block font-mono text-foreground">
+                      {formatNumber(request.inputTokenCount)}
+                    </span>
+                  </div>
+                  <div className="rounded-lg bg-muted/25 px-3 py-2">
+                    <span className="block">{t('userPanel.requestOutputTokens')}</span>
+                    <span className="mt-1 block font-mono text-foreground">
+                      {formatNumber(request.outputTokenCount)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function UserPanelPage() {
   const { t } = useTranslation();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const { data: proxyStatus } = useProxyStatus();
-  const { data: settings } = usePublicSettings();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
@@ -61,14 +175,6 @@ export function UserPanelPage() {
   const [showKeyMasked, setShowKeyMasked] = useState(true);
 
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
-
-  const tenantLabel = user?.tenantName?.trim()
-    ? user.tenantName.trim()
-    : user?.tenantID
-      ? t('nav.tenantFallback', { id: user.tenantID })
-      : t('nav.tenantUnknown');
-  const authProtected = settings?.api_token_auth_enabled === 'true';
-  const proxyOnline = proxyStatus?.running ?? true;
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const endpointHints = buildUserPanelEndpointHints(origin).map((endpoint) => ({
     ...endpoint,
@@ -79,10 +185,7 @@ export function UserPanelPage() {
           ? t('userPanel.routeClaude')
           : t('userPanel.routeGemini'),
   }));
-  const curlExample = buildUserPanelChatCompletionsExample({
-    origin,
-    tokenLabel: t('userPanel.yourKey'),
-  });
+  const curlExample = buildUserPanelChatCompletionsExample({ origin });
 
   const handleCopyEndpoint = async (endpointId: string, url: string) => {
     if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;
@@ -132,13 +235,8 @@ export function UserPanelPage() {
               <p className="text-sm text-muted-foreground">{t('userPanel.description')}</p>
             </div>
           </div>
-          <div className="flex flex-col gap-3 sm:items-end">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={proxyOnline ? 'success' : 'danger'}>
-                {proxyOnline ? t('userPanel.online') : t('userPanel.offline')}
-              </Badge>
-              <Badge variant="outline">{tenantLabel}</Badge>
-            </div>
+          <div className="flex items-center gap-2 self-start sm:self-center">
+            <LanguageToggle />
             <Button
               variant="outline"
               className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10"
@@ -150,272 +248,242 @@ export function UserPanelPage() {
           </div>
         </header>
 
-        <section className="grid gap-5 lg:grid-cols-[1fr_1fr]">
-          <Card className="border-border bg-card shadow-sm">
-            <CardHeader className="border-b border-border">
-              <CardTitle className="flex items-center gap-2 text-base font-medium">
-                <KeyRound className="size-4 text-muted-foreground" />
-                {t('userPanel.myKey')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 p-5">
-              {oneTimeToken ? (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-medium text-emerald-700 dark:text-emerald-300">
-                        {t('userPanel.oneTimeKeyTitle')}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t('userPanel.oneTimeKeyDescription')}
-                      </p>
-                    </div>
-                    <Button size="sm" className="gap-2" onClick={handleCopyOneTimeToken}>
-                      <Copy className="size-3.5" />
-                      {keyCopied ? t('common.copied') : t('userPanel.copyKey')}
-                    </Button>
-                  </div>
-                  <p className="mt-3 break-all rounded-lg bg-background px-3 py-2 font-mono text-xs">
-                    {oneTimeToken}
-                  </p>
-                </div>
-              ) : null}
+        <Tabs defaultValue="main" className="space-y-5">
+          <TabsList className="grid w-full grid-cols-2 rounded-xl p-1">
+            <TabsTrigger value="main">{t('userPanel.mainTab')}</TabsTrigger>
+            <TabsTrigger value="requests">{t('userPanel.requestsTab')}</TabsTrigger>
+          </TabsList>
 
-              {tokenLoading ? (
-                <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
-              ) : userPanelToken ? (
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate font-medium">{userPanelToken.name}</p>
-                        <Badge
-                          variant={
-                            getTokenStatus(userPanelToken) === 'active'
-                              ? 'success'
-                              : getTokenStatus(userPanelToken) === 'expired'
-                                ? 'warning'
-                                : 'danger'
-                          }
-                        >
-                          {t(`userPanel.keyStatus.${getTokenStatus(userPanelToken)}`)}
-                        </Badge>
+          <TabsContent value="main" className="space-y-5">
+            <section className="grid gap-5 lg:grid-cols-[1fr_1fr]">
+              <Card className="border-border bg-card shadow-sm">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center gap-2 text-base font-medium">
+                    <KeyRound className="size-4 text-muted-foreground" />
+                    {t('userPanel.myKey')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 p-5">
+                  {oneTimeToken ? (
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-medium text-emerald-700 dark:text-emerald-300">
+                            {t('userPanel.oneTimeKeyTitle')}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('userPanel.oneTimeKeyDescription')}
+                          </p>
+                        </div>
+                        <Button size="sm" className="gap-2" onClick={handleCopyOneTimeToken}>
+                          <Copy className="size-3.5" />
+                          {keyCopied ? t('common.copied') : t('userPanel.copyKey')}
+                        </Button>
                       </div>
+                      <p className="mt-3 break-all rounded-lg bg-background px-3 py-2 font-mono text-xs">
+                        {oneTimeToken}
+                      </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10"
-                      disabled={tokenActionPending}
-                      onClick={handleRegenerateUserPanelToken}
-                    >
-                      <KeyRound className="size-4" />
-                      {tokenActionPending ? t('common.loading') : t('userPanel.regenerateKey')}
-                    </Button>
-                  </div>
+                  ) : null}
 
-                  <div className="relative">
-                    <Input
-                      readOnly
-                      type={showKeyMasked ? 'password' : 'text'}
-                      value={userPanelToken.tokenPrefix || 'maxx_••••'}
-                      className="h-9 pr-9 font-mono text-xs"
-                      aria-label={t('userPanel.myKey')}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 size-7"
-                      aria-label={showKeyMasked ? t('userPanel.showKey') : t('userPanel.hideKey')}
-                      onClick={() => setShowKeyMasked((prev) => !prev)}
-                    >
-                      {showKeyMasked ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {t('userPanel.existingKeyHint')}
-                  </p>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center">
-                  <KeyRound className="mx-auto size-9 text-muted-foreground" />
-                  <p className="mt-3 font-medium">{t('userPanel.noDedicatedKey')}</p>
-                  <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-                    {t('userPanel.noDedicatedKeyDescription')}
-                  </p>
-                  <Button
-                    className="mt-4 gap-2"
-                    disabled={tokenActionPending}
-                    onClick={handleCreateUserPanelToken}
-                  >
-                    <KeyRound className="size-4" />
-                    {tokenActionPending ? t('common.loading') : t('userPanel.createKey')}
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  {tokenLoading ? (
+                    <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
+                  ) : userPanelToken ? (
+                    <div className="space-y-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate font-medium">{userPanelToken.name}</p>
+                            <Badge
+                              variant={
+                                getTokenStatus(userPanelToken) === 'active'
+                                  ? 'success'
+                                  : getTokenStatus(userPanelToken) === 'expired'
+                                    ? 'warning'
+                                    : 'danger'
+                              }
+                            >
+                              {t(`userPanel.keyStatus.${getTokenStatus(userPanelToken)}`)}
+                            </Badge>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10"
+                          disabled={tokenActionPending}
+                          onClick={handleRegenerateUserPanelToken}
+                        >
+                          <KeyRound className="size-4" />
+                          {tokenActionPending ? t('common.loading') : t('userPanel.regenerateKey')}
+                        </Button>
+                      </div>
 
-          <Card className="border-border bg-card shadow-sm">
-            <CardHeader className="border-b border-border">
-              <CardTitle className="flex items-center gap-2 text-base font-medium">
-                <Server className="size-4 text-muted-foreground" />
-                {t('userPanel.usageStats')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 p-5">
-              {userPanelToken ? (
-                <>
-                  <div className="grid gap-3">
-                    <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
+                      <div className="relative">
+                        <Input
+                          readOnly
+                          type={showKeyMasked ? 'password' : 'text'}
+                          value={userPanelToken.tokenPrefix || 'maxx_••••'}
+                          className="h-9 pr-9 font-mono text-xs"
+                          aria-label={t('userPanel.myKey')}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
+                          aria-label={
+                            showKeyMasked ? t('userPanel.showKey') : t('userPanel.hideKey')
+                          }
+                          onClick={() => setShowKeyMasked((prev) => !prev)}
+                        >
+                          {showKeyMasked ? (
+                            <Eye className="size-3.5" />
+                          ) : (
+                            <EyeOff className="size-3.5" />
+                          )}
+                        </Button>
+                      </div>
                       <p className="text-xs text-muted-foreground">
-                        {t('userPanel.useCount')}
-                      </p>
-                      <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
-                        {formatNumber(userPanelToken.useCount)}
+                        {t('userPanel.existingKeyHint')}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
-                      <p className="text-xs text-muted-foreground">
-                        {t('userPanel.lastUsed')}
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center">
+                      <KeyRound className="mx-auto size-9 text-muted-foreground" />
+                      <p className="mt-3 font-medium">{t('userPanel.noDedicatedKey')}</p>
+                      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                        {t('userPanel.noDedicatedKeyDescription')}
                       </p>
-                      <p className="mt-1 font-mono text-sm tabular-nums text-foreground">
-                        {formatDateTime(userPanelToken.lastUsedAt)}
-                      </p>
+                      <Button
+                        className="mt-4 gap-2"
+                        disabled={tokenActionPending}
+                        onClick={handleCreateUserPanelToken}
+                      >
+                        <KeyRound className="size-4" />
+                        {tokenActionPending ? t('common.loading') : t('userPanel.createKey')}
+                      </Button>
                     </div>
-                    <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
-                      <p className="text-xs text-muted-foreground">
-                        {t('userPanel.expiresAt')}
-                      </p>
-                      <p className="mt-1 font-mono text-sm tabular-nums text-foreground">
-                        {formatDateTime(userPanelToken.expiresAt)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 text-sm text-muted-foreground border-t border-border pt-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <span>{t('userPanel.version')}</span>
-                      <span className="font-mono text-foreground">{proxyStatus?.version || '—'}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span>{t('userPanel.auth')}</span>
-                      <Badge variant={authProtected ? 'info' : 'secondary'}>
-                        {authProtected ? t('nav.accountStatusProtected') : t('nav.accountStatusLocal')}
-                      </Badge>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <Server className="size-9 text-muted-foreground" />
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {t('userPanel.noUsageData')}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </section>
+                  )}
+                </CardContent>
+              </Card>
 
-        <Card className="border-border bg-card shadow-sm">
-          <CardHeader className="border-b border-border">
-            <CardTitle className="flex items-center gap-2 text-base font-medium">
-              <Server className="size-4 text-muted-foreground" />
-              {t('userPanel.apiAccess')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 p-5">
-            <div className="rounded-xl border border-border bg-muted/25 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {t('userPanel.baseURL')}
-              </p>
-              <div className="mt-3 space-y-2">
-                {endpointHints.map((endpoint) => (
-                  <div
-                    key={endpoint.id}
-                    className="flex items-center gap-3 rounded-lg bg-background px-3 py-2 text-xs"
-                  >
-                    <span className="w-20 shrink-0 font-medium text-foreground">{endpoint.label}</span>
-                    <code className="min-w-0 flex-1 break-all text-muted-foreground">{endpoint.url || '—'}</code>
+              <Card className="border-border bg-card shadow-sm">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center gap-2 text-base font-medium">
+                    <Server className="size-4 text-muted-foreground" />
+                    {t('userPanel.usageStats')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 p-5">
+                  {userPanelToken ? (
+                    <>
+                      <div className="grid gap-3">
+                        <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
+                          <p className="text-xs text-muted-foreground">{t('userPanel.useCount')}</p>
+                          <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                            {formatNumber(userPanelToken.useCount)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
+                          <p className="text-xs text-muted-foreground">{t('userPanel.lastUsed')}</p>
+                          <p className="mt-1 font-mono text-sm tabular-nums text-foreground">
+                            {formatDateTime(userPanelToken.lastUsedAt)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
+                          <p className="text-xs text-muted-foreground">
+                            {t('userPanel.expiresAt')}
+                          </p>
+                          <p className="mt-1 font-mono text-sm tabular-nums text-foreground">
+                            {formatDateTime(userPanelToken.expiresAt)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 border-t border-border pt-4 text-sm text-muted-foreground">
+                        <div className="flex items-center justify-between gap-3">
+                          <span>{t('userPanel.version')}</span>
+                          <span className="font-mono text-foreground">
+                            {proxyStatus?.version || '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <Server className="size-9 text-muted-foreground" />
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        {t('userPanel.noUsageData')}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+
+            <Card className="border-border bg-card shadow-sm">
+              <CardHeader className="border-b border-border">
+                <CardTitle className="flex items-center gap-2 text-base font-medium">
+                  <Server className="size-4 text-muted-foreground" />
+                  {t('userPanel.apiAccess')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 p-5">
+                <div className="rounded-xl border border-border bg-muted/25 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t('userPanel.baseURL')}
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {endpointHints.map((endpoint) => (
+                      <div
+                        key={endpoint.id}
+                        className="flex items-center gap-3 rounded-lg bg-background px-3 py-2 text-xs"
+                      >
+                        <span className="w-20 shrink-0 font-medium text-foreground">
+                          {endpoint.label}
+                        </span>
+                        <code className="min-w-0 flex-1 break-all text-muted-foreground">
+                          {endpoint.url || '—'}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0 gap-2"
+                          aria-label={`${t('common.copy')} ${endpoint.label}`}
+                          onClick={() => handleCopyEndpoint(endpoint.id, endpoint.url)}
+                        >
+                          <Copy className="size-3.5" />
+                          {copiedEndpointId === endpoint.id ? t('common.copied') : t('common.copy')}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border bg-muted/25 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t('userPanel.quickStart')}
+                    </p>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-8 shrink-0 gap-2"
-                      aria-label={`${t('common.copy')} ${endpoint.label}`}
-                      onClick={() => handleCopyEndpoint(endpoint.id, endpoint.url)}
+                      className="h-8 gap-2"
+                      onClick={handleCopyExample}
                     >
                       <Copy className="size-3.5" />
-                      {copiedEndpointId === endpoint.id ? t('common.copied') : t('common.copy')}
+                      {exampleCopied ? t('common.copied') : t('common.copy')}
                     </Button>
                   </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-xl border border-border bg-muted/25 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {t('userPanel.authMethod')}
-              </p>
-              <code className="mt-3 block rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
-                Authorization: Bearer {'<'}
-                {t('userPanel.yourKey')}
-                {'>'}
-              </code>
-            </div>
-            <div className="rounded-xl border border-border bg-muted/25 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('userPanel.quickStart')}
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-2"
-                  onClick={handleCopyExample}
-                >
-                  <Copy className="size-3.5" />
-                  {exampleCopied ? t('common.copied') : t('common.copy')}
-                </Button>
-              </div>
-              <pre className="mt-3 overflow-x-auto rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
-                <code>{curlExample}</code>
-              </pre>
-            </div>
-          </CardContent>
-        </Card>
-
-        <section className="grid gap-5 lg:grid-cols-2">
-          <Card className="border-border bg-card shadow-sm">
-            <CardHeader className="border-b border-border">
-              <CardTitle className="flex items-center gap-2 text-base font-medium">
-                <ShieldCheck className="size-4 text-muted-foreground" />
-                {t('userPanel.accountCard')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 pt-5 text-sm">
-              {[
-                [t('userPanel.username'), user?.username || t('nav.accountFallback')],
-                [
-                  t('userPanel.role'),
-                  user?.role === 'admin' ? t('users.roleAdmin') : t('users.roleMember'),
-                ],
-                [t('userPanel.workspace'), tenantLabel],
-                [t('userPanel.userId'), maskNumericIdentity(user?.id)],
-                [t('userPanel.tenantId'), maskNumericIdentity(user?.tenantID)],
-              ].map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">{label}</span>
-                  <span
-                    className={cn(
-                      'truncate text-right font-medium',
-                      label === t('userPanel.userId') && 'font-mono',
-                    )}
-                  >
-                    {value}
-                  </span>
+                  <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
+                    <code>{curlExample}</code>
+                  </pre>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
-        </section>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="requests">
+            <UserPanelRequestsTab />
+          </TabsContent>
+        </Tabs>
 
         <footer className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
           <Clock3 className="size-3.5" />

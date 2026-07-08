@@ -17,13 +17,9 @@ export function buildUserPanelEndpointHints(origin: string): UserPanelEndpointHi
   ];
 }
 
-export function buildUserPanelChatCompletionsExample(params: {
-  origin: string;
-  tokenLabel: string;
-}): string {
+export function buildUserPanelChatCompletionsExample(params: { origin: string }): string {
   const baseUrl = trimTrailingSlash(params.origin);
   return `curl ${baseUrl}/v1/chat/completions \
-  -H "Authorization: Bearer <${params.tokenLabel}>" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'`;
 }

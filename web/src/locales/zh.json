@@ -173,7 +173,15 @@
     "usageStats": "用量与统计",
     "showKey": "显示 Key",
     "hideKey": "隐藏 Key",
-    "noUsageData": "暂无调用，生成 Key 后开始统计。"
+    "noUsageData": "暂无调用，生成 Key 后开始统计。",
+    "mainTab": "主页",
+    "requestsTab": "请求",
+    "requestsLoadFailed": "请求加载失败。",
+    "noRequests": "暂无请求",
+    "noRequestsDescription": "这里只显示你自己的专用 Key 发起的请求。",
+    "requestDuration": "耗时",
+    "requestInputTokens": "输入 Token",
+    "requestOutputTokens": "输出 Token"
   },
   "dashboard": {
     "title": "仪表板",
