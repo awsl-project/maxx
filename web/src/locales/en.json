@@ -169,7 +169,19 @@
     "routeOpenAICodex": "OpenAI / Codex",
     "availableModels": "Available models",
     "moreModels": "+{{count}} more",
-    "noModels": "No models"
+    "noModels": "No models",
+    "usageStats": "Usage & Stats",
+    "showKey": "Show key",
+    "hideKey": "Hide key",
+    "noUsageData": "No usage yet. Generate a key to start tracking.",
+    "mainTab": "Main",
+    "requestsTab": "Requests",
+    "requestsLoadFailed": "Failed to load requests.",
+    "noRequests": "No requests yet",
+    "noRequestsDescription": "Only requests made with your dedicated key will appear here.",
+    "requestDuration": "Duration",
+    "requestInputTokens": "Input tokens",
+    "requestOutputTokens": "Output tokens"
   },
   "dashboard": {
     "title": "Dashboard",

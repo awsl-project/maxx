@@ -1004,6 +1004,61 @@ func parseProxyRequestFilter(r *http.Request) (*repository.ProxyRequestFilter, e
 	return filter, nil
 }
 
+func emptyProxyRequestsCursorResult() *service.CursorPaginationResult {
+	return &service.CursorPaginationResult{Items: []*domain.ProxyRequest{}}
+}
+
+func emptyProxyRequestErrorStats() *repository.ProxyRequestErrorStats {
+	return &repository.ProxyRequestErrorStats{
+		StatusCounts:     []repository.ProxyRequestCountBucket{},
+		HTTPStatusCounts: []repository.ProxyRequestHTTPStatusBucket{},
+		ProviderCounts:   []repository.ProxyRequestProviderBucket{},
+		ModelCounts:      []repository.ProxyRequestCountBucket{},
+		Trend:            []repository.ProxyRequestTrendPoint{},
+	}
+}
+
+func (h *AdminHandler) userPanelMemberRequestTokenID(r *http.Request, tenantID uint64) (uint64, bool, error) {
+	if !h.userPanelMemberUsageStatsEnabled(r) {
+		return 0, false, nil
+	}
+
+	canonicalToken, err := h.userPanelMemberCanonicalAPIToken(tenantID, maxxctx.GetUserID(r.Context()))
+	if err != nil {
+		return 0, true, err
+	}
+	if canonicalToken == nil || canonicalToken.ID == 0 || !canonicalToken.IsEnabled {
+		return 0, true, nil
+	}
+	return canonicalToken.ID, true, nil
+}
+
+func (h *AdminHandler) userPanelMemberCanonicalAPIToken(tenantID uint64, userID uint64) (*domain.APIToken, error) {
+	if tenantID == 0 || userID == 0 {
+		return nil, nil
+	}
+	tokens, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, tokens)
+}
+
+func applyUserPanelMemberRequestFilter(filter *repository.ProxyRequestFilter, tokenID uint64) *repository.ProxyRequestFilter {
+	if filter == nil {
+		filter = &repository.ProxyRequestFilter{}
+	} else {
+		copy := *filter
+		filter = &copy
+	}
+	filter.APITokenID = &tokenID
+	return filter
+}
+
+func requestBelongsToUserPanelToken(req *domain.ProxyRequest, tokenID uint64) bool {
+	return req != nil && tokenID != 0 && req.APITokenID == tokenID
+}
+
 // ProxyRequest handlers
 // Routes: /admin/requests, /admin/requests/count, /admin/requests/error-stats, /admin/requests/active, /admin/requests/{id}, /admin/requests/{id}/attempts, /admin/requests/{id}/recalculate-cost
 func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Request, id uint64, parts []string) {
@@ -1053,9 +1108,14 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 
 	switch r.Method {
 	case http.MethodGet:
+		memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
 		if id > 0 {
 			req, err := h.svc.GetProxyRequest(tenantID, id)
-			if err != nil {
+			if err != nil || (memberScoped && !requestBelongsToUserPanelToken(req, memberTokenID)) {
 				writeJSON(w, http.StatusNotFound, map[string]string{"error": "proxy request not found"})
 				return
 			}
@@ -1077,6 +1137,14 @@ func (h *AdminHandler) handleProxyRequests(w http.ResponseWriter, r *http.Reques
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
+			}
+
+			if memberScoped {
+				if memberTokenID == 0 {
+					writeJSON(w, http.StatusOK, emptyProxyRequestsCursorResult())
+					return
+				}
+				filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
 			}
 
 			result, err := h.svc.GetProxyRequestsCursor(tenantID, limit, before, after, filter)
@@ -1106,6 +1174,18 @@ func (h *AdminHandler) handleCleanupFailedProxyRequestsCount(w http.ResponseWrit
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		if memberTokenID == 0 {
+			writeJSON(w, http.StatusOK, 0)
+			return
+		}
+		filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
+	}
 	count, err := h.svc.CountFailedProxyRequests(tenantID, filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -1127,6 +1207,18 @@ func (h *AdminHandler) handleCleanupFailedProxyRequests(w http.ResponseWriter, r
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		if memberTokenID == 0 {
+			writeJSON(w, http.StatusOK, &domain.ProxyRequestCleanupFailedResult{})
+			return
+		}
+		filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
+	}
 	result, err := h.svc.CleanupFailedProxyRequests(tenantID, filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -1147,6 +1239,19 @@ func (h *AdminHandler) handleProxyRequestsCount(w http.ResponseWriter, r *http.R
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		if memberTokenID == 0 {
+			writeJSON(w, http.StatusOK, 0)
+			return
+		}
+		filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
 	}
 
 	count, err := h.svc.GetProxyRequestsCountWithFilter(tenantID, filter)
@@ -1173,6 +1278,19 @@ func (h *AdminHandler) handleProxyRequestsErrorStats(w http.ResponseWriter, r *h
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		if memberTokenID == 0 {
+			writeJSON(w, http.StatusOK, emptyProxyRequestErrorStats())
+			return
+		}
+		filter = applyUserPanelMemberRequestFilter(filter, memberTokenID)
+	}
+
 	stats, err := h.svc.GetProxyRequestErrorStats(tenantID, filter)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -1189,10 +1307,24 @@ func (h *AdminHandler) handleActiveProxyRequests(w http.ResponseWriter, r *http.
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	requests, err := h.svc.GetActiveProxyRequests(tenantID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	if memberScoped {
+		filtered := make([]*domain.ProxyRequest, 0, len(requests))
+		for _, req := range requests {
+			if requestBelongsToUserPanelToken(req, memberTokenID) {
+				filtered = append(filtered, req)
+			}
+		}
+		requests = filtered
 	}
 	writeJSON(w, http.StatusOK, requests)
 }
@@ -1205,6 +1337,18 @@ func (h *AdminHandler) handleProxyUpstreamAttempts(w http.ResponseWriter, r *htt
 	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
+	memberTokenID, memberScoped, err := h.userPanelMemberRequestTokenID(r, tenantID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if memberScoped {
+		req, err := h.svc.GetProxyRequest(tenantID, proxyRequestID)
+		if err != nil || !requestBelongsToUserPanelToken(req, memberTokenID) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "proxy request not found"})
+			return
+		}
+	}
 	attempts, err := h.svc.GetProxyUpstreamAttempts(tenantID, proxyRequestID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
