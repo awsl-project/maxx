@@ -169,7 +169,11 @@
     "routeOpenAICodex": "OpenAI / Codex",
     "availableModels": "Available models",
     "moreModels": "+{{count}} more",
-    "noModels": "No models"
+    "noModels": "No models",
+    "usageStats": "Usage & Stats",
+    "showKey": "Show key",
+    "hideKey": "Hide key",
+    "noUsageData": "No usage yet. Generate a key to start tracking."
   },
   "dashboard": {
     "title": "Dashboard",

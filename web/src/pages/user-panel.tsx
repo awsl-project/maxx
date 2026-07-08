@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Clock3, Copy, KeyRound, LogOut, Server, ShieldCheck, UserRound } from 'lucide-react';
+import { Clock3, Copy, Eye, EyeOff, KeyRound, LogOut, Server, ShieldCheck, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/components/ui';
 import { useAuth } from '@/lib/auth-context';
 import {
   useCreateUserPanelAPIToken,
@@ -58,6 +58,7 @@ export function UserPanelPage() {
   const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
+  const [showKeyMasked, setShowKeyMasked] = useState(true);
 
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
 
@@ -120,8 +121,8 @@ export function UserPanelPage() {
 
   return (
     <main className="min-h-svh bg-muted/30 px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-        <header className="flex flex-col gap-4 rounded-2xl border border-border bg-card/95 p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+        <header className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
               <UserRound className="size-5" />
@@ -149,7 +150,7 @@ export function UserPanelPage() {
           </div>
         </header>
 
-        <section className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <section className="grid gap-5 lg:grid-cols-[1fr_1fr]">
           <Card className="border-border bg-card shadow-sm">
             <CardHeader className="border-b border-border">
               <CardTitle className="flex items-center gap-2 text-base font-medium">
@@ -183,7 +184,7 @@ export function UserPanelPage() {
               {tokenLoading ? (
                 <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
               ) : userPanelToken ? (
-                <div className="rounded-xl border border-border bg-muted/25 p-4">
+                <div className="space-y-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -200,12 +201,6 @@ export function UserPanelPage() {
                           {t(`userPanel.keyStatus.${getTokenStatus(userPanelToken)}`)}
                         </Badge>
                       </div>
-                      <p className="mt-2 font-mono text-xs text-muted-foreground">
-                        {userPanelToken.tokenPrefix || 'maxx_••••'}••••
-                      </p>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {t('userPanel.existingKeyHint')}
-                      </p>
                     </div>
                     <Button
                       variant="outline"
@@ -217,26 +212,28 @@ export function UserPanelPage() {
                       {tokenActionPending ? t('common.loading') : t('userPanel.regenerateKey')}
                     </Button>
                   </div>
-                  <div className="mt-4 grid gap-3 text-xs text-muted-foreground sm:grid-cols-3">
-                    <div>
-                      <p>{t('userPanel.useCount')}</p>
-                      <p className="mt-1 font-medium text-foreground">
-                        {formatNumber(userPanelToken.useCount)}
-                      </p>
-                    </div>
-                    <div>
-                      <p>{t('userPanel.lastUsed')}</p>
-                      <p className="mt-1 font-medium text-foreground">
-                        {formatDateTime(userPanelToken.lastUsedAt)}
-                      </p>
-                    </div>
-                    <div>
-                      <p>{t('userPanel.expiresAt')}</p>
-                      <p className="mt-1 font-medium text-foreground">
-                        {formatDateTime(userPanelToken.expiresAt)}
-                      </p>
-                    </div>
+
+                  <div className="relative">
+                    <Input
+                      readOnly
+                      type={showKeyMasked ? 'password' : 'text'}
+                      value={userPanelToken.tokenPrefix || 'maxx_••••'}
+                      className="h-9 pr-9 font-mono text-xs"
+                      aria-label={t('userPanel.myKey')}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 size-7"
+                      aria-label={showKeyMasked ? t('userPanel.showKey') : t('userPanel.hideKey')}
+                      onClick={() => setShowKeyMasked((prev) => !prev)}
+                    >
+                      {showKeyMasked ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                    </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('userPanel.existingKeyHint')}
+                  </p>
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center">
@@ -262,83 +259,131 @@ export function UserPanelPage() {
             <CardHeader className="border-b border-border">
               <CardTitle className="flex items-center gap-2 text-base font-medium">
                 <Server className="size-4 text-muted-foreground" />
-                {t('userPanel.apiAccess')}
+                {t('userPanel.usageStats')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 pt-5">
-              <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('userPanel.baseURL')}
-                </p>
-                <div className="mt-3 space-y-2">
-                  {endpointHints.map((endpoint) => (
-                    <div
-                      key={endpoint.id}
-                      className="grid gap-2 rounded-lg bg-background px-3 py-2 text-xs sm:grid-cols-[104px_1fr_auto] sm:items-center"
-                    >
-                      <span className="font-medium text-foreground">{endpoint.label}</span>
-                      <code className="break-all text-muted-foreground">{endpoint.url || '—'}</code>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 gap-2"
-                        aria-label={`${t('common.copy')} ${endpoint.label}`}
-                        onClick={() => handleCopyEndpoint(endpoint.id, endpoint.url)}
-                      >
-                        <Copy className="size-3.5" />
-                        {copiedEndpointId === endpoint.id ? t('common.copied') : t('common.copy')}
-                      </Button>
+            <CardContent className="space-y-4 p-5">
+              {userPanelToken ? (
+                <>
+                  <div className="grid gap-3">
+                    <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
+                      <p className="text-xs text-muted-foreground">
+                        {t('userPanel.useCount')}
+                      </p>
+                      <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                        {formatNumber(userPanelToken.useCount)}
+                      </p>
                     </div>
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('userPanel.authMethod')}
-                </p>
-                <code className="mt-3 block rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
-                  Authorization: Bearer {'<'}
-                  {t('userPanel.yourKey')}
-                  {'>'}
-                </code>
-              </div>
-              <div className="rounded-xl border border-border bg-muted/25 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {t('userPanel.quickStart')}
+                    <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
+                      <p className="text-xs text-muted-foreground">
+                        {t('userPanel.lastUsed')}
+                      </p>
+                      <p className="mt-1 font-mono text-sm tabular-nums text-foreground">
+                        {formatDateTime(userPanelToken.lastUsedAt)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/25 px-3 py-2.5">
+                      <p className="text-xs text-muted-foreground">
+                        {t('userPanel.expiresAt')}
+                      </p>
+                      <p className="mt-1 font-mono text-sm tabular-nums text-foreground">
+                        {formatDateTime(userPanelToken.expiresAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 text-sm text-muted-foreground border-t border-border pt-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>{t('userPanel.version')}</span>
+                      <span className="font-mono text-foreground">{proxyStatus?.version || '—'}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span>{t('userPanel.auth')}</span>
+                      <Badge variant={authProtected ? 'info' : 'secondary'}>
+                        {authProtected ? t('nav.accountStatusProtected') : t('nav.accountStatusLocal')}
+                      </Badge>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Server className="size-9 text-muted-foreground" />
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {t('userPanel.noUsageData')}
                   </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-2"
-                    onClick={handleCopyExample}
-                  >
-                    <Copy className="size-3.5" />
-                    {exampleCopied ? t('common.copied') : t('common.copy')}
-                  </Button>
                 </div>
-                <pre className="mt-3 overflow-x-auto rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
-                  <code>{curlExample}</code>
-                </pre>
-              </div>
-              <div className="grid gap-3 text-sm text-muted-foreground">
-                <div className="flex items-center justify-between gap-3">
-                  <span>{t('userPanel.version')}</span>
-                  <span className="font-mono text-foreground">{proxyStatus?.version || '—'}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span>{t('userPanel.auth')}</span>
-                  <Badge variant={authProtected ? 'info' : 'secondary'}>
-                    {authProtected ? t('nav.accountStatusProtected') : t('nav.accountStatusLocal')}
-                  </Badge>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </section>
 
-        <section className="grid gap-5 lg:grid-cols-3">
-          <Card className="border-border bg-card shadow-sm lg:col-start-3">
+        <Card className="border-border bg-card shadow-sm">
+          <CardHeader className="border-b border-border">
+            <CardTitle className="flex items-center gap-2 text-base font-medium">
+              <Server className="size-4 text-muted-foreground" />
+              {t('userPanel.apiAccess')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 p-5">
+            <div className="rounded-xl border border-border bg-muted/25 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t('userPanel.baseURL')}
+              </p>
+              <div className="mt-3 space-y-2">
+                {endpointHints.map((endpoint) => (
+                  <div
+                    key={endpoint.id}
+                    className="flex items-center gap-3 rounded-lg bg-background px-3 py-2 text-xs"
+                  >
+                    <span className="w-20 shrink-0 font-medium text-foreground">{endpoint.label}</span>
+                    <code className="min-w-0 flex-1 break-all text-muted-foreground">{endpoint.url || '—'}</code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0 gap-2"
+                      aria-label={`${t('common.copy')} ${endpoint.label}`}
+                      onClick={() => handleCopyEndpoint(endpoint.id, endpoint.url)}
+                    >
+                      <Copy className="size-3.5" />
+                      {copiedEndpointId === endpoint.id ? t('common.copied') : t('common.copy')}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-muted/25 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t('userPanel.authMethod')}
+              </p>
+              <code className="mt-3 block rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
+                Authorization: Bearer {'<'}
+                {t('userPanel.yourKey')}
+                {'>'}
+              </code>
+            </div>
+            <div className="rounded-xl border border-border bg-muted/25 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('userPanel.quickStart')}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-2"
+                  onClick={handleCopyExample}
+                >
+                  <Copy className="size-3.5" />
+                  {exampleCopied ? t('common.copied') : t('common.copy')}
+                </Button>
+              </div>
+              <pre className="mt-3 overflow-x-auto rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
+                <code>{curlExample}</code>
+              </pre>
+            </div>
+          </CardContent>
+        </Card>
+
+        <section className="grid gap-5 lg:grid-cols-2">
+          <Card className="border-border bg-card shadow-sm">
             <CardHeader className="border-b border-border">
               <CardTitle className="flex items-center gap-2 text-base font-medium">
                 <ShieldCheck className="size-4 text-muted-foreground" />

@@ -169,7 +169,11 @@
     "routeOpenAICodex": "OpenAI / Codex",
     "availableModels": "当前可用模型",
     "moreModels": "+{{count}} 个",
-    "noModels": "暂无模型"
+    "noModels": "暂无模型",
+    "usageStats": "用量与统计",
+    "showKey": "显示 Key",
+    "hideKey": "隐藏 Key",
+    "noUsageData": "暂无调用，生成 Key 后开始统计。"
   },
   "dashboard": {
     "title": "仪表板",
