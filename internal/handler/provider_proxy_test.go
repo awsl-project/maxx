@@ -125,6 +125,31 @@ func TestIsValidProviderAPIPath_AllowsExactAndSubpathsOnly(t *testing.T) {
 	}
 }
 
+// TestProjectAndProviderAllowlistsAgree pins that isValidAPIPath (project) and
+// isValidProviderAPIPath (provider) decide every path identically. They now
+// derive from the same proxyAPIEndpoints table; before consolidation the project
+// side used a loose HasPrefix that accepted e.g. "/v1/messages-debug" while the
+// provider side rejected it. The corpus deliberately includes those old
+// divergence points so the two can never split again.
+func TestProjectAndProviderAllowlistsAgree(t *testing.T) {
+	paths := []string{
+		"/v1/messages", "/v1/messages/stream", "/v1/messages-debug",
+		"/v1/chat/completions", "/v1/chat/completions/extra", "/v1/chat/completionsXYZ",
+		"/v1/images", "/v1/images/", "/v1/images/generations", "/v1/images/edits",
+		"/v1/images/variations", "/v1/images/generations/extra",
+		"/responses", "/responses/items", "/responses123",
+		"/v1/responses", "/v1/responses/abc", "/v1/responsesXYZ",
+		"/v1/models", "/v1/models/list", "/v1/models-debug",
+		"/v1beta/models", "/v1beta/models/gemini-2.5-pro", "/v1beta/modelsX",
+		"/unknown", "/",
+	}
+	for _, path := range paths {
+		if got, want := isValidAPIPath(path), isValidProviderAPIPath(path); got != want {
+			t.Fatalf("allowlists disagree on %q: project=%v provider=%v", path, got, want)
+		}
+	}
+}
+
 func TestIsProviderProxyPath(t *testing.T) {
 	if !isProviderProxyPath("/provider/1/v1/messages") {
 		t.Fatal("expected provider path to be detected")
