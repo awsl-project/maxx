@@ -90,6 +90,76 @@ func TestDispatchDoesNotRetryCommittedStreamReadErrorWhenErrorCooldownEnabled(t 
 	}
 }
 
+type canceledContextRetryAdapter struct {
+	calls int
+}
+
+func (a *canceledContextRetryAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *canceledContextRetryAdapter) Execute(*flow.Ctx, *domain.Provider) error {
+	a.calls++
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream retryable error"), true, "upstream retryable error")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonNetworkError
+	return proxyErr
+}
+
+func TestDispatchDoesNotRetryAfterRequestContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(ctx)
+	c := flow.NewCtx(rec, req)
+	proxyReq := &domain.ProxyRequest{
+		ID:         101,
+		TenantID:   domain.DefaultTenantID,
+		ClientType: domain.ClientTypeOpenAI,
+		Status:     "IN_PROGRESS",
+		StartTime:  time.Now(),
+	}
+	adapter := &canceledContextRetryAdapter{}
+	state := &execState{
+		ctx:          ctx,
+		proxyReq:     proxyReq,
+		tenantID:     domain.DefaultTenantID,
+		clientType:   domain.ClientTypeOpenAI,
+		requestModel: "gpt-4o",
+		routes: []*router.MatchedRoute{
+			{
+				Route:           &domain.Route{ID: 10, TenantID: domain.DefaultTenantID, ProviderID: 20, ClientType: domain.ClientTypeOpenAI},
+				Provider:        &domain.Provider{ID: 20, TenantID: domain.DefaultTenantID, Type: "custom", Name: "custom-cancelled"},
+				ProviderAdapter: adapter,
+				RetryConfig:     &domain.RetryConfig{MaxRetries: 1, InitialInterval: time.Hour, BackoffRate: 1, MaxInterval: time.Hour},
+			},
+		},
+	}
+	c.Set(flow.KeyExecutorState, state)
+	e := newDisabledCooldownStreamTestExecutor(&codexGuardProxyRequestRepo{}, &recordingAttemptRepo{})
+
+	go func() {
+		for adapter.calls == 0 {
+			time.Sleep(time.Millisecond)
+		}
+		cancel()
+	}()
+
+	e.dispatch(c)
+
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls = %d, want 1", adapter.calls)
+	}
+	if !errors.Is(c.Err, context.Canceled) {
+		t.Fatalf("dispatch error = %v, want context.Canceled", c.Err)
+	}
+	if proxyReq.Status != "CANCELLED" {
+		t.Fatalf("proxy request status = %q, want CANCELLED", proxyReq.Status)
+	}
+	if proxyReq.Error != "client disconnected during retry wait" {
+		t.Fatalf("proxy request error = %q, want client disconnected during retry wait", proxyReq.Error)
+	}
+}
+
 func newDisabledCooldownStreamTestExecutor(proxyRepo *codexGuardProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
 	return &Executor{
 		proxyRequestRepo: proxyRepo,
