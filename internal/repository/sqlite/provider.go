@@ -210,6 +210,7 @@ func (r *ProviderRepository) toModel(p *domain.Provider) *Provider {
 		SupportedClientTypes: LongText(toJSON(p.SupportedClientTypes)),
 		SupportModels:        LongText(toJSON(p.SupportModels)),
 		ExcludeFromExport:    boolToInt(p.ExcludeFromExport),
+		BlackBox:             boolToInt(p.BlackBox),
 	}
 }
 
@@ -228,5 +229,6 @@ func (r *ProviderRepository) toDomain(m *Provider) *domain.Provider {
 		SupportedClientTypes: fromJSON[[]domain.ClientType](string(m.SupportedClientTypes)),
 		SupportModels:        fromJSON[[]string](string(m.SupportModels)),
 		ExcludeFromExport:    m.ExcludeFromExport != 0,
+		BlackBox:             m.BlackBox != 0,
 	}
 }

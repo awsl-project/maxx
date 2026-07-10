@@ -526,6 +526,19 @@ var migrations = []Migration{
 			}
 		},
 	},
+	{
+		Version:     17,
+		Description: "Backfill providers.black_box defaults to 0",
+		Up: func(db *gorm.DB) error {
+			if !db.Migrator().HasColumn(&Provider{}, "black_box") {
+				return nil
+			}
+			return db.Exec("UPDATE providers SET black_box = 0 WHERE black_box IS NULL").Error
+		},
+		Down: func(db *gorm.DB) error {
+			return nil
+		},
+	},
 }
 
 // runDetailClearedColumnMigration 显式添加 detail_cleared 列到两张大表,带 threshold-skip。

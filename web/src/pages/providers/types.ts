@@ -13,13 +13,7 @@ import zhipuLogo from '@/assets/icons/zhipu.svg';
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
 
 export type ProviderTypeKey =
-  | 'custom'
-  | 'antigravity'
-  | 'bedrock'
-  | 'kiro'
-  | 'codex'
-  | 'claude'
-  | 'openrouter';
+  'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter';
 
 export interface ProviderTypeConfig {
   key: ProviderTypeKey;
@@ -95,6 +89,7 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     color: getProviderColorVar('custom'),
     isAccountBased: false,
     getDisplayInfo: (p) => {
+      if (p.blackBox) return 'Black box';
       if (p.config?.custom?.baseURL) return p.config.custom.baseURL;
       for (const ct of p.supportedClientTypes || []) {
         const url = p.config?.custom?.clientBaseURL?.[ct];
@@ -297,6 +292,7 @@ export type ProviderFormData = {
   logo?: string; // Logo URL
   disableErrorCooldown?: boolean;
   excludeFromExport?: boolean;
+  blackBox?: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
 };

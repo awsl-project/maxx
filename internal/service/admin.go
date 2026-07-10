@@ -41,6 +41,9 @@ var ErrIDsRequired = errors.New("ids required")
 // ErrInvalidRouteClientType marks bulk route-delete requests with an unsupported client type.
 var ErrInvalidRouteClientType = errors.New("invalid clientType")
 
+// ErrProviderBlackBoxLocked marks providers whose configuration is intentionally not editable.
+var ErrProviderBlackBoxLocked = errors.New("provider is black-box locked")
+
 // GetProviderAdapter exposes the cached adapter for a provider so HTTP
 // handlers can call adapter-specific methods (e.g. Bedrock discovery).
 // Returns nil,false when no adapter is registered yet or refresher is
@@ -141,6 +144,9 @@ func (s *AdminService) GetProvider(tenantID uint64, id uint64) (*domain.Provider
 
 func (s *AdminService) CreateProvider(tenantID uint64, provider *domain.Provider) error {
 	provider.TenantID = tenantID
+	if provider.BlackBox {
+		provider.ExcludeFromExport = true
+	}
 
 	// Auto-set SupportedClientTypes based on provider type
 	s.autoSetSupportedClientTypes(provider)
@@ -159,6 +165,12 @@ func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider
 	existing, err := s.providerRepo.GetByID(tenantID, provider.ID)
 	if err != nil {
 		return err
+	}
+	if existing.BlackBox {
+		return ErrProviderBlackBoxLocked
+	}
+	if provider.BlackBox {
+		provider.ExcludeFromExport = true
 	}
 	preserveExcludedProviderWriteOnlyMode(existing, provider)
 	preserveEmptyProviderSecrets(existing, provider)
@@ -513,7 +525,7 @@ func (s *AdminService) ExportProviders(tenantID uint64) ([]*domain.Provider, err
 	}
 	filtered := make([]*domain.Provider, 0, len(providers))
 	for _, provider := range providers {
-		if provider.ExcludeFromExport {
+		if provider.ExcludeFromExport || provider.BlackBox {
 			continue
 		}
 		filtered = append(filtered, provider)

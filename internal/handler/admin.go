@@ -231,7 +231,7 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		provider.TenantID = existing.TenantID
 		provider.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProvider(tenantID, &provider); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeProviderMutationError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(&provider))

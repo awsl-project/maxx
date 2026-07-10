@@ -786,6 +786,127 @@ func TestSelfServiceHandler_ListProviders_MemberAllowed(t *testing.T) {
 	}
 }
 
+func TestSelfServiceHandler_CreateBlackBoxProvider_SanitizesAndLocksExport(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"black-box-provider","type":"custom","blackBox":true,"excludeFromExport":false,"config":{"custom":{"baseURL":"https://hidden.example.com/v1","apiKey":"secret-api-key","clientBaseURL":{"openai":"https://hidden-openai.example.com/v1"}}},"supportedClientTypes":["openai"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPost, "/providers", body))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	stored := providerRepo.providers[0]
+	if !stored.BlackBox {
+		t.Fatalf("stored blackBox = false, want true")
+	}
+	if !stored.ExcludeFromExport {
+		t.Fatalf("stored excludeFromExport = false, want true for black-box provider")
+	}
+	if got := stored.Config.Custom.BaseURL; got != "https://hidden.example.com/v1" {
+		t.Fatalf("stored base URL = %q, want original hidden URL", got)
+	}
+
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !provider.BlackBox {
+		t.Fatalf("response blackBox = false, want true")
+	}
+	if provider.Config != nil {
+		t.Fatalf("black-box create response leaked config: %+v", provider.Config)
+	}
+}
+
+func TestSelfServiceHandler_GetBlackBoxProvider_AdminHidesConfig(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: &selfServiceProviderRepo{
+			providers: []*domain.Provider{
+				{
+					ID:                1,
+					TenantID:          1,
+					Name:              "black-box-provider",
+					Type:              "custom",
+					BlackBox:          true,
+					ExcludeFromExport: true,
+					Config: &domain.ProviderConfig{
+						Custom: &domain.ProviderConfigCustom{
+							BaseURL: "https://hidden.example.com/v1",
+							APIKey:  "secret-api-key",
+							ClientBaseURL: map[domain.ClientType]string{
+								domain.ClientTypeOpenAI: "https://hidden-openai.example.com/v1",
+							},
+						},
+					},
+				},
+			},
+		},
+		projectRepo: &selfServiceProjectRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequest(http.MethodGet, "/providers/1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var provider domain.Provider
+	if err := json.Unmarshal(rec.Body.Bytes(), &provider); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !provider.BlackBox {
+		t.Fatalf("response blackBox = false, want true")
+	}
+	if provider.Config != nil {
+		t.Fatalf("black-box response leaked config: %+v", provider.Config)
+	}
+}
+
+func TestSelfServiceHandler_UpdateBlackBoxProvider_Forbidden(t *testing.T) {
+	providerRepo := &selfServiceProviderRepo{
+		providers: []*domain.Provider{
+			{
+				ID:                1,
+				TenantID:          1,
+				Name:              "black-box-provider",
+				Type:              "custom",
+				BlackBox:          true,
+				ExcludeFromExport: true,
+				Config: &domain.ProviderConfig{
+					Custom: &domain.ProviderConfigCustom{
+						BaseURL: "https://hidden.example.com/v1",
+						APIKey:  "secret-api-key",
+					},
+				},
+			},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		providerRepo: providerRepo,
+		projectRepo:  &selfServiceProjectRepo{},
+	})
+
+	body := `{"name":"renamed","type":"custom","blackBox":false,"config":{"custom":{"baseURL":"https://leak.example.com","apiKey":"new-secret"}},"supportedClientTypes":["openai"]}`
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceAdminRequestWithBody(http.MethodPut, "/providers/1", body))
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	stored := providerRepo.providers[0]
+	if stored.Name != "black-box-provider" {
+		t.Fatalf("stored name = %q, want unchanged", stored.Name)
+	}
+	if got := stored.Config.Custom.APIKey; got != "secret-api-key" {
+		t.Fatalf("stored API key = %q, want unchanged", got)
+	}
+}
+
 func TestSelfServiceHandler_GetProvider_AdminKeepsSecrets(t *testing.T) {
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
 		providerRepo: &selfServiceProviderRepo{

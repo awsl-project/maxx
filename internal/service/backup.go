@@ -111,7 +111,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export providers: %w", err)
 	}
 	for _, p := range providers {
-		if p.ExcludeFromExport {
+		if p.ExcludeFromExport || p.BlackBox {
 			continue
 		}
 		providerIDToName[p.ID] = p.Name

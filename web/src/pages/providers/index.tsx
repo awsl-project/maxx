@@ -752,6 +752,12 @@ export function ProvidersPage() {
                         <div className="space-y-3">
                           {typeProviders.map((provider) => {
                             const isSelected = selectedProviderIds.has(provider.id);
+                            const providerIsBlackBox = !!provider.blackBox;
+                            const providerCanOpen =
+                              canManageProviderSettings && !providerIsBlackBox;
+                            const providerBlockedHint = providerIsBlackBox
+                              ? t('provider.blackBoxReadOnlyHint')
+                              : providerReadOnlyHint;
                             return (
                               <div key={provider.id} className="relative">
                                 {canManageProviderSettings && (
@@ -791,13 +797,11 @@ export function ProvidersPage() {
                                       'border-primary/50 bg-primary/5 ring-1 ring-primary/20',
                                   )}
                                   onClick={
-                                    canManageProviderSettings
+                                    providerCanOpen
                                       ? () => navigate(`/providers/${provider.id}/edit`)
                                       : undefined
                                   }
-                                  title={
-                                    !canManageProviderSettings ? providerReadOnlyHint : undefined
-                                  }
+                                  title={!providerCanOpen ? providerBlockedHint : undefined}
                                 />
                               </div>
                             );

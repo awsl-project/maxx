@@ -91,7 +91,8 @@ export function CustomConfigStep() {
           },
         },
         supportedClientTypes,
-        excludeFromExport: !!formData.excludeFromExport,
+        excludeFromExport: !!formData.excludeFromExport || !!formData.blackBox,
+        blackBox: !!formData.blackBox,
       };
 
       const provider = await createProvider.mutateAsync(data);
@@ -304,18 +305,41 @@ export function CustomConfigStep() {
 
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
-              {t('provider.excludeFromExport')}
+              {t('provider.visibilityAndExport')}
             </h3>
-            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-              <div className="pr-4">
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('provider.excludeFromExportDesc')}
-                </p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.blackBox')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('provider.blackBoxDesc')}</p>
+                </div>
+                <Switch
+                  checked={!!formData.blackBox}
+                  onCheckedChange={(checked) =>
+                    updateFormData({
+                      blackBox: checked,
+                      excludeFromExport: checked ? true : formData.excludeFromExport,
+                    })
+                  }
+                />
               </div>
-              <Switch
-                checked={!!formData.excludeFromExport}
-                onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
-              />
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.excludeFromExport')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('provider.excludeFromExportDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={!!formData.excludeFromExport || !!formData.blackBox}
+                  disabled={!!formData.blackBox}
+                  onCheckedChange={(checked) => updateFormData({ excludeFromExport: checked })}
+                />
+              </div>
             </div>
           </div>
 

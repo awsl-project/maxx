@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PROVIDER_TYPE_CONFIGS,
   PROVIDER_TYPE_ORDER,
   createProviderTypeGroups,
   getKnownProviderTypeKey,
@@ -52,4 +53,26 @@ describe('provider type helpers', () => {
 
     expect(nvidiaTemplate?.clientBaseURLs.openai).toBe('https://integrate.api.nvidia.com/v1');
   });
+});
+
+it('hides black-box custom provider display info instead of leaking configured URLs', () => {
+  const customConfig = PROVIDER_TYPE_CONFIGS.custom;
+
+  expect(
+    customConfig.getDisplayInfo({
+      id: 1,
+      createdAt: '',
+      updatedAt: '',
+      type: 'custom',
+      name: 'black-box-provider',
+      blackBox: true,
+      config: {
+        custom: {
+          baseURL: 'https://hidden.example.com/v1',
+          apiKey: 'secret-api-key',
+        },
+      },
+      supportedClientTypes: ['openai'],
+    }),
+  ).toBe('Black box');
 });

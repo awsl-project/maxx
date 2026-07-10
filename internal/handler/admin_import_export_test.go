@@ -124,9 +124,14 @@ func TestAdminHandler_ProvidersExport_WithTrailingSlash(t *testing.T) {
 	providerRepo := &adminTestProviderRepo{
 		providers: []*domain.Provider{{
 			ID:                1,
-			Name:              "exported-provider",
+			Name:              "export-excluded-provider",
 			Type:              "custom",
 			ExcludeFromExport: true,
+		}, {
+			ID:       2,
+			Name:     "black-box-provider",
+			Type:     "custom",
+			BlackBox: true,
 		}},
 	}
 	h := newAdminHandlerForProviderImportExportTests(providerRepo)
