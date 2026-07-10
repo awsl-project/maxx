@@ -27,6 +27,9 @@ type AdapterMetrics struct {
 	// 图像 token(gpt-image-*),是 Input/OutputTokens 的子集,用于按图像价位计费。
 	InputImageTokens  uint64
 	OutputImageTokens uint64
+	// 上游(OpenRouter usage.cost)自报的实际扣费,单位 nanoUSD,不含合约倍率。
+	// 仅 OpenRouter 提供;非零时按此直接计费(覆盖无 token 的按张/按 MP 图像模型)。
+	UpstreamCostNanoUSD uint64
 }
 
 // AdapterEvent represents an event from adapter to executor

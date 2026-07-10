@@ -469,6 +469,57 @@ func TestExtractFromResponse_GeminiFlashImageViaChatCompletions(t *testing.T) {
 	}
 }
 
+// OpenRouter always reports an authoritative usage.cost (total USD charged).
+// It must be captured as raw nanoUSD across response shapes, and must make an
+// otherwise-tokenless per-image response non-empty so it still bills.
+func TestExtractFromResponse_UpstreamCost(t *testing.T) {
+	t.Run("openai chat shape with tokens + cost", func(t *testing.T) {
+		body := `{"model":"google/gemini-2.5-flash-image","choices":[{"message":{"content":"x"}}],
+			"usage":{"prompt_tokens":7,"completion_tokens":1290,"cost":0.0387}}`
+		m := ExtractFromResponse(body)
+		if m == nil {
+			t.Fatal("expected metrics, got nil")
+		}
+		// 0.0387 USD × 1e9 = 38_700_000 nanoUSD (rounded).
+		if m.UpstreamCostNanoUSD != 38_700_000 {
+			t.Errorf("UpstreamCostNanoUSD = %d, want 38700000", m.UpstreamCostNanoUSD)
+		}
+	})
+
+	t.Run("images shape, zero tokens, cost only", func(t *testing.T) {
+		// OpenRouter /v1/images response: no token counts, only usage.cost.
+		body := `{"data":[{"b64_json":"aW1n"}],"usage":{"cost":0.04}}`
+		m := ExtractFromResponse(body)
+		if m == nil {
+			t.Fatal("expected metrics for a cost-only image response, got nil (would bill 0)")
+		}
+		if m.UpstreamCostNanoUSD != 40_000_000 {
+			t.Errorf("UpstreamCostNanoUSD = %d, want 40000000", m.UpstreamCostNanoUSD)
+		}
+		if m.IsEmpty() {
+			t.Error("IsEmpty() = true for a cost-bearing response; it must be billable")
+		}
+	})
+
+	t.Run("streaming final chunk carries cost", func(t *testing.T) {
+		body := "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":1290,\"cost\":0.0387}}\n\n" +
+			"data: [DONE]\n\n"
+		m := ExtractFromResponse(body)
+		if m == nil || m.UpstreamCostNanoUSD != 38_700_000 {
+			t.Fatalf("streamed cost not captured: %+v", m)
+		}
+	})
+
+	t.Run("no cost field is inert for other providers", func(t *testing.T) {
+		body := `{"usage":{"prompt_tokens":10,"completion_tokens":5}}`
+		m := ExtractFromResponse(body)
+		if m == nil || m.UpstreamCostNanoUSD != 0 {
+			t.Fatalf("UpstreamCostNanoUSD should be 0 without usage.cost, got %+v", m)
+		}
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Benchmarks: Old (full-buffer) vs New (incremental)
 // ---------------------------------------------------------------------------

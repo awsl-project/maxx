@@ -22,7 +22,8 @@ func PricingModel(responseModel, mappedModel, requestModel string) string {
 
 // attemptMetrics 把 attempt 上的 *Count 字段映射到 usage.Metrics 命名。
 // 仅 pricing 包内部使用,屏蔽两种 attempt 类型(ProxyUpstreamAttempt / AttemptCostData)的字段差异。
-func attemptMetrics(in, out, inImg, outImg, cacheRead, cacheWrite, c5m, c1h uint64) *usage.Metrics {
+// upstreamCost 带上上游自报扣费(nanoUSD),让 RecalcAttemptUpdate 能识别按上游成本计费的行。
+func attemptMetrics(in, out, inImg, outImg, cacheRead, cacheWrite, c5m, c1h, upstreamCost uint64) *usage.Metrics {
 	return &usage.Metrics{
 		InputTokens:          in,
 		OutputTokens:         out,
@@ -32,6 +33,7 @@ func attemptMetrics(in, out, inImg, outImg, cacheRead, cacheWrite, c5m, c1h uint
 		CacheCreationCount:   cacheWrite,
 		Cache5mCreationCount: c5m,
 		Cache1hCreationCount: c1h,
+		UpstreamCostNanoUSD:  upstreamCost,
 	}
 }
 
@@ -51,6 +53,24 @@ func attemptMetrics(in, out, inImg, outImg, cacheRead, cacheWrite, c5m, c1h uint
 // 注意:multiplier 用 attempt 自己的历史值,而不是 Provider 当下的合约值。
 // 否则 backfill 会把历史折扣率悄悄改写,违反"重算价格不改合约"的原则。
 func RecalcAttemptUpdate(model string, metrics *usage.Metrics, multiplier, currentCost, currentModelPriceID uint64) (uint64, domain.AttemptCostUpdate, bool) {
+	// 按上游成本计费的行(usage.cost)不按 token 重算:保留存下的 raw 上游成本,
+	// 只重乘历史倍率。必须在 ModelPriceID 分支之前 —— 这类行 ModelPriceID==0,
+	// 否则会走 Calculate(model) 用 token 价表把准确的上游成本覆盖成估算值。
+	if metrics != nil && metrics.UpstreamCostNanoUSD > 0 {
+		mult := multiplier
+		if mult == 0 {
+			mult = DefaultMultiplier
+		}
+		cost := metrics.UpstreamCostNanoUSD
+		if mult != DefaultMultiplier {
+			cost = cost * mult / DefaultMultiplier
+		}
+		if cost == currentCost && currentModelPriceID == 0 {
+			return cost, domain.AttemptCostUpdate{}, false
+		}
+		return cost, domain.AttemptCostUpdate{Cost: cost, ModelPriceID: 0}, true
+	}
+
 	var res CostResult
 	if currentModelPriceID != 0 {
 		r, ok, err := GlobalCalculator().CalculateByPriceID(currentModelPriceID, metrics, multiplier)
@@ -80,7 +100,7 @@ func RecalcAttemptUpdate(model string, metrics *usage.Metrics, multiplier, curre
 func RecalcFromAttempt(a *domain.ProxyUpstreamAttempt) (uint64, domain.AttemptCostUpdate, bool) {
 	return RecalcAttemptUpdate(
 		PricingModel(a.ResponseModel, a.MappedModel, a.RequestModel),
-		attemptMetrics(a.InputTokenCount, a.OutputTokenCount, a.InputImageTokenCount, a.OutputImageTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount),
+		attemptMetrics(a.InputTokenCount, a.OutputTokenCount, a.InputImageTokenCount, a.OutputImageTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount, a.UpstreamCostNanoUSD),
 		a.Multiplier, a.Cost, a.ModelPriceID,
 	)
 }
@@ -89,7 +109,7 @@ func RecalcFromAttempt(a *domain.ProxyUpstreamAttempt) (uint64, domain.AttemptCo
 func RecalcFromCostData(a *domain.AttemptCostData) (uint64, domain.AttemptCostUpdate, bool) {
 	return RecalcAttemptUpdate(
 		PricingModel(a.ResponseModel, a.MappedModel, a.RequestModel),
-		attemptMetrics(a.InputTokenCount, a.OutputTokenCount, a.InputImageTokenCount, a.OutputImageTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount),
+		attemptMetrics(a.InputTokenCount, a.OutputTokenCount, a.InputImageTokenCount, a.OutputImageTokenCount, a.CacheReadCount, a.CacheWriteCount, a.Cache5mWriteCount, a.Cache1hWriteCount, a.UpstreamCostNanoUSD),
 		a.Multiplier, a.Cost, a.ModelPriceID,
 	)
 }

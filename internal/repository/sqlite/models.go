@@ -339,6 +339,8 @@ type ProxyUpstreamAttempt struct {
 	ModelPriceID          uint64 // 使用的模型价格记录ID
 	Multiplier        uint64 // 倍率（10000=1倍）
 	Cost              uint64
+	// 上游(OpenRouter usage.cost)自报扣费,nanoUSD,不含倍率。GORM AutoMigrate 自动加列。
+	UpstreamCostNanoUSD uint64 `gorm:"column:upstream_cost_nano_usd"`
 	IsStream          int
 	StartTime         int64
 	EndTime           int64 `gorm:"index:idx_attempts_status_endtime"`

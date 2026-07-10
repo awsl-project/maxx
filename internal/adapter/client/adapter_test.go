@@ -63,6 +63,25 @@ func TestDetectClientTypeRecognizesImagesPath(t *testing.T) {
 	}
 }
 
+// OpenRouter's unified image endpoint is the BARE path /v1/images (no
+// /generations suffix). Its {model,prompt} body has no messages/input/contents,
+// so only the path can classify it — the bare path must resolve to openai
+// instead of falling through to a 400.
+func TestDetectClientTypeRecognizesBareImagesPath(t *testing.T) {
+	adapter := NewAdapter()
+	body := []byte(`{"model":"google/gemini-2.5-flash-image","prompt":"a cat"}`)
+
+	for _, path := range []string{"/v1/images", "/images"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(string(body)))
+		if got := adapter.DetectClientType(req, body); got != domain.ClientTypeOpenAI {
+			t.Fatalf("DetectClientType(%s) = %s, want %s", path, got, domain.ClientTypeOpenAI)
+		}
+		if got, ok := adapter.Match(req); !ok || got != domain.ClientTypeOpenAI {
+			t.Fatalf("Match(%s) = (%s, %v), want (%s, true)", path, got, ok, domain.ClientTypeOpenAI)
+		}
+	}
+}
+
 func TestImagesEdits_MultipartModelExtraction(t *testing.T) {
 	adapter := NewAdapter()
 

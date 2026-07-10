@@ -400,6 +400,97 @@ func TestPriceTable_Get_PrefixMatch(t *testing.T) {
 	}
 }
 
+// TestGeminiFlashImagePricing guards the default price entries for OpenRouter's
+// (and native) Gemini 2.5 Flash Image model: image output tokens must be charged
+// at the image rate ($30/M), the OpenRouter google/-prefixed slug and its
+// -preview variant must resolve via prefix match, and the image slug must NOT be
+// mis-matched onto the cheaper non-image gemini-2.5-flash entry.
+func TestGeminiFlashImagePricing(t *testing.T) {
+	pt := DefaultPriceTable()
+
+	for _, id := range []string{
+		"gemini-2.5-flash-image",
+		"google/gemini-2.5-flash-image",
+		"google/gemini-2.5-flash-image-preview",
+	} {
+		p := pt.Get(id)
+		if p == nil {
+			t.Fatalf("Get(%s) = nil, want the flash-image price entry", id)
+		}
+		if p.ImageOutputPriceMicro != 30_000_000 {
+			t.Errorf("Get(%s).ImageOutputPriceMicro = %d, want 30_000_000", id, p.ImageOutputPriceMicro)
+		}
+		if p.InputPriceMicro != 300_000 || p.OutputPriceMicro != 2_500_000 {
+			t.Errorf("Get(%s) text prices = in %d/out %d, want in 300_000/out 2_500_000",
+				id, p.InputPriceMicro, p.OutputPriceMicro)
+		}
+	}
+
+	// Disambiguation: the bare image slug must resolve to the image entry (which
+	// carries image pricing), not fall back to the non-image gemini-2.5-flash.
+	if p := pt.Get("gemini-2.5-flash-image"); p == nil || p.ImageOutputPriceMicro == 0 {
+		t.Errorf("gemini-2.5-flash-image resolved without image pricing: %#v", p)
+	}
+	// The non-image model must keep its own (image-free) pricing untouched.
+	if p := pt.Get("gemini-2.5-flash"); p == nil || p.ImageOutputPriceMicro != 0 {
+		t.Errorf("gemini-2.5-flash should have no image pricing, got %#v", p)
+	}
+}
+
+// TestImageModelPricing guards every default token-priced image model (OpenRouter
+// + native) against the "Unknown model, cost 0" gap: each resolves with a nonzero
+// image-output rate, the OpenRouter-prefixed slugs and their -preview variants
+// resolve via prefix match, and slugs that prefix-collide with a cheaper
+// non-image model (gpt-image-2 vs the-alias, gpt-5.4-image-2 vs gpt-5.4) resolve
+// to the image entry, not the base model.
+func TestImageModelPricing(t *testing.T) {
+	pt := DefaultPriceTable()
+
+	// Every image slug that must carry an image-output rate. Both the bare native
+	// id and the OpenRouter provider-prefixed slug (incl. -preview variants).
+	imageSlugs := []struct {
+		id            string
+		wantImageMPMi uint64 // ImageOutputPriceMicro
+	}{
+		{"gpt-image-2", 30_000_000},
+		{"openai/gpt-image-2", 30_000_000},
+		{"gpt-5.4-image-2", 30_000_000},
+		{"openai/gpt-5.4-image-2", 30_000_000},
+		{"x-ai/grok-imagine-image-quality", 11_980_000},
+		{"gemini-3-pro-image", 120_000_000},
+		{"google/gemini-3-pro-image", 120_000_000},
+		{"google/gemini-3-pro-image-preview", 120_000_000},
+		{"gemini-3.1-flash-image", 60_000_000},
+		{"google/gemini-3.1-flash-image", 60_000_000},
+		{"google/gemini-3.1-flash-image-preview", 60_000_000},
+		{"gemini-3.1-flash-lite-image", 30_000_000},
+		{"google/gemini-3.1-flash-lite-image", 30_000_000},
+	}
+	for _, s := range imageSlugs {
+		p := pt.Get(s.id)
+		if p == nil {
+			t.Errorf("Get(%s) = nil, want an image price entry", s.id)
+			continue
+		}
+		if p.ImageOutputPriceMicro != s.wantImageMPMi {
+			t.Errorf("Get(%s).ImageOutputPriceMicro = %d, want %d", s.id, p.ImageOutputPriceMicro, s.wantImageMPMi)
+		}
+	}
+
+	// Prefix-collision disambiguation: the image slug must NOT resolve to the
+	// cheaper non-image base model that it happens to start-with.
+	if p := pt.Get("gpt-5.4-image-2"); p == nil || p.ImageOutputPriceMicro == 0 {
+		t.Errorf("gpt-5.4-image-2 must resolve to the image entry, not the non-image gpt-5.4: %#v", p)
+	}
+	if p := pt.Get("gpt-5.4"); p == nil || p.ImageOutputPriceMicro != 0 {
+		t.Errorf("gpt-5.4 (non-image) should have no image pricing, got %#v", p)
+	}
+	// The lite image slug must not collapse onto the (shorter) flash-image slug.
+	if p := pt.Get("google/gemini-3.1-flash-lite-image"); p == nil || p.OutputPriceMicro != 1_500_000 {
+		t.Errorf("gemini-3.1-flash-lite-image resolved to the wrong (non-lite) entry: %#v", p)
+	}
+}
+
 func TestExplicitCachePrices(t *testing.T) {
 	pt := DefaultPriceTable()
 

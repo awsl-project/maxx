@@ -347,11 +347,11 @@ func isValidProviderAPIPath(path string) bool {
 	if path == "/v1/chat/completions" || strings.HasPrefix(path, "/v1/chat/completions/") {
 		return true
 	}
-	// OpenAI Images API (gpt-image-* generation + edits). Mirror isValidAPIPath
-	// and proxy_routes.go: allow exactly the two registered endpoints rather
-	// than HasPrefix("/v1/images/"), so the provider-prefixed contract doesn't
-	// drift wider than the root.
-	if path == "/v1/images/generations" || path == "/v1/images/edits" {
+	// OpenAI Images API (gpt-image-* generation + edits) + OpenRouter unified
+	// image API (bare /v1/images). Mirror isValidAPIPath and proxy_routes.go:
+	// allow exactly the registered endpoints rather than HasPrefix("/v1/images/"),
+	// so the provider-prefixed contract doesn't drift wider than the root.
+	if path == "/v1/images/generations" || path == "/v1/images/edits" || path == "/v1/images" {
 		return true
 	}
 	if path == "/responses" || strings.HasPrefix(path, "/responses/") {

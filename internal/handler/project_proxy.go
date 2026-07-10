@@ -103,11 +103,11 @@ func isValidAPIPath(path string) bool {
 	if strings.HasPrefix(path, "/v1/chat/completions") {
 		return true
 	}
-	// OpenAI Images API (gpt-image-* generation + edits). Match the exact
-	// endpoints proxy_routes.go registers at the root mux; widening this to
-	// HasPrefix("/v1/images/") would make project-prefixed routes more
-	// permissive than the root contract.
-	if path == "/v1/images/generations" || path == "/v1/images/edits" {
+	// OpenAI Images API (gpt-image-* generation + edits) + OpenRouter unified
+	// image API (bare /v1/images). Match the exact endpoints proxy_routes.go
+	// registers at the root mux; widening this to HasPrefix("/v1/images/") would
+	// make project-prefixed routes more permissive than the root contract.
+	if path == "/v1/images/generations" || path == "/v1/images/edits" || path == "/v1/images" {
 		return true
 	}
 	// Codex API

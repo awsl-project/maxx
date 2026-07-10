@@ -378,6 +378,7 @@ func (e *Executor) processAdapterEvents(eventChan domain.AdapterEventChan, attem
 					attempt.CacheWriteCount = event.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = event.Metrics.Cache5mCreationCount
 					attempt.Cache1hWriteCount = event.Metrics.Cache1hCreationCount
+					attempt.UpstreamCostNanoUSD = event.Metrics.UpstreamCostNanoUSD
 				}
 			case domain.EventResponseModel:
 				if event.ResponseModel != "" {
@@ -460,6 +461,7 @@ func (e *Executor) processAdapterEventsRealtime(
 					attempt.CacheWriteCount = ev.Metrics.CacheCreationCount
 					attempt.Cache5mWriteCount = ev.Metrics.Cache5mCreationCount
 					attempt.Cache1hWriteCount = ev.Metrics.Cache1hCreationCount
+					attempt.UpstreamCostNanoUSD = ev.Metrics.UpstreamCostNanoUSD
 					dirty = true
 				}
 			case domain.EventResponseModel:

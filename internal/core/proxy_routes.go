@@ -28,6 +28,9 @@ func RegisterProxyRoutes(mux *http.ServeMux, handlers ProxyRouteHandlers) {
 		mux.Handle("/v1/images/edits", handlers.ProxyHandler)
 		mux.Handle("/images/generations", handlers.ProxyHandler)
 		mux.Handle("/images/edits", handlers.ProxyHandler)
+		// OpenRouter unified image API (POST /v1/images → data[].b64_json)
+		mux.Handle("/v1/images", handlers.ProxyHandler)
+		mux.Handle("/images", handlers.ProxyHandler)
 		// Codex API
 		mux.Handle("/responses", handlers.ProxyHandler)
 		mux.Handle("/responses/", handlers.ProxyHandler)

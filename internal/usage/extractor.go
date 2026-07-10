@@ -26,11 +26,22 @@ type Metrics struct {
 	// rate instead of the text rate. Zero for text models.
 	InputImageTokens  uint64 `json:"inputImageTokens,omitempty"`
 	OutputImageTokens uint64 `json:"outputImageTokens,omitempty"`
+
+	// UpstreamCostNanoUSD is the authoritative cost the upstream reported it
+	// charged (OpenRouter's usage.cost, in nanoUSD, BEFORE our contract
+	// multiplier). Only OpenRouter emits usage.cost; it is 0 for every other
+	// provider. When nonzero, pricing bills from it directly (covering per-image
+	// / per-megapixel models that carry no billable tokens) instead of the
+	// token price table.
+	UpstreamCostNanoUSD uint64 `json:"upstreamCostNanoUSD,omitempty"`
 }
 
-// IsEmpty returns true if no tokens were extracted.
+// IsEmpty returns true if no tokens were extracted. An upstream-reported cost
+// counts as non-empty so per-image responses (no billable tokens) still emit
+// metrics and get billed.
 func (m *Metrics) IsEmpty() bool {
-	return m.InputTokens == 0 && m.OutputTokens == 0 && m.CacheCreationCount == 0 && m.CacheReadCount == 0
+	return m.InputTokens == 0 && m.OutputTokens == 0 && m.CacheCreationCount == 0 &&
+		m.CacheReadCount == 0 && m.UpstreamCostNanoUSD == 0
 }
 
 // ExtractFromResponse extracts usage metrics from a response body.
@@ -138,10 +149,17 @@ func extractUsageFromMap(data map[string]interface{}) *Metrics {
 	// for Claude-client compatibility. Detecting OpenAI first prevents those
 	// zero-pads from silently zeroing chat-completions billing.
 	if usage, ok := data["usage"].(map[string]interface{}); ok {
+		var m *Metrics
 		if isOpenAIUsage(usage) {
-			return extractOpenAIUsage(usage)
+			m = extractOpenAIUsage(usage)
+		} else {
+			m = extractClaudeUsage(usage)
 		}
-		return extractClaudeUsage(usage)
+		// OpenRouter always reports an authoritative usage.cost here (chat
+		// completions and the /v1/images endpoint). Record it so per-image /
+		// per-megapixel responses with no billable tokens still bill correctly.
+		applyUpstreamCost(usage, m)
+		return m
 	}
 
 	// Try Gemini format: { "usageMetadata": { ... } }
@@ -238,6 +256,20 @@ func extractClaudeUsage(usage map[string]interface{}) *Metrics {
 	applyImageTokenDetails(usage, metrics)
 
 	return metrics
+}
+
+// applyUpstreamCost records OpenRouter's authoritative usage.cost (total USD
+// charged for the request) as raw nanoUSD on the metrics, before any contract
+// multiplier. Only OpenRouter emits this field, so for every other provider the
+// assertion fails and this is a no-op — leaving token-based billing untouched.
+func applyUpstreamCost(usage map[string]interface{}, m *Metrics) {
+	if m == nil {
+		return
+	}
+	if cost, ok := usage["cost"].(float64); ok && cost > 0 {
+		// 1 USD = 1e9 nanoUSD; round to nearest to avoid systematic under-billing.
+		m.UpstreamCostNanoUSD = uint64(cost*1e9 + 0.5)
+	}
 }
 
 // applyImageTokenDetails pulls the image-token breakdown out of a usage object.

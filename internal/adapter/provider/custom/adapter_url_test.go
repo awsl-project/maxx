@@ -45,6 +45,21 @@ func TestBuildUpstreamURLNormalizesOpenAIBaseRoots(t *testing.T) {
 			requestPath: "/images/generations",
 			want:        "https://api.openai.com/v1/images/generations",
 		},
+		{
+			// OpenRouter unified image endpoint: bare /images (provider-prefixed
+			// path arrives without /v1) must gain the /v1 prefix.
+			name:        "bare images path gains v1",
+			baseURL:     "https://openrouter.ai/api",
+			requestPath: "/images",
+			want:        "https://openrouter.ai/api/v1/images",
+		},
+		{
+			// Canonical /v1/images route composes against the OpenRouter /api base.
+			name:        "canonical v1 images path on openrouter base",
+			baseURL:     "https://openrouter.ai/api",
+			requestPath: "/v1/images",
+			want:        "https://openrouter.ai/api/v1/images",
+		},
 	}
 
 	for _, tt := range tests {
