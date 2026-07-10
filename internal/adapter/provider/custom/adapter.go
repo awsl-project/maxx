@@ -442,7 +442,7 @@ func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
 }
 
 func (a *CustomAdapter) usageExtractOptions(clientType domain.ClientType) usage.ExtractOptions {
-	return usage.ExtractOptions{TrustUpstreamCost: isOpenRouterBaseURL(a.getBaseURL(clientType))}
+	return usage.ExtractOptions{TrustUpstreamCost: a.provider.Type == "openrouter" || isOpenRouterBaseURL(a.getBaseURL(clientType))}
 }
 
 func isOpenRouterBaseURL(raw string) bool {
