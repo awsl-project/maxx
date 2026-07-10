@@ -125,6 +125,31 @@ func TestIsValidProviderAPIPath_AllowsExactAndSubpathsOnly(t *testing.T) {
 	}
 }
 
+// TestProjectAndProviderAllowlistsAgree pins that isValidAPIPath (project) and
+// isValidProviderAPIPath (provider) decide every path identically. They now
+// derive from the same proxyAPIEndpoints table; before consolidation the project
+// side used a loose HasPrefix that accepted e.g. "/v1/messages-debug" while the
+// provider side rejected it. The corpus deliberately includes those old
+// divergence points so the two can never split again.
+func TestProjectAndProviderAllowlistsAgree(t *testing.T) {
+	paths := []string{
+		"/v1/messages", "/v1/messages/stream", "/v1/messages-debug",
+		"/v1/chat/completions", "/v1/chat/completions/extra", "/v1/chat/completionsXYZ",
+		"/v1/images", "/v1/images/", "/v1/images/generations", "/v1/images/edits",
+		"/v1/images/variations", "/v1/images/generations/extra",
+		"/responses", "/responses/items", "/responses123",
+		"/v1/responses", "/v1/responses/abc", "/v1/responsesXYZ",
+		"/v1/models", "/v1/models/list", "/v1/models-debug",
+		"/v1beta/models", "/v1beta/models/gemini-2.5-pro", "/v1beta/modelsX",
+		"/unknown", "/",
+	}
+	for _, path := range paths {
+		if got, want := isValidAPIPath(path), isValidProviderAPIPath(path); got != want {
+			t.Fatalf("allowlists disagree on %q: project=%v provider=%v", path, got, want)
+		}
+	}
+}
+
 func TestIsProviderProxyPath(t *testing.T) {
 	if !isProviderProxyPath("/provider/1/v1/messages") {
 		t.Fatal("expected provider path to be detected")
@@ -162,19 +187,19 @@ func TestProjectAPIPathAllowsExactGeminiModelList(t *testing.T) {
 }
 
 // TestProjectAPIPathAllowsImagesEndpoints pins the contract that
-// /v1/images/generations and /v1/images/edits work under the /project/<slug>/
+// /v1/images/generations, /v1/images/edits (OpenAI Images API) and the bare
+// /v1/images (OpenRouter unified image endpoint) work under the /project/<slug>/
 // prefix and nothing else under /v1/images/ leaks through. proxy_routes.go
-// only registers those two endpoints at the root mux; this whitelist must
-// stay equally tight, otherwise project-scoped routes become more permissive
-// than the root contract.
+// registers exactly those endpoints at the root mux; this whitelist must stay
+// equally tight, otherwise project-scoped routes become more permissive than
+// the root contract.
 func TestProjectAPIPathAllowsImagesEndpoints(t *testing.T) {
-	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
+	for _, path := range []string{"/v1/images/generations", "/v1/images/edits", "/v1/images"} {
 		if !isValidAPIPath(path) {
 			t.Fatalf("expected %q to be valid for project proxy URLs", path)
 		}
 	}
 	for _, path := range []string{
-		"/v1/images",
 		"/v1/images/",
 		"/v1/images/variations",
 		"/v1/images/generations/extra",
@@ -187,16 +212,15 @@ func TestProjectAPIPathAllowsImagesEndpoints(t *testing.T) {
 }
 
 // TestProviderAPIPathAllowsImagesEndpoints pins the same contract for the
-// sibling /provider/<id>/ prefix: only the two registered endpoints, no
-// broader prefix match.
+// sibling /provider/<id>/ prefix: only the registered endpoints, no broader
+// prefix match.
 func TestProviderAPIPathAllowsImagesEndpoints(t *testing.T) {
-	for _, path := range []string{"/v1/images/generations", "/v1/images/edits"} {
+	for _, path := range []string{"/v1/images/generations", "/v1/images/edits", "/v1/images"} {
 		if !isValidProviderAPIPath(path) {
 			t.Fatalf("expected %q to be valid for provider proxy URLs", path)
 		}
 	}
 	for _, path := range []string{
-		"/v1/images",
 		"/v1/images/",
 		"/v1/images/variations",
 		"/v1/images/generations/extra",

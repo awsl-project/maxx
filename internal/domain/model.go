@@ -682,6 +682,11 @@ type ProxyUpstreamAttempt struct {
 	Multiplier   uint64 `json:"multiplier"`   // 倍率（10000=1倍）
 
 	Cost uint64 `json:"cost"`
+
+	// UpstreamCostNanoUSD 是上游(OpenRouter usage.cost)自报的实际扣费,单位 nanoUSD,
+	// 不含合约倍率(倍率在 FinalizeAttemptCost/重算时才乘上)。0 表示不是按上游成本计费。
+	// 非零时优先于 token 价表计费,并把 ModelPriceID 记为 0;重算永远保留此值、只重乘历史倍率。
+	UpstreamCostNanoUSD uint64 `json:"upstreamCostNanoUSD,omitempty"`
 }
 
 // AttemptCostData contains minimal data needed for cost recalculation.
@@ -702,6 +707,7 @@ type AttemptCostData struct {
 	Cache5mWriteCount     uint64
 	Cache1hWriteCount     uint64
 	Cost                  uint64
+	UpstreamCostNanoUSD   uint64 // 上游自报扣费(nanoUSD, 不含倍率);非零时重算保留原值、只重乘历史倍率
 	Multiplier            uint64 // 历史倍率(10000=1×, 0 视作 10000)
 	ModelPriceID          uint64 // 历史 model_price_id;backfill 时跟新匹配 ID 对比来判断是否需要刷新
 }

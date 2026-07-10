@@ -340,31 +340,8 @@ func isProviderProxyPath(urlPath string) bool {
 	return strings.HasPrefix(urlPath, "/provider/")
 }
 
+// isValidProviderAPIPath shares the proxyAPIEndpoints table with isValidAPIPath
+// so the provider- and project-scoped allowlists stay identical by construction.
 func isValidProviderAPIPath(path string) bool {
-	if path == "/v1/messages" || strings.HasPrefix(path, "/v1/messages/") {
-		return true
-	}
-	if path == "/v1/chat/completions" || strings.HasPrefix(path, "/v1/chat/completions/") {
-		return true
-	}
-	// OpenAI Images API (gpt-image-* generation + edits). Mirror isValidAPIPath
-	// and proxy_routes.go: allow exactly the two registered endpoints rather
-	// than HasPrefix("/v1/images/"), so the provider-prefixed contract doesn't
-	// drift wider than the root.
-	if path == "/v1/images/generations" || path == "/v1/images/edits" {
-		return true
-	}
-	if path == "/responses" || strings.HasPrefix(path, "/responses/") {
-		return true
-	}
-	if path == "/v1/responses" || strings.HasPrefix(path, "/v1/responses/") {
-		return true
-	}
-	if path == "/v1/models" || strings.HasPrefix(path, "/v1/models/") {
-		return true
-	}
-	if path == "/v1beta/models" || strings.HasPrefix(path, "/v1beta/models/") {
-		return true
-	}
-	return false
+	return isValidProxyAPIPath(path)
 }

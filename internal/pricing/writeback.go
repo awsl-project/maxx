@@ -27,6 +27,22 @@ func FinalizeAttemptCost(attempt *domain.ProxyUpstreamAttempt, multiplier uint64
 	if attempt == nil {
 		return CostResult{Multiplier: mult}
 	}
+
+	// 上游(OpenRouter)自报了权威扣费 usage.cost:直接按它计费,优先于 token 价表。
+	// 这是按张/按 MP 计价图像模型(无可计费 token)唯一正确的成本来源,也让 token 类
+	// 模型按上游真实扣费结算(而非价表估算)。存的是不含倍率的 raw 值,在此乘合约倍率;
+	// ModelPriceID 记为 0(不来自价表行),重算路径据此保留原值而非按 token 重算。
+	if attempt.UpstreamCostNanoUSD > 0 {
+		cost := attempt.UpstreamCostNanoUSD
+		if mult != DefaultMultiplier {
+			cost = cost * mult / DefaultMultiplier
+		}
+		attempt.Cost = cost
+		attempt.ModelPriceID = 0
+		attempt.Multiplier = mult
+		return CostResult{Cost: cost, ModelPriceID: 0, Multiplier: mult}
+	}
+
 	// 计费信号要覆盖所有计费 token:Calculator 也会按 cache_read / cache_5m / cache_1h
 	// 单独算钱,只查 input/output 会漏掉 cache-only 响应(如缓存命中型流式请求)。
 	if !hasBillableTokens(attempt) {

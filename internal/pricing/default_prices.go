@@ -313,13 +313,36 @@ func initDefaultPrices() *PriceTable {
 	// output_tokens_details),计算器据此分别按文本价/图像价计。
 	// 注: LiteLLM 还有缓存图像输入 $2/M 一档,但响应未单独暴露缓存图像 token 数,故未建模
 	// (缓存命中统一走 CacheReadPriceMicro=$1.25)。
+	// 两个 key:裸 ID 覆盖原生 OpenAI 路径,openai/ 前缀覆盖 OpenRouter 返回的响应模型
+	// (OpenRouter 用 openai/gpt-image-2,不带前缀的裸 key 前缀匹配命中不到 → 会 cost 0)。
+	for _, id := range []string{"gpt-image-2", "openai/gpt-image-2"} {
+		pt.Set(&ModelPricing{
+			ModelID:               id,
+			InputPriceMicro:       5_000_000,  // $5.00/M  text input
+			OutputPriceMicro:      10_000_000, // $10.00/M text output
+			ImageInputPriceMicro:  8_000_000,  // $8.00/M  image input
+			ImageOutputPriceMicro: 30_000_000, // $30.00/M image output
+			CacheReadPriceMicro:   1_250_000,  // $1.25/M  cached text input
+		})
+	}
+
+	// gpt-5.4-image-2 (OpenRouter 图像模型, 按 token 计费): 文本输入 $8/M, 文本输出
+	// $15/M, 图像输出 $30/M。裸 key 必须显式登记:它比 gpt-5.4 更长,最长前缀匹配才能
+	// 确保不会误落到非图像的 gpt-5.4 价位;openai/ 前缀覆盖 OpenRouter 响应模型。
+	for _, id := range []string{"gpt-5.4-image-2", "openai/gpt-5.4-image-2"} {
+		pt.Set(&ModelPricing{
+			ModelID:               id,
+			InputPriceMicro:       8_000_000,  // $8.00/M  text input
+			OutputPriceMicro:      15_000_000, // $15.00/M text output
+			ImageOutputPriceMicro: 30_000_000, // $30.00/M image output
+		})
+	}
+
+	// x-ai/grok-imagine-image-quality (OpenRouter 图像模型): 文本输入/输出 $0,
+	// 图像输出 $11.98/M。仅登记 OpenRouter 返回的 x-ai/ 前缀 slug。
 	pt.Set(&ModelPricing{
-		ModelID:               "gpt-image-2",
-		InputPriceMicro:       5_000_000,  // $5.00/M  text input
-		OutputPriceMicro:      10_000_000, // $10.00/M text output
-		ImageInputPriceMicro:  8_000_000,  // $8.00/M  image input
-		ImageOutputPriceMicro: 30_000_000, // $30.00/M image output
-		CacheReadPriceMicro:   1_250_000,  // $1.25/M  cached text input
+		ModelID:               "x-ai/grok-imagine-image-quality",
+		ImageOutputPriceMicro: 11_980_000, // $11.98/M image output
 	})
 
 	// ========== GPT-4o 系列 ==========
@@ -430,6 +453,38 @@ func initDefaultPrices() *PriceTable {
 		CacheReadPriceMicro: 50_000,    // $0.05/M
 	})
 
+	// ---- Gemini 3.x 图像模型(按 token 计费,图像输出走 ImageOutputPriceMicro)----
+	// 每组两个 key:裸 ID 覆盖原生 Gemini 路径,google/ 前缀覆盖 OpenRouter 响应模型
+	// (最长前缀匹配同时兜住 -preview 变体)。定价来自 OpenRouter 官方(2026-07)。
+	//
+	// gemini-3-pro-image ("Nano Banana Pro"): input $2/M, text output $12/M, image output $120/M
+	for _, id := range []string{"gemini-3-pro-image", "google/gemini-3-pro-image"} {
+		pt.Set(&ModelPricing{
+			ModelID:               id,
+			InputPriceMicro:       2_000_000,   // $2.00/M   text/image input
+			OutputPriceMicro:      12_000_000,  // $12.00/M  text output
+			ImageOutputPriceMicro: 120_000_000, // $120.00/M image output
+		})
+	}
+	// gemini-3.1-flash-image ("Nano Banana 2"): input $0.50/M, text output $3/M, image output $60/M
+	for _, id := range []string{"gemini-3.1-flash-image", "google/gemini-3.1-flash-image"} {
+		pt.Set(&ModelPricing{
+			ModelID:               id,
+			InputPriceMicro:       500_000,    // $0.50/M  text/image input
+			OutputPriceMicro:      3_000_000,  // $3.00/M  text output
+			ImageOutputPriceMicro: 60_000_000, // $60.00/M image output
+		})
+	}
+	// gemini-3.1-flash-lite-image ("Nano Banana 2 Lite"): input $0.25/M, text output $1.50/M, image output $30/M
+	for _, id := range []string{"gemini-3.1-flash-lite-image", "google/gemini-3.1-flash-lite-image"} {
+		pt.Set(&ModelPricing{
+			ModelID:               id,
+			InputPriceMicro:       250_000,    // $0.25/M  text/image input
+			OutputPriceMicro:      1_500_000,  // $1.50/M  text output
+			ImageOutputPriceMicro: 30_000_000, // $30.00/M image output
+		})
+	}
+
 	// ========== Gemini 2.5 系列 ==========
 	// gemini-2.5-pro: input=$1.25, cache_read=$0.3125, output=$10
 	pt.Set(&ModelPricing{
@@ -454,6 +509,23 @@ func initDefaultPrices() *PriceTable {
 		OutputPriceMicro:    400_000, // $0.40/M
 		CacheReadPriceMicro: 25_000,  // $0.025/M
 	})
+
+	// gemini-2.5-flash-image ("Nano Banana", 图像生成/编辑, 按 token 计费):
+	//   输入 $0.30/M(文本/图像同价), 文本输出 $2.50/M, 图像输出 $30/M
+	//   (每张 1024x1024 图约 1290 token ≈ $0.039)。响应 usage 把输出 token 拆成
+	//   text/image 两类(completion_tokens_details.image_tokens),计算器据此分档计价。
+	// 两个 key:裸 ID 覆盖原生 Gemini 路径,google/ 前缀覆盖 OpenRouter 返回的响应模型
+	// (最长前缀匹配同时兜住 -preview 变体)。二者定价一致。
+	// 注:裸 gemini-2.5-flash-image 比 gemini-2.5-flash 更长,最长前缀匹配确保它不会
+	// 误落到非图像的 gemini-2.5-flash 价位。
+	for _, id := range []string{"gemini-2.5-flash-image", "google/gemini-2.5-flash-image"} {
+		pt.Set(&ModelPricing{
+			ModelID:               id,
+			InputPriceMicro:       300_000,    // $0.30/M  text/image input
+			OutputPriceMicro:      2_500_000,  // $2.50/M  text output
+			ImageOutputPriceMicro: 30_000_000, // $30.00/M image output
+		})
+	}
 
 	// ========== Gemini 2.0 系列 ==========
 	// gemini-2.0-flash: input=$0.10, cache_read=$0.025, output=$0.40

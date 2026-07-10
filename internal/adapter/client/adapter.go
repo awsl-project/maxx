@@ -280,7 +280,12 @@ func isOpenAIChatCompletionsPath(path string) bool {
 }
 
 func isOpenAIImagesPath(path string) bool {
-	return strings.HasPrefix(path, "/v1/images/") || strings.HasPrefix(path, "/images/")
+	// Bare /v1/images (and /images) is OpenRouter's unified image endpoint; the
+	// /…/ prefixes cover the OpenAI Images API (generations/edits). A bare-path
+	// {model,prompt} body has no messages/input/contents, so without this the
+	// body-based detection returns "" and the request 400s.
+	return path == "/v1/images" || path == "/images" ||
+		strings.HasPrefix(path, "/v1/images/") || strings.HasPrefix(path, "/images/")
 }
 
 func isClaudeUserAgent(userAgent string) bool {
