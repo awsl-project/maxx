@@ -476,7 +476,7 @@ func TestExtractFromResponse_UpstreamCost(t *testing.T) {
 	t.Run("openai chat shape with tokens + cost", func(t *testing.T) {
 		body := `{"model":"google/gemini-2.5-flash-image","choices":[{"message":{"content":"x"}}],
 			"usage":{"prompt_tokens":7,"completion_tokens":1290,"cost":0.0387}}`
-		m := ExtractFromResponse(body)
+		m := ExtractFromResponseWithOptions(body, ExtractOptions{TrustUpstreamCost: true})
 		if m == nil {
 			t.Fatal("expected metrics, got nil")
 		}
@@ -489,7 +489,7 @@ func TestExtractFromResponse_UpstreamCost(t *testing.T) {
 	t.Run("images shape, zero tokens, cost only", func(t *testing.T) {
 		// OpenRouter /v1/images response: no token counts, only usage.cost.
 		body := `{"data":[{"b64_json":"aW1n"}],"usage":{"cost":0.04}}`
-		m := ExtractFromResponse(body)
+		m := ExtractFromResponseWithOptions(body, ExtractOptions{TrustUpstreamCost: true})
 		if m == nil {
 			t.Fatal("expected metrics for a cost-only image response, got nil (would bill 0)")
 		}
@@ -505,9 +505,23 @@ func TestExtractFromResponse_UpstreamCost(t *testing.T) {
 		body := "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":1290,\"cost\":0.0387}}\n\n" +
 			"data: [DONE]\n\n"
-		m := ExtractFromResponse(body)
+		m := ExtractFromResponseWithOptions(body, ExtractOptions{TrustUpstreamCost: true})
 		if m == nil || m.UpstreamCostNanoUSD != 38_700_000 {
 			t.Fatalf("streamed cost not captured: %+v", m)
+		}
+	})
+
+	t.Run("cost field ignored unless trusted", func(t *testing.T) {
+		body := `{"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.04}}`
+		m := ExtractFromResponse(body)
+		if m == nil {
+			t.Fatal("expected token metrics, got nil")
+		}
+		if m.UpstreamCostNanoUSD != 0 {
+			t.Fatalf("untrusted usage.cost should not be authoritative, got %d", m.UpstreamCostNanoUSD)
+		}
+		if m.InputTokens != 10 || m.OutputTokens != 5 {
+			t.Fatalf("tokens should still be extracted, got %+v", m)
 		}
 	})
 

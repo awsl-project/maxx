@@ -11,6 +11,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -440,6 +441,19 @@ func (a *CustomAdapter) getBaseURL(clientType domain.ClientType) string {
 	return config.BaseURL
 }
 
+func (a *CustomAdapter) usageExtractOptions(clientType domain.ClientType) usage.ExtractOptions {
+	return usage.ExtractOptions{TrustUpstreamCost: isOpenRouterBaseURL(a.getBaseURL(clientType))}
+}
+
+func isOpenRouterBaseURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
+}
+
 // customPassthroughFlag returns the provider's Codex Responses passthrough flag
 // (nil when unconfigured → treated as default-on by ResponsesPassthroughEnabled).
 func (a *CustomAdapter) customPassthroughFlag() *bool {
@@ -490,7 +504,7 @@ func (a *CustomAdapter) handleNonStreamResponse(c *flow.Ctx, resp *http.Response
 	}
 
 	// Extract and send token usage metrics
-	if metrics := usage.ExtractFromResponse(string(body)); metrics != nil {
+	if metrics := usage.ExtractFromResponseWithOptions(string(body), a.usageExtractOptions(clientType)); metrics != nil {
 		// Adjust for client-specific quirks (e.g., Codex input_tokens includes cached tokens)
 		metrics = usage.AdjustForClientType(metrics, clientType)
 		if eventChan != nil {
@@ -583,7 +597,7 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	// Adapter simply passes through the upstream SSE data
 
 	// Incrementally extract metrics and model from SSE lines (no full-stream buffering)
-	var collector usage.StreamCollector
+	collector := usage.StreamCollector{Options: a.usageExtractOptions(clientType)}
 	var responseModel string
 	var sseError error // Track any SSE error event
 	ctx := context.Background()

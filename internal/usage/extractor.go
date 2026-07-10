@@ -47,18 +47,30 @@ func (m *Metrics) IsEmpty() bool {
 // ExtractFromResponse extracts usage metrics from a response body.
 // Supports JSON and SSE formats from Claude, OpenAI, Gemini, and Codex APIs.
 func ExtractFromResponse(body string) *Metrics {
+	return ExtractFromResponseWithOptions(body, ExtractOptions{})
+}
+
+// ExtractOptions controls trust boundaries for optional upstream-reported
+// billing fields. Token usage is always extracted, but authoritative upstream
+// cost must be explicitly enabled by the provider adapter that owns the
+// upstream contract.
+type ExtractOptions struct {
+	TrustUpstreamCost bool
+}
+
+func ExtractFromResponseWithOptions(body string, opts ExtractOptions) *Metrics {
 	if body == "" {
 		return nil
 	}
 
 	// Try parsing as JSON first
-	metrics := extractFromJSON(body)
+	metrics := extractFromJSON(body, opts)
 	if metrics != nil && !metrics.IsEmpty() {
 		return metrics
 	}
 
 	// Try parsing as SSE (for streaming responses)
-	metrics = extractFromSSE(body)
+	metrics = extractFromSSE(body, opts)
 	if metrics != nil && !metrics.IsEmpty() {
 		return metrics
 	}
@@ -67,18 +79,18 @@ func ExtractFromResponse(body string) *Metrics {
 }
 
 // extractFromJSON tries to parse usage from a JSON response body.
-func extractFromJSON(body string) *Metrics {
+func extractFromJSON(body string, opts ExtractOptions) *Metrics {
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(body), &data); err != nil {
 		return nil
 	}
 
-	return extractUsageFromMap(data)
+	return extractUsageFromMap(data, opts)
 }
 
 // extractFromSSE extracts usage from SSE (Server-Sent Events) format.
 // Looks for the final event containing usage information.
-func extractFromSSE(body string) *Metrics {
+func extractFromSSE(body string, opts ExtractOptions) *Metrics {
 	lines := strings.Split(body, "\n")
 	var lastMetrics *Metrics
 
@@ -105,7 +117,7 @@ func extractFromSSE(body string) *Metrics {
 		}
 
 		// Try to extract metrics from this event
-		metrics := extractUsageFromMap(data)
+		metrics := extractUsageFromMap(data, opts)
 		if metrics != nil && !metrics.IsEmpty() {
 			lastMetrics = metrics
 		}
@@ -139,7 +151,7 @@ func extractFromSSE(body string) *Metrics {
 
 // extractUsageFromMap extracts usage metrics from a parsed JSON map.
 // Handles multiple API formats.
-func extractUsageFromMap(data map[string]interface{}) *Metrics {
+func extractUsageFromMap(data map[string]interface{}, opts ExtractOptions) *Metrics {
 	// Try top-level { "usage": { ... } }. The same key serves both OpenAI chat
 	// completions (prompt_tokens / completion_tokens) and Claude / OpenAI Images
 	// (input_tokens / output_tokens), so we dispatch by inspecting the usage
@@ -158,7 +170,9 @@ func extractUsageFromMap(data map[string]interface{}) *Metrics {
 		// OpenRouter always reports an authoritative usage.cost here (chat
 		// completions and the /v1/images endpoint). Record it so per-image /
 		// per-megapixel responses with no billable tokens still bill correctly.
-		applyUpstreamCost(usage, m)
+		if opts.TrustUpstreamCost {
+			applyUpstreamCost(usage, m)
+		}
 		return m
 	}
 
@@ -217,8 +231,9 @@ func isOpenAIUsage(usage map[string]interface{}) bool {
 
 // extractClaudeUsage extracts metrics from Claude/Anthropic usage format.
 // Example: { "input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 20,
-//            "cache_creation_input_tokens": 30, "cache_creation_5m_input_tokens": 10,
-//            "cache_creation_1h_input_tokens": 20 }
+//
+//	"cache_creation_input_tokens": 30, "cache_creation_5m_input_tokens": 10,
+//	"cache_creation_1h_input_tokens": 20 }
 func extractClaudeUsage(usage map[string]interface{}) *Metrics {
 	metrics := &Metrics{}
 
@@ -396,13 +411,18 @@ func extractGeminiUsage(usage map[string]interface{}) *Metrics {
 // ExtractFromStreamContent extracts usage from accumulated streaming content.
 // This is useful when you've collected all SSE chunks into a single string.
 func ExtractFromStreamContent(content string) *Metrics {
-	return extractFromSSE(content)
+	return ExtractFromStreamContentWithOptions(content, ExtractOptions{})
+}
+
+func ExtractFromStreamContentWithOptions(content string, opts ExtractOptions) *Metrics {
+	return extractFromSSE(content, opts)
 }
 
 // StreamCollector collects metrics and model incrementally from SSE lines,
 // avoiding the need to buffer the entire SSE stream in memory.
 type StreamCollector struct {
 	Metrics *Metrics
+	Options ExtractOptions
 }
 
 // ProcessSSELine processes a single SSE line (e.g. "data: {...}\n") and
@@ -425,7 +445,7 @@ func (sc *StreamCollector) ProcessSSELine(line string) {
 	}
 
 	// Extract metrics
-	if metrics := extractUsageFromMap(data); metrics != nil && !metrics.IsEmpty() {
+	if metrics := extractUsageFromMap(data, sc.Options); metrics != nil && !metrics.IsEmpty() {
 		sc.Metrics = metrics
 	}
 
