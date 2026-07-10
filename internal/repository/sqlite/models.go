@@ -96,6 +96,7 @@ type Provider struct {
 	SupportedClientTypes LongText
 	SupportModels        LongText
 	ExcludeFromExport    int `gorm:"default:0"`
+	BlackBox             int `gorm:"default:0"`
 }
 
 func (Provider) TableName() string { return "providers" }
@@ -321,11 +322,11 @@ func (ProxyRequest) TableName() string { return "proxy_requests" }
 // ProxyUpstreamAttempt model
 type ProxyUpstreamAttempt struct {
 	BaseModel
-	TenantID          uint64 `gorm:"index"`
-	Status            string `gorm:"size:64;index:idx_attempts_status_endtime;index"`
-	ProxyRequestID    uint64 `gorm:"index"`
-	RequestInfo       LongText
-	ResponseInfo      LongText
+	TenantID              uint64 `gorm:"index"`
+	Status                string `gorm:"size:64;index:idx_attempts_status_endtime;index"`
+	ProxyRequestID        uint64 `gorm:"index"`
+	RequestInfo           LongText
+	ResponseInfo          LongText
 	RouteID               uint64
 	ProviderID            uint64
 	InputTokenCount       uint64
@@ -337,18 +338,18 @@ type ProxyUpstreamAttempt struct {
 	Cache5mWriteCount     uint64 `gorm:"column:cache_5m_write_count"`
 	Cache1hWriteCount     uint64 `gorm:"column:cache_1h_write_count"`
 	ModelPriceID          uint64 // 使用的模型价格记录ID
-	Multiplier        uint64 // 倍率（10000=1倍）
-	Cost              uint64
+	Multiplier            uint64 // 倍率（10000=1倍）
+	Cost                  uint64
 	// 上游(OpenRouter usage.cost)自报扣费,nanoUSD,不含倍率。GORM AutoMigrate 自动加列。
 	UpstreamCostNanoUSD uint64 `gorm:"column:upstream_cost_nano_usd"`
-	IsStream          int
-	StartTime         int64
-	EndTime           int64 `gorm:"index:idx_attempts_status_endtime"`
-	DurationMs        int64
-	TTFTMs            int64
-	RequestModel      string `gorm:"size:128"`
-	MappedModel       string `gorm:"size:128"`
-	ResponseModel     string `gorm:"size:128"`
+	IsStream            int
+	StartTime           int64
+	EndTime             int64 `gorm:"index:idx_attempts_status_endtime"`
+	DurationMs          int64
+	TTFTMs              int64
+	RequestModel        string `gorm:"size:128"`
+	MappedModel         string `gorm:"size:128"`
+	ResponseModel       string `gorm:"size:128"`
 	// detail_cleared 列同样不在 struct 上,理由见 ProxyRequest.detail_cleared 注释。
 }
 
@@ -477,14 +478,14 @@ func (ModelPrice) TableName() string { return "model_prices" }
 // the previous region never gets served post-edit. AccessKeyID is only
 // the public ID ("AKIA..."), not the secret.
 type BedrockDiscoveryEntry struct {
-	ID           uint64 `gorm:"primaryKey;autoIncrement"`
-	ProviderID   uint64 `gorm:"uniqueIndex:idx_bedrock_disc_provider_short"`
-	ShortName    string `gorm:"size:128;uniqueIndex:idx_bedrock_disc_provider_short"`
-	BedrockID    string `gorm:"size:255"`
-	Source       string `gorm:"size:32"` // "inference-profile" or "foundation-model"
-	Region       string `gorm:"size:64"`
-	AccessKeyID  string `gorm:"size:128"`
-	FetchedAt    int64  `gorm:"index"` // unix ms
+	ID          uint64 `gorm:"primaryKey;autoIncrement"`
+	ProviderID  uint64 `gorm:"uniqueIndex:idx_bedrock_disc_provider_short"`
+	ShortName   string `gorm:"size:128;uniqueIndex:idx_bedrock_disc_provider_short"`
+	BedrockID   string `gorm:"size:255"`
+	Source      string `gorm:"size:32"` // "inference-profile" or "foundation-model"
+	Region      string `gorm:"size:64"`
+	AccessKeyID string `gorm:"size:128"`
+	FetchedAt   int64  `gorm:"index"` // unix ms
 }
 
 func (BedrockDiscoveryEntry) TableName() string { return "bedrock_discovery_entries" }

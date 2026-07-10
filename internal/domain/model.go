@@ -356,6 +356,9 @@ type Provider struct {
 
 	// 为 true 时，该 provider 不参与导出/备份
 	ExcludeFromExport bool `json:"excludeFromExport,omitempty"`
+
+	// 为 true 时，该 provider 为黑盒配置：不可编辑，且 API/UI 不应暴露 URL/密钥等配置细节
+	BlackBox bool `json:"blackBox,omitempty"`
 }
 
 // ProviderBulkDeleteRequest deletes providers and all provider-scoped references in one request.

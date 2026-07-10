@@ -34,10 +34,12 @@ export function BedrockConfigStep() {
   const [modelPrefix, setModelPrefix] = useState('us');
   const [showSecret, setShowSecret] = useState(false);
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(false);
+  const [blackBox, setBlackBox] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  const isValid = () => name.trim() !== '' && accessKeyId.trim() !== '' && secretAccessKey.trim() !== '';
+  const isValid = () =>
+    name.trim() !== '' && accessKeyId.trim() !== '' && secretAccessKey.trim() !== '';
 
   const handleSave = async () => {
     if (!isValid()) return;
@@ -59,6 +61,8 @@ export function BedrockConfigStep() {
           },
         },
         supportedClientTypes: ['claude'],
+        excludeFromExport: blackBox,
+        blackBox,
       };
 
       await createProvider.mutateAsync(data);
@@ -180,7 +184,9 @@ export function BedrockConfigStep() {
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
                     {BEDROCK_REGIONS.map((r) => (
-                      <option key={r} value={r}>{r}</option>
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
                     ))}
                   </select>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -221,10 +227,21 @@ export function BedrockConfigStep() {
                   {t('provider.disableErrorCooldownDesc')}
                 </p>
               </div>
-              <Switch
-                checked={disableErrorCooldown}
-                onCheckedChange={setDisableErrorCooldown}
-              />
+              <Switch checked={disableErrorCooldown} onCheckedChange={setDisableErrorCooldown} />
+            </div>
+          </div>
+
+          {/* Visibility */}
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+              {t('provider.visibilityAndExport')}
+            </h3>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">{t('provider.blackBox')}</div>
+                <p className="text-xs text-muted-foreground mt-1">{t('provider.blackBoxDesc')}</p>
+              </div>
+              <Switch checked={blackBox} onCheckedChange={setBlackBox} />
             </div>
           </div>
 

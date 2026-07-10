@@ -215,7 +215,9 @@ export function ProviderRow({
   // 使用通用配置系统
   const typeConfig = getProviderTypeConfig(provider.type);
   const color = typeConfig.color;
-  const displayInfo = typeConfig.getDisplayInfo(provider);
+  const displayInfo = provider.blackBox
+    ? t('provider.blackBoxDisplayInfo')
+    : typeConfig.getDisplayInfo(provider);
 
   const isAntigravity = provider.type === 'antigravity';
   const isKiro = provider.type === 'kiro';
@@ -339,6 +341,11 @@ export function ProviderRow({
       <div className="relative z-10 flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <h3 className="text-[15px] font-bold text-foreground truncate">{provider.name}</h3>
+          {provider.blackBox && (
+            <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+              {t('provider.blackBoxBadge')}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {/* 对于 Antigravity，显示 Claude 和 Imagen Quota */}

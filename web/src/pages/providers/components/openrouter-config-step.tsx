@@ -29,6 +29,7 @@ export function OpenRouterConfigStep() {
   });
   const [modelMapping, setModelMapping] = useState<Record<string, string>>({});
   const [disableErrorCooldown, setDisableErrorCooldown] = useState(false);
+  const [blackBox, setBlackBox] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -56,6 +57,8 @@ export function OpenRouterConfigStep() {
           },
         },
         supportedClientTypes: enabledClients,
+        excludeFromExport: blackBox,
+        blackBox,
       };
 
       const provider = await createProvider.mutateAsync(data);
@@ -204,6 +207,20 @@ export function OpenRouterConfigStep() {
                 </p>
               </div>
               <Switch checked={disableErrorCooldown} onCheckedChange={setDisableErrorCooldown} />
+            </div>
+          </div>
+
+          {/* Visibility */}
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-text-primary border-b border-border pb-2">
+              {t('provider.visibilityAndExport')}
+            </h3>
+            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+              <div className="pr-4">
+                <div className="text-sm font-medium text-foreground">{t('provider.blackBox')}</div>
+                <p className="text-xs text-muted-foreground mt-1">{t('provider.blackBoxDesc')}</p>
+              </div>
+              <Switch checked={blackBox} onCheckedChange={setBlackBox} />
             </div>
           </div>
 

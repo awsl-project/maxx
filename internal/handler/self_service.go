@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -318,7 +319,7 @@ func (h *SelfServiceHandler) handleProviders(w http.ResponseWriter, r *http.Requ
 		provider.TenantID = existing.TenantID
 		provider.CreatedAt = existing.CreatedAt
 		if err := h.svc.UpdateProvider(tenantID, &provider); err != nil {
-			writeSelfServiceInternalError(w, "UpdateProvider failed", err)
+			writeProviderMutationError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, sanitizeProviderAfterMutation(&provider))
@@ -1411,6 +1412,10 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 	if provider.Config == nil {
 		return &sanitized
 	}
+	if provider.BlackBox {
+		sanitized.Config = nil
+		return &sanitized
+	}
 
 	config := *provider.Config
 	if config.Custom != nil {
@@ -1482,14 +1487,22 @@ func shouldSanitizeProviderSecrets(provider *domain.Provider, isAdmin bool) bool
 	if provider == nil {
 		return false
 	}
-	return !isAdmin || provider.ExcludeFromExport
+	return provider.BlackBox || !isAdmin || provider.ExcludeFromExport
 }
 
 func sanitizeProviderAfterMutation(provider *domain.Provider) *domain.Provider {
-	if provider == nil || !provider.ExcludeFromExport {
+	if provider == nil || (!provider.BlackBox && !provider.ExcludeFromExport) {
 		return provider
 	}
 	return sanitizeProvider(provider)
+}
+
+func writeProviderMutationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, service.ErrProviderBlackBoxLocked) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 }
 
 func sanitizeProvidersForRole(providers []*domain.Provider, isAdmin bool) []*domain.Provider {

@@ -44,6 +44,7 @@ const initialFormData: ProviderFormData = {
   cloakSensitiveWords: '',
   disableErrorCooldown: false,
   excludeFromExport: false,
+  blackBox: false,
 };
 
 export function ProviderFormProvider({ children }: { children: ReactNode }) {
