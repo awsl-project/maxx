@@ -1138,7 +1138,7 @@ func TestProxyNoMatchingRoute(t *testing.T) {
 	if got := payload["error"]["retryable"]; got != false {
 		t.Fatalf("error.retryable = %v, want false", got)
 	}
-	assertRouteMatchRejectionRecorded(t, env, 1, "no routes available")
+	assertRouteMatchRejectionRecorded(t, env, 1, "no routes available", http.StatusServiceUnavailable)
 }
 
 func TestProxyRouteWithoutConfiguredProviderRecordsRejectedRequest(t *testing.T) {
@@ -1166,7 +1166,7 @@ func TestProxyRouteWithoutConfiguredProviderRecordsRejectedRequest(t *testing.T)
 	if !strings.Contains(msg, "no available provider") {
 		t.Fatalf("error.message = %q, want to contain no available provider", msg)
 	}
-	assertRouteMatchRejectionRecorded(t, env, 1, "no available providers")
+	assertRouteMatchRejectionRecorded(t, env, 1, "no available providers", http.StatusServiceUnavailable)
 }
 
 func TestProxyMatchedRouteWithUnsupportedProviderModelRecordsRejectedRequest(t *testing.T) {
@@ -1188,19 +1188,24 @@ func TestProxyMatchedRouteWithUnsupportedProviderModelRecordsRejectedRequest(t *
 	AssertStatus(t, providerResp, http.StatusOK)
 	createRoute(t, env, "openai", providerID)
 
+	// The only provider's SupportModels allowlist is ["only-this-model"], so a
+	// request for gpt-4o is rejected before any upstream call. Because the
+	// emptiness is entirely a model-allowlist rejection (no cooldown masking a
+	// provider that might serve it), the client gets a clean, non-retryable 400
+	// naming the model — not the generic 503 "no available provider".
 	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
-	AssertStatus(t, resp, http.StatusServiceUnavailable)
+	AssertStatus(t, resp, http.StatusBadRequest)
 
 	var payload map[string]map[string]any
 	DecodeJSON(t, resp, &payload)
-	if got := payload["error"]["code"]; got != "no_available_provider" {
-		t.Fatalf("error.code = %v, want no_available_provider", got)
+	if got := payload["error"]["code"]; got != "model_not_supported" {
+		t.Fatalf("error.code = %v, want model_not_supported", got)
 	}
 	msg, _ := payload["error"]["message"].(string)
-	if !strings.Contains(msg, "no available provider") {
-		t.Fatalf("error.message = %q, want to contain no available provider", msg)
+	if !strings.Contains(msg, "gpt-4o") || !strings.Contains(msg, "not supported by any configured provider") {
+		t.Fatalf("error.message = %q, want to name gpt-4o and 'not supported by any configured provider'", msg)
 	}
-	assertRouteMatchRejectionRecorded(t, env, 1, "no available providers")
+	assertRouteMatchRejectionRecorded(t, env, 1, "not supported by any configured provider", http.StatusBadRequest)
 }
 
 func TestProxyMatchedRouteWithCooldownProviderRecordsRejectedRequest(t *testing.T) {
@@ -1239,10 +1244,84 @@ func TestProxyMatchedRouteWithCooldownProviderRecordsRejectedRequest(t *testing.
 	if !strings.Contains(msg, "no available provider") {
 		t.Fatalf("error.message = %q, want to contain no available provider", msg)
 	}
-	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers")
+	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers", http.StatusServiceUnavailable)
 }
 
-func assertRouteMatchRejectionRecorded(t *testing.T, env *ProxyTestEnv, wantTotal int, wantErrorPart string) {
+func TestProxyMatchedRouteWithUnsupportedModelAndCooldownProviderRecords503(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"message": "Rate limit exceeded",
+				"type":    "rate_limit_error",
+			},
+		})
+	}))
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+
+	unsupportedProviderID := createProvider(t, env, "mock-openai-unsupported-model", "http://127.0.0.1:1", []string{"openai"})
+	unsupportedProviderResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", unsupportedProviderID), map[string]any{
+		"name":                 "mock-openai-unsupported-model",
+		"type":                 "custom",
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"only-this-model"},
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "http://127.0.0.1:1",
+				"apiKey":  "sk-mock-test-key",
+			},
+		},
+	})
+	AssertStatus(t, unsupportedProviderResp, http.StatusOK)
+	createRoute(t, env, "openai", unsupportedProviderID)
+
+	cooldownProviderID := createProvider(t, env, "mock-cooldown-supported-model", mock.URL, []string{"openai"})
+	cooldownProviderResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", cooldownProviderID), map[string]any{
+		"name":                 "mock-cooldown-supported-model",
+		"type":                 "custom",
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"gpt-4o"},
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": mock.URL,
+				"apiKey":  "sk-mock-test-key",
+			},
+		},
+	})
+	AssertStatus(t, cooldownProviderResp, http.StatusOK)
+	createRoute(t, env, "openai", cooldownProviderID)
+
+	// First request reaches the supported provider and puts it into cooldown.
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusTooManyRequests)
+	if got := len(getProxyRequests(t, env)); got != 1 {
+		t.Fatalf("expected first upstream failure to be recorded, got %d requests", got)
+	}
+
+	// Second request sees both a model allowlist rejection and a transient
+	// cooldown skip. The cooldown may be masking a provider that supports the
+	// model, so the router must keep the generic 503 instead of mislabeling the
+	// model as unsupported.
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "no_available_provider" {
+		t.Fatalf("error.code = %v, want no_available_provider", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "no available provider") {
+		t.Fatalf("error.message = %q, want to contain no available provider", msg)
+	}
+	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers", http.StatusServiceUnavailable)
+}
+
+func assertRouteMatchRejectionRecorded(t *testing.T, env *ProxyTestEnv, wantTotal int, wantErrorPart string, wantStatus int) {
 	t.Helper()
 
 	requests := getProxyRequests(t, env)
@@ -1256,7 +1335,7 @@ func assertRouteMatchRejectionRecorded(t *testing.T, env *ProxyTestEnv, wantTota
 			continue
 		}
 		errorMsg, _ := req["error"].(string)
-		if strings.Contains(errorMsg, "route match failed") && strings.Contains(errorMsg, wantErrorPart) {
+		if strings.Contains(errorMsg, wantErrorPart) {
 			matched = append(matched, req)
 		}
 	}
@@ -1264,8 +1343,8 @@ func assertRouteMatchRejectionRecorded(t *testing.T, env *ProxyTestEnv, wantTota
 		t.Fatalf("route-match rejected requests = %d, want 1 in %#v", len(matched), requests)
 	}
 	rejected := matched[0]
-	if got := intFromJSONNumber(t, rejected["statusCode"]); got != http.StatusServiceUnavailable {
-		t.Fatalf("statusCode = %d, want %d", got, http.StatusServiceUnavailable)
+	if got := intFromJSONNumber(t, rejected["statusCode"]); got != wantStatus {
+		t.Fatalf("statusCode = %d, want %d", got, wantStatus)
 	}
 	if got := intFromJSONNumber(t, rejected["providerID"]); got != 0 {
 		t.Fatalf("providerID = %d, want 0 for route-match rejection", got)
