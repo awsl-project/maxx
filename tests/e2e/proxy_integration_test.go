@@ -1247,6 +1247,80 @@ func TestProxyMatchedRouteWithCooldownProviderRecordsRejectedRequest(t *testing.
 	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers", http.StatusServiceUnavailable)
 }
 
+func TestProxyMatchedRouteWithUnsupportedModelAndCooldownProviderRecords503(t *testing.T) {
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"message": "Rate limit exceeded",
+				"type":    "rate_limit_error",
+			},
+		})
+	}))
+	defer mock.Close()
+
+	env := NewProxyTestEnv(t)
+
+	unsupportedProviderID := createProvider(t, env, "mock-openai-unsupported-model", "http://127.0.0.1:1", []string{"openai"})
+	unsupportedProviderResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", unsupportedProviderID), map[string]any{
+		"name":                 "mock-openai-unsupported-model",
+		"type":                 "custom",
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"only-this-model"},
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": "http://127.0.0.1:1",
+				"apiKey":  "sk-mock-test-key",
+			},
+		},
+	})
+	AssertStatus(t, unsupportedProviderResp, http.StatusOK)
+	createRoute(t, env, "openai", unsupportedProviderID)
+
+	cooldownProviderID := createProvider(t, env, "mock-cooldown-supported-model", mock.URL, []string{"openai"})
+	cooldownProviderResp := env.AdminPut(fmt.Sprintf("/api/admin/providers/%d", cooldownProviderID), map[string]any{
+		"name":                 "mock-cooldown-supported-model",
+		"type":                 "custom",
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        []string{"gpt-4o"},
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL": mock.URL,
+				"apiKey":  "sk-mock-test-key",
+			},
+		},
+	})
+	AssertStatus(t, cooldownProviderResp, http.StatusOK)
+	createRoute(t, env, "openai", cooldownProviderID)
+
+	// First request reaches the supported provider and puts it into cooldown.
+	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusTooManyRequests)
+	if got := len(getProxyRequests(t, env)); got != 1 {
+		t.Fatalf("expected first upstream failure to be recorded, got %d requests", got)
+	}
+
+	// Second request sees both a model allowlist rejection and a transient
+	// cooldown skip. The cooldown may be masking a provider that supports the
+	// model, so the router must keep the generic 503 instead of mislabeling the
+	// model as unsupported.
+	resp = env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
+	AssertStatus(t, resp, http.StatusServiceUnavailable)
+
+	var payload map[string]map[string]any
+	DecodeJSON(t, resp, &payload)
+	if got := payload["error"]["code"]; got != "no_available_provider" {
+		t.Fatalf("error.code = %v, want no_available_provider", got)
+	}
+	msg, _ := payload["error"]["message"].(string)
+	if !strings.Contains(msg, "no available provider") {
+		t.Fatalf("error.message = %q, want to contain no available provider", msg)
+	}
+	assertRouteMatchRejectionRecorded(t, env, 2, "no available providers", http.StatusServiceUnavailable)
+}
+
 func assertRouteMatchRejectionRecorded(t *testing.T, env *ProxyTestEnv, wantTotal int, wantErrorPart string, wantStatus int) {
 	t.Helper()
 
