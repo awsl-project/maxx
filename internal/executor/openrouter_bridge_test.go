@@ -49,19 +49,52 @@ func TestShouldNotBridgeNonOpenRouterCustomCodex(t *testing.T) {
 }
 
 func TestShouldBridgeOpenRouterClientBaseURL(t *testing.T) {
-	provider := &domain.Provider{
-		Type: "custom",
-		Name: "relay",
-		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
-			BaseURL: "https://relay.example.com/v1",
-			ClientBaseURL: map[domain.ClientType]string{
+	tests := []struct {
+		name          string
+		clientBaseURL map[domain.ClientType]string
+	}{
+		{
+			name: "codex client base URL",
+			clientBaseURL: map[domain.ClientType]string{
 				domain.ClientTypeCodex: "https://openrouter.ai/api/v1",
 			},
+		},
+		{
+			name: "openai client base URL",
+			clientBaseURL: map[domain.ClientType]string{
+				domain.ClientTypeOpenAI: "https://openrouter.ai/api/v1",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &domain.Provider{
+				Type: "custom",
+				Name: "relay",
+				Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+					BaseURL:       "https://relay.example.com/v1",
+					ClientBaseURL: tt.clientBaseURL,
+				}},
+			}
+
+			if !shouldBridgeCustomCodexViaOpenAI(provider, domain.ClientTypeCodex, []domain.ClientType{domain.ClientTypeCodex, domain.ClientTypeOpenAI}) {
+				t.Fatal("expected OpenRouter client base URL to bridge through OpenAI")
+			}
+		})
+	}
+}
+
+func TestShouldNotBridgeLookalikeOpenRouterHost(t *testing.T) {
+	provider := &domain.Provider{
+		Type: "custom",
+		Name: "generic-relay",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: "https://openrouter.ai.evil.example/api/v1",
 		}},
 	}
 
-	if !shouldBridgeCustomCodexViaOpenAI(provider, domain.ClientTypeCodex, []domain.ClientType{domain.ClientTypeCodex, domain.ClientTypeOpenAI}) {
-		t.Fatal("expected OpenRouter Codex client base URL to bridge through OpenAI")
+	if shouldBridgeCustomCodexViaOpenAI(provider, domain.ClientTypeCodex, []domain.ClientType{domain.ClientTypeCodex, domain.ClientTypeOpenAI}) {
+		t.Fatal("must not bridge OpenRouter lookalike hosts")
 	}
 }
 
