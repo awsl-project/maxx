@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Clock3,
   Copy,
@@ -25,6 +25,8 @@ import {
   TabsTrigger,
 } from '@/components/ui';
 import { LanguageToggle } from '@/components/language-toggle';
+import { MarqueeBackground } from '@/components/ui/marquee-background';
+import { StreamingBadge } from '@/components/ui/streaming-badge';
 import { useAuth } from '@/lib/auth-context';
 import {
   useCreateUserPanelAPIToken,
@@ -32,12 +34,19 @@ import {
   useProxyStatus,
   useRegenerateUserPanelAPIToken,
   useUserPanelAPIToken,
+  useProxyRequestUpdates,
 } from '@/hooks/queries';
 import type { APIToken, ProxyRequest } from '@/lib/transport';
 import {
   buildUserPanelChatCompletionsExample,
   buildUserPanelEndpointHints,
 } from '@/lib/user-panel-endpoints';
+import {
+  getUserPanelTabStorageKey,
+  resolveUserPanelTab,
+  updateUserPanelTabSearch,
+  type UserPanelTab,
+} from '@/lib/user-panel-tabs';
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat().format(value || 0);
@@ -66,6 +75,10 @@ function getTokenStatus(token: APIToken) {
   if (!token.isEnabled) return 'disabled';
   if (token.expiresAt && new Date(token.expiresAt).getTime() <= Date.now()) return 'expired';
   return 'active';
+}
+
+function isActiveUserPanelRequest(request: ProxyRequest) {
+  return request.status === 'PENDING' || request.status === 'IN_PROGRESS';
 }
 
 function getRequestStatusVariant(request: ProxyRequest) {
@@ -163,9 +176,11 @@ function UserPanelRequestsTab() {
 
 export function UserPanelPage() {
   const { t } = useTranslation();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const { data: proxyStatus } = useProxyStatus();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
+  const { data: userPanelRequests } = useProxyRequests({ limit: 25 });
+  useProxyRequestUpdates();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
@@ -173,7 +188,18 @@ export function UserPanelPage() {
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
   const [showKeyMasked, setShowKeyMasked] = useState(true);
+  const tabStorageKey = getUserPanelTabStorageKey(user?.id);
+  const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
+    if (typeof window === 'undefined') return 'main';
+    const params = new URLSearchParams(window.location.search);
+    return resolveUserPanelTab({
+      urlTab: params.get('tab'),
+      storedTab: window.localStorage.getItem(getUserPanelTabStorageKey(user?.id)),
+    });
+  });
 
+  const activeRequestCount =
+    userPanelRequests?.items.filter((request) => isActiveUserPanelRequest(request)).length ?? 0;
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const endpointHints = buildUserPanelEndpointHints(origin).map((endpoint) => ({
@@ -186,6 +212,24 @@ export function UserPanelPage() {
           : t('userPanel.routeGemini'),
   }));
   const curlExample = buildUserPanelChatCompletionsExample({ origin });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlTab = new URLSearchParams(window.location.search).get('tab');
+    const storedTab = window.localStorage.getItem(tabStorageKey);
+    setActiveTab(resolveUserPanelTab({ urlTab, storedTab }));
+  }, [tabStorageKey]);
+
+  const handleTabChange = (value: string | null) => {
+    const nextTab = resolveUserPanelTab({ urlTab: value });
+    setActiveTab(nextTab);
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(tabStorageKey, nextTab);
+    const nextSearch = updateUserPanelTabSearch(window.location.search, nextTab);
+    window.history.replaceState(null, '', `${window.location.pathname}${nextSearch}`);
+  };
 
   const handleCopyEndpoint = async (endpointId: string, url: string) => {
     if (!url || typeof navigator === 'undefined' || !navigator.clipboard) return;
@@ -248,10 +292,20 @@ export function UserPanelPage() {
           </div>
         </header>
 
-        <Tabs defaultValue="main" className="space-y-5">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
           <TabsList className="grid w-full grid-cols-2 rounded-xl p-1">
             <TabsTrigger value="main">{t('userPanel.mainTab')}</TabsTrigger>
-            <TabsTrigger value="requests">{t('userPanel.requestsTab')}</TabsTrigger>
+            <TabsTrigger value="requests" className="relative overflow-hidden">
+              <MarqueeBackground
+                show={activeRequestCount > 0}
+                color="var(--color-success)"
+                opacity={0.3}
+              />
+              <span className="relative z-10">{t('userPanel.requestsTab')}</span>
+              <span className="relative z-10">
+                <StreamingBadge count={activeRequestCount} color="var(--color-success)" />
+              </span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="main" className="space-y-5">
