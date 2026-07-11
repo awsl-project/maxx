@@ -77,7 +77,29 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 		requestURI := state.requestURI
 
 		supportedTypes := matchedRoute.ProviderAdapter.SupportedClientTypes()
-		if e.converter.NeedConvert(clientType, supportedTypes) {
+		if shouldBridgeCustomCodexViaOpenAI(matchedRoute.Provider, clientType, supportedTypes) {
+			currentClientType = domain.ClientTypeOpenAI
+			needsConversion = true
+			log.Printf("[Executor] OpenRouter-compatible custom provider %s: bridging Codex request through OpenAI Chat Completions",
+				matchedRoute.Provider.Name)
+
+			convertedBody, convErr = e.converter.TransformRequest(
+				clientType, currentClientType, requestBody, mappedModel, state.isStream)
+			if convErr != nil {
+				log.Printf("[Executor] OpenRouter Codex->OpenAI conversion failed: %v, proceeding with original format", convErr)
+				needsConversion = false
+				currentClientType = clientType
+			} else {
+				requestBody = convertedBody
+
+				originalURI := requestURI
+				convertedURI := ConvertRequestURI(requestURI, clientType, currentClientType, mappedModel, state.isStream)
+				if convertedURI != originalURI {
+					requestURI = convertedURI
+					log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
+				}
+			}
+		} else if e.converter.NeedConvert(clientType, supportedTypes) {
 			currentClientType = GetPreferredTargetType(supportedTypes, clientType, matchedRoute.Provider.Type)
 			if currentClientType != clientType {
 				needsConversion = true
