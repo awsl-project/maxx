@@ -247,6 +247,15 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	var matched []*MatchedRoute
 	providers := r.providerRepo.GetAll()
 
+	// Track why candidates were dropped so an empty result can be reported
+	// precisely: sawModelReject means a route was skipped purely because the model
+	// is not in the provider's SupportModels allowlist (a client request error);
+	// sawTransientSkip means a route was skipped for a transient reason (cooldown)
+	// that might otherwise have served the model — in which case we stay with the
+	// generic ErrNoAvailableProviders rather than blaming the model.
+	sawModelReject := false
+	sawTransientSkip := false
+
 	for _, route := range filtered {
 		prov, ok := providers[route.ProviderID]
 		if !ok {
@@ -255,6 +264,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 
 		// Skip providers in cooldown (checks provider, key, and model-level cooldowns)
 		if r.cooldownManager.IsInCooldown(route.ProviderID, string(clientType), requestModel) {
+			sawTransientSkip = true
 			continue
 		}
 
@@ -270,6 +280,7 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		// request model here would incorrectly drop valid cross-protocol routes.
 		if adapterSupportsClientType(adp, clientType) && len(prov.SupportModels) > 0 && requestModel != "" {
 			if !r.isModelSupported(requestModel, prov.SupportModels) {
+				sawModelReject = true
 				continue
 			}
 		}
@@ -292,6 +303,12 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	r.mu.RUnlock()
 
 	if len(matched) == 0 {
+		// Only blame the model when the emptiness is entirely due to SupportModels
+		// rejections; a transient skip (cooldown) may hide a provider that does
+		// support it, so fall back to the generic error to avoid mislabeling.
+		if sawModelReject && !sawTransientSkip {
+			return nil, domain.ErrModelNotSupported
+		}
 		return nil, domain.ErrNoAvailableProviders
 	}
 
