@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Clock3,
   Copy,
@@ -212,16 +212,13 @@ export function UserPanelPage() {
           : t('userPanel.routeGemini'),
   }));
   const curlExample = buildUserPanelChatCompletionsExample({ origin });
-  const urlTab = useMemo(() => {
-    if (typeof window === 'undefined') return null;
-    return new URLSearchParams(window.location.search).get('tab');
-  }, []);
 
   useEffect(() => {
-    const storedTab =
-      typeof window === 'undefined' ? null : window.localStorage.getItem(tabStorageKey);
+    if (typeof window === 'undefined') return;
+    const urlTab = new URLSearchParams(window.location.search).get('tab');
+    const storedTab = window.localStorage.getItem(tabStorageKey);
     setActiveTab(resolveUserPanelTab({ urlTab, storedTab }));
-  }, [tabStorageKey, urlTab]);
+  }, [tabStorageKey]);
 
   const handleTabChange = (value: string | null) => {
     const nextTab = resolveUserPanelTab({ urlTab: value });

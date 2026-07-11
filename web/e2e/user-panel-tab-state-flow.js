@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4173';
 const CHROME = process.env.CHROME_BIN || '/usr/bin/google-chrome-stable';
-const OUT_DIR = process.env.OUT_DIR || '/home/moltbot/clawd-wechat/tmp/maxx-user-panel-tab-state-flow';
+const OUT_DIR = process.env.OUT_DIR || new URL('./user-panel-tab-state-artifacts', import.meta.url).pathname;
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
