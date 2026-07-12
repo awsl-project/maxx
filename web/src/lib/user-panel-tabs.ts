@@ -17,11 +17,12 @@ export function getUserPanelTabStorageKey(userId: number | string | null | undef
 export function resolveUserPanelTab(params: {
   urlTab?: string | null;
   storedTab?: string | null;
+  allowStoredTab?: boolean;
 }): UserPanelTab {
   if (isUserPanelTab(params.urlTab)) {
     return params.urlTab;
   }
-  if (isUserPanelTab(params.storedTab)) {
+  if (params.allowStoredTab && isUserPanelTab(params.storedTab)) {
     return params.storedTab;
   }
   return DEFAULT_USER_PANEL_TAB;

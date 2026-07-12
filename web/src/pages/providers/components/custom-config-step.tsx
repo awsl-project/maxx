@@ -110,7 +110,7 @@ export function CustomConfigStep() {
       }
 
       setSaveStatus('success');
-      setTimeout(() => goToProviders(), 500);
+      goToProviders();
     } catch (error) {
       console.error('Failed to create provider:', error);
       setSaveStatus('error');
