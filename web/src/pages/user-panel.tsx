@@ -206,6 +206,8 @@ export function UserPanelPage() {
   const activeRequestCount =
     userPanelRequests?.items.filter((request) => isActiveUserPanelRequest(request)).length ?? 0;
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
+  const visibleUserPanelToken =
+    !showKeyMasked && userPanelToken?.token ? userPanelToken.token : userPanelToken?.tokenPrefix || 'maxx_••••';
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const endpointHints = buildUserPanelEndpointHints(origin).map((endpoint) => ({
     ...endpoint,
@@ -385,7 +387,7 @@ export function UserPanelPage() {
                         <Input
                           readOnly
                           type={showKeyMasked ? 'password' : 'text'}
-                          value={userPanelToken.tokenPrefix || 'maxx_••••'}
+                          value={visibleUserPanelToken}
                           className="h-9 pr-9 font-mono text-xs"
                           aria-label={t('userPanel.myKey')}
                         />

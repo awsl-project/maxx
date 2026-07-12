@@ -1215,14 +1215,14 @@ func (h *SelfServiceHandler) handleUserPanelAPIToken(w http.ResponseWriter, r *h
 			writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": nil})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": sanitizeAPIToken(canonicalToken)})
+		writeJSON(w, http.StatusOK, map[string]*domain.APIToken{"apiToken": canonicalToken})
 		return
 	}
 
 	if !regenerate && canonicalToken != nil && canonicalToken.IsEnabled {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":    "user panel token already exists",
-			"apiToken": sanitizeAPIToken(canonicalToken),
+			"apiToken": canonicalToken,
 		})
 		return
 	}

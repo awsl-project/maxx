@@ -41,7 +41,7 @@ function tokenFor(user) {
     createdAt: nowIso(),
     updatedAt: nowIso(),
     tenantID: user.tenantID,
-    token: '',
+    token: `maxx_user_${user.id}_full_plaintext_key`,
     tokenPrefix: `maxx_user_${user.id}_prefix...`,
     name: `User Console Key (user ${user.id})`,
     description: `managed-by=maxx-user-panel;user-id=${user.id}`,
@@ -173,7 +173,10 @@ async function run() {
   await userA.goto(`${BASE_URL}/`);
   await assertActiveTab(userA, '主页');
   await userA.getByText('User Console Key (user 42)').waitFor({ state: 'visible', timeout: 10_000 });
-  await screenshot(userA, '04-user-a-new-navigation-shows-key');
+  await userA.getByRole('button', { name: '显示 Key' }).click();
+  const visibleKey = await userA.getByLabel('我的 Key').inputValue();
+  assert.equal(visibleKey, 'maxx_user_42_full_plaintext_key', 'show key should reveal the full user panel key');
+  await screenshot(userA, '04-user-a-new-navigation-shows-full-key');
 
   await userA.goto(`${BASE_URL}/?tab=unknown`);
   await assertActiveTab(userA, '主页');
