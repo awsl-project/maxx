@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   Clock3,
   Copy,
-  Eye,
-  EyeOff,
   KeyRound,
   ListChecks,
   LogOut,
@@ -187,7 +185,6 @@ export function UserPanelPage() {
   const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
-  const [showKeyMasked, setShowKeyMasked] = useState(true);
   const tabStorageKey = getUserPanelTabStorageKey(user?.id);
   const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
     if (typeof window === 'undefined') return 'main';
@@ -206,8 +203,7 @@ export function UserPanelPage() {
   const activeRequestCount =
     userPanelRequests?.items.filter((request) => isActiveUserPanelRequest(request)).length ?? 0;
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
-  const visibleUserPanelToken =
-    !showKeyMasked && userPanelToken?.token ? userPanelToken.token : userPanelToken?.tokenPrefix || 'maxx_••••';
+  const maskedUserPanelToken = userPanelToken?.tokenPrefix || 'maxx_••••';
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const endpointHints = buildUserPanelEndpointHints(origin).map((endpoint) => ({
     ...endpoint,
@@ -383,33 +379,13 @@ export function UserPanelPage() {
                         </Button>
                       </div>
 
-                      <div className="relative">
-                        <Input
-                          readOnly
-                          type={showKeyMasked ? 'password' : 'text'}
-                          value={visibleUserPanelToken}
-                          className="h-9 pr-9 font-mono text-xs"
-                          aria-label={t('userPanel.myKey')}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
-                          aria-label={
-                            showKeyMasked ? t('userPanel.showKey') : t('userPanel.hideKey')
-                          }
-                          onClick={() => setShowKeyMasked((prev) => !prev)}
-                        >
-                          {showKeyMasked ? (
-                            <Eye className="size-3.5" />
-                          ) : (
-                            <EyeOff className="size-3.5" />
-                          )}
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {t('userPanel.existingKeyHint')}
-                      </p>
+                      <Input
+                        readOnly
+                        type="text"
+                        value={maskedUserPanelToken}
+                        className="h-9 font-mono text-xs"
+                        aria-label={t('userPanel.myKey')}
+                      />
                     </div>
                   ) : (
                     <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center">
