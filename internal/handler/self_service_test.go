@@ -2292,7 +2292,7 @@ func TestSelfServiceHandler_UserPanelExistingTokenProjectBindingIsCleared(t *tes
 	marker := userPanelAPITokenDescription(9)
 	tokenRepo := &selfServiceAPITokenRepo{
 		tokens: []*domain.APIToken{
-			{ID: 10, TenantID: 1, Name: "User Console Key (user 9)", Description: marker, IsEnabled: true, ProjectID: 42},
+			{ID: 10, TenantID: 1, Name: "User Console Key (user 9)", Description: marker, Token: "maxx_full_user_key", TokenPrefix: "maxx_full...", IsEnabled: true, ProjectID: 42},
 		},
 	}
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
@@ -2321,6 +2321,12 @@ func TestSelfServiceHandler_UserPanelExistingTokenProjectBindingIsCleared(t *tes
 	}
 	if result["apiToken"] == nil || result["apiToken"].ProjectID != 0 {
 		t.Fatalf("response apiToken = %+v, want projectID 0", result["apiToken"])
+	}
+	if result["apiToken"].Token != "" {
+		t.Fatalf("response token = %q, want sanitized key", result["apiToken"].Token)
+	}
+	if result["apiToken"].TokenPrefix != "maxx_full..." {
+		t.Fatalf("response tokenPrefix = %q, want masked key prefix", result["apiToken"].TokenPrefix)
 	}
 }
 
