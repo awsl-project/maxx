@@ -4,7 +4,8 @@ import fs from 'node:fs';
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4173';
 const CHROME = process.env.CHROME_BIN || '/usr/bin/google-chrome-stable';
-const OUT_DIR = process.env.OUT_DIR || new URL('./user-panel-tab-state-artifacts', import.meta.url).pathname;
+const OUT_DIR =
+  process.env.OUT_DIR || new URL('./user-panel-tab-state-artifacts', import.meta.url).pathname;
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -110,7 +111,12 @@ async function installMock(page, user) {
       return json({ apiToken: tokenFor(user) });
     }
     if (path === '/api/admin/requests') {
-      return json({ items: requestsFor(user), hasMore: false, firstId: user.id * 100, lastId: user.id * 100 + 1 });
+      return json({
+        items: requestsFor(user),
+        hasMore: false,
+        firstId: user.id * 100,
+        lastId: user.id * 100 + 1,
+      });
     }
     if (path === '/api/admin/requests/count') return json(2);
     return json([]);
@@ -139,7 +145,8 @@ async function assertActiveTab(page, name) {
 
 async function assertNoVisibleKeyToggle(page) {
   await assert.rejects(
-    () => page.getByRole('button', { name: '显示 Key' }).waitFor({ state: 'visible', timeout: 500 }),
+    () =>
+      page.getByRole('button', { name: '显示 Key' }).waitFor({ state: 'visible', timeout: 500 }),
     /Timeout/,
     'user panel should not render a show-key toggle',
   );
@@ -151,7 +158,10 @@ async function run() {
     executablePath: CHROME,
     args: ['--no-sandbox'],
   });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    locale: 'zh-CN',
+  });
 
   const userA = await preparePage(context, MEMBER_A);
   await userA.goto(`${BASE_URL}/`);
@@ -162,7 +172,10 @@ async function run() {
   await userA.reload();
   await assertActiveTab(userA, '请求');
   await userA.getByText('active-42').waitFor({ state: 'visible', timeout: 10_000 });
-  await userA.getByRole('tab', { name: /请求/ }).getByText('1', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+  await userA
+    .getByRole('tab', { name: /请求/ })
+    .getByText('1', { exact: true })
+    .waitFor({ state: 'visible', timeout: 10_000 });
   await screenshot(userA, '01-user-a-requests-restored-with-badge');
 
   const userB = await preparePage(context, MEMBER_B);
@@ -180,15 +193,29 @@ async function run() {
 
   await userA.goto(`${BASE_URL}/`);
   await assertActiveTab(userA, '主页');
-  await userA.getByText('User Console Key (user 42)').waitFor({ state: 'visible', timeout: 10_000 });
-  const visibleKey = await userA.getByLabel('我的 Key').inputValue();
-  assert.equal(visibleKey, 'maxx_user_42_prefix...', 'user panel should show only the masked key prefix');
+  await userA
+    .getByText('User Console Key (user 42)')
+    .waitFor({ state: 'visible', timeout: 10_000 });
+  const keyInput = userA.getByLabel('Key');
+  const visibleKey = await keyInput.inputValue();
+  assert.equal(
+    visibleKey,
+    'maxx_user_42_prefix...',
+    'user panel should keep only the masked key prefix',
+  );
+  assert.equal(
+    await keyInput.getAttribute('type'),
+    'password',
+    'user panel key should be masked by default',
+  );
   await assertNoVisibleKeyToggle(userA);
   await screenshot(userA, '04-user-a-new-navigation-shows-masked-key');
 
   await userA.goto(`${BASE_URL}/?tab=unknown`);
   await assertActiveTab(userA, '主页');
-  await userA.getByText('User Console Key (user 42)').waitFor({ state: 'visible', timeout: 10_000 });
+  await userA
+    .getByText('User Console Key (user 42)')
+    .waitFor({ state: 'visible', timeout: 10_000 });
   await screenshot(userA, '05-invalid-url-falls-back-to-main');
 
   await browser.close();
