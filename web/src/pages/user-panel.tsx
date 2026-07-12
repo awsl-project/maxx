@@ -192,9 +192,14 @@ export function UserPanelPage() {
   const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
     if (typeof window === 'undefined') return 'main';
     const params = new URLSearchParams(window.location.search);
+    const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    const allowStoredTab = navigationEntry?.type === 'reload';
     return resolveUserPanelTab({
       urlTab: params.get('tab'),
       storedTab: window.localStorage.getItem(getUserPanelTabStorageKey(user?.id)),
+      allowStoredTab,
     });
   });
 
@@ -217,7 +222,11 @@ export function UserPanelPage() {
     if (typeof window === 'undefined') return;
     const urlTab = new URLSearchParams(window.location.search).get('tab');
     const storedTab = window.localStorage.getItem(tabStorageKey);
-    setActiveTab(resolveUserPanelTab({ urlTab, storedTab }));
+    const navigationEntry = window.performance.getEntriesByType('navigation')[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    const allowStoredTab = navigationEntry?.type === 'reload';
+    setActiveTab(resolveUserPanelTab({ urlTab, storedTab, allowStoredTab }));
   }, [tabStorageKey]);
 
   const handleTabChange = (value: string | null) => {

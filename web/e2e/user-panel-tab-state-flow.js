@@ -171,12 +171,14 @@ async function run() {
   await screenshot(userB, '03-user-b-home-restored');
 
   await userA.goto(`${BASE_URL}/`);
-  await assertActiveTab(userA, '请求');
-  await screenshot(userA, '04-user-a-requests-still-isolated');
+  await assertActiveTab(userA, '主页');
+  await userA.getByText('User Console Key (user 42)').waitFor({ state: 'visible', timeout: 10_000 });
+  await screenshot(userA, '04-user-a-new-navigation-shows-key');
 
   await userA.goto(`${BASE_URL}/?tab=unknown`);
-  await assertActiveTab(userA, '请求');
-  await screenshot(userA, '05-invalid-url-falls-back-to-user-a-cache');
+  await assertActiveTab(userA, '主页');
+  await userA.getByText('User Console Key (user 42)').waitFor({ state: 'visible', timeout: 10_000 });
+  await screenshot(userA, '05-invalid-url-falls-back-to-main');
 
   await browser.close();
   console.log(JSON.stringify({ ok: true, screenshots: fs.readdirSync(OUT_DIR).sort() }, null, 2));

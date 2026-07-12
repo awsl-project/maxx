@@ -25,12 +25,20 @@ describe('user-panel-tabs', () => {
     expect(resolveUserPanelTab({ urlTab: 'requests', storedTab: 'main' })).toBe('requests');
   });
 
-  it('falls back to a valid stored tab when URL tab is invalid', () => {
-    expect(resolveUserPanelTab({ urlTab: 'bad-tab', storedTab: 'requests' })).toBe('requests');
+  it('does not let an invalid URL tab fall back to stored state by default', () => {
+    expect(resolveUserPanelTab({ urlTab: 'bad-tab', storedTab: 'requests' })).toBe('main');
+  });
+
+  it('restores a valid stored tab only when explicitly allowed', () => {
+    expect(resolveUserPanelTab({ urlTab: null, storedTab: 'requests', allowStoredTab: true })).toBe(
+      'requests',
+    );
   });
 
   it('falls back to main when URL and stored tab are invalid', () => {
-    expect(resolveUserPanelTab({ urlTab: 'bad-tab', storedTab: 'other' })).toBe('main');
+    expect(resolveUserPanelTab({ urlTab: 'bad-tab', storedTab: 'other', allowStoredTab: true })).toBe(
+      'main',
+    );
   });
 
   it('updates tab in search while preserving unrelated query params', () => {
