@@ -67,6 +67,7 @@ describe('provider type helpers', () => {
 
     expect(deepseek?.name).toBe('DeepSeek');
     expect(deepseek?.supportedClients).toEqual(['claude', 'openai']);
+    expect(deepseek?.logoUrl).toContain('deepseek');
     expect(deepseek?.clientBaseURLs.claude).toBe('https://api.deepseek.com/anthropic');
     expect(deepseek?.clientBaseURLs.openai).toBe('https://api.deepseek.com');
     expect(quickTemplates.some((template) => template.id === 'deepseek-openai')).toBe(false);
