@@ -95,7 +95,7 @@ async function selectCustomProvider(page: Page) {
   await page.getByRole('button', { name: /Custom|自定义/ }).click();
 }
 
-test.use({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' });
+test.use({ viewport: { width: 1920, height: 1400 }, locale: 'zh-CN' });
 
 test.describe('Provider delete and preset regression', () => {
   test('quick templates fill Zhipu and DeepSeek compatibility URLs', async ({ page }) => {
