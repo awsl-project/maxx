@@ -8,6 +8,7 @@ import nvidiaLogo from '@/assets/icons/nvidia.svg';
 import logo88code from '@/assets/icons/88code.svg';
 import aicodemirrorLogo from '@/assets/icons/aicodemirror.png';
 import zhipuLogo from '@/assets/icons/zhipu.svg';
+import deepseekLogo from '@/assets/icons/deepseek.png';
 
 // ===== Provider Type Configuration =====
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
@@ -260,6 +261,7 @@ export const quickTemplates: QuickTemplate[] = [
     nameKey: 'addProvider.templates.deepseek.name',
     descriptionKey: 'addProvider.templates.deepseek.description',
     icon: 'grid',
+    logoUrl: deepseekLogo,
     supportedClients: ['claude', 'openai'],
     clientBaseURLs: {
       claude: 'https://api.deepseek.com/anthropic',
