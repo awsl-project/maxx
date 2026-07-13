@@ -1852,15 +1852,11 @@
       },
       "zhipu": {
         "name": "智谱 AI",
-        "description": "GLM · OpenAI 兼容"
+        "description": "GLM · Claude + OpenAI 兼容"
       },
-      "deepseekOpenAI": {
-        "name": "DeepSeek (OpenAI)",
-        "description": "DeepSeek · OpenAI 兼容"
-      },
-      "deepseekAnthropic": {
-        "name": "DeepSeek (Anthropic)",
-        "description": "DeepSeek · Anthropic 兼容"
+      "deepseek": {
+        "name": "DeepSeek",
+        "description": "DeepSeek · Claude + OpenAI 兼容"
       }
     }
   },

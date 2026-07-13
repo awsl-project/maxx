@@ -1856,15 +1856,11 @@
       },
       "zhipu": {
         "name": "Zhipu AI",
-        "description": "GLM · OpenAI Compatible"
+        "description": "GLM · Claude + OpenAI Compatible"
       },
-      "deepseekOpenAI": {
-        "name": "DeepSeek (OpenAI)",
-        "description": "DeepSeek · OpenAI Compatible"
-      },
-      "deepseekAnthropic": {
-        "name": "DeepSeek (Anthropic)",
-        "description": "DeepSeek · Anthropic Compatible"
+      "deepseek": {
+        "name": "DeepSeek",
+        "description": "DeepSeek · Claude + OpenAI Compatible"
       }
     }
   },

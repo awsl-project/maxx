@@ -105,20 +105,16 @@ test.describe('Provider delete and preset regression', () => {
     await page.getByRole('button', { name: /智谱|Zhipu/i }).click();
     await expect(page).toHaveURL(/\/providers\/create\/custom/);
     await expect(page.locator('input[value="https://open.bigmodel.cn/api/paas/v4"]')).toBeVisible();
-    await expect(page.locator('input[value="https://open.bigmodel.cn/api/anthropic"]')).toHaveCount(
-      0,
-    );
-    await screenshot(page, '01-zhipu-openai-preset-filled');
+    await expect(
+      page.locator('input[value="https://open.bigmodel.cn/api/anthropic"]'),
+    ).toBeVisible();
+    await screenshot(page, '01-zhipu-claude-openai-preset-filled');
 
     await selectCustomProvider(page);
-    await page.getByRole('button', { name: /DeepSeek \(OpenAI\)/i }).click();
+    await page.getByRole('button', { name: /DeepSeek.*Claude.*OpenAI/i }).click();
     await expect(page.locator('input[value="https://api.deepseek.com"]')).toBeVisible();
-    await screenshot(page, '02-deepseek-openai-preset-filled');
-
-    await selectCustomProvider(page);
-    await page.getByRole('button', { name: /DeepSeek \(Anthropic\)/i }).click();
     await expect(page.locator('input[value="https://api.deepseek.com/anthropic"]')).toBeVisible();
-    await screenshot(page, '03-deepseek-anthropic-preset-filled');
+    await screenshot(page, '02-deepseek-claude-openai-preset-filled');
   });
 
   test('sticky edit actions stay reachable when deleting the last provider in a long list', async ({

@@ -54,27 +54,23 @@ describe('provider type helpers', () => {
     expect(nvidiaTemplate?.clientBaseURLs.openai).toBe('https://integrate.api.nvidia.com/v1');
   });
 
-  it('uses the Zhipu OpenAI-compatible API root in quick templates', () => {
+  it('enables both Claude and OpenAI for Zhipu quick templates', () => {
     const zhipuTemplate = quickTemplates.find((template) => template.id === 'zhipu');
 
-    expect(zhipuTemplate?.supportedClients).toEqual(['openai']);
+    expect(zhipuTemplate?.supportedClients).toEqual(['claude', 'openai']);
+    expect(zhipuTemplate?.clientBaseURLs.claude).toBe('https://open.bigmodel.cn/api/anthropic');
     expect(zhipuTemplate?.clientBaseURLs.openai).toBe('https://open.bigmodel.cn/api/paas/v4');
-    expect(zhipuTemplate?.clientBaseURLs.claude).toBeUndefined();
   });
 
-  it('adds DeepSeek OpenAI and Anthropic-compatible quick templates', () => {
-    const deepseekOpenAI = quickTemplates.find((template) => template.id === 'deepseek-openai');
-    const deepseekAnthropic = quickTemplates.find(
-      (template) => template.id === 'deepseek-anthropic',
-    );
+  it('enables both Claude and OpenAI for the DeepSeek quick template', () => {
+    const deepseek = quickTemplates.find((template) => template.id === 'deepseek');
 
-    expect(deepseekOpenAI?.name).toBe('DeepSeek (OpenAI)');
-    expect(deepseekOpenAI?.supportedClients).toEqual(['openai']);
-    expect(deepseekOpenAI?.clientBaseURLs.openai).toBe('https://api.deepseek.com');
-
-    expect(deepseekAnthropic?.name).toBe('DeepSeek (Anthropic)');
-    expect(deepseekAnthropic?.supportedClients).toEqual(['claude']);
-    expect(deepseekAnthropic?.clientBaseURLs.claude).toBe('https://api.deepseek.com/anthropic');
+    expect(deepseek?.name).toBe('DeepSeek');
+    expect(deepseek?.supportedClients).toEqual(['claude', 'openai']);
+    expect(deepseek?.clientBaseURLs.claude).toBe('https://api.deepseek.com/anthropic');
+    expect(deepseek?.clientBaseURLs.openai).toBe('https://api.deepseek.com');
+    expect(quickTemplates.some((template) => template.id === 'deepseek-openai')).toBe(false);
+    expect(quickTemplates.some((template) => template.id === 'deepseek-anthropic')).toBe(false);
   });
 });
 
