@@ -195,7 +195,8 @@ test.describe('Provider delete and preset regression', () => {
       .getByRole('button', { name: /Delete|删除/ })
       .last()
       .click();
-    await expect(page.getByText(/Provider was not deleted|提供商未被删除/i)).toBeVisible();
+    await expect(page.getByText(/deleted|已删除|completed|完成|删除完成/i)).toBeVisible();
+    await expect(page.getByText(/Provider was not deleted|提供商未被删除/i)).toHaveCount(0);
     await screenshot(page, '06-nullable-bulk-delete-result-no-crash');
 
     expect(pageErrors).not.toContain("Cannot read properties of null (reading 'filter')");
