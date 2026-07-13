@@ -75,6 +75,7 @@ import {
   buildProviderBulkDeleteStatus,
   type ProviderBulkDeleteStatus,
 } from './utils/provider-bulk-delete';
+import { normalizeProviderList } from './utils/provider-normalize';
 
 type ManageProvidersButtonProps = Omit<ComponentProps<typeof Button>, 'disabled'> & {
   canManage: boolean;
@@ -136,7 +137,8 @@ export function ProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { data: providers, isLoading } = useProviders();
+  const { data: providerData, isLoading } = useProviders();
+  const providers = useMemo(() => normalizeProviderList(providerData), [providerData]);
   const { data: routes } = useRoutes();
   const { data: modelMappings } = useModelMappings();
   const { data: providerStats = {} } = useAllProviderStats();
@@ -195,7 +197,7 @@ export function ProvidersPage() {
   };
 
   const groupedProviders = useMemo(() => {
-    const filteredProviders = providers?.filter((p) => {
+    const filteredProviders = providers.filter((p) => {
       if (!searchQuery.trim()) return true;
       const query = searchQuery.toLowerCase();
       const config = PROVIDER_TYPE_CONFIGS[p.type as ProviderTypeKey];
@@ -214,7 +216,7 @@ export function ProvidersPage() {
   );
 
   const selectedProviders = useMemo(
-    () => providers?.filter((provider) => selectedProviderIds.has(provider.id)) ?? [],
+    () => providers.filter((provider) => selectedProviderIds.has(provider.id)),
     [providers, selectedProviderIds],
   );
 
@@ -248,7 +250,6 @@ export function ProvidersPage() {
   );
 
   useEffect(() => {
-    if (!providers) return;
     const providerIds = new Set(providers.map((provider) => provider.id));
     setSelectedProviderIds((previous) => {
       const next = new Set(Array.from(previous).filter((id) => providerIds.has(id)));
@@ -258,7 +259,7 @@ export function ProvidersPage() {
 
   // Export providers as JSON file
   const handleExport = async () => {
-    if (!canManageProviderSettings || !providers?.length) return;
+    if (!canManageProviderSettings || providers.length === 0) return;
 
     try {
       const transport = getTransport();
@@ -486,7 +487,7 @@ export function ProvidersPage() {
         iconClassName="text-blue-500"
         title={t('providers.title')}
         description={t('providers.description', {
-          count: providers?.length || 0,
+          count: providers.length,
         })}
       >
         <div className="relative">
@@ -523,7 +524,7 @@ export function ProvidersPage() {
           <Button
             onClick={handleExport}
             className="flex items-center gap-2"
-            disabled={!providers?.length}
+            disabled={providers.length === 0}
             title={t('providers.exportProviders')}
             variant="outline"
           >
@@ -566,7 +567,7 @@ export function ProvidersPage() {
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="mx-auto max-w-7xl">
-          {canManageProviderSettings && providers && providers.length > 0 && (
+          {canManageProviderSettings && providers.length > 0 && (
             <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/80 p-3 shadow-sm">
               <Button
                 type="button"
@@ -622,7 +623,7 @@ export function ProvidersPage() {
             <div className="flex items-center justify-center h-full">
               <div className="text-text-muted">{t('common.loading')}</div>
             </div>
-          ) : providers?.length === 0 ? (
+          ) : providers.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <Layers size={48} className="mb-4 opacity-50" />
               <p className="text-body">{t('providers.noProviders')}</p>

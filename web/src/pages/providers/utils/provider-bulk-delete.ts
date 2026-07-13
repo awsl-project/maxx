@@ -1,4 +1,5 @@
 import type { Provider, ProviderBulkDeleteResult } from '@/lib/transport';
+import { normalizeProviderArrayField } from './provider-normalize';
 
 export type ProviderBulkDeleteStatus = {
   deleted: number;
@@ -11,9 +12,15 @@ export function buildProviderBulkDeleteStatus(
   notDeletedMessage: string,
 ): ProviderBulkDeleteStatus {
   const selectedProviderIDs = new Set(selectedProviders.map((provider) => provider.id));
-  const deletedIDs = new Set(result.deletedIDs);
+  const normalizedDeletedIDs = normalizeProviderArrayField(result.deletedIDs);
+  const inferredDeletedIDs =
+    normalizedDeletedIDs.length === 0 && result.deletedCount >= selectedProviders.length
+      ? selectedProviders.map((provider) => provider.id)
+      : normalizedDeletedIDs;
+  const deletedIDs = new Set(inferredDeletedIDs);
+  const notFoundIDs = normalizeProviderArrayField(result.notFoundIDs);
   const resolvedMissingIDs = new Set(
-    result.notFoundIDs.filter((id) => selectedProviderIDs.has(id) && !deletedIDs.has(id)),
+    notFoundIDs.filter((id) => selectedProviderIDs.has(id) && !deletedIDs.has(id)),
   );
   const resolvedIDs = new Set([...deletedIDs, ...resolvedMissingIDs]);
 

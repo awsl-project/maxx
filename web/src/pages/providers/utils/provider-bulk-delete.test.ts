@@ -54,3 +54,34 @@ describe('provider bulk delete result helpers', () => {
     });
   });
 });
+
+it('infers selected providers were deleted when nullable id lists still report full success', () => {
+  const status = buildProviderBulkDeleteStatus(
+    [provider(201, 'selected')],
+    {
+      deletedCount: 1,
+      deletedIDs: null,
+      notFoundIDs: null,
+    } as unknown as Parameters<typeof buildProviderBulkDeleteStatus>[1],
+    'Provider was not deleted',
+  );
+
+  expect(status).toEqual({ deleted: 1, failed: [] });
+});
+
+it('keeps nullable id lists conservative when deletedCount does not cover all selected providers', () => {
+  const status = buildProviderBulkDeleteStatus(
+    [provider(201, 'selected')],
+    {
+      deletedCount: 0,
+      deletedIDs: null,
+      notFoundIDs: null,
+    } as unknown as Parameters<typeof buildProviderBulkDeleteStatus>[1],
+    'Provider was not deleted',
+  );
+
+  expect(status).toEqual({
+    deleted: 0,
+    failed: [{ id: 201, name: 'selected', message: 'Provider was not deleted' }],
+  });
+});

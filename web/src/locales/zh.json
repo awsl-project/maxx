@@ -1852,7 +1852,11 @@
       },
       "zhipu": {
         "name": "智谱 AI",
-        "description": "Claude Code · GLM-4.7"
+        "description": "GLM · Claude + OpenAI 兼容"
+      },
+      "deepseek": {
+        "name": "DeepSeek",
+        "description": "DeepSeek · Claude + OpenAI 兼容"
       }
     }
   },

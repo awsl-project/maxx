@@ -53,6 +53,25 @@ describe('provider type helpers', () => {
 
     expect(nvidiaTemplate?.clientBaseURLs.openai).toBe('https://integrate.api.nvidia.com/v1');
   });
+
+  it('enables both Claude and OpenAI for Zhipu quick templates', () => {
+    const zhipuTemplate = quickTemplates.find((template) => template.id === 'zhipu');
+
+    expect(zhipuTemplate?.supportedClients).toEqual(['claude', 'openai']);
+    expect(zhipuTemplate?.clientBaseURLs.claude).toBe('https://open.bigmodel.cn/api/anthropic');
+    expect(zhipuTemplate?.clientBaseURLs.openai).toBe('https://open.bigmodel.cn/api/paas/v4');
+  });
+
+  it('enables both Claude and OpenAI for the DeepSeek quick template', () => {
+    const deepseek = quickTemplates.find((template) => template.id === 'deepseek');
+
+    expect(deepseek?.name).toBe('DeepSeek');
+    expect(deepseek?.supportedClients).toEqual(['claude', 'openai']);
+    expect(deepseek?.clientBaseURLs.claude).toBe('https://api.deepseek.com/anthropic');
+    expect(deepseek?.clientBaseURLs.openai).toBe('https://api.deepseek.com');
+    expect(quickTemplates.some((template) => template.id === 'deepseek-openai')).toBe(false);
+    expect(quickTemplates.some((template) => template.id === 'deepseek-anthropic')).toBe(false);
+  });
 });
 
 it('hides black-box custom provider display info instead of leaking configured URLs', () => {
