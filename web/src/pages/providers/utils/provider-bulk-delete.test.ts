@@ -54,3 +54,20 @@ describe('provider bulk delete result helpers', () => {
     });
   });
 });
+
+it('treats nullable deleted/not-found id lists as empty arrays', () => {
+  const status = buildProviderBulkDeleteStatus(
+    [provider(201, 'selected')],
+    {
+      deletedCount: 0,
+      deletedIDs: null,
+      notFoundIDs: null,
+    } as unknown as Parameters<typeof buildProviderBulkDeleteStatus>[1],
+    'Provider was not deleted',
+  );
+
+  expect(status).toEqual({
+    deleted: 0,
+    failed: [{ id: 201, name: 'selected', message: 'Provider was not deleted' }],
+  });
+});

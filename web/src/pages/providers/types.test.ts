@@ -53,6 +53,29 @@ describe('provider type helpers', () => {
 
     expect(nvidiaTemplate?.clientBaseURLs.openai).toBe('https://integrate.api.nvidia.com/v1');
   });
+
+  it('uses the Zhipu OpenAI-compatible API root in quick templates', () => {
+    const zhipuTemplate = quickTemplates.find((template) => template.id === 'zhipu');
+
+    expect(zhipuTemplate?.supportedClients).toEqual(['openai']);
+    expect(zhipuTemplate?.clientBaseURLs.openai).toBe('https://open.bigmodel.cn/api/paas/v4');
+    expect(zhipuTemplate?.clientBaseURLs.claude).toBeUndefined();
+  });
+
+  it('adds DeepSeek OpenAI and Anthropic-compatible quick templates', () => {
+    const deepseekOpenAI = quickTemplates.find((template) => template.id === 'deepseek-openai');
+    const deepseekAnthropic = quickTemplates.find(
+      (template) => template.id === 'deepseek-anthropic',
+    );
+
+    expect(deepseekOpenAI?.name).toBe('DeepSeek (OpenAI)');
+    expect(deepseekOpenAI?.supportedClients).toEqual(['openai']);
+    expect(deepseekOpenAI?.clientBaseURLs.openai).toBe('https://api.deepseek.com');
+
+    expect(deepseekAnthropic?.name).toBe('DeepSeek (Anthropic)');
+    expect(deepseekAnthropic?.supportedClients).toEqual(['claude']);
+    expect(deepseekAnthropic?.clientBaseURLs.claude).toBe('https://api.deepseek.com/anthropic');
+  });
 });
 
 it('hides black-box custom provider display info instead of leaking configured URLs', () => {

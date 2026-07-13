@@ -242,14 +242,38 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'zhipu',
     name: '智谱 AI',
-    description: 'Claude Code · GLM-4.7',
+    description: 'GLM · OpenAI 兼容',
     nameKey: 'addProvider.templates.zhipu.name',
     descriptionKey: 'addProvider.templates.zhipu.description',
     icon: 'grid',
     logoUrl: zhipuLogo,
+    supportedClients: ['openai'],
+    clientBaseURLs: {
+      openai: 'https://open.bigmodel.cn/api/paas/v4',
+    },
+  },
+  {
+    id: 'deepseek-openai',
+    name: 'DeepSeek (OpenAI)',
+    description: 'DeepSeek · OpenAI 兼容',
+    nameKey: 'addProvider.templates.deepseekOpenAI.name',
+    descriptionKey: 'addProvider.templates.deepseekOpenAI.description',
+    icon: 'grid',
+    supportedClients: ['openai'],
+    clientBaseURLs: {
+      openai: 'https://api.deepseek.com',
+    },
+  },
+  {
+    id: 'deepseek-anthropic',
+    name: 'DeepSeek (Anthropic)',
+    description: 'DeepSeek · Anthropic 兼容',
+    nameKey: 'addProvider.templates.deepseekAnthropic.name',
+    descriptionKey: 'addProvider.templates.deepseekAnthropic.description',
+    icon: 'grid',
     supportedClients: ['claude'],
     clientBaseURLs: {
-      claude: 'https://open.bigmodel.cn/api/anthropic',
+      claude: 'https://api.deepseek.com/anthropic',
     },
   },
 ];

@@ -54,6 +54,7 @@ import {
 import { ModelInput } from '@/components/ui/model-input';
 import { PageHeader } from '@/components/layout/page-header';
 import { ProviderProxyURLCard } from './provider-proxy-url-card';
+import { normalizeProviderArrayField } from '../utils/provider-normalize';
 
 function ResponseModelMappings({
   mappings,
@@ -308,7 +309,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
   const { data: allMappings } = useModelMappings();
 
   const initClients = (): ClientConfig[] => {
-    const supportedTypes = provider.supportedClientTypes || [];
+    const supportedTypes = normalizeProviderArrayField(provider.supportedClientTypes);
     return defaultClients.map((client) => {
       const isEnabled = supportedTypes.includes(client.id);
       const urlOverride = provider.excludeFromExport
@@ -321,6 +322,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [formData, setFormData] = useState<EditFormData>(() => {
+    const supportModels = normalizeProviderArrayField(provider.supportModels);
     // Read effective claude-code sub-options, preferring the new `disguise`
     // shape but falling back to the legacy `cloak` field so providers saved
     // before the migration continue to display their previous settings.
@@ -344,7 +346,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       backend: provider.config?.custom?.backend === 'ollama' ? 'ollama' : 'http',
       apiKey: provider.excludeFromExport ? '' : provider.config?.custom?.apiKey || '',
       clients: initClients(),
-      supportModels: provider.supportModels || [],
+      supportModels,
       disguiseType,
       cloakMode: cc?.mode || 'auto',
       cloakStrictMode: cc?.strictMode || false,
@@ -672,258 +674,275 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         icon={<ChevronLeft className="cursor-pointer" onClick={onClose} />}
         title={t('provider.edit')}
         description={t('provider.editDescription')}
-      >
-        <Button onClick={() => setShowDeleteConfirm(true)} variant={'destructive'}>
-          <Trash2 size={14} />
-          {t('provider.delete')}
-        </Button>
-        <Button
-          onClick={handleClone}
-          disabled={cloning || saving || !isCloneValid()}
-          variant={'outline'}
-        >
-          <Copy size={14} />
-          {cloning ? t('provider.cloning') : t('provider.clone')}
-        </Button>
-        <Button onClick={onClose} variant={'secondary'}>
-          {t('provider.cancel')}
-        </Button>
-        <Button onClick={handleSave} disabled={saving || !isSaveValid()} variant={'default'}>
-          {saving ? (
-            t('common.saving')
-          ) : saveStatus === 'success' ? (
-            <>
-              <Check size={14} /> {t('common.saved')}
-            </>
-          ) : (
-            t('provider.saveChanges')
-          )}
-        </Button>
-      </PageHeader>
+      />
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-7xl space-y-8">
-          <ProviderProxyURLCard provider={provider} />
-
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('provider.basicInfo')}
-            </h3>
-
-            <div className="grid gap-6">
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-2">
-                  {t('provider.displayName')}
-                </label>
-                <Input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                  placeholder={t('provider.namePlaceholder')}
-                  className="w-full"
-                />
+      <div className="flex-1 overflow-y-auto">
+        <div className="sticky top-0 z-40 border-b border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 md:px-6">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-foreground">
+                {formData.name || provider.name}
               </div>
+              <div className="text-xs text-muted-foreground">{t('provider.editDescription')}</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => setShowDeleteConfirm(true)} variant={'destructive'}>
+                <Trash2 size={14} />
+                {t('provider.delete')}
+              </Button>
+              <Button
+                onClick={handleClone}
+                disabled={cloning || saving || !isCloneValid()}
+                variant={'outline'}
+              >
+                <Copy size={14} />
+                {cloning ? t('provider.cloning') : t('provider.clone')}
+              </Button>
+              <Button onClick={onClose} variant={'secondary'}>
+                {t('provider.cancel')}
+              </Button>
+              <Button onClick={handleSave} disabled={saving || !isSaveValid()} variant={'default'}>
+                {saving ? (
+                  t('common.saving')
+                ) : saveStatus === 'success' ? (
+                  <>
+                    <Check size={14} /> {t('common.saved')}
+                  </>
+                ) : (
+                  t('provider.saveChanges')
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="p-6">
+          <div className="mx-auto max-w-7xl space-y-8">
+            <ProviderProxyURLCard provider={provider} />
 
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-2">
-                  {t('provider.customBackend')}
-                </label>
-                <Select
-                  value={formData.backend}
-                  onValueChange={(backend) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      backend: backend === 'ollama' ? 'ollama' : 'http',
-                    }))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
-                    <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {formData.backend === 'ollama'
-                    ? t('provider.customBackendOllamaDesc')
-                    : t('provider.customBackendHttpDesc')}
-                </p>
-              </div>
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+                {t('provider.basicInfo')}
+              </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid gap-6">
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
-                    <div className="flex items-center gap-2">
-                      <Globe size={14} />
-                      <span>{t('provider.apiEndpoint')}</span>
-                    </div>
+                    {t('provider.displayName')}
                   </label>
                   <Input
                     type="text"
-                    value={formData.baseURL}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        baseURL: e.target.value,
-                      }))
-                    }
-                    placeholder={
-                      providerConfigIsWriteOnly
-                        ? t('provider.endpointPlaceholderWriteOnly')
-                        : t('provider.endpointPlaceholder')
-                    }
+                    value={formData.name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                    placeholder={t('provider.namePlaceholder')}
                     className="w-full"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {providerConfigIsWriteOnly
-                      ? t('provider.urlExcludedHint')
-                      : t('provider.optionalUrlNote')}
-                  </p>
                 </div>
 
                 <div>
                   <label className="text-sm font-medium text-foreground block mb-2">
-                    <div className="flex items-center gap-2">
-                      <Key size={14} />
-                      <span>
-                        {formData.backend === 'ollama'
-                          ? t('provider.apiKeyOptional')
-                          : t('provider.apiKeyEdit')}
-                      </span>
-                    </div>
+                    {t('provider.customBackend')}
                   </label>
-                  <div className="relative">
+                  <Select
+                    value={formData.backend}
+                    onValueChange={(backend) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        backend: backend === 'ollama' ? 'ollama' : 'http',
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="http">{t('provider.customBackendHttp')}</SelectItem>
+                      <SelectItem value="ollama">{t('provider.customBackendOllama')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formData.backend === 'ollama'
+                      ? t('provider.customBackendOllamaDesc')
+                      : t('provider.customBackendHttpDesc')}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm font-medium text-foreground block mb-2">
+                      <div className="flex items-center gap-2">
+                        <Globe size={14} />
+                        <span>{t('provider.apiEndpoint')}</span>
+                      </div>
+                    </label>
                     <Input
-                      type={showApiKey && !providerConfigIsWriteOnly ? 'text' : 'password'}
-                      value={formData.apiKey}
-                      onChange={(e) => {
-                        setCloneError(null);
-                        setFormData((prev) => ({ ...prev, apiKey: e.target.value }));
-                      }}
+                      type="text"
+                      value={formData.baseURL}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          baseURL: e.target.value,
+                        }))
+                      }
                       placeholder={
                         providerConfigIsWriteOnly
-                          ? t('provider.keyPlaceholderWriteOnly')
-                          : formData.backend === 'ollama'
-                            ? t('provider.keyPlaceholderOptional')
-                            : t('provider.keyPlaceholder')
+                          ? t('provider.endpointPlaceholderWriteOnly')
+                          : t('provider.endpointPlaceholder')
                       }
-                      className="w-full pr-10"
+                      className="w-full"
                     />
-                    {!providerConfigIsWriteOnly && (
-                      <button
-                        type="button"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                        aria-label={showApiKey ? t('common.hide') : t('common.show')}
-                      >
-                        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {providerConfigIsWriteOnly
+                        ? t('provider.urlExcludedHint')
+                        : t('provider.optionalUrlNote')}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-foreground block mb-2">
+                      <div className="flex items-center gap-2">
+                        <Key size={14} />
+                        <span>
+                          {formData.backend === 'ollama'
+                            ? t('provider.apiKeyOptional')
+                            : t('provider.apiKeyEdit')}
+                        </span>
+                      </div>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type={showApiKey && !providerConfigIsWriteOnly ? 'text' : 'password'}
+                        value={formData.apiKey}
+                        onChange={(e) => {
+                          setCloneError(null);
+                          setFormData((prev) => ({ ...prev, apiKey: e.target.value }));
+                        }}
+                        placeholder={
+                          providerConfigIsWriteOnly
+                            ? t('provider.keyPlaceholderWriteOnly')
+                            : formData.backend === 'ollama'
+                              ? t('provider.keyPlaceholderOptional')
+                              : t('provider.keyPlaceholder')
+                        }
+                        className="w-full pr-10"
+                      />
+                      {!providerConfigIsWriteOnly && (
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label={showApiKey ? t('common.hide') : t('common.show')}
+                        >
+                          {showApiKey ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    {providerConfigIsWriteOnly && (
+                      <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
+                        {t('provider.apiKeyExcludedHint')}
+                      </div>
+                    )}
+                    {cloneError && (
+                      <div className="mt-2 p-3 bg-error/10 border border-error/30 rounded-lg text-xs text-error">
+                        {cloneError}
+                      </div>
                     )}
                   </div>
-                  {providerConfigIsWriteOnly && (
-                    <div className="mt-2 p-3 bg-muted/50 border border-border rounded-lg text-xs text-muted-foreground">
-                      {t('provider.apiKeyExcludedHint')}
-                    </div>
-                  )}
-                  {cloneError && (
-                    <div className="mt-2 p-3 bg-error/10 border border-error/30 rounded-lg text-xs text-error">
-                      {cloneError}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('provider.clientConfig')}
-            </h3>
-            <ClientsConfigSection
-              clients={formData.clients}
-              onUpdateClient={updateClient}
-              disguise={{
-                type: formData.disguiseType ?? 'claude-code',
-                claudeCodeMode: formData.cloakMode ?? 'auto',
-                claudeCodeStrictMode: !!formData.cloakStrictMode,
-                claudeCodeSensitiveWords: formData.cloakSensitiveWords ?? '',
-              }}
-              onUpdateDisguise={(updates) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  disguiseType: updates?.type ?? prev.disguiseType,
-                  cloakMode: updates?.claudeCodeMode ?? prev.cloakMode,
-                  cloakStrictMode: updates?.claudeCodeStrictMode ?? prev.cloakStrictMode,
-                  cloakSensitiveWords:
-                    updates?.claudeCodeSensitiveWords ?? prev.cloakSensitiveWords,
-                }))
-              }
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+                {t('provider.clientConfig')}
+              </h3>
+              <ClientsConfigSection
+                clients={formData.clients}
+                onUpdateClient={updateClient}
+                disguise={{
+                  type: formData.disguiseType ?? 'claude-code',
+                  claudeCodeMode: formData.cloakMode ?? 'auto',
+                  claudeCodeStrictMode: !!formData.cloakStrictMode,
+                  claudeCodeSensitiveWords: formData.cloakSensitiveWords ?? '',
+                }}
+                onUpdateDisguise={(updates) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    disguiseType: updates?.type ?? prev.disguiseType,
+                    cloakMode: updates?.claudeCodeMode ?? prev.cloakMode,
+                    cloakStrictMode: updates?.claudeCodeStrictMode ?? prev.cloakStrictMode,
+                    cloakSensitiveWords:
+                      updates?.claudeCodeSensitiveWords ?? prev.cloakSensitiveWords,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
+                {t('provider.errorCooldownTitle')}
+              </h3>
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.disableErrorCooldown')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('provider.disableErrorCooldownDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={!!formData.disableErrorCooldown}
+                  onCheckedChange={(checked) =>
+                    setFormData((prev) => ({ ...prev, disableErrorCooldown: checked }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('provider.responsesPassthrough')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('provider.responsesPassthroughDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={formData.responsesPassthrough !== false}
+                  onCheckedChange={(checked) =>
+                    setFormData((prev) => ({ ...prev, responsesPassthrough: checked }))
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Provider Supported Models Filter */}
+            <ProviderSupportModels
+              supportModels={formData.supportModels}
+              onChange={(models) => setFormData((prev) => ({ ...prev, supportModels: models }))}
             />
-          </div>
 
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-foreground border-b border-border pb-2">
-              {t('provider.errorCooldownTitle')}
-            </h3>
-            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-              <div className="pr-4">
-                <div className="text-sm font-medium text-foreground">
-                  {t('provider.disableErrorCooldown')}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('provider.disableErrorCooldownDesc')}
-                </p>
+            {/* Provider Model Mappings */}
+            <ProviderModelMappings provider={provider} />
+
+            <ResponseModelMappings
+              mappings={formData.responseModelMapping}
+              onChange={(mappings) =>
+                setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
+              }
+              disabled={saving}
+            />
+
+            {saveStatus === 'error' && (
+              <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-error" />
+                {t('provider.updateError')}
               </div>
-              <Switch
-                checked={!!formData.disableErrorCooldown}
-                onCheckedChange={(checked) =>
-                  setFormData((prev) => ({ ...prev, disableErrorCooldown: checked }))
-                }
-              />
-            </div>
-            <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
-              <div className="pr-4">
-                <div className="text-sm font-medium text-foreground">
-                  {t('provider.responsesPassthrough')}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t('provider.responsesPassthroughDesc')}
-                </p>
-              </div>
-              <Switch
-                checked={formData.responsesPassthrough !== false}
-                onCheckedChange={(checked) =>
-                  setFormData((prev) => ({ ...prev, responsesPassthrough: checked }))
-                }
-              />
-            </div>
+            )}
           </div>
-
-          {/* Provider Supported Models Filter */}
-          <ProviderSupportModels
-            supportModels={formData.supportModels}
-            onChange={(models) => setFormData((prev) => ({ ...prev, supportModels: models }))}
-          />
-
-          {/* Provider Model Mappings */}
-          <ProviderModelMappings provider={provider} />
-
-          <ResponseModelMappings
-            mappings={formData.responseModelMapping}
-            onChange={(mappings) =>
-              setFormData((prev) => ({ ...prev, responseModelMapping: mappings }))
-            }
-            disabled={saving}
-          />
-
-          {saveStatus === 'error' && (
-            <div className="p-4 bg-error/10 border border-error/30 rounded-lg text-sm text-error flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-error" />
-              {t('provider.updateError')}
-            </div>
-          )}
         </div>
       </div>
 

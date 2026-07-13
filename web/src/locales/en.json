@@ -1856,7 +1856,15 @@
       },
       "zhipu": {
         "name": "Zhipu AI",
-        "description": "Claude Code · GLM-4.7"
+        "description": "GLM · OpenAI Compatible"
+      },
+      "deepseekOpenAI": {
+        "name": "DeepSeek (OpenAI)",
+        "description": "DeepSeek · OpenAI Compatible"
+      },
+      "deepseekAnthropic": {
+        "name": "DeepSeek (Anthropic)",
+        "description": "DeepSeek · Anthropic Compatible"
       }
     }
   },
