@@ -21,11 +21,6 @@ type ModelMappingPresetEntry = {
   clientType: string;
 };
 
-type ModelMappingPreset = {
-  id: string;
-  entries: ModelMappingPresetEntry[];
-  source: Provider;
-};
 
 type ApplyMode = 'append' | 'overwrite' | 'replace';
 
@@ -41,63 +36,49 @@ function getPresetEntryKey(entry: ModelMappingPresetEntry) {
   return `${normalizeClientType(entry.clientType)}\u0000${entry.pattern}\u0000${entry.target}`;
 }
 
-function buildModelMappingPresets(
+function buildModelMappingPresetEntries(
   allMappings: ModelMapping[] | undefined,
   providers: Provider[] | undefined,
   currentProvider: Provider,
 ) {
   const providersById = new Map((providers ?? []).map((item) => [item.id, item]));
-  const mappingsByProvider = new Map<number, ModelMapping[]>();
 
-  for (const mapping of allMappings ?? []) {
-    if (mapping.scope !== 'provider') continue;
-    if (mapping.isEnabled === false) continue;
-    if (!mapping.providerID || mapping.providerID === currentProvider.id) continue;
-    if (!mapping.pattern.trim() || !mapping.target.trim()) continue;
-
-    const source = providersById.get(mapping.providerID);
-    if (!source) continue;
-
-    const group = mappingsByProvider.get(mapping.providerID) ?? [];
-    group.push(mapping);
-    mappingsByProvider.set(mapping.providerID, group);
-  }
-
-  return Array.from(mappingsByProvider.entries())
-    .map(([providerID, mappings]) => {
-      const source = providersById.get(providerID);
-      if (!source) return null;
-
-      const entries = mappings
-        .slice()
-        .sort(
-          (left, right) =>
-            left.priority - right.priority || left.pattern.localeCompare(right.pattern),
-        )
-        .map((mapping) => ({
-          pattern: mapping.pattern,
-          target: mapping.target,
-          clientType: normalizeClientType(mapping.clientType),
-        }));
-
-      if (entries.length === 0) return null;
-
-      return {
-        id: `provider:${providerID}`,
-        entries,
-        source,
-      };
+  const sortedMappings = (allMappings ?? [])
+    .filter((mapping) => {
+      if (mapping.scope !== 'provider') return false;
+      if (mapping.isEnabled === false) return false;
+      if (!mapping.providerID || mapping.providerID === currentProvider.id) return false;
+      if (!mapping.pattern.trim() || !mapping.target.trim()) return false;
+      return providersById.has(mapping.providerID);
     })
-    .filter((preset): preset is ModelMappingPreset => preset !== null)
     .sort((left, right) => {
-      const leftSameType = left.source.type === currentProvider.type ? 0 : 1;
-      const rightSameType = right.source.type === currentProvider.type ? 0 : 1;
+      const leftProvider = providersById.get(left.providerID ?? 0);
+      const rightProvider = providersById.get(right.providerID ?? 0);
+      const leftSameType = leftProvider?.type === currentProvider.type ? 0 : 1;
+      const rightSameType = rightProvider?.type === currentProvider.type ? 0 : 1;
       return (
         leftSameType - rightSameType ||
-        right.entries.length - left.entries.length ||
-        left.source.name.localeCompare(right.source.name)
+        (leftProvider?.name ?? '').localeCompare(rightProvider?.name ?? '') ||
+        left.priority - right.priority ||
+        left.pattern.localeCompare(right.pattern) ||
+        left.target.localeCompare(right.target)
       );
     });
+
+  const entriesByKey = new Map<string, ModelMappingPresetEntry>();
+  for (const mapping of sortedMappings) {
+    const entry = {
+      pattern: mapping.pattern,
+      target: mapping.target,
+      clientType: normalizeClientType(mapping.clientType),
+    };
+    const key = getPresetEntryKey(entry);
+    if (!entriesByKey.has(key)) {
+      entriesByKey.set(key, entry);
+    }
+  }
+
+  return Array.from(entriesByKey.values());
 }
 
 function getPresetPreview(entries: ModelMappingPresetEntry[], providerMappings: ModelMapping[]) {
@@ -140,7 +121,6 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
   const [newPattern, setNewPattern] = useState('');
   const [newTarget, setNewTarget] = useState('');
   const [isPresetDialogOpen, setIsPresetDialogOpen] = useState(false);
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [selectedEntryKeys, setSelectedEntryKeys] = useState<Set<string>>(new Set());
   const [applyMode, setApplyMode] = useState<ApplyMode>('append');
 
@@ -153,22 +133,14 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
 
   const providers = useMemo(() => normalizeProviderList(allProviders), [allProviders]);
 
-  const presets = useMemo(
-    () => buildModelMappingPresets(allMappings, providers, provider),
+  const presetEntries = useMemo(
+    () => buildModelMappingPresetEntries(allMappings, providers, provider),
     [allMappings, providers, provider],
   );
 
-  const selectedPreset = useMemo(
-    () => presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? null,
-    [presets, selectedPresetId],
-  );
-
   const selectedEntries = useMemo(() => {
-    if (!selectedPreset) return [];
-    return selectedPreset.entries.filter((entry) =>
-      selectedEntryKeys.has(getPresetEntryKey(entry)),
-    );
-  }, [selectedEntryKeys, selectedPreset]);
+    return presetEntries.filter((entry) => selectedEntryKeys.has(getPresetEntryKey(entry)));
+  }, [selectedEntryKeys, presetEntries]);
 
   const presetPreview = useMemo(
     () => getPresetPreview(selectedEntries, providerMappings),
@@ -176,9 +148,9 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
   );
 
   useEffect(() => {
-    if (!isPresetDialogOpen || !selectedPreset) return;
-    setSelectedEntryKeys(new Set(selectedPreset.entries.map(getPresetEntryKey)));
-  }, [isPresetDialogOpen, selectedPreset]);
+    if (!isPresetDialogOpen) return;
+    setSelectedEntryKeys(new Set(presetEntries.map(getPresetEntryKey)));
+  }, [isPresetDialogOpen, presetEntries]);
 
   const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
 
@@ -219,7 +191,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
   };
 
   const handleApplyPreset = async () => {
-    if (!selectedPreset || selectedEntries.length === 0 || isPending) return;
+    if (selectedEntries.length === 0 || isPending) return;
 
     const currentByPattern = new Map(providerMappings.map((mapping) => [mapping.pattern, mapping]));
     const nextPriorityBase = providerMappings.length * 10 + 1000;
@@ -272,13 +244,11 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
           variant="outline"
           size="sm"
           onClick={() => {
-            const nextPreset = presets[0] ?? null;
-            setSelectedPresetId(nextPreset?.id ?? null);
-            setSelectedEntryKeys(new Set(nextPreset?.entries.map(getPresetEntryKey) ?? []));
+            setSelectedEntryKeys(new Set(presetEntries.map(getPresetEntryKey)));
             setApplyMode('append');
             setIsPresetDialogOpen(true);
           }}
-          disabled={presets.length === 0 || isPending}
+          disabled={presetEntries.length === 0 || isPending}
         >
           <CopyPlus className="h-4 w-4 mr-1" />
           {t('modelMappings.loadPreset')}
@@ -363,7 +333,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
 
           <div className="space-y-4">
             <div className="space-y-4">
-              {selectedPreset && (
+              {presetEntries.length > 0 && (
                 <>
                   <div className="rounded-lg border border-border bg-card p-3">
                     <div className="mb-2 flex items-center justify-between gap-2">
@@ -373,7 +343,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
                       <span className="text-xs text-muted-foreground">
                         {t('modelMappings.presetSelectedMappingsCount', {
                           selected: selectedEntries.length,
-                          total: selectedPreset.entries.length,
+                          total: presetEntries.length,
                         })}
                       </span>
                     </div>
@@ -394,10 +364,10 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
                         size="sm"
                         onClick={() =>
                           setSelectedEntryKeys(
-                            new Set(selectedPreset.entries.map(getPresetEntryKey)),
+                            new Set(presetEntries.map(getPresetEntryKey)),
                           )
                         }
-                        disabled={selectedEntries.length === selectedPreset.entries.length}
+                        disabled={selectedEntries.length === presetEntries.length}
                       >
                         {t('modelMappings.selectAllPresetMappings')}
                       </Button>
@@ -411,7 +381,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
                       </Button>
                     </div>
                     <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-                      {selectedPreset.entries.map((entry, index) => {
+                      {presetEntries.map((entry, index) => {
                         const entryKey = getPresetEntryKey(entry);
                         const isSelected = selectedEntryKeys.has(entryKey);
                         return (
@@ -488,7 +458,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
             </Button>
             <Button
               onClick={handleApplyPreset}
-              disabled={!selectedPreset || selectedEntries.length === 0 || isPending}
+              disabled={selectedEntries.length === 0 || isPending}
             >
               {t('modelMappings.applyPreset')}
             </Button>
