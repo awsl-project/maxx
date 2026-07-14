@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useProviders } from '@/hooks/queries';
 import { ProviderEditFlow } from './components/provider-edit-flow';
 import { useTranslation } from 'react-i18next';
@@ -7,10 +7,20 @@ import { Loader2, Lock } from 'lucide-react';
 export function ProviderEditPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams<{ id: string }>();
   const { data: providers, isLoading } = useProviders();
 
   const provider = providers?.find((p) => p.id + '' === id + '');
+
+  const backToProviders = () => {
+    if ((location.state as { fromProvidersList?: boolean } | null)?.fromProvidersList) {
+      navigate(-1);
+      return;
+    }
+
+    navigate(`/providers${location.search}`, { replace: true });
+  };
 
   if (isLoading) {
     return (
@@ -41,7 +51,7 @@ export function ProviderEditPage() {
           <p className="mt-2 text-sm text-muted-foreground">{t('provider.blackBoxLockedDesc')}</p>
           <button
             type="button"
-            onClick={() => navigate('/providers', { replace: true })}
+            onClick={backToProviders}
             className="mt-6 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground hover:bg-accent/90"
           >
             {t('provider.backToProviders')}
@@ -51,11 +61,5 @@ export function ProviderEditPage() {
     );
   }
 
-  return (
-    <ProviderEditFlow
-      key={provider.id}
-      provider={provider}
-      onClose={() => navigate('/providers')}
-    />
-  );
+  return <ProviderEditFlow key={provider.id} provider={provider} onClose={backToProviders} />;
 }

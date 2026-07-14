@@ -11,7 +11,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   useProviders,
   useAllProviderStats,
@@ -136,6 +136,8 @@ type ProviderBulkDeletePreviewItem = {
 export function ProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { data: providerData, isLoading } = useProviders();
   const providers = useMemo(() => normalizeProviderList(providerData), [providerData]);
@@ -145,7 +147,6 @@ export function ProvidersPage() {
   const { countsByProvider } = useStreamingRequests();
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null);
   const [bulkDeleteStatus, setBulkDeleteStatus] = useState<ProviderBulkDeleteStatus | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedProviderIds, setSelectedProviderIds] = useState<Set<number>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isRefreshingQuotas, setIsRefreshingQuotas] = useState(false);
@@ -165,6 +166,46 @@ export function ProvidersPage() {
   const canManageProviderSettings = user?.role === 'admin';
   const providerReadOnlyHint = t('providers.readOnlyHint');
   const isBulkDeleting = bulkDeleteProviders.isPending;
+
+  const searchQuery = searchParams.get('q') ?? '';
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const restoreViewStateRef = useRef(false);
+
+  const updateSearchQuery = (value: string) => {
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (value.trim()) {
+          next.set('q', value);
+        } else {
+          next.delete('q');
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const saveProvidersViewState = (providerId: number) => {
+    const selectedIds = Array.from(selectedProviderIds);
+    window.sessionStorage.setItem(
+      'maxx:providers:view-state',
+      JSON.stringify({
+        providerId,
+        search: location.search,
+        scrollTop: scrollContainerRef.current?.scrollTop ?? 0,
+        selectedProviderIds: selectedIds,
+        createdAt: Date.now(),
+      }),
+    );
+  };
+
+  const openProviderEditor = (providerId: number) => {
+    saveProvidersViewState(providerId);
+    navigate(`/providers/${providerId}/edit${location.search}`, {
+      state: { fromProvidersList: true },
+    });
+  };
 
   // 订阅请求更新事件，确保 providerStats 实时刷新
   useProxyRequestUpdates();
@@ -256,6 +297,61 @@ export function ProvidersPage() {
       return next.size === previous.size ? previous : next;
     });
   }, [providers]);
+
+  useEffect(() => {
+    if (restoreViewStateRef.current || isLoading || providers.length === 0) return;
+
+    const raw = window.sessionStorage.getItem('maxx:providers:view-state');
+    if (!raw) return;
+
+    try {
+      const state = JSON.parse(raw) as {
+        providerId?: number;
+        search?: string;
+        scrollTop?: number;
+        selectedProviderIds?: number[];
+        createdAt?: number;
+      };
+
+      const isFresh =
+        typeof state.createdAt === 'number' && Date.now() - state.createdAt < 10 * 60 * 1000;
+      if (!isFresh || state.search !== location.search) {
+        window.sessionStorage.removeItem('maxx:providers:view-state');
+        restoreViewStateRef.current = true;
+        return;
+      }
+
+      const providerIds = new Set(providers.map((provider) => provider.id));
+      setSelectedProviderIds(
+        new Set(
+          (state.selectedProviderIds ?? []).filter((providerId) => providerIds.has(providerId)),
+        ),
+      );
+
+      requestAnimationFrame(() => {
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const target =
+          typeof state.providerId === 'number'
+            ? container.querySelector<HTMLElement>(`[data-provider-id="${state.providerId}"]`)
+            : null;
+
+        if (target) {
+          target.scrollIntoView({ block: 'center' });
+        } else if (typeof state.scrollTop === 'number') {
+          container.scrollTop = state.scrollTop;
+        }
+
+        window.sessionStorage.removeItem('maxx:providers:view-state');
+      });
+
+      restoreViewStateRef.current = true;
+    } catch {
+      window.sessionStorage.removeItem('maxx:providers:view-state');
+      restoreViewStateRef.current = true;
+    }
+  }, [isLoading, location.search, providers]);
 
   // Export providers as JSON file
   const handleExport = async () => {
@@ -498,7 +594,7 @@ export function ProvidersPage() {
           <Input
             placeholder={t('common.search')}
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => updateSearchQuery(e.target.value)}
             className="pl-9 w-32 md:w-48"
           />
         </div>
@@ -565,7 +661,7 @@ export function ProvidersPage() {
         </ManageProvidersButton>
       </PageHeader>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="mx-auto max-w-7xl">
           {canManageProviderSettings && providers.length > 0 && (
             <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/80 p-3 shadow-sm">
@@ -760,7 +856,11 @@ export function ProvidersPage() {
                               ? t('provider.blackBoxReadOnlyHint')
                               : providerReadOnlyHint;
                             return (
-                              <div key={provider.id} className="relative">
+                              <div
+                                key={provider.id}
+                                data-provider-id={provider.id}
+                                className="relative"
+                              >
                                 {canManageProviderSettings && (
                                   <label
                                     className={cn(
@@ -799,7 +899,7 @@ export function ProvidersPage() {
                                   )}
                                   onClick={
                                     providerCanOpen
-                                      ? () => navigate(`/providers/${provider.id}/edit`)
+                                      ? () => openProviderEditor(provider.id)
                                       : undefined
                                   }
                                   title={!providerCanOpen ? providerBlockedHint : undefined}
