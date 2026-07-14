@@ -172,8 +172,8 @@ test("provider model mappings can be manually loaded from existing provider pres
       testInfo,
       "01-preset-dialog-before-append.png",
     );
-    await expect(page.getByRole("dialog")).toContainText(sourceName);
-    await expect(page.getByRole("dialog")).toContainText("+1");
+    await expect(page.getByRole("dialog")).not.toContainText(sourceName);
+    await expect(page.getByRole("dialog")).not.toContainText("+1");
     await expect(page.getByRole("dialog")).toContainText(
       /2 mappings|2 条映射/i,
     );

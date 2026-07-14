@@ -364,55 +364,20 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
             <DialogTitle>{t('modelMappings.loadPresetTitle')}</DialogTitle>
           </DialogHeader>
 
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-            <div className="space-y-2">
-              {presets.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => setSelectedPresetId(preset.id)}
-                  className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                    selectedPreset?.id === preset.id
-                      ? 'border-accent bg-accent/10'
-                      : 'border-border bg-card hover:bg-muted/50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium text-sm text-foreground">
-                      {preset.sources[0].name}
-                      {preset.sources.length > 1 && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          +{preset.sources.length - 1}
-                        </span>
-                      )}
-                    </div>
-                    <Badge
-                      variant={preset.providerType === provider.type ? 'success' : 'secondary'}
-                    >
-                      {preset.providerType}
-                    </Badge>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span>
-                      {t('modelMappings.presetMappingsCount', { count: preset.entries.length })}
-                    </span>
-                    <span>·</span>
-                    <span>
-                      {Array.from(
-                        new Set(preset.entries.map((entry) => formatClientType(entry.clientType))),
-                      ).join(', ')}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-
+          <div className="space-y-4">
             <div className="space-y-4">
               {selectedPreset && (
                 <>
                   <div className="rounded-lg border border-border bg-card p-3">
-                    <div className="mb-2 text-sm font-medium text-foreground">
-                      {t('modelMappings.presetPreview')}
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-foreground">
+                        {t('modelMappings.presetPreview')}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {t('modelMappings.presetMappingsCount', {
+                          count: selectedPreset.entries.length,
+                        })}
+                      </span>
                     </div>
                     <div className="mb-3 flex flex-wrap gap-2 text-xs">
                       <Badge variant="success">
