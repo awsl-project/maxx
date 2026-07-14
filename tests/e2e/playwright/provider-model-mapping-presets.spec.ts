@@ -156,6 +156,13 @@ test("provider model mappings can be manually loaded from existing provider pres
     );
     await createMapping(
       jwt,
+      duplicateSource.id,
+      "*opus*",
+      "duplicate-source-opus-model",
+      1020,
+    );
+    await createMapping(
+      jwt,
       target.id,
       "*sonnet*",
       "target-existing-sonnet",
@@ -177,7 +184,7 @@ test("provider model mappings can be manually loaded from existing provider pres
     );
     await expect(page.getByRole("dialog")).toContainText("*sonnet*");
     await expect(page.getByRole("dialog")).toContainText(
-      /2\/2 selected|已选 2\/2 条/i,
+      /3\/3 selected|已选 3\/3 条/i,
     );
     await page
       .getByLabel(
@@ -185,7 +192,7 @@ test("provider model mappings can be manually loaded from existing provider pres
       )
       .setChecked(false);
     await expect(page.getByRole("dialog")).toContainText(
-      /1\/2 selected|已选 1\/2 条/i,
+      /2\/3 selected|已选 2\/3 条/i,
     );
     await page.screenshot({
       path: testInfo.outputPath("01b-preset-dialog-after-deselect-haiku.png"),
@@ -205,6 +212,7 @@ test("provider model mappings can be manually loaded from existing provider pres
       })
       .toEqual({
         "*sonnet*": "target-existing-sonnet",
+        "*opus*": "duplicate-source-opus-model",
       });
     await page.screenshot({
       path: testInfo.outputPath("02-after-append-missing-only.png"),
@@ -232,6 +240,7 @@ test("provider model mappings can be manually loaded from existing provider pres
       .toMatchObject({
         "*sonnet*": "source-sonnet-model",
         "*haiku*": "source-haiku-model",
+        "*opus*": "duplicate-source-opus-model",
       });
     await page.screenshot({
       path: testInfo.outputPath("04-after-overwrite-conflict.png"),
@@ -263,6 +272,7 @@ test("provider model mappings can be manually loaded from existing provider pres
       })
       .toEqual([
         ["*haiku*", "source-haiku-model"],
+        ["*opus*", "duplicate-source-opus-model"],
         ["*sonnet*", "source-sonnet-model"],
       ]);
     await page.screenshot({
