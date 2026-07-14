@@ -1431,7 +1431,6 @@
     "scopeRoute": "Route",
     "loadPreset": "Load preset",
     "loadPresetTitle": "Load existing model mappings",
-    "loadPresetDesc": "Choose mappings already configured on another provider. Nothing is applied until you confirm.",
     "presetMappingsCount": "{{count}} mappings",
     "presetPreview": "Preset preview",
     "presetAdds": "{{count}} new",
@@ -1440,11 +1439,8 @@
     "applyMode": "Apply mode",
     "applyPreset": "Apply preset",
     "applyMode.append.title": "Append missing mappings",
-    "applyMode.append.desc": "Only add patterns that do not already exist on this provider.",
     "applyMode.overwrite.title": "Overwrite conflicts",
-    "applyMode.overwrite.desc": "Add missing mappings and update existing patterns that conflict.",
-    "applyMode.replace.title": "Replace all current mappings",
-    "applyMode.replace.desc": "Delete current mappings for this provider and load the selected preset."
+    "applyMode.replace.title": "Replace all current mappings"
   },
   "responseModelMappings": {
     "title": "Response Model Mapping",

@@ -1428,7 +1428,6 @@
     "scopeRoute": "路由",
     "loadPreset": "载入预设",
     "loadPresetTitle": "载入已有模型映射",
-    "loadPresetDesc": "从其它提供商已配置的映射中选择预设。确认前不会应用到当前提供商。",
     "presetMappingsCount": "{{count}} 条映射",
     "presetPreview": "预设预览",
     "presetAdds": "新增 {{count}} 条",
@@ -1437,11 +1436,8 @@
     "applyMode": "载入方式",
     "applyPreset": "应用预设",
     "applyMode.append.title": "只追加缺失项",
-    "applyMode.append.desc": "只添加当前提供商还没有的匹配模式。",
     "applyMode.overwrite.title": "覆盖冲突项",
-    "applyMode.overwrite.desc": "添加缺失映射，并更新已存在但目标不同的匹配模式。",
-    "applyMode.replace.title": "替换全部当前映射",
-    "applyMode.replace.desc": "删除当前提供商的全部映射，再载入所选预设。"
+    "applyMode.replace.title": "替换全部当前映射"
   },
   "responseModelMappings": {
     "title": "返回值模型映射",

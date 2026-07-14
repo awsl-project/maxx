@@ -366,7 +366,6 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
 
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">{t('modelMappings.loadPresetDesc')}</p>
               {presets.map((preset) => (
                 <button
                   key={preset.id}
@@ -459,13 +458,8 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
                             onChange={() => setApplyMode(mode)}
                             className="mt-1"
                           />
-                          <span>
-                            <span className="block font-medium">
-                              {t(`modelMappings.applyMode.${mode}.title`)}
-                            </span>
-                            <span className="block text-xs text-muted-foreground">
-                              {t(`modelMappings.applyMode.${mode}.desc`)}
-                            </span>
+                          <span className="font-medium">
+                            {t(`modelMappings.applyMode.${mode}.title`)}
                           </span>
                         </label>
                       ))}
