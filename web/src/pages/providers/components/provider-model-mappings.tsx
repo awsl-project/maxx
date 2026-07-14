@@ -366,37 +366,6 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
               {selectedPreset && (
                 <>
                   <div className="rounded-lg border border-border bg-card p-3">
-                    <div className="mb-2 text-sm font-medium text-foreground">
-                      {t('modelMappings.sourceProvider')}
-                    </div>
-                    <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto pr-1">
-                      {presets.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedPresetId(preset.id);
-                            setSelectedEntryKeys(new Set(preset.entries.map(getPresetEntryKey)));
-                          }}
-                          className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
-                            preset.id === selectedPreset.id
-                              ? 'border-primary bg-primary/10 text-foreground'
-                              : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
-                          }`}
-                        >
-                          <div className="font-medium text-foreground">{preset.source.name}</div>
-                          <div>
-                            {preset.source.type} ·{' '}
-                            {t('modelMappings.presetMappingsCount', {
-                              count: preset.entries.length,
-                            })}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-border bg-card p-3">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="text-sm font-medium text-foreground">
                         {t('modelMappings.presetPreview')}

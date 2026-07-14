@@ -172,10 +172,10 @@ test("provider model mappings can be manually loaded from existing provider pres
       testInfo,
       "01-preset-dialog-before-append.png",
     );
-    await expect(page.getByRole("dialog")).toContainText(
+    await expect(page.getByRole("dialog")).not.toContainText(
       /Source provider|来源提供商/i,
     );
-    await expect(page.getByRole("dialog")).toContainText(sourceName);
+    await expect(page.getByRole("dialog")).toContainText("*sonnet*");
     await expect(page.getByRole("dialog")).toContainText(
       /2\/2 selected|已选 2\/2 条/i,
     );

@@ -1430,7 +1430,6 @@
     "loadPresetTitle": "载入已有模型映射",
     "presetMappingsCount": "{{count}} 条映射",
     "presetSelectedMappingsCount": "已选 {{selected}}/{{total}} 条",
-    "sourceProvider": "来源提供商",
     "presetPreview": "预设预览",
     "presetAdds": "新增 {{count}} 条",
     "presetConflicts": "冲突 {{count}} 条",

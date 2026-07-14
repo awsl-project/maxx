@@ -1433,7 +1433,6 @@
     "loadPresetTitle": "Load existing model mappings",
     "presetMappingsCount": "{{count}} mappings",
     "presetSelectedMappingsCount": "{{selected}}/{{total}} selected",
-    "sourceProvider": "Source provider",
     "presetPreview": "Preset preview",
     "presetAdds": "{{count}} new",
     "presetConflicts": "{{count}} conflicts",
