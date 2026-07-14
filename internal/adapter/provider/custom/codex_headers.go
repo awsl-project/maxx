@@ -6,11 +6,8 @@ import (
 )
 
 const (
-	// Codex API version
-	codexVersion = "0.21.0"
-
 	// User-Agent mimics Codex CLI
-	codexUserAgent = "codex_cli_rs/0.50.0 (Mac OS 26.0.1; arm64)"
+	codexUserAgent = "codex_cli_rs/0.144.1 (Mac OS 26.0.1; arm64) Apple_Terminal/464"
 
 	// Originator header
 	codexOriginator = "codex_cli_rs"
@@ -38,24 +35,13 @@ func applyCodexHeaders(upstreamReq, clientReq *http.Request, apiKey string) {
 	}
 
 	// 4. Set Codex-specific headers only if client didn't provide them
-	ensureCodexHeader(upstreamReq.Header, clientReq, "Version", codexVersion)
 	ensureCodexHeader(upstreamReq.Header, clientReq, "Openai-Beta", openAIBetaHeader)
-	upstreamReq.Header.Set("User-Agent", resolveCodexUserAgent(clientReq))
-	ensureCodexHeader(upstreamReq.Header, clientReq, "Originator", codexOriginator)
-}
-
-func resolveCodexUserAgent(clientReq *http.Request) string {
+	clientUserAgent := ""
 	if clientReq != nil {
-		if ua := clientReq.Header.Get("User-Agent"); strings.TrimSpace(ua) != "" {
-			return ua
-		}
+		clientUserAgent = clientReq.Header.Get("User-Agent")
 	}
-	return codexUserAgent
-}
-
-func isCodexCLIUserAgent(userAgent string) bool {
-	ua := strings.ToLower(strings.TrimSpace(userAgent))
-	return strings.HasPrefix(ua, "codex_cli_rs/") || strings.HasPrefix(ua, "codex-cli/")
+	upstreamReq.Header["User-Agent"] = []string{clientUserAgent}
+	ensureCodexHeader(upstreamReq.Header, clientReq, "Originator", codexOriginator)
 }
 
 // copyCodexPassthroughHeaders copies headers from client request, excluding hop-by-hop, auth, and proxy headers

@@ -135,6 +135,39 @@ func TestApplyCodexHeadersFiltersSensitiveAndPreservesUA(t *testing.T) {
 	}
 }
 
+func TestApplyCodexProtocolIdentity(t *testing.T) {
+	tests := []struct {
+		name               string
+		originalClientType domain.ClientType
+		expectedUserAgent  string
+		expectedVersion    string
+	}{
+		{"same protocol preserves identity", domain.ClientTypeCodex, "source-client/1.0", "source-version"},
+		{"conversion uses target identity", domain.ClientTypeClaude, CodexUserAgent, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clientReq := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+			clientReq.Header.Set("User-Agent", "source-client/1.0")
+			ctx := flow.NewCtx(httptest.NewRecorder(), clientReq)
+			ctx.Set(flow.KeyOriginalClientType, tt.originalClientType)
+			ctx.Set(flow.KeyClientType, domain.ClientTypeCodex)
+
+			upstreamReq := httptest.NewRequest(http.MethodPost, "https://chatgpt.com/backend-api/codex/responses", nil)
+			upstreamReq.Header.Set("Version", "source-version")
+			applyCodexProtocolIdentity(ctx, upstreamReq)
+
+			if got := upstreamReq.Header.Get("User-Agent"); got != tt.expectedUserAgent {
+				t.Fatalf("User-Agent = %q, want %q", got, tt.expectedUserAgent)
+			}
+			if got := upstreamReq.Header.Get("Version"); got != tt.expectedVersion {
+				t.Fatalf("Version = %q, want %q", got, tt.expectedVersion)
+			}
+		})
+	}
+}
+
 func TestIsCodexResponseCompletedLine(t *testing.T) {
 	if !isCodexResponseCompletedLine("data: {\"type\":\"response.completed\",\"response\":{}}\n") {
 		t.Fatal("expected response.completed line to be detected")
@@ -164,18 +197,18 @@ func TestApplyCodexHeadersPreservesProvidedUA(t *testing.T) {
 	}
 }
 
-func TestApplyCodexHeadersUsesDefaultUAWhenClientReqNil(t *testing.T) {
+func TestApplyCodexHeadersPreservesMissingUAWhenClientReqNil(t *testing.T) {
 	a := &CodexAdapter{}
 	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
 
 	a.applyCodexHeaders(upstreamReq, nil, "token-1", "acct-1", true, "")
 
-	if got := upstreamReq.Header.Get("User-Agent"); got != CodexUserAgent {
-		t.Fatalf("expected default Codex User-Agent when client request is nil, got %q", got)
+	if got := upstreamReq.Header.Get("User-Agent"); got != "" {
+		t.Fatalf("expected missing client User-Agent to remain empty, got %q", got)
 	}
 }
 
-func TestApplyCodexHeadersUsesDefaultUAWhenClientUAIsBlank(t *testing.T) {
+func TestApplyCodexHeadersPreservesBlankClientUA(t *testing.T) {
 	a := &CodexAdapter{}
 	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
 	clientReq, _ := http.NewRequest("POST", "http://localhost/responses", nil)
@@ -183,8 +216,26 @@ func TestApplyCodexHeadersUsesDefaultUAWhenClientUAIsBlank(t *testing.T) {
 
 	a.applyCodexHeaders(upstreamReq, clientReq, "token-1", "acct-1", true, "")
 
-	if got := upstreamReq.Header.Get("User-Agent"); got != CodexUserAgent {
-		t.Fatalf("expected default Codex User-Agent when client UA is blank, got %q", got)
+	if got := upstreamReq.Header.Get("User-Agent"); got != "   " {
+		t.Fatalf("expected blank client User-Agent passthrough, got %q", got)
+	}
+}
+
+func TestApplyCodexHeadersPreservesVersionOnlyWhenProvided(t *testing.T) {
+	a := &CodexAdapter{}
+	clientReq, _ := http.NewRequest("POST", "http://localhost/responses", nil)
+	clientReq.Header.Set("Version", "0.144.1")
+	upstreamReq, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
+
+	a.applyCodexHeaders(upstreamReq, clientReq, "token-1", "acct-1", true, "")
+	if got := upstreamReq.Header.Get("Version"); got != "0.144.1" {
+		t.Fatalf("expected client Version passthrough, got %q", got)
+	}
+
+	upstreamReq2, _ := http.NewRequest("POST", "https://chatgpt.com/backend-api/codex/responses", nil)
+	a.applyCodexHeaders(upstreamReq2, nil, "token-1", "acct-1", true, "")
+	if _, ok := upstreamReq2.Header["Version"]; ok {
+		t.Fatalf("expected missing client Version to remain absent, got %q", upstreamReq2.Header.Get("Version"))
 	}
 }
 
