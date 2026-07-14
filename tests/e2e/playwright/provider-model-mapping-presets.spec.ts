@@ -172,11 +172,25 @@ test("provider model mappings can be manually loaded from existing provider pres
       testInfo,
       "01-preset-dialog-before-append.png",
     );
-    await expect(page.getByRole("dialog")).not.toContainText(sourceName);
-    await expect(page.getByRole("dialog")).not.toContainText("+1");
-    await expect(page.getByRole("dialog")).toContainText(
-      /2 mappings|2 条映射/i,
+    await expect(page.getByRole("dialog")).not.toContainText(
+      /Source provider|来源提供商/i,
     );
+    await expect(page.getByRole("dialog")).toContainText("*sonnet*");
+    await expect(page.getByRole("dialog")).toContainText(
+      /2\/2 selected|已选 2\/2 条/i,
+    );
+    await page
+      .getByLabel(
+        /select mapping \*haiku\* to source-haiku-model|选择映射 \*haiku\* 到 source-haiku-model/i,
+      )
+      .setChecked(false);
+    await expect(page.getByRole("dialog")).toContainText(
+      /1\/2 selected|已选 1\/2 条/i,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath("01b-preset-dialog-after-deselect-haiku.png"),
+      fullPage: true,
+    });
     await page.getByRole("button", { name: /Apply preset|应用预设/i }).click();
 
     await expect
@@ -189,9 +203,8 @@ test("provider model mappings can be manually loaded from existing provider pres
           ]),
         );
       })
-      .toMatchObject({
+      .toEqual({
         "*sonnet*": "target-existing-sonnet",
-        "*haiku*": "source-haiku-model",
       });
     await page.screenshot({
       path: testInfo.outputPath("02-after-append-missing-only.png"),
