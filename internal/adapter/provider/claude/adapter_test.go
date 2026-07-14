@@ -28,7 +28,7 @@ func TestApplyClaudeHeadersPreservesProvidedUA(t *testing.T) {
 	}
 }
 
-func TestApplyClaudeHeadersUsesDefaultUAWhenMissing(t *testing.T) {
+func TestApplyClaudeHeadersPreservesBlankOrMissingUA(t *testing.T) {
 	a := &ClaudeAdapter{}
 	upstreamReq, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
 	clientReq, _ := http.NewRequest("POST", "http://localhost/v1/messages", nil)
@@ -36,14 +36,14 @@ func TestApplyClaudeHeadersUsesDefaultUAWhenMissing(t *testing.T) {
 
 	a.applyClaudeHeaders(upstreamReq, clientReq, "sk-ant-oat-123", true, nil)
 
-	if got := upstreamReq.Header.Get("User-Agent"); got != ClaudeUserAgent {
-		t.Fatalf("expected default Claude User-Agent when client UA is blank, got %q", got)
+	if got := upstreamReq.Header.Get("User-Agent"); got != "   " {
+		t.Fatalf("expected blank client User-Agent passthrough, got %q", got)
 	}
 
 	upstreamReq2, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)
 	a.applyClaudeHeaders(upstreamReq2, nil, "sk-ant-oat-123", true, nil)
-	if got := upstreamReq2.Header.Get("User-Agent"); got != ClaudeUserAgent {
-		t.Fatalf("expected default Claude User-Agent when client request is nil, got %q", got)
+	if got := upstreamReq2.Header.Get("User-Agent"); got != "" {
+		t.Fatalf("expected missing client User-Agent to remain empty, got %q", got)
 	}
 }
 

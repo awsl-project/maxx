@@ -25,6 +25,30 @@ func GetOriginalClientType(c *Ctx) domain.ClientType {
 	return ""
 }
 
+func IsProtocolConversion(c *Ctx) bool {
+	if c == nil {
+		return false
+	}
+	originalClientType := GetOriginalClientType(c)
+	targetClientType := GetClientType(c)
+	return originalClientType != "" && targetClientType != "" && originalClientType != targetClientType
+}
+
+// ResolveUpstreamUserAgent preserves the inbound User-Agent for protocol-native
+// requests and uses the target protocol default only after format conversion.
+func ResolveUpstreamUserAgent(c *Ctx, targetDefault string) string {
+	if c == nil {
+		return ""
+	}
+	if IsProtocolConversion(c) {
+		return targetDefault
+	}
+	if c.Request == nil {
+		return ""
+	}
+	return c.Request.Header.Get("User-Agent")
+}
+
 func GetSessionID(c *Ctx) string {
 	if v, ok := c.Get(KeySessionID); ok {
 		if s, ok := v.(string); ok {
