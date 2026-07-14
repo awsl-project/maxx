@@ -1,6 +1,6 @@
 import { expect, test } from "playwright/test";
 
-import { adminAPI, bodyText, loginToAdminAPI } from "./helpers";
+import { adminAPI, bodyText, loginToAdminAPI, PASS, USER } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -23,17 +23,24 @@ async function loginToAdminFrontend(
     .catch(() => false);
 
   if (passwordVisible) {
-    const usernameInput = page.locator('input[type="text"]');
+    const adminTab = page.getByRole("tab", { name: /Admin Login|管理员登录/i });
+    if (await adminTab.isVisible().catch(() => false)) {
+      await adminTab.click();
+    }
+
+    const usernameInput = page.locator('input[type="text"]').first();
     const usernameVisible = await usernameInput.isVisible().catch(() => false);
     if (usernameVisible) {
-      await usernameInput.fill("admin");
+      await usernameInput.fill(USER);
     }
-    await passwordInput.fill("test123");
-    await page.locator('button[type="submit"]').click();
+    await page.locator('input[type="password"]').first().fill(PASS);
+    await page.getByRole("button", { name: /^Login$|登录/i }).click();
   }
 
   await expect
-    .poll(async () => /dashboard/i.test(await bodyText(page)))
+    .poll(async () => /dashboard/i.test(await bodyText(page)), {
+      timeout: 10000,
+    })
     .toBe(true);
 }
 
