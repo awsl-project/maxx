@@ -124,6 +124,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Apply headers
 	a.applyClaudeHeaders(upstreamReq, request, accessToken, clientWantsStream, extraBetas)
+	upstreamReq.Header["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, ClaudeUserAgent)}
 
 	// Send request info via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
@@ -171,6 +172,7 @@ func (a *ClaudeAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			return proxyErr
 		}
 		a.applyClaudeHeaders(upstreamReq, request, accessToken, clientWantsStream, extraBetas)
+		upstreamReq.Header["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, ClaudeUserAgent)}
 
 		resp, err = a.httpClient.Do(upstreamReq)
 		if err != nil {
@@ -592,7 +594,11 @@ func (a *ClaudeAdapter) applyClaudeHeaders(upstreamReq, clientReq *http.Request,
 	}
 
 	// Set User-Agent
-	upstreamReq.Header.Set("User-Agent", resolveClaudeUserAgent(clientReq))
+	clientUserAgent := ""
+	if clientReq != nil {
+		clientUserAgent = clientReq.Header.Get("User-Agent")
+	}
+	upstreamReq.Header["User-Agent"] = []string{clientUserAgent}
 }
 
 // isClaudeOAuthToken checks if the token is an OAuth access token
@@ -606,20 +612,6 @@ func ensureHeader(dst http.Header, clientReq *http.Request, key, defaultValue st
 		return
 	}
 	dst.Set(key, defaultValue)
-}
-
-func resolveClaudeUserAgent(clientReq *http.Request) string {
-	if clientReq != nil {
-		if ua := clientReq.Header.Get("User-Agent"); strings.TrimSpace(ua) != "" {
-			return ua
-		}
-	}
-	return ClaudeUserAgent
-}
-
-func isClaudeCLIUserAgent(userAgent string) bool {
-	ua := strings.ToLower(strings.TrimSpace(userAgent))
-	return strings.HasPrefix(ua, "claude-cli/") || strings.HasPrefix(ua, "claude-code/")
 }
 
 func newUpstreamHTTPClient() *http.Client {

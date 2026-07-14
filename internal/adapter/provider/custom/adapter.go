@@ -134,6 +134,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Set headers based on client type
 	isOAuthToken := false
+	targetUserAgent := ""
 	switch clientType {
 	case domain.ClientTypeClaude:
 		// Claude: Following CLIProxyAPI pattern
@@ -199,8 +200,10 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			//     api.anthropic.com, Authorization: Bearer for every other host)
 			//   - is a no-op when apiKey is empty
 			setClaudeAuthForURL(upstreamReq, apiKey, useAPIKey)
+			targetUserAgent = defaultClaudeUserAgent
 		default:
 			applyClaudeHeaders(upstreamReq, request, apiKey, useAPIKey, extraBetas, stream)
+			targetUserAgent = defaultClaudeUserAgent
 		}
 
 		// 3. Update request body and ContentLength (IMPORTANT: body was modified)
@@ -209,9 +212,11 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	case domain.ClientTypeCodex:
 		// Codex: Use Codex CLI-style headers with passthrough support
 		applyCodexHeaders(upstreamReq, request, a.provider.Config.Custom.APIKey)
+		targetUserAgent = codexUserAgent
 	case domain.ClientTypeGemini:
 		// Gemini: Use Gemini-style headers with passthrough support
 		applyGeminiHeaders(upstreamReq, request, a.provider.Config.Custom.APIKey)
+		targetUserAgent = geminiUserAgent
 	default:
 		// Other types: Preserve original header forwarding logic
 		originalHeaders := flow.GetRequestHeaders(c)
@@ -225,6 +230,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			setAuthHeader(upstreamReq, clientType, a.provider.Config.Custom.APIKey, isConversion)
 		}
 	}
+	applyCustomProtocolIdentity(c, clientType, targetUserAgent, upstreamReq.Header)
 
 	// Forward X-Mock-* headers from client request to upstream (test mode only)
 	if mockMode && request != nil {
@@ -312,6 +318,15 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 
 	return handleErr
+}
+
+func applyCustomProtocolIdentity(c *flow.Ctx, clientType domain.ClientType, targetUserAgent string, headers http.Header) {
+	if targetUserAgent != "" {
+		headers["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, targetUserAgent)}
+	}
+	if clientType == domain.ClientTypeCodex && flow.IsProtocolConversion(c) {
+		headers.Del("Version")
+	}
 }
 
 func (a *CustomAdapter) supportsClientType(ct domain.ClientType) bool {

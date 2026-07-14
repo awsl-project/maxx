@@ -7,7 +7,7 @@ import (
 
 const (
 	defaultAnthropicVersion = "2023-06-01"
-	defaultClaudeUserAgent  = "claude-cli/2.1.17 (external, cli)"
+	defaultClaudeUserAgent  = "claude-cli/2.1.63 (external, cli)"
 
 	// defaultBedrockCompatUserAgent mimics the User-Agent string emitted by a real
 	// AWS SDK for Go v2 Bedrock Runtime client. Used by the "bedrock" disguise mode
@@ -131,11 +131,7 @@ func applyClaudeHeaders(req *http.Request, clientReq *http.Request, apiKey strin
 	if clientHeaders != nil {
 		clientUA = clientHeaders.Get("User-Agent")
 	}
-	if strings.TrimSpace(clientUA) != "" {
-		req.Header.Set("User-Agent", clientUA)
-	} else {
-		req.Header.Set("User-Agent", defaultClaudeUserAgent)
-	}
+	req.Header["User-Agent"] = []string{clientUA}
 
 	// 6. Set connection and encoding headers (always override)
 	req.Header.Set("Connection", "keep-alive")

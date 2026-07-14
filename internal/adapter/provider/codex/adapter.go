@@ -212,6 +212,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Apply headers with passthrough support (client headers take priority)
 	a.applyCodexHeaders(upstreamReq, request, accessToken, config.AccountID, upstreamStream, cacheID)
+	applyCodexProtocolIdentity(c, upstreamReq)
 
 	// Send request info via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
@@ -257,6 +258,7 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 			return proxyErr
 		}
 		a.applyCodexHeaders(upstreamReq, request, accessToken, config.AccountID, upstreamStream, cacheID)
+		applyCodexProtocolIdentity(c, upstreamReq)
 
 		resp, err = a.httpClient.Do(upstreamReq)
 		if err != nil {
@@ -288,6 +290,13 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 		return a.handleStreamResponse(c, resp)
 	}
 	return a.handleNonStreamResponse(c, resp)
+}
+
+func applyCodexProtocolIdentity(c *flow.Ctx, upstreamReq *http.Request) {
+	upstreamReq.Header["User-Agent"] = []string{flow.ResolveUpstreamUserAgent(c, CodexUserAgent)}
+	if flow.IsProtocolConversion(c) {
+		upstreamReq.Header.Del("Version")
+	}
 }
 
 // WarmToken pre-warms the access token cache to avoid blocking during Execute
@@ -1049,7 +1058,6 @@ func (a *CodexAdapter) applyCodexHeaders(upstreamReq, clientReq *http.Request, a
 	upstreamReq.Header.Set("Connection", "Keep-Alive")
 
 	// Set Codex-specific headers only if client didn't provide them
-	ensureHeader(upstreamReq.Header, clientReq, "Version", CodexVersion)
 	ensureHeader(upstreamReq.Header, clientReq, "Openai-Beta", OpenAIBetaHeader)
 	if cacheID != "" {
 		upstreamReq.Header.Set("Conversation_id", cacheID)
@@ -1057,7 +1065,11 @@ func (a *CodexAdapter) applyCodexHeaders(upstreamReq, clientReq *http.Request, a
 	} else {
 		ensureHeader(upstreamReq.Header, clientReq, "Session_id", uuid.NewString())
 	}
-	upstreamReq.Header.Set("User-Agent", resolveCodexUserAgent(clientReq))
+	clientUserAgent := ""
+	if clientReq != nil {
+		clientUserAgent = clientReq.Header.Get("User-Agent")
+	}
+	upstreamReq.Header["User-Agent"] = []string{clientUserAgent}
 	if hasAccessToken {
 		ensureHeader(upstreamReq.Header, clientReq, "Originator", CodexOriginator)
 	}
@@ -1075,20 +1087,6 @@ func ensureHeader(dst http.Header, clientReq *http.Request, key, defaultValue st
 		return
 	}
 	dst.Set(key, defaultValue)
-}
-
-func resolveCodexUserAgent(clientReq *http.Request) string {
-	if clientReq != nil {
-		if ua := clientReq.Header.Get("User-Agent"); strings.TrimSpace(ua) != "" {
-			return ua
-		}
-	}
-	return CodexUserAgent
-}
-
-func isCodexCLIUserAgent(userAgent string) bool {
-	ua := strings.ToLower(strings.TrimSpace(userAgent))
-	return strings.HasPrefix(ua, "codex_cli_rs/") || strings.HasPrefix(ua, "codex-cli/")
 }
 
 var codexFilteredHeaders = map[string]bool{
