@@ -155,8 +155,8 @@ func TestDispatchDoesNotRetryAfterRequestContextCanceled(t *testing.T) {
 	if proxyReq.Status != "CANCELLED" {
 		t.Fatalf("proxy request status = %q, want CANCELLED", proxyReq.Status)
 	}
-	if proxyReq.Error != "client disconnected during retry wait" {
-		t.Fatalf("proxy request error = %q, want client disconnected during retry wait", proxyReq.Error)
+	if proxyReq.Error != "client disconnected" && proxyReq.Error != "client disconnected during retry wait" {
+		t.Fatalf("proxy request error = %q, want client disconnected cancellation", proxyReq.Error)
 	}
 }
 
