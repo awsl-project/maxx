@@ -294,6 +294,10 @@ func resolveEffective(p *domain.ModelPrice) effectivePrice {
 func computeCost(p *domain.ModelPrice, m *usage.Metrics) uint64 {
 	e := resolveEffective(p)
 	var total uint64
+	cacheWriteTokens := m.CacheCreationCount
+	if m.Cache5mCreationCount > 0 || m.Cache1hCreationCount > 0 {
+		cacheWriteTokens = m.Cache5mCreationCount + m.Cache1hCreationCount
+	}
 
 	// 图像 token 是 input/output 的子集(gpt-image-*),按图像价线性计;剩余的文本
 	// token 走原有 文本价/1M 分层逻辑。对文本模型 image=0,完全等价于旧实现。
@@ -309,39 +313,40 @@ func computeCost(p *domain.ModelPrice, m *usage.Metrics) uint64 {
 		outputImage = m.OutputTokens
 	}
 	outputText := m.OutputTokens - outputImage
+	promptTokens := inputText + inputImage + m.CacheReadCount + cacheWriteTokens
+	fullRequestPremium := e.Has1MContext && promptTokens > e.Context1MThreshold
+
+	calculateRequestCost := func(tokens, priceMicro, premiumNum, premiumDenom uint64) uint64 {
+		if !fullRequestPremium {
+			return CalculateLinearCost(tokens, priceMicro)
+		}
+		return CalculatePremiumCost(tokens, priceMicro, premiumNum, premiumDenom)
+	}
 
 	if inputText > 0 {
-		if e.Has1MContext {
-			total += CalculateTieredCost(inputText, e.InputMicro, e.InputPremNum, e.InputPremDenom, e.Context1MThreshold)
-		} else {
-			total += CalculateLinearCost(inputText, e.InputMicro)
-		}
+		total += calculateRequestCost(inputText, e.InputMicro, e.InputPremNum, e.InputPremDenom)
 	}
 	if inputImage > 0 {
-		total += CalculateLinearCost(inputImage, e.ImageInputMicro)
+		total += calculateRequestCost(inputImage, e.ImageInputMicro, e.InputPremNum, e.InputPremDenom)
 	}
 	if outputText > 0 {
-		if e.Has1MContext {
-			total += CalculateTieredCost(outputText, e.OutputMicro, e.OutputPremNum, e.OutputPremDenom, e.Context1MThreshold)
-		} else {
-			total += CalculateLinearCost(outputText, e.OutputMicro)
-		}
+		total += calculateRequestCost(outputText, e.OutputMicro, e.OutputPremNum, e.OutputPremDenom)
 	}
 	if outputImage > 0 {
-		total += CalculateLinearCost(outputImage, e.ImageOutputMicro)
+		total += calculateRequestCost(outputImage, e.ImageOutputMicro, e.OutputPremNum, e.OutputPremDenom)
 	}
 	if m.CacheReadCount > 0 {
-		total += CalculateLinearCost(m.CacheReadCount, e.CacheReadMicro)
+		total += calculateRequestCost(m.CacheReadCount, e.CacheReadMicro, e.InputPremNum, e.InputPremDenom)
 	}
 	if m.Cache5mCreationCount > 0 {
-		total += CalculateLinearCost(m.Cache5mCreationCount, e.Cache5mWriteMicro)
+		total += calculateRequestCost(m.Cache5mCreationCount, e.Cache5mWriteMicro, e.InputPremNum, e.InputPremDenom)
 	}
 	if m.Cache1hCreationCount > 0 {
-		total += CalculateLinearCost(m.Cache1hCreationCount, e.Cache1hWriteMicro)
+		total += calculateRequestCost(m.Cache1hCreationCount, e.Cache1hWriteMicro, e.InputPremNum, e.InputPremDenom)
 	}
 	// 旧响应只给 cache_creation_input_tokens、没有拆 5m/1h:按 5m 价格计。
 	if m.Cache5mCreationCount == 0 && m.Cache1hCreationCount == 0 && m.CacheCreationCount > 0 {
-		total += CalculateLinearCost(m.CacheCreationCount, e.Cache5mWriteMicro)
+		total += calculateRequestCost(m.CacheCreationCount, e.Cache5mWriteMicro, e.InputPremNum, e.InputPremDenom)
 	}
 
 	return total

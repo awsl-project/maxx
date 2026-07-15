@@ -10,9 +10,8 @@ import (
 
 // TestAdjustForClientType_Codex pins the subtraction contract that
 // codex/adapter.go now relies on directly. Codex usage.input_tokens includes
-// cached_tokens, so InputTokens must be reduced by CacheReadCount before
-// metrics reach pricing — otherwise the cached portion is billed at both the
-// input rate and the cache-read rate.
+// cached_tokens and cache_write_tokens, so both subsets must be removed before
+// metrics reach pricing to avoid double billing.
 func TestAdjustForClientType_Codex(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -21,6 +20,7 @@ func TestAdjustForClientType_Codex(t *testing.T) {
 	}{
 		{"input greater than cache", Metrics{InputTokens: 200, CacheReadCount: 150}, 50},
 		{"input equals cache", Metrics{InputTokens: 150, CacheReadCount: 150}, 0},
+		{"cache read and write", Metrics{InputTokens: 300, CacheReadCount: 100, CacheCreationCount: 150}, 50},
 		{"cache zero is no-op", Metrics{InputTokens: 200, CacheReadCount: 0}, 200},
 		// Defensive: relays occasionally report cached > input. Skipping the
 		// subtraction is preferred over clamping to zero — clamping would
@@ -384,6 +384,34 @@ func TestExtractFromResponse_CodexResponsesAPI(t *testing.T) {
 	}
 	if m.CacheReadCount != 150 {
 		t.Errorf("CacheReadCount = %d, want 150", m.CacheReadCount)
+	}
+}
+
+func TestExtractFromResponse_GPT56CacheWrite(t *testing.T) {
+	body := `{
+		"id": "resp_gpt56",
+		"object": "response",
+		"model": "gpt-5.6-sol",
+		"usage": {
+			"input_tokens": 300,
+			"output_tokens": 50,
+			"input_tokens_details": {
+				"cached_tokens": 100,
+				"cache_write_tokens": 150
+			}
+		}
+	}`
+
+	m := ExtractFromResponse(body)
+	if m == nil {
+		t.Fatal("expected GPT-5.6 metrics, got nil")
+	}
+	if m.CacheReadCount != 100 || m.CacheCreationCount != 150 {
+		t.Fatalf("cache metrics = read %d/write %d, want 100/150", m.CacheReadCount, m.CacheCreationCount)
+	}
+	AdjustForClientType(m, domain.ClientTypeCodex)
+	if m.InputTokens != 50 {
+		t.Fatalf("adjusted InputTokens = %d, want 50", m.InputTokens)
 	}
 }
 

@@ -879,7 +879,7 @@ type ModelPrice struct {
 	ImageInputPriceMicro  uint64 `json:"imageInputPriceMicro,omitempty"`
 	ImageOutputPriceMicro uint64 `json:"imageOutputPriceMicro,omitempty"`
 
-	// 1M Context 分层定价
+	// 长上下文整次请求溢价
 	Has1MContext       bool   `json:"has1mContext"`
 	Context1MThreshold uint64 `json:"context1mThreshold"`
 	InputPremiumNum    uint64 `json:"inputPremiumNum"`
