@@ -316,7 +316,7 @@ func (a *CodexAdapter) executeResponsesWebSocket(c *flow.Ctx, provider *domain.P
 				return true, classifyCodexWebSocketEvent(payload, flow.GetMappedModel(c))
 			}
 
-			collector.ProcessSSELine("data: " + string(payload))
+			collector.ProcessSSEPayload(payload)
 			if model := strings.TrimSpace(gjson.GetBytes(payload, "response.model").String()); model != "" {
 				responseModel = model
 			} else if model := strings.TrimSpace(gjson.GetBytes(payload, "model").String()); model != "" {

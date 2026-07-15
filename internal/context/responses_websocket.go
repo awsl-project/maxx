@@ -1,7 +1,6 @@
 package context
 
 import (
-	"bytes"
 	stdcontext "context"
 )
 
@@ -14,15 +13,17 @@ type ResponsesWebSocketRequest struct {
 	Payload   []byte
 }
 
-// WithResponsesWebSocketRequest attaches WebSocket request metadata to ctx.
+// WithResponsesWebSocketRequest attaches immutable WebSocket request metadata to
+// ctx. The payload is valid for the synchronous lifetime of the proxied request;
+// consumers must treat it as read-only and copy before modifying it.
 func WithResponsesWebSocketRequest(ctx stdcontext.Context, sessionID string, payload []byte) stdcontext.Context {
 	return stdcontext.WithValue(ctx, responsesWebSocketRequestKey{}, ResponsesWebSocketRequest{
 		SessionID: sessionID,
-		Payload:   bytes.Clone(payload),
+		Payload:   payload,
 	})
 }
 
-// GetResponsesWebSocketRequest returns a copy of the WebSocket request metadata.
+// GetResponsesWebSocketRequest returns immutable WebSocket request metadata.
 func GetResponsesWebSocketRequest(ctx stdcontext.Context) (ResponsesWebSocketRequest, bool) {
 	if ctx == nil {
 		return ResponsesWebSocketRequest{}, false
@@ -31,6 +32,5 @@ func GetResponsesWebSocketRequest(ctx stdcontext.Context) (ResponsesWebSocketReq
 	if !ok || request.SessionID == "" || len(request.Payload) == 0 {
 		return ResponsesWebSocketRequest{}, false
 	}
-	request.Payload = bytes.Clone(request.Payload)
 	return request, true
 }
