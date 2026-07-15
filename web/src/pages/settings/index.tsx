@@ -1429,33 +1429,56 @@ function APITokenConcurrencySection() {
   const { t } = useTranslation();
 
   const currentLimit = settings?.api_token_concurrent_limit || '5';
+  const currentRateLimitCooldown = settings?.cooldown_rate_limit_default_seconds || '5';
   const [limitDraft, setLimitDraft] = useState('');
+  const [rateLimitCooldownDraft, setRateLimitCooldownDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
       setLimitDraft(currentLimit);
+      setRateLimitCooldownDraft(currentRateLimitCooldown);
       setInitialized(true);
     }
-  }, [isLoading, initialized, currentLimit]);
+  }, [isLoading, initialized, currentLimit, currentRateLimitCooldown]);
 
-  const hasChanges = initialized && limitDraft !== currentLimit;
+  const hasLimitChanges = initialized && limitDraft !== currentLimit;
+  const hasRateLimitCooldownChanges =
+    initialized && rateLimitCooldownDraft !== currentRateLimitCooldown;
+  const hasChanges = hasLimitChanges || hasRateLimitCooldownChanges;
 
   useEffect(() => {
     if (initialized && !hasChanges) {
       setLimitDraft(currentLimit);
+      setRateLimitCooldownDraft(currentRateLimitCooldown);
     }
-  }, [currentLimit, initialized, hasChanges]);
+  }, [currentLimit, currentRateLimitCooldown, initialized, hasChanges]);
 
-  const parsedLimit = parseInt(limitDraft, 10);
-  const isValid = !isNaN(parsedLimit) && parsedLimit >= 1;
+  const parsedLimit = /^\d+$/.test(limitDraft.trim()) ? Number(limitDraft.trim()) : NaN;
+  const isLimitValid = Number.isInteger(parsedLimit) && parsedLimit >= 1;
+  const parsedRateLimitCooldown = /^\d+$/.test(rateLimitCooldownDraft.trim())
+    ? Number(rateLimitCooldownDraft.trim())
+    : NaN;
+  const isRateLimitCooldownValid =
+    Number.isInteger(parsedRateLimitCooldown) &&
+    parsedRateLimitCooldown >= 1 &&
+    parsedRateLimitCooldown <= 86400;
+  const isValid = isLimitValid && isRateLimitCooldownValid;
 
   const handleSaveLimit = async () => {
     if (!isValid || !hasChanges) return;
-    await updateSetting.mutateAsync({
-      key: 'api_token_concurrent_limit',
-      value: limitDraft,
-    });
+    if (hasLimitChanges) {
+      await updateSetting.mutateAsync({
+        key: 'api_token_concurrent_limit',
+        value: String(parsedLimit),
+      });
+    }
+    if (hasRateLimitCooldownChanges) {
+      await updateSetting.mutateAsync({
+        key: 'cooldown_rate_limit_default_seconds',
+        value: String(parsedRateLimitCooldown),
+      });
+    }
   };
 
   if (isLoading || !initialized) return null;
@@ -1483,26 +1506,58 @@ function APITokenConcurrencySection() {
         </div>
       </CardHeader>
       <CardContent className="p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-          <Label className="text-sm font-medium text-muted-foreground shrink-0">
-            {t('settings.apiTokenConcurrencyLimit')}
-          </Label>
-          <Input
-            type="number"
-            value={limitDraft}
-            onChange={(e) => setLimitDraft(e.target.value)}
-            className="w-24"
-            min={1}
-            disabled={updateSetting.isPending}
-          />
-          <span className="text-xs text-muted-foreground">
-            {t('settings.concurrentRequestsUnit')}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            ({t('settings.defaultValue', { value: 5 })})
-          </span>
+        <div className="space-y-1.5">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <Label className="text-sm font-medium text-muted-foreground shrink-0">
+              {t('settings.apiTokenConcurrencyLimit')}
+            </Label>
+            <Input
+              type="number"
+              value={limitDraft}
+              onChange={(e) => setLimitDraft(e.target.value)}
+              className="w-24"
+              min={1}
+              disabled={updateSetting.isPending}
+            />
+            <span className="text-xs text-muted-foreground">
+              {t('settings.concurrentRequestsUnit')}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              ({t('settings.defaultValue', { value: 5 })})
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('settings.apiTokenConcurrencyHint')}</p>
         </div>
-        <p className="text-xs text-muted-foreground">{t('settings.apiTokenConcurrencyHint')}</p>
+
+        <div className="space-y-1.5 pt-4 border-t border-border">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <Label className="text-sm font-medium text-muted-foreground shrink-0">
+              {t('settings.rateLimitCooldownDefaultSeconds')}
+            </Label>
+            <Input
+              type="number"
+              value={rateLimitCooldownDraft}
+              onChange={(e) => setRateLimitCooldownDraft(e.target.value)}
+              className="w-24"
+              min={1}
+              max={86400}
+              step={1}
+              disabled={updateSetting.isPending}
+            />
+            <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+            <span className="text-xs text-muted-foreground">
+              ({t('settings.defaultValue', { value: 5 })})
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.rateLimitCooldownDefaultSecondsHint')}
+          </p>
+          {!isRateLimitCooldownValid && (
+            <p className="text-xs text-destructive">
+              {t('settings.rateLimitCooldownDefaultSecondsInvalid')}
+            </p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

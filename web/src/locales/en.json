@@ -1325,6 +1325,9 @@
     "apiTokenConcurrencyDesc": "Configure the maximum number of in-flight requests allowed per API token",
     "apiTokenConcurrencyLimit": "Concurrent Request Limit",
     "apiTokenConcurrencyHint": "When the limit is exceeded, new requests for the same token return a standard 429 rate limit response until an active request completes.",
+    "rateLimitCooldownDefaultSeconds": "429 default cooldown",
+    "rateLimitCooldownDefaultSecondsHint": "When upstream 429 / concurrency limits do not return Retry-After, use this value as the automatic cooldown duration. Upstream Retry-After still takes priority when present.",
+    "rateLimitCooldownDefaultSecondsInvalid": "429 default cooldown must be an integer between 1 and 86400.",
     "concurrentRequestsUnit": "requests",
     "defaultValue": "default {{value}}",
     "minutes": "minutes",
@@ -1878,6 +1881,26 @@
         "name": "DeepSeek",
         "description": "DeepSeek · Claude + OpenAI Compatible"
       }
+    },
+    "grok": {
+      "name": "Grok",
+      "description": "Import CPA xAI OAuth JSON and proxy Grok through the OpenAI-compatible client.",
+      "jsonFiles": "JSON files",
+      "selectedCount": "{{count}} credential selected",
+      "selectedCount_plural": "{{count}} credentials selected",
+      "clientsTitle": "Client types",
+      "clientsDesc": "Grok CPA currently serves OpenAI-compatible chat requests.",
+      "clientOpenAIDesc": "Forward OpenAI Chat Completions requests to Grok.",
+      "modelMappingTitle": "Model mappings",
+      "modelMappingDesc": "Map the model name clients send to the Grok model id. Leave empty to pass models through unchanged.",
+      "modelMappingFrom": "Client model pattern",
+      "modelMappingTo": "Grok model id",
+      "modelMappingEmpty": "No model mappings configured.",
+      "importOne": "Import Grok provider",
+      "importMany": "Import {{count}} Grok providers",
+      "email": "Email",
+      "baseURL": "Base URL",
+      "secretWriteOnlyHint": "OAuth tokens are write-only here. Updating this form with blank token fields preserves the stored access/refresh/id tokens."
     }
   },
   "modelMapping": {

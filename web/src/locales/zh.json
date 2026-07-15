@@ -1322,6 +1322,9 @@
     "apiTokenConcurrencyDesc": "配置每个 API Token 允许同时进行中的请求数上限",
     "apiTokenConcurrencyLimit": "并发请求上限",
     "apiTokenConcurrencyHint": "超过限制时，同一 Token 的新请求会返回标准 429 限流响应，直到已有请求完成。",
+    "rateLimitCooldownDefaultSeconds": "429 默认冻结时间",
+    "rateLimitCooldownDefaultSecondsHint": "当上游 429 / 并发限制没有返回 Retry-After 时，使用此秒数作为自动冻结时长；上游返回 Retry-After 时仍优先使用上游时间。",
+    "rateLimitCooldownDefaultSecondsInvalid": "429 默认冻结时间必须是 1 到 86400 之间的整数。",
     "concurrentRequestsUnit": "个请求",
     "defaultValue": "默认 {{value}}",
     "minutes": "分钟",
@@ -1874,6 +1877,26 @@
         "name": "DeepSeek",
         "description": "DeepSeek · Claude + OpenAI 兼容"
       }
+    },
+    "grok": {
+      "name": "Grok",
+      "description": "导入 CPA xAI OAuth JSON，并通过 OpenAI 兼容客户端代理 Grok。",
+      "jsonFiles": "JSON 文件",
+      "selectedCount": "已选择 {{count}} 个凭据",
+      "selectedCount_plural": "已选择 {{count}} 个凭据",
+      "clientsTitle": "客户端类型",
+      "clientsDesc": "Grok CPA 当前提供 OpenAI 兼容聊天请求。",
+      "clientOpenAIDesc": "把 OpenAI Chat Completions 请求转发到 Grok。",
+      "modelMappingTitle": "模型映射",
+      "modelMappingDesc": "把客户端发送的模型名映射到 Grok 模型 id。留空则原样透传。",
+      "modelMappingFrom": "客户端模型模式",
+      "modelMappingTo": "Grok 模型 id",
+      "modelMappingEmpty": "暂无模型映射。",
+      "importOne": "导入 Grok 提供商",
+      "importMany": "导入 {{count}} 个 Grok 提供商",
+      "email": "邮箱",
+      "baseURL": "Base URL",
+      "secretWriteOnlyHint": "OAuth token 在这里按只写处理。表单提交空 token 字段时，后端会保留已保存的 access/refresh/id token。"
     }
   },
   "modelMapping": {
