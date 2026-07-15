@@ -824,11 +824,20 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 		}
 
 		if err != nil {
-			if lineBuffer.Len() > 0 {
+			if err == io.EOF && lineBuffer.Len() > 0 {
 				line := lineBuffer.String()
 				lineBuffer.Reset()
 				if lineErr := processStreamLine(line); lineErr != nil {
 					return lineErr
+				}
+			}
+			if err == io.ErrUnexpectedEOF && lineBuffer.Len() > 0 {
+				line := lineBuffer.String()
+				if strings.TrimSpace(line) == "data: [DONE]" {
+					lineBuffer.Reset()
+					if lineErr := processStreamLine(line); lineErr != nil {
+						return lineErr
+					}
 				}
 			}
 			if err == io.EOF || (err == io.ErrUnexpectedEOF && sawTerminalSSEEvent) {

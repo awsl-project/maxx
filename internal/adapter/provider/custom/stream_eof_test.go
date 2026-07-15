@@ -67,12 +67,7 @@ func TestCustomAdapterStreamDoesNotFailDoneWithoutTrailingNewline(t *testing.T) 
 }
 
 func TestCustomAdapterStreamDoesNotFailUnexpectedEOFAfterDone(t *testing.T) {
-	adapter := &CustomAdapter{provider: &domain.Provider{
-		Type: "custom",
-		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
-			BaseURL: "http://upstream.test",
-		}},
-	}}
+	adapter := newTestCustomAdapter()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	rec := httptest.NewRecorder()
 	ctx := flow.NewCtx(rec, req)
@@ -92,4 +87,36 @@ func TestCustomAdapterStreamDoesNotFailUnexpectedEOFAfterDone(t *testing.T) {
 	if body := rec.Body.String(); !strings.Contains(body, "data: [DONE]") {
 		t.Fatalf("stream body missing DONE event: %q", body)
 	}
+}
+
+func TestCustomAdapterStreamDoesNotFlushPartialLineOnUnexpectedEOF(t *testing.T) {
+	adapter := newTestCustomAdapter()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	ctx.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: &terminalUnexpectedEOFReadCloser{data: []byte(
+			"data: {\"choices\":[{\"delta\":{\"content\":\"partial",
+		)},
+	}
+
+	if err := adapter.handleStreamResponse(ctx, resp, domain.ClientTypeOpenAI, false); err == nil {
+		t.Fatal("handleStreamResponse error = nil, want unexpected EOF error")
+	}
+	if body := rec.Body.String(); body != "" {
+		t.Fatalf("partial line was forwarded: %q", body)
+	}
+}
+
+func newTestCustomAdapter() *CustomAdapter {
+	return &CustomAdapter{provider: &domain.Provider{
+		Type: "custom",
+		Config: &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{
+			BaseURL: "http://upstream.test",
+		}},
+	}}
 }
