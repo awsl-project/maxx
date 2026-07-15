@@ -168,7 +168,7 @@ func (m *PprofManager) startServerLocked() error {
 		return fmt.Errorf("pprof server already running")
 	}
 
-	addr := fmt.Sprintf("localhost:%d", m.config.Port)
+	addr := pprofListenAddress(m.config.Port)
 
 	// 先尝试绑定端口以验证是否可用
 	listener, err := net.Listen("tcp", addr)
@@ -223,6 +223,10 @@ func (m *PprofManager) startServerLocked() error {
 	}()
 
 	return nil
+}
+
+func pprofListenAddress(port int) string {
+	return net.JoinHostPort("0.0.0.0", strconv.Itoa(port))
 }
 
 // stopServerLocked 停止 pprof 服务（需要持有锁）

@@ -44,6 +44,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { BackendAddressControl } from '@/components/backend-address-control';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
+import { buildPprofUrl } from '@/lib/backend-config';
 import { useTransport } from '@/lib/transport/context';
 import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
 import { getDefaultThemes, getLuxuryThemes, isLuxuryTheme } from '@/lib/theme';
@@ -1611,6 +1612,7 @@ function PprofSection() {
   const [initialized, setInitialized] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [portError, setPortError] = useState('');
+  const pprofUrl = buildPprofUrl(portDraft);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
@@ -1863,12 +1865,12 @@ function PprofSection() {
                 <p className="flex items-center gap-2">
                   <span>{t('settings.pprofAccessHint')}:</span>
                   <a
-                    href={`http://localhost:${portDraft}/debug/pprof/`}
+                    href={pprofUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="underline hover:text-blue-700 dark:hover:text-blue-300 font-medium"
                   >
-                    http://localhost:{portDraft}/debug/pprof/
+                    {pprofUrl}
                   </a>
                 </p>
                 {usePasswordDraft && (

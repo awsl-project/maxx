@@ -240,10 +240,23 @@ model_provider = "maxx"
 name = "maxx"
 base_url = "http://localhost:9880"
 wire_api = "responses"
+requires_openai_auth = true
+supports_websockets = true
 request_max_retries = 4
 stream_max_retries = 10
 stream_idle_timeout_ms = 300000
 ```
+
+`supports_websockets = true` makes Codex upgrade `GET /v1/responses` and send
+`response.create` events over a persistent connection. Older Codex builds that
+still gate the v2 transport may additionally require:
+
+```toml
+[features]
+responses_websockets_v2 = true
+```
+
+Configure each TOML key only once.
 
 **auth.json**
 
@@ -287,11 +300,11 @@ codex
 |------|----------|
 | Claude | `POST /v1/messages` |
 | OpenAI | `POST /v1/chat/completions` |
-| Codex | `POST /v1/responses` |
+| Codex | `POST /v1/responses` or WebSocket `GET /v1/responses` |
 | Gemini | `POST /v1beta/models/{model}:generateContent` |
 | Project Proxy | `/project/{project-slug}/v1/messages` (etc.) |
 | Admin API | `/api/admin/*` |
-| WebSocket | `ws://localhost:9880/ws` |
+| Admin UI WebSocket | `ws://localhost:9880/ws` |
 | Health Check | `GET /health` |
 | Web UI | `http://localhost:9880/` |
 

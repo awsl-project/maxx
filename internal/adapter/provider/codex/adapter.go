@@ -126,6 +126,10 @@ func (a *CodexAdapter) SupportedClientTypes() []domain.ClientType {
 }
 
 func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
+	if handled, err := a.executeResponsesWebSocket(c, provider); handled {
+		return err
+	}
+
 	requestBody := flow.GetRequestBody(c)
 	clientWantsStream := flow.GetIsStream(c)
 	request := c.Request
