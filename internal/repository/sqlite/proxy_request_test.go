@@ -140,19 +140,46 @@ func TestProxyRequestReasoningEffortRoundTrip(t *testing.T) {
 	}
 
 	repo := NewProxyRequestRepository(db)
-	request := buildTestProxyRequest("COMPLETED", 1)
+	request := buildTestProxyRequest("IN_PROGRESS", 1)
 	request.ReasoningEffort = "high"
 	if err := repo.Create(request); err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "high", true)
 
-	items, err := repo.ListCursor(1, 10, 0, 0, nil)
+	request.Status = "COMPLETED"
+	request.ResponseModel = "response-model"
+	if err := repo.Update(request); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "high", false)
+
+	var stored string
+	if err := db.gorm.Raw("SELECT reasoning_effort FROM proxy_requests WHERE id = ?", request.ID).Scan(&stored).Error; err != nil {
+		t.Fatalf("read stored reasoning_effort: %v", err)
+	}
+	if stored != "high" {
+		t.Fatalf("stored reasoning_effort = %q, want high", stored)
+	}
+}
+
+func TestProxyRequestHistoricalNullReasoningEffortReadsAsEmpty(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
-		t.Fatalf("ListCursor failed: %v", err)
+		t.Fatalf("Failed to create DB: %v", err)
 	}
-	if len(items) != 1 || items[0].ReasoningEffort != "high" {
-		t.Fatalf("reasoning effort round trip = %#v, want high", items)
+	defer db.Close()
+
+	repo := NewProxyRequestRepository(db)
+	request := buildTestProxyRequest("IN_PROGRESS", 1)
+	if err := repo.Create(request); err != nil {
+		t.Fatalf("Failed to create request: %v", err)
 	}
+	if err := db.gorm.Exec("UPDATE proxy_requests SET reasoning_effort = NULL WHERE id = ?", request.ID).Error; err != nil {
+		t.Fatalf("set historical reasoning_effort NULL: %v", err)
+	}
+
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "", true)
 }
 
 func TestProxyRequestRepositoryWorksWithoutReasoningEffortColumn(t *testing.T) {
@@ -171,16 +198,66 @@ func TestProxyRequestRepositoryWorksWithoutReasoningEffortColumn(t *testing.T) {
 	if err := repo.Create(request); err != nil {
 		t.Fatalf("Create without reasoning_effort column: %v", err)
 	}
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "", true)
+
 	request.Status = "COMPLETED"
 	if err := repo.Update(request); err != nil {
 		t.Fatalf("Update without reasoning_effort column: %v", err)
 	}
-	items, err := repo.ListCursor(1, 10, 0, 0, nil)
+	assertProxyRequestReasoningEffortReads(t, repo, request.ID, "", false)
+
+	count, err := repo.Count(1)
 	if err != nil {
-		t.Fatalf("ListCursor without reasoning_effort column: %v", err)
+		t.Fatalf("Count without reasoning_effort column: %v", err)
 	}
-	if len(items) != 1 || items[0].ReasoningEffort != "" {
-		t.Fatalf("fallback list = %#v, want one item without reasoning effort", items)
+	if count != 1 {
+		t.Fatalf("Count without reasoning_effort column = %d, want 1", count)
+	}
+}
+
+func assertProxyRequestReasoningEffortReads(
+	t *testing.T,
+	repo *ProxyRequestRepository,
+	id uint64,
+	want string,
+	wantActive bool,
+) {
+	t.Helper()
+
+	got, err := repo.GetByID(1, id)
+	if err != nil {
+		t.Fatalf("GetByID reasoning effort: %v", err)
+	}
+	if got.ReasoningEffort != want {
+		t.Fatalf("GetByID reasoning effort = %q, want %q", got.ReasoningEffort, want)
+	}
+
+	list, err := repo.List(1, 10, 0)
+	if err != nil {
+		t.Fatalf("List reasoning effort: %v", err)
+	}
+	if len(list) != 1 || list[0].ReasoningEffort != want {
+		t.Fatalf("List reasoning effort = %#v, want %q", list, want)
+	}
+
+	cursor, err := repo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor reasoning effort: %v", err)
+	}
+	if len(cursor) != 1 || cursor[0].ReasoningEffort != want {
+		t.Fatalf("ListCursor reasoning effort = %#v, want %q", cursor, want)
+	}
+
+	active, err := repo.ListActive(1)
+	if err != nil {
+		t.Fatalf("ListActive reasoning effort: %v", err)
+	}
+	if wantActive {
+		if len(active) != 1 || active[0].ReasoningEffort != want {
+			t.Fatalf("ListActive reasoning effort = %#v, want %q", active, want)
+		}
+	} else if len(active) != 0 {
+		t.Fatalf("ListActive after completion = %#v, want empty", active)
 	}
 }
 

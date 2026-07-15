@@ -22,7 +22,11 @@ func ReasoningEffort(body []byte) string {
 		"generationConfig.thinkingConfig.thinkingLevel", // Gemini
 		"generation_config.thinking_config.thinking_level",
 	} {
-		if effort := normalizeEffort(gjson.GetBytes(body, path).String()); effort != "" {
+		value := gjson.GetBytes(body, path)
+		if value.Type != gjson.String {
+			continue
+		}
+		if effort := normalizeEffort(value.String()); effort != "" {
 			return effort
 		}
 	}
@@ -35,8 +39,11 @@ func ReasoningEffort(body []byte) string {
 		return "none"
 	case "enabled":
 		budget := gjson.GetBytes(body, "thinking.budget_tokens")
-		if !budget.Exists() || budget.Type != gjson.Number {
+		if !budget.Exists() {
 			return "auto"
+		}
+		if budget.Type != gjson.Number {
+			return ""
 		}
 		return effortForThinkingBudget(budget.Int())
 	default:
@@ -46,6 +53,8 @@ func ReasoningEffort(body []byte) string {
 
 func effortForThinkingBudget(budget int64) string {
 	switch {
+	case budget < -1:
+		return ""
 	case budget == -1:
 		return "auto"
 	case budget <= 0:

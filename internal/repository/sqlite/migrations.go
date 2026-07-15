@@ -559,11 +559,10 @@ func runReasoningEffortColumnMigration(db *gorm.DB) error {
 		return nil
 	}
 
-	const ddl = "ALTER TABLE proxy_requests ADD COLUMN reasoning_effort VARCHAR(32) NULL"
+	const ddl = reasoningEffortColumnDDL
 	if db.Dialector.Name() != "mysql" {
 		if err := db.Exec(ddl).Error; err != nil {
-			lower := strings.ToLower(err.Error())
-			if strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists") {
+			if isDuplicateColumnError(err) {
 				return nil
 			}
 			return err
@@ -576,34 +575,61 @@ func runReasoningEffortColumnMigration(db *gorm.DB) error {
 		if err := db.Exec(ddl + ", ALGORITHM=INSTANT").Error; err == nil {
 			return nil
 		} else {
-			lower := strings.ToLower(err.Error())
-			if strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists") {
+			if isDuplicateColumnError(err) {
 				return nil
 			}
 			log.Printf("[Migration v18] MySQL instant ADD COLUMN unavailable (%v); evaluating safe fallback", err)
 		}
 	}
 
-	var rowCount int64
-	if err := db.Raw("SELECT COUNT(*) FROM proxy_requests").Scan(&rowCount).Error; err != nil {
-		log.Printf("[Migration v18] could not count proxy_requests (%v); skipping column add. Apply manually if needed: %s;", err, ddl)
+	exceedsThreshold, err := proxyRequestsExceedReasoningMigrationThreshold(db, detailCleanupIndexRowThreshold)
+	if err != nil {
+		log.Printf("[Migration v18] could not probe proxy_requests row threshold (%v); skipping column add. Apply manually if needed: %s;", err, ddl)
 		return nil
 	}
-	if rowCount > detailCleanupIndexRowThreshold {
-		log.Printf("[Migration v18] SKIPPING reasoning_effort ADD COLUMN: proxy_requests has %d rows (> %d threshold). "+
+	if exceedsThreshold {
+		log.Printf("[Migration v18] SKIPPING reasoning_effort ADD COLUMN: proxy_requests has more than %d rows. "+
 			"Apply manually during a maintenance window: %s;",
-			rowCount, detailCleanupIndexRowThreshold, ddl)
+			detailCleanupIndexRowThreshold, ddl)
 		return nil
 	}
 
 	if err := db.Exec(ddl).Error; err != nil {
-		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists") {
+		if isDuplicateColumnError(err) {
 			return nil
 		}
 		return err
 	}
 	return nil
+}
+
+const reasoningEffortColumnDDL = "ALTER TABLE proxy_requests ADD COLUMN reasoning_effort VARCHAR(32) NULL"
+
+// proxyRequestsExceedReasoningMigrationThreshold checks only whether a row
+// exists immediately after the threshold. Unlike COUNT(*), the work is bounded
+// to at most threshold+1 primary-key entries even when proxy_requests is huge.
+func proxyRequestsExceedReasoningMigrationThreshold(db *gorm.DB, threshold int64) (bool, error) {
+	var marker int
+	result := db.Raw(
+		"SELECT 1 FROM proxy_requests ORDER BY id LIMIT 1 OFFSET ?",
+		threshold,
+	).Scan(&marker)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+func isDuplicateColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1060 // ER_DUP_FIELDNAME
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists")
 }
 
 func mysqlSupportsInstantAddColumn(version string) bool {
