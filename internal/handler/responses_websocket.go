@@ -140,6 +140,7 @@ func (s *responsesWebSocketSessionState) normalizeRequest(payload []byte) ([]byt
 
 func normalizeInitialResponsesWebSocketRequest(request map[string]json.RawMessage) ([]byte, error) {
 	delete(request, "type")
+	delete(request, "generate")
 	request["stream"] = json.RawMessage("true")
 	if _, ok := request["input"]; !ok {
 		request["input"] = json.RawMessage("[]")
@@ -178,6 +179,7 @@ func (s *responsesWebSocketSessionState) normalizeSubsequentResponsesWebSocketRe
 	}
 
 	delete(request, "type")
+	delete(request, "generate")
 	delete(request, "previous_response_id")
 	request["stream"] = json.RawMessage("true")
 	request["input"], err = json.Marshal(mergedInput)

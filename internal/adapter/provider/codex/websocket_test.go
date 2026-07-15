@@ -74,7 +74,7 @@ func TestExecuteResponsesWebSocket_ReusesNativeUpstreamSession(t *testing.T) {
 		}
 	})
 
-	firstRaw := []byte(`{"type":"response.create","model":"client-model","stream":true,"background":true,"input":[]}`)
+	firstRaw := []byte(`{"type":"response.create","model":"client-model","generate":false,"stream":true,"background":true,"input":[]}`)
 	firstCtx := newCodexWebSocketTestContext(t, firstRaw, sessionID)
 	handled, err := adapter.executeResponsesWebSocket(firstCtx, provider)
 	if !handled || err != nil {
@@ -89,6 +89,10 @@ func TestExecuteResponsesWebSocket_ReusesNativeUpstreamSession(t *testing.T) {
 	}
 	if gjson.GetBytes(firstUpstream, "stream").Exists() || gjson.GetBytes(firstUpstream, "background").Exists() {
 		t.Fatalf("websocket-only implicit fields not removed: %s", firstUpstream)
+	}
+	generate := gjson.GetBytes(firstUpstream, "generate")
+	if !generate.Exists() || generate.Bool() {
+		t.Fatalf("native v2 prewarm generate = %s, want false", generate.Raw)
 	}
 
 	secondRaw := []byte(`{"type":"response.append","previous_response_id":"resp_1","input":[{"type":"function_call_output","call_id":"call_1","output":"ok"}]}`)
@@ -113,7 +117,7 @@ func TestExecuteResponsesWebSocket_SkipsProtocolConversion(t *testing.T) {
 	provider := &domain.Provider{ID: 1, Config: &domain.ProviderConfig{Codex: &domain.ProviderConfigCodex{}}}
 	adapter := &CodexAdapter{provider: provider, tokenCache: &TokenCache{}}
 	raw := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
-	request := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	request := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", strings.NewReader(`{"model":"gpt-test","stream":true,"input":[]}`))
 	request = request.WithContext(maxxctx.WithResponsesWebSocketRequest(context.Background(), "session", raw))
 	c := flow.NewCtx(httptest.NewRecorder(), request)
 	c.Set(flow.KeyClientType, domain.ClientTypeCodex)
@@ -127,7 +131,7 @@ func TestExecuteResponsesWebSocket_SkipsProtocolConversion(t *testing.T) {
 
 func newCodexWebSocketTestContext(t *testing.T, raw []byte, sessionID string) *flow.Ctx {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", strings.NewReader(`{"model":"gpt-test","stream":true,"input":[]}`))
+	request := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
 	request.Header.Set("User-Agent", "codex-test/1.0")
 	request = request.WithContext(maxxctx.WithResponsesWebSocketRequest(context.Background(), sessionID, raw))
 	c := flow.NewCtx(httptest.NewRecorder(), request)

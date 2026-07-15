@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -189,6 +190,7 @@ func (a *CodexAdapter) executeResponsesWebSocket(c *flow.Ctx, provider *domain.P
 	if session == nil && previousResponseID != "" {
 		// A response ID is tied to the provider/session that produced it. If route
 		// selection moved elsewhere, use the handler's full-transcript HTTP fallback.
+		log.Printf("[Codex] Responses WebSocket session unavailable for provider=%d; falling back to HTTP/SSE", provider.ID)
 		return false, nil
 	}
 
@@ -226,12 +228,14 @@ func (a *CodexAdapter) executeResponsesWebSocket(c *flow.Ctx, provider *domain.P
 			if response != nil {
 				body := readCodexWebSocketHandshakeBody(response)
 				if response.StatusCode == http.StatusUpgradeRequired {
+					log.Printf("[Codex] Responses WebSocket upgrade rejected with status=%d url=%s; falling back to HTTP/SSE", response.StatusCode, webSocketURL)
 					return false, nil
 				}
 				return true, classifyCodexHTTPError(response.StatusCode, body, response.Header, flow.GetMappedModel(c))
 			}
 			// A transport-level upgrade failure is safe to retry through the existing
 			// HTTP/SSE path because no upstream WebSocket event reached the client.
+			log.Printf("[Codex] Responses WebSocket upgrade failed url=%s error=%v; falling back to HTTP/SSE", webSocketURL, err)
 			return false, nil
 		}
 		globalCodexWebSocketSessions.put(key, session)
@@ -258,6 +262,7 @@ func (a *CodexAdapter) executeResponsesWebSocket(c *flow.Ctx, provider *domain.P
 
 	if err = session.write(rawRequest); err != nil {
 		globalCodexWebSocketSessions.remove(key, session)
+		log.Printf("[Codex] Responses WebSocket write failed provider=%d error=%v; falling back to HTTP/SSE", provider.ID, err)
 		return false, nil
 	}
 
