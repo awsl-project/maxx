@@ -107,12 +107,11 @@ func TestResponsesWebSocket_PreservesNativePayloadAndSession(t *testing.T) {
 		t.Fatal("websocket session ID is empty")
 	}
 	firstBody := decodeTestObject(t, first.body)
-	var generate bool
-	if err := json.Unmarshal(firstBody["generate"], &generate); err != nil || generate {
-		t.Fatalf("fallback generate = %s, want false", firstBody["generate"])
+	if _, ok := firstBody["generate"]; ok {
+		t.Fatalf("fallback request leaked websocket-only generate field: %s", first.body)
 	}
 
-	secondPayload := []byte(`{"type":"response.create","previous_response_id":"resp_test","input":[]}`)
+	secondPayload := []byte(`{"type":"response.create","previous_response_id":"resp_test","generate":false,"input":[]}`)
 	if err := conn.WriteMessage(websocket.TextMessage, secondPayload); err != nil {
 		t.Fatalf("write second request: %v", err)
 	}
@@ -123,6 +122,10 @@ func TestResponsesWebSocket_PreservesNativePayloadAndSession(t *testing.T) {
 	}
 	if string(second.metadata.Payload) != string(secondPayload) {
 		t.Fatalf("second native payload = %s, want %s", second.metadata.Payload, secondPayload)
+	}
+	secondBody := decodeTestObject(t, second.body)
+	if _, ok := secondBody["generate"]; ok {
+		t.Fatalf("subsequent fallback request leaked websocket-only generate field: %s", second.body)
 	}
 }
 
