@@ -21,7 +21,8 @@ export type ProviderType =
   | 'kiro'
   | 'codex'
   | 'claude'
-  | 'openrouter';
+  | 'openrouter'
+  | 'grok';
 
 /**
  * Client 类型定义

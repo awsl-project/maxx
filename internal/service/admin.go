@@ -513,6 +513,23 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 				incoming.Config.OpenRouter.APIKey = existing.Config.OpenRouter.APIKey
 			}
 		}
+	case "grok":
+		if existing.Config.Grok != nil {
+			if incoming.Config.Grok == nil {
+				grok := *existing.Config.Grok
+				incoming.Config.Grok = &grok
+			} else {
+				if incoming.Config.Grok.AccessToken == "" {
+					incoming.Config.Grok.AccessToken = existing.Config.Grok.AccessToken
+				}
+				if incoming.Config.Grok.RefreshToken == "" {
+					incoming.Config.Grok.RefreshToken = existing.Config.Grok.RefreshToken
+				}
+				if incoming.Config.Grok.IDToken == "" {
+					incoming.Config.Grok.IDToken = existing.Config.Grok.IDToken
+				}
+			}
+		}
 	}
 }
 
@@ -1320,6 +1337,9 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 				domain.ClientTypeOpenAI,
 			}
 		}
+	case "grok":
+		// Grok CPA xAI executor speaks OpenAI-compatible chat only.
+		provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
 	}
 }
 

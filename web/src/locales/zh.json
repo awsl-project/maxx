@@ -1874,6 +1874,26 @@
         "name": "DeepSeek",
         "description": "DeepSeek · Claude + OpenAI 兼容"
       }
+    },
+    "grok": {
+      "name": "Grok",
+      "description": "导入 CPA xAI OAuth JSON，并通过 OpenAI 兼容客户端代理 Grok。",
+      "jsonFiles": "JSON 文件",
+      "selectedCount": "已选择 {{count}} 个凭据",
+      "selectedCount_plural": "已选择 {{count}} 个凭据",
+      "clientsTitle": "客户端类型",
+      "clientsDesc": "Grok CPA 当前提供 OpenAI 兼容聊天请求。",
+      "clientOpenAIDesc": "把 OpenAI Chat Completions 请求转发到 Grok。",
+      "modelMappingTitle": "模型映射",
+      "modelMappingDesc": "把客户端发送的模型名映射到 Grok 模型 id。留空则原样透传。",
+      "modelMappingFrom": "客户端模型模式",
+      "modelMappingTo": "Grok 模型 id",
+      "modelMappingEmpty": "暂无模型映射。",
+      "importOne": "导入 Grok 提供商",
+      "importMany": "导入 {{count}} 个 Grok 提供商",
+      "email": "邮箱",
+      "baseURL": "Base URL",
+      "secretWriteOnlyHint": "OAuth token 在这里按只写处理。表单提交空 token 字段时，后端会保留已保存的 access/refresh/id token。"
     }
   },
   "modelMapping": {
