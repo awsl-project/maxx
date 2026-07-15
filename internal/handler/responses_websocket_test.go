@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
+	"github.com/bytedance/sonic"
 	"github.com/gorilla/websocket"
 )
 
@@ -126,6 +128,50 @@ func TestResponsesWebSocket_PreservesNativePayloadAndSession(t *testing.T) {
 	secondBody := decodeTestObject(t, second.body)
 	if _, ok := secondBody["generate"]; ok {
 		t.Fatalf("subsequent fallback request leaked websocket-only generate field: %s", second.body)
+	}
+}
+
+func TestNewResponsesWebSocketHTTPRequestReusesImmutableBodies(t *testing.T) {
+	original := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	body := []byte(`{"model":"gpt-test","stream":true,"input":[]}`)
+	payload := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
+
+	request := newResponsesWebSocketHTTPRequest(original, body, "session-test", payload)
+	preloaded := maxxctx.GetRequestBody(request.Context())
+	if len(preloaded) == 0 || &preloaded[0] != &body[0] {
+		t.Fatal("internal HTTP request should reuse the normalized body")
+	}
+	metadata, ok := maxxctx.GetResponsesWebSocketRequest(request.Context())
+	if !ok {
+		t.Fatal("missing websocket request metadata")
+	}
+	if len(metadata.Payload) == 0 || &metadata.Payload[0] != &payload[0] {
+		t.Fatal("websocket metadata should reuse the immutable client payload")
+	}
+	readBody, err := io.ReadAll(request.Body)
+	if err != nil {
+		t.Fatalf("read request body: %v", err)
+	}
+	if !bytes.Equal(readBody, body) {
+		t.Fatalf("request body = %s, want %s", readBody, body)
+	}
+}
+
+func BenchmarkResponsesWebSocketNormalizeSubsequent(b *testing.B) {
+	state := responsesWebSocketSessionState{
+		initialized: true,
+		lastInput: []sonic.NoCopyRawMessage{
+			sonic.NoCopyRawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"` + strings.Repeat("x", 1<<20) + `"}]}`),
+		},
+		model: sonic.NoCopyRawMessage(`"gpt-test"`),
+	}
+	payload := []byte(`{"type":"response.create","previous_response_id":"resp_1","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"next"}]}]}`)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		normalized, err := state.normalizeRequest(payload)
+		if err != nil || len(normalized.body) < 1<<20 {
+			b.Fatalf("normalizeRequest = %d bytes, %v", len(normalized.body), err)
+		}
 	}
 }
 

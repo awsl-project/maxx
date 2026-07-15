@@ -184,12 +184,16 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		}
 		bodyReader = io.LimitReader(r.Body, limit)
 	}
-	body, err := io.ReadAll(bodyReader)
-	if err != nil {
-		_ = r.Body.Close()
-		writeError(w, http.StatusBadRequest, "failed to read request body")
-		c.Abort()
-		return
+	body := maxxctx.GetRequestBody(r.Context())
+	if body == nil {
+		var readErr error
+		body, readErr = io.ReadAll(bodyReader)
+		if readErr != nil {
+			_ = r.Body.Close()
+			writeError(w, http.StatusBadRequest, "failed to read request body")
+			c.Abort()
+			return
+		}
 	}
 	_ = r.Body.Close()
 	if h.uploadLimiter != nil && h.uploadLimiter.maxBytes > 0 && int64(len(body)) > h.uploadLimiter.maxBytes {
@@ -217,6 +221,7 @@ func (h *ProxyHandler) ingress(c *flow.Ctx) {
 		return
 	}
 
+	var err error
 	var apiToken *domain.APIToken
 	var apiTokenID uint64
 	if h.tokenAuth != nil {

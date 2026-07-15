@@ -2,7 +2,7 @@ package handler
 
 import (
 	"bytes"
-	"encoding/json"
+	stdjson "encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,8 +10,11 @@ import (
 	"strings"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
+	"github.com/awsl-project/maxx/internal/jsonutil"
+	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/tidwall/gjson"
 )
 
 const (
@@ -28,8 +31,18 @@ var responsesWebSocketUpgrader = websocket.Upgrader{
 }
 
 type responsesWebSocketSessionState struct {
-	lastRequest        []byte
-	lastResponseOutput []json.RawMessage
+	initialized        bool
+	lastInput          []sonic.NoCopyRawMessage
+	model              sonic.NoCopyRawMessage
+	instructions       sonic.NoCopyRawMessage
+	lastResponseOutput []stdjson.RawMessage
+}
+
+type responsesWebSocketNormalizedRequest struct {
+	body         []byte
+	input        []sonic.NoCopyRawMessage
+	model        sonic.NoCopyRawMessage
+	instructions sonic.NoCopyRawMessage
 }
 
 func isResponsesWebSocketUpgrade(r *http.Request) bool {
@@ -65,7 +78,7 @@ func serveResponsesWebSocket(w http.ResponseWriter, r *http.Request, next http.H
 			continue
 		}
 
-		requestBody, errNormalize := state.normalizeRequest(payload)
+		normalized, errNormalize := state.normalizeRequest(payload)
 		if errNormalize != nil {
 			if errWrite := writeResponsesWebSocketError(conn, http.StatusBadRequest, errNormalize.Error(), nil); errWrite != nil {
 				return
@@ -73,21 +86,25 @@ func serveResponsesWebSocket(w http.ResponseWriter, r *http.Request, next http.H
 			continue
 		}
 
-		request := newResponsesWebSocketHTTPRequest(r, requestBody, sessionID, payload)
+		request := newResponsesWebSocketHTTPRequest(r, normalized.body, sessionID, payload)
 		writer := newResponsesWebSocketResponseWriter(conn)
 		next.ServeHTTP(writer, request)
 		if errFinish := writer.finish(); errFinish != nil {
 			return
 		}
 		if writer.completed {
-			state.lastRequest = bytes.Clone(requestBody)
-			state.lastResponseOutput = cloneRawMessages(writer.completedOutput)
+			state.initialized = true
+			state.lastInput = normalized.input
+			state.model = normalized.model
+			state.instructions = normalized.instructions
+			state.lastResponseOutput = writer.completedOutput
 		}
 	}
 }
 
 func newResponsesWebSocketHTTPRequest(original *http.Request, body []byte, sessionID string, payload []byte) *http.Request {
 	ctx := maxxctx.WithResponsesWebSocketRequest(original.Context(), sessionID, payload)
+	ctx = maxxctx.WithRequestBody(ctx, body)
 	request := original.Clone(ctx)
 	request.Method = http.MethodPost
 	request.Body = http.NoBody
@@ -115,101 +132,118 @@ func newResponsesWebSocketHTTPRequest(original *http.Request, body []byte, sessi
 	return request
 }
 
-func (s *responsesWebSocketSessionState) normalizeRequest(payload []byte) ([]byte, error) {
-	request, err := decodeJSONObject(payload)
+func (s *responsesWebSocketSessionState) normalizeRequest(payload []byte) (responsesWebSocketNormalizedRequest, error) {
+	request, err := decodeJSONObjectNoCopy(payload)
 	if err != nil {
-		return nil, fmt.Errorf("invalid websocket request JSON: %w", err)
+		return responsesWebSocketNormalizedRequest{}, fmt.Errorf("invalid websocket request JSON: %w", err)
 	}
 
 	requestType := jsonString(request["type"])
 	switch requestType {
 	case responsesWebSocketRequestCreate:
-		if len(s.lastRequest) == 0 {
+		if !s.initialized {
 			return normalizeInitialResponsesWebSocketRequest(request)
 		}
 		return s.normalizeSubsequentResponsesWebSocketRequest(request)
 	case responsesWebSocketRequestAppend:
-		if len(s.lastRequest) == 0 {
-			return nil, fmt.Errorf("websocket request received before response.create")
+		if !s.initialized {
+			return responsesWebSocketNormalizedRequest{}, fmt.Errorf("websocket request received before response.create")
 		}
 		return s.normalizeSubsequentResponsesWebSocketRequest(request)
 	default:
-		return nil, fmt.Errorf("unsupported websocket request type: %s", requestType)
+		return responsesWebSocketNormalizedRequest{}, fmt.Errorf("unsupported websocket request type: %s", requestType)
 	}
 }
 
-func normalizeInitialResponsesWebSocketRequest(request map[string]json.RawMessage) ([]byte, error) {
+func normalizeInitialResponsesWebSocketRequest(request map[string]sonic.NoCopyRawMessage) (responsesWebSocketNormalizedRequest, error) {
 	delete(request, "type")
 	delete(request, "generate")
-	request["stream"] = json.RawMessage("true")
+	request["stream"] = sonic.NoCopyRawMessage("true")
 	if _, ok := request["input"]; !ok {
-		request["input"] = json.RawMessage("[]")
+		request["input"] = sonic.NoCopyRawMessage("[]")
 	}
 	if strings.TrimSpace(jsonString(request["model"])) == "" {
-		return nil, fmt.Errorf("missing model in response.create request")
+		return responsesWebSocketNormalizedRequest{}, fmt.Errorf("missing model in response.create request")
 	}
-	normalized, err := json.Marshal(request)
-	return normalized, err
+	input, err := decodeJSONArrayNoCopy(request["input"])
+	if err != nil {
+		return responsesWebSocketNormalizedRequest{}, fmt.Errorf("websocket request requires array field: input")
+	}
+	normalized, err := marshalResponsesWebSocketRequest(request, input)
+	if err != nil {
+		return responsesWebSocketNormalizedRequest{}, err
+	}
+	return responsesWebSocketNormalizedRequest{
+		body:         normalized,
+		input:        input,
+		model:        request["model"],
+		instructions: request["instructions"],
+	}, nil
 }
 
-func (s *responsesWebSocketSessionState) normalizeSubsequentResponsesWebSocketRequest(request map[string]json.RawMessage) ([]byte, error) {
-	nextInput, err := decodeJSONArray(request["input"])
+func (s *responsesWebSocketSessionState) normalizeSubsequentResponsesWebSocketRequest(request map[string]sonic.NoCopyRawMessage) (responsesWebSocketNormalizedRequest, error) {
+	nextInput, err := decodeJSONArrayNoCopy(request["input"])
 	if err != nil {
-		return nil, fmt.Errorf("websocket request requires array field: input")
-	}
-
-	lastRequest, err := decodeJSONObject(s.lastRequest)
-	if err != nil {
-		return nil, fmt.Errorf("invalid previous websocket request state: %w", err)
+		return responsesWebSocketNormalizedRequest{}, fmt.Errorf("websocket request requires array field: input")
 	}
 
 	previousResponseID := strings.TrimSpace(jsonString(request["previous_response_id"]))
-	var mergedInput []json.RawMessage
+	var mergedInput []sonic.NoCopyRawMessage
 	if previousResponseID == "" && responsesWebSocketInputReplacesTranscript(nextInput) {
-		mergedInput = cloneRawMessages(nextInput)
+		mergedInput = nextInput
 	} else {
-		lastInput, errLastInput := decodeJSONArray(lastRequest["input"])
-		if errLastInput != nil {
-			return nil, fmt.Errorf("invalid previous websocket input: %w", errLastInput)
+		mergedInput = make([]sonic.NoCopyRawMessage, 0, len(s.lastInput)+len(s.lastResponseOutput)+len(nextInput))
+		mergedInput = append(mergedInput, s.lastInput...)
+		for _, output := range s.lastResponseOutput {
+			mergedInput = append(mergedInput, sonic.NoCopyRawMessage(output))
 		}
-		mergedInput = append(mergedInput, cloneRawMessages(lastInput)...)
-		mergedInput = append(mergedInput, cloneRawMessages(s.lastResponseOutput)...)
-		mergedInput = append(mergedInput, cloneRawMessages(nextInput)...)
+		mergedInput = append(mergedInput, nextInput...)
 		mergedInput = dedupeResponsesWebSocketItems(mergedInput)
 	}
 
 	delete(request, "type")
 	delete(request, "generate")
 	delete(request, "previous_response_id")
-	request["stream"] = json.RawMessage("true")
-	request["input"], err = json.Marshal(mergedInput)
-	if err != nil {
-		return nil, fmt.Errorf("failed to merge websocket input: %w", err)
-	}
+	request["stream"] = sonic.NoCopyRawMessage("true")
 	if _, ok := request["model"]; !ok {
-		request["model"] = bytes.Clone(lastRequest["model"])
+		request["model"] = s.model
 	}
 	if _, ok := request["instructions"]; !ok {
-		if instructions, exists := lastRequest["instructions"]; exists {
-			request["instructions"] = bytes.Clone(instructions)
+		if len(s.instructions) > 0 {
+			request["instructions"] = s.instructions
 		}
 	}
 
-	normalized, err := json.Marshal(request)
-	return normalized, err
+	normalized, err := marshalResponsesWebSocketRequest(request, mergedInput)
+	if err != nil {
+		return responsesWebSocketNormalizedRequest{}, fmt.Errorf("failed to merge websocket input: %w", err)
+	}
+	return responsesWebSocketNormalizedRequest{
+		body:         normalized,
+		input:        mergedInput,
+		model:        request["model"],
+		instructions: request["instructions"],
+	}, nil
 }
 
-func responsesWebSocketInputReplacesTranscript(input []json.RawMessage) bool {
-	for _, item := range input {
-		object, err := decodeJSONObject(item)
-		if err != nil {
-			continue
+func marshalResponsesWebSocketRequest(request map[string]sonic.NoCopyRawMessage, input []sonic.NoCopyRawMessage) ([]byte, error) {
+	wireRequest := make(map[string]interface{}, len(request))
+	for key, value := range request {
+		if key != "input" {
+			wireRequest[key] = value
 		}
-		switch jsonString(object["type"]) {
+	}
+	wireRequest["input"] = input
+	return jsonutil.Marshal(wireRequest)
+}
+
+func responsesWebSocketInputReplacesTranscript(input []sonic.NoCopyRawMessage) bool {
+	for _, item := range input {
+		switch gjson.GetBytes(item, "type").String() {
 		case "compaction", "compaction_summary", "function_call", "custom_tool_call":
 			return true
 		case "message":
-			if jsonString(object["role"]) == "assistant" {
+			if gjson.GetBytes(item, "role").String() == "assistant" {
 				return true
 			}
 		}
@@ -217,30 +251,27 @@ func responsesWebSocketInputReplacesTranscript(input []json.RawMessage) bool {
 	return false
 }
 
-func dedupeResponsesWebSocketItems(items []json.RawMessage) []json.RawMessage {
+func dedupeResponsesWebSocketItems(items []sonic.NoCopyRawMessage) []sonic.NoCopyRawMessage {
 	seenItemIDs := make(map[string]struct{}, len(items))
 	seenCallIDs := make(map[string]struct{}, len(items))
-	result := make([]json.RawMessage, 0, len(items))
+	result := make([]sonic.NoCopyRawMessage, 0, len(items))
 	for _, item := range items {
-		object, err := decodeJSONObject(item)
-		if err == nil {
-			if id := strings.TrimSpace(jsonString(object["id"])); id != "" {
-				if _, exists := seenItemIDs[id]; exists {
+		if id := strings.TrimSpace(gjson.GetBytes(item, "id").String()); id != "" {
+			if _, exists := seenItemIDs[id]; exists {
+				continue
+			}
+			seenItemIDs[id] = struct{}{}
+		}
+		switch gjson.GetBytes(item, "type").String() {
+		case "function_call", "custom_tool_call":
+			if callID := strings.TrimSpace(gjson.GetBytes(item, "call_id").String()); callID != "" {
+				if _, exists := seenCallIDs[callID]; exists {
 					continue
 				}
-				seenItemIDs[id] = struct{}{}
-			}
-			switch jsonString(object["type"]) {
-			case "function_call", "custom_tool_call":
-				if callID := strings.TrimSpace(jsonString(object["call_id"])); callID != "" {
-					if _, exists := seenCallIDs[callID]; exists {
-						continue
-					}
-					seenCallIDs[callID] = struct{}{}
-				}
+				seenCallIDs[callID] = struct{}{}
 			}
 		}
-		result = append(result, bytes.Clone(item))
+		result = append(result, item)
 	}
 	return result
 }
@@ -250,7 +281,7 @@ func newResponsesWebSocketResponseWriter(conn *websocket.Conn) *responsesWebSock
 		conn:               conn,
 		header:             make(http.Header),
 		statusCode:         http.StatusOK,
-		outputItemsByIndex: make(map[int]json.RawMessage),
+		outputItemsByIndex: make(map[int]stdjson.RawMessage),
 	}
 }
 
@@ -266,10 +297,10 @@ type responsesWebSocketResponseWriter struct {
 	eventData  bytes.Buffer
 	rawBody    bytes.Buffer
 
-	outputItemsByIndex  map[int]json.RawMessage
-	outputItemsFallback []json.RawMessage
+	outputItemsByIndex  map[int]stdjson.RawMessage
+	outputItemsFallback []stdjson.RawMessage
 	completed           bool
-	completedOutput     []json.RawMessage
+	completedOutput     []stdjson.RawMessage
 	sentError           bool
 	writeErr            error
 }
@@ -378,12 +409,13 @@ func (w *responsesWebSocketResponseWriter) flushSSEEvent() {
 		w.eventData.Reset()
 		return
 	}
-	payload := bytes.Clone(w.eventData.Bytes())
-	w.eventData.Reset()
+	payload := w.eventData.Bytes()
 	if bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
+		w.eventData.Reset()
 		return
 	}
 	w.forwardPayload(payload)
+	w.eventData.Reset()
 }
 
 func (w *responsesWebSocketResponseWriter) forwardPayload(payload []byte) {
@@ -398,9 +430,9 @@ func (w *responsesWebSocketResponseWriter) forwardPayload(payload []byte) {
 	if eventType == "response.output_item.done" {
 		if item, ok := object["item"]; ok && len(item) > 0 {
 			if outputIndex, okIndex := jsonInt(object["output_index"]); okIndex {
-				w.outputItemsByIndex[outputIndex] = bytes.Clone(item)
+				w.outputItemsByIndex[outputIndex] = item
 			} else {
-				w.outputItemsFallback = append(w.outputItemsFallback, bytes.Clone(item))
+				w.outputItemsFallback = append(w.outputItemsFallback, item)
 			}
 		}
 	}
@@ -411,14 +443,14 @@ func (w *responsesWebSocketResponseWriter) forwardPayload(payload []byte) {
 			output, errOutput := decodeJSONArray(response["output"])
 			if errOutput != nil || len(output) == 0 {
 				output = w.collectedOutput()
-				if encodedOutput, errMarshal := json.Marshal(output); errMarshal == nil {
+				if encodedOutput, errMarshal := jsonutil.Marshal(output); errMarshal == nil {
 					response["output"] = encodedOutput
-					if encodedResponse, errMarshalResponse := json.Marshal(response); errMarshalResponse == nil {
+					if encodedResponse, errMarshalResponse := jsonutil.Marshal(response); errMarshalResponse == nil {
 						object["response"] = encodedResponse
 					}
 				}
 			}
-			w.completedOutput = cloneRawMessages(output)
+			w.completedOutput = output
 		}
 		w.completed = true
 	}
@@ -426,7 +458,7 @@ func (w *responsesWebSocketResponseWriter) forwardPayload(payload []byte) {
 		w.sentError = true
 	}
 
-	encoded, errMarshal := json.Marshal(object)
+	encoded, errMarshal := jsonutil.Marshal(object)
 	if errMarshal != nil {
 		w.writeErr = errMarshal
 		return
@@ -434,17 +466,17 @@ func (w *responsesWebSocketResponseWriter) forwardPayload(payload []byte) {
 	w.writeErr = w.conn.WriteMessage(websocket.TextMessage, encoded)
 }
 
-func (w *responsesWebSocketResponseWriter) collectedOutput() []json.RawMessage {
+func (w *responsesWebSocketResponseWriter) collectedOutput() []stdjson.RawMessage {
 	indexes := make([]int, 0, len(w.outputItemsByIndex))
 	for index := range w.outputItemsByIndex {
 		indexes = append(indexes, index)
 	}
 	sort.Ints(indexes)
-	result := make([]json.RawMessage, 0, len(indexes)+len(w.outputItemsFallback))
+	result := make([]stdjson.RawMessage, 0, len(indexes)+len(w.outputItemsFallback))
 	for _, index := range indexes {
-		result = append(result, bytes.Clone(w.outputItemsByIndex[index]))
+		result = append(result, w.outputItemsByIndex[index])
 	}
-	result = append(result, cloneRawMessages(w.outputItemsFallback)...)
+	result = append(result, w.outputItemsFallback...)
 	return result
 }
 
@@ -472,9 +504,9 @@ func (w *responsesWebSocketResponseWriter) forwardRawResponse() {
 	completion := map[string]any{
 		"type":            "response.completed",
 		"sequence_number": 0,
-		"response":        json.RawMessage(payload),
+		"response":        stdjson.RawMessage(payload),
 	}
-	encoded, errMarshal := json.Marshal(completion)
+	encoded, errMarshal := jsonutil.Marshal(completion)
 	if errMarshal != nil {
 		w.writeErr = errMarshal
 		return
@@ -482,7 +514,7 @@ func (w *responsesWebSocketResponseWriter) forwardRawResponse() {
 	w.forwardPayload(encoded)
 }
 
-func writeResponsesWebSocketError(conn *websocket.Conn, status int, message string, errorBody json.RawMessage) error {
+func writeResponsesWebSocketError(conn *websocket.Conn, status int, message string, errorBody stdjson.RawMessage) error {
 	if status < http.StatusBadRequest || status > 599 {
 		status = http.StatusInternalServerError
 	}
@@ -493,10 +525,10 @@ func writeResponsesWebSocketError(conn *websocket.Conn, status int, message stri
 		"type":    "proxy_error",
 		"message": message,
 	}
-	if len(bytes.TrimSpace(errorBody)) > 0 && json.Valid(errorBody) {
-		detail = json.RawMessage(errorBody)
+	if len(bytes.TrimSpace(errorBody)) > 0 && stdjson.Valid(errorBody) {
+		detail = stdjson.RawMessage(errorBody)
 	}
-	payload, err := json.Marshal(map[string]any{
+	payload, err := jsonutil.Marshal(map[string]any{
 		"type":   "error",
 		"status": status,
 		"error":  detail,
@@ -507,12 +539,12 @@ func writeResponsesWebSocketError(conn *websocket.Conn, status int, message stri
 	return conn.WriteMessage(websocket.TextMessage, payload)
 }
 
-func decodeJSONObject(raw []byte) (map[string]json.RawMessage, error) {
+func decodeJSONObject(raw []byte) (map[string]stdjson.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("empty JSON object")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &object); err != nil {
+	var object map[string]stdjson.RawMessage
+	if err := jsonutil.Unmarshal(raw, &object); err != nil {
 		return nil, err
 	}
 	if object == nil {
@@ -521,40 +553,63 @@ func decodeJSONObject(raw []byte) (map[string]json.RawMessage, error) {
 	return object, nil
 }
 
-func decodeJSONArray(raw []byte) ([]json.RawMessage, error) {
+func decodeJSONObjectNoCopy(raw []byte) (map[string]sonic.NoCopyRawMessage, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, fmt.Errorf("empty JSON object")
+	}
+	if !gjson.ValidBytes(raw) {
+		return nil, fmt.Errorf("invalid JSON object")
+	}
+	var object map[string]sonic.NoCopyRawMessage
+	if err := jsonutil.Unmarshal(raw, &object); err != nil {
+		return nil, err
+	}
+	if object == nil {
+		return nil, fmt.Errorf("expected JSON object")
+	}
+	return object, nil
+}
+
+func decodeJSONArray(raw []byte) ([]stdjson.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("missing JSON array")
 	}
-	var array []json.RawMessage
-	if err := json.Unmarshal(raw, &array); err != nil {
+	var array []stdjson.RawMessage
+	if err := jsonutil.Unmarshal(raw, &array); err != nil {
 		return nil, err
 	}
 	if array == nil {
-		array = []json.RawMessage{}
+		array = []stdjson.RawMessage{}
 	}
 	return array, nil
 }
 
-func jsonString(raw json.RawMessage) string {
+func decodeJSONArrayNoCopy(raw []byte) ([]sonic.NoCopyRawMessage, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, fmt.Errorf("missing JSON array")
+	}
+	var array []sonic.NoCopyRawMessage
+	if err := jsonutil.Unmarshal(raw, &array); err != nil {
+		return nil, err
+	}
+	if array == nil {
+		array = []sonic.NoCopyRawMessage{}
+	}
+	return array, nil
+}
+
+func jsonString(raw []byte) string {
 	var value string
-	if json.Unmarshal(raw, &value) != nil {
+	if jsonutil.Unmarshal(raw, &value) != nil {
 		return ""
 	}
 	return value
 }
 
-func jsonInt(raw json.RawMessage) (int, bool) {
+func jsonInt(raw []byte) (int, bool) {
 	var value int
-	if json.Unmarshal(raw, &value) != nil {
+	if jsonutil.Unmarshal(raw, &value) != nil {
 		return 0, false
 	}
 	return value, true
-}
-
-func cloneRawMessages(messages []json.RawMessage) []json.RawMessage {
-	result := make([]json.RawMessage, len(messages))
-	for index := range messages {
-		result[index] = bytes.Clone(messages[index])
-	}
-	return result
 }

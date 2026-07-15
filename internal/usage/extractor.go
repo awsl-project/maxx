@@ -3,10 +3,10 @@
 package usage
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/jsonutil"
 )
 
 // Metrics represents extracted usage information from an API response.
@@ -81,7 +81,7 @@ func ExtractFromResponseWithOptions(body string, opts ExtractOptions) *Metrics {
 // extractFromJSON tries to parse usage from a JSON response body.
 func extractFromJSON(body string, opts ExtractOptions) *Metrics {
 	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(body), &data); err != nil {
+	if err := jsonutil.UnmarshalString(body, &data); err != nil {
 		return nil
 	}
 
@@ -112,7 +112,7 @@ func extractFromSSE(body string, opts ExtractOptions) *Metrics {
 		}
 
 		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		if err := jsonutil.UnmarshalString(jsonStr, &data); err != nil {
 			continue
 		}
 
@@ -438,12 +438,30 @@ func (sc *StreamCollector) ProcessSSELine(line string) {
 	if jsonStr == "" || jsonStr == "[DONE]" {
 		return
 	}
-
 	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+	if err := jsonutil.UnmarshalString(jsonStr, &data); err != nil {
 		return
 	}
+	sc.ProcessParsedPayload(data)
+}
 
+// ProcessSSEPayload updates the collector from a raw SSE data payload without
+// forcing byte-oriented WebSocket callers through a temporary string.
+func (sc *StreamCollector) ProcessSSEPayload(payload []byte) {
+	var data map[string]interface{}
+	if err := jsonutil.Unmarshal(payload, &data); err != nil {
+		return
+	}
+	sc.ProcessParsedPayload(data)
+}
+
+// ProcessParsedPayload updates the collector from an already decoded SSE JSON
+// payload. Stream adapters that also inspect model/error fields can parse each
+// data event once and share the result instead of decoding it repeatedly.
+func (sc *StreamCollector) ProcessParsedPayload(data map[string]interface{}) {
+	if len(data) == 0 {
+		return
+	}
 	// Extract metrics
 	if metrics := extractUsageFromMap(data, sc.Options); metrics != nil && !metrics.IsEmpty() {
 		sc.Metrics = metrics
