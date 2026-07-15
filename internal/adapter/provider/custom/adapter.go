@@ -727,6 +727,72 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
 	firstChunkSent := false // Track TTFT
+	sawTerminalSSEEvent := false
+
+	processStreamLine := func(line string) error {
+		processedLine := line
+		if isOAuthToken {
+			trimmedLine := strings.TrimSuffix(processedLine, "\n")
+			stripped := stripClaudeToolPrefixFromStreamLine([]byte(trimmedLine), claudeToolPrefix)
+			processedLine = string(stripped)
+			if strings.HasSuffix(line, "\n") && !strings.HasSuffix(processedLine, "\n") {
+				processedLine += "\n"
+			}
+		}
+
+		// Extract metrics and model incrementally per line
+		collector.ProcessSSELine(processedLine)
+		extractResponseModelFromSSELine(processedLine, clientType, &responseModel)
+
+		// Check for SSE error events in data lines BEFORE writing to client
+		lineStr := processedLine
+		trimmedLine := strings.TrimSpace(lineStr)
+		if trimmedLine == "data: [DONE]" {
+			sawTerminalSSEEvent = true
+		}
+		if strings.HasPrefix(trimmedLine, "data:") {
+			if parseErr := parseSSEError(lineStr); parseErr != nil {
+				sseError = parseErr
+				// If no real data has been written to the client yet,
+				// return the error immediately so retry logic can try another route
+				if !firstChunkSent {
+					sendFinalEvents()
+					return sseError
+				}
+				// Otherwise continue to forward the error to client
+			}
+		}
+
+		// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
+		// Adapter simply passes through the upstream SSE data
+		if len(processedLine) > 0 {
+			_, writeErr := c.Writer.Write([]byte(processedLine))
+			if writeErr != nil {
+				sendFinalEvents()
+				if converter.IsResponseConversionError(writeErr) {
+					proxyErr := domain.NewProxyErrorWithMessage(writeErr, true, "response format conversion failed")
+					proxyErr.Scope = domain.ScopeProvider
+					proxyErr.Reason = domain.CooldownReasonServerError
+					return proxyErr
+				}
+				// Client disconnected
+				proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
+			flusher.Flush()
+
+			// Track TTFT: send first token time on first successful write
+			if !firstChunkSent {
+				firstChunkSent = true
+				if eventChan != nil {
+					eventChan.SendFirstToken(time.Now().UnixMilli())
+				}
+			}
+		}
+
+		return nil
+	}
 
 	for {
 		// Check context before reading
@@ -751,66 +817,30 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					lineBuffer.WriteString(line)
 					break
 				}
-
-				processedLine := line
-				if isOAuthToken {
-					trimmedLine := strings.TrimSuffix(processedLine, "\n")
-					stripped := stripClaudeToolPrefixFromStreamLine([]byte(trimmedLine), claudeToolPrefix)
-					processedLine = string(stripped)
-					if strings.HasSuffix(line, "\n") && !strings.HasSuffix(processedLine, "\n") {
-						processedLine += "\n"
-					}
-				}
-
-				// Extract metrics and model incrementally per line
-				collector.ProcessSSELine(processedLine)
-				extractResponseModelFromSSELine(processedLine, clientType, &responseModel)
-
-				// Check for SSE error events in data lines BEFORE writing to client
-				lineStr := processedLine
-				if strings.HasPrefix(strings.TrimSpace(lineStr), "data:") {
-					if parseErr := parseSSEError(lineStr); parseErr != nil {
-						sseError = parseErr
-						// If no real data has been written to the client yet,
-						// return the error immediately so retry logic can try another route
-						if !firstChunkSent {
-							sendFinalEvents()
-							return sseError
-						}
-						// Otherwise continue to forward the error to client
-					}
-				}
-
-				// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
-				// Adapter simply passes through the upstream SSE data
-				if len(processedLine) > 0 {
-					_, writeErr := c.Writer.Write([]byte(processedLine))
-					if writeErr != nil {
-						sendFinalEvents()
-						if converter.IsResponseConversionError(writeErr) {
-							proxyErr := domain.NewProxyErrorWithMessage(writeErr, true, "response format conversion failed")
-							proxyErr.Scope = domain.ScopeProvider
-							proxyErr.Reason = domain.CooldownReasonServerError
-							return proxyErr
-						}
-						// Client disconnected
-						proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
-						proxyErr.Scope = domain.ScopeRequest
-						return proxyErr
-					}
-					flusher.Flush()
-
-					// Track TTFT: send first token time on first successful write
-					if !firstChunkSent && eventChan != nil {
-						firstChunkSent = true
-						eventChan.SendFirstToken(time.Now().UnixMilli())
-					}
+				if lineErr := processStreamLine(line); lineErr != nil {
+					return lineErr
 				}
 			}
 		}
 
 		if err != nil {
-			if err == io.EOF {
+			if err == io.EOF && lineBuffer.Len() > 0 {
+				line := lineBuffer.String()
+				lineBuffer.Reset()
+				if lineErr := processStreamLine(line); lineErr != nil {
+					return lineErr
+				}
+			}
+			if err == io.ErrUnexpectedEOF && lineBuffer.Len() > 0 {
+				line := lineBuffer.String()
+				if strings.TrimSpace(line) == "data: [DONE]" {
+					lineBuffer.Reset()
+					if lineErr := processStreamLine(line); lineErr != nil {
+						return lineErr
+					}
+				}
+			}
+			if err == io.EOF || (err == io.ErrUnexpectedEOF && sawTerminalSSEEvent) {
 				sendFinalEvents() // Extract tokens at normal completion
 				// Return SSE error if one was detected during streaming
 				if sseError != nil {
