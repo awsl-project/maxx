@@ -114,6 +114,27 @@ export interface ProviderConfigOpenRouter {
   apiKey: string;
 }
 
+
+export interface ProviderConfigGrok {
+  type?: 'xai';
+  authKind?: 'oauth';
+  email?: string;
+  sub?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  idToken?: string;
+  tokenType?: string;
+  expiresIn?: number;
+  expired?: string;
+  lastRefresh?: string;
+  redirectURI?: string;
+  tokenEndpoint?: string;
+  baseURL?: string;
+  disabled?: boolean;
+  headers?: Record<string, string>;
+  modelMapping?: Record<string, string>;
+}
+
 // One row in the Bedrock discovery catalog: the Anthropic short name
 // clients send, the invoke-ready Bedrock ID our adapter routes to, and
 // which AWS catalog the entry was sourced from.
@@ -147,6 +168,7 @@ export interface ProviderConfig {
   codex?: ProviderConfigCodex;
   claude?: ProviderConfigClaude;
   openrouter?: ProviderConfigOpenRouter;
+  grok?: ProviderConfigGrok;
 }
 
 export interface Provider {
@@ -446,6 +468,7 @@ export interface ProxyRequest {
   clientType: ClientType;
   requestModel: string;
   responseModel: string;
+  reasoningEffort: string;
   startTime: string;
   endTime: string;
   duration: number; // nanoseconds

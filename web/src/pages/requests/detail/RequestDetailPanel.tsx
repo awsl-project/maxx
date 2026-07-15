@@ -59,32 +59,27 @@ function calculateLinearCost(tokens: number, priceMicro: number): number {
   return Number(result);
 }
 
-// Calculate tiered cost for 1M context models (same as backend CalculateTieredCost)
+// Calculate a request-wide premium cost for long-context models.
 // Returns nanoUSD
-function calculateTieredCost(
+function calculatePremiumCost(
   tokens: number,
   basePriceMicro: number,
   premiumNum: number,
   premiumDenom: number,
-  threshold: number,
+  applyPremium: boolean,
 ): number {
-  if (tokens <= threshold) {
+  if (!applyPremium) {
     return calculateLinearCost(tokens, basePriceMicro);
   }
 
-  const baseCostNano = calculateLinearCost(threshold, basePriceMicro);
-  const premiumTokens = tokens - threshold;
-
-  // Use BigInt for premium calculation
-  const t = BigInt(premiumTokens);
+  const t = BigInt(tokens);
   const p = BigInt(basePriceMicro);
   const microToNano = BigInt(MICRO_TO_NANO);
   const tokensPerMillion = BigInt(1_000_000);
   const num = BigInt(premiumNum);
   const denom = BigInt(premiumDenom);
 
-  const premiumCostNano = (t * p * microToNano * num) / tokensPerMillion / denom;
-  return baseCostNano + Number(premiumCostNano);
+  return Number((t * p * microToNano * num) / tokensPerMillion / denom);
 }
 
 // Calculate cost breakdown from request/attempt data and pricing table
@@ -126,16 +121,21 @@ function calculateCostBreakdown(
     const inputPremiumDenom = pricing.inputPremiumDenom || 1;
     const outputPremiumNum = pricing.outputPremiumNum || 3;
     const outputPremiumDenom = pricing.outputPremiumDenom || 2;
+    const splitCacheWriteTokens = cache5mWriteTokens + cache1hWriteTokens;
+    const effectiveCacheWriteTokens =
+      splitCacheWriteTokens > 0 ? splitCacheWriteTokens : cacheWriteTokens;
+    const promptTokens = inputTokens + cacheReadTokens + effectiveCacheWriteTokens;
+    const applyPremium = has1MContext && promptTokens > threshold;
 
     // Input tokens
     if (inputTokens > 0) {
       const cost = has1MContext
-        ? calculateTieredCost(
+        ? calculatePremiumCost(
             inputTokens,
             pricing.inputPriceMicro,
             inputPremiumNum,
             inputPremiumDenom,
-            threshold,
+            applyPremium,
           )
         : calculateLinearCost(inputTokens, pricing.inputPriceMicro);
       items.push({
@@ -149,12 +149,12 @@ function calculateCostBreakdown(
     // Output tokens
     if (outputTokens > 0) {
       const cost = has1MContext
-        ? calculateTieredCost(
+        ? calculatePremiumCost(
             outputTokens,
             pricing.outputPriceMicro,
             outputPremiumNum,
             outputPremiumDenom,
-            threshold,
+            applyPremium,
           )
         : calculateLinearCost(outputTokens, pricing.outputPriceMicro);
       items.push({
@@ -173,7 +173,13 @@ function calculateCostBreakdown(
         label: 'Cache Read',
         tokens: cacheReadTokens,
         pricePerM: cacheReadPrice,
-        cost: calculateLinearCost(cacheReadTokens, cacheReadPrice),
+        cost: calculatePremiumCost(
+          cacheReadTokens,
+          cacheReadPrice,
+          inputPremiumNum,
+          inputPremiumDenom,
+          applyPremium,
+        ),
       });
     }
 
@@ -185,7 +191,13 @@ function calculateCostBreakdown(
         label: 'Cache Write (5m)',
         tokens: cache5mWriteTokens,
         pricePerM: cache5mPrice,
-        cost: calculateLinearCost(cache5mWriteTokens, cache5mPrice),
+        cost: calculatePremiumCost(
+          cache5mWriteTokens,
+          cache5mPrice,
+          inputPremiumNum,
+          inputPremiumDenom,
+          applyPremium,
+        ),
       });
     }
     if (cache1hWriteTokens > 0) {
@@ -195,7 +207,13 @@ function calculateCostBreakdown(
         label: 'Cache Write (1h)',
         tokens: cache1hWriteTokens,
         pricePerM: cache1hPrice,
-        cost: calculateLinearCost(cache1hWriteTokens, cache1hPrice),
+        cost: calculatePremiumCost(
+          cache1hWriteTokens,
+          cache1hPrice,
+          inputPremiumNum,
+          inputPremiumDenom,
+          applyPremium,
+        ),
       });
     }
     // Fallback: if no 5m/1h breakdown but has cacheWrite
@@ -206,7 +224,13 @@ function calculateCostBreakdown(
         label: 'Cache Write',
         tokens: cacheWriteTokens,
         pricePerM: cacheWritePrice,
-        cost: calculateLinearCost(cacheWriteTokens, cacheWritePrice),
+        cost: calculatePremiumCost(
+          cacheWriteTokens,
+          cacheWritePrice,
+          inputPremiumNum,
+          inputPremiumDenom,
+          applyPremium,
+        ),
       });
     }
   }

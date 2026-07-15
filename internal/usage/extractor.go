@@ -3,10 +3,10 @@
 package usage
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/jsonutil"
 )
 
 // Metrics represents extracted usage information from an API response.
@@ -81,7 +81,7 @@ func ExtractFromResponseWithOptions(body string, opts ExtractOptions) *Metrics {
 // extractFromJSON tries to parse usage from a JSON response body.
 func extractFromJSON(body string, opts ExtractOptions) *Metrics {
 	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(body), &data); err != nil {
+	if err := jsonutil.UnmarshalString(body, &data); err != nil {
 		return nil
 	}
 
@@ -112,7 +112,7 @@ func extractFromSSE(body string, opts ExtractOptions) *Metrics {
 		}
 
 		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		if err := jsonutil.UnmarshalString(jsonStr, &data); err != nil {
 			continue
 		}
 
@@ -210,10 +210,9 @@ func extractUsageFromMap(data map[string]interface{}, opts ExtractOptions) *Metr
 // input_tokens / output_tokens), so their presence is a reliable discriminator.
 //
 // The Responses API (Codex) also uses input_tokens / output_tokens at the top
-// level, colliding with Claude, but carries cached_tokens under
-// input_tokens_details — a sub-key Claude never emits. Routing on its presence
-// lets extractOpenAIUsage pick up the cache read instead of silently dropping
-// it via extractClaudeUsage.
+// level, colliding with Claude, but carries cached_tokens/cache_write_tokens
+// under input_tokens_details — sub-keys Claude never emits. Routing on their
+// presence lets extractOpenAIUsage preserve prompt-cache billing metrics.
 func isOpenAIUsage(usage map[string]interface{}) bool {
 	if _, ok := usage["prompt_tokens"]; ok {
 		return true
@@ -223,6 +222,9 @@ func isOpenAIUsage(usage map[string]interface{}) bool {
 	}
 	if details, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
 		if _, ok := details["cached_tokens"]; ok {
+			return true
+		}
+		if _, ok := details["cache_write_tokens"]; ok {
 			return true
 		}
 	}
@@ -352,12 +354,18 @@ func extractOpenAIUsage(usage map[string]interface{}) *Metrics {
 		if v, ok := details["cached_tokens"].(float64); ok {
 			metrics.CacheReadCount = uint64(v)
 		}
+		if v, ok := details["cache_write_tokens"].(float64); ok {
+			metrics.CacheCreationCount = uint64(v)
+		}
 	}
 
 	// Alternative: input_tokens_details (Codex format)
 	if details, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
 		if v, ok := details["cached_tokens"].(float64); ok {
 			metrics.CacheReadCount = uint64(v)
+		}
+		if v, ok := details["cache_write_tokens"].(float64); ok {
+			metrics.CacheCreationCount = uint64(v)
 		}
 	}
 
@@ -438,12 +446,30 @@ func (sc *StreamCollector) ProcessSSELine(line string) {
 	if jsonStr == "" || jsonStr == "[DONE]" {
 		return
 	}
-
 	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+	if err := jsonutil.UnmarshalString(jsonStr, &data); err != nil {
 		return
 	}
+	sc.ProcessParsedPayload(data)
+}
 
+// ProcessSSEPayload updates the collector from a raw SSE data payload without
+// forcing byte-oriented WebSocket callers through a temporary string.
+func (sc *StreamCollector) ProcessSSEPayload(payload []byte) {
+	var data map[string]interface{}
+	if err := jsonutil.Unmarshal(payload, &data); err != nil {
+		return
+	}
+	sc.ProcessParsedPayload(data)
+}
+
+// ProcessParsedPayload updates the collector from an already decoded SSE JSON
+// payload. Stream adapters that also inspect model/error fields can parse each
+// data event once and share the result instead of decoding it repeatedly.
+func (sc *StreamCollector) ProcessParsedPayload(data map[string]interface{}) {
+	if len(data) == 0 {
+		return
+	}
 	// Extract metrics
 	if metrics := extractUsageFromMap(data, sc.Options); metrics != nil && !metrics.IsEmpty() {
 		sc.Metrics = metrics
@@ -472,18 +498,24 @@ func (sc *StreamCollector) ProcessSSELine(line string) {
 }
 
 // AdjustForClientType adjusts metrics based on client type specific quirks.
-// For Codex: input_tokens includes cached_tokens, so we subtract to avoid double counting.
+// For Codex: input_tokens includes cached_tokens and cache_write_tokens, so we
+// subtract both subsets to avoid double counting them at the uncached input rate.
 // For other clients: returns metrics unchanged.
 func AdjustForClientType(metrics *Metrics, clientType domain.ClientType) *Metrics {
 	if metrics == nil {
 		return nil
 	}
 
-	// Codex/OpenAI Response API: input_tokens includes cached_tokens
-	// We need to subtract to get actual input tokens (avoiding double billing)
+	// Codex/OpenAI Response API: input_tokens includes cached and cache-write
+	// subsets. Subtract both to get fresh uncached input tokens.
 	if clientType == domain.ClientTypeCodex {
-		if metrics.CacheReadCount > 0 && metrics.InputTokens >= metrics.CacheReadCount {
-			metrics.InputTokens = metrics.InputTokens - metrics.CacheReadCount
+		cacheWriteTokens := metrics.CacheCreationCount
+		if metrics.Cache5mCreationCount > 0 || metrics.Cache1hCreationCount > 0 {
+			cacheWriteTokens = metrics.Cache5mCreationCount + metrics.Cache1hCreationCount
+		}
+		cacheTokens := metrics.CacheReadCount + cacheWriteTokens
+		if cacheTokens > 0 && metrics.InputTokens >= cacheTokens {
+			metrics.InputTokens -= cacheTokens
 		}
 	}
 

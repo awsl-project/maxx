@@ -44,6 +44,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { BackendAddressControl } from '@/components/backend-address-control';
 import { useSettings, useUpdateSetting, useDeleteSetting } from '@/hooks/queries';
 import { useAuth } from '@/lib/auth-context';
+import { buildPprofUrl } from '@/lib/backend-config';
 import { useTransport } from '@/lib/transport/context';
 import type { BackupFile, BackupImportResult } from '@/lib/transport/types';
 import { getDefaultThemes, getLuxuryThemes, isLuxuryTheme } from '@/lib/theme';
@@ -84,6 +85,45 @@ const DEFAULT_CODEX_REASONING_GUARD_SETTING = JSON.stringify(
 );
 const MULTITENANT_UI_LAYOUT_SETTING_KEY = 'ui_multitenant_layout';
 type MultiTenantUILayout = 'current' | 'user_panel';
+
+interface ProxyRouteExposureSetting {
+  key: string;
+  titleKey: string;
+  descKey: string;
+  paths: string[];
+  defaultEnabled: boolean;
+}
+
+const PROXY_ROUTE_EXPOSURE_SETTINGS: ProxyRouteExposureSetting[] = [
+  {
+    key: 'proxy_route_claude_messages_enabled',
+    titleKey: 'settings.proxyRouteClaudeMessages',
+    descKey: 'settings.proxyRouteClaudeMessagesDesc',
+    paths: ['/v1/messages'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'proxy_route_openai_chat_enabled',
+    titleKey: 'settings.proxyRouteOpenAIChat',
+    descKey: 'settings.proxyRouteOpenAIChatDesc',
+    paths: ['/v1/chat/completions', '/chat/completions'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'proxy_route_responses_enabled',
+    titleKey: 'settings.proxyRouteResponses',
+    descKey: 'settings.proxyRouteResponsesDesc',
+    paths: ['/v1/responses', '/responses'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'proxy_route_gemini_enabled',
+    titleKey: 'settings.proxyRouteGemini',
+    descKey: 'settings.proxyRouteGeminiDesc',
+    paths: ['/v1beta/models/*'],
+    defaultEnabled: false,
+  },
+];
 
 type PayloadOverrideProtocol = 'codex';
 
@@ -306,6 +346,7 @@ export function SettingsPage() {
               <PayloadOverrideSection />
               <CodexReasoningGuardSection />
               <APITokenConcurrencySection />
+              <ProxyRouteExposureSection />
               <AntigravitySection />
               <PprofSection />
               <BackupSection />
@@ -1429,33 +1470,56 @@ function APITokenConcurrencySection() {
   const { t } = useTranslation();
 
   const currentLimit = settings?.api_token_concurrent_limit || '5';
+  const currentRateLimitCooldown = settings?.cooldown_rate_limit_default_seconds || '5';
   const [limitDraft, setLimitDraft] = useState('');
+  const [rateLimitCooldownDraft, setRateLimitCooldownDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
       setLimitDraft(currentLimit);
+      setRateLimitCooldownDraft(currentRateLimitCooldown);
       setInitialized(true);
     }
-  }, [isLoading, initialized, currentLimit]);
+  }, [isLoading, initialized, currentLimit, currentRateLimitCooldown]);
 
-  const hasChanges = initialized && limitDraft !== currentLimit;
+  const hasLimitChanges = initialized && limitDraft !== currentLimit;
+  const hasRateLimitCooldownChanges =
+    initialized && rateLimitCooldownDraft !== currentRateLimitCooldown;
+  const hasChanges = hasLimitChanges || hasRateLimitCooldownChanges;
 
   useEffect(() => {
     if (initialized && !hasChanges) {
       setLimitDraft(currentLimit);
+      setRateLimitCooldownDraft(currentRateLimitCooldown);
     }
-  }, [currentLimit, initialized, hasChanges]);
+  }, [currentLimit, currentRateLimitCooldown, initialized, hasChanges]);
 
-  const parsedLimit = parseInt(limitDraft, 10);
-  const isValid = !isNaN(parsedLimit) && parsedLimit >= 1;
+  const parsedLimit = /^\d+$/.test(limitDraft.trim()) ? Number(limitDraft.trim()) : NaN;
+  const isLimitValid = Number.isInteger(parsedLimit) && parsedLimit >= 1;
+  const parsedRateLimitCooldown = /^\d+$/.test(rateLimitCooldownDraft.trim())
+    ? Number(rateLimitCooldownDraft.trim())
+    : NaN;
+  const isRateLimitCooldownValid =
+    Number.isInteger(parsedRateLimitCooldown) &&
+    parsedRateLimitCooldown >= 1 &&
+    parsedRateLimitCooldown <= 86400;
+  const isValid = isLimitValid && isRateLimitCooldownValid;
 
   const handleSaveLimit = async () => {
     if (!isValid || !hasChanges) return;
-    await updateSetting.mutateAsync({
-      key: 'api_token_concurrent_limit',
-      value: limitDraft,
-    });
+    if (hasLimitChanges) {
+      await updateSetting.mutateAsync({
+        key: 'api_token_concurrent_limit',
+        value: String(parsedLimit),
+      });
+    }
+    if (hasRateLimitCooldownChanges) {
+      await updateSetting.mutateAsync({
+        key: 'cooldown_rate_limit_default_seconds',
+        value: String(parsedRateLimitCooldown),
+      });
+    }
   };
 
   if (isLoading || !initialized) return null;
@@ -1483,26 +1547,146 @@ function APITokenConcurrencySection() {
         </div>
       </CardHeader>
       <CardContent className="p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-          <Label className="text-sm font-medium text-muted-foreground shrink-0">
-            {t('settings.apiTokenConcurrencyLimit')}
-          </Label>
-          <Input
-            type="number"
-            value={limitDraft}
-            onChange={(e) => setLimitDraft(e.target.value)}
-            className="w-24"
-            min={1}
-            disabled={updateSetting.isPending}
-          />
-          <span className="text-xs text-muted-foreground">
-            {t('settings.concurrentRequestsUnit')}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            ({t('settings.defaultValue', { value: 5 })})
-          </span>
+        <div className="space-y-1.5">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <Label className="text-sm font-medium text-muted-foreground shrink-0">
+              {t('settings.apiTokenConcurrencyLimit')}
+            </Label>
+            <Input
+              type="number"
+              value={limitDraft}
+              onChange={(e) => setLimitDraft(e.target.value)}
+              className="w-24"
+              min={1}
+              disabled={updateSetting.isPending}
+            />
+            <span className="text-xs text-muted-foreground">
+              {t('settings.concurrentRequestsUnit')}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              ({t('settings.defaultValue', { value: 5 })})
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('settings.apiTokenConcurrencyHint')}</p>
         </div>
-        <p className="text-xs text-muted-foreground">{t('settings.apiTokenConcurrencyHint')}</p>
+
+        <div className="space-y-1.5 pt-4 border-t border-border">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <Label className="text-sm font-medium text-muted-foreground shrink-0">
+              {t('settings.rateLimitCooldownDefaultSeconds')}
+            </Label>
+            <Input
+              type="number"
+              value={rateLimitCooldownDraft}
+              onChange={(e) => setRateLimitCooldownDraft(e.target.value)}
+              className="w-24"
+              min={1}
+              max={86400}
+              step={1}
+              disabled={updateSetting.isPending}
+            />
+            <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
+            <span className="text-xs text-muted-foreground">
+              ({t('settings.defaultValue', { value: 5 })})
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.rateLimitCooldownDefaultSecondsHint')}
+          </p>
+          {!isRateLimitCooldownValid && (
+            <p className="text-xs text-destructive">
+              {t('settings.rateLimitCooldownDefaultSecondsInvalid')}
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProxyRouteExposureSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+
+  const enabledCount = PROXY_ROUTE_EXPOSURE_SETTINGS.filter((route) => {
+    const value = settings?.[route.key];
+    return value === undefined ? route.defaultEnabled : value !== 'false';
+  }).length;
+
+  const handleToggle = async (key: string, checked: boolean) => {
+    if (!checked && enabledCount <= 1) return;
+
+    await updateSetting.mutateAsync({
+      key,
+      value: checked ? 'true' : 'false',
+    });
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div>
+          <CardTitle className="text-base font-medium flex items-center gap-2">
+            <Globe className="h-4 w-4 text-muted-foreground" />
+            {t('settings.proxyRouteExposure')}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            {t('settings.proxyRouteExposureDesc')}
+          </p>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-4">
+        {PROXY_ROUTE_EXPOSURE_SETTINGS.map((route) => {
+          const value = settings?.[route.key];
+          const enabled = value === undefined ? route.defaultEnabled : value !== 'false';
+          const disableLastEnabledRoute = enabled && enabledCount <= 1;
+
+          return (
+            <div
+              key={route.key}
+              className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-4 sm:flex-row sm:items-start sm:justify-between"
+            >
+              <div className="min-w-0 space-y-2">
+                <div>
+                  <Label className="text-sm font-medium text-foreground">{t(route.titleKey)}</Label>
+                  <p className="text-xs text-muted-foreground mt-1">{t(route.descKey)}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {route.paths.map((path) => (
+                    <code
+                      key={path}
+                      className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      {path}
+                    </code>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <Switch
+                  aria-label={t(route.titleKey)}
+                  checked={enabled}
+                  onCheckedChange={(checked) => handleToggle(route.key, checked)}
+                  disabled={updateSetting.isPending || disableLastEnabledRoute}
+                />
+                {disableLastEnabledRoute && (
+                  <span className="max-w-40 text-right text-[11px] text-muted-foreground">
+                    {t('settings.proxyRouteExposureAtLeastOne')}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex items-start gap-2 p-3 rounded-md bg-blue-500/10 border border-blue-500/20">
+          <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            {t('settings.proxyRouteExposureHint')}
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -1611,6 +1795,7 @@ function PprofSection() {
   const [initialized, setInitialized] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [portError, setPortError] = useState('');
+  const pprofUrl = buildPprofUrl(portDraft);
 
   useEffect(() => {
     if (!isLoading && !initialized) {
@@ -1863,12 +2048,12 @@ function PprofSection() {
                 <p className="flex items-center gap-2">
                   <span>{t('settings.pprofAccessHint')}:</span>
                   <a
-                    href={`http://localhost:${portDraft}/debug/pprof/`}
+                    href={pprofUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="underline hover:text-blue-700 dark:hover:text-blue-300 font-medium"
                   >
-                    http://localhost:{portDraft}/debug/pprof/
+                    {pprofUrl}
                   </a>
                 </p>
                 {usePasswordDraft && (

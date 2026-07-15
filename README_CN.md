@@ -238,10 +238,23 @@ model_provider = "maxx"
 name = "maxx"
 base_url = "http://localhost:9880"
 wire_api = "responses"
+requires_openai_auth = true
+supports_websockets = true
 request_max_retries = 4
 stream_max_retries = 10
 stream_idle_timeout_ms = 300000
 ```
+
+`supports_websockets = true` 会让 Codex 对 `GET /v1/responses` 发起
+WebSocket 升级，并在持久连接上发送 `response.create` 事件。仍把 v2 传输
+作为实验功能的旧版 Codex 可能还需要：
+
+```toml
+[features]
+responses_websockets_v2 = true
+```
+
+同一个 TOML 键只配置一次。
 
 **auth.json**
 
@@ -285,11 +298,11 @@ codex
 |------|------|
 | Claude | `POST /v1/messages` |
 | OpenAI | `POST /v1/chat/completions` |
-| Codex | `POST /v1/responses` |
+| Codex | `POST /v1/responses` 或 WebSocket `GET /v1/responses` |
 | Gemini | `POST /v1beta/models/{model}:generateContent` |
 | 项目代理 | `/project/{project-slug}/v1/messages` (等) |
 | 管理 API | `/api/admin/*` |
-| WebSocket | `ws://localhost:9880/ws` |
+| 管理界面 WebSocket | `ws://localhost:9880/ws` |
 | 健康检查 | `GET /health` |
 | Web UI | `http://localhost:9880/` |
 

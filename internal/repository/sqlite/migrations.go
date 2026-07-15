@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -539,6 +540,149 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     18,
+		Description: "Add reasoning effort metadata to proxy requests",
+		Up: func(db *gorm.DB) error {
+			return runReasoningEffortColumnMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Keep the column on rollback: dropping a column can rebuild large
+			// MySQL tables and the older application safely ignores it.
+			return nil
+		},
+	},
+}
+
+func runReasoningEffortColumnMigration(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort") {
+		return nil
+	}
+
+	const ddl = reasoningEffortColumnDDL
+	if db.Dialector.Name() != "mysql" {
+		if err := db.Exec(ddl).Error; err != nil {
+			if isDuplicateColumnError(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+
+	var version string
+	if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err == nil && mysqlSupportsInstantAddColumn(version) {
+		if err := db.Exec(ddl + ", ALGORITHM=INSTANT").Error; err == nil {
+			return nil
+		} else {
+			if isDuplicateColumnError(err) {
+				return nil
+			}
+			log.Printf("[Migration v18] MySQL instant ADD COLUMN unavailable (%v); evaluating safe fallback", err)
+		}
+	}
+
+	exceedsThreshold, err := proxyRequestsExceedReasoningMigrationThreshold(db, detailCleanupIndexRowThreshold)
+	if err != nil {
+		log.Printf("[Migration v18] could not probe proxy_requests row threshold (%v); skipping column add. Apply manually if needed: %s;", err, ddl)
+		return nil
+	}
+	if exceedsThreshold {
+		log.Printf("[Migration v18] SKIPPING reasoning_effort ADD COLUMN: proxy_requests has more than %d rows. "+
+			"Apply manually during a maintenance window: %s;",
+			detailCleanupIndexRowThreshold, ddl)
+		return nil
+	}
+
+	if err := execMySQLReasoningEffortDDLWithLockTimeout(db, ddl); err != nil {
+		if isDuplicateColumnError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+const reasoningEffortColumnDDL = "ALTER TABLE proxy_requests ADD COLUMN reasoning_effort VARCHAR(32) NULL"
+const reasoningEffortMigrationLockWaitTimeoutSeconds uint64 = 10
+
+func execMySQLReasoningEffortDDLWithLockTimeout(db *gorm.DB, ddl string) error {
+	return db.Connection(func(tx *gorm.DB) error {
+		ctx := tx.Statement.Context
+		conn := tx.Statement.ConnPool
+		var originalTimeout uint64
+		if err := conn.QueryRowContext(ctx, "SELECT @@SESSION.lock_wait_timeout").Scan(&originalTimeout); err != nil {
+			return fmt.Errorf("read MySQL session lock_wait_timeout: %w", err)
+		}
+		if _, err := conn.ExecContext(
+			ctx,
+			"SET SESSION lock_wait_timeout = ?",
+			reasoningEffortMigrationLockWaitTimeoutSeconds,
+		); err != nil {
+			return fmt.Errorf("set MySQL session lock_wait_timeout: %w", err)
+		}
+
+		_, ddlErr := conn.ExecContext(ctx, ddl)
+		if _, restoreErr := conn.ExecContext(
+			ctx,
+			"SET SESSION lock_wait_timeout = ?",
+			originalTimeout,
+		); restoreErr != nil {
+			if ddlErr != nil {
+				log.Printf("[Migration v18] reasoning_effort DDL also failed before lock_wait_timeout restoration: %v", ddlErr)
+			}
+			return fmt.Errorf("restore MySQL session lock_wait_timeout: %w", restoreErr)
+		}
+		return ddlErr
+	})
+}
+
+// proxyRequestsExceedReasoningMigrationThreshold checks only whether a row
+// exists immediately after the threshold. Unlike COUNT(*), the work is bounded
+// to at most threshold+1 primary-key entries even when proxy_requests is huge.
+func proxyRequestsExceedReasoningMigrationThreshold(db *gorm.DB, threshold int64) (bool, error) {
+	var marker int
+	result := db.Raw(
+		"SELECT 1 FROM proxy_requests ORDER BY id LIMIT 1 OFFSET ?",
+		threshold,
+	).Scan(&marker)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+func isDuplicateColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1060 // ER_DUP_FIELDNAME
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists")
+}
+
+func mysqlSupportsInstantAddColumn(version string) bool {
+	if strings.Contains(strings.ToLower(version), "mariadb") {
+		return false
+	}
+	version = strings.SplitN(version, "-", 2)[0]
+	parts := strings.Split(version, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	major, errMajor := strconv.Atoi(parts[0])
+	minor, errMinor := strconv.Atoi(parts[1])
+	patch, errPatch := strconv.Atoi(parts[2])
+	if errMajor != nil || errMinor != nil || errPatch != nil {
+		return false
+	}
+	if major > 8 {
+		return true
+	}
+	return major == 8 && (minor > 0 || patch >= 12)
 }
 
 // runDetailClearedColumnMigration 显式添加 detail_cleared 列到两张大表,带 threshold-skip。

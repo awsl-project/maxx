@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -23,7 +22,10 @@ import (
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/jsonutil"
 	"github.com/awsl-project/maxx/internal/usage"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // mockMode enables forwarding X-Mock-* headers to upstream (for testing).
@@ -245,11 +247,19 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 
 	// Send request info via EventChannel
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
+		contentType := ""
+		if request != nil {
+			contentType = request.Header.Get("Content-Type")
+		}
+		devMode := false
+		if proxyRequest := flow.GetProxyRequest(c); proxyRequest != nil {
+			devMode = proxyRequest.DevMode
+		}
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  upstreamReq.Method,
 			URL:     upstreamURL,
 			Headers: sanitizeHeadersForEvent(upstreamReq.Header),
-			Body:    string(requestBody),
+			Body:    domain.RequestBodySnapshot(requestBody, contentType, devMode),
 		})
 	}
 
@@ -399,11 +409,15 @@ func (a *CustomAdapter) retryWithFixer(
 		retryReq.ContentLength = int64(len(fixedBody))
 
 		if eventChan := flow.GetEventChan(c); eventChan != nil {
+			devMode := false
+			if proxyRequest := flow.GetProxyRequest(c); proxyRequest != nil {
+				devMode = proxyRequest.DevMode
+			}
 			eventChan.SendRequestInfo(&domain.RequestInfo{
 				Method:  retryReq.Method,
 				URL:     retryReq.URL.String(),
 				Headers: sanitizeHeadersForEvent(retryReq.Header),
-				Body:    string(fixedBody),
+				Body:    domain.RequestBodySnapshot(fixedBody, retryReq.Header.Get("Content-Type"), devMode),
 			})
 		}
 
@@ -652,20 +666,8 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 		}
 	}
 
-	// Helper to parse SSE error event from data line
-	parseSSEError := func(dataLine string) error {
-		// Remove "data:" prefix and trim whitespace
-		data := strings.TrimSpace(strings.TrimPrefix(dataLine, "data:"))
-		if data == "" || data == "[DONE]" {
-			return nil
-		}
-
-		// Try to parse as JSON
-		var payload map[string]interface{}
-		if err := json.Unmarshal([]byte(data), &payload); err != nil {
-			return nil
-		}
-
+	// Helper to inspect an already decoded SSE payload for provider errors.
+	parseSSEErrorPayload := func(payload map[string]interface{}) error {
 		// Check for Claude-style error: {"type": "error", "error": {...}}
 		if payloadType, ok := payload["type"].(string); ok && payloadType == "error" {
 			if errObj, ok := payload["error"].(map[string]interface{}); ok {
@@ -727,6 +729,78 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 	var lineBuffer bytes.Buffer
 	buf := make([]byte, 4096)
 	firstChunkSent := false // Track TTFT
+	sawTerminalSSEEvent := false
+
+	processStreamLine := func(line string) error {
+		processedLine := line
+		if isOAuthToken {
+			trimmedLine := strings.TrimSuffix(processedLine, "\n")
+			stripped := stripClaudeToolPrefixFromStreamLine([]byte(trimmedLine), claudeToolPrefix)
+			processedLine = string(stripped)
+			if strings.HasSuffix(line, "\n") && !strings.HasSuffix(processedLine, "\n") {
+				processedLine += "\n"
+			}
+		}
+
+		// Parse each SSE data payload once, then share it between usage, model,
+		// and error extraction. Previously every token event was decoded three
+		// separate times.
+		lineStr := processedLine
+		trimmedLine := strings.TrimSpace(lineStr)
+		if trimmedLine == "data: [DONE]" {
+			sawTerminalSSEEvent = true
+		}
+		if strings.HasPrefix(trimmedLine, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "data:"))
+			if data != "" && data != "[DONE]" {
+				var payload map[string]interface{}
+				if jsonutil.UnmarshalString(data, &payload) == nil {
+					collector.ProcessParsedPayload(payload)
+					extractResponseModelFromPayload(payload, clientType, &responseModel)
+					if parseErr := parseSSEErrorPayload(payload); parseErr != nil {
+						sseError = parseErr
+						// If no real data has been written to the client yet,
+						// return the error immediately so retry logic can try another route.
+						if !firstChunkSent {
+							sendFinalEvents()
+							return sseError
+						}
+						// Otherwise continue to forward the error to client.
+					}
+				}
+			}
+		}
+
+		// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
+		// Adapter simply passes through the upstream SSE data
+		if len(processedLine) > 0 {
+			_, writeErr := c.Writer.Write([]byte(processedLine))
+			if writeErr != nil {
+				sendFinalEvents()
+				if converter.IsResponseConversionError(writeErr) {
+					proxyErr := domain.NewProxyErrorWithMessage(writeErr, true, "response format conversion failed")
+					proxyErr.Scope = domain.ScopeProvider
+					proxyErr.Reason = domain.CooldownReasonServerError
+					return proxyErr
+				}
+				// Client disconnected
+				proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
+				proxyErr.Scope = domain.ScopeRequest
+				return proxyErr
+			}
+			flusher.Flush()
+
+			// Track TTFT: send first token time on first successful write
+			if !firstChunkSent {
+				firstChunkSent = true
+				if eventChan != nil {
+					eventChan.SendFirstToken(time.Now().UnixMilli())
+				}
+			}
+		}
+
+		return nil
+	}
 
 	for {
 		// Check context before reading
@@ -751,66 +825,30 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 					lineBuffer.WriteString(line)
 					break
 				}
-
-				processedLine := line
-				if isOAuthToken {
-					trimmedLine := strings.TrimSuffix(processedLine, "\n")
-					stripped := stripClaudeToolPrefixFromStreamLine([]byte(trimmedLine), claudeToolPrefix)
-					processedLine = string(stripped)
-					if strings.HasSuffix(line, "\n") && !strings.HasSuffix(processedLine, "\n") {
-						processedLine += "\n"
-					}
-				}
-
-				// Extract metrics and model incrementally per line
-				collector.ProcessSSELine(processedLine)
-				extractResponseModelFromSSELine(processedLine, clientType, &responseModel)
-
-				// Check for SSE error events in data lines BEFORE writing to client
-				lineStr := processedLine
-				if strings.HasPrefix(strings.TrimSpace(lineStr), "data:") {
-					if parseErr := parseSSEError(lineStr); parseErr != nil {
-						sseError = parseErr
-						// If no real data has been written to the client yet,
-						// return the error immediately so retry logic can try another route
-						if !firstChunkSent {
-							sendFinalEvents()
-							return sseError
-						}
-						// Otherwise continue to forward the error to client
-					}
-				}
-
-				// Note: Response format conversion is handled by Executor's ConvertingResponseWriter
-				// Adapter simply passes through the upstream SSE data
-				if len(processedLine) > 0 {
-					_, writeErr := c.Writer.Write([]byte(processedLine))
-					if writeErr != nil {
-						sendFinalEvents()
-						if converter.IsResponseConversionError(writeErr) {
-							proxyErr := domain.NewProxyErrorWithMessage(writeErr, true, "response format conversion failed")
-							proxyErr.Scope = domain.ScopeProvider
-							proxyErr.Reason = domain.CooldownReasonServerError
-							return proxyErr
-						}
-						// Client disconnected
-						proxyErr := domain.NewProxyErrorWithMessage(writeErr, false, "client disconnected")
-						proxyErr.Scope = domain.ScopeRequest
-						return proxyErr
-					}
-					flusher.Flush()
-
-					// Track TTFT: send first token time on first successful write
-					if !firstChunkSent && eventChan != nil {
-						firstChunkSent = true
-						eventChan.SendFirstToken(time.Now().UnixMilli())
-					}
+				if lineErr := processStreamLine(line); lineErr != nil {
+					return lineErr
 				}
 			}
 		}
 
 		if err != nil {
-			if err == io.EOF {
+			if err == io.EOF && lineBuffer.Len() > 0 {
+				line := lineBuffer.String()
+				lineBuffer.Reset()
+				if lineErr := processStreamLine(line); lineErr != nil {
+					return lineErr
+				}
+			}
+			if err == io.ErrUnexpectedEOF && lineBuffer.Len() > 0 {
+				line := lineBuffer.String()
+				if strings.TrimSpace(line) == "data: [DONE]" {
+					lineBuffer.Reset()
+					if lineErr := processStreamLine(line); lineErr != nil {
+						return lineErr
+					}
+				}
+			}
+			if err == io.EOF || (err == io.ErrUnexpectedEOF && sawTerminalSSEEvent) {
 				sendFinalEvents() // Extract tokens at normal completion
 				// Return SSE error if one was detected during streaming
 				if sseError != nil {
@@ -847,12 +885,7 @@ func (a *CustomAdapter) handleStreamResponse(c *flow.Ctx, resp *http.Response, c
 // Helper functions
 
 func isStreamRequest(body []byte) bool {
-	var req map[string]interface{}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return false
-	}
-	stream, _ := req["stream"].(bool)
-	return stream
+	return gjson.GetBytes(body, "stream").Type == gjson.True
 }
 
 func updateModelInBody(body []byte, model string, clientType domain.ClientType) ([]byte, error) {
@@ -861,12 +894,14 @@ func updateModelInBody(body []byte, model string, clientType domain.ClientType) 
 		return body, nil
 	}
 
-	var req map[string]interface{}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
+	if !gjson.ValidBytes(body) {
+		return nil, fmt.Errorf("invalid JSON request body")
 	}
-	req["model"] = model
-	return json.Marshal(req)
+	currentModel := gjson.GetBytes(body, "model")
+	if currentModel.Type == gjson.String && currentModel.String() == model {
+		return body, nil
+	}
+	return sjson.SetBytes(body, "model", model)
 }
 
 // updateModelInMultipartForm rewrites the "model" form field of a
@@ -1327,7 +1362,7 @@ func classify429Error(proxyErr *domain.ProxyError, body []byte, bodyLower string
 			Code    string `json:"code"`
 		} `json:"error"`
 	}
-	if json.Unmarshal(body, &errResp) == nil {
+	if jsonutil.Unmarshal(body, &errResp) == nil {
 		if errResp.Error.Type == "insufficient_quota" || errResp.Error.Code == "insufficient_quota" {
 			proxyErr.Reason = domain.CooldownReasonQuotaExhausted
 		}
@@ -1384,7 +1419,7 @@ func parseRetryAfterHeader(value string) (time.Duration, *time.Time) {
 
 func extractStructuredResetTime(body []byte) time.Time {
 	var payload interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := jsonutil.Unmarshal(body, &payload); err != nil {
 		return time.Time{}
 	}
 	return findResetTime(payload)
@@ -1444,43 +1479,23 @@ func extractTimeFromMessage(msg string) time.Time {
 
 // extractResponseModel extracts the model name from response body based on target type
 func extractResponseModel(body []byte, targetType domain.ClientType) string {
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return ""
-	}
-
 	switch targetType {
 	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
-		// Claude/OpenAI/Codex: "model" field at root level
-		if model, ok := data["model"].(string); ok {
-			return model
+		if model := gjson.GetBytes(body, "model"); model.Type == gjson.String {
+			return model.String()
 		}
 	case domain.ClientTypeGemini:
-		// Gemini: "modelVersion" field at root level
-		if model, ok := data["modelVersion"].(string); ok {
-			return model
+		if model := gjson.GetBytes(body, "modelVersion"); model.Type == gjson.String {
+			return model.String()
 		}
 	}
 
 	return ""
 }
 
-// extractResponseModelFromSSELine extracts the model name from a single SSE line based on target type.
-func extractResponseModelFromSSELine(line string, targetType domain.ClientType, model *string) {
-	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, "data:") {
-		return
-	}
-	dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-	if dataStr == "" || dataStr == "[DONE]" {
-		return
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal([]byte(dataStr), &payload); err != nil {
-		return
-	}
-
+// extractResponseModelFromPayload extracts a model name from an already decoded
+// SSE data payload.
+func extractResponseModelFromPayload(payload map[string]interface{}, targetType domain.ClientType, model *string) {
 	switch targetType {
 	case domain.ClientTypeClaude, domain.ClientTypeOpenAI, domain.ClientTypeCodex:
 		// Claude/OpenAI: check for "model" in various places

@@ -424,7 +424,7 @@ export function RequestsPage() {
   // 高频实时更新时，仅保留可视区域附近的桌面行，减少表格重排和重绘成本。
   const shouldVirtualizeDesktop =
     !isMobile && allRequests.length >= REQUESTS_VIRTUALIZE_THRESHOLD && viewportHeight > 0;
-  const desktopColumnCount = 14 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
+  const desktopColumnCount = 15 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
   const desktopVirtualRange = useMemo(() => {
     if (!shouldVirtualizeDesktop) {
       return {
@@ -694,7 +694,10 @@ export function RequestsPage() {
       <TableRow className="hover:bg-transparent border-none text-sm">
         <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
         <TableHead className="w-[120px] pr-4 font-medium">{t('requests.client')}</TableHead>
-        <TableHead className="min-w-[250px] font-medium">{t('requests.model')}</TableHead>
+        <TableHead className="w-[160px] min-w-[160px] font-medium">{t('requests.model')}</TableHead>
+        <TableHead className="w-[90px] min-w-[90px] text-center font-medium">
+          {t('requests.reasoningEffort')}
+        </TableHead>
         {hasProjects && (
           <TableHead className="w-[100px] font-medium">{t('requests.project')}</TableHead>
         )}
@@ -1211,17 +1214,30 @@ function LogRow({
       </TableCell>
 
       {/* Model */}
-      <TableCell className="min-w-[250px] px-2 py-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-foreground font-medium" title={request.requestModel}>
+      <TableCell className="w-[160px] min-w-[160px] px-2 py-1">
+        <div className="flex items-center gap-2 min-w-0 max-w-[220px]">
+          <span
+            className="text-sm text-foreground font-medium truncate"
+            title={request.requestModel}
+          >
             {request.requestModel || '-'}
           </span>
           {request.responseModel && request.responseModel !== request.requestModel && (
-            <span className="text-[10px] text-muted-foreground shrink-0">
+            <span
+              className="text-[10px] text-muted-foreground truncate"
+              title={request.responseModel}
+            >
               → {request.responseModel}
             </span>
           )}
         </div>
+      </TableCell>
+
+      {/* Reasoning effort */}
+      <TableCell className="w-[90px] min-w-[90px] px-2 py-1 text-center">
+        <span className="text-xs font-mono text-foreground/80">
+          {request.reasoningEffort || '-'}
+        </span>
       </TableCell>
 
       {/* Project */}
@@ -1412,6 +1428,11 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
         <span className="text-sm font-medium text-foreground truncate flex-1">
           {request.requestModel || '-'}
         </span>
+        {request.reasoningEffort && (
+          <span className="text-[10px] font-mono text-muted-foreground">
+            {request.reasoningEffort}
+          </span>
+        )}
         <RequestStatusBadge status={request.status} />
       </div>
       {/* Row 2: Time + Duration + Cost */}

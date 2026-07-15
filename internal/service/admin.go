@@ -513,6 +513,23 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 				incoming.Config.OpenRouter.APIKey = existing.Config.OpenRouter.APIKey
 			}
 		}
+	case "grok":
+		if existing.Config.Grok != nil {
+			if incoming.Config.Grok == nil {
+				grok := *existing.Config.Grok
+				incoming.Config.Grok = &grok
+			} else {
+				if incoming.Config.Grok.AccessToken == "" {
+					incoming.Config.Grok.AccessToken = existing.Config.Grok.AccessToken
+				}
+				if incoming.Config.Grok.RefreshToken == "" {
+					incoming.Config.Grok.RefreshToken = existing.Config.Grok.RefreshToken
+				}
+				if incoming.Config.Grok.IDToken == "" {
+					incoming.Config.Grok.IDToken = existing.Config.Grok.IDToken
+				}
+			}
+		}
 	}
 }
 
@@ -1169,6 +1186,9 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	if err := validateSystemSettingValue(key, value); err != nil {
 		return err
 	}
+	if err := s.validatePublicProxyRouteExposureUpdate(key, value); err != nil {
+		return err
+	}
 	if err := s.settingRepo.Set(key, value); err != nil {
 		return err
 	}
@@ -1189,7 +1209,55 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	return nil
 }
 
+var publicProxyRouteExposureSettingKeys = []string{
+	domain.SettingKeyProxyRouteClaudeMessagesEnabled,
+	domain.SettingKeyProxyRouteOpenAIChatEnabled,
+	domain.SettingKeyProxyRouteResponsesEnabled,
+	domain.SettingKeyProxyRouteGeminiEnabled,
+}
+
+func isPublicProxyRouteExposureSetting(key string) bool {
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		if key == routeKey {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *AdminService) validatePublicProxyRouteExposureUpdate(key, value string) error {
+	if !isPublicProxyRouteExposureSetting(key) || value != "false" {
+		return nil
+	}
+
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		routeValue := value
+		if routeKey != key {
+			storedValue, err := s.settingRepo.Get(routeKey)
+			if err != nil {
+				return err
+			}
+			routeValue = storedValue
+		}
+		if publicProxyRouteSettingEnabled(routeKey, routeValue) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: at least one public proxy route must be enabled", domain.ErrInvalidInput)
+}
+
+func publicProxyRouteSettingEnabled(key, value string) bool {
+	if value == "" {
+		return key != domain.SettingKeyProxyRouteGeminiEnabled
+	}
+	return value != "false"
+}
+
 func (s *AdminService) DeleteSetting(key string) error {
+	if err := s.validatePublicProxyRouteExposureDelete(key); err != nil {
+		return err
+	}
 	if err := s.settingRepo.Delete(key); err != nil {
 		return err
 	}
@@ -1208,6 +1276,28 @@ func (s *AdminService) DeleteSetting(key string) error {
 	}
 
 	return nil
+}
+
+func (s *AdminService) validatePublicProxyRouteExposureDelete(key string) error {
+	if !isPublicProxyRouteExposureSetting(key) {
+		return nil
+	}
+
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		routeValue := ""
+		if routeKey != key {
+			storedValue, err := s.settingRepo.Get(routeKey)
+			if err != nil {
+				return err
+			}
+			routeValue = storedValue
+		}
+		if publicProxyRouteSettingEnabled(routeKey, routeValue) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: at least one public proxy route must be enabled", domain.ErrInvalidInput)
 }
 
 // ===== Proxy Status API =====
@@ -1320,6 +1410,9 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 				domain.ClientTypeOpenAI,
 			}
 		}
+	case "grok":
+		// Grok CPA xAI executor speaks OpenAI-compatible chat only.
+		provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
 	}
 }
 

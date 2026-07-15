@@ -2,13 +2,16 @@ package custom
 
 import (
 	"bytes"
+	stdjson "encoding/json"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/tidwall/gjson"
 )
 
 func TestIsMultipartForm(t *testing.T) {
@@ -45,6 +48,64 @@ func TestUpdateModelInBody_FailsOnMultipart(t *testing.T) {
 	multipartBody := []byte("--abc\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2\r\n--abc--\r\n")
 	if _, err := updateModelInBody(multipartBody, "gpt-image-2", domain.ClientTypeOpenAI); err == nil {
 		t.Fatal("expected updateModelInBody to fail on multipart body (this is why Execute must skip it)")
+	}
+}
+
+func TestUpdateModelInBody_ReusesUnchangedJSON(t *testing.T) {
+	body := []byte(`{"model":"gpt-test","input":[{"type":"message","content":"hello"}]}`)
+
+	updated, err := updateModelInBody(body, "gpt-test", domain.ClientTypeCodex)
+	if err != nil {
+		t.Fatalf("updateModelInBody: %v", err)
+	}
+	if len(updated) == 0 || &updated[0] != &body[0] {
+		t.Fatal("unchanged model should reuse the original request body")
+	}
+}
+
+func TestUpdateModelInBody_RewritesOnlyModel(t *testing.T) {
+	body := []byte(`{"model":"client-model","input":[{"type":"message","content":"hello"}],"stream":true}`)
+
+	updated, err := updateModelInBody(body, "provider-model", domain.ClientTypeCodex)
+	if err != nil {
+		t.Fatalf("updateModelInBody: %v", err)
+	}
+	if got := gjson.GetBytes(updated, "model").String(); got != "provider-model" {
+		t.Fatalf("model = %q, want provider-model", got)
+	}
+	if got := gjson.GetBytes(updated, "input.0.content").String(); got != "hello" {
+		t.Fatalf("input content = %q, want hello", got)
+	}
+	if !gjson.GetBytes(updated, "stream").Bool() {
+		t.Fatal("stream field was not preserved")
+	}
+}
+
+func BenchmarkUpdateModelInBodyUnchanged(b *testing.B) {
+	body := []byte(`{"model":"gpt-test","input":[{"type":"message","role":"user","content":"` + strings.Repeat("x", 1<<20) + `"}],"stream":true}`)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	for i := 0; i < b.N; i++ {
+		updated, err := updateModelInBody(body, "gpt-test", domain.ClientTypeCodex)
+		if err != nil || len(updated) != len(body) {
+			b.Fatalf("updateModelInBody = %d bytes, %v", len(updated), err)
+		}
+	}
+}
+
+func BenchmarkUpdateModelInBodyLegacy(b *testing.B) {
+	body := []byte(`{"model":"gpt-test","input":[{"type":"message","role":"user","content":"` + strings.Repeat("x", 1<<20) + `"}],"stream":true}`)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	for i := 0; i < b.N; i++ {
+		var request map[string]interface{}
+		if err := stdjson.Unmarshal(body, &request); err != nil {
+			b.Fatal(err)
+		}
+		request["model"] = "gpt-test"
+		if _, err := stdjson.Marshal(request); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

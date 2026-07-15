@@ -1187,6 +1187,15 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 		return "", "", nil, nil
 	}
 
+	// Request-rate throttles are short-lived. They may still use the Google
+	// RESOURCE_EXHAUSTED status, but their body/retry info describes a rate limit
+	// rather than exhausted account quota. Do not route those through the 1-minute
+	// quota fallback; Executor will use Retry-After/RetryInfo when present, or the
+	// rate-limit policy fallback (5s) otherwise.
+	if parseRateLimitReason(string(body)) == RateLimitReasonRateLimitExceeded {
+		return domain.ScopeKey, domain.CooldownReasonRateLimitExceeded, nil, nil
+	}
+
 	// Look for QUOTA_EXHAUSTED with quotaResetTimeStamp in details
 	var resetTime time.Time
 	for _, detail := range errResp.Error.Details {
@@ -1224,8 +1233,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 
 		quota, err := FetchQuotaForProvider(quotaCtx, config.RefreshToken, config.ProjectID)
 		if err != nil {
-			// Failed to fetch quota, send 1-minute cooldown
-			updateChan <- time.Now().Add(time.Minute)
+			// Failed to fetch quota; keep the initial 1-minute quota fallback cooldown.
 			return
 		}
 
@@ -1250,8 +1258,7 @@ func (a *AntigravityAdapter) parseRateLimitInfo(ctx context.Context, body []byte
 			// Quota is 0, send cooldown until reset time
 			updateChan <- earliestReset
 		} else {
-			// Quota is not 0, send 1-minute cooldown
-			updateChan <- time.Now().Add(time.Minute)
+			// Quota is not 0; keep the initial 1-minute quota fallback cooldown.
 		}
 	}()
 

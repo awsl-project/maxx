@@ -1,7 +1,7 @@
 import type { ClientType, DisguiseType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
-import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles, Cloud, Waypoints } from 'lucide-react';
+import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles, Cloud, Waypoints, Bot } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
 import nvidiaLogo from '@/assets/icons/nvidia.svg';
@@ -14,7 +14,7 @@ import deepseekLogo from '@/assets/icons/deepseek.png';
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
 
 export type ProviderTypeKey =
-  'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter';
+  'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter' | 'grok';
 
 export interface ProviderTypeConfig {
   key: ProviderTypeKey;
@@ -82,6 +82,14 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     color: getProviderColorVar('openrouter'),
     isAccountBased: false,
     getDisplayInfo: () => 'openrouter.ai',
+  },
+  grok: {
+    key: 'grok',
+    label: 'Grok',
+    icon: Bot,
+    color: getProviderColorVar('grok'),
+    isAccountBased: true,
+    getDisplayInfo: (p) => p.config?.grok?.email || 'Grok Account',
   },
   custom: {
     key: 'custom',
@@ -290,7 +298,7 @@ export const defaultClients: ClientConfig[] = [
 
 // Form data types
 export type ProviderFormData = {
-  type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter';
+  type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter' | 'grok';
   name: string;
   selectedTemplate: string | null;
   baseURL: string;

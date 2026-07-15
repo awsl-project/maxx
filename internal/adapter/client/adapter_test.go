@@ -123,3 +123,60 @@ func TestDetectClientTypeRecognizesV1ResponsesPath(t *testing.T) {
 		t.Fatalf("client type = %s, want %s", got, domain.ClientTypeCodex)
 	}
 }
+
+func TestExtractSessionIDFromJSONFields(t *testing.T) {
+	adapter := NewAdapter()
+	tests := []struct {
+		name       string
+		clientType domain.ClientType
+		body       string
+		want       string
+	}{
+		{
+			name:       "codex previous response",
+			clientType: domain.ClientTypeCodex,
+			body:       `{"previous_response_id":"resp_123","prompt_cache_key":"cache_ignored"}`,
+			want:       "resp_123",
+		},
+		{
+			name:       "codex prompt cache",
+			clientType: domain.ClientTypeCodex,
+			body:       `{"prompt_cache_key":"cache_123"}`,
+			want:       "cache_123",
+		},
+		{
+			name:       "metadata session",
+			clientType: domain.ClientTypeClaude,
+			body:       `{"metadata":{"session_id":"session_123"}}`,
+			want:       "session_123",
+		},
+		{
+			name:       "claude user session suffix",
+			clientType: domain.ClientTypeClaude,
+			body:       `{"metadata":{"user_id":"user_hash_account__session_uuid-123"}}`,
+			want:       "uuid-123",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(test.body)
+			req := httptest.NewRequest("POST", "/unknown", bytes.NewReader(body))
+			if got := adapter.ExtractSessionID(req, body, test.clientType); got != test.want {
+				t.Fatalf("session ID = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestIsStreamRequestReadsBooleanOnly(t *testing.T) {
+	adapter := NewAdapter()
+	req := httptest.NewRequest("POST", "/v1/responses", nil)
+	if !adapter.IsStreamRequest(req, []byte(`{"stream":true,"input":[]}`)) {
+		t.Fatal("stream=true was not detected")
+	}
+	for _, body := range []string{`{"stream":false}`, `{"stream":"true"}`, `{}`} {
+		if adapter.IsStreamRequest(req, []byte(body)) {
+			t.Fatalf("unexpected stream detection for %s", body)
+		}
+	}
+}

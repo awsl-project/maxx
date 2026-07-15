@@ -306,6 +306,28 @@ type ProviderConfigOpenRouter struct {
 	APIKey string `json:"apiKey"`
 }
 
+// ProviderConfigGrok stores xAI/Grok OAuth credentials exported by CLIProxyAPI.
+// Sensitive token fields are stored server-side and must be redacted before any UI display/export.
+type ProviderConfigGrok struct {
+	Type          string            `json:"type,omitempty"`
+	AuthKind      string            `json:"authKind,omitempty"`
+	Email         string            `json:"email,omitempty"`
+	Sub           string            `json:"sub,omitempty"`
+	AccessToken   string            `json:"accessToken,omitempty"`
+	RefreshToken  string            `json:"refreshToken,omitempty"`
+	IDToken       string            `json:"idToken,omitempty"`
+	TokenType     string            `json:"tokenType,omitempty"`
+	ExpiresIn     int               `json:"expiresIn,omitempty"`
+	Expired       string            `json:"expired,omitempty"`
+	LastRefresh   string            `json:"lastRefresh,omitempty"`
+	RedirectURI   string            `json:"redirectURI,omitempty"`
+	TokenEndpoint string            `json:"tokenEndpoint,omitempty"`
+	BaseURL       string            `json:"baseURL,omitempty"`
+	Disabled      bool              `json:"disabled,omitempty"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	ModelMapping  map[string]string `json:"modelMapping,omitempty"`
+}
+
 type ProviderConfig struct {
 	// 禁用错误自动冷冻（只影响错误触发的冷冻）
 	DisableErrorCooldown bool                       `json:"disableErrorCooldown,omitempty"`
@@ -316,6 +338,7 @@ type ProviderConfig struct {
 	Codex                *ProviderConfigCodex       `json:"codex,omitempty"`
 	Claude               *ProviderConfigClaude      `json:"claude,omitempty"`
 	OpenRouter           *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
+	Grok                 *ProviderConfigGrok        `json:"grok,omitempty"`
 	// 内部运行时字段，仅用于 NewAdapter 委托，不序列化
 	CLIProxyAPIAntigravity *ProviderConfigCLIProxyAPIAntigravity `json:"-"`
 	CLIProxyAPICodex       *ProviderConfigCLIProxyAPICodex       `json:"-"`
@@ -555,8 +578,9 @@ type ProxyRequest struct {
 	SessionID  string     `json:"sessionID"`
 	ClientType ClientType `json:"clientType"`
 
-	RequestModel  string `json:"requestModel"`
-	ResponseModel string `json:"responseModel"`
+	RequestModel    string `json:"requestModel"`
+	ResponseModel   string `json:"responseModel"`
+	ReasoningEffort string `json:"reasoningEffort"`
 
 	StartTime time.Time     `json:"startTime"`
 	EndTime   time.Time     `json:"endTime"`
@@ -826,11 +850,16 @@ const (
 	SettingKeyRequestDetailRetentionSecondsFailed  = "request_detail_retention_seconds_failed"  // 失败请求详情保留秒数，仅在 split=true 时生效；语义同上，未设置回退到统一键
 	SettingKeyTimezone                             = "timezone"                                 // 时区设置，默认 Asia/Shanghai
 	SettingKeyQuotaRefreshInterval                 = "quota_refresh_interval"                   // Antigravity 配额刷新间隔（分钟），0 表示禁用
+	SettingKeyRateLimitCooldownDefaultSeconds      = "cooldown_rate_limit_default_seconds"      // 429 rate/concurrent limit 无 Retry-After 时默认冻结秒数，默认 5 秒
 	SettingKeyAutoSortAntigravity                  = "auto_sort_antigravity"                    // 是否自动排序 Antigravity 路由，"true" 或 "false"
 	SettingKeyAutoSortCodex                        = "auto_sort_codex"                          // 是否自动排序 Codex 路由，"true" 或 "false"
 	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
 	SettingKeyCodexReasoningGuard                  = "codex_reasoning_guard"                    // Codex reasoning guard 配置（JSON 对象）
 	SettingKeyPayloadOverrideRules                 = "payload_override_rules"                   // 请求 payload 覆盖规则（JSON 数组）
+	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"          // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"            // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteGeminiEnabled              = "proxy_route_gemini_enabled"               // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "false"
 	SettingKeyEnablePprof                          = "enable_pprof"                             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
 	SettingKeyPprofPort                            = "pprof_port"                               // pprof 服务端口，默认 6060
 	SettingKeyPprofPassword                        = "pprof_password"                           // pprof 访问密码，为空表示不需要密码
@@ -855,7 +884,7 @@ type ModelPrice struct {
 	ImageInputPriceMicro  uint64 `json:"imageInputPriceMicro,omitempty"`
 	ImageOutputPriceMicro uint64 `json:"imageOutputPriceMicro,omitempty"`
 
-	// 1M Context 分层定价
+	// 长上下文整次请求溢价
 	Has1MContext       bool   `json:"has1mContext"`
 	Context1MThreshold uint64 `json:"context1mThreshold"`
 	InputPremiumNum    uint64 `json:"inputPremiumNum"`

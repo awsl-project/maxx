@@ -152,3 +152,25 @@ export function buildTransportConfig(): TransportConfig | undefined {
     wsURL,
   };
 }
+
+/**
+ * Builds the externally reachable pprof URL. The pprof server has its own
+ * port, so use the configured backend hostname (or the current page hostname)
+ * without carrying over the application's HTTP port.
+ */
+export function buildPprofUrl(port: string | number): string {
+  const backend = getBackendUrl();
+  let hostname = '';
+
+  if (backend) {
+    hostname = new URL(backend).hostname;
+  } else if (typeof window !== 'undefined') {
+    hostname = window.location.hostname;
+  }
+
+  hostname ||= 'localhost';
+  if (hostname.includes(':') && !hostname.startsWith('[')) {
+    hostname = `[${hostname}]`;
+  }
+  return `http://${hostname}:${port}/debug/pprof/`;
+}

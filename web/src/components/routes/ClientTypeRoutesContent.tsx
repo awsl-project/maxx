@@ -1087,71 +1087,73 @@ function ClientTypeRoutesContentInner({
           {/* Add Route Section - Grouped by Type */}
           {hasAvailableProviders && (
             <div className="pt-4 border-t border-border/50 ">
-              <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex items-center gap-2">
-                  <Settings2 size={14} style={{ color }} />
-                  <span className="text-caption font-medium text-muted-foreground">
-                    {t('routes.availableProviders')}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-background/80 px-3 py-2 shadow-sm">
-                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={allVisibleAvailableSelected}
-                      aria-checked={
-                        someVisibleAvailableSelected ? 'mixed' : allVisibleAvailableSelected
-                      }
-                      onChange={(event) =>
-                        handleToggleAllVisibleAvailableProviders(event.target.checked)
-                      }
-                      className="h-4 w-4 rounded border-border accent-primary"
-                    />
-                    <span>
-                      {t('routes.bulkSelectVisibleProviders', {
-                        count: visibleAvailableProviderIds.length,
-                      })}
-                      {normalizedQuery && (
-                        <span className="ml-1 text-muted-foreground/70">
-                          {t('routes.bulkFilteredSelection')}
-                        </span>
-                      )}
+              <div className="sticky top-0 z-20 -mx-1 mb-6 rounded-xl border border-border/60 bg-background/95 px-1 py-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                <div className="flex flex-col gap-4 px-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-center gap-2">
+                    <Settings2 size={14} style={{ color }} />
+                    <span className="text-caption font-medium text-muted-foreground">
+                      {t('routes.availableProviders')}
                     </span>
-                  </label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={visibleAvailableProviderIds.length === 0 || createRoute.isPending}
-                    onClick={handleInvertVisibleAvailableProviders}
-                  >
-                    {t('routes.bulkInvertVisibleProviders')}
-                  </Button>
-                  {selectedAvailableProviders.length > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {t('routes.bulkSelectedProvidersCount', {
-                        count: selectedAvailableProviders.length,
-                      })}
-                    </span>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={selectedAvailableProviders.length === 0 || createRoute.isPending}
-                    onClick={handleClearAvailableProviderSelection}
-                  >
-                    {t('common.clear')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={selectedAvailableProviders.length === 0 || createRoute.isPending}
-                    onClick={handleBulkAddRoutes}
-                  >
-                    {createRoute.isPending
-                      ? t('routes.bulkAddingProviders')
-                      : t('routes.bulkAddSelectedProviders', {
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleAvailableSelected}
+                        aria-checked={
+                          someVisibleAvailableSelected ? 'mixed' : allVisibleAvailableSelected
+                        }
+                        onChange={(event) =>
+                          handleToggleAllVisibleAvailableProviders(event.target.checked)
+                        }
+                        className="h-4 w-4 rounded border-border accent-primary"
+                      />
+                      <span>
+                        {t('routes.bulkSelectVisibleProviders', {
+                          count: visibleAvailableProviderIds.length,
+                        })}
+                        {normalizedQuery && (
+                          <span className="ml-1 text-muted-foreground/70">
+                            {t('routes.bulkFilteredSelection')}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={visibleAvailableProviderIds.length === 0 || createRoute.isPending}
+                      onClick={handleInvertVisibleAvailableProviders}
+                    >
+                      {t('routes.bulkInvertVisibleProviders')}
+                    </Button>
+                    {selectedAvailableProviders.length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {t('routes.bulkSelectedProvidersCount', {
                           count: selectedAvailableProviders.length,
                         })}
-                  </Button>
+                      </span>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={selectedAvailableProviders.length === 0 || createRoute.isPending}
+                      onClick={handleClearAvailableProviderSelection}
+                    >
+                      {t('common.clear')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={selectedAvailableProviders.length === 0 || createRoute.isPending}
+                      onClick={handleBulkAddRoutes}
+                    >
+                      {createRoute.isPending
+                        ? t('routes.bulkAddingProviders')
+                        : t('routes.bulkAddSelectedProviders', {
+                            count: selectedAvailableProviders.length,
+                          })}
+                    </Button>
+                  </div>
                 </div>
               </div>
               {bulkAddError && (

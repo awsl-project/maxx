@@ -13,8 +13,9 @@ import (
 )
 
 type ProxyRequestRepository struct {
-	db    *DB
-	count int64 // 缓存的请求总数，使用原子操作
+	db                       *DB
+	count                    int64 // 缓存的请求总数，使用原子操作
+	hasReasoningEffortColumn bool
 }
 
 var activeProxyRequestStatuses = []string{"PENDING", "IN_PROGRESS"}
@@ -102,7 +103,10 @@ func proxyRequestTrendBucketSize(startMs, endMs int64) int64 {
 }
 
 func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
-	r := &ProxyRequestRepository{db: db}
+	r := &ProxyRequestRepository{
+		db:                       db,
+		hasReasoningEffortColumn: db.gorm.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort"),
+	}
 	// 初始化时从数据库加载计数
 	r.initCount()
 	return r
@@ -122,7 +126,11 @@ func (r *ProxyRequestRepository) Create(p *domain.ProxyRequest) error {
 	p.UpdatedAt = now
 
 	model := r.toModel(p)
-	if err := r.db.gorm.Create(model).Error; err != nil {
+	query := r.db.gorm
+	if !r.hasReasoningEffortColumn {
+		query = query.Omit("reasoning_effort")
+	}
+	if err := query.Create(model).Error; err != nil {
 		return err
 	}
 	p.ID = model.ID
@@ -150,6 +158,9 @@ func (r *ProxyRequestRepository) Update(p *domain.ProxyRequest) error {
 		model.ResponseInfo = LongText(toJSON(p.ResponseInfo))
 	} else {
 		omit = append(omit, "response_info")
+	}
+	if !r.hasReasoningEffortColumn {
+		omit = append(omit, "reasoning_effort")
 	}
 	return r.db.gorm.Omit(omit...).Save(model).Error
 }
@@ -180,8 +191,12 @@ func (r *ProxyRequestRepository) List(tenantID uint64, limit, offset int) ([]*do
 // 注意：列表查询不返回 request_info 和 response_info 大字段
 func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, after uint64, filter *repository.ProxyRequestFilter) ([]*domain.ProxyRequest, error) {
 	// 使用 Select 排除大字段
+	selectColumns := "id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, ttft_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id"
+	if r.hasReasoningEffortColumn {
+		selectColumns += ", reasoning_effort"
+	}
 	baseQuery := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
-		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, ttft_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id")
+		Select(selectColumns)
 
 	if after > 0 {
 		baseQuery = baseQuery.Where("id > ?", after)
@@ -207,9 +222,13 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 
 // ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
 func (r *ProxyRequestRepository) ListActive(tenantID uint64) ([]*domain.ProxyRequest, error) {
+	selectColumns := "id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id"
+	if r.hasReasoningEffortColumn {
+		selectColumns += ", reasoning_effort"
+	}
 	var models []ProxyRequest
 	if err := tenantScope(r.db.gorm.Model(&ProxyRequest{}), tenantID).
-		Select("id, created_at, updated_at, instance_id, request_id, session_id, client_type, request_model, response_model, start_time, end_time, duration_ms, is_stream, status, status_code, error, proxy_upstream_attempt_count, final_proxy_upstream_attempt_id, route_id, provider_id, project_id, input_token_count, output_token_count, cache_read_count, cache_write_count, cache_5m_write_count, cache_1h_write_count, cost, api_token_id").
+		Select(selectColumns).
 		Where("status IN ?", activeProxyRequestStatuses).
 		Order("id DESC").
 		Find(&models).Error; err != nil {
@@ -968,6 +987,7 @@ func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyReque
 		ClientType:                  string(p.ClientType),
 		RequestModel:                p.RequestModel,
 		ResponseModel:               p.ResponseModel,
+		ReasoningEffort:             p.ReasoningEffort,
 		StartTime:                   toTimestamp(p.StartTime),
 		EndTime:                     toTimestamp(p.EndTime),
 		DurationMs:                  p.Duration.Milliseconds(),
@@ -1007,6 +1027,7 @@ func (r *ProxyRequestRepository) toDomain(m *ProxyRequest) *domain.ProxyRequest 
 		ClientType:                  domain.ClientType(m.ClientType),
 		RequestModel:                m.RequestModel,
 		ResponseModel:               m.ResponseModel,
+		ReasoningEffort:             m.ReasoningEffort,
 		StartTime:                   fromTimestamp(m.StartTime),
 		EndTime:                     fromTimestamp(m.EndTime),
 		Duration:                    time.Duration(m.DurationMs) * time.Millisecond,

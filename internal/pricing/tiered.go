@@ -56,6 +56,28 @@ func CalculateLinearCost(tokens, priceMicro uint64) uint64 {
 	return calculateLinearCostBig(tokens, priceMicro)
 }
 
+// CalculatePremiumCost applies a request-wide price multiplier to all tokens.
+// This is used by long-context pricing where crossing the prompt threshold
+// changes the rate for the full request, rather than only the excess tokens.
+func CalculatePremiumCost(tokens, priceMicro, premiumNum, premiumDenom uint64) uint64 {
+	if premiumNum == 0 || premiumDenom == 0 {
+		return calculateLinearCostBig(tokens, priceMicro)
+	}
+
+	t := big.NewInt(0).SetUint64(tokens)
+	p := big.NewInt(0).SetUint64(priceMicro)
+	num := big.NewInt(0).SetUint64(premiumNum)
+	denom := big.NewInt(0).SetUint64(premiumDenom)
+
+	t.Mul(t, p)
+	t.Mul(t, bigMicroToNano)
+	t.Mul(t, num)
+	t.Div(t, bigTokensPerMillion)
+	t.Div(t, denom)
+
+	return t.Uint64()
+}
+
 // calculateLinearCostBig 使用 big.Int 计算线性成本
 func calculateLinearCostBig(tokens, priceMicro uint64) uint64 {
 	// cost = tokens * priceMicro * MicroToNano / TokensPerMillion
@@ -68,4 +90,3 @@ func calculateLinearCostBig(tokens, priceMicro uint64) uint64 {
 
 	return t.Uint64()
 }
-

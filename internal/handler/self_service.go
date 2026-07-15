@@ -17,13 +17,17 @@ import (
 )
 
 var publicSettingsAllowlist = map[string]struct{}{
-	"api_token_auth_enabled": {},
-	"force_project_binding":  {},
-	"force_project_timeout":  {},
-	"auto_sort_antigravity":  {},
-	"auto_sort_codex":        {},
-	"ui_multitenant_enabled": {},
-	"ui_multitenant_layout":  {},
+	"api_token_auth_enabled":                         {},
+	"force_project_binding":                          {},
+	"force_project_timeout":                          {},
+	"auto_sort_antigravity":                          {},
+	"auto_sort_codex":                                {},
+	"ui_multitenant_enabled":                         {},
+	"ui_multitenant_layout":                          {},
+	domain.SettingKeyProxyRouteClaudeMessagesEnabled: {},
+	domain.SettingKeyProxyRouteOpenAIChatEnabled:     {},
+	domain.SettingKeyProxyRouteResponsesEnabled:      {},
+	domain.SettingKeyProxyRouteGeminiEnabled:         {},
 }
 
 const userPanelAPITokenDescriptionPrefix = "managed-by=maxx-user-panel;user-id="
@@ -1467,6 +1471,13 @@ func sanitizeProvider(provider *domain.Provider) *domain.Provider {
 		openrouter := *config.OpenRouter
 		openrouter.APIKey = ""
 		config.OpenRouter = &openrouter
+	}
+	if config.Grok != nil {
+		grok := *config.Grok
+		grok.AccessToken = ""
+		grok.RefreshToken = ""
+		grok.IDToken = ""
+		config.Grok = &grok
 	}
 	sanitized.Config = &config
 	return &sanitized

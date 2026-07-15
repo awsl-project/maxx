@@ -1424,7 +1424,11 @@ func (h *AdminHandler) handleSettings(w http.ResponseWriter, r *http.Request, pa
 			return
 		}
 		if err := h.svc.DeleteSetting(key); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, domain.ErrInvalidInput) {
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)

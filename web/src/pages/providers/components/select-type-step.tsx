@@ -9,6 +9,7 @@ import {
   Code2,
   Sparkles,
   ChevronLeft,
+  Bot,
 } from 'lucide-react';
 import { quickTemplates, PROVIDER_TYPE_CONFIGS } from '../types';
 import openrouterLogo from '@/assets/icons/openrouter.svg';
@@ -28,12 +29,13 @@ export function SelectTypeStep() {
     goToClaude,
     goToBedrock,
     goToOpenRouter,
+    goToGrok,
     goToProviders,
   } = useProviderNavigation();
   const { t } = useTranslation();
 
   const handleSelectType = (
-    type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter',
+    type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter' | 'grok',
   ) => {
     updateFormData({ type });
     if (type === 'antigravity') {
@@ -44,6 +46,8 @@ export function SelectTypeStep() {
       goToOpenRouter();
     } else if (type === 'kiro') {
       goToKiro();
+    } else if (type === 'grok') {
+      goToGrok();
     } else if (type === 'codex') {
       goToCodex();
     } else if (type === 'claude') {
@@ -285,6 +289,36 @@ export function SelectTypeStep() {
                   </div>
                 </Button>
               )}
+
+              {!PROVIDER_TYPE_CONFIGS.grok.hidden && (
+                <Button
+                  onClick={() => handleSelectType('grok')}
+                  variant="ghost"
+                  className={`group p-0 rounded-xl border text-left h-auto w-full overflow-hidden transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    formData.type === 'grok'
+                      ? 'border-provider-grok bg-provider-grok/10 shadow-sm'
+                      : 'border-border bg-card hover:bg-muted hover:border-accent/30 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="p-4 sm:p-5 flex items-center gap-3 sm:gap-4 min-w-0 w-full">
+                    <div className="size-10 sm:size-11 md:size-12 rounded-lg bg-provider-grok/15 flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
+                      <Bot className="size-5 md:size-6 text-provider-grok" />
+                    </div>
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <h3 className="text-sm sm:text-base font-semibold text-foreground leading-tight truncate">Grok</h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                        Import xAI OAuth JSON from CLIProxyAPI
+                      </p>
+                    </div>
+
+                    {formData.type === 'grok' && (
+                      <CheckCircle2 className="size-5 text-provider-grok shrink-0 self-center animate-in zoom-in-50 duration-200" />
+                    )}
+                  </div>
+                </Button>
+              )}
+
 
               <Button
                 onClick={() => handleSelectType('custom')}

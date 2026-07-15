@@ -81,6 +81,14 @@ func TestCalculateLinearCost(t *testing.T) {
 	}
 }
 
+func TestCalculatePremiumCost(t *testing.T) {
+	got := CalculatePremiumCost(300_000, 5_000_000, 2, 1)
+	const want = uint64(3_000_000_000)
+	if got != want {
+		t.Fatalf("CalculatePremiumCost() = %d, want %d", got, want)
+	}
+}
+
 func TestCalculator_Calculate(t *testing.T) {
 	calc := NewCalculator()
 
@@ -182,15 +190,15 @@ func TestCalculator_Calculate_WithCache(t *testing.T) {
 func TestCalculator_Calculate_1MContext(t *testing.T) {
 	calc := NewCalculator()
 
-	// Claude Sonnet 4.5 1M context: 超 200K 时 input×2, output×1.5
-	// input: $3/M, output: $15/M
+	// Claude Sonnet 4.5 1M context: 提示词超 200K 时整次请求
+	// input×2, output×1.5。input: $3/M, output: $15/M。
 	metrics := &usage.Metrics{
-		InputTokens:  300_000, // 200K×$3 + 100K×$3×2 = $0.6 + $0.6 = $1.2
-		OutputTokens: 50_000,  // <200K: 50K×$15/M = $0.75
+		InputTokens:  300_000, // 300K×$3×2 = $1.8
+		OutputTokens: 50_000,  // 50K×$15×1.5 = $1.125
 	}
 
 	got := calc.Calculate("claude-sonnet-4-5", metrics, 0)
-	expected := uint64(1_200_000_000 + 750_000_000)
+	expected := uint64(1_800_000_000 + 1_125_000_000)
 	if got.Cost != expected {
 		t.Errorf("Calculate() Cost = %d nanoUSD, want %d nanoUSD", got.Cost, expected)
 	}
@@ -382,6 +390,10 @@ func TestPriceTable_Get_PrefixMatch(t *testing.T) {
 		{"gpt-5.4-mini", true},
 		{"gpt-5.5", true},
 		{"gpt-5.5-pro", true},
+		{"gpt-5.6", true},
+		{"gpt-5.6-sol", true},
+		{"gpt-5.6-terra", true},
+		{"gpt-5.6-luna", true},
 		{"gemini-2.5-pro", true},
 		{"gemini-3-pro-preview", true},
 		{"unknown-model", false},
@@ -397,6 +409,67 @@ func TestPriceTable_Get_PrefixMatch(t *testing.T) {
 				t.Errorf("Get(%s) = %v, want nil", tt.modelID, pricing)
 			}
 		})
+	}
+}
+
+func TestGPT56Pricing(t *testing.T) {
+	pt := DefaultPriceTable()
+	tests := []struct {
+		model      string
+		input      uint64
+		cacheRead  uint64
+		cacheWrite uint64
+		output     uint64
+	}{
+		{"gpt-5.6", 5_000_000, 500_000, 6_250_000, 30_000_000},
+		{"gpt-5.6-sol", 5_000_000, 500_000, 6_250_000, 30_000_000},
+		{"gpt-5.6-terra", 2_500_000, 250_000, 3_125_000, 15_000_000},
+		{"gpt-5.6-luna", 1_000_000, 100_000, 1_250_000, 6_000_000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			p := pt.Get(tt.model)
+			if p == nil {
+				t.Fatalf("Get(%s) = nil", tt.model)
+			}
+			if p.InputPriceMicro != tt.input || p.CacheReadPriceMicro != tt.cacheRead ||
+				p.Cache5mWritePriceMicro != tt.cacheWrite || p.OutputPriceMicro != tt.output {
+				t.Fatalf("unexpected prices for %s: %#v", tt.model, p)
+			}
+			if !p.Has1MContext || p.Context1MThreshold != 272_000 ||
+				p.InputPremiumNum != 2 || p.InputPremiumDenom != 1 ||
+				p.OutputPremiumNum != 3 || p.OutputPremiumDenom != 2 {
+				t.Fatalf("unexpected long-context pricing for %s: %#v", tt.model, p)
+			}
+		})
+	}
+
+	calc := NewCalculator()
+	atThreshold := calc.Calculate("gpt-5.6-sol", &usage.Metrics{
+		InputTokens:  272_000,
+		OutputTokens: 10_000,
+	}, 0)
+	if atThreshold.Cost != 1_660_000_000 {
+		t.Fatalf("at-threshold cost = %d, want 1660000000", atThreshold.Cost)
+	}
+
+	aboveThreshold := calc.Calculate("gpt-5.6-sol", &usage.Metrics{
+		InputTokens:  300_000,
+		OutputTokens: 10_000,
+	}, 0)
+	if aboveThreshold.Cost != 3_450_000_000 {
+		t.Fatalf("above-threshold cost = %d, want 3450000000", aboveThreshold.Cost)
+	}
+
+	withCache := calc.Calculate("gpt-5.6-sol", &usage.Metrics{
+		InputTokens:        50_000,
+		OutputTokens:       10_000,
+		CacheReadCount:     30_000,
+		CacheCreationCount: 200_000,
+	}, 0)
+	if withCache.Cost != 3_480_000_000 {
+		t.Fatalf("cache-triggered premium cost = %d, want 3480000000", withCache.Cost)
 	}
 }
 

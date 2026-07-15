@@ -77,3 +77,51 @@ func TestHandleSettingsReturnsBadRequestForInvalidPayloadOverrideRules(t *testin
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
+
+func TestHandleSettingsDeleteReturnsBadRequestWhenDeletingLastPublicProxyRoute(t *testing.T) {
+	repo := &settingsTestRepo{values: map[string]string{
+		domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
+		domain.SettingKeyProxyRouteOpenAIChatEnabled:     "false",
+		domain.SettingKeyProxyRouteResponsesEnabled:      "false",
+		domain.SettingKeyProxyRouteGeminiEnabled:         "true",
+	}}
+	svc := service.NewAdminService(
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		repo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+		nil,
+		nil,
+		nil,
+	)
+	handler := NewAdminHandler(svc, nil, "")
+
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/admin/settings/"+domain.SettingKeyProxyRouteGeminiEnabled,
+		nil,
+	)
+	rec := httptest.NewRecorder()
+
+	handler.handleSettings(rec, req, []string{"admin", "settings", domain.SettingKeyProxyRouteGeminiEnabled})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if got := repo.values[domain.SettingKeyProxyRouteGeminiEnabled]; got != "true" {
+		t.Fatalf("gemini setting = %q, want unchanged true", got)
+	}
+}

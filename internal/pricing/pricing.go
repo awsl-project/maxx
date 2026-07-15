@@ -27,8 +27,8 @@ type ModelPricing struct {
 	ImageInputPriceMicro  uint64 `json:"imageInputPriceMicro,omitempty"`  // 图像输入
 	ImageOutputPriceMicro uint64 `json:"imageOutputPriceMicro,omitempty"` // 图像输出
 
-	// 1M Context Window 分层定价 (Claude Sonnet 4/4.5)
-	Has1MContext       bool   `json:"has1mContext"`                 // 是否支持 1M context
+	// 长上下文整次请求溢价。输入 token 超过阈值后，整次请求的输入/输出分别应用倍率。
+	Has1MContext       bool   `json:"has1mContext"`                 // 是否启用长上下文溢价
 	Context1MThreshold uint64 `json:"context1mThreshold,omitempty"` // 阈值（默认 200,000）
 	// 倍率使用分数表示：premiumNum/premiumDenom
 	// 例如 2.0 = 2/1, 1.5 = 3/2

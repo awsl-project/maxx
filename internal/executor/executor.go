@@ -14,6 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/requestmeta"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
@@ -194,23 +195,28 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	}
 
 	now := time.Now()
+	reasoningBody := flow.GetOriginalRequestBody(c)
+	if len(reasoningBody) == 0 {
+		reasoningBody = flow.GetRequestBody(c)
+	}
 	proxyReq := &domain.ProxyRequest{
-		TenantID:     tenantID,
-		InstanceID:   e.instanceID,
-		RequestID:    generateRequestID(),
-		SessionID:    flow.GetSessionID(c),
-		ClientType:   flow.GetClientType(c),
-		ProjectID:    projectID,
-		RequestModel: flow.GetRequestModel(c),
-		StartTime:    now,
-		EndTime:      now,
-		Duration:     0,
-		IsStream:     flow.GetIsStream(c),
-		Status:       "REJECTED",
-		StatusCode:   statusCode,
-		Error:        errMsg,
-		APITokenID:   apiTokenID,
-		DevMode:      devMode,
+		TenantID:        tenantID,
+		InstanceID:      e.instanceID,
+		RequestID:       generateRequestID(),
+		SessionID:       flow.GetSessionID(c),
+		ClientType:      flow.GetClientType(c),
+		ProjectID:       projectID,
+		RequestModel:    flow.GetRequestModel(c),
+		ReasoningEffort: requestmeta.ReasoningEffort(reasoningBody),
+		StartTime:       now,
+		EndTime:         now,
+		Duration:        0,
+		IsStream:        flow.GetIsStream(c),
+		Status:          "REJECTED",
+		StatusCode:      statusCode,
+		Error:           errMsg,
+		APITokenID:      apiTokenID,
+		DevMode:         devMode,
 	}
 
 	clearDetail := e.shouldClearFailedRequestDetailFor(&execState{apiTokenDevMode: devMode})
@@ -259,13 +265,18 @@ func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.
 	// Map domain CooldownReason to cooldown package CooldownReason
 	reason := cooldown.CooldownReason(proxyErr.Reason)
 
-	// Use explicit cooldown time if provided, otherwise let policy decide
+	// Use explicit upstream cooldown time first. Retry-After comes next.
+	// The configurable setting only replaces the local policy fallback for
+	// short request/concurrency throttles (the fixed 5s defaults in
+	// cooldown.DefaultPolicies), not quota reset/default times.
 	var explicitUntil *time.Time
 	if proxyErr.CooldownUntil != nil {
 		explicitUntil = proxyErr.CooldownUntil
 	} else if proxyErr.RetryAfter > 0 {
 		t := time.Now().Add(proxyErr.RetryAfter)
 		explicitUntil = &t
+	} else if isConfigurableRateLimitFallback(reason) {
+		explicitUntil = e.rateLimitDefaultCooldownUntil()
 	}
 
 	// Determine model for cooldown key
@@ -287,6 +298,24 @@ func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.
 		default:
 		}
 	}
+}
+
+func isConfigurableRateLimitFallback(reason cooldown.CooldownReason) bool {
+	return reason == cooldown.ReasonRateLimit || reason == cooldown.ReasonConcurrentLimit
+}
+
+func (e *Executor) rateLimitDefaultCooldownUntil() *time.Time {
+	duration := 5 * time.Second
+	if e != nil && e.settingsRepo != nil {
+		value, err := e.settingsRepo.Get(domain.SettingKeyRateLimitCooldownDefaultSeconds)
+		if err == nil && strings.TrimSpace(value) != "" {
+			if seconds, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && seconds >= 1 && seconds <= 86400 {
+				duration = time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	until := time.Now().Add(duration)
+	return &until
 }
 
 func shouldSkipErrorCooldown(provider *domain.Provider) bool {
