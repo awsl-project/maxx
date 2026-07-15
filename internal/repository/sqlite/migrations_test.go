@@ -257,8 +257,7 @@ func TestReasoningEffortMigrationMySQL(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
 			WillReturnError(errors.New("version unavailable"))
 		expectReasoningThresholdProbe(mock, false)
-		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL)).
-			WillReturnResult(sqlmock.NewResult(0, 0))
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, nil, nil)
 
 		if err := runReasoningEffortColumnMigration(db); err != nil {
 			t.Fatalf("run migration: %v", err)
@@ -272,8 +271,7 @@ func TestReasoningEffortMigrationMySQL(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
 			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.44-log"))
 		expectReasoningThresholdProbe(mock, false)
-		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL)).
-			WillReturnResult(sqlmock.NewResult(0, 0))
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, nil, nil)
 
 		if err := runReasoningEffortColumnMigration(db); err != nil {
 			t.Fatalf("run migration: %v", err)
@@ -287,8 +285,12 @@ func TestReasoningEffortMigrationMySQL(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
 			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.44-log"))
 		expectReasoningThresholdProbe(mock, false)
-		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL)).
-			WillReturnError(&mysqlDriver.MySQLError{Number: 1060, Message: "Duplicate column name 'reasoning_effort'"})
+		expectReasoningDDLWithLockTimeout(
+			mock,
+			reasoningEffortColumnDDL,
+			&mysqlDriver.MySQLError{Number: 1060, Message: "Duplicate column name 'reasoning_effort'"},
+			nil,
+		)
 
 		if err := runReasoningEffortColumnMigration(db); err != nil {
 			t.Fatalf("run migration: %v", err)
@@ -302,8 +304,8 @@ func TestReasoningEffortMigrationMySQL(t *testing.T) {
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT VERSION()")).
 			WillReturnRows(sqlmock.NewRows([]string{"VERSION()"}).AddRow("5.7.44-log"))
 		expectReasoningThresholdProbe(mock, false)
-		wantErr := errors.New("blocking alter failed")
-		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL)).WillReturnError(wantErr)
+		wantErr := &mysqlDriver.MySQLError{Number: 1205, Message: "Lock wait timeout exceeded"}
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, wantErr, nil)
 
 		if err := runReasoningEffortColumnMigration(db); !errors.Is(err, wantErr) {
 			t.Fatalf("run migration error = %v, want %v", err, wantErr)
@@ -319,8 +321,7 @@ func TestReasoningEffortMigrationMySQL(t *testing.T) {
 		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL + ", ALGORITHM=INSTANT")).
 			WillReturnError(&mysqlDriver.MySQLError{Number: 1846, Message: "ALGORITHM=INSTANT is not supported"})
 		expectReasoningThresholdProbe(mock, false)
-		mock.ExpectExec(regexp.QuoteMeta(reasoningEffortColumnDDL)).
-			WillReturnResult(sqlmock.NewResult(0, 0))
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, nil, nil)
 
 		if err := runReasoningEffortColumnMigration(db); err != nil {
 			t.Fatalf("run migration: %v", err)
@@ -366,6 +367,57 @@ func TestReasoningEffortMigrationMySQL(t *testing.T) {
 
 		if err := runReasoningEffortColumnMigration(db); err != nil {
 			t.Fatalf("run migration: %v", err)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+}
+
+func TestExecMySQLReasoningEffortDDLWithLockTimeoutErrors(t *testing.T) {
+	t.Run("read original timeout", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		wantErr := errors.New("read timeout failed")
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT @@SESSION.lock_wait_timeout")).WillReturnError(wantErr)
+
+		if err := execMySQLReasoningEffortDDLWithLockTimeout(db, reasoningEffortColumnDDL); !errors.Is(err, wantErr) {
+			t.Fatalf("DDL helper error = %v, want %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("set bounded timeout", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		wantErr := errors.New("set timeout failed")
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT @@SESSION.lock_wait_timeout")).
+			WillReturnRows(sqlmock.NewRows([]string{"@@SESSION.lock_wait_timeout"}).AddRow(uint64(31_536_000)))
+		mock.ExpectExec(regexp.QuoteMeta("SET SESSION lock_wait_timeout = ?")).
+			WithArgs(reasoningEffortMigrationLockWaitTimeoutSeconds).
+			WillReturnError(wantErr)
+
+		if err := execMySQLReasoningEffortDDLWithLockTimeout(db, reasoningEffortColumnDDL); !errors.Is(err, wantErr) {
+			t.Fatalf("DDL helper error = %v, want %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("restore timeout after successful DDL", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		wantErr := errors.New("restore timeout failed")
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, nil, wantErr)
+
+		if err := execMySQLReasoningEffortDDLWithLockTimeout(db, reasoningEffortColumnDDL); !errors.Is(err, wantErr) {
+			t.Fatalf("DDL helper error = %v, want %v", err, wantErr)
+		}
+		assertSQLMockExpectations(t, mock)
+	})
+
+	t.Run("restore timeout error wins after failed DDL", func(t *testing.T) {
+		db, mock := openMockMySQLDB(t)
+		ddlErr := errors.New("DDL failed")
+		wantErr := errors.New("restore timeout failed")
+		expectReasoningDDLWithLockTimeout(mock, reasoningEffortColumnDDL, ddlErr, wantErr)
+
+		if err := execMySQLReasoningEffortDDLWithLockTimeout(db, reasoningEffortColumnDDL); !errors.Is(err, wantErr) {
+			t.Fatalf("DDL helper error = %v, want restore error %v", err, wantErr)
 		}
 		assertSQLMockExpectations(t, mock)
 	})
@@ -432,6 +484,28 @@ func expectReasoningThresholdProbe(mock sqlmock.Sqlmock, exceeds bool) {
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT 1 FROM proxy_requests ORDER BY id LIMIT 1 OFFSET ?")).
 		WithArgs(detailCleanupIndexRowThreshold).
 		WillReturnRows(rows)
+}
+
+func expectReasoningDDLWithLockTimeout(mock sqlmock.Sqlmock, ddl string, ddlErr, restoreErr error) {
+	const originalTimeout uint64 = 31_536_000
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT @@SESSION.lock_wait_timeout")).
+		WillReturnRows(sqlmock.NewRows([]string{"@@SESSION.lock_wait_timeout"}).AddRow(originalTimeout))
+	mock.ExpectExec(regexp.QuoteMeta("SET SESSION lock_wait_timeout = ?")).
+		WithArgs(reasoningEffortMigrationLockWaitTimeoutSeconds).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	ddlExpectation := mock.ExpectExec(regexp.QuoteMeta(ddl))
+	if ddlErr != nil {
+		ddlExpectation.WillReturnError(ddlErr)
+	} else {
+		ddlExpectation.WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	restoreExpectation := mock.ExpectExec(regexp.QuoteMeta("SET SESSION lock_wait_timeout = ?")).
+		WithArgs(originalTimeout)
+	if restoreErr != nil {
+		restoreExpectation.WillReturnError(restoreErr)
+	} else {
+		restoreExpectation.WillReturnResult(sqlmock.NewResult(0, 0))
+	}
 }
 
 func assertSQLMockExpectations(t *testing.T, mock sqlmock.Sqlmock) {

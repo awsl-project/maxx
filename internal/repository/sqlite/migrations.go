@@ -594,7 +594,7 @@ func runReasoningEffortColumnMigration(db *gorm.DB) error {
 		return nil
 	}
 
-	if err := db.Exec(ddl).Error; err != nil {
+	if err := execMySQLReasoningEffortDDLWithLockTimeout(db, ddl); err != nil {
 		if isDuplicateColumnError(err) {
 			return nil
 		}
@@ -604,6 +604,38 @@ func runReasoningEffortColumnMigration(db *gorm.DB) error {
 }
 
 const reasoningEffortColumnDDL = "ALTER TABLE proxy_requests ADD COLUMN reasoning_effort VARCHAR(32) NULL"
+const reasoningEffortMigrationLockWaitTimeoutSeconds uint64 = 10
+
+func execMySQLReasoningEffortDDLWithLockTimeout(db *gorm.DB, ddl string) error {
+	return db.Connection(func(tx *gorm.DB) error {
+		ctx := tx.Statement.Context
+		conn := tx.Statement.ConnPool
+		var originalTimeout uint64
+		if err := conn.QueryRowContext(ctx, "SELECT @@SESSION.lock_wait_timeout").Scan(&originalTimeout); err != nil {
+			return fmt.Errorf("read MySQL session lock_wait_timeout: %w", err)
+		}
+		if _, err := conn.ExecContext(
+			ctx,
+			"SET SESSION lock_wait_timeout = ?",
+			reasoningEffortMigrationLockWaitTimeoutSeconds,
+		); err != nil {
+			return fmt.Errorf("set MySQL session lock_wait_timeout: %w", err)
+		}
+
+		_, ddlErr := conn.ExecContext(ctx, ddl)
+		if _, restoreErr := conn.ExecContext(
+			ctx,
+			"SET SESSION lock_wait_timeout = ?",
+			originalTimeout,
+		); restoreErr != nil {
+			if ddlErr != nil {
+				log.Printf("[Migration v18] reasoning_effort DDL also failed before lock_wait_timeout restoration: %v", ddlErr)
+			}
+			return fmt.Errorf("restore MySQL session lock_wait_timeout: %w", restoreErr)
+		}
+		return ddlErr
+	})
+}
 
 // proxyRequestsExceedReasoningMigrationThreshold checks only whether a row
 // exists immediately after the threshold. Unlike COUNT(*), the work is bounded
