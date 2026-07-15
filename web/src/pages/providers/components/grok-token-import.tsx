@@ -122,7 +122,7 @@ export function GrokTokenImport() {
     try {
       const items = fileItems.length > 0 ? fileItems : parseImportItemsFromText(jsonText);
       if (items.length === 0) {
-        throw new Error('Paste JSON or select one or more JSON files');
+        throw new Error('Paste JSON or select files');
       }
       for (const item of items) {
         const grok = normalizeGrokConfig(item.raw);
@@ -154,14 +154,11 @@ export function GrokTokenImport() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Import Grok CPA JSON</h1>
-        <p className="text-sm text-muted-foreground">
-          Paste one CLIProxyAPI xAI OAuth JSON export, paste a JSON array, or select multiple JSON files. Token fields stay in provider config and are not logged by this form.
-        </p>
+        <h1 className="text-2xl font-semibold">Import Grok JSON</h1>
       </div>
       <div className="rounded-lg border bg-card p-4">
         <label className="block text-sm font-medium text-foreground" htmlFor="grok-json-files">
-          Batch import JSON files
+          JSON files
         </label>
         <input
           id="grok-json-files"
@@ -173,7 +170,7 @@ export function GrokTokenImport() {
         />
         {fileItems.length > 0 && (
           <div className="mt-3 text-xs text-muted-foreground">
-            Ready to import {fileItems.length} credential{fileItems.length === 1 ? '' : 's'} from selected file{fileItems.length === 1 ? '' : 's'}.
+            {fileItems.length} credential{fileItems.length === 1 ? '' : 's'} selected.
           </div>
         )}
       </div>
