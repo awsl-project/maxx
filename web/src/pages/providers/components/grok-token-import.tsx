@@ -12,7 +12,7 @@ import { useCreateModelMapping, useCreateProvider } from '@/hooks/queries';
 import type { ClientType, CreateProviderData } from '@/lib/transport';
 import type { ProviderConfigGrok } from '@/lib/transport/types';
 
-interface CPAxAIExportJSON {
+export interface CPAxAIExportJSON {
   type?: string;
   auth_kind?: string;
   email?: string;
@@ -31,9 +31,24 @@ interface CPAxAIExportJSON {
   headers?: Record<string, string>;
 }
 
+interface MaxxGrokProviderExport {
+  type?: string;
+  name?: string;
+  config?: {
+    grok?: ProviderConfigGrok;
+  };
+}
+
+interface CPAAuthRecordExport {
+  provider?: string;
+  disabled?: boolean;
+  attributes?: Record<string, string>;
+  metadata?: CPAxAIExportJSON;
+}
+
 interface GrokImportItem {
   source: string;
-  raw: CPAxAIExportJSON;
+  raw: CPAxAIExportJSON | MaxxGrokProviderExport | CPAAuthRecordExport;
 }
 
 const GROK_CLIENT_TYPES = ['openai'] as const satisfies readonly ClientType[];
@@ -147,34 +162,109 @@ function ModelMappingsEditor({ mappings, onChange }: ModelMappingsEditorProps) {
   );
 }
 
-function normalizeGrokConfig(raw: CPAxAIExportJSON): ProviderConfigGrok {
-  if (raw.type !== 'xai') {
-    throw new Error(`Expected CPA xai credential JSON, got type=${raw.type || '(empty)'}`);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (typeof val === 'string') out[key] = val;
   }
-  if ((raw.auth_kind || 'oauth') !== 'oauth') {
-    throw new Error(`Expected oauth credential JSON, got auth_kind=${raw.auth_kind || '(empty)'}`);
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeSnakeCaseCredential(raw: Record<string, unknown>): ProviderConfigGrok {
+  const type = stringValue(raw.type);
+  if (type !== 'xai') {
+    throw new Error(`Expected CPA xai credential JSON, got type=${type || '(empty)'}`);
   }
-  if (!raw.access_token && !raw.refresh_token) {
+  const authKind = stringValue(raw.auth_kind) || 'oauth';
+  if (authKind !== 'oauth') {
+    throw new Error(`Expected oauth credential JSON, got auth_kind=${authKind || '(empty)'}`);
+  }
+  const accessToken = stringValue(raw.access_token);
+  const refreshToken = stringValue(raw.refresh_token);
+  if (!accessToken && !refreshToken) {
     throw new Error('access_token or refresh_token is required');
   }
   return {
     type: 'xai',
     authKind: 'oauth',
-    email: raw.email,
-    sub: raw.sub,
-    accessToken: raw.access_token,
-    refreshToken: raw.refresh_token,
-    idToken: raw.id_token,
-    tokenType: raw.token_type,
-    expiresIn: raw.expires_in,
-    expired: raw.expired,
-    lastRefresh: raw.last_refresh,
-    redirectURI: raw.redirect_uri,
-    tokenEndpoint: raw.token_endpoint,
-    baseURL: raw.base_url,
-    disabled: raw.disabled,
-    headers: raw.headers,
+    email: stringValue(raw.email),
+    sub: stringValue(raw.sub),
+    accessToken,
+    refreshToken,
+    idToken: stringValue(raw.id_token),
+    tokenType: stringValue(raw.token_type),
+    expiresIn: numberValue(raw.expires_in),
+    expired: stringValue(raw.expired),
+    lastRefresh: stringValue(raw.last_refresh),
+    redirectURI: stringValue(raw.redirect_uri),
+    tokenEndpoint: stringValue(raw.token_endpoint),
+    baseURL: stringValue(raw.base_url),
+    disabled: booleanValue(raw.disabled),
+    headers: stringRecord(raw.headers),
   };
+}
+
+function normalizeMaxxGrokConfig(raw: ProviderConfigGrok): ProviderConfigGrok {
+  if ((raw.type || 'xai') !== 'xai') {
+    throw new Error(`Expected Maxx Grok xai config, got type=${raw.type || '(empty)'}`);
+  }
+  if ((raw.authKind || 'oauth') !== 'oauth') {
+    throw new Error(`Expected Maxx Grok oauth config, got authKind=${raw.authKind || '(empty)'}`);
+  }
+  if (!raw.accessToken && !raw.refreshToken) {
+    throw new Error('accessToken or refreshToken is required');
+  }
+  return {
+    ...raw,
+    type: 'xai',
+    authKind: 'oauth',
+  };
+}
+
+export function normalizeGrokConfig(
+  raw: CPAxAIExportJSON | MaxxGrokProviderExport | CPAAuthRecordExport,
+): ProviderConfigGrok {
+  if (!isRecord(raw)) {
+    throw new Error('Expected CPA xai credential JSON object');
+  }
+
+  // Maxx provider export/import payload: { type: 'grok', config: { grok: { ...camelCase } } }.
+  const config = raw.config;
+  if (isRecord(config) && isRecord(config.grok)) {
+    return normalizeMaxxGrokConfig(config.grok as ProviderConfigGrok);
+  }
+
+  // CLIProxyAPI auth record export: { provider: 'xai', attributes: {...}, metadata: { type: 'xai', ... } }.
+  if (isRecord(raw.metadata)) {
+    const provider = stringValue(raw.provider);
+    if (provider && provider !== 'xai' && provider !== 'grok') {
+      throw new Error(`Expected CPA xai auth record, got provider=${provider}`);
+    }
+    const merged: Record<string, unknown> = { ...raw.metadata };
+    if (!merged.auth_kind && isRecord(raw.attributes)) merged.auth_kind = raw.attributes.auth_kind;
+    if (merged.disabled === undefined && typeof raw.disabled === 'boolean')
+      merged.disabled = raw.disabled;
+    return normalizeSnakeCaseCredential(merged);
+  }
+
+  return normalizeSnakeCaseCredential(raw);
 }
 
 function providerName(grok: ProviderConfigGrok, source: string): string {
@@ -186,7 +276,7 @@ function providerName(grok: ProviderConfigGrok, source: string): string {
 function parseImportItemsFromText(jsonText: string): GrokImportItem[] {
   const trimmed = jsonText.trim();
   if (!trimmed) return [];
-  const parsed = JSON.parse(trimmed) as CPAxAIExportJSON | CPAxAIExportJSON[];
+  const parsed = JSON.parse(trimmed) as GrokImportItem['raw'] | GrokImportItem['raw'][];
   if (Array.isArray(parsed)) {
     return parsed.map((raw, index) => ({ source: `pasted item ${index + 1}`, raw }));
   }
@@ -197,7 +287,7 @@ async function parseImportItemsFromFiles(files: FileList): Promise<GrokImportIte
   const items: GrokImportItem[] = [];
   for (const file of Array.from(files)) {
     const text = await file.text();
-    const parsed = JSON.parse(text) as CPAxAIExportJSON | CPAxAIExportJSON[];
+    const parsed = JSON.parse(text) as GrokImportItem['raw'] | GrokImportItem['raw'][];
     if (Array.isArray(parsed)) {
       parsed.forEach((raw, index) => items.push({ source: `${file.name}#${index + 1}`, raw }));
     } else {
@@ -286,7 +376,9 @@ export function GrokTokenImport() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        icon={<ChevronLeft className="cursor-pointer" onClick={() => navigate('/providers/create')} />}
+        icon={
+          <ChevronLeft className="cursor-pointer" onClick={() => navigate('/providers/create')} />
+        }
         title={t('addProvider.grok.name')}
         description={t('addProvider.grok.description')}
       >
@@ -315,7 +407,10 @@ export function GrokTokenImport() {
               {t('provider.basicInfo')}
             </h3>
             <div className="rounded-lg border bg-card p-4">
-              <label className="block text-sm font-medium text-foreground" htmlFor="grok-json-files">
+              <label
+                className="block text-sm font-medium text-foreground"
+                htmlFor="grok-json-files"
+              >
                 <span className="inline-flex items-center gap-2">
                   <FileJson size={14} /> {t('addProvider.grok.jsonFiles')}
                 </span>
