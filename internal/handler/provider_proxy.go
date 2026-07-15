@@ -14,6 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/requestmeta"
 )
 
 // ProviderProxyHandler handles provider-prefixed proxy requests like /provider/{id}/v1/messages.
@@ -233,27 +234,32 @@ func (h *ProviderProxyHandler) newProxyRequest(c *flow.Ctx, route *domain.Route,
 	requestHeaders := flow.GetRequestHeaders(c)
 	requestURI := flow.GetRequestURI(c)
 	requestBody := flow.GetRequestBody(c)
+	reasoningBody := flow.GetOriginalRequestBody(c)
+	if len(reasoningBody) == 0 {
+		reasoningBody = requestBody
+	}
 	apiTokenID := flow.GetAPITokenID(c)
 	projectID := flow.GetProjectID(c)
 	tenantID := maxxctx.GetTenantID(c.Request.Context())
 	devMode := getAPITokenDevMode(c)
 
 	proxyReq := &domain.ProxyRequest{
-		TenantID:      tenantID,
-		RequestID:     generateProxyRequestID(),
-		SessionID:     flow.GetSessionID(c),
-		ClientType:    flow.GetClientType(c),
-		RequestModel:  requestModel,
-		ResponseModel: mappedModel,
-		StartTime:     time.Now(),
-		IsStream:      isStream,
-		Status:        "IN_PROGRESS",
-		StatusCode:    http.StatusOK,
-		RouteID:       route.ID,
-		ProviderID:    provider.ID,
-		ProjectID:     projectID,
-		APITokenID:    apiTokenID,
-		DevMode:       devMode,
+		TenantID:        tenantID,
+		RequestID:       generateProxyRequestID(),
+		SessionID:       flow.GetSessionID(c),
+		ClientType:      flow.GetClientType(c),
+		RequestModel:    requestModel,
+		ResponseModel:   mappedModel,
+		ReasoningEffort: requestmeta.ReasoningEffort(reasoningBody),
+		StartTime:       time.Now(),
+		IsStream:        isStream,
+		Status:          "IN_PROGRESS",
+		StatusCode:      http.StatusOK,
+		RouteID:         route.ID,
+		ProviderID:      provider.ID,
+		ProjectID:       projectID,
+		APITokenID:      apiTokenID,
+		DevMode:         devMode,
 	}
 	if !clearDetail {
 		proxyReq.RequestInfo = &domain.RequestInfo{

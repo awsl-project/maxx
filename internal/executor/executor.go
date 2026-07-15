@@ -14,6 +14,7 @@ import (
 	"github.com/awsl-project/maxx/internal/event"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/requestmeta"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/waiter"
 )
@@ -194,23 +195,28 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	}
 
 	now := time.Now()
+	reasoningBody := flow.GetOriginalRequestBody(c)
+	if len(reasoningBody) == 0 {
+		reasoningBody = flow.GetRequestBody(c)
+	}
 	proxyReq := &domain.ProxyRequest{
-		TenantID:     tenantID,
-		InstanceID:   e.instanceID,
-		RequestID:    generateRequestID(),
-		SessionID:    flow.GetSessionID(c),
-		ClientType:   flow.GetClientType(c),
-		ProjectID:    projectID,
-		RequestModel: flow.GetRequestModel(c),
-		StartTime:    now,
-		EndTime:      now,
-		Duration:     0,
-		IsStream:     flow.GetIsStream(c),
-		Status:       "REJECTED",
-		StatusCode:   statusCode,
-		Error:        errMsg,
-		APITokenID:   apiTokenID,
-		DevMode:      devMode,
+		TenantID:        tenantID,
+		InstanceID:      e.instanceID,
+		RequestID:       generateRequestID(),
+		SessionID:       flow.GetSessionID(c),
+		ClientType:      flow.GetClientType(c),
+		ProjectID:       projectID,
+		RequestModel:    flow.GetRequestModel(c),
+		ReasoningEffort: requestmeta.ReasoningEffort(reasoningBody),
+		StartTime:       now,
+		EndTime:         now,
+		Duration:        0,
+		IsStream:        flow.GetIsStream(c),
+		Status:          "REJECTED",
+		StatusCode:      statusCode,
+		Error:           errMsg,
+		APITokenID:      apiTokenID,
+		DevMode:         devMode,
 	}
 
 	clearDetail := e.shouldClearFailedRequestDetailFor(&execState{apiTokenDevMode: devMode})

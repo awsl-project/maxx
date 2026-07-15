@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -539,6 +540,91 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     18,
+		Description: "Add reasoning effort metadata to proxy requests",
+		Up: func(db *gorm.DB) error {
+			return runReasoningEffortColumnMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Keep the column on rollback: dropping a column can rebuild large
+			// MySQL tables and the older application safely ignores it.
+			return nil
+		},
+	},
+}
+
+func runReasoningEffortColumnMigration(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort") {
+		return nil
+	}
+
+	const ddl = "ALTER TABLE proxy_requests ADD COLUMN reasoning_effort VARCHAR(32) NULL"
+	if db.Dialector.Name() != "mysql" {
+		if err := db.Exec(ddl).Error; err != nil {
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists") {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+
+	var version string
+	if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err == nil && mysqlSupportsInstantAddColumn(version) {
+		if err := db.Exec(ddl + ", ALGORITHM=INSTANT").Error; err == nil {
+			return nil
+		} else {
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists") {
+				return nil
+			}
+			log.Printf("[Migration v18] MySQL instant ADD COLUMN unavailable (%v); evaluating safe fallback", err)
+		}
+	}
+
+	var rowCount int64
+	if err := db.Raw("SELECT COUNT(*) FROM proxy_requests").Scan(&rowCount).Error; err != nil {
+		log.Printf("[Migration v18] could not count proxy_requests (%v); skipping column add. Apply manually if needed: %s;", err, ddl)
+		return nil
+	}
+	if rowCount > detailCleanupIndexRowThreshold {
+		log.Printf("[Migration v18] SKIPPING reasoning_effort ADD COLUMN: proxy_requests has %d rows (> %d threshold). "+
+			"Apply manually during a maintenance window: %s;",
+			rowCount, detailCleanupIndexRowThreshold, ddl)
+		return nil
+	}
+
+	if err := db.Exec(ddl).Error; err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "duplicate column") || strings.Contains(lower, "already exists") {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func mysqlSupportsInstantAddColumn(version string) bool {
+	if strings.Contains(strings.ToLower(version), "mariadb") {
+		return false
+	}
+	version = strings.SplitN(version, "-", 2)[0]
+	parts := strings.Split(version, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	major, errMajor := strconv.Atoi(parts[0])
+	minor, errMinor := strconv.Atoi(parts[1])
+	patch, errPatch := strconv.Atoi(parts[2])
+	if errMajor != nil || errMinor != nil || errPatch != nil {
+		return false
+	}
+	if major > 8 {
+		return true
+	}
+	return major == 8 && (minor > 0 || patch >= 12)
 }
 
 // runDetailClearedColumnMigration 显式添加 detail_cleared 列到两张大表,带 threshold-skip。

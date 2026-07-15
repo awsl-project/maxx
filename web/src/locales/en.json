@@ -251,6 +251,7 @@
     "time": "Time",
     "client": "Client",
     "model": "Model",
+    "reasoningEffort": "Reasoning",
     "project": "Project",
     "token": "Token",
     "provider": "Provider",

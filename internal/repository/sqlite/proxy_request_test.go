@@ -128,6 +128,62 @@ func TestProxyRequestListCursorReturnsNewestIDsFirst(t *testing.T) {
 	}
 }
 
+func TestProxyRequestReasoningEffortRoundTrip(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	if !db.gorm.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort") {
+		t.Fatal("reasoning_effort column was not migrated")
+	}
+
+	repo := NewProxyRequestRepository(db)
+	request := buildTestProxyRequest("COMPLETED", 1)
+	request.ReasoningEffort = "high"
+	if err := repo.Create(request); err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+
+	items, err := repo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	if len(items) != 1 || items[0].ReasoningEffort != "high" {
+		t.Fatalf("reasoning effort round trip = %#v, want high", items)
+	}
+}
+
+func TestProxyRequestRepositoryWorksWithoutReasoningEffortColumn(t *testing.T) {
+	gormDB := openRawSQLiteDB(t)
+	if err := gormDB.AutoMigrate(&ProxyRequest{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyRequest: %v", err)
+	}
+	db := &DB{gorm: gormDB, dialector: "sqlite"}
+	repo := NewProxyRequestRepository(db)
+	if repo.hasReasoningEffortColumn {
+		t.Fatal("expected guarded migration fallback to detect the missing column")
+	}
+
+	request := buildTestProxyRequest("IN_PROGRESS", 1)
+	request.ReasoningEffort = "high"
+	if err := repo.Create(request); err != nil {
+		t.Fatalf("Create without reasoning_effort column: %v", err)
+	}
+	request.Status = "COMPLETED"
+	if err := repo.Update(request); err != nil {
+		t.Fatalf("Update without reasoning_effort column: %v", err)
+	}
+	items, err := repo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor without reasoning_effort column: %v", err)
+	}
+	if len(items) != 1 || items[0].ReasoningEffort != "" {
+		t.Fatalf("fallback list = %#v, want one item without reasoning effort", items)
+	}
+}
+
 func TestProxyRequestListCursorBeforeCursorDoesNotRepeatOrSkipRecords(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {

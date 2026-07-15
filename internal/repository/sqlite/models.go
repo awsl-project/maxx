@@ -282,6 +282,7 @@ type ProxyRequest struct {
 	ClientType                  string `gorm:"size:64"`
 	RequestModel                string `gorm:"size:128"`
 	ResponseModel               string `gorm:"size:128"`
+	ReasoningEffort             string `gorm:"size:32;-:migration"`
 	StartTime                   int64
 	EndTime                     int64 `gorm:"index;index:idx_requests_status_endtime"`
 	DurationMs                  int64

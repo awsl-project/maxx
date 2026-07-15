@@ -40,6 +40,36 @@ func TestIsMySQLMissingIndexError(t *testing.T) {
 	}
 }
 
+func TestMySQLSupportsInstantAddColumn(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{version: "8.0.11", want: false},
+		{version: "8.0.12", want: true},
+		{version: "8.4.1", want: true},
+		{version: "5.7.44-log", want: false},
+		{version: "10.11.6-MariaDB", want: false},
+		{version: "invalid", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := mysqlSupportsInstantAddColumn(tt.version); got != tt.want {
+			t.Errorf("mysqlSupportsInstantAddColumn(%q) = %v, want %v", tt.version, got, tt.want)
+		}
+	}
+}
+
+func TestReasoningEffortColumnIsExcludedFromAutoMigrate(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&ProxyRequest{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyRequest: %v", err)
+	}
+	if db.Migrator().HasColumn(&ProxyRequest{}, "reasoning_effort") {
+		t.Fatal("reasoning_effort must be added by guarded migration v18, not AutoMigrate")
+	}
+}
+
 func TestDedupeCodexQuotaIdentityRows(t *testing.T) {
 	gormDB := openRawSQLiteDB(t)
 	prepareCodexQuotaDedupeFixture(t, gormDB)
