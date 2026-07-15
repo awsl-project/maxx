@@ -19,6 +19,7 @@ import (
 	"github.com/awsl-project/maxx/internal/adapter/provider/bedrock"
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/claude"     // Register claude adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"     // Register custom adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/grok"       // Register grok adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"       // Register kiro adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/openrouter" // Register openrouter adapter
 	"github.com/awsl-project/maxx/internal/converter"
