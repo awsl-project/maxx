@@ -1336,6 +1336,17 @@
     "defaultValue": "default {{value}}",
     "minutes": "minutes",
     "routesSortNote": "Auto-sort settings can be configured in the Routes page for each client type",
+    "proxyRouteExposure": "Public Proxy Routes",
+    "proxyRouteExposureDesc": "Control whether public proxy protocol entrypoints are exposed. Disabled routes return 404 and behave as missing routes.",
+    "proxyRouteClaudeMessages": "Claude Messages",
+    "proxyRouteClaudeMessagesDesc": "Controls the Claude / Anthropic Messages compatible entrypoint.",
+    "proxyRouteOpenAIChat": "OpenAI Chat Completions",
+    "proxyRouteOpenAIChatDesc": "Controls the OpenAI Chat Completions compatible entrypoints.",
+    "proxyRouteResponses": "Responses / Codex",
+    "proxyRouteResponsesDesc": "Controls the Responses and Codex compatible entrypoints.",
+    "proxyRouteGemini": "Gemini",
+    "proxyRouteGeminiDesc": "Controls the Google AI Studio style Gemini generation entrypoint. Disabled by default.",
+    "proxyRouteExposureHint": "These toggles only affect public proxy entrypoints, not model list routes, image routes, or provider-specific URLs.",
     "autoSortSettings": "Auto-Sort Settings",
     "autoSortAntigravity": "Auto-Sort Antigravity",
     "autoSortAntigravityDesc": "Automatically sort Antigravity routes by Claude model reset time (earliest first) after quota refresh",
@@ -1412,7 +1423,8 @@
       }
     },
     "themeDefault": "Default",
-    "themeLuxury": "Luxury"
+    "themeLuxury": "Luxury",
+    "proxyRouteExposureAtLeastOne": "At least one public route must stay enabled"
   },
   "modelMappings": {
     "title": "Model Mappings",

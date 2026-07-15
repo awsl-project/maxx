@@ -1333,6 +1333,17 @@
     "defaultValue": "默认 {{value}}",
     "minutes": "分钟",
     "routesSortNote": "自动排序设置可以在各个客户端类型的路由页面中配置",
+    "proxyRouteExposure": "公开代理路由",
+    "proxyRouteExposureDesc": "控制公开代理协议入口是否暴露。关闭后对应路径返回 404，表现为路由不存在。",
+    "proxyRouteClaudeMessages": "Claude Messages",
+    "proxyRouteClaudeMessagesDesc": "控制 Claude / Anthropic Messages 兼容入口。",
+    "proxyRouteOpenAIChat": "OpenAI Chat Completions",
+    "proxyRouteOpenAIChatDesc": "控制 OpenAI Chat Completions 兼容入口。",
+    "proxyRouteResponses": "Responses / Codex",
+    "proxyRouteResponsesDesc": "控制 Responses 与 Codex 兼容入口。",
+    "proxyRouteGemini": "Gemini",
+    "proxyRouteGeminiDesc": "控制 Google AI Studio 风格的 Gemini 生成入口。默认关闭。",
+    "proxyRouteExposureHint": "这些开关只影响公开代理入口，不影响模型列表、图片接口或提供商专属 URL。",
     "autoSortSettings": "自动排序设置",
     "autoSortAntigravity": "自动排序 Antigravity",
     "autoSortAntigravityDesc": "配额刷新后自动按 Claude 模型重置时间排序 Antigravity 路由（最早重置的优先）",
@@ -1409,7 +1420,8 @@
       }
     },
     "themeDefault": "默认",
-    "themeLuxury": "奢华"
+    "themeLuxury": "奢华",
+    "proxyRouteExposureAtLeastOne": "至少保留一个 public route 开启"
   },
   "modelMappings": {
     "title": "模型映射",

@@ -1186,6 +1186,9 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	if err := validateSystemSettingValue(key, value); err != nil {
 		return err
 	}
+	if err := s.validatePublicProxyRouteExposureUpdate(key, value); err != nil {
+		return err
+	}
 	if err := s.settingRepo.Set(key, value); err != nil {
 		return err
 	}
@@ -1206,7 +1209,55 @@ func (s *AdminService) UpdateSetting(key, value string) error {
 	return nil
 }
 
+var publicProxyRouteExposureSettingKeys = []string{
+	domain.SettingKeyProxyRouteClaudeMessagesEnabled,
+	domain.SettingKeyProxyRouteOpenAIChatEnabled,
+	domain.SettingKeyProxyRouteResponsesEnabled,
+	domain.SettingKeyProxyRouteGeminiEnabled,
+}
+
+func isPublicProxyRouteExposureSetting(key string) bool {
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		if key == routeKey {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *AdminService) validatePublicProxyRouteExposureUpdate(key, value string) error {
+	if !isPublicProxyRouteExposureSetting(key) || value != "false" {
+		return nil
+	}
+
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		routeValue := value
+		if routeKey != key {
+			storedValue, err := s.settingRepo.Get(routeKey)
+			if err != nil {
+				return err
+			}
+			routeValue = storedValue
+		}
+		if publicProxyRouteSettingEnabled(routeKey, routeValue) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: at least one public proxy route must be enabled", domain.ErrInvalidInput)
+}
+
+func publicProxyRouteSettingEnabled(key, value string) bool {
+	if value == "" {
+		return key != domain.SettingKeyProxyRouteGeminiEnabled
+	}
+	return value != "false"
+}
+
 func (s *AdminService) DeleteSetting(key string) error {
+	if err := s.validatePublicProxyRouteExposureDelete(key); err != nil {
+		return err
+	}
 	if err := s.settingRepo.Delete(key); err != nil {
 		return err
 	}
@@ -1225,6 +1276,28 @@ func (s *AdminService) DeleteSetting(key string) error {
 	}
 
 	return nil
+}
+
+func (s *AdminService) validatePublicProxyRouteExposureDelete(key string) error {
+	if !isPublicProxyRouteExposureSetting(key) {
+		return nil
+	}
+
+	for _, routeKey := range publicProxyRouteExposureSettingKeys {
+		routeValue := ""
+		if routeKey != key {
+			storedValue, err := s.settingRepo.Get(routeKey)
+			if err != nil {
+				return err
+			}
+			routeValue = storedValue
+		}
+		if publicProxyRouteSettingEnabled(routeKey, routeValue) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: at least one public proxy route must be enabled", domain.ErrInvalidInput)
 }
 
 // ===== Proxy Status API =====

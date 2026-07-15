@@ -107,6 +107,7 @@ func (s *ManagedServer) setupRoutes() *http.ServeMux {
 		ProxyHandler:         components.ProxyHandler,
 		ModelsHandler:        modelsHandler,
 		ProviderProxyHandler: components.ProviderProxyHandler,
+		SettingRepo:          s.config.SettingRepo,
 	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
