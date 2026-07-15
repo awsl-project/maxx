@@ -250,6 +250,7 @@
     "time": "时间",
     "client": "客户端",
     "model": "模型",
+    "reasoningEffort": "思考深度",
     "project": "项目",
     "token": "令牌",
     "provider": "提供商",

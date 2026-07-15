@@ -10,6 +10,7 @@ import (
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
+	"github.com/awsl-project/maxx/internal/requestmeta"
 )
 
 func (e *Executor) ingress(c *flow.Ctx) {
@@ -135,19 +136,24 @@ func (e *Executor) ingress(c *flow.Ctx) {
 }
 
 func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string) *domain.ProxyRequest {
+	reasoningBody := state.originalRequestBody
+	if len(reasoningBody) == 0 {
+		reasoningBody = state.requestBody
+	}
 	proxyReq := &domain.ProxyRequest{
-		TenantID:     state.tenantID,
-		InstanceID:   e.instanceID,
-		RequestID:    generateRequestID(),
-		SessionID:    state.sessionID,
-		ClientType:   state.clientType,
-		ProjectID:    state.projectID,
-		RequestModel: state.requestModel,
-		StartTime:    time.Now(),
-		IsStream:     state.isStream,
-		Status:       status,
-		APITokenID:   state.apiTokenID,
-		DevMode:      state.apiTokenDevMode,
+		TenantID:        state.tenantID,
+		InstanceID:      e.instanceID,
+		RequestID:       generateRequestID(),
+		SessionID:       state.sessionID,
+		ClientType:      state.clientType,
+		ProjectID:       state.projectID,
+		RequestModel:    state.requestModel,
+		ReasoningEffort: requestmeta.ReasoningEffort(reasoningBody),
+		StartTime:       time.Now(),
+		IsStream:        state.isStream,
+		Status:          status,
+		APITokenID:      state.apiTokenID,
+		DevMode:         state.apiTokenDevMode,
 	}
 
 	clearDetail := e.shouldClearRequestDetailFor(state)

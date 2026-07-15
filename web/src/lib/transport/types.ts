@@ -468,6 +468,7 @@ export interface ProxyRequest {
   clientType: ClientType;
   requestModel: string;
   responseModel: string;
+  reasoningEffort: string;
   startTime: string;
   endTime: string;
   duration: number; // nanoseconds

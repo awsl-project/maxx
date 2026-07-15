@@ -578,8 +578,9 @@ type ProxyRequest struct {
 	SessionID  string     `json:"sessionID"`
 	ClientType ClientType `json:"clientType"`
 
-	RequestModel  string `json:"requestModel"`
-	ResponseModel string `json:"responseModel"`
+	RequestModel    string `json:"requestModel"`
+	ResponseModel   string `json:"responseModel"`
+	ReasoningEffort string `json:"reasoningEffort"`
 
 	StartTime time.Time     `json:"startTime"`
 	EndTime   time.Time     `json:"endTime"`
