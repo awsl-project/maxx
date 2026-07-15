@@ -50,7 +50,7 @@ require (
 	github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 // indirect
 	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
-	github.com/gin-gonic/gin v1.10.1 // indirect
+	github.com/gin-gonic/gin v1.10.1
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
@@ -123,4 +123,4 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-replace github.com/router-for-me/CLIProxyAPI/v7 => github.com/awsl-project/CLIProxyAPI/v7 v7.0.0-20260714064441-ef2c05d9c99e
+replace github.com/router-for-me/CLIProxyAPI/v7 => github.com/awsl-project/CLIProxyAPI/v7 v7.0.0-20260714135607-27dae34e5688
