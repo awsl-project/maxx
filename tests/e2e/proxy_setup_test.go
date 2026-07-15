@@ -210,6 +210,7 @@ func NewProxyTestEnv(t *testing.T) *ProxyTestEnv {
 		ProxyHandler:         proxyHandler,
 		ModelsHandler:        protectedModelsHandler,
 		ProviderProxyHandler: providerProxyHandler,
+		SettingRepo:          settingRepo,
 	})
 	mux.Handle("/project/", projectProxyHandler)
 

@@ -622,6 +622,7 @@ func TestProxyGeminiPassthrough(t *testing.T) {
 	defer mock.Close()
 
 	env := NewProxyTestEnv(t)
+	enableGeminiPublicProxyRoute(t, env)
 	providerID := createProvider(t, env, "mock-gemini", mock.URL, []string{"gemini"})
 	createRoute(t, env, "gemini", providerID)
 
@@ -1053,6 +1054,9 @@ func TestProxyCrossProtocolConversions(t *testing.T) {
 			defer mock.Close()
 
 			env := NewProxyTestEnv(t)
+			if tc.clientType == "gemini" {
+				enableGeminiPublicProxyRoute(t, env)
+			}
 			providerID := createProvider(t, env, fmt.Sprintf("mock-%s", tc.upstreamType), mock.URL, []string{tc.upstreamType})
 			createRoute(t, env, tc.clientType, providerID)
 
@@ -1436,6 +1440,7 @@ func TestProxyGeminiToCodexStreamingSSE(t *testing.T) {
 	defer mock.Close()
 
 	env := NewProxyTestEnv(t)
+	enableGeminiPublicProxyRoute(t, env)
 	providerID := createProvider(t, env, "mock-codex-stream", mock.URL, []string{"codex"})
 	createRoute(t, env, "gemini", providerID)
 
@@ -1496,6 +1501,7 @@ func TestProxyAllProtocolsCoexist(t *testing.T) {
 	defer mockGemini.Close()
 
 	env := NewProxyTestEnv(t)
+	enableGeminiPublicProxyRoute(t, env)
 
 	// Create 4 providers, one for each protocol
 	claudeProviderID := createProvider(t, env, "mock-claude", mockClaude.URL, []string{"claude"})
@@ -1591,6 +1597,13 @@ func TestTokenConcurrencyLimitRecordsRejectedRequest(t *testing.T) {
 			runTokenConcurrencyLimitRecordsRejectedRequest(t, tc.configureRetention)
 		})
 	}
+}
+
+func enableGeminiPublicProxyRoute(t *testing.T, env *ProxyTestEnv) {
+	t.Helper()
+	resp := env.AdminPut("/api/admin/settings/proxy_route_gemini_enabled", map[string]any{"value": "true"})
+	AssertStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
 }
 
 func setRequestDetailRetentionSetting(t *testing.T, env *ProxyTestEnv, key, value string) {
@@ -1888,6 +1901,7 @@ func TestCooldown_200ClearsCooldown(t *testing.T) {
 
 func TestCooldown_GeminiProtocol(t *testing.T) {
 	env := NewProxyTestEnv(t)
+	enableGeminiPublicProxyRoute(t, env)
 	srv := mockserver.New()
 	defer srv.Close()
 

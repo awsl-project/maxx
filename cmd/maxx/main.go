@@ -546,6 +546,7 @@ func main() {
 		ProxyHandler:         proxyHandler,
 		ModelsHandler:        protectedModelsHandler,
 		ProviderProxyHandler: providerProxyHandler,
+		SettingRepo:          settingRepo,
 	})
 
 	// Health check

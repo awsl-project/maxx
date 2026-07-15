@@ -17,7 +17,13 @@ async function mockRouteApis(page: Page) {
     }
 
     if (pathname === '/api/settings' || pathname === '/api/admin/settings') {
-      return json({ ui_multitenant_enabled: 'false' });
+      return json({
+        ui_multitenant_enabled: 'false',
+        proxy_route_claude_messages_enabled: 'true',
+        proxy_route_openai_chat_enabled: 'true',
+        proxy_route_responses_enabled: 'true',
+        proxy_route_gemini_enabled: 'true',
+      });
     }
 
     if (

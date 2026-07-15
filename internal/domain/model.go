@@ -856,6 +856,10 @@ const (
 	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
 	SettingKeyCodexReasoningGuard                  = "codex_reasoning_guard"                    // Codex reasoning guard 配置（JSON 对象）
 	SettingKeyPayloadOverrideRules                 = "payload_override_rules"                   // 请求 payload 覆盖规则（JSON 数组）
+	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"          // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"            // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"
+	SettingKeyProxyRouteGeminiEnabled              = "proxy_route_gemini_enabled"               // 是否暴露 Gemini 代理路由，"true" 或 "false"，默认 "false"
 	SettingKeyEnablePprof                          = "enable_pprof"                             // 是否启用 pprof 性能分析，"true" 或 "false"，默认 "false"
 	SettingKeyPprofPort                            = "pprof_port"                               // pprof 服务端口，默认 6060
 	SettingKeyPprofPassword                        = "pprof_password"                           // pprof 访问密码，为空表示不需要密码
