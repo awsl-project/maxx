@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BackendStorageError,
+  buildPprofUrl,
   buildTransportConfig,
   getBackendUrl,
   setBackendUrl,
@@ -122,5 +123,16 @@ describe('buildTransportConfig', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('buildPprofUrl', () => {
+  it('uses the current page hostname for the same-origin backend', () => {
+    expect(buildPprofUrl(6060)).toBe(`http://${window.location.hostname}:6060/debug/pprof/`);
+  });
+
+  it('uses the configured backend hostname without its application port or path', () => {
+    setBackendUrl('https://api.example.com:9880/maxx');
+    expect(buildPprofUrl('6061')).toBe('http://api.example.com:6061/debug/pprof/');
   });
 });

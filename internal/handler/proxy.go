@@ -91,6 +91,22 @@ func (h *ProxyHandler) SetRequestTracker(tracker RequestTracker) {
 
 // ServeHTTP handles proxy requests
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if isResponsesWebSocketUpgrade(r) {
+		if h.tokenAuth != nil {
+			if _, err := h.tokenAuth.ValidateRequest(r, domain.ClientTypeCodex); err != nil {
+				writeError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
+		}
+
+		var readLimit int64
+		if h.uploadLimiter != nil {
+			readLimit = h.uploadLimiter.maxBytes
+		}
+		serveResponsesWebSocket(w, r, h, readLimit)
+		return
+	}
+
 	ctx := flow.NewCtx(w, r)
 	handlers := make([]flow.HandlerFunc, len(h.extra)+1)
 	copy(handlers, h.extra)
