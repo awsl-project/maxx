@@ -554,9 +554,12 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
                   className="h-8 px-2 text-sm rounded-md border border-border bg-card text-foreground min-w-[120px]"
                 >
                   <option value="">{t('providers.codex.followRequest')}</option>
+                  <option value="none">{t('providers.codex.reasoningNone')}</option>
                   <option value="low">{t('providers.codex.reasoningLow')}</option>
                   <option value="medium">{t('providers.codex.reasoningMedium')}</option>
                   <option value="high">{t('providers.codex.reasoningHigh')}</option>
+                  <option value="xhigh">{t('providers.codex.reasoningXHigh')}</option>
+                  <option value="max">{t('providers.codex.reasoningMax')}</option>
                 </select>
               </div>
 

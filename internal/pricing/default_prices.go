@@ -220,6 +220,38 @@ func initDefaultPrices() *PriceTable {
 	})
 
 	// ========== GPT 5.x 系列 ==========
+	// GPT-5.6 family: 1,050,000 context, max input 922,000, max output 128,000.
+	// All variants support reasoning effort none/low/medium/high/xhigh/max.
+	// Prompts over 272K input tokens charge the full request at 2x input and
+	// 1.5x output. Cache writes are 1.25x the uncached input price.
+	for _, p := range []struct {
+		id         string
+		input      uint64
+		cacheRead  uint64
+		cacheWrite uint64
+		output     uint64
+	}{
+		{"gpt-5.6", 5_000_000, 500_000, 6_250_000, 30_000_000},
+		{"gpt-5.6-sol", 5_000_000, 500_000, 6_250_000, 30_000_000},
+		{"gpt-5.6-terra", 2_500_000, 250_000, 3_125_000, 15_000_000},
+		{"gpt-5.6-luna", 1_000_000, 100_000, 1_250_000, 6_000_000},
+	} {
+		pt.Set(&ModelPricing{
+			ModelID:                p.id,
+			InputPriceMicro:        p.input,
+			OutputPriceMicro:       p.output,
+			CacheReadPriceMicro:    p.cacheRead,
+			Cache5mWritePriceMicro: p.cacheWrite,
+			Cache1hWritePriceMicro: p.cacheWrite,
+			Has1MContext:           true,
+			Context1MThreshold:     272_000,
+			InputPremiumNum:        2,
+			InputPremiumDenom:      1,
+			OutputPremiumNum:       3,
+			OutputPremiumDenom:     2,
+		})
+	}
+
 	// gpt-5.5: input=$5, output=$30; cache_read 使用默认 input/10
 	pt.Set(&ModelPricing{
 		ModelID:          "gpt-5.5",
