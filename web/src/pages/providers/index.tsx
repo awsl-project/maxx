@@ -133,6 +133,9 @@ type ProviderBulkDeletePreviewItem = {
   streamingCount: number;
 };
 
+export const PROVIDER_BULK_ACTIONS_STICKY_CLASS =
+  'sticky top-0 z-20 mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80';
+
 export function ProvidersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -664,7 +667,7 @@ export function ProvidersPage() {
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="mx-auto max-w-7xl">
           {canManageProviderSettings && providers.length > 0 && (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/80 p-3 shadow-sm">
+            <div className={PROVIDER_BULK_ACTIONS_STICKY_CLASS}>
               <Button
                 type="button"
                 variant="outline"

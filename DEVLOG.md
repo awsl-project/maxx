@@ -8,3 +8,5 @@
 - `/provider/{id}/v1/models` constrains results to the requested provider.
 - Cooldown, disabled route, provider adapter availability, client type, project, and token context are covered by regression tests.
 - Generated screenshot evidence for global, provider-scoped, project-scoped, and external mock/cooldown interaction nodes.
+- Converted the providers bulk delete/select toolbar from a normal top-of-list block to a sticky toolbar inside the providers scroll container.
+- Added a targeted layout regression test asserting sticky/top/z-index/wrapping/readable surface classes.
