@@ -345,18 +345,35 @@ func isDisabledErrorCooldownRetryableError(proxyErr *domain.ProxyError) bool {
 	if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
 		return true
 	}
+	return isCommittedStreamReadRetryableError(proxyErr)
+}
+
+func applyCommittedStreamReadRetryPolicy(proxyErr *domain.ProxyError) {
+	if isCommittedStreamReadRetryableError(proxyErr) {
+		proxyErr.Retryable = true
+	}
+}
+
+func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil {
+		return false
+	}
 	if proxyErr.Scope != domain.ScopeProvider {
 		return false
 	}
-	if proxyErr.Reason == domain.CooldownReasonNetworkError {
-		return true
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		return false
 	}
-	msg := strings.ToLower(proxyErr.Message)
-	return strings.Contains(msg, "stream read error") || strings.Contains(msg, "upstream stream")
+	msg := proxyErr.Message
+	if proxyErr.Err != nil {
+		msg += " " + proxyErr.Err.Error()
+	}
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "stream read error") || strings.Contains(msg, "upstream stream") || strings.Contains(msg, "unexpected eof")
 }
 
-func shouldRetryCommittedResponseError(provider *domain.Provider, proxyErr *domain.ProxyError) bool {
-	return shouldSkipErrorCooldown(provider) && proxyErr != nil && proxyErr.Retryable && isDisabledErrorCooldownRetryableError(proxyErr)
+func shouldRetryCommittedResponseError(proxyErr *domain.ProxyError) bool {
+	return proxyErr != nil && proxyErr.Retryable && isCommittedStreamReadRetryableError(proxyErr)
 }
 
 // handleAsyncCooldownUpdate listens for async cooldown updates from providers

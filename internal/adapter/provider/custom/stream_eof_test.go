@@ -112,6 +112,40 @@ func TestCustomAdapterStreamDoesNotFlushPartialLineOnUnexpectedEOF(t *testing.T)
 	}
 }
 
+func TestCustomAdapterStreamClassifiesUnexpectedEOFAfterResponseStarted(t *testing.T) {
+	adapter := newTestCustomAdapter()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+	ctx := flow.NewCtx(rec, req)
+	ctx.Set(flow.KeyClientType, domain.ClientTypeOpenAI)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: &terminalUnexpectedEOFReadCloser{data: []byte(
+			"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"partial",
+		)},
+	}
+
+	err := adapter.handleStreamResponse(ctx, resp, domain.ClientTypeOpenAI, false)
+	proxyErr, ok := err.(*domain.ProxyError)
+	if !ok {
+		t.Fatalf("handleStreamResponse error = %T %v, want *domain.ProxyError", err, err)
+	}
+	if proxyErr.Scope != domain.ScopeProvider || proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Fatalf("proxyErr scope/reason = %s/%s", proxyErr.Scope, proxyErr.Reason)
+	}
+	if proxyErr.Message != "upstream stream read error after response started" {
+		t.Fatalf("proxyErr message = %q", proxyErr.Message)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "content\":\"ok") {
+		t.Fatalf("completed line was not forwarded before EOF: %q", body)
+	}
+	if strings.Contains(rec.Body.String(), "partial") {
+		t.Fatalf("partial line was forwarded: %q", rec.Body.String())
+	}
+}
+
 func newTestCustomAdapter() *CustomAdapter {
 	return &CustomAdapter{provider: &domain.Provider{
 		Type: "custom",

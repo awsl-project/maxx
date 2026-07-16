@@ -10,3 +10,5 @@
 - Generated screenshot evidence for global, provider-scoped, project-scoped, and external mock/cooldown interaction nodes.
 - Converted the providers bulk delete/select toolbar from a normal top-of-list block to a sticky toolbar inside the providers scroll container.
 - Added a targeted layout regression test asserting sticky/top/z-index/wrapping/readable surface classes.
+- Decoupled committed stream read EOF retry from `DisableErrorCooldown` so provider/network stream EOFs can follow route retry policy without requiring cooldown opt-out.
+- Added regression coverage for committed stream EOF retry with cooldown enabled/disabled, zero retry budget, client cancellation, and custom adapter unexpected EOF classification after response start.

@@ -7,4 +7,6 @@
 - [x] Inspect providers bulk delete toolbar placement and scroll container.
 - [x] Make providers bulk actions toolbar sticky inside the providers scroll container.
 - [x] Validate layout with targeted tests, typecheck, build, and screenshots.
+- [x] Decouple committed stream read EOF retry from DisableErrorCooldown.
+- [x] Cover committed stream EOF retry budget and custom unexpected EOF classification with regression tests.
 - [ ] Open PR after verification.
