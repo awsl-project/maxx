@@ -39,8 +39,9 @@ func (r *forceRetrySettingsRepo) GetAll() ([]*domain.SystemSetting, error) { ret
 func (r *forceRetrySettingsRepo) Delete(key string) error                  { return nil }
 
 type forceRetrySequenceAdapter struct {
-	errs  []error
-	calls int
+	errs   []error
+	calls  int
+	onCall func()
 }
 
 func (a *forceRetrySequenceAdapter) SupportedClientTypes() []domain.ClientType {
@@ -49,6 +50,9 @@ func (a *forceRetrySequenceAdapter) SupportedClientTypes() []domain.ClientType {
 
 func (a *forceRetrySequenceAdapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
 	a.calls++
+	if a.onCall != nil {
+		a.onCall()
+	}
 	if a.calls <= len(a.errs) && a.errs[a.calls-1] != nil {
 		return a.errs[a.calls-1]
 	}
@@ -140,21 +144,20 @@ func TestDispatchForceRetryUpstreamErrorsDoesNotOverrideCanceledContext(t *testi
 	retryErr := domain.NewProxyErrorWithMessage(errors.New("upstream error"), false, "failed to connect to upstream")
 	retryErr.Scope = domain.ScopeProvider
 	retryErr.Reason = domain.CooldownReasonNetworkError
+	sequence := &forceRetrySequenceAdapter{
+		errs: []error{retryErr, nil},
+		onCall: func() {
+			cancel()
+		},
+	}
 
 	adapter, proxyReq, c, e := newForceRetryDispatchHarnessWithContext(
 		t,
 		ctx,
 		true,
-		&forceRetrySequenceAdapter{errs: []error{retryErr, nil}},
+		sequence,
 		&domain.RetryConfig{MaxRetries: 1, InitialInterval: time.Hour, BackoffRate: 1, MaxInterval: time.Hour},
 	)
-
-	go func() {
-		for adapter.calls == 0 {
-			time.Sleep(time.Millisecond)
-		}
-		cancel()
-	}()
 
 	e.dispatch(c)
 
