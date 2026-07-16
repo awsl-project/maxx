@@ -392,6 +392,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				return
 			}
 
+			if ok && forceRetryUpstreamErrorIfSafe(proxyErr, ctx, responseCapture.WroteToClient(), e.forceRetryUpstreamErrorsEnabled()) {
+				log.Printf("[Executor] Force retry upstream errors enabled; retrying provider-side error after provider %d: %v", matchedRoute.Provider.ID, err)
+			}
+
 			if ok && proxyErr.Scope == domain.ScopeRequest && !proxyErr.Retryable {
 				log.Printf("[Executor] Request-scoped non-retryable error; not failing over after provider %d: %v", matchedRoute.Provider.ID, err)
 				proxyReq.Status = "FAILED"
@@ -429,6 +433,18 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			}
 
 			if !ok || !proxyErr.Retryable {
+				log.Printf("[Executor] Not retrying provider %d error: proxyError=%v retryable=%v scope=%s reason=%s attempt=%d maxRetries=%d ctxErr=%v responseCommitted=%v err=%v",
+					matchedRoute.Provider.ID,
+					ok,
+					ok && proxyErr.Retryable,
+					proxyErrorScopeForLog(proxyErr),
+					proxyErrorReasonForLog(proxyErr),
+					attempt,
+					retryConfig.MaxRetries,
+					ctx.Err(),
+					responseCapture.WroteToClient(),
+					err,
+				)
 				break
 			}
 

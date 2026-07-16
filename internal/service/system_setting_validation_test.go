@@ -140,6 +140,35 @@ func TestValidateSystemSettingValueCodexReasoningGuard(t *testing.T) {
 	}
 }
 
+func TestValidateSystemSettingValueForceRetryUpstreamErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "true", value: "true"},
+		{name: "false", value: "false"},
+		{name: "trimmed uppercase", value: " TRUE "},
+		{name: "empty", value: "", wantErr: true},
+		{name: "invalid", value: "yes", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSystemSettingValue(domain.SettingKeyForceRetryUpstreamErrors, tt.value)
+			if tt.wantErr {
+				if !errors.Is(err, domain.ErrInvalidInput) {
+					t.Fatalf("expected invalid input error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestBackupServiceImportSystemSettingsSkipsPayloadOverrideRules(t *testing.T) {
 	repo := &stubSystemSettingRepo{
 		values: map[string]string{},

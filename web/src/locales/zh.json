@@ -1421,7 +1421,12 @@
     },
     "themeDefault": "默认",
     "themeLuxury": "奢华",
-    "proxyRouteExposureAtLeastOne": "至少保留一个 public route 开启"
+    "proxyRouteExposureAtLeastOne": "至少保留一个 public route 开启",
+    "retryBehavior": "重试行为",
+    "retryBehaviorDesc": "控制 provider 与上游失败如何重试。",
+    "forceRetryUpstreamErrors": "强制重试上游错误",
+    "forceRetryUpstreamErrorsDesc": "开启后，被误分类为不可重试的 provider / 上游 / 网络 / 服务端错误仍会按命中的路由重试策略重试。",
+    "forceRetryUpstreamErrorsHint": "请求错误、无效凭据、请求上下文取消、不安全的已提交响应，以及已耗尽的重试预算仍不会被重试。"
   },
   "modelMappings": {
     "title": "模型映射",
