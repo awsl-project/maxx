@@ -174,6 +174,16 @@ func TestRequestFailureStatusOnlyCancelsForClientDisconnectEvidence(t *testing.T
 		t.Fatalf("message without disconnect evidence = %q", msg)
 	}
 
+	mislabelledContextErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
+	mislabelledContextErr.Scope = domain.ScopeRequest
+	status, msg = requestFailureStatusAndError(ctx, mislabelledContextErr)
+	if status != "FAILED" {
+		t.Fatalf("status for context cancellation labelled client disconnected = %q, want FAILED", status)
+	}
+	if msg != "client disconnected: context canceled" {
+		t.Fatalf("message for context cancellation labelled client disconnected = %q", msg)
+	}
+
 	disconnectErr := domain.NewProxyErrorWithMessage(errors.New("write tcp: broken pipe"), false, "client disconnected")
 	disconnectErr.Scope = domain.ScopeRequest
 	status, msg = requestFailureStatusAndError(ctx, disconnectErr)
