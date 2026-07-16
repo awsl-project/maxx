@@ -3,11 +3,14 @@ package handler
 import (
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	maxxctx "github.com/awsl-project/maxx/internal/context"
+	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/pricing"
 	"github.com/awsl-project/maxx/internal/repository"
+	"github.com/awsl-project/maxx/internal/router"
 )
 
 // ModelsHandler serves model-list endpoints with a lightweight model list.
@@ -15,6 +18,7 @@ type ModelsHandler struct {
 	responseModelRepo repository.ResponseModelRepository
 	providerRepo      repository.ProviderRepository
 	modelMappingRepo  repository.ModelMappingRepository
+	router            *router.Router
 }
 
 // NewModelsHandler creates a new ModelsHandler.
@@ -22,11 +26,17 @@ func NewModelsHandler(
 	responseModelRepo repository.ResponseModelRepository,
 	providerRepo repository.ProviderRepository,
 	modelMappingRepo repository.ModelMappingRepository,
+	availabilityRouter ...*router.Router,
 ) *ModelsHandler {
+	var r *router.Router
+	if len(availabilityRouter) > 0 {
+		r = availabilityRouter[0]
+	}
 	return &ModelsHandler{
 		responseModelRepo: responseModelRepo,
 		providerRepo:      providerRepo,
 		modelMappingRepo:  modelMappingRepo,
+		router:            r,
 	}
 }
 
@@ -40,13 +50,17 @@ func (h *ModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tenantID := maxxctx.GetTenantID(r.Context())
 	userAgent := r.Header.Get("User-Agent")
 	isGeminiModels := isGeminiModelsPath(r.URL.Path)
+	clientType := modelListClientType(r)
+	projectID := modelListProjectID(r)
+	providerID := modelListProviderID(r)
+	apiTokenID := maxxctx.GetAPITokenID(r.Context())
 
 	var names []string
 	var err error
 	if isGeminiModels {
-		names, err = h.collectModelNames(tenantID)
+		names, err = h.collectAvailableModelNames(tenantID, clientType, projectID, providerID, apiTokenID, "")
 	} else {
-		names, err = h.collectModelNamesForUserAgent(tenantID, userAgent)
+		names, err = h.collectAvailableModelNames(tenantID, clientType, projectID, providerID, apiTokenID, userAgent)
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -79,6 +93,32 @@ func (h *ModelsHandler) collectModelNames(tenantID uint64) ([]string, error) {
 }
 
 func (h *ModelsHandler) collectModelNamesForUserAgent(tenantID uint64, userAgent string) ([]string, error) {
+	candidates, err := h.collectCandidateModelNames(tenantID, userAgent)
+	if err != nil {
+		return nil, err
+	}
+	return sortedModelNames(candidates), nil
+}
+
+func (h *ModelsHandler) collectAvailableModelNames(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, userAgent string) ([]string, error) {
+	candidates, err := h.collectCandidateModelNames(tenantID, userAgent)
+	if err != nil {
+		return nil, err
+	}
+	if h.router == nil {
+		return sortedModelNames(candidates), nil
+	}
+
+	available := make(map[string]struct{})
+	for name := range candidates {
+		if h.isModelAvailable(tenantID, clientType, projectID, providerID, apiTokenID, name) {
+			available[name] = struct{}{}
+		}
+	}
+	return sortedModelNames(available), nil
+}
+
+func (h *ModelsHandler) collectCandidateModelNames(tenantID uint64, userAgent string) (map[string]struct{}, error) {
 	result := make(map[string]struct{})
 
 	if h.responseModelRepo != nil {
@@ -115,13 +155,70 @@ func (h *ModelsHandler) collectModelNamesForUserAgent(tenantID uint64, userAgent
 	}
 
 	appendPricingModelNames(result, userAgent)
+	return result, nil
+}
 
+func (h *ModelsHandler) isModelAvailable(tenantID uint64, clientType domain.ClientType, projectID, providerID, apiTokenID uint64, model string) bool {
+	if h.router == nil || clientType == "" || model == "" {
+		return false
+	}
+	result, err := h.router.Match(&router.MatchContext{
+		TenantID:     tenantID,
+		ClientType:   clientType,
+		ProjectID:    projectID,
+		RequestModel: model,
+		APITokenID:   apiTokenID,
+	})
+	if err != nil || result == nil {
+		return false
+	}
+	for _, matched := range result.Routes {
+		if matched == nil || matched.Provider == nil {
+			continue
+		}
+		if providerID == 0 || matched.Provider.ID == providerID {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedModelNames(result map[string]struct{}) []string {
 	names := make([]string, 0, len(result))
 	for name := range result {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	return names, nil
+	return names
+}
+
+func modelListProjectID(r *http.Request) uint64 {
+	if r == nil {
+		return 0
+	}
+	return parseUintHeader(r, "X-Maxx-Project-ID")
+}
+
+func modelListProviderID(r *http.Request) uint64 {
+	if r == nil {
+		return 0
+	}
+	return parseUintHeader(r, "X-Maxx-Provider-ID")
+}
+
+func parseUintHeader(r *http.Request, name string) uint64 {
+	if r == nil {
+		return 0
+	}
+	value := strings.TrimSpace(r.Header.Get(name))
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return parsed
 }
 
 func appendPricingModelNames(target map[string]struct{}, userAgent string) {

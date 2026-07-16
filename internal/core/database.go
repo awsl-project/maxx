@@ -460,6 +460,7 @@ func InitializeServerComponents(
 		repos.ResponseModelRepo,
 		repos.CachedProviderRepo,
 		repos.CachedModelMappingRepo,
+		r,
 	)
 	protectedModelsHandler := tokenAuthMiddleware.WrapModelList(modelsHandler)
 	adminHandler := handler.NewAdminHandler(adminService, backupService, logPath)

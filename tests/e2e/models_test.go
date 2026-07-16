@@ -1,8 +1,10 @@
 package e2e_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestGetModels(t *testing.T) {
@@ -250,5 +252,115 @@ func TestGetModels_ProjectAndProviderScopedRoutesRequireAPIToken(t *testing.T) {
 				t.Fatalf("Expected object 'list', got %v", result["object"])
 			}
 		})
+	}
+}
+
+func TestGetModels_OnlyCurrentAvailableModelsAcrossScopes(t *testing.T) {
+	env := NewProxyTestEnv(t)
+
+	globalProviderID := createModelListProvider(t, env, "models available global", []string{"gpt-models-global", "gpt-models-cold"})
+	disabledProviderID := createModelListProvider(t, env, "models unavailable disabled", []string{"gpt-models-disabled"})
+	projectProviderID := createModelListProvider(t, env, "models available project", []string{"gpt-models-project"})
+
+	createModelListRoute(t, env, globalProviderID, 0, true)
+	createModelListRoute(t, env, disabledProviderID, 0, false)
+
+	projectResp := env.AdminPost("/api/admin/projects", map[string]any{
+		"name":                "models availability project",
+		"slug":                "models-availability-project",
+		"enabledCustomRoutes": []string{"openai"},
+	})
+	AssertStatus(t, projectResp, http.StatusCreated)
+	var project map[string]any
+	DecodeJSON(t, projectResp, &project)
+	projectID := int(project["id"].(float64))
+	createModelListRoute(t, env, projectProviderID, projectID, true)
+
+	until := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	cooldownResp := env.AdminPut(fmt.Sprintf("/api/admin/cooldowns/%d", globalProviderID), map[string]any{
+		"untilTime":  until,
+		"clientType": "openai",
+		"model":      "gpt-models-cold",
+	})
+	AssertStatus(t, cooldownResp, http.StatusOK)
+	cooldownResp.Body.Close()
+
+	globalIDs := modelIDsFromResponse(t, env.doRequest(http.MethodGet, "/v1/models", nil, env.Token))
+	assertModelPresent(t, globalIDs, "gpt-models-global")
+	assertModelAbsent(t, globalIDs, "gpt-models-cold")
+	assertModelAbsent(t, globalIDs, "gpt-models-disabled")
+	assertModelAbsent(t, globalIDs, "gpt-models-project")
+
+	providerIDs := modelIDsFromResponse(t, env.doRequest(http.MethodGet, fmt.Sprintf("/provider/%d/v1/models", globalProviderID), nil, env.Token))
+	assertModelPresent(t, providerIDs, "gpt-models-global")
+	assertModelAbsent(t, providerIDs, "gpt-models-cold")
+	assertModelAbsent(t, providerIDs, "gpt-models-disabled")
+	assertModelAbsent(t, providerIDs, "gpt-models-project")
+
+	projectIDs := modelIDsFromResponse(t, env.doRequest(http.MethodGet, "/project/models-availability-project/v1/models", nil, env.Token))
+	assertModelPresent(t, projectIDs, "gpt-models-project")
+	assertModelAbsent(t, projectIDs, "gpt-models-global")
+	assertModelAbsent(t, projectIDs, "gpt-models-disabled")
+}
+
+func createModelListProvider(t *testing.T, env *ProxyTestEnv, name string, supportModels []string) int {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/providers", map[string]any{
+		"name": name,
+		"type": "custom",
+		"config": map[string]any{"custom": map[string]any{
+			"baseURL": "https://models-availability.example.test/v1",
+			"apiKey":  "sk-models-availability",
+		}},
+		"supportedClientTypes": []string{"openai"},
+		"supportModels":        supportModels,
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+	var provider map[string]any
+	DecodeJSON(t, resp, &provider)
+	return int(provider["id"].(float64))
+}
+
+func createModelListRoute(t *testing.T, env *ProxyTestEnv, providerID int, projectID int, enabled bool) {
+	t.Helper()
+	resp := env.AdminPost("/api/admin/routes", map[string]any{
+		"isEnabled":  enabled,
+		"isNative":   true,
+		"clientType": "openai",
+		"providerID": providerID,
+		"projectID":  projectID,
+		"position":   1,
+	})
+	AssertStatus(t, resp, http.StatusCreated)
+	resp.Body.Close()
+}
+
+func modelIDsFromResponse(t *testing.T, resp *http.Response) map[string]bool {
+	t.Helper()
+	AssertStatus(t, resp, http.StatusOK)
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	DecodeJSON(t, resp, &payload)
+	ids := make(map[string]bool, len(payload.Data))
+	for _, item := range payload.Data {
+		ids[item.ID] = true
+	}
+	return ids
+}
+
+func assertModelPresent(t *testing.T, ids map[string]bool, model string) {
+	t.Helper()
+	if !ids[model] {
+		t.Fatalf("expected model %q in %v", model, ids)
+	}
+}
+
+func assertModelAbsent(t *testing.T, ids map[string]bool, model string) {
+	t.Helper()
+	if ids[model] {
+		t.Fatalf("did not expect model %q in %v", model, ids)
 	}
 }
