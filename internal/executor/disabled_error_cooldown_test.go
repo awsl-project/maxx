@@ -70,8 +70,28 @@ func TestDispatchRetriesCommittedStreamReadErrorWhenErrorCooldownDisabled(t *tes
 	}
 }
 
-func TestDispatchDoesNotRetryCommittedStreamReadErrorWhenErrorCooldownEnabled(t *testing.T) {
+func TestDispatchRetriesCommittedStreamReadErrorWhenErrorCooldownEnabled(t *testing.T) {
 	c, adapter, _, proxyRepo := newDisabledCooldownStreamDispatchCtx(false)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
+	}
+	if got := c.Writer.(*httptest.ResponseRecorder).Body.String(); got != "data: partial\n\ndata: fallback\n\ndata: [DONE]\n\n" {
+		t.Fatalf("client body = %q", got)
+	}
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
+	}
+}
+
+func TestDispatchDoesNotRetryCommittedStreamReadErrorWithoutRetryBudget(t *testing.T) {
+	c, adapter, _, proxyRepo := newDisabledCooldownStreamDispatchCtx(false, 0)
 	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
 
 	e.dispatch(c)
@@ -205,10 +225,14 @@ func newDisabledCooldownStreamTestExecutor(proxyRepo *codexGuardProxyRequestRepo
 	}
 }
 
-func newDisabledCooldownStreamDispatchCtx(disableErrorCooldown bool) (*flow.Ctx, *disabledCooldownStreamRetryAdapter, *recordingAttemptRepo, *codexGuardProxyRequestRepo) {
+func newDisabledCooldownStreamDispatchCtx(disableErrorCooldown bool, maxRetriesOverride ...int) (*flow.Ctx, *disabledCooldownStreamRetryAdapter, *recordingAttemptRepo, *codexGuardProxyRequestRepo) {
 	proxyRepo := &codexGuardProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	adapter := &disabledCooldownStreamRetryAdapter{}
+	maxRetries := 1
+	if len(maxRetriesOverride) > 0 {
+		maxRetries = maxRetriesOverride[0]
+	}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
 	c := flow.NewCtx(rec, req)
@@ -237,7 +261,7 @@ func newDisabledCooldownStreamDispatchCtx(disableErrorCooldown bool) (*flow.Ctx,
 					Config:   &domain.ProviderConfig{DisableErrorCooldown: disableErrorCooldown},
 				},
 				ProviderAdapter: adapter,
-				RetryConfig:     &domain.RetryConfig{MaxRetries: 1, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+				RetryConfig:     &domain.RetryConfig{MaxRetries: maxRetries, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
 			},
 		},
 	}
