@@ -364,7 +364,11 @@ func isCommittedStreamReadRetryableError(proxyErr *domain.ProxyError) bool {
 	if proxyErr.Reason != domain.CooldownReasonNetworkError {
 		return false
 	}
-	msg := strings.ToLower(proxyErr.Message + " " + proxyErr.Err.Error())
+	msg := proxyErr.Message
+	if proxyErr.Err != nil {
+		msg += " " + proxyErr.Err.Error()
+	}
+	msg = strings.ToLower(msg)
 	return strings.Contains(msg, "stream read error") || strings.Contains(msg, "upstream stream") || strings.Contains(msg, "unexpected eof")
 }
 
