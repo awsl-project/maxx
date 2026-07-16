@@ -16,10 +16,21 @@ func validateSystemSettingValue(key, value string) error {
 		return payloadoverride.ValidateRulesJSON(value)
 	case domain.SettingKeyCodexReasoningGuard:
 		return validateCodexReasoningGuardSetting(value)
+	case domain.SettingKeyForceRetryUpstreamErrors:
+		return validateBooleanSystemSetting(key, value)
 	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
 		return validateRateLimitCooldownDefaultSeconds(value)
 	default:
 		return nil
+	}
+}
+
+func validateBooleanSystemSetting(key, value string) error {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "true", "false":
+		return nil
+	default:
+		return fmt.Errorf("%w: %s must be true or false", domain.ErrInvalidInput, key)
 	}
 }
 
