@@ -1,6 +1,11 @@
 package handler
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
+)
 
 // proxyAPIEndpoint is one public AI API path family accepted under the
 // /project/<slug>/ and /provider/<id>/ prefixes.
@@ -53,4 +58,38 @@ func isValidProxyAPIPath(path string) bool {
 		}
 	}
 	return false
+}
+
+func proxyRouteExposureSettingKey(path string) (string, bool) {
+	switch {
+	case path == "/v1/messages" || strings.HasPrefix(path, "/v1/messages/"):
+		return domain.SettingKeyProxyRouteClaudeMessagesEnabled, true
+	case path == "/v1/chat/completions" || strings.HasPrefix(path, "/v1/chat/completions/"):
+		return domain.SettingKeyProxyRouteOpenAIChatEnabled, true
+	case path == "/responses" || strings.HasPrefix(path, "/responses/") || path == "/v1/responses" || strings.HasPrefix(path, "/v1/responses/"):
+		return domain.SettingKeyProxyRouteResponsesEnabled, true
+	case path == "/v1beta/models" || strings.HasPrefix(path, "/v1beta/models/"):
+		return domain.SettingKeyProxyRouteGeminiEnabled, true
+	default:
+		return "", false
+	}
+}
+
+func proxyRouteExposureEnabled(settings repository.SystemSettingRepository, path string) bool {
+	key, ok := proxyRouteExposureSettingKey(path)
+	if !ok {
+		return true
+	}
+	if settings == nil {
+		return proxyRouteExposureEnabledByDefault(key)
+	}
+	value, err := settings.Get(key)
+	if err != nil || value == "" {
+		return proxyRouteExposureEnabledByDefault(key)
+	}
+	return value != "false"
+}
+
+func proxyRouteExposureEnabledByDefault(key string) bool {
+	return key != domain.SettingKeyProxyRouteGeminiEnabled
 }

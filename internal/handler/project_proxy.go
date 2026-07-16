@@ -15,6 +15,7 @@ type ProjectProxyHandler struct {
 	proxyHandler  *ProxyHandler
 	modelsHandler http.Handler
 	projectRepo   repository.ProjectRepository
+	settingsRepo  repository.SystemSettingRepository
 }
 
 // NewProjectProxyHandler creates a new project proxy handler
@@ -22,11 +23,13 @@ func NewProjectProxyHandler(
 	proxyHandler *ProxyHandler,
 	modelsHandler http.Handler,
 	projectRepo repository.ProjectRepository,
+	settingsRepo repository.SystemSettingRepository,
 ) *ProjectProxyHandler {
 	return &ProjectProxyHandler{
 		proxyHandler:  proxyHandler,
 		modelsHandler: modelsHandler,
 		projectRepo:   projectRepo,
+		settingsRepo:  settingsRepo,
 	}
 }
 
@@ -60,6 +63,10 @@ func (h *ProjectProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	// Forward to the appropriate handler
 	if isModelListAPIPath(apiPath) {
 		h.modelsHandler.ServeHTTP(w, r)
+		return
+	}
+	if !proxyRouteExposureEnabled(h.settingsRepo, apiPath) {
+		http.NotFound(w, r)
 		return
 	}
 	h.proxyHandler.ServeHTTP(w, r)

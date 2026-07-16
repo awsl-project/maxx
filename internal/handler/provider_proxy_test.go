@@ -46,6 +46,17 @@ func (f *fakeProviderByIDRepo) List(tenantID uint64) ([]*domain.Provider, error)
 	return []*domain.Provider{f.provider}, nil
 }
 
+type fakeProxyRouteExposureSettings struct {
+	values map[string]string
+}
+
+func (f fakeProxyRouteExposureSettings) Get(key string) (string, error) {
+	return f.values[key], nil
+}
+func (f fakeProxyRouteExposureSettings) Set(key, value string) error              { return nil }
+func (f fakeProxyRouteExposureSettings) GetAll() ([]*domain.SystemSetting, error) { return nil, nil }
+func (f fakeProxyRouteExposureSettings) Delete(key string) error                  { return nil }
+
 func assertGeminiModelsPayload(t *testing.T, body []byte) {
 	t.Helper()
 	var payload struct {
@@ -236,7 +247,7 @@ func TestProjectProxyRoutesGeminiModelListToModelsHandler(t *testing.T) {
 	modelsHandler := NewModelsHandler(&fakeResponseModelRepo{names: []string{"gpt-1"}}, nil, nil)
 	handler := NewProjectProxyHandler(nil, modelsHandler, &fakeProjectRepo{
 		project: &domain.Project{ID: 42, Name: "Demo", Slug: "demo"},
-	})
+	}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/project/demo/v1beta/models", nil)
 	req.Header.Set("User-Agent", "claude-cli/2.0")
@@ -253,7 +264,7 @@ func TestProviderProxyRoutesGeminiModelListToModelsHandler(t *testing.T) {
 	modelsHandler := NewModelsHandler(&fakeResponseModelRepo{names: []string{"gpt-1"}}, nil, nil)
 	handler := NewProviderProxyHandler(nil, modelsHandler, &fakeProviderByIDRepo{
 		provider: &domain.Provider{ID: 1, Name: "Provider"},
-	}, nil, nil)
+	}, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/provider/1/v1beta/models", nil)
 	req.Header.Set("User-Agent", "claude-cli/2.0")
@@ -264,4 +275,34 @@ func TestProviderProxyRoutesGeminiModelListToModelsHandler(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	assertGeminiModelsPayload(t, rec.Body.Bytes())
+}
+
+func TestProjectProxyHonorsDisabledProxyRouteExposure(t *testing.T) {
+	handler := NewProjectProxyHandler(nil, nil, &fakeProjectRepo{
+		project: &domain.Project{ID: 42, Name: "Demo", Slug: "demo"},
+	}, fakeProxyRouteExposureSettings{values: map[string]string{
+		domain.SettingKeyProxyRouteClaudeMessagesEnabled: "false",
+	}})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/project/demo/v1/messages", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestProviderProxyHonorsDisabledProxyRouteExposureBeforeRecording(t *testing.T) {
+	handler := NewProviderProxyHandler(nil, nil, &fakeProviderByIDRepo{
+		provider: &domain.Provider{ID: 1, Name: "Provider"},
+	}, nil, nil, fakeProxyRouteExposureSettings{values: map[string]string{
+		domain.SettingKeyProxyRouteOpenAIChatEnabled: "false",
+	}})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/provider/1/v1/chat/completions", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
 }

@@ -26,6 +26,7 @@ type ProviderProxyHandler struct {
 	providerRepo     repository.ProviderRepository
 	routeRepo        repository.RouteRepository
 	proxyRequestRepo repository.ProxyRequestRepository
+	settingsRepo     repository.SystemSettingRepository
 }
 
 // NewProviderProxyHandler creates a new provider proxy handler.
@@ -35,6 +36,7 @@ func NewProviderProxyHandler(
 	providerRepo repository.ProviderRepository,
 	routeRepo repository.RouteRepository,
 	proxyRequestRepo repository.ProxyRequestRepository,
+	settingsRepo repository.SystemSettingRepository,
 ) *ProviderProxyHandler {
 	return &ProviderProxyHandler{
 		proxyHandler:     proxyHandler,
@@ -42,6 +44,7 @@ func NewProviderProxyHandler(
 		providerRepo:     providerRepo,
 		routeRepo:        routeRepo,
 		proxyRequestRepo: proxyRequestRepo,
+		settingsRepo:     settingsRepo,
 	}
 }
 
@@ -75,6 +78,10 @@ func (h *ProviderProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	if isModelListAPIPath(apiPath) {
 		r.URL.Path = apiPath
 		h.modelsHandler.ServeHTTP(w, r)
+		return
+	}
+	if !proxyRouteExposureEnabled(h.settingsRepo, apiPath) {
+		http.NotFound(w, r)
 		return
 	}
 
