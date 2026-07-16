@@ -10,8 +10,6 @@ import (
 	provideradapter "github.com/awsl-project/maxx/internal/adapter/provider"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
-	"github.com/awsl-project/maxx/internal/executor"
-	"github.com/awsl-project/maxx/internal/executor/responsemodifier"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/requestmeta"
@@ -132,7 +130,12 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		}
 
 		requestModel := flow.GetRequestModel(c)
+		projectID := flow.GetProjectID(c)
+		apiTokenID := flow.GetAPITokenID(c)
 		mappedModel := requestModel
+		if h.proxyHandler != nil && h.proxyHandler.executor != nil {
+			mappedModel = h.proxyHandler.executor.MapModelForProviderProxy(tenantID, requestModel, route, provider, clientType, projectID, apiTokenID)
+		}
 		isStream := flow.GetIsStream(c)
 		clearDetail := h.proxyHandler != nil && h.proxyHandler.executor != nil && h.proxyHandler.executor.ShouldClearRequestDetailByConfig()
 		if getAPITokenDevMode(c) {
@@ -147,92 +150,30 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		c.Set(flow.KeyOriginalClientType, clientType)
 		c.Set(flow.KeyProxyRequest, proxyReq)
 
-		clientWriter := http.ResponseWriter(c.Writer)
-		modifierWriter := responsemodifier.NewResponseModifierWriter(c.Writer, provider, clientType, isStream)
-		if modifierWriter != nil {
-			clientWriter = modifierWriter
-		}
-
-		responseCapture := executor.NewResponseCapture(clientWriter)
-		originalWriter := c.Writer
-		c.Writer = responseCapture
-		// Route through ExecuteOnce so this bypass path gets the same attempt-
-		// record + cost-finalization treatment as the retry-driven dispatch.
-		// Without this, /provider/<id>/... requests landed in the DB with 0
-		// attempts and cost=0 / multiplier=0 / modelPriceId=0 — silently
-		// zero-billing every direct-dispatch call.
-		//
-		// Fail fast if the executor isn't wired: silently falling back to a
-		// bare adapter call would reintroduce the exact "succeeded request
-		// with no attempt/billing" condition this PR fixes whenever production
-		// is misconfigured. The /v1beta/models pre-branch above already
-		// handles the only legitimately executor-less case (model-list reads).
+		// Route direct provider calls through the normal executor dispatch loop,
+		// constrained to this provider. This keeps the /provider/<id>/... contract
+		// one-to-one while preserving model mapping, retry, attempts and billing.
 		if h.proxyHandler == nil || h.proxyHandler.executor == nil {
 			err = &domain.ProxyError{
 				HTTPStatusCode: http.StatusInternalServerError,
 				Message:        "provider proxy executor not configured",
 			}
 		} else {
-			_, err = h.proxyHandler.executor.ExecuteOnce(
-				c, proxyReq, route, provider, adapter,
-				clientType, requestModel, mappedModel, isStream, clearDetail,
-			)
+			err = h.proxyHandler.executor.ExecuteProviderProxy(c, proxyReq, route, provider, adapter)
 		}
-		c.Writer = originalWriter
-
-		now := time.Now()
-		proxyReq.EndTime = now
-		proxyReq.Duration = now.Sub(proxyReq.StartTime)
-		proxyReq.StatusCode = responseCapture.StatusCode()
-		proxyReq.ResponseModel = mappedModel
-		if !clearDetail {
-			proxyReq.ResponseInfo = &domain.ResponseInfo{
-				Status:  responseCapture.StatusCode(),
-				Headers: responseCapture.CapturedHeaders(),
-				Body:    responseCapture.Body(),
-			}
-		}
-
 		if err == nil {
-			if modifierWriter != nil {
-				err = modifierWriter.Finalize()
-				if err != nil {
-					proxyReq.Status = "FAILED"
-					proxyReq.Error = err.Error()
-					clearProxyRequestDetail(proxyReq, clearDetail)
-					_ = h.proxyRequestRepo.Update(proxyReq)
-					c.Abort()
-					return
-				}
-			}
-			proxyReq.Status = "COMPLETED"
-			clearProxyRequestDetail(proxyReq, clearDetail)
-			_ = h.proxyRequestRepo.Update(proxyReq)
 			return
 		}
 
-		proxyReq.Status = "FAILED"
-		proxyReq.Error = err.Error()
 		if proxyErr, ok := err.(*domain.ProxyError); ok {
 			if isStream {
-				writeStreamError(responseCapture, proxyErr)
+				writeStreamError(c.Writer, proxyErr)
 			} else {
-				writeProxyError(responseCapture, proxyErr)
-			}
-			if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
-				proxyReq.StatusCode = proxyErr.HTTPStatusCode
+				writeProxyError(c.Writer, proxyErr)
 			}
 		} else {
-			writeError(responseCapture, http.StatusBadGateway, err.Error())
-			proxyReq.StatusCode = http.StatusBadGateway
+			writeError(c.Writer, http.StatusBadGateway, err.Error())
 		}
-		if modifierWriter != nil {
-			if finalizeErr := modifierWriter.Finalize(); finalizeErr != nil {
-				log.Printf("[ProviderProxy] failed to finalize response modifier: %v", finalizeErr)
-			}
-		}
-		clearProxyRequestDetail(proxyReq, clearDetail)
-		_ = h.proxyRequestRepo.Update(proxyReq)
 		c.Abort()
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 )
@@ -301,5 +302,181 @@ func TestExecuteOnce_RecordsFailedAttemptWithoutMirroringCost(t *testing.T) {
 	}
 	if proxyReq.Cost != 0 {
 		t.Errorf("proxyReq.Cost = %d on failure path; should stay zero", proxyReq.Cost)
+	}
+}
+
+type staticRetryConfigRepo struct {
+	defaultConfig *domain.RetryConfig
+	configs       map[uint64]*domain.RetryConfig
+}
+
+func (r *staticRetryConfigRepo) Create(*domain.RetryConfig) error { return nil }
+func (r *staticRetryConfigRepo) Update(*domain.RetryConfig) error { return nil }
+func (r *staticRetryConfigRepo) Delete(uint64, uint64) error      { return nil }
+func (r *staticRetryConfigRepo) GetByID(_ uint64, id uint64) (*domain.RetryConfig, error) {
+	if r.configs == nil {
+		return nil, nil
+	}
+	return r.configs[id], nil
+}
+func (r *staticRetryConfigRepo) GetDefault(uint64) (*domain.RetryConfig, error) {
+	return r.defaultConfig, nil
+}
+func (r *staticRetryConfigRepo) List(uint64) ([]*domain.RetryConfig, error) { return nil, nil }
+
+type sequenceAdapter struct {
+	errs  []error
+	calls int
+}
+
+func (a *sequenceAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *sequenceAdapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
+	a.calls++
+	if ch := flow.GetEventChan(c); ch != nil {
+		ch.SendMetrics(&domain.AdapterMetrics{InputTokens: uint64(a.calls), OutputTokens: 10})
+	}
+	if a.calls <= len(a.errs) && a.errs[a.calls-1] != nil {
+		return a.errs[a.calls-1]
+	}
+	_, _ = c.Writer.Write([]byte(`{"ok":true}`))
+	return nil
+}
+
+func TestMapModelForProviderProxyHonorsModelMapping(t *testing.T) {
+	e := &Executor{modelMappingRepo: &staticModelMappingRepo{mappings: []*domain.ModelMapping{
+		{Pattern: "minimaxai/minimax-m3", Target: "minimax-m3-upstream"},
+	}}}
+	route := &domain.Route{ID: 11, ProviderID: 7, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: 7, Type: "custom"}
+
+	got := e.MapModelForProviderProxy(1, "minimaxai/minimax-m3", route, provider, domain.ClientTypeOpenAI, 0, 46)
+	if got != "minimax-m3-upstream" {
+		t.Fatalf("mapped model = %q, want minimax-m3-upstream", got)
+	}
+}
+
+func TestExecuteProviderProxyRetriesSameProvider(t *testing.T) {
+	proxyRepo := &codexGuardProxyRequestRepo{}
+	attemptRepo := &recordingAttemptRepo{}
+	retryErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+	retryErr.Message = "failed to connect to upstream"
+	adapter := &sequenceAdapter{errs: []error{retryErr}}
+	e := &Executor{
+		proxyRequestRepo: proxyRepo,
+		attemptRepo:      attemptRepo,
+		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
+			MaxRetries:      1,
+			InitialInterval: 0,
+			BackoffRate:     1,
+			MaxInterval:     0,
+		}},
+		modelMappingRepo: &staticModelMappingRepo{mappings: []*domain.ModelMapping{
+			{Pattern: "minimaxai/minimax-m3", Target: "minimax-m3-upstream"},
+		}},
+		converter: converter.GetGlobalRegistry(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/7/v1/chat/completions", nil).
+		WithContext(context.Background())
+	rec := httptest.NewRecorder()
+	c := flow.NewCtx(rec, req)
+	c.Set(flow.KeyRequestBody, []byte(`{"model":"minimaxai/minimax-m3"}`))
+	c.Set(flow.KeyOriginalRequestBody, []byte(`{"model":"minimaxai/minimax-m3"}`))
+	c.Set(flow.KeyRequestHeaders, http.Header{"Content-Type": []string{"application/json"}})
+	c.Set(flow.KeyRequestURI, "/provider/7/v1/chat/completions")
+
+	proxyReq := &domain.ProxyRequest{
+		TenantID:      1,
+		ID:            42,
+		ClientType:    domain.ClientTypeOpenAI,
+		RequestModel:  "minimaxai/minimax-m3",
+		ResponseModel: "minimax-m3-upstream",
+		IsStream:      false,
+		Status:        "IN_PROGRESS",
+		RouteID:       11,
+		ProviderID:    7,
+		APITokenID:    46,
+	}
+	route := &domain.Route{ID: 11, ProviderID: 7, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: 7, Type: "custom"}
+
+	if err := e.ExecuteProviderProxy(c, proxyReq, route, provider, adapter); err != nil {
+		t.Fatalf("ExecuteProviderProxy returned error: %v", err)
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
+	}
+	if len(attemptRepo.created) != 2 {
+		t.Fatalf("attempts created = %d, want 2", len(attemptRepo.created))
+	}
+	if proxyReq.ProviderID != provider.ID {
+		t.Fatalf("provider changed to %d, want same provider %d", proxyReq.ProviderID, provider.ID)
+	}
+	if proxyReq.Status != "COMPLETED" {
+		t.Fatalf("proxy request status = %q, want COMPLETED", proxyReq.Status)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 2 {
+		t.Fatalf("attempt count = %d, want 2", proxyReq.ProxyUpstreamAttemptCount)
+	}
+	if proxyReq.ResponseModel != "minimax-m3-upstream" {
+		t.Fatalf("response model = %q, want minimax-m3-upstream", proxyReq.ResponseModel)
+	}
+	for _, created := range attemptRepo.created {
+		if created.ProviderID != provider.ID {
+			t.Fatalf("attempt provider = %d, want %d", created.ProviderID, provider.ID)
+		}
+		if created.MappedModel != "minimax-m3-upstream" {
+			t.Fatalf("attempt mapped model = %q, want minimax-m3-upstream", created.MappedModel)
+		}
+	}
+}
+
+func TestExecuteProviderProxyHonorsZeroMaxRetries(t *testing.T) {
+	retryErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+	retryErr.Message = "failed to connect to upstream"
+	adapter := &sequenceAdapter{errs: []error{retryErr, nil}}
+	e := &Executor{
+		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		attemptRepo:      &recordingAttemptRepo{},
+		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
+			MaxRetries:      0,
+			InitialInterval: 0,
+			BackoffRate:     1,
+			MaxInterval:     0,
+		}},
+		modelMappingRepo: &staticModelMappingRepo{},
+		converter:        converter.GetGlobalRegistry(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/7/v1/chat/completions", nil).
+		WithContext(context.Background())
+	c := flow.NewCtx(httptest.NewRecorder(), req)
+	c.Set(flow.KeyRequestHeaders, http.Header{})
+	c.Set(flow.KeyRequestURI, "/provider/7/v1/chat/completions")
+
+	proxyReq := &domain.ProxyRequest{
+		TenantID:     1,
+		ID:           42,
+		ClientType:   domain.ClientTypeOpenAI,
+		RequestModel: "minimaxai/minimax-m3",
+		IsStream:     false,
+		Status:       "IN_PROGRESS",
+		RouteID:      11,
+		ProviderID:   7,
+	}
+	route := &domain.Route{ID: 11, ProviderID: 7, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: 7, Type: "custom"}
+
+	if err := e.ExecuteProviderProxy(c, proxyReq, route, provider, adapter); err == nil {
+		t.Fatal("expected first upstream error to be returned without retry")
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls = %d, want 1 when MaxRetries=0", adapter.calls)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 1 {
+		t.Fatalf("attempt count = %d, want 1", proxyReq.ProxyUpstreamAttemptCount)
 	}
 }
