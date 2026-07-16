@@ -74,6 +74,7 @@ func (h *ProviderProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 	if isModelListAPIPath(apiPath) {
 		r.URL.Path = apiPath
+		r.Header.Set("X-Maxx-Provider-ID", strconv.FormatUint(provider.ID, 10))
 		h.modelsHandler.ServeHTTP(w, r)
 		return
 	}
