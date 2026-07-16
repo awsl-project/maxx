@@ -27,6 +27,7 @@ import (
 	"github.com/awsl-project/maxx/internal/repository"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
+	"github.com/awsl-project/maxx/internal/reqpolicy"
 	"github.com/awsl-project/maxx/internal/router"
 	"github.com/awsl-project/maxx/internal/service"
 	"github.com/awsl-project/maxx/internal/waiter"
@@ -373,6 +374,19 @@ func InitializeServerComponents(
 	if _, err := payloadoverride.ReloadGlobalSettings(); err != nil {
 		log.Printf("[Core] Warning: Failed to warm payload override cache: %v", err)
 	}
+
+	reqpolicy.SetGlobalPolicyGetter(func() (*domain.ReasoningPolicy, error) {
+		val, err := repos.SettingRepo.Get(domain.SettingKeyReasoningPolicy)
+		if err != nil {
+			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyReasoningPolicy, err)
+		}
+		policy, err := reqpolicy.ParsePolicyJSON(val)
+		if err != nil {
+			log.Printf("[Core] Warning: Ignoring invalid global reasoning policy: %v", err)
+			return nil, nil
+		}
+		return policy, nil
+	})
 
 	log.Printf("[Core] Creating executor")
 	exec := executor.NewExecutor(

@@ -339,9 +339,32 @@ type ProviderConfig struct {
 	Claude               *ProviderConfigClaude      `json:"claude,omitempty"`
 	OpenRouter           *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
 	Grok                 *ProviderConfigGrok        `json:"grok,omitempty"`
+
+	// Reasoning is the provider-scoped outbound reasoning-effort policy, applied
+	// by the executor's param stage for ALL provider types (not just Codex).
+	// nil / empty = no policy.
+	Reasoning *ReasoningPolicy `json:"reasoning,omitempty"`
+
 	// 内部运行时字段，仅用于 NewAdapter 委托，不序列化
 	CLIProxyAPIAntigravity *ProviderConfigCLIProxyAPIAntigravity `json:"-"`
 	CLIProxyAPICodex       *ProviderConfigCLIProxyAPICodex       `json:"-"`
+}
+
+// ReasoningPolicy is a scope-agnostic outbound reasoning-effort policy. The same
+// shape is used at global and provider scope; the executor resolves the two into
+// an effective policy (MaxEffort composes across scopes by the lower ceiling;
+// DefaultEffort is taken from the most specific scope that sets it).
+//
+// Effort vocabulary is ordered: none < minimal < low < medium < high, plus the
+// special "auto" (defer to provider) which a ceiling clamps down to the ceiling.
+// Empty strings mean "unset".
+type ReasoningPolicy struct {
+	// MaxEffort caps the outbound effort: anything above it (including "auto") is
+	// clamped down to this value. Empty = no ceiling.
+	MaxEffort string `json:"maxEffort,omitempty"`
+	// DefaultEffort fills the effort only when the request carries none. It never
+	// overrides a value the client (or a prior stage) already set. Empty = no default.
+	DefaultEffort string `json:"defaultEffort,omitempty"`
 }
 
 // Provider 供应商
@@ -856,6 +879,7 @@ const (
 	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
 	SettingKeyCodexReasoningGuard                  = "codex_reasoning_guard"                    // Codex reasoning guard 配置（JSON 对象）
 	SettingKeyPayloadOverrideRules                 = "payload_override_rules"                   // 请求 payload 覆盖规则（JSON 数组）
+	SettingKeyReasoningPolicy                      = "reasoning_policy"                         // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
 	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"
 	SettingKeyProxyRouteOpenAIChatEnabled          = "proxy_route_openai_chat_enabled"          // 是否暴露 OpenAI Chat Completions 代理路由，"true" 或 "false"，默认 "true"
 	SettingKeyProxyRouteResponsesEnabled           = "proxy_route_responses_enabled"            // 是否暴露 Responses/Codex 代理路由，"true" 或 "false"，默认 "true"

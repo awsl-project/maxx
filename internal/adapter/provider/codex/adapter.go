@@ -21,7 +21,6 @@ import (
 	"github.com/awsl-project/maxx/internal/codexutil"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
@@ -151,19 +150,11 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	cacheID, updatedBody := applyCodexRequestTuning(c, requestBody)
 	requestBody = updatedBody
 
-	// Apply provider-level overrides for reasoning and service_tier
+	// Semantic outbound params (reasoning effort, service_tier, payload overrides)
+	// are applied authoritatively by the executor's param stage before the body
+	// reaches this adapter — see executor.applyOutboundParamPolicy. This adapter
+	// intentionally does transport only.
 	config := provider.Config.Codex
-	if config.Reasoning != "" {
-		if updated, err := sjson.SetBytes(requestBody, "reasoning.effort", config.Reasoning); err == nil {
-			requestBody = updated
-		}
-	}
-	if config.ServiceTier != "" {
-		if updated, err := sjson.SetBytes(requestBody, "service_tier", config.ServiceTier); err == nil {
-			requestBody = updated
-		}
-	}
-	requestBody = payloadoverride.ApplyGlobal(requestBody, "codex", flow.GetMappedModel(c))
 
 	// Build upstream URL and stream mode.
 	//
