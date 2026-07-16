@@ -152,11 +152,36 @@ func TestDispatchDoesNotRetryAfterRequestContextCanceled(t *testing.T) {
 	if !errors.Is(c.Err, context.Canceled) {
 		t.Fatalf("dispatch error = %v, want context.Canceled", c.Err)
 	}
-	if proxyReq.Status != "CANCELLED" {
-		t.Fatalf("proxy request status = %q, want CANCELLED", proxyReq.Status)
+	if proxyReq.Status != "FAILED" {
+		t.Fatalf("proxy request status = %q, want FAILED", proxyReq.Status)
 	}
-	if proxyReq.Error != "client disconnected" && proxyReq.Error != "client disconnected during retry wait" {
-		t.Fatalf("proxy request error = %q, want client disconnected cancellation", proxyReq.Error)
+	if proxyReq.Error != "upstream retryable error: upstream retryable error" {
+		t.Fatalf("proxy request error = %q, want upstream error", proxyReq.Error)
+	}
+}
+
+func TestRequestFailureStatusOnlyCancelsForClientDisconnectEvidence(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	upstreamErr := domain.NewProxyErrorWithMessage(errors.New("upstream retryable error"), true, "upstream retryable error")
+	upstreamErr.Scope = domain.ScopeProvider
+	status, msg := requestFailureStatusAndError(ctx, upstreamErr)
+	if status != "FAILED" {
+		t.Fatalf("status without disconnect evidence = %q, want FAILED", status)
+	}
+	if msg != "upstream retryable error: upstream retryable error" {
+		t.Fatalf("message without disconnect evidence = %q", msg)
+	}
+
+	disconnectErr := domain.NewProxyErrorWithMessage(errors.New("write tcp: broken pipe"), false, "client disconnected")
+	disconnectErr.Scope = domain.ScopeRequest
+	status, msg = requestFailureStatusAndError(ctx, disconnectErr)
+	if status != "CANCELLED" {
+		t.Fatalf("status with disconnect evidence = %q, want CANCELLED", status)
+	}
+	if msg != "client disconnected" {
+		t.Fatalf("message with disconnect evidence = %q", msg)
 	}
 }
 

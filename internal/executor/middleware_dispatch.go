@@ -304,11 +304,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 			state.lastErr = err
 
-			if ctx.Err() != nil {
-				attemptRecord.Status = "CANCELLED"
-			} else {
-				attemptRecord.Status = "FAILED"
-			}
+			attemptRecord.Status = attemptFailureStatus(ctx, err)
 
 			pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 
@@ -382,16 +378,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				return
 			}
 			if ok && ctx.Err() != nil {
-				proxyReq.Status = "CANCELLED"
+				proxyReq.Status, proxyReq.Error = requestFailureStatusAndError(ctx, err)
 				proxyReq.EndTime = time.Now()
 				proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-				if ctx.Err() == context.Canceled {
-					proxyReq.Error = "client disconnected"
-				} else if ctx.Err() == context.DeadlineExceeded {
-					proxyReq.Error = "request timeout"
-				} else {
-					proxyReq.Error = ctx.Err().Error()
-				}
 				clearProxyRequestDetail(proxyReq, clearDetail)
 				_ = e.proxyRequestRepo.Update(proxyReq)
 				if e.broadcaster != nil {
@@ -449,16 +438,14 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				}
 				select {
 				case <-ctx.Done():
-					proxyReq.Status = "CANCELLED"
-					proxyReq.EndTime = time.Now()
-					proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
-					if ctx.Err() == context.Canceled {
+					proxyReq.Status, proxyReq.Error = requestFailureStatusAndError(ctx, err)
+					if proxyReq.Status == "CANCELLED" {
 						proxyReq.Error = "client disconnected during retry wait"
 					} else if ctx.Err() == context.DeadlineExceeded {
 						proxyReq.Error = "request timeout during retry wait"
-					} else {
-						proxyReq.Error = ctx.Err().Error()
 					}
+					proxyReq.EndTime = time.Now()
+					proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 					clearProxyRequestDetail(proxyReq, clearDetail)
 					_ = e.proxyRequestRepo.Update(proxyReq)
 					if e.broadcaster != nil {
