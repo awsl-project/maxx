@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	provideradapter "github.com/awsl-project/maxx/internal/adapter/provider"
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
@@ -102,40 +101,26 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 			return
 		}
 
-		route, err := h.routeRepo.FindByKey(tenantID, 0, provider.ID, clientType)
-		if err != nil || route == nil {
-			log.Printf("[ProviderProxy] route not found tenant=%d provider=%d clientType=%s: %v", tenantID, provider.ID, clientType, err)
+		requestModel := flow.GetRequestModel(c)
+		projectID := flow.GetProjectID(c)
+		apiTokenID := flow.GetAPITokenID(c)
+		sessionID := flow.GetSessionID(c)
+		if h.proxyHandler == nil || h.proxyHandler.executor == nil {
+			writeError(c.Writer, http.StatusInternalServerError, "provider proxy executor not configured")
+			c.Abort()
+			return
+		}
+		matchedRoute, err := h.proxyHandler.executor.MatchProviderProxyRoute(c.Request.Context(), tenantID, provider.ID, clientType, projectID, requestModel, apiTokenID, sessionID)
+		if err != nil || matchedRoute == nil || matchedRoute.Route == nil || matchedRoute.Provider == nil || matchedRoute.ProviderAdapter == nil {
+			log.Printf("[ProviderProxy] matched route not found tenant=%d project=%d provider=%d clientType=%s model=%s: %v", tenantID, projectID, provider.ID, clientType, requestModel, err)
 			writeError(c.Writer, http.StatusNotFound, "provider route not found")
 			c.Abort()
 			return
 		}
-
-		factory, ok := provideradapter.GetAdapterFactory(provider.Type)
-		if !ok {
-			writeError(c.Writer, http.StatusBadGateway, "provider adapter not found")
-			c.Abort()
-			return
-		}
-		adapter, err := factory(provider)
-		if err != nil {
-			log.Printf("[ProviderProxy] failed to create adapter provider=%d type=%s: %v", provider.ID, provider.Type, err)
-			writeError(c.Writer, http.StatusBadGateway, "provider adapter init failed")
-			c.Abort()
-			return
-		}
-		if !providerSupportsClientType(adapter.SupportedClientTypes(), clientType) {
-			writeError(c.Writer, http.StatusBadRequest, "provider does not support this client type")
-			c.Abort()
-			return
-		}
-
-		requestModel := flow.GetRequestModel(c)
-		projectID := flow.GetProjectID(c)
-		apiTokenID := flow.GetAPITokenID(c)
+		route := matchedRoute.Route
+		provider = matchedRoute.Provider
 		mappedModel := requestModel
-		if h.proxyHandler != nil && h.proxyHandler.executor != nil {
-			mappedModel = h.proxyHandler.executor.MapModelForProviderProxy(tenantID, requestModel, route, provider, clientType, projectID, apiTokenID)
-		}
+		mappedModel = h.proxyHandler.executor.MapModelForProviderProxy(tenantID, requestModel, route, provider, clientType, projectID, apiTokenID)
 		isStream := flow.GetIsStream(c)
 		clearDetail := h.proxyHandler != nil && h.proxyHandler.executor != nil && h.proxyHandler.executor.ShouldClearRequestDetailByConfig()
 		if getAPITokenDevMode(c) {
@@ -151,16 +136,8 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 		c.Set(flow.KeyProxyRequest, proxyReq)
 
 		// Route direct provider calls through the normal executor dispatch loop,
-		// constrained to this provider. This keeps the /provider/<id>/... contract
-		// one-to-one while preserving model mapping, retry, attempts and billing.
-		if h.proxyHandler == nil || h.proxyHandler.executor == nil {
-			err = &domain.ProxyError{
-				HTTPStatusCode: http.StatusInternalServerError,
-				Message:        "provider proxy executor not configured",
-			}
-		} else {
-			err = h.proxyHandler.executor.ExecuteProviderProxy(c, proxyReq, route, provider, adapter)
-		}
+		// constrained to the provider selected above by the generic matcher.
+		err = h.proxyHandler.executor.ExecuteProviderProxyMatched(c, proxyReq, matchedRoute)
 		if err == nil {
 			return
 		}
