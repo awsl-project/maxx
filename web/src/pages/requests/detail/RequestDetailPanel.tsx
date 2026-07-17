@@ -319,6 +319,15 @@ export function RequestDetailPanel({
         )
       : undefined;
 
+  const isFinalAttempt = request.finalProxyUpstreamAttemptID === selectedAttempt?.id;
+  const selectedAttemptError =
+    selectedAttempt?.error || (isFinalAttempt ? request.error : '') || t('requests.noAttemptErrorRecorded');
+  const selectedAttemptResponseStatus =
+    selectedAttempt?.responseInfo?.status || (isFinalAttempt ? request.statusCode : 0) || '-';
+  const selectedAttemptResponseBody = responseBodyPreview(
+    selectedAttempt?.responseInfo?.body || (isFinalAttempt ? request.responseInfo?.body : undefined),
+  );
+
   // Helper to format price per million tokens
   const formatPricePerM = (priceMicro: number): string => {
     const usd = priceMicro / 1_000_000;
@@ -609,7 +618,7 @@ export function RequestDetailPanel({
                       {t('requests.errorMessage')}
                     </dt>
                     <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded whitespace-pre-wrap break-words">
-                      {selectedAttempt.error || request.error || t('requests.noAttemptErrorRecorded')}
+                      {selectedAttemptError}
                     </dd>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
@@ -617,7 +626,7 @@ export function RequestDetailPanel({
                       {t('requests.responseStatus')}
                     </dt>
                     <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
-                      {selectedAttempt.responseInfo?.status || request.statusCode || '-'}
+                      {selectedAttemptResponseStatus}
                     </dd>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
@@ -625,7 +634,7 @@ export function RequestDetailPanel({
                       {t('requests.responseBody')}
                     </dt>
                     <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded whitespace-pre-wrap break-words max-h-72 overflow-auto">
-                      {responseBodyPreview(selectedAttempt.responseInfo?.body)}
+                      {selectedAttemptResponseBody}
                     </dd>
                   </div>
                 </dl>
