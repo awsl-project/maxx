@@ -127,7 +127,11 @@ func TestValidateSystemSettingValueCodexReasoningGuard(t *testing.T) {
 	}
 }
 
-func TestValidateSystemSettingValueForceRetryUpstreamErrors(t *testing.T) {
+func TestValidateSystemSettingValueBooleanSettings(t *testing.T) {
+	keys := []string{
+		domain.SettingKeyForceRetryUpstreamErrors,
+		domain.SettingKeyRequestFailureDetailsEnabled,
+	}
 	tests := []struct {
 		name    string
 		value   string
@@ -140,19 +144,20 @@ func TestValidateSystemSettingValueForceRetryUpstreamErrors(t *testing.T) {
 		{name: "invalid", value: "yes", wantErr: true},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateSystemSettingValue(domain.SettingKeyForceRetryUpstreamErrors, tt.value)
-			if tt.wantErr {
-				if !errors.Is(err, domain.ErrInvalidInput) {
-					t.Fatalf("expected invalid input error, got %v", err)
+	for _, key := range keys {
+		for _, tt := range tests {
+			t.Run(key+"/"+tt.name, func(t *testing.T) {
+				err := validateSystemSettingValue(key, tt.value)
+				if tt.wantErr {
+					if !errors.Is(err, domain.ErrInvalidInput) {
+						t.Fatalf("expected invalid input error, got %v", err)
+					}
+					return
 				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-		})
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+			})
+		}
 	}
 }
-

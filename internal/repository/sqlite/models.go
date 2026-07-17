@@ -323,9 +323,10 @@ func (ProxyRequest) TableName() string { return "proxy_requests" }
 // ProxyUpstreamAttempt model
 type ProxyUpstreamAttempt struct {
 	BaseModel
-	TenantID              uint64 `gorm:"index"`
-	Status                string `gorm:"size:64;index:idx_attempts_status_endtime;index"`
-	ProxyRequestID        uint64 `gorm:"index"`
+	TenantID              uint64   `gorm:"index"`
+	Status                string   `gorm:"size:64;index:idx_attempts_status_endtime;index"`
+	Error                 LongText `gorm:"-:migration"`
+	ProxyRequestID        uint64   `gorm:"index"`
 	RequestInfo           LongText
 	ResponseInfo          LongText
 	RouteID               uint64

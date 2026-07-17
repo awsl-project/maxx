@@ -16,7 +16,7 @@ func validateSystemSettingValue(key, value string) error {
 		return reqpolicy.ValidatePolicyJSON(value)
 	case domain.SettingKeyCodexReasoningGuard:
 		return validateCodexReasoningGuardSetting(value)
-	case domain.SettingKeyForceRetryUpstreamErrors:
+	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyRequestFailureDetailsEnabled:
 		return validateBooleanSystemSetting(key, value)
 	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
 		return validateRateLimitCooldownDefaultSeconds(value)

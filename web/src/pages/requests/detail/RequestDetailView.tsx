@@ -9,7 +9,7 @@ import {
   TabsTrigger,
   TabsContent,
 } from '@/components/ui';
-import { Code, Database, Info, Zap } from 'lucide-react';
+import { AlertCircle, Code, Database, Info, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ProxyRequest, ClientType } from '@/lib/transport';
 import { cn, formatDuration } from '@/lib/utils';
@@ -28,6 +28,17 @@ function formatPricePerM(priceMicro: number): string {
   return `$${usd.toFixed(2)}/M`;
 }
 
+function responseBodyPreview(body?: string): string {
+  if (!body) return '-';
+  const trimmed = body.trim();
+  if (!trimmed) return '-';
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return trimmed.length > 2000 ? `${trimmed.slice(0, 2000)}…` : trimmed;
+  }
+}
+
 interface RequestDetailViewProps {
   request: ProxyRequest;
   activeTab: 'request' | 'response' | 'metadata';
@@ -39,6 +50,7 @@ interface RequestDetailViewProps {
   projectMap: Map<number, string>;
   tokenName?: string;
   costBreakdown?: CostBreakdown;
+  enhancedFailureDetailsEnabled?: boolean;
 }
 
 export function RequestDetailView({
@@ -52,8 +64,13 @@ export function RequestDetailView({
   projectMap,
   tokenName,
   costBreakdown,
+  enhancedFailureDetailsEnabled = false,
 }: RequestDetailViewProps) {
   const { t } = useTranslation();
+  const failureStatus = request.statusCode || request.responseInfo?.status || '-';
+  const failureReason = request.error || t('requests.noRequestErrorRecorded');
+  const failureResponseBody = responseBodyPreview(request.responseInfo?.body);
+
   return (
     <Tabs
       value={activeTab}
@@ -271,6 +288,63 @@ export function RequestDetailView({
 
       <TabsContent value="metadata" className="flex-1 overflow-y-auto p-4 md:p-6 mt-0">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {enhancedFailureDetailsEnabled && request.status !== 'COMPLETED' && (
+            <Card className="bg-destructive/5 border-destructive/20 xl:col-span-2">
+              <CardContent className="p-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle size={16} className="text-destructive shrink-0" />
+                        <h4 className="text-sm font-medium text-foreground">
+                          {t('requests.failureDetails')}
+                        </h4>
+                      </div>
+                      <p className="text-sm text-foreground break-words">{failureReason}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="destructive" className="font-mono">
+                        {request.status}
+                      </Badge>
+                      {failureStatus !== '-' && (
+                        <Badge variant="outline" className="font-mono">
+                          HTTP {failureStatus}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <details className="group rounded-md border border-border/60 bg-card/60 px-3 py-2">
+                    <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground">
+                      {t('requests.technicalDetails')}
+                    </summary>
+                    <dl className="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
+                      <div>
+                        <dt className="mb-1 text-muted-foreground">{t('common.status')}</dt>
+                        <dd className="font-mono text-foreground break-all">{request.status}</dd>
+                      </div>
+                      <div>
+                        <dt className="mb-1 text-muted-foreground">{t('requests.responseStatus')}</dt>
+                        <dd className="font-mono text-foreground break-all">{failureStatus}</dd>
+                      </div>
+                      <div className="md:col-span-2">
+                        <dt className="mb-1 text-muted-foreground">{t('requests.errorMessage')}</dt>
+                        <dd className="font-mono text-foreground whitespace-pre-wrap break-words">
+                          {failureReason}
+                        </dd>
+                      </div>
+                      <div className="md:col-span-2">
+                        <dt className="mb-1 text-muted-foreground">{t('requests.responseBody')}</dt>
+                        <dd className="max-h-56 overflow-auto rounded bg-muted/60 p-2 font-mono text-foreground whitespace-pre-wrap break-words">
+                          {failureResponseBody}
+                        </dd>
+                      </div>
+                    </dl>
+                  </details>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="bg-card border-border">
             <CardHeader className="pb-2 border-b border-border/50">
               <CardTitle className="text-sm font-medium flex items-center gap-2">

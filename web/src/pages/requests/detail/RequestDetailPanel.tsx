@@ -9,7 +9,7 @@ import {
   TabsTrigger,
   TabsContent,
 } from '@/components/ui';
-import { Server, Code, Database, Info, Zap } from 'lucide-react';
+import { AlertCircle, Server, Code, Database, Info, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ProxyUpstreamAttempt, ProxyRequest, ModelPricing } from '@/lib/transport';
 import { cn, formatDuration } from '@/lib/utils';
@@ -249,6 +249,17 @@ function formatJSON(obj: unknown): string {
   }
 }
 
+function responseBodyPreview(body?: string): string {
+  if (!body) return '-';
+  const trimmed = body.trim();
+  if (!trimmed) return '-';
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return trimmed.length > 2000 ? `${trimmed.slice(0, 2000)}…` : trimmed;
+  }
+}
+
 interface RequestDetailPanelProps {
   request: ProxyRequest;
   selection: SelectionType;
@@ -259,6 +270,7 @@ interface RequestDetailPanelProps {
   projectMap: Map<number, string>;
   sessionMap: Map<string, { clientType: string; projectID: number }>;
   tokenMap: Map<number, string>;
+  enhancedFailureDetailsEnabled?: boolean;
 }
 
 export function RequestDetailPanel({
@@ -271,6 +283,7 @@ export function RequestDetailPanel({
   projectMap,
   sessionMap,
   tokenMap,
+  enhancedFailureDetailsEnabled = false,
 }: RequestDetailPanelProps) {
   const { t } = useTranslation();
   const { data: priceTable } = usePricing();
@@ -308,6 +321,19 @@ export function RequestDetailPanel({
         )
       : undefined;
 
+  const isFinalAttempt = request.finalProxyUpstreamAttemptID === selectedAttempt?.id;
+  const selectedAttemptError =
+    selectedAttempt?.error || (isFinalAttempt ? request.error : '') || t('requests.noAttemptErrorRecorded');
+  const selectedAttemptResponseStatus =
+    selectedAttempt?.responseInfo?.status || (isFinalAttempt ? request.statusCode : 0) || '-';
+  const selectedAttemptResponseBody = responseBodyPreview(
+    selectedAttempt?.responseInfo?.body || (isFinalAttempt ? request.responseInfo?.body : undefined),
+  );
+  const selectedAttemptProvider = selectedAttempt
+    ? providerMap.get(selectedAttempt.providerID) ||
+      t('requests.providerFallback', { id: selectedAttempt.providerID })
+    : '-';
+
   // Helper to format price per million tokens
   const formatPricePerM = (priceMicro: number): string => {
     const usd = priceMicro / 1_000_000;
@@ -329,6 +355,7 @@ export function RequestDetailPanel({
         projectMap={projectMap}
         tokenName={tokenMap.get(request.apiTokenID)}
         costBreakdown={requestCostBreakdown}
+        enhancedFailureDetailsEnabled={enhancedFailureDetailsEnabled}
       />
     );
   }
@@ -575,6 +602,74 @@ export function RequestDetailPanel({
 
       <TabsContent value="metadata" className="flex-1 overflow-y-auto p-4 md:p-6 mt-0">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {enhancedFailureDetailsEnabled && selectedAttempt.status !== 'COMPLETED' && (
+            <Card className="bg-destructive/5 border-destructive/20 xl:col-span-2">
+              <CardContent className="p-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle size={16} className="text-destructive shrink-0" />
+                        <h4 className="text-sm font-medium text-foreground">
+                          {t('requests.failureDetails')}
+                        </h4>
+                      </div>
+                      <p className="text-sm text-foreground break-words">{selectedAttemptError}</p>
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span>{selectedAttemptProvider}</span>
+                        {selectedAttempt.mappedModel && (
+                          <>
+                            <span>·</span>
+                            <span className="font-mono">{selectedAttempt.mappedModel}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="destructive" className="font-mono">
+                        {selectedAttempt.status}
+                      </Badge>
+                      {selectedAttemptResponseStatus !== '-' && (
+                        <Badge variant="outline" className="font-mono">
+                          HTTP {selectedAttemptResponseStatus}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <details className="group rounded-md border border-border/60 bg-card/60 px-3 py-2">
+                    <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground">
+                      {t('requests.technicalDetails')}
+                    </summary>
+                    <dl className="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
+                      <div>
+                        <dt className="mb-1 text-muted-foreground">{t('common.status')}</dt>
+                        <dd className="font-mono text-foreground break-all">{selectedAttempt.status}</dd>
+                      </div>
+                      <div>
+                        <dt className="mb-1 text-muted-foreground">{t('requests.responseStatus')}</dt>
+                        <dd className="font-mono text-foreground break-all">
+                          {selectedAttemptResponseStatus}
+                        </dd>
+                      </div>
+                      <div className="md:col-span-2">
+                        <dt className="mb-1 text-muted-foreground">{t('requests.errorMessage')}</dt>
+                        <dd className="font-mono text-foreground whitespace-pre-wrap break-words">
+                          {selectedAttemptError}
+                        </dd>
+                      </div>
+                      <div className="md:col-span-2">
+                        <dt className="mb-1 text-muted-foreground">{t('requests.responseBody')}</dt>
+                        <dd className="max-h-56 overflow-auto rounded bg-muted/60 p-2 font-mono text-foreground whitespace-pre-wrap break-words">
+                          {selectedAttemptResponseBody}
+                        </dd>
+                      </div>
+                    </dl>
+                  </details>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="bg-card border-border">
             <CardHeader className="pb-2 border-b border-border/50">
               <CardTitle className="text-sm font-medium flex items-center gap-2">

@@ -520,6 +520,7 @@ export interface ProxyUpstreamAttempt {
   duration: number; // nanoseconds
   ttft: number; // nanoseconds - Time To First Token (首字时长)
   status: ProxyUpstreamAttemptStatus;
+  error: string;
   proxyRequestID: number;
   isStream: boolean; // 是否为 SSE 流式请求
   // 模型信息

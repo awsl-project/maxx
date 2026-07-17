@@ -105,8 +105,10 @@ func (e *Executor) ExecuteOnce(
 	switch {
 	case err == nil:
 		attempt.Status = "COMPLETED"
+		attempt.Error = ""
 	default:
 		attempt.Status = attemptFailureStatus(c.Request.Context(), err)
+		attempt.Error = err.Error()
 	}
 
 	multiplier := getProviderMultiplier(provider, clientType)

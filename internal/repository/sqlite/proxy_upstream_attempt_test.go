@@ -55,6 +55,7 @@ func TestProxyUpstreamAttemptUpdatePreservesRequestInfo(t *testing.T) {
 	}
 	att.ResponseInfo = nil
 	att.Status = "FAILED"
+	att.Error = "upstream connection refused"
 	if err := attRepo.Update(att); err != nil {
 		t.Fatalf("nil-response update: %v", err)
 	}
@@ -64,6 +65,9 @@ func TestProxyUpstreamAttemptUpdatePreservesRequestInfo(t *testing.T) {
 	}
 	if !strings.Contains(string(got.RequestInfo), "the-request-body") {
 		t.Fatalf("request_info lost on attempt Update: %q", got.RequestInfo)
+	}
+	if !strings.Contains(string(got.Error), "upstream connection refused") {
+		t.Fatalf("attempt error not persisted: %q", got.Error)
 	}
 }
 

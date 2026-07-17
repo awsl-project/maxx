@@ -24,6 +24,7 @@ var publicSettingsAllowlist = map[string]struct{}{
 	"auto_sort_codex":                                {},
 	"ui_multitenant_enabled":                         {},
 	"ui_multitenant_layout":                          {},
+	domain.SettingKeyRequestFailureDetailsEnabled:    {},
 	domain.SettingKeyProxyRouteClaudeMessagesEnabled: {},
 	domain.SettingKeyProxyRouteOpenAIChatEnabled:     {},
 	domain.SettingKeyProxyRouteResponsesEnabled:      {},
