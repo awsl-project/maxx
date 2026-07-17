@@ -694,7 +694,7 @@ export function RequestsPage() {
       <TableRow className="hover:bg-transparent border-none text-sm">
         <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
         <TableHead className="w-[120px] pr-4 font-medium">{t('requests.client')}</TableHead>
-        <TableHead className="w-[160px] min-w-[160px] font-medium">{t('requests.model')}</TableHead>
+        <TableHead className="w-[200px] min-w-[200px] font-medium">{t('requests.model')}</TableHead>
         <TableHead className="w-[90px] min-w-[90px] text-center font-medium">
           {t('requests.reasoningEffort')}
         </TableHead>
@@ -1227,8 +1227,8 @@ function LogRow({
       </TableCell>
 
       {/* Model */}
-      <TableCell className="w-[160px] min-w-[160px] px-2 py-1">
-        <div className="flex items-center gap-2 min-w-0 max-w-[220px]">
+      <TableCell className="w-[200px] min-w-[200px] px-2 py-1">
+        <div className="flex items-center gap-2 min-w-0 max-w-[280px]">
           <span
             className="text-sm text-foreground font-medium truncate"
             title={request.requestModel}
