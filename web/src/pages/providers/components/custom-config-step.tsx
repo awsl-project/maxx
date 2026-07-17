@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Globe,
   ChevronLeft,
@@ -11,8 +11,16 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useCreateProvider, useCreateModelMapping } from '@/hooks/queries';
-import type { ClientType, CreateProviderData } from '@/lib/transport';
+import {
+  useCreateProvider,
+  useCreateModelMapping,
+  useProviderRuntimeModelsPreview,
+} from '@/hooks/queries';
+import type {
+  ClientType,
+  CreateProviderData,
+  ProviderRuntimeModelsPreviewRequest,
+} from '@/lib/transport';
 import { ClientsConfigSection } from './clients-config-section';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +37,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { useProviderForm } from '../context/provider-form-context';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { buildDisguisePayload } from '../utils/disguise';
+import { buildProviderRuntimeModelOptions } from './provider-model-mappings';
 
 export function CustomConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
@@ -46,6 +55,43 @@ export function CustomConfigStep() {
   const { goToSelectType, goToProviders } = useProviderNavigation();
   const createProvider = useCreateProvider();
   const createModelMapping = useCreateModelMapping();
+  const runtimeModelsPreview = useMemo<ProviderRuntimeModelsPreviewRequest | undefined>(() => {
+    const clientBaseURL: Partial<Record<ClientType, string>> = {};
+    formData.clients.forEach((client) => {
+      const url = client.urlOverride.trim();
+      if (client.enabled && url) {
+        clientBaseURL[client.id] = url;
+      }
+    });
+
+    const baseURL = formData.baseURL.trim();
+    if (!baseURL && !clientBaseURL.openai) return undefined;
+
+    return {
+      type: 'custom',
+      config: {
+        custom: {
+          baseURL,
+          backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+          apiKey: formData.apiKey.trim(),
+          clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
+        },
+      },
+    };
+  }, [formData.apiKey, formData.backend, formData.baseURL, formData.clients]);
+  const { data: runtimeModels } = useProviderRuntimeModelsPreview(
+    runtimeModelsPreview,
+    !!runtimeModelsPreview,
+  );
+  const runtimeModelOptions = useMemo(
+    () =>
+      buildProviderRuntimeModelOptions(
+        runtimeModels?.models,
+        undefined,
+        t('modelInput.currentProviderModels'),
+      ),
+    [runtimeModels?.models, t],
+  );
 
   const handleSave = async () => {
     if (!isValid()) return;
@@ -398,6 +444,8 @@ export function CustomConfigStep() {
                           updateFormData({ modelMappings: newMappings });
                         }}
                         placeholder={t('modelInput.selectOrEnter')}
+                        extraModels={runtimeModelOptions}
+                        openSearchValue=""
                       />
                     </div>
                     <Button

@@ -181,6 +181,10 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		h.handleBedrockDiscoveredModels(w, r, id)
 		return
 	}
+	if strings.HasSuffix(path, "/runtime-models/preview") {
+		h.handleProviderRuntimeModelsPreview(w, r)
+		return
+	}
 	if id > 0 && strings.HasSuffix(path, "/runtime-models") {
 		h.handleProviderRuntimeModels(w, r, id)
 		return
@@ -283,6 +287,23 @@ func (h *AdminHandler) handleProviderRuntimeModels(w http.ResponseWriter, r *htt
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (h *AdminHandler) handleProviderRuntimeModelsPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var provider domain.Provider
+	if err := json.NewDecoder(r.Body).Decode(&provider); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	result := h.fetchProviderRuntimeModels(r, &provider)
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *AdminHandler) fetchProviderRuntimeModels(r *http.Request, provider *domain.Provider) providerRuntimeModelsResult {
 	if provider == nil || provider.Config == nil {
 		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "provider config unavailable"}
@@ -310,10 +331,10 @@ func (h *AdminHandler) fetchProviderRuntimeModels(r *http.Request, provider *dom
 		}
 		return fetchOpenAICompatibleModels(r, "https://openrouter.ai/api/v1/models", provider.Config.OpenRouter.APIKey, "openrouter")
 	case "custom":
-		if provider.Config.Custom == nil || strings.TrimSpace(provider.Config.Custom.BaseURL) == "" {
+		if provider.Config.Custom == nil || strings.TrimSpace(customRuntimeModelsBaseURL(provider.Config.Custom)) == "" {
 			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "custom provider base url unavailable"}
 		}
-		modelsURL, err := providerModelsURL(provider.Config.Custom.BaseURL)
+		modelsURL, err := providerModelsURL(customRuntimeModelsBaseURL(provider.Config.Custom))
 		if err != nil {
 			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: err.Error()}
 		}
@@ -321,6 +342,18 @@ func (h *AdminHandler) fetchProviderRuntimeModels(r *http.Request, provider *dom
 	default:
 		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "provider runtime model discovery unsupported"}
 	}
+}
+
+func customRuntimeModelsBaseURL(custom *domain.ProviderConfigCustom) string {
+	if custom == nil {
+		return ""
+	}
+	if custom.ClientBaseURL != nil {
+		if baseURL := strings.TrimSpace(custom.ClientBaseURL[domain.ClientTypeOpenAI]); baseURL != "" {
+			return baseURL
+		}
+	}
+	return custom.BaseURL
 }
 
 func providerModelsURL(baseURL string) (string, error) {

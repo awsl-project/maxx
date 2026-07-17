@@ -4,11 +4,17 @@ import { useTranslation } from 'react-i18next';
 import {
   useModelMappings,
   useProviderRuntimeModels,
+  useProviderRuntimeModelsPreview,
   useCreateModelMapping,
   useUpdateModelMapping,
   useDeleteModelMapping,
 } from '@/hooks/queries';
-import type { Provider, ModelMapping, ModelMappingInput } from '@/lib/transport';
+import type {
+  Provider,
+  ModelMapping,
+  ModelMappingInput,
+  ProviderRuntimeModelsPreviewRequest,
+} from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { ModelInput } from '@/components/ui/model-input';
 
@@ -39,13 +45,25 @@ export function buildProviderRuntimeModelOptions(
   return options;
 }
 
-export function ProviderModelMappings({ provider }: { provider: Provider }) {
+export function ProviderModelMappings({
+  provider,
+  runtimeModelsPreview,
+}: {
+  provider: Provider;
+  runtimeModelsPreview?: ProviderRuntimeModelsPreviewRequest;
+}) {
   const { t } = useTranslation();
   const { data: allMappings } = useModelMappings();
   const createMapping = useCreateModelMapping();
   const updateMapping = useUpdateModelMapping();
   const deleteMapping = useDeleteModelMapping();
-  const { data: runtimeModels } = useProviderRuntimeModels(provider.id);
+  const hasPreviewConfig = !!runtimeModelsPreview;
+  const { data: savedRuntimeModels } = useProviderRuntimeModels(provider.id, !hasPreviewConfig);
+  const { data: previewRuntimeModels } = useProviderRuntimeModelsPreview(
+    runtimeModelsPreview,
+    hasPreviewConfig,
+  );
+  const runtimeModels = previewRuntimeModels ?? savedRuntimeModels;
   const [newPattern, setNewPattern] = useState('');
   const [newTarget, setNewTarget] = useState('');
 

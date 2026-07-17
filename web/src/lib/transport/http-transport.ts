@@ -38,6 +38,7 @@ import type {
   AntigravityQuotaData,
   BedrockDiscoveredModelsResult,
   ProviderRuntimeModelsResult,
+  ProviderRuntimeModelsPreviewRequest,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -254,6 +255,19 @@ export class HttpTransport implements Transport {
     return this.expectObject<ProviderRuntimeModelsResult>(
       data,
       `/admin/providers/${providerId}/runtime-models`,
+    );
+  }
+
+  async previewProviderRuntimeModels(
+    payload: ProviderRuntimeModelsPreviewRequest,
+  ): Promise<ProviderRuntimeModelsResult> {
+    const { data } = await this.client.post<ProviderRuntimeModelsResult>(
+      '/admin/providers/runtime-models/preview',
+      payload,
+    );
+    return this.expectObject<ProviderRuntimeModelsResult>(
+      data,
+      '/admin/providers/runtime-models/preview',
     );
   }
 
