@@ -327,6 +327,10 @@ export function RequestDetailPanel({
   const selectedAttemptResponseBody = responseBodyPreview(
     selectedAttempt?.responseInfo?.body || (isFinalAttempt ? request.responseInfo?.body : undefined),
   );
+  const selectedAttemptProvider = selectedAttempt
+    ? providerMap.get(selectedAttempt.providerID) ||
+      t('requests.providerFallback', { id: selectedAttempt.providerID })
+    : '-';
 
   // Helper to format price per million tokens
   const formatPricePerM = (priceMicro: number): string => {
@@ -596,48 +600,69 @@ export function RequestDetailPanel({
       <TabsContent value="metadata" className="flex-1 overflow-y-auto p-4 md:p-6 mt-0">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {selectedAttempt.status !== 'COMPLETED' && (
-            <Card className="bg-card border-destructive/30 xl:col-span-2">
-              <CardHeader className="pb-2 border-b border-border/50">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <AlertCircle size={16} className="text-destructive" />
-                  {t('requests.failureDetails')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-4">
-                <dl className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
-                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      {t('common.status')}
-                    </dt>
-                    <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded break-all">
-                      {selectedAttempt.status}
-                    </dd>
+            <Card className="bg-destructive/5 border-destructive/20 xl:col-span-2">
+              <CardContent className="p-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle size={16} className="text-destructive shrink-0" />
+                        <h4 className="text-sm font-medium text-foreground">
+                          {t('requests.failureDetails')}
+                        </h4>
+                      </div>
+                      <p className="text-sm text-foreground break-words">{selectedAttemptError}</p>
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span>{selectedAttemptProvider}</span>
+                        {selectedAttempt.mappedModel && (
+                          <>
+                            <span>·</span>
+                            <span className="font-mono">{selectedAttempt.mappedModel}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="destructive" className="font-mono">
+                        {selectedAttempt.status}
+                      </Badge>
+                      {selectedAttemptResponseStatus !== '-' && (
+                        <Badge variant="outline" className="font-mono">
+                          HTTP {selectedAttemptResponseStatus}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
-                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      {t('requests.errorMessage')}
-                    </dt>
-                    <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded whitespace-pre-wrap break-words">
-                      {selectedAttemptError}
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
-                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      {t('requests.responseStatus')}
-                    </dt>
-                    <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
-                      {selectedAttemptResponseStatus}
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
-                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      {t('requests.responseBody')}
-                    </dt>
-                    <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded whitespace-pre-wrap break-words max-h-72 overflow-auto">
-                      {selectedAttemptResponseBody}
-                    </dd>
-                  </div>
-                </dl>
+                  <details className="group rounded-md border border-border/60 bg-card/60 px-3 py-2">
+                    <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground">
+                      {t('requests.technicalDetails')}
+                    </summary>
+                    <dl className="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
+                      <div>
+                        <dt className="mb-1 text-muted-foreground">{t('common.status')}</dt>
+                        <dd className="font-mono text-foreground break-all">{selectedAttempt.status}</dd>
+                      </div>
+                      <div>
+                        <dt className="mb-1 text-muted-foreground">{t('requests.responseStatus')}</dt>
+                        <dd className="font-mono text-foreground break-all">
+                          {selectedAttemptResponseStatus}
+                        </dd>
+                      </div>
+                      <div className="md:col-span-2">
+                        <dt className="mb-1 text-muted-foreground">{t('requests.errorMessage')}</dt>
+                        <dd className="font-mono text-foreground whitespace-pre-wrap break-words">
+                          {selectedAttemptError}
+                        </dd>
+                      </div>
+                      <div className="md:col-span-2">
+                        <dt className="mb-1 text-muted-foreground">{t('requests.responseBody')}</dt>
+                        <dd className="max-h-56 overflow-auto rounded bg-muted/60 p-2 font-mono text-foreground whitespace-pre-wrap break-words">
+                          {selectedAttemptResponseBody}
+                        </dd>
+                      </div>
+                    </dl>
+                  </details>
+                </div>
               </CardContent>
             </Card>
           )}

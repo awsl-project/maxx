@@ -313,6 +313,7 @@
     "responseStatus": "响应状态",
     "attemptInfo": "尝试信息",
     "failureDetails": "失败详情",
+    "technicalDetails": "技术细节",
     "errorMessage": "错误信息",
     "noRequestErrorRecorded": "未记录请求级错误。",
     "noAttemptErrorRecorded": "未记录尝试级错误，请查看请求级错误获取最终失败原因。",

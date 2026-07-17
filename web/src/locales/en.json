@@ -314,6 +314,7 @@
     "responseStatus": "Response Status",
     "attemptInfo": "Attempt Info",
     "failureDetails": "Failure Details",
+    "technicalDetails": "Technical details",
     "errorMessage": "Error Message",
     "noRequestErrorRecorded": "No request-level error recorded.",
     "noAttemptErrorRecorded": "No attempt-level error recorded. Check the request-level error for the final failure reason.",
