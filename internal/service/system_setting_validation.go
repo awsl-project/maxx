@@ -8,12 +8,15 @@ import (
 	"github.com/awsl-project/maxx/internal/codexguard"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/payloadoverride"
+	"github.com/awsl-project/maxx/internal/reqpolicy"
 )
 
 func validateSystemSettingValue(key, value string) error {
 	switch key {
 	case domain.SettingKeyPayloadOverrideRules:
 		return payloadoverride.ValidateRulesJSON(value)
+	case domain.SettingKeyReasoningPolicy:
+		return reqpolicy.ValidatePolicyJSON(value)
 	case domain.SettingKeyCodexReasoningGuard:
 		return validateCodexReasoningGuardSetting(value)
 	case domain.SettingKeyForceRetryUpstreamErrors:

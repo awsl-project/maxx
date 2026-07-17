@@ -170,6 +170,11 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				e.broadcaster.BroadcastProxyUpstreamAttempt(attemptRecord)
 			}
 
+			// Authoritative outbound param stage: apply once per attempt on the
+			// final converted body, before it reaches the adapter. Idempotent, so
+			// re-running on retry is safe.
+			requestBody = e.applyOutboundParamPolicy(requestBody, currentClientType, mappedModel, matchedRoute.Provider)
+
 			eventChan := domain.NewAdapterEventChan()
 			c.Set(flow.KeyClientType, currentClientType)
 			c.Set(flow.KeyOriginalClientType, originalClientType)

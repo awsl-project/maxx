@@ -13,18 +13,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/exec"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/awsl-project/maxx/internal/adapter/provider"
 	"github.com/awsl-project/maxx/internal/codexguard"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/sjson"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/exec"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 )
 
 // TokenCache caches access tokens
@@ -243,19 +241,9 @@ func (a *CLIProxyAPICodexAdapter) Execute(c *flow.Ctx, p *domain.Provider) error
 	stream := flow.GetIsStream(c)
 	model := flow.GetMappedModel(c)
 
-	// Apply provider-level overrides for reasoning and service_tier
-	cfg := a.codexConfig()
-	if cfg.Reasoning != "" {
-		if updated, err := sjson.SetBytes(requestBody, "reasoning.effort", cfg.Reasoning); err == nil {
-			requestBody = updated
-		}
-	}
-	if cfg.ServiceTier != "" {
-		if updated, err := sjson.SetBytes(requestBody, "service_tier", cfg.ServiceTier); err == nil {
-			requestBody = updated
-		}
-	}
-	requestBody = payloadoverride.ApplyGlobal(requestBody, "codex", model)
+	// Semantic outbound params (reasoning effort, service_tier, payload overrides)
+	// are applied authoritatively by the executor's param stage before the body
+	// reaches this adapter — see executor.applyOutboundParamPolicy.
 
 	// Codex CLI 请求体本质是 OpenAI Responses schema；保持与 CLIProxyAPI 一致。
 	sourceFormat := translator.FormatOpenAIResponse
