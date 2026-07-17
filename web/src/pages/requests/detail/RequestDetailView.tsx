@@ -50,6 +50,7 @@ interface RequestDetailViewProps {
   projectMap: Map<number, string>;
   tokenName?: string;
   costBreakdown?: CostBreakdown;
+  enhancedFailureDetailsEnabled?: boolean;
 }
 
 export function RequestDetailView({
@@ -63,6 +64,7 @@ export function RequestDetailView({
   projectMap,
   tokenName,
   costBreakdown,
+  enhancedFailureDetailsEnabled = false,
 }: RequestDetailViewProps) {
   const { t } = useTranslation();
   const failureStatus = request.statusCode || request.responseInfo?.status || '-';
@@ -286,7 +288,7 @@ export function RequestDetailView({
 
       <TabsContent value="metadata" className="flex-1 overflow-y-auto p-4 md:p-6 mt-0">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {request.status !== 'COMPLETED' && (
+          {enhancedFailureDetailsEnabled && request.status !== 'COMPLETED' && (
             <Card className="bg-destructive/5 border-destructive/20 xl:col-span-2">
               <CardContent className="p-4">
                 <div className="flex flex-col gap-3">

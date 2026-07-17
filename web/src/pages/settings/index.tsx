@@ -68,6 +68,7 @@ function parseRetentionInteger(value: string): number | null {
 
 const CODEX_REASONING_GUARD_SETTING_KEY = 'codex_reasoning_guard';
 const FORCE_RETRY_UPSTREAM_ERRORS_SETTING_KEY = 'force_retry_upstream_errors';
+const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
 const DEFAULT_CODEX_REASONING_GUARD_SETTING = JSON.stringify(
   {
     enabled: false,
@@ -146,6 +147,7 @@ export function SettingsPage() {
               <MultiTenantUISection />
               <TimezoneSection />
               <DataRetentionSection />
+              <RequestDiagnosticsSection />
               <ForceProjectSection />
               <CodexReasoningGuardSection />
               <RetryBehaviorSection />
@@ -992,6 +994,58 @@ function CodexReasoningGuardSection() {
         />
 
         <p className="text-xs text-muted-foreground">{t('settings.codexReasoningGuard.hint')}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RequestDiagnosticsSection() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSetting = useUpdateSetting();
+  const { t } = useTranslation();
+
+  const enhancedFailureDetailsEnabled = settings?.[REQUEST_FAILURE_DETAILS_SETTING_KEY] === 'true';
+
+  const handleToggle = async (checked: boolean) => {
+    await updateSetting.mutateAsync({
+      key: REQUEST_FAILURE_DETAILS_SETTING_KEY,
+      value: checked ? 'true' : 'false',
+    });
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="border-b border-border py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+              {t('settings.requestDiagnostics')}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('settings.requestDiagnosticsDesc')}
+            </p>
+          </div>
+          <Switch
+            aria-label={t('settings.enhancedFailureDetails')}
+            checked={enhancedFailureDetailsEnabled}
+            onCheckedChange={handleToggle}
+            disabled={updateSetting.isPending}
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="p-6 space-y-2">
+        <Label className="text-sm font-medium text-foreground">
+          {t('settings.enhancedFailureDetails')}
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          {t('settings.enhancedFailureDetailsDesc')}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {t('settings.defaultOff')}
+        </p>
       </CardContent>
     </Card>
   );

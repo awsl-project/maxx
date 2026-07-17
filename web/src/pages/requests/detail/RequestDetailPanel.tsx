@@ -270,6 +270,7 @@ interface RequestDetailPanelProps {
   projectMap: Map<number, string>;
   sessionMap: Map<string, { clientType: string; projectID: number }>;
   tokenMap: Map<number, string>;
+  enhancedFailureDetailsEnabled?: boolean;
 }
 
 export function RequestDetailPanel({
@@ -282,6 +283,7 @@ export function RequestDetailPanel({
   projectMap,
   sessionMap,
   tokenMap,
+  enhancedFailureDetailsEnabled = false,
 }: RequestDetailPanelProps) {
   const { t } = useTranslation();
   const { data: priceTable } = usePricing();
@@ -353,6 +355,7 @@ export function RequestDetailPanel({
         projectMap={projectMap}
         tokenName={tokenMap.get(request.apiTokenID)}
         costBreakdown={requestCostBreakdown}
+        enhancedFailureDetailsEnabled={enhancedFailureDetailsEnabled}
       />
     );
   }
@@ -599,7 +602,7 @@ export function RequestDetailPanel({
 
       <TabsContent value="metadata" className="flex-1 overflow-y-auto p-4 md:p-6 mt-0">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {selectedAttempt.status !== 'COMPLETED' && (
+          {enhancedFailureDetailsEnabled && selectedAttempt.status !== 'COMPLETED' && (
             <Card className="bg-destructive/5 border-destructive/20 xl:col-span-2">
               <CardContent className="p-4">
                 <div className="flex flex-col gap-3">

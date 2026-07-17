@@ -1374,13 +1374,14 @@ func TestSelfServiceHandler_GetPublicSettings_FiltersSensitiveKeys(t *testing.T)
 		projectRepo:  &selfServiceProjectRepo{},
 		settingsRepo: &selfServiceSettingsRepo{
 			values: map[string]string{
-				"api_token_auth_enabled": "true",
-				"force_project_binding":  "true",
-				"force_project_timeout":  "45",
-				"auto_sort_antigravity":  "true",
-				"auto_sort_codex":        "false",
-				"jwt_secret":             "hidden",
-				"pprof_password":         "secret",
+				"api_token_auth_enabled":                      "true",
+				"force_project_binding":                       "true",
+				"force_project_timeout":                       "45",
+				"auto_sort_antigravity":                       "true",
+				"auto_sort_codex":                             "false",
+				domain.SettingKeyRequestFailureDetailsEnabled: "true",
+				"jwt_secret":                                  "hidden",
+				"pprof_password":                              "secret",
 			},
 		},
 	})
@@ -1396,14 +1397,15 @@ func TestSelfServiceHandler_GetPublicSettings_FiltersSensitiveKeys(t *testing.T)
 	if err := json.Unmarshal(rec.Body.Bytes(), &settings); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(settings) != 5 {
-		t.Fatalf("settings length = %d, want 5, settings = %+v", len(settings), settings)
+	if len(settings) != 6 {
+		t.Fatalf("settings length = %d, want 6, settings = %+v", len(settings), settings)
 	}
 	if settings["api_token_auth_enabled"] != "true" ||
 		settings["force_project_binding"] != "true" ||
 		settings["force_project_timeout"] != "45" ||
 		settings["auto_sort_antigravity"] != "true" ||
-		settings["auto_sort_codex"] != "false" {
+		settings["auto_sort_codex"] != "false" ||
+		settings[domain.SettingKeyRequestFailureDetailsEnabled] != "true" {
 		t.Fatalf("settings = %+v, want public setting values", settings)
 	}
 	if _, ok := settings["jwt_secret"]; ok {
