@@ -129,6 +129,17 @@ func TestExecuteResponsesWebSocket_SkipsProtocolConversion(t *testing.T) {
 	}
 }
 
+func TestBuildCodexWebSocketHeadersFiltersResponsesLite(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
+	request.Header.Set("X-OpenAI-Internal-Codex-Responses-Lite", "true")
+	c := flow.NewCtx(httptest.NewRecorder(), request)
+
+	headers := buildCodexWebSocketHeaders(c, "test-token", "", nil)
+	if got := headers.Get("X-OpenAI-Internal-Codex-Responses-Lite"); got != "" {
+		t.Fatalf("Codex Responses Lite header = %q, want filtered", got)
+	}
+}
+
 func newCodexWebSocketTestContext(t *testing.T, raw []byte, sessionID string) *flow.Ctx {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
