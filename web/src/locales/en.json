@@ -786,6 +786,8 @@
     "routesConfigured_other": "{{count}} routes configured for this project",
     "sortAntigravity": "Sort Antigravity",
     "sortCodex": "Sort Codex",
+    "sortByTtft": "Sort by TTFT",
+    "sortByTtftHint": "Sort current routes by average TTFT from the last 24 hours. Routes with fewer than 3 successful requests keep their slot.",
     "clientRoutesTitle": "{{client}} Routes",
     "configureRoutingFor": "Configure routing for {{client}}",
     "usingProjectRoutes": "Using project-specific routes",
