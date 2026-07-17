@@ -126,3 +126,5 @@ require (
 )
 
 replace github.com/router-for-me/CLIProxyAPI/v7 => github.com/awsl-project/CLIProxyAPI/v7 v7.0.0-20260714135607-27dae34e5688
+
+replace github.com/router-for-me/CLIProxyAPI/v6 => github.com/awsl-project/CLIProxyAPI/v6 v6.0.0-20260507052548-159217ed39b2
