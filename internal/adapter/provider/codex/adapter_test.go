@@ -114,6 +114,7 @@ func TestApplyCodexHeadersFiltersSensitiveAndPreservesUA(t *testing.T) {
 	clientReq.Header.Set("X-Forwarded-For", "1.2.3.4")
 	clientReq.Header.Set("Traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")
 	clientReq.Header.Set("X-Request-Id", "rid-1")
+	clientReq.Header.Set("X-OpenAI-Internal-Codex-Responses-Lite", "true")
 	clientReq.Header.Set("X-Custom", "ok")
 
 	a.applyCodexHeaders(upstreamReq, clientReq, "token-1", "acct-1", true, "")
@@ -126,6 +127,9 @@ func TestApplyCodexHeadersFiltersSensitiveAndPreservesUA(t *testing.T) {
 	}
 	if got := upstreamReq.Header.Get("X-Request-Id"); got != "" {
 		t.Fatalf("expected X-Request-Id filtered, got %q", got)
+	}
+	if got := upstreamReq.Header.Get("X-OpenAI-Internal-Codex-Responses-Lite"); got != "" {
+		t.Fatalf("expected Codex Responses Lite header filtered, got %q", got)
 	}
 	if got := upstreamReq.Header.Get("User-Agent"); got != "codex-cli/1.2.3" {
 		t.Fatalf("expected User-Agent passthrough, got %q", got)
