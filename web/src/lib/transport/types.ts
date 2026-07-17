@@ -474,6 +474,7 @@ export interface ProxyRequest {
   sessionID: string;
   clientType: ClientType;
   requestModel: string;
+  mappedModel: string;
   responseModel: string;
   reasoningEffort: string;
   startTime: string;

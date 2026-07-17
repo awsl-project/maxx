@@ -602,6 +602,7 @@ type ProxyRequest struct {
 	ClientType ClientType `json:"clientType"`
 
 	RequestModel    string `json:"requestModel"`
+	MappedModel     string `json:"mappedModel"`
 	ResponseModel   string `json:"responseModel"`
 	ReasoningEffort string `json:"reasoningEffort"`
 

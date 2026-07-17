@@ -694,7 +694,7 @@ export function RequestsPage() {
       <TableRow className="hover:bg-transparent border-none text-sm">
         <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
         <TableHead className="w-[120px] pr-4 font-medium">{t('requests.client')}</TableHead>
-        <TableHead className="w-[160px] min-w-[160px] font-medium">{t('requests.model')}</TableHead>
+        <TableHead className="w-[200px] min-w-[200px] font-medium">{t('requests.model')}</TableHead>
         <TableHead className="w-[90px] min-w-[90px] text-center font-medium">
           {t('requests.reasoningEffort')}
         </TableHead>
@@ -1089,6 +1089,17 @@ type LogRowProps = {
   onOpenRequest: (id: number) => void;
 };
 
+function getVisibleMappedModel(request: ProxyRequest) {
+  return request.mappedModel && request.mappedModel !== request.requestModel
+    ? request.mappedModel
+    : '';
+}
+
+function getVisibleResponseModel(request: ProxyRequest) {
+  const previousModel = getVisibleMappedModel(request) || request.requestModel;
+  return request.responseModel && request.responseModel !== previousModel ? request.responseModel : '';
+}
+
 function LogRow({
   request,
   providerName,
@@ -1122,6 +1133,8 @@ function LogRow({
   const startTimeMs = useMemo(() => new Date(request.startTime).getTime(), [request.startTime]);
   const liveDurationMs =
     isPending && Number.isFinite(startTimeMs) ? Math.max(0, nowMs - startTimeMs) : null;
+  const visibleMappedModel = getVisibleMappedModel(request);
+  const visibleResponseModel = getVisibleResponseModel(request);
 
   const formatDuration = (ns?: number | null) => {
     if (ns === undefined || ns === null) return '-';
@@ -1214,20 +1227,28 @@ function LogRow({
       </TableCell>
 
       {/* Model */}
-      <TableCell className="w-[160px] min-w-[160px] px-2 py-1">
-        <div className="flex items-center gap-2 min-w-0 max-w-[220px]">
+      <TableCell className="w-[200px] min-w-[200px] px-2 py-1">
+        <div className="flex items-center gap-2 min-w-0 max-w-[280px]">
           <span
             className="text-sm text-foreground font-medium truncate"
             title={request.requestModel}
           >
             {request.requestModel || '-'}
           </span>
-          {request.responseModel && request.responseModel !== request.requestModel && (
+          {visibleMappedModel && (
             <span
               className="text-[10px] text-muted-foreground truncate"
-              title={request.responseModel}
+              title={`Mapped model: ${visibleMappedModel}`}
             >
-              → {request.responseModel}
+              → {visibleMappedModel}
+            </span>
+          )}
+          {visibleResponseModel && (
+            <span
+              className="text-[10px] text-muted-foreground truncate"
+              title={`Response model: ${visibleResponseModel}`}
+            >
+              ↳ {visibleResponseModel}
             </span>
           )}
         </div>
@@ -1410,6 +1431,8 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
     request.endTime && new Date(request.endTime).getTime() > 0
       ? formatTime(request.endTime)
       : formatTime(request.startTime || request.createdAt);
+  const visibleMappedModel = getVisibleMappedModel(request);
+  const visibleResponseModel = getVisibleResponseModel(request);
 
   return (
     <div
@@ -1427,6 +1450,18 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
         <ClientIcon type={request.clientType} size={14} className="shrink-0" />
         <span className="text-sm font-medium text-foreground truncate flex-1">
           {request.requestModel || '-'}
+          {visibleMappedModel && (
+            <span className="text-xs text-muted-foreground font-normal">
+              {' '}
+              → {visibleMappedModel}
+            </span>
+          )}
+          {visibleResponseModel && (
+            <span className="text-xs text-muted-foreground font-normal">
+              {' '}
+              ↳ {visibleResponseModel}
+            </span>
+          )}
         </span>
         {request.reasoningEffort && (
           <span className="text-[10px] font-mono text-muted-foreground">
