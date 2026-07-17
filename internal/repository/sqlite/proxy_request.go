@@ -115,9 +115,9 @@ func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
 }
 
 func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool) string {
-	mappedModelColumn := "'' AS mapped_model"
+	mappedModelColumn := "proxy_requests.response_model AS mapped_model"
 	if r.hasProxyUpstreamAttemptsTable {
-		mappedModelColumn = "final_attempt.mapped_model AS mapped_model"
+		mappedModelColumn = "COALESCE(NULLIF(final_attempt.mapped_model, ''), proxy_requests.response_model) AS mapped_model"
 	}
 	columns := "proxy_requests.id, proxy_requests.created_at, proxy_requests.updated_at, proxy_requests.instance_id, proxy_requests.request_id, proxy_requests.session_id, proxy_requests.client_type, proxy_requests.request_model, " + mappedModelColumn + ", proxy_requests.response_model, proxy_requests.start_time, proxy_requests.end_time, proxy_requests.duration_ms"
 	if includeTTFT {

@@ -139,6 +139,7 @@ func TestProxyRequestListCursorIncludesFinalAttemptMappedModel(t *testing.T) {
 	attemptRepo := NewProxyUpstreamAttemptRepository(db)
 	req := buildTestProxyRequest("COMPLETED", 1)
 	req.RequestModel = "gpt-4.1"
+	req.ResponseModel = "fallback-from-request"
 	if err := reqRepo.Create(req); err != nil {
 		t.Fatalf("create request: %v", err)
 	}
@@ -168,6 +169,33 @@ func TestProxyRequestListCursorIncludesFinalAttemptMappedModel(t *testing.T) {
 	}
 	if got := items[0].MappedModel; got != "openrouter/gpt-4.1-mini" {
 		t.Fatalf("MappedModel = %q, want openrouter/gpt-4.1-mini", got)
+	}
+}
+
+func TestProxyRequestListActiveFallsBackToResponseModelBeforeFinalAttempt(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	reqRepo := NewProxyRequestRepository(db)
+	req := buildTestProxyRequest("IN_PROGRESS", 1)
+	req.RequestModel = "claude-3-5-sonnet"
+	req.ResponseModel = "openrouter/anthropic/claude-3.5-sonnet"
+	if err := reqRepo.Create(req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	items, err := reqRepo.ListActive(1)
+	if err != nil {
+		t.Fatalf("ListActive failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	if got := items[0].MappedModel; got != "openrouter/anthropic/claude-3.5-sonnet" {
+		t.Fatalf("MappedModel = %q, want openrouter/anthropic/claude-3.5-sonnet", got)
 	}
 }
 
