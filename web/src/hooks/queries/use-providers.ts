@@ -3,7 +3,12 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getTransport, type Provider, type CreateProviderData } from '@/lib/transport';
+import {
+  getTransport,
+  type Provider,
+  type CreateProviderData,
+  type ProviderRuntimeModelsPreviewRequest,
+} from '@/lib/transport';
 import { routeKeys } from './use-routes';
 
 // Query Keys
@@ -14,6 +19,8 @@ export const providerKeys = {
   details: () => [...providerKeys.all, 'detail'] as const,
   detail: (id: number) => [...providerKeys.details(), id] as const,
   runtimeModels: (id: number) => [...providerKeys.detail(id), 'runtime-models'] as const,
+  runtimeModelsPreview: (payload: ProviderRuntimeModelsPreviewRequest) =>
+    [...providerKeys.all, 'runtime-models-preview', payload] as const,
   stats: () => [...providerKeys.all, 'stats'] as const,
 };
 
@@ -41,6 +48,20 @@ export function useProviderRuntimeModels(providerId: number, enabled = true) {
     queryFn: () => getTransport().getProviderRuntimeModels(providerId),
     enabled: enabled && providerId > 0,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useProviderRuntimeModelsPreview(
+  payload: ProviderRuntimeModelsPreviewRequest | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: payload
+      ? providerKeys.runtimeModelsPreview(payload)
+      : [...providerKeys.all, 'runtime-models-preview', 'disabled'],
+    queryFn: () => getTransport().previewProviderRuntimeModels(payload!),
+    enabled: enabled && !!payload,
+    staleTime: 60 * 1000,
   });
 }
 

@@ -8,6 +8,7 @@ export {
   useProviders,
   useProvider,
   useProviderRuntimeModels,
+  useProviderRuntimeModelsPreview,
   useCreateProvider,
   useUpdateProvider,
   useDeleteProvider,

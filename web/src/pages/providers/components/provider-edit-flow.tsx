@@ -30,7 +30,12 @@ import {
   useModelMappings,
   useCreateModelMapping,
 } from '@/hooks/queries';
-import type { Provider, ClientType, CreateProviderData } from '@/lib/transport';
+import type {
+  Provider,
+  ClientType,
+  CreateProviderData,
+  ProviderRuntimeModelsPreviewRequest,
+} from '@/lib/transport';
 import { defaultClients, type ClientConfig, type CustomBackend } from '../types';
 import { buildDisguisePayload } from '../utils/disguise';
 import { ClientsConfigSection } from './clients-config-section';
@@ -358,6 +363,31 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     };
   });
   const providerConfigIsWriteOnly = !!provider.excludeFromExport;
+  const runtimeModelsPreview = useMemo<ProviderRuntimeModelsPreviewRequest | undefined>(() => {
+    const clientBaseURL: Partial<Record<ClientType, string>> = {};
+    formData.clients.forEach((client) => {
+      const url = client.urlOverride.trim();
+      if (client.enabled && url) {
+        clientBaseURL[client.id] = url;
+      }
+    });
+
+    const baseURL = formData.baseURL.trim();
+    const apiKey = formData.apiKey.trim();
+    if (!baseURL && !clientBaseURL.openai) return undefined;
+
+    return {
+      type: provider.type || 'custom',
+      config: {
+        custom: {
+          baseURL,
+          backend: formData.backend === 'ollama' ? 'ollama' : undefined,
+          apiKey,
+          clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
+        },
+      },
+    };
+  }, [formData.apiKey, formData.backend, formData.baseURL, formData.clients, provider.type]);
 
   const updateClient = (clientId: ClientType, updates: Partial<ClientConfig>) => {
     setFormData((prev) => ({
@@ -947,7 +977,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             />
 
             {/* Provider Model Mappings */}
-            <ProviderModelMappings provider={provider} />
+            <ProviderModelMappings provider={provider} runtimeModelsPreview={runtimeModelsPreview} />
 
             <ResponseModelMappings
               mappings={formData.responseModelMapping}

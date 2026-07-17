@@ -7,6 +7,8 @@ export type {
   // 领域模型
   ClientType,
   Provider,
+  ProviderRuntimeModelsResult,
+  ProviderRuntimeModelsPreviewRequest,
   ProviderConfig,
   ProviderConfigCustom,
   ProviderConfigCustomDisguise,

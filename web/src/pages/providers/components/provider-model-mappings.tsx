@@ -4,11 +4,17 @@ import { useTranslation } from 'react-i18next';
 import {
   useModelMappings,
   useProviderRuntimeModels,
+  useProviderRuntimeModelsPreview,
   useCreateModelMapping,
   useUpdateModelMapping,
   useDeleteModelMapping,
 } from '@/hooks/queries';
-import type { Provider, ModelMapping, ModelMappingInput } from '@/lib/transport';
+import type {
+  Provider,
+  ModelMapping,
+  ModelMappingInput,
+  ProviderRuntimeModelsPreviewRequest,
+} from '@/lib/transport';
 import { Button } from '@/components/ui/button';
 import { ModelInput } from '@/components/ui/model-input';
 
@@ -19,13 +25,45 @@ import { ModelInput } from '@/components/ui/model-input';
  * it is the correct home for model mapping across every provider type, not the
  * inline config maps. Shared by the custom edit form and the OpenRouter view.
  */
-export function ProviderModelMappings({ provider }: { provider: Provider }) {
+export function buildProviderRuntimeModelOptions(
+  providerModels: string[] | undefined,
+  configuredModels: string[] | undefined,
+  label: string,
+) {
+  const modelIDs = new Set<string>();
+  const options = [];
+  for (const model of [...(providerModels || []), ...(configuredModels || [])]) {
+    const id = model.trim();
+    if (!id || modelIDs.has(id)) continue;
+    modelIDs.add(id);
+    options.push({
+      id,
+      name: id,
+      provider: label,
+    });
+  }
+  return options;
+}
+
+export function ProviderModelMappings({
+  provider,
+  runtimeModelsPreview,
+}: {
+  provider: Provider;
+  runtimeModelsPreview?: ProviderRuntimeModelsPreviewRequest;
+}) {
   const { t } = useTranslation();
   const { data: allMappings } = useModelMappings();
   const createMapping = useCreateModelMapping();
   const updateMapping = useUpdateModelMapping();
   const deleteMapping = useDeleteModelMapping();
-  const { data: runtimeModels } = useProviderRuntimeModels(provider.id);
+  const hasPreviewConfig = !!runtimeModelsPreview;
+  const { data: savedRuntimeModels } = useProviderRuntimeModels(provider.id, !hasPreviewConfig);
+  const { data: previewRuntimeModels } = useProviderRuntimeModelsPreview(
+    runtimeModelsPreview,
+    hasPreviewConfig,
+  );
+  const runtimeModels = previewRuntimeModels ?? savedRuntimeModels;
   const [newPattern, setNewPattern] = useState('');
   const [newTarget, setNewTarget] = useState('');
 
@@ -37,21 +75,15 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
   }, [allMappings, provider.id]);
 
   const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
-  const providerRuntimeModelOptions = useMemo(() => {
-    const modelIDs = new Set<string>();
-    const options = [];
-    for (const model of [...(provider.supportModels || []), ...(runtimeModels?.models || [])]) {
-      const id = model.trim();
-      if (!id || modelIDs.has(id)) continue;
-      modelIDs.add(id);
-      options.push({
-        id,
-        name: id,
-        provider: t('modelInput.currentProviderModels'),
-      });
-    }
-    return options;
-  }, [provider.supportModels, runtimeModels?.models, t]);
+  const providerRuntimeModelOptions = useMemo(
+    () =>
+      buildProviderRuntimeModelOptions(
+        runtimeModels?.models,
+        provider.supportModels,
+        t('modelInput.currentProviderModels'),
+      ),
+    [provider.supportModels, runtimeModels?.models, t],
+  );
 
   const handleAddMapping = async () => {
     if (!newPattern.trim() || !newTarget.trim()) return;

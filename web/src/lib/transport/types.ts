@@ -166,6 +166,11 @@ export interface ProviderRuntimeModelsResult {
   error?: string;
 }
 
+export interface ProviderRuntimeModelsPreviewRequest {
+  type: string;
+  config: ProviderConfig;
+}
+
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
   custom?: ProviderConfigCustom;
