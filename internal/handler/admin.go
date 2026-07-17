@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -177,6 +181,10 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 		h.handleBedrockDiscoveredModels(w, r, id)
 		return
 	}
+	if id > 0 && strings.HasSuffix(path, "/runtime-models") {
+		h.handleProviderRuntimeModels(w, r, id)
+		return
+	}
 
 	tenantID := maxxctx.GetTenantID(r.Context())
 
@@ -248,6 +256,155 @@ func (h *AdminHandler) handleProviders(w http.ResponseWriter, r *http.Request, i
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+type providerRuntimeModelsResult struct {
+	Available bool     `json:"available"`
+	Models    []string `json:"models"`
+	Source    string   `json:"source,omitempty"`
+	Error     string   `json:"error,omitempty"`
+}
+
+func (h *AdminHandler) handleProviderRuntimeModels(w http.ResponseWriter, r *http.Request, id uint64) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	provider, err := h.svc.GetProvider(tenantID, id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+
+	result := h.fetchProviderRuntimeModels(r, provider)
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *AdminHandler) fetchProviderRuntimeModels(r *http.Request, provider *domain.Provider) providerRuntimeModelsResult {
+	if provider == nil || provider.Config == nil {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "provider config unavailable"}
+	}
+
+	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
+	case "bedrock":
+		adapter, ok := h.svc.GetProviderAdapter(provider.ID)
+		if !ok {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "bedrock adapter unavailable"}
+		}
+		bedrockA, ok := adapter.(*bedrock.BedrockAdapter)
+		if !ok {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "bedrock adapter unavailable"}
+		}
+		discovered := bedrockA.DiscoveredModels(r.Context(), true)
+		models := make([]string, 0, len(discovered.Models))
+		for _, model := range discovered.Models {
+			models = append(models, model.ShortName)
+		}
+		return providerRuntimeModelsResult{Available: discovered.Available, Models: uniqueSortedStrings(models), Source: "bedrock"}
+	case "openrouter":
+		if provider.Config.OpenRouter == nil || strings.TrimSpace(provider.Config.OpenRouter.APIKey) == "" {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "openrouter api key unavailable"}
+		}
+		return fetchOpenAICompatibleModels(r, "https://openrouter.ai/api/v1/models", provider.Config.OpenRouter.APIKey, "openrouter")
+	case "custom":
+		if provider.Config.Custom == nil || strings.TrimSpace(provider.Config.Custom.BaseURL) == "" {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "custom provider base url unavailable"}
+		}
+		modelsURL, err := providerModelsURL(provider.Config.Custom.BaseURL)
+		if err != nil {
+			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: err.Error()}
+		}
+		return fetchOpenAICompatibleModels(r, modelsURL, provider.Config.Custom.APIKey, "custom")
+	default:
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "provider runtime model discovery unsupported"}
+	}
+}
+
+func providerModelsURL(baseURL string) (string, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return "", fmt.Errorf("provider base url unavailable")
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid provider base url")
+	}
+	if strings.HasSuffix(parsed.Path, "/v1") {
+		return baseURL + "/models", nil
+	}
+	return baseURL + "/v1/models", nil
+}
+
+func fetchOpenAICompatibleModels(r *http.Request, modelsURL string, apiKey string, source string) providerRuntimeModelsResult {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "build models request failed"}
+	}
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "fetch provider models failed: " + err.Error()}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: fmt.Sprintf("fetch provider models failed: upstream status %d", resp.StatusCode)}
+	}
+
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+		Models []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "decode provider models failed"}
+	}
+
+	models := make([]string, 0, len(payload.Data)+len(payload.Models))
+	for _, model := range payload.Data {
+		models = append(models, model.ID)
+	}
+	for _, model := range payload.Models {
+		if model.ID != "" {
+			models = append(models, model.ID)
+		} else {
+			models = append(models, model.Name)
+		}
+	}
+	models = uniqueSortedStrings(models)
+	return providerRuntimeModelsResult{Available: len(models) > 0, Models: models, Source: source}
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func bulkDeleteErrorStatus(err error) int {

@@ -142,6 +142,25 @@ const COMMON_MODELS = [
 type Model = (typeof COMMON_MODELS)[number];
 type Provider = Model['provider'];
 
+export interface ModelInputOption {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+export function buildModelOptions(
+  extraModels: ModelInputOption[] = [],
+  providers?: Provider[],
+): ModelInputOption[] {
+  const extraIDs = new Set(extraModels.map((model) => model.id));
+  const presets = (!providers || providers.length === 0
+    ? COMMON_MODELS
+    : COMMON_MODELS.filter((model) => providers.includes(model.provider))
+  ).filter((model) => !extraIDs.has(model.id));
+
+  return [...extraModels, ...presets];
+}
+
 interface ModelInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -150,6 +169,8 @@ interface ModelInputProps {
   className?: string;
   /** Filter to only show models from specific providers */
   providers?: Provider[];
+  /** Dynamic candidates prepended before the built-in presets. Presets themselves stay unchanged. */
+  extraModels?: ModelInputOption[];
 }
 
 // 简单的模糊匹配函数
@@ -171,7 +192,7 @@ function fuzzyMatch(text: string, pattern: string): boolean {
 }
 
 // 计算匹配分数（用于排序）
-function matchScore(model: Model, pattern: string): number {
+function matchScore(model: ModelInputOption, pattern: string): number {
   const lowerPattern = pattern.toLowerCase();
   const lowerId = model.id.toLowerCase();
   const lowerName = model.name.toLowerCase();
@@ -196,6 +217,7 @@ export function ModelInput({
   disabled = false,
   className,
   providers,
+  extraModels,
 }: ModelInputProps) {
   const { t } = useTranslation();
   const actualPlaceholder = placeholder ?? t('modelInput.selectOrEnter');
@@ -206,9 +228,8 @@ export function ModelInput({
 
   // Base models filtered by providers prop
   const baseModels = useMemo(() => {
-    if (!providers || providers.length === 0) return [...COMMON_MODELS];
-    return COMMON_MODELS.filter((model) => providers.includes(model.provider));
-  }, [providers]);
+    return buildModelOptions(extraModels, providers);
+  }, [providers, extraModels]);
 
   // 过滤和排序模型（支持模糊匹配）
   const filteredModels = useMemo(() => {
@@ -246,7 +267,7 @@ export function ModelInput({
         acc[model.provider].push(model);
         return acc;
       },
-      {} as Record<string, Model[]>,
+      {} as Record<string, ModelInputOption[]>,
     );
   }, [filteredModels]);
 
