@@ -28,7 +28,6 @@ import (
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/executor"
 	"github.com/awsl-project/maxx/internal/handler"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/repository/cached"
 	"github.com/awsl-project/maxx/internal/repository/sqlite"
 	"github.com/awsl-project/maxx/internal/router"
@@ -393,29 +392,6 @@ func main() {
 		enabled := strings.EqualFold(strings.TrimSpace(val), "true")
 		return &converter.GlobalSettings{CodexInstructionsEnabled: enabled}, nil
 	})
-
-	payloadoverride.SetGlobalSettingsGetter(func() (*payloadoverride.GlobalSettings, error) {
-		val, err := settingRepo.Get(domain.SettingKeyPayloadOverrideRules)
-		if err != nil {
-			return nil, fmt.Errorf("load %s failed: %w", domain.SettingKeyPayloadOverrideRules, err)
-		}
-		if strings.TrimSpace(val) == "" {
-			return &payloadoverride.GlobalSettings{}, nil
-		}
-		if err := payloadoverride.ValidateRulesJSON(val); err != nil {
-			log.Printf("Warning: Ignoring invalid payload override rules: %v", err)
-			return &payloadoverride.GlobalSettings{}, nil
-		}
-		rules, err := payloadoverride.ParseRules(val)
-		if err != nil {
-			log.Printf("Warning: Failed to parse payload override rules: %v", err)
-			return &payloadoverride.GlobalSettings{}, nil
-		}
-		return &payloadoverride.GlobalSettings{Rules: rules}, nil
-	})
-	if _, err := payloadoverride.ReloadGlobalSettings(); err != nil {
-		log.Printf("Warning: Failed to warm payload override cache: %v", err)
-	}
 
 	// Create project waiter for force project binding
 	projectWaiter := waiter.NewProjectWaiter(cachedSessionRepo, settingRepo, wsHub)

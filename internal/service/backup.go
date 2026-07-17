@@ -96,9 +96,6 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export settings: %w", err)
 	}
 	for _, setting := range settings {
-		if shouldSkipSystemSettingInBackup(setting.Key) {
-			continue
-		}
 		backup.Data.SystemSettings = append(backup.Data.SystemSettings, domain.BackupSystemSetting{
 			Key:   setting.Key,
 			Value: setting.Value,
@@ -412,10 +409,6 @@ func (s *BackupService) importSystemSettings(settings []domain.BackupSystemSetti
 	}()
 
 	for _, bs := range settings {
-		if shouldSkipSystemSettingInBackup(bs.Key) {
-			summary.Skipped++
-			continue
-		}
 		existing, err := s.settingRepo.Get(bs.Key)
 		if err != nil {
 			result.Success = false
@@ -462,10 +455,6 @@ func (s *BackupService) importSystemSettings(settings []domain.BackupSystemSetti
 			summary.Imported++
 		}
 	}
-}
-
-func shouldSkipSystemSettingInBackup(key string) bool {
-	return key == domain.SettingKeyPayloadOverrideRules
 }
 
 func (s *BackupService) importRetryConfigs(tenantID uint64, configs []domain.BackupRetryConfig, opts domain.ImportOptions, result *domain.ImportResult, ctx *importContext) {

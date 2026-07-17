@@ -150,10 +150,10 @@ func (a *CodexAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	cacheID, updatedBody := applyCodexRequestTuning(c, requestBody)
 	requestBody = updatedBody
 
-	// Semantic outbound params (reasoning effort, service_tier, payload overrides)
-	// are applied authoritatively by the executor's param stage before the body
-	// reaches this adapter — see executor.applyOutboundParamPolicy. This adapter
-	// intentionally does transport only.
+	// Semantic outbound params (reasoning effort, service_tier) are applied
+	// authoritatively by the executor's param stage before the body reaches this
+	// adapter — see executor.applyOutboundParamPolicy. This adapter intentionally
+	// does transport only.
 	config := provider.Config.Codex
 
 	// Build upstream URL and stream mode.
@@ -1097,10 +1097,6 @@ var codexFilteredHeaders = map[string]bool{
 
 	// Explicitly controlled headers
 	"user-agent": true,
-
-	// Client-to-proxy hint consumed by Codex-compatible gateways. Forwarding it
-	// to the upstream Responses endpoint conflicts with parallel_tool_calls=true.
-	"x-openai-internal-codex-responses-lite": true,
 
 	// Proxy/forwarding headers (privacy protection)
 	"x-forwarded-for":    true,

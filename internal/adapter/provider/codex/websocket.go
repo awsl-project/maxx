@@ -19,7 +19,6 @@ import (
 	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
@@ -382,7 +381,7 @@ func prepareCodexWebSocketRequest(raw []byte, c *flow.Ctx, provider *domain.Prov
 	if config.ServiceTier != "" {
 		body, _ = sjson.SetBytes(body, "service_tier", config.ServiceTier)
 	}
-	return payloadoverride.ApplyGlobal(body, "codex", flow.GetMappedModel(c)), nil
+	return body, nil
 }
 
 func codexResponsesWebSocketURL(c *flow.Ctx, config *domain.ProviderConfigCodex) (string, error) {

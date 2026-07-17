@@ -128,8 +128,8 @@ func TestApplyCodexHeadersFiltersSensitiveAndPreservesUA(t *testing.T) {
 	if got := upstreamReq.Header.Get("X-Request-Id"); got != "" {
 		t.Fatalf("expected X-Request-Id filtered, got %q", got)
 	}
-	if got := upstreamReq.Header.Get("X-OpenAI-Internal-Codex-Responses-Lite"); got != "" {
-		t.Fatalf("expected Codex Responses Lite header filtered, got %q", got)
+	if got := upstreamReq.Header.Get("X-OpenAI-Internal-Codex-Responses-Lite"); got != "true" {
+		t.Fatalf("expected Codex Responses Lite header passthrough, got %q", got)
 	}
 	if got := upstreamReq.Header.Get("User-Agent"); got != "codex-cli/1.2.3" {
 		t.Fatalf("expected User-Agent passthrough, got %q", got)
