@@ -878,7 +878,6 @@ const (
 	SettingKeyAutoSortCodex                        = "auto_sort_codex"                          // 是否自动排序 Codex 路由，"true" 或 "false"
 	SettingKeyCodexInstructionsEnabled             = "codex_instructions_enabled"               // 是否启用 Codex 官方 instructions，"true" 或 "false"
 	SettingKeyCodexReasoningGuard                  = "codex_reasoning_guard"                    // Codex reasoning guard 配置（JSON 对象）
-	SettingKeyPayloadOverrideRules                 = "payload_override_rules"                   // 请求 payload 覆盖规则（JSON 数组）
 	SettingKeyReasoningPolicy                      = "reasoning_policy"                         // 全局出站 reasoning-effort 策略（JSON 对象 {maxEffort,defaultEffort}）
 	SettingKeyForceRetryUpstreamErrors             = "force_retry_upstream_errors"              // 是否强制上游/provider 错误按路由重试策略重试，"true" 或 "false"，默认 "false"
 	SettingKeyProxyRouteClaudeMessagesEnabled      = "proxy_route_claude_messages_enabled"      // 是否暴露 Claude Messages 代理路由，"true" 或 "false"，默认 "true"

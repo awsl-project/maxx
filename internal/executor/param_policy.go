@@ -2,7 +2,6 @@ package executor
 
 import (
 	"github.com/awsl-project/maxx/internal/domain"
-	"github.com/awsl-project/maxx/internal/payloadoverride"
 	"github.com/awsl-project/maxx/internal/reqpolicy"
 	"github.com/tidwall/sjson"
 )
@@ -14,16 +13,13 @@ import (
 // and maxx-synthesized values. Provider adapters therefore do transport only and
 // no longer mutate these parameters themselves.
 //
-// Order is fixed and deliberate: literal set-overrides first, then the clamp so
-// the reasoning ceiling is always authoritative over anything a prior stage set.
+// Order is fixed and deliberate: provider-level service_tier first, then the
+// reasoning clamp so the ceiling is always authoritative over anything a prior
+// stage set.
 //
-//  1. payload overrides — operator "set this literal param" rules (was applied
-//     inside the Codex adapter; keyed by protocol+model, and its rules are
-//     Codex-only, so non-codex protocols are unaffected exactly as before).
-//  2. service_tier — provider-level override (was Codex-adapter local).
-//  3. reasoning effort — DefaultEffort fill + MaxEffort clamp (reqpolicy).
+//  1. service_tier — provider-level override (was Codex-adapter local).
+//  2. reasoning effort — DefaultEffort fill + MaxEffort clamp (reqpolicy).
 func (e *Executor) applyOutboundParamPolicy(body []byte, protocol domain.ClientType, mappedModel string, provider *domain.Provider) []byte {
-	body = payloadoverride.ApplyGlobal(body, string(protocol), mappedModel)
 	body = applyServiceTierOverride(body, protocol, provider)
 	body = reqpolicy.ApplyForProvider(body, protocol, provider)
 	return body

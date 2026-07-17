@@ -12,7 +12,7 @@ var (
 )
 
 // SetGlobalPolicyGetter wires the source of the global (system-wide) reasoning
-// policy. Mirrors the payloadoverride/converter settings-getter pattern so the
+// policy. Mirrors the converter settings-getter pattern so the
 // core layer owns persistence and this package stays dependency-light.
 func SetGlobalPolicyGetter(getter func() (*domain.ReasoningPolicy, error)) {
 	globalGetterMu.Lock()

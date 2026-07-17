@@ -37,19 +37,6 @@ func (r *stubSystemSettingRepo) Delete(key string) error {
 
 const validCodexReasoningGuardSetting = `{"enabled":true,"blocked_reasoning_tokens":[516,1034,1552],"max_attempts":2,"status_code":502,"error_code":"reasoning_guard_triggered","mode":"non_stream"}`
 
-func TestAdminServiceUpdateSettingRejectsInvalidPayloadOverrideRules(t *testing.T) {
-	repo := &stubSystemSettingRepo{}
-	svc := &AdminService{settingRepo: repo}
-
-	err := svc.UpdateSetting(domain.SettingKeyPayloadOverrideRules, `[{"models":[{"name":"gpt-5.4","protocol":"codex"}],"params":{}}]`)
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("expected invalid input error, got %v", err)
-	}
-	if len(repo.values) != 0 {
-		t.Fatalf("expected invalid setting not to be persisted")
-	}
-}
-
 func TestAdminServiceUpdateSettingValidatesCodexReasoningGuard(t *testing.T) {
 	t.Run("accepts valid config", func(t *testing.T) {
 		repo := &stubSystemSettingRepo{}
@@ -169,39 +156,3 @@ func TestValidateSystemSettingValueForceRetryUpstreamErrors(t *testing.T) {
 	}
 }
 
-func TestBackupServiceImportSystemSettingsSkipsPayloadOverrideRules(t *testing.T) {
-	repo := &stubSystemSettingRepo{
-		values: map[string]string{},
-	}
-
-	svc := &BackupService{settingRepo: repo}
-	result := domain.NewImportResult()
-	svc.importSystemSettings(
-		[]domain.BackupSystemSetting{
-			{
-				Key:   domain.SettingKeyPayloadOverrideRules,
-				Value: `null`,
-			},
-			{Key: "other", Value: "new"},
-		},
-		domain.ImportOptions{ConflictStrategy: "skip"},
-		result,
-	)
-
-	if !result.Success {
-		t.Fatalf("expected import to succeed, got %+v", result)
-	}
-	if _, ok := repo.values[domain.SettingKeyPayloadOverrideRules]; ok {
-		t.Fatalf("expected payload override rules to be ignored during import")
-	}
-	if got := repo.values["other"]; got != "new" {
-		t.Fatalf("expected other setting to be imported, got %q", got)
-	}
-	summary, ok := result.Summary["systemSettings"]
-	if !ok {
-		t.Fatalf("expected systemSettings summary, got %+v", result.Summary)
-	}
-	if summary.Imported != 1 || summary.Skipped != 1 {
-		t.Fatalf("unexpected summary: %+v", summary)
-	}
-}

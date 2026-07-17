@@ -241,9 +241,9 @@ func (a *CLIProxyAPICodexAdapter) Execute(c *flow.Ctx, p *domain.Provider) error
 	stream := flow.GetIsStream(c)
 	model := flow.GetMappedModel(c)
 
-	// Semantic outbound params (reasoning effort, service_tier, payload overrides)
-	// are applied authoritatively by the executor's param stage before the body
-	// reaches this adapter — see executor.applyOutboundParamPolicy.
+	// Semantic outbound params (reasoning effort, service_tier) are applied
+	// authoritatively by the executor's param stage before the body reaches this
+	// adapter — see executor.applyOutboundParamPolicy.
 
 	// Codex CLI 请求体本质是 OpenAI Responses schema；保持与 CLIProxyAPI 一致。
 	sourceFormat := translator.FormatOpenAIResponse

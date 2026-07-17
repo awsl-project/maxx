@@ -3,7 +3,6 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/awsl-project/maxx/internal/domain"
@@ -36,46 +35,6 @@ func (r *settingsTestRepo) GetAll() ([]*domain.SystemSetting, error) {
 func (r *settingsTestRepo) Delete(key string) error {
 	delete(r.values, key)
 	return nil
-}
-
-func TestHandleSettingsReturnsBadRequestForInvalidPayloadOverrideRules(t *testing.T) {
-	repo := &settingsTestRepo{}
-	svc := service.NewAdminService(
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		repo,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		"",
-		nil,
-		nil,
-		nil,
-	)
-	handler := NewAdminHandler(svc, nil, "")
-
-	req := httptest.NewRequest(
-		http.MethodPut,
-		"/admin/settings/"+domain.SettingKeyPayloadOverrideRules,
-		strings.NewReader(`{"value":"[{\"models\":[{\"name\":\"gpt-5.4\",\"protocol\":\"codex\"}],\"params\":{}}]"}`),
-	)
-	rec := httptest.NewRecorder()
-
-	handler.handleSettings(rec, req, []string{"admin", "settings", domain.SettingKeyPayloadOverrideRules})
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
-	}
 }
 
 func TestHandleSettingsDeleteReturnsBadRequestWhenDeletingLastPublicProxyRoute(t *testing.T) {
