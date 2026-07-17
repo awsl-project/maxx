@@ -38,12 +38,20 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
 
   const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
   const providerRuntimeModelOptions = useMemo(() => {
-    return (runtimeModels?.models || []).map((model) => ({
-      id: model,
-      name: model,
-      provider: t('modelInput.currentProviderModels'),
-    }));
-  }, [runtimeModels?.models, t]);
+    const modelIDs = new Set<string>();
+    const options = [];
+    for (const model of [...(provider.supportModels || []), ...(runtimeModels?.models || [])]) {
+      const id = model.trim();
+      if (!id || modelIDs.has(id)) continue;
+      modelIDs.add(id);
+      options.push({
+        id,
+        name: id,
+        provider: t('modelInput.currentProviderModels'),
+      });
+    }
+    return options;
+  }, [provider.supportModels, runtimeModels?.models, t]);
 
   const handleAddMapping = async () => {
     if (!newPattern.trim() || !newTarget.trim()) return;
@@ -111,6 +119,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
                   placeholder={t('modelMappings.targetModel')}
                   disabled={isPending}
                   extraModels={providerRuntimeModelOptions}
+                  openSearchValue=""
                   className="flex-1 min-w-0 h-8 text-sm"
                 />
                 <Button
@@ -147,6 +156,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
             placeholder={t('modelMappings.targetModel')}
             disabled={isPending}
             extraModels={providerRuntimeModelOptions}
+            openSearchValue=""
             className="flex-1 min-w-0 h-8 text-sm"
           />
           <Button
