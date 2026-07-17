@@ -26,6 +26,8 @@ import { ClientIcon } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
 import { useProxyStatus, useProviders, usePublicSettings, useRoutes } from '@/hooks/queries';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
+import { getVisibleProxyRouteClients } from '@/lib/proxy-route-exposure';
+import type { ClientType } from '@/lib/transport';
 
 interface CodeBlockProps {
   code: string;
@@ -54,8 +56,28 @@ function CodeBlock({ code, id, copiedCode, onCopy }: CodeBlockProps) {
   );
 }
 
-type QuickstartClient = 'claude' | 'openai' | 'codex' | 'gemini';
+type QuickstartClient = ClientType;
 type DocumentationPageTab = 'quickstart' | 'diagnostics';
+
+export const QUICKSTART_CLIENTS = [
+  'claude',
+  'openai',
+  'codex',
+  'gemini',
+] as const satisfies readonly QuickstartClient[];
+
+export function getVisibleQuickstartClients(
+  settings: Record<string, string> | undefined,
+): QuickstartClient[] {
+  return getVisibleProxyRouteClients(settings, QUICKSTART_CLIENTS);
+}
+
+export function resolveVisibleQuickstartClient(
+  current: QuickstartClient,
+  visibleClients: readonly QuickstartClient[],
+): QuickstartClient {
+  return visibleClients.includes(current) ? current : visibleClients[0] || 'claude';
+}
 
 interface QuickstartBundle {
   primaryLabel: string;
@@ -186,16 +208,27 @@ function DocumentationSection() {
   const { data: routes } = useRoutes();
   const baseUrl = buildProxyBaseUrl(proxyStatus);
   const tokenAuthEnabled = settings?.api_token_auth_enabled === 'true';
+  const visibleQuickstartClients = useMemo(() => getVisibleQuickstartClients(settings), [settings]);
+  const resolvedQuickstartClient = resolveVisibleQuickstartClient(
+    quickstartClient,
+    visibleQuickstartClients,
+  );
+
+  useEffect(() => {
+    if (resolvedQuickstartClient !== quickstartClient) {
+      setQuickstartClient(resolvedQuickstartClient);
+    }
+  }, [quickstartClient, resolvedQuickstartClient]);
 
   const quickstartBundle = useMemo(
     () =>
       buildQuickstartBundle({
-        client: quickstartClient,
+        client: resolvedQuickstartClient,
         token: quickstartToken.trim(),
         baseUrl,
         projectSlug: quickstartProjectSlug,
       }),
-    [quickstartClient, quickstartToken, baseUrl, quickstartProjectSlug],
+    [resolvedQuickstartClient, quickstartToken, baseUrl, quickstartProjectSlug],
   );
 
   const tokenFormatOk =
@@ -391,36 +424,33 @@ function DocumentationSection() {
             </div>
 
             <Tabs
-              value={quickstartClient}
+              value={resolvedQuickstartClient}
               onValueChange={handleQuickstartClientChange}
               data-testid="documentation-quickstart-client-tabs"
               className="w-full"
             >
-              <TabsList className="grid w-full grid-cols-4 h-12 p-1 bg-muted">
-                <TabsTrigger value="claude">
-                  <div className="flex items-center justify-center gap-2">
-                    <ClientIcon type="claude" size={16} className="shrink-0" />
-                    <span className="leading-none">Claude</span>
-                  </div>
-                </TabsTrigger>
-                <TabsTrigger value="openai">
-                  <div className="flex items-center justify-center gap-2">
-                    <ClientIcon type="openai" size={16} className="shrink-0" />
-                    <span className="leading-none">OpenAI</span>
-                  </div>
-                </TabsTrigger>
-                <TabsTrigger value="codex">
-                  <div className="flex items-center justify-center gap-2">
-                    <ClientIcon type="codex" size={16} className="shrink-0" />
-                    <span className="leading-none">Codex</span>
-                  </div>
-                </TabsTrigger>
-                <TabsTrigger value="gemini">
-                  <div className="flex items-center justify-center gap-2">
-                    <ClientIcon type="gemini" size={16} className="shrink-0" />
-                    <span className="leading-none">Gemini</span>
-                  </div>
-                </TabsTrigger>
+              <TabsList
+                className="grid w-full h-12 p-1 bg-muted"
+                style={{
+                  gridTemplateColumns: `repeat(${visibleQuickstartClients.length || 1}, minmax(0, 1fr))`,
+                }}
+              >
+                {visibleQuickstartClients.map((clientType) => (
+                  <TabsTrigger key={clientType} value={clientType}>
+                    <div className="flex items-center justify-center gap-2">
+                      <ClientIcon type={clientType} size={16} className="shrink-0" />
+                      <span className="leading-none">
+                        {clientType === 'openai'
+                          ? 'OpenAI'
+                          : clientType === 'codex'
+                            ? 'Codex'
+                            : clientType === 'claude'
+                              ? 'Claude'
+                              : 'Gemini'}
+                      </span>
+                    </div>
+                  </TabsTrigger>
+                ))}
               </TabsList>
             </Tabs>
 
@@ -462,7 +492,7 @@ function DocumentationSection() {
               </div>
               <CodeBlock
                 code={quickstartBundle.oneliner}
-                id={`quickstart-${quickstartClient}-oneliner`}
+                id={`quickstart-${resolvedQuickstartClient}-oneliner`}
                 copiedCode={copiedCode}
                 onCopy={copyToClipboard}
               />
@@ -473,17 +503,17 @@ function DocumentationSection() {
                 <h3 className="text-sm font-semibold">{t('documentation.wizardGenerated')}</h3>
                 <Badge variant="outline">{quickstartBundle.primaryLabel}</Badge>
               </div>
-              {quickstartClient === 'claude' && (
+              {resolvedQuickstartClient === 'claude' && (
                 <p className="text-xs text-muted-foreground">
                   {t('documentation.settingsJsonDesc')}
                 </p>
               )}
-              {quickstartClient === 'codex' && (
+              {resolvedQuickstartClient === 'codex' && (
                 <p className="text-xs text-muted-foreground">{t('documentation.configTomlDesc')}</p>
               )}
               <CodeBlock
                 code={quickstartBundle.primaryCode}
-                id={`quickstart-${quickstartClient}-primary`}
+                id={`quickstart-${resolvedQuickstartClient}-primary`}
                 copiedCode={copiedCode}
                 onCopy={copyToClipboard}
               />
@@ -495,12 +525,12 @@ function DocumentationSection() {
                   <h3 className="text-sm font-semibold">{t('documentation.wizardGenerated')}</h3>
                   <Badge variant="outline">{quickstartBundle.secondaryLabel}</Badge>
                 </div>
-                {quickstartClient === 'codex' && (
+                {resolvedQuickstartClient === 'codex' && (
                   <p className="text-xs text-muted-foreground">{t('documentation.authJsonDesc')}</p>
                 )}
                 <CodeBlock
                   code={quickstartBundle.secondaryCode}
-                  id={`quickstart-${quickstartClient}-secondary`}
+                  id={`quickstart-${resolvedQuickstartClient}-secondary`}
                   copiedCode={copiedCode}
                   onCopy={copyToClipboard}
                 />
@@ -508,7 +538,7 @@ function DocumentationSection() {
             )}
 
             {/* Claude: shell function alternative */}
-            {quickstartClient === 'claude' && (
+            {resolvedQuickstartClient === 'claude' && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Terminal className="h-4 w-4 text-muted-foreground" />
@@ -531,7 +561,7 @@ function DocumentationSection() {
             )}
 
             {/* OpenAI / Gemini: project proxy endpoint */}
-            {(quickstartClient === 'openai' || quickstartClient === 'gemini') && (
+            {(resolvedQuickstartClient === 'openai' || resolvedQuickstartClient === 'gemini') && (
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold">{t('documentation.projectProxy')}</h3>
                 <p className="text-xs text-muted-foreground">
@@ -539,11 +569,11 @@ function DocumentationSection() {
                 </p>
                 <CodeBlock
                   code={
-                    quickstartClient === 'openai'
+                    resolvedQuickstartClient === 'openai'
                       ? `POST ${baseUrl}/project/{project-slug}/v1/chat/completions`
                       : `POST ${baseUrl}/project/{project-slug}/v1beta/models/{model}:generateContent`
                   }
-                  id={`quickstart-${quickstartClient}-project-proxy`}
+                  id={`quickstart-${resolvedQuickstartClient}-project-proxy`}
                   copiedCode={copiedCode}
                   onCopy={copyToClipboard}
                 />
@@ -554,7 +584,7 @@ function DocumentationSection() {
               <h3 className="text-sm font-semibold">{t('documentation.wizardVerify')}</h3>
               <CodeBlock
                 code={quickstartBundle.verifyCode}
-                id={`quickstart-${quickstartClient}-verify`}
+                id={`quickstart-${resolvedQuickstartClient}-verify`}
                 copiedCode={copiedCode}
                 onCopy={copyToClipboard}
               />
