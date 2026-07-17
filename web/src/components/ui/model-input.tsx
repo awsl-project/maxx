@@ -153,9 +153,10 @@ export function buildModelOptions(
   providers?: Provider[],
 ): ModelInputOption[] {
   const extraIDs = new Set(extraModels.map((model) => model.id));
-  const presets = (!providers || providers.length === 0
-    ? COMMON_MODELS
-    : COMMON_MODELS.filter((model) => providers.includes(model.provider))
+  const presets = (
+    !providers || providers.length === 0
+      ? COMMON_MODELS
+      : COMMON_MODELS.filter((model) => providers.includes(model.provider))
   ).filter((model) => !extraIDs.has(model.id));
 
   return [...extraModels, ...presets];
@@ -171,6 +172,8 @@ interface ModelInputProps {
   providers?: Provider[];
   /** Dynamic candidates prepended before the built-in presets. Presets themselves stay unchanged. */
   extraModels?: ModelInputOption[];
+  /** Search text to seed when opening the dropdown. Defaults to current value for existing behavior. */
+  openSearchValue?: string;
 }
 
 // 简单的模糊匹配函数
@@ -218,6 +221,7 @@ export function ModelInput({
   className,
   providers,
   extraModels,
+  openSearchValue,
 }: ModelInputProps) {
   const { t } = useTranslation();
   const actualPlaceholder = placeholder ?? t('modelInput.selectOrEnter');
@@ -273,7 +277,7 @@ export function ModelInput({
 
   const handleOpen = () => {
     if (!disabled) {
-      setSearch(value); // 初始化搜索框为当前值
+      setSearch(openSearchValue ?? value); // 初始化搜索框
       setIsOpen(true);
     }
   };
