@@ -125,6 +125,14 @@ const allOpenAiAndCodexDisabledSettings: RouteSettings = {
   proxy_route_responses_enabled: 'false',
 };
 
+const allRoutesDisabledSettings: RouteSettings = {
+  ...filteredSettings,
+  proxy_route_claude_messages_enabled: 'false',
+  proxy_route_openai_chat_enabled: 'false',
+  proxy_route_responses_enabled: 'false',
+  proxy_route_gemini_enabled: 'false',
+};
+
 test.use({
   locale: 'zh-CN',
   viewport: { width: 1440, height: 1000 },
@@ -153,6 +161,21 @@ test.describe('route exposure follows public route settings', () => {
     await expect(filteredTabs).toContainText('Gemini');
     await attachMockEvidence(filteredPage, 'docs filtered route exposure', filteredSettings, filteredHits);
     await filteredPage.screenshot({ path: testInfo.outputPath('02-docs-filtered-routes.png'), fullPage: true });
+
+    const disabledPage = await page.context().newPage();
+    const disabledHits = await installRouteExposureMocks(disabledPage, allRoutesDisabledSettings, 'admin');
+    await disabledPage.goto('/documentation');
+    const disabledTabs = disabledPage.getByTestId('documentation-quickstart-client-tabs');
+    await expect(disabledTabs).not.toContainText('Claude');
+    await expect(disabledTabs).not.toContainText('OpenAI');
+    await expect(disabledTabs).not.toContainText('Codex');
+    await expect(disabledTabs).not.toContainText('Gemini');
+    await expect(disabledPage.getByTestId('documentation-quickstart-no-clients')).toBeVisible();
+    await expect(disabledPage.getByTestId('documentation-quickstart-content')).not.toContainText(
+      'settings.json',
+    );
+    await attachMockEvidence(disabledPage, 'docs all routes disabled', allRoutesDisabledSettings, disabledHits);
+    await disabledPage.screenshot({ path: testInfo.outputPath('03-docs-all-routes-disabled.png'), fullPage: true });
   });
 
   test('user panel endpoint hints and quickstart follow route exposure settings', async ({ page }, testInfo) => {

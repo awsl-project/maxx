@@ -454,7 +454,16 @@ function DocumentationSection() {
               </TabsList>
             </Tabs>
 
-            <div className="grid gap-3 md:grid-cols-2">
+            {visibleQuickstartClients.length === 0 ? (
+              <div
+                data-testid="documentation-quickstart-no-clients"
+                className="rounded-md border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground"
+              >
+                No enabled client routes are available for quick start.
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-xs font-semibold">
                   {t('documentation.tokenInputLabel')}
@@ -623,18 +632,20 @@ function DocumentationSection() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-4 md:flex-row md:items-center md:justify-between">
-              <p className="text-xs leading-5 text-cyan-700 dark:text-cyan-300">
-                {t('documentation.quickStartDiagnosticHint')}
-              </p>
-              <Button
-                variant="outline"
-                data-testid="documentation-open-diagnostics-button"
-                onClick={() => setActiveTab('diagnostics')}
-              >
-                {t('documentation.quickStartDiagnosticAction')}
-              </Button>
-            </div>
+                <div className="flex flex-col gap-3 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-4 md:flex-row md:items-center md:justify-between">
+                  <p className="text-xs leading-5 text-cyan-700 dark:text-cyan-300">
+                    {t('documentation.quickStartDiagnosticHint')}
+                  </p>
+                  <Button
+                    variant="outline"
+                    data-testid="documentation-open-diagnostics-button"
+                    onClick={() => setActiveTab('diagnostics')}
+                  >
+                    {t('documentation.quickStartDiagnosticAction')}
+                  </Button>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </TabsContent>

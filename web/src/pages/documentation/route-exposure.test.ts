@@ -18,4 +18,15 @@ describe('documentation quickstart route exposure', () => {
     expect(resolveVisibleQuickstartClient('claude', ['openai', 'codex'])).toBe('openai');
     expect(resolveVisibleQuickstartClient('codex', ['openai', 'codex'])).toBe('codex');
   });
+
+  it('supports the all-disabled route exposure state', () => {
+    expect(
+      getVisibleQuickstartClients({
+        proxy_route_claude_messages_enabled: 'false',
+        proxy_route_openai_chat_enabled: 'false',
+        proxy_route_responses_enabled: 'false',
+        proxy_route_gemini_enabled: 'false',
+      }),
+    ).toEqual([]);
+  });
 });
