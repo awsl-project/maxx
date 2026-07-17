@@ -281,6 +281,7 @@ type ProxyRequest struct {
 	SessionID                   string `gorm:"size:255;index"`
 	ClientType                  string `gorm:"size:64"`
 	RequestModel                string `gorm:"size:128"`
+	MappedModel                 string `gorm:"column:mapped_model;->;-:migration"`
 	ResponseModel               string `gorm:"size:128"`
 	ReasoningEffort             string `gorm:"size:32;-:migration"`
 	StartTime                   int64

@@ -128,6 +128,49 @@ func TestProxyRequestListCursorReturnsNewestIDsFirst(t *testing.T) {
 	}
 }
 
+func TestProxyRequestListCursorIncludesFinalAttemptMappedModel(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	reqRepo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+	req := buildTestProxyRequest("COMPLETED", 1)
+	req.RequestModel = "gpt-4.1"
+	if err := reqRepo.Create(req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		TenantID:       req.TenantID,
+		ProxyRequestID: req.ID,
+		Status:         "COMPLETED",
+		RequestModel:   "gpt-4.1",
+		MappedModel:    "openrouter/gpt-4.1-mini",
+		ResponseModel:  "openrouter/gpt-4.1-mini",
+	}
+	if err := attemptRepo.Create(attempt); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+	req.FinalProxyUpstreamAttemptID = attempt.ID
+	if err := reqRepo.Update(req); err != nil {
+		t.Fatalf("update request: %v", err)
+	}
+
+	items, err := reqRepo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	if got := items[0].MappedModel; got != "openrouter/gpt-4.1-mini" {
+		t.Fatalf("MappedModel = %q, want openrouter/gpt-4.1-mini", got)
+	}
+}
+
 func TestProxyRequestReasoningEffortRoundTrip(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {

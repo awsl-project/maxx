@@ -1089,6 +1089,17 @@ type LogRowProps = {
   onOpenRequest: (id: number) => void;
 };
 
+function getVisibleMappedModel(request: ProxyRequest) {
+  return request.mappedModel && request.mappedModel !== request.requestModel
+    ? request.mappedModel
+    : '';
+}
+
+function getVisibleResponseModel(request: ProxyRequest) {
+  const previousModel = getVisibleMappedModel(request) || request.requestModel;
+  return request.responseModel && request.responseModel !== previousModel ? request.responseModel : '';
+}
+
 function LogRow({
   request,
   providerName,
@@ -1122,6 +1133,8 @@ function LogRow({
   const startTimeMs = useMemo(() => new Date(request.startTime).getTime(), [request.startTime]);
   const liveDurationMs =
     isPending && Number.isFinite(startTimeMs) ? Math.max(0, nowMs - startTimeMs) : null;
+  const visibleMappedModel = getVisibleMappedModel(request);
+  const visibleResponseModel = getVisibleResponseModel(request);
 
   const formatDuration = (ns?: number | null) => {
     if (ns === undefined || ns === null) return '-';
@@ -1222,12 +1235,20 @@ function LogRow({
           >
             {request.requestModel || '-'}
           </span>
-          {request.responseModel && request.responseModel !== request.requestModel && (
+          {visibleMappedModel && (
             <span
               className="text-[10px] text-muted-foreground truncate"
-              title={request.responseModel}
+              title={`Mapped model: ${visibleMappedModel}`}
             >
-              → {request.responseModel}
+              → {visibleMappedModel}
+            </span>
+          )}
+          {visibleResponseModel && (
+            <span
+              className="text-[10px] text-muted-foreground truncate"
+              title={`Response model: ${visibleResponseModel}`}
+            >
+              ↳ {visibleResponseModel}
             </span>
           )}
         </div>
@@ -1410,6 +1431,8 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
     request.endTime && new Date(request.endTime).getTime() > 0
       ? formatTime(request.endTime)
       : formatTime(request.startTime || request.createdAt);
+  const visibleMappedModel = getVisibleMappedModel(request);
+  const visibleResponseModel = getVisibleResponseModel(request);
 
   return (
     <div
@@ -1427,6 +1450,18 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
         <ClientIcon type={request.clientType} size={14} className="shrink-0" />
         <span className="text-sm font-medium text-foreground truncate flex-1">
           {request.requestModel || '-'}
+          {visibleMappedModel && (
+            <span className="text-xs text-muted-foreground font-normal">
+              {' '}
+              → {visibleMappedModel}
+            </span>
+          )}
+          {visibleResponseModel && (
+            <span className="text-xs text-muted-foreground font-normal">
+              {' '}
+              ↳ {visibleResponseModel}
+            </span>
+          )}
         </span>
         {request.reasoningEffort && (
           <span className="text-[10px] font-mono text-muted-foreground">
