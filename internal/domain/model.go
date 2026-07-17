@@ -688,6 +688,7 @@ type ProxyUpstreamAttempt struct {
 
 	// PENDING, IN_PROGRESS, COMPLETED, FAILED
 	Status string `json:"status"`
+	Error  string `json:"error"`
 
 	ProxyRequestID uint64 `json:"proxyRequestID"`
 

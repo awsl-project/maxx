@@ -9,7 +9,7 @@ import {
   TabsTrigger,
   TabsContent,
 } from '@/components/ui';
-import { Server, Code, Database, Info, Zap } from 'lucide-react';
+import { AlertCircle, Server, Code, Database, Info, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ProxyUpstreamAttempt, ProxyRequest, ModelPricing } from '@/lib/transport';
 import { cn, formatDuration } from '@/lib/utils';
@@ -246,6 +246,17 @@ function formatJSON(obj: unknown): string {
     return JSON.stringify(obj, null, 2);
   } catch {
     return String(obj);
+  }
+}
+
+function responseBodyPreview(body?: string): string {
+  if (!body) return '-';
+  const trimmed = body.trim();
+  if (!trimmed) return '-';
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return trimmed.length > 2000 ? `${trimmed.slice(0, 2000)}…` : trimmed;
   }
 }
 
@@ -575,6 +586,53 @@ export function RequestDetailPanel({
 
       <TabsContent value="metadata" className="flex-1 overflow-y-auto p-4 md:p-6 mt-0">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {selectedAttempt.status !== 'COMPLETED' && (
+            <Card className="bg-card border-destructive/30 xl:col-span-2">
+              <CardHeader className="pb-2 border-b border-border/50">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <AlertCircle size={16} className="text-destructive" />
+                  {t('requests.failureDetails')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <dl className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      {t('common.status')}
+                    </dt>
+                    <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded break-all">
+                      {selectedAttempt.status}
+                    </dd>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      {t('requests.errorMessage')}
+                    </dt>
+                    <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded whitespace-pre-wrap break-words">
+                      {selectedAttempt.error || request.error || t('requests.noAttemptErrorRecorded')}
+                    </dd>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      {t('requests.responseStatus')}
+                    </dt>
+                    <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
+                      {selectedAttempt.responseInfo?.status || request.statusCode || '-'}
+                    </dd>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+                    <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      {t('requests.responseBody')}
+                    </dt>
+                    <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded whitespace-pre-wrap break-words max-h-72 overflow-auto">
+                      {responseBodyPreview(selectedAttempt.responseInfo?.body)}
+                    </dd>
+                  </div>
+                </dl>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="bg-card border-border">
             <CardHeader className="pb-2 border-b border-border/50">
               <CardTitle className="text-sm font-medium flex items-center gap-2">

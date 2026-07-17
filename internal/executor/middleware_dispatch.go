@@ -237,6 +237,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				attemptRecord.EndTime = time.Now()
 				attemptRecord.Duration = attemptRecord.EndTime.Sub(attemptRecord.StartTime)
 				attemptRecord.Status = "COMPLETED"
+				attemptRecord.Error = ""
 
 				pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 
@@ -310,6 +311,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			state.lastErr = err
 
 			attemptRecord.Status = attemptFailureStatus(ctx, err)
+			attemptRecord.Error = err.Error()
 
 			pricing.FinalizeAttemptCost(attemptRecord, multiplier)
 

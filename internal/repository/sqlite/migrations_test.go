@@ -102,9 +102,20 @@ func TestReasoningEffortColumnIsExcludedFromAutoMigrate(t *testing.T) {
 	}
 }
 
-func TestReasoningEffortMigrationIsLatestAndUnique(t *testing.T) {
+func TestAttemptErrorColumnIsExcludedFromAutoMigrate(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&ProxyUpstreamAttempt{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyUpstreamAttempt: %v", err)
+	}
+	if db.Migrator().HasColumn(&ProxyUpstreamAttempt{}, "error") {
+		t.Fatal("attempt error must be added by guarded migration v19, not AutoMigrate")
+	}
+}
+
+func TestLatestMigrationsAreOrderedAndUnique(t *testing.T) {
 	lastVersion := 0
 	v18Count := 0
+	v19Count := 0
 	for _, migration := range migrations {
 		if migration.Version <= lastVersion {
 			t.Fatalf("migrations are not strictly ordered: v%d follows v%d", migration.Version, lastVersion)
@@ -113,12 +124,49 @@ func TestReasoningEffortMigrationIsLatestAndUnique(t *testing.T) {
 		if migration.Version == 18 {
 			v18Count++
 		}
+		if migration.Version == 19 {
+			v19Count++
+		}
 	}
-	if lastVersion != 18 {
-		t.Fatalf("latest migration = v%d, want v18", lastVersion)
+	if lastVersion != 19 {
+		t.Fatalf("latest migration = v%d, want v19", lastVersion)
 	}
 	if v18Count != 1 {
 		t.Fatalf("migration v18 registered %d times, want once", v18Count)
+	}
+	if v19Count != 1 {
+		t.Fatalf("migration v19 registered %d times, want once", v19Count)
+	}
+}
+
+func TestAttemptErrorMigrationPreservesHistoricalNullAndIsIdempotent(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&ProxyUpstreamAttempt{}); err != nil {
+		t.Fatalf("AutoMigrate ProxyUpstreamAttempt: %v", err)
+	}
+	historical := &ProxyUpstreamAttempt{TenantID: 1, Status: "FAILED", ProxyRequestID: 100}
+	if err := db.Omit("error").Create(historical).Error; err != nil {
+		t.Fatalf("insert historical attempt: %v", err)
+	}
+
+	migration := findMigrationByVersion(t, 19)
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("run migration v19: %v", err)
+	}
+	if !db.Migrator().HasColumn(&ProxyUpstreamAttempt{}, "error") {
+		t.Fatal("migration v19 did not add attempt error")
+	}
+
+	var attemptErr sql.NullString
+	if err := db.Raw("SELECT error FROM proxy_upstream_attempts WHERE id = ?", historical.ID).Row().Scan(&attemptErr); err != nil {
+		t.Fatalf("read historical attempt error: %v", err)
+	}
+	if attemptErr.Valid {
+		t.Fatalf("historical attempt error = %q, want SQL NULL", attemptErr.String)
+	}
+
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("rerun migration v19: %v", err)
 	}
 }
 

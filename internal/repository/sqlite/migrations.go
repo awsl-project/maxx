@@ -552,6 +552,74 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     19,
+		Description: "Add error metadata to proxy upstream attempts",
+		Up: func(db *gorm.DB) error {
+			return runAttemptErrorColumnMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Keep the column on rollback: dropping a column can rebuild large
+			// attempt tables and older application versions safely ignore it.
+			return nil
+		},
+	},
+}
+
+func runAttemptErrorColumnMigration(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&ProxyUpstreamAttempt{}, "error") {
+		return nil
+	}
+
+	ddl := attemptErrorColumnDDL(db.Dialector.Name())
+	if db.Dialector.Name() != "mysql" {
+		if err := db.Exec(ddl).Error; err != nil {
+			if isDuplicateColumnError(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+
+	var version string
+	if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err == nil && mysqlSupportsInstantAddColumn(version) {
+		if err := db.Exec(ddl + ", ALGORITHM=INSTANT").Error; err == nil {
+			return nil
+		} else {
+			if isDuplicateColumnError(err) {
+				return nil
+			}
+			log.Printf("[Migration v19] MySQL instant ADD COLUMN unavailable (%v); evaluating safe fallback", err)
+		}
+	}
+
+	exceedsThreshold, err := tableExceedsRowThreshold(db, "proxy_upstream_attempts", detailCleanupIndexRowThreshold)
+	if err != nil {
+		log.Printf("[Migration v19] could not probe proxy_upstream_attempts row threshold (%v); skipping column add. Apply manually if needed: %s;", err, ddl)
+		return nil
+	}
+	if exceedsThreshold {
+		log.Printf("[Migration v19] SKIPPING error ADD COLUMN: proxy_upstream_attempts has more than %d rows. "+
+			"Apply manually during a maintenance window: %s;",
+			detailCleanupIndexRowThreshold, ddl)
+		return nil
+	}
+
+	if err := execMySQLDDLWithLockTimeout(db, ddl, "v19", "attempt error"); err != nil {
+		if isDuplicateColumnError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func attemptErrorColumnDDL(dialect string) string {
+	if dialect == "mysql" {
+		return "ALTER TABLE proxy_upstream_attempts ADD COLUMN error LONGTEXT NULL"
+	}
+	return "ALTER TABLE proxy_upstream_attempts ADD COLUMN error TEXT NULL"
 }
 
 func runReasoningEffortColumnMigration(db *gorm.DB) error {
@@ -607,6 +675,10 @@ const reasoningEffortColumnDDL = "ALTER TABLE proxy_requests ADD COLUMN reasonin
 const reasoningEffortMigrationLockWaitTimeoutSeconds uint64 = 10
 
 func execMySQLReasoningEffortDDLWithLockTimeout(db *gorm.DB, ddl string) error {
+	return execMySQLDDLWithLockTimeout(db, ddl, "v18", "reasoning_effort")
+}
+
+func execMySQLDDLWithLockTimeout(db *gorm.DB, ddl, migrationVersion, label string) error {
 	return db.Connection(func(tx *gorm.DB) error {
 		ctx := tx.Statement.Context
 		conn := tx.Statement.ConnPool
@@ -629,7 +701,7 @@ func execMySQLReasoningEffortDDLWithLockTimeout(db *gorm.DB, ddl string) error {
 			originalTimeout,
 		); restoreErr != nil {
 			if ddlErr != nil {
-				log.Printf("[Migration v18] reasoning_effort DDL also failed before lock_wait_timeout restoration: %v", ddlErr)
+				log.Printf("[Migration %s] %s DDL also failed before lock_wait_timeout restoration: %v", migrationVersion, label, ddlErr)
 			}
 			return fmt.Errorf("restore MySQL session lock_wait_timeout: %w", restoreErr)
 		}
@@ -641,9 +713,13 @@ func execMySQLReasoningEffortDDLWithLockTimeout(db *gorm.DB, ddl string) error {
 // exists immediately after the threshold. Unlike COUNT(*), the work is bounded
 // to at most threshold+1 primary-key entries even when proxy_requests is huge.
 func proxyRequestsExceedReasoningMigrationThreshold(db *gorm.DB, threshold int64) (bool, error) {
+	return tableExceedsRowThreshold(db, "proxy_requests", threshold)
+}
+
+func tableExceedsRowThreshold(db *gorm.DB, table string, threshold int64) (bool, error) {
 	var marker int
 	result := db.Raw(
-		"SELECT 1 FROM proxy_requests ORDER BY id LIMIT 1 OFFSET ?",
+		"SELECT 1 FROM "+table+" ORDER BY id LIMIT 1 OFFSET ?",
 		threshold,
 	).Scan(&marker)
 	if result.Error != nil {
