@@ -17,7 +17,10 @@ async function mockDocumentationApis(page: Page) {
     }
 
     if (pathname === '/api/admin/settings' || pathname === '/api/settings') {
-      return json({ api_token_auth_enabled: 'true' });
+      return json({
+        api_token_auth_enabled: 'true',
+        proxy_route_gemini_enabled: 'true',
+      });
     }
 
     if (pathname === '/api/admin/proxy-status' || pathname === '/api/proxy-status') {

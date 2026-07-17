@@ -7,25 +7,8 @@ import {
 import { usePublicSettings } from '@/hooks/queries/use-settings';
 import { useStreamingRequests } from '@/hooks/use-streaming';
 import type { ClientType } from '@/lib/transport';
+import { getVisibleProxyRouteClients } from '@/lib/proxy-route-exposure';
 import { AnimatedNavItem } from './animated-nav-item';
-
-const clientRouteSettingKeys: Record<ClientType, string> = {
-  claude: 'proxy_route_claude_messages_enabled',
-  openai: 'proxy_route_openai_chat_enabled',
-  codex: 'proxy_route_responses_enabled',
-  gemini: 'proxy_route_gemini_enabled',
-};
-
-function isClientRouteVisible(
-  settings: Record<string, string> | undefined,
-  clientType: ClientType,
-) {
-  const settingValue = settings?.[clientRouteSettingKeys[clientType]];
-  if (settingValue === undefined) {
-    return clientType !== 'gemini';
-  }
-  return settingValue !== 'false';
-}
 
 function ClientNavItem({
   clientType,
@@ -56,9 +39,7 @@ function ClientNavItem({
 export function ClientRoutesItems() {
   const { countsByClient } = useStreamingRequests();
   const { data: publicSettings } = usePublicSettings();
-  const visibleClientTypes = allClientTypes.filter((clientType) =>
-    isClientRouteVisible(publicSettings, clientType),
-  );
+  const visibleClientTypes = getVisibleProxyRouteClients(publicSettings, allClientTypes);
 
   return (
     <>

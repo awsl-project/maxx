@@ -24,8 +24,10 @@ import {
   useRegenerateUserPanelAPIToken,
   useUserPanelAPIToken,
   useProxyRequestUpdates,
+  usePublicSettings,
 } from '@/hooks/queries';
 import type { APIToken, ProxyRequest } from '@/lib/transport';
+import { isProxyRouteVisible } from '@/lib/proxy-route-exposure';
 import {
   buildUserPanelChatCompletionsExample,
   buildUserPanelEndpointHints,
@@ -168,6 +170,7 @@ export function UserPanelPage() {
   const { logout, user } = useAuth();
   const { data: userPanelTokenResponse, isLoading: tokenLoading } = useUserPanelAPIToken();
   const { data: userPanelRequests } = useProxyRequests({ limit: 25 });
+  const { data: publicSettings } = usePublicSettings();
   useProxyRequestUpdates();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
@@ -195,7 +198,7 @@ export function UserPanelPage() {
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const maskedUserPanelToken = userPanelToken?.tokenPrefix || 'maxx_••••';
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  const endpointHints = buildUserPanelEndpointHints(origin).map((endpoint) => ({
+  const endpointHints = buildUserPanelEndpointHints(origin, publicSettings).map((endpoint) => ({
     ...endpoint,
     label:
       endpoint.id === 'openai-codex'
@@ -204,7 +207,10 @@ export function UserPanelPage() {
           ? t('userPanel.routeClaude')
           : t('userPanel.routeGemini'),
   }));
-  const curlExample = buildUserPanelChatCompletionsExample({ origin });
+  const showChatCompletionsExample = isProxyRouteVisible(publicSettings, 'openai');
+  const curlExample = showChatCompletionsExample
+    ? buildUserPanelChatCompletionsExample({ origin })
+    : '';
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -448,25 +454,27 @@ export function UserPanelPage() {
                     ))}
                   </div>
                 </div>
-                <div className="rounded-xl border border-border bg-muted/25 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('userPanel.quickStart')}
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-2"
-                      onClick={handleCopyExample}
-                    >
-                      <Copy className="size-3.5" />
-                      {exampleCopied ? t('common.copied') : t('common.copy')}
-                    </Button>
+                {showChatCompletionsExample && (
+                  <div className="rounded-xl border border-border bg-muted/25 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('userPanel.quickStart')}
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-2"
+                        onClick={handleCopyExample}
+                      >
+                        <Copy className="size-3.5" />
+                        {exampleCopied ? t('common.copied') : t('common.copy')}
+                      </Button>
+                    </div>
+                    <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
+                      <code>{curlExample}</code>
+                    </pre>
                   </div>
-                  <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
-                    <code>{curlExample}</code>
-                  </pre>
-                </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
