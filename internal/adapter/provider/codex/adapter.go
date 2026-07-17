@@ -1107,6 +1107,10 @@ var codexFilteredHeaders = map[string]bool{
 	// Explicitly controlled headers
 	"user-agent": true,
 
+	// Client-to-proxy hint consumed by Codex-compatible gateways. Forwarding it
+	// to the upstream Responses endpoint conflicts with parallel_tool_calls=true.
+	"x-openai-internal-codex-responses-lite": true,
+
 	// Proxy/forwarding headers (privacy protection)
 	"x-forwarded-for":    true,
 	"x-forwarded-host":   true,
