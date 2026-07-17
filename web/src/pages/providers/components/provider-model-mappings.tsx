@@ -3,6 +3,7 @@ import { ArrowRight, Plus, Trash2, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   useModelMappings,
+  useProviderRuntimeModels,
   useCreateModelMapping,
   useUpdateModelMapping,
   useDeleteModelMapping,
@@ -24,6 +25,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
   const createMapping = useCreateModelMapping();
   const updateMapping = useUpdateModelMapping();
   const deleteMapping = useDeleteModelMapping();
+  const { data: runtimeModels } = useProviderRuntimeModels(provider.id);
   const [newPattern, setNewPattern] = useState('');
   const [newTarget, setNewTarget] = useState('');
 
@@ -35,6 +37,13 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
   }, [allMappings, provider.id]);
 
   const isPending = createMapping.isPending || updateMapping.isPending || deleteMapping.isPending;
+  const providerRuntimeModelOptions = useMemo(() => {
+    return (runtimeModels?.models || []).map((model) => ({
+      id: model,
+      name: model,
+      provider: t('modelInput.currentProviderModels'),
+    }));
+  }, [runtimeModels?.models, t]);
 
   const handleAddMapping = async () => {
     if (!newPattern.trim() || !newTarget.trim()) return;
@@ -101,6 +110,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
                   onChange={(target) => handleUpdateMapping(mapping, { target })}
                   placeholder={t('modelMappings.targetModel')}
                   disabled={isPending}
+                  extraModels={providerRuntimeModelOptions}
                   className="flex-1 min-w-0 h-8 text-sm"
                 />
                 <Button
@@ -136,6 +146,7 @@ export function ProviderModelMappings({ provider }: { provider: Provider }) {
             onChange={setNewTarget}
             placeholder={t('modelMappings.targetModel')}
             disabled={isPending}
+            extraModels={providerRuntimeModelOptions}
             className="flex-1 min-w-0 h-8 text-sm"
           />
           <Button

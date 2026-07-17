@@ -1702,6 +1702,7 @@
     "selectOrEnter": "Select or enter model...",
     "searchOrEnter": "Search or enter custom model...",
     "selectModel": "Select Model",
+    "currentProviderModels": "Current provider models",
     "noMatchingModels": "No matching models found.",
     "useCustom": "Use custom:",
     "noModelsAvailable": "No models available",

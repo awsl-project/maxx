@@ -159,6 +159,13 @@ export interface BedrockDiscoveredModelsResult {
   refreshError?: string;
 }
 
+export interface ProviderRuntimeModelsResult {
+  available: boolean;
+  models: string[];
+  source?: string;
+  error?: string;
+}
+
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
   custom?: ProviderConfigCustom;

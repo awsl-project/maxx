@@ -1699,6 +1699,7 @@
     "selectOrEnter": "选择或输入模型...",
     "searchOrEnter": "搜索或输入自定义模型...",
     "selectModel": "选择模型",
+    "currentProviderModels": "当前提供商模型",
     "noMatchingModels": "未找到匹配的模型。",
     "useCustom": "使用自定义：",
     "noModelsAvailable": "无可用模型",

@@ -34,6 +34,7 @@ import type {
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
   BedrockDiscoveredModelsResult,
+  ProviderRuntimeModelsResult,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -97,6 +98,7 @@ export interface Transport {
   // ===== Provider API =====
   getProviders(): Promise<Provider[]>;
   getProvider(id: number): Promise<Provider>;
+  getProviderRuntimeModels(providerId: number): Promise<ProviderRuntimeModelsResult>;
   createProvider(data: CreateProviderData): Promise<Provider>;
   updateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
   deleteProvider(id: number): Promise<void>;

@@ -7,6 +7,7 @@ export {
   providerKeys,
   useProviders,
   useProvider,
+  useProviderRuntimeModels,
   useCreateProvider,
   useUpdateProvider,
   useDeleteProvider,

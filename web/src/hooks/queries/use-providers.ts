@@ -13,6 +13,7 @@ export const providerKeys = {
   list: () => [...providerKeys.lists()] as const,
   details: () => [...providerKeys.all, 'detail'] as const,
   detail: (id: number) => [...providerKeys.details(), id] as const,
+  runtimeModels: (id: number) => [...providerKeys.detail(id), 'runtime-models'] as const,
   stats: () => [...providerKeys.all, 'stats'] as const,
 };
 
@@ -30,6 +31,16 @@ export function useProvider(id: number) {
     queryKey: providerKeys.detail(id),
     queryFn: () => getTransport().getProvider(id),
     enabled: id > 0,
+  });
+}
+
+// 获取 Provider 上游模型接口返回的模型列表
+export function useProviderRuntimeModels(providerId: number, enabled = true) {
+  return useQuery({
+    queryKey: providerKeys.runtimeModels(providerId),
+    queryFn: () => getTransport().getProviderRuntimeModels(providerId),
+    enabled: enabled && providerId > 0,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

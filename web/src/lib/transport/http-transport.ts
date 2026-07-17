@@ -37,6 +37,7 @@ import type {
   AntigravityBatchValidationResult,
   AntigravityQuotaData,
   BedrockDiscoveredModelsResult,
+  ProviderRuntimeModelsResult,
   ModelMapping,
   ModelMappingInput,
   ImportResult,
@@ -244,6 +245,16 @@ export class HttpTransport implements Transport {
   async getProvider(id: number): Promise<Provider> {
     const { data } = await this.client.get<Provider>(`/providers/${id}`);
     return this.expectObject<Provider>(data, `/providers/${id}`);
+  }
+
+  async getProviderRuntimeModels(providerId: number): Promise<ProviderRuntimeModelsResult> {
+    const { data } = await this.client.get<ProviderRuntimeModelsResult>(
+      `/admin/providers/${providerId}/runtime-models`,
+    );
+    return this.expectObject<ProviderRuntimeModelsResult>(
+      data,
+      `/admin/providers/${providerId}/runtime-models`,
+    );
   }
 
   async createProvider(payload: CreateProviderData): Promise<Provider> {
