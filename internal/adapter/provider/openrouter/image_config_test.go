@@ -65,6 +65,42 @@ func TestNormalizeImageConfig_ImagesKeepsExplicitSize(t *testing.T) {
 	}
 }
 
+func TestNormalizeImageConfig_ChatImageSizeOnlyAddsModalities(t *testing.T) {
+	// A Gemini request converted upstream may carry only image_config.image_size
+	// (no aspect_ratio, no size). On chat it must still get the image modality
+	// rather than being treated as a non-image request.
+	body := []byte(`{"model":"google/gemini-3-pro-image","messages":[{"role":"user","content":"a cat"}],"image_config":{"image_size":"2K"}}`)
+	out := normalizeImageConfigBody(body, "/v1/chat/completions")
+
+	mods := gjson.GetBytes(out, "modalities").Array()
+	hasImage := false
+	for _, m := range mods {
+		if m.String() == "image" {
+			hasImage = true
+		}
+	}
+	if !hasImage {
+		t.Fatalf("image modality not added for image_size-only request: %s", out)
+	}
+	if gjson.GetBytes(out, "image_config.image_size").String() != "2K" {
+		t.Fatalf("image_size should be preserved: %s", out)
+	}
+}
+
+func TestEnsureImageModalities_PreservesExisting(t *testing.T) {
+	// Existing modalities must be kept, with image prepended — not clobbered.
+	body := []byte(`{"model":"x","messages":[],"image_config":{"aspect_ratio":"1:1"},"modalities":["audio","text"]}`)
+	out := normalizeImageConfigBody(body, "/v1/chat/completions")
+	got := gjson.GetBytes(out, "modalities").Array()
+	var vals []string
+	for _, m := range got {
+		vals = append(vals, m.String())
+	}
+	if len(vals) != 3 || vals[0] != "image" || vals[1] != "audio" || vals[2] != "text" {
+		t.Fatalf("modalities = %v, want [image audio text]", vals)
+	}
+}
+
 func TestNormalizeImageConfig_NoImageIntentUntouched(t *testing.T) {
 	// A plain chat request with no sizing must not gain modalities/image_config.
 	body := []byte(`{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hi"}]}`)

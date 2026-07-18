@@ -29,8 +29,9 @@ import (
 // unchanged) body; never nil.
 func normalizeImageConfigBody(body []byte, requestURI string) []byte {
 	aspect := gjson.GetBytes(body, "image_config.aspect_ratio").String()
+	imageSize := gjson.GetBytes(body, "image_config.image_size").String()
 	size := gjson.GetBytes(body, "size").String()
-	if aspect == "" && size == "" {
+	if aspect == "" && imageSize == "" && size == "" {
 		return body // no image sizing intent
 	}
 
@@ -64,14 +65,23 @@ func isImagesEndpoint(requestURI string) bool {
 }
 
 // ensureImageModalities makes sure a chat request asks for image output, which
-// OpenRouter requires via modalities:["image","text"]. No-op when already present.
+// OpenRouter requires via modalities:["image","text"]. When modalities already
+// exist without "image", it prepends "image" and preserves the rest rather than
+// clobbering them (e.g. ["audio","text"] → ["image","audio","text"]).
 func ensureImageModalities(body []byte) []byte {
 	if mods := gjson.GetBytes(body, "modalities"); mods.IsArray() {
+		values := make([]string, 0, len(mods.Array())+1)
 		for _, m := range mods.Array() {
 			if strings.EqualFold(m.String(), "image") {
-				return body
+				return body // already requests image
 			}
+			values = append(values, m.String())
 		}
+		values = append([]string{"image"}, values...)
+		if out, err := sjson.SetBytes(body, "modalities", values); err == nil {
+			return out
+		}
+		return body
 	}
 	if out, err := sjson.SetBytes(body, "modalities", []string{"image", "text"}); err == nil {
 		return out
