@@ -224,7 +224,7 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'freeduck',
     name: 'Free Duck',
-    description: '免费站点 · 只有 Claude Code',
+    description: '免费站点 · Claude',
     nameKey: 'addProvider.templates.freeduck.name',
     descriptionKey: 'addProvider.templates.freeduck.description',
     icon: 'grid',
