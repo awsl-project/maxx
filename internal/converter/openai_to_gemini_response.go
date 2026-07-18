@@ -51,6 +51,17 @@ func (c *openaiToGeminiResponse) Transform(body []byte) ([]byte, error) {
 					}
 				}
 			}
+			// Generated images (OpenRouter/Gemini image models return them in the
+			// non-standard message.images[] array) → Gemini inlineData parts, so a
+			// Gemini client actually receives the image it asked for.
+			for _, img := range choice.Message.Images {
+				if img.ImageURL == nil {
+					continue
+				}
+				if inline := parseInlineImage(img.ImageURL.URL); inline != nil {
+					candidate.Content.Parts = append(candidate.Content.Parts, GeminiPart{InlineData: inline})
+				}
+			}
 			for _, tc := range choice.Message.ToolCalls {
 				var args map[string]interface{}
 				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {

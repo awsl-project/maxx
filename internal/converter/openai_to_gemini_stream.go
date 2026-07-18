@@ -51,6 +51,26 @@ func (c *openaiToGeminiResponse) TransformChunk(chunk []byte, state *TransformSt
 					output = append(output, FormatSSE("", geminiChunk)...)
 				}
 
+				// Generated images arrive in the delta's non-standard images[]
+				// array → emit them as Gemini inlineData parts.
+				for _, img := range choice.Delta.Images {
+					if img.ImageURL == nil {
+						continue
+					}
+					if inline := parseInlineImage(img.ImageURL.URL); inline != nil {
+						geminiChunk := GeminiStreamChunk{
+							Candidates: []GeminiCandidate{{
+								Content: GeminiContent{
+									Role:  "model",
+									Parts: []GeminiPart{{InlineData: inline}},
+								},
+								Index: 0,
+							}},
+						}
+						output = append(output, FormatSSE("", geminiChunk)...)
+					}
+				}
+
 				if len(choice.Delta.ToolCalls) > 0 {
 					if state.ToolCalls == nil {
 						state.ToolCalls = make(map[int]*ToolCallState)
