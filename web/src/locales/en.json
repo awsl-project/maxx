@@ -1852,15 +1852,15 @@
       },
       "nvidia": {
         "name": "NVIDIA NIM",
-        "description": "NVIDIA NIM · OpenAI Compatible"
+        "description": "OpenAI Compatible"
       },
       "zhipu": {
         "name": "Zhipu AI",
-        "description": "GLM · Claude + OpenAI Compatible"
+        "description": "Claude + OpenAI Compatible"
       },
       "deepseek": {
         "name": "DeepSeek",
-        "description": "DeepSeek · Claude + OpenAI Compatible"
+        "description": "Claude + OpenAI Compatible"
       }
     },
     "grok": {

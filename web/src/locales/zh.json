@@ -1848,15 +1848,15 @@
       },
       "nvidia": {
         "name": "NVIDIA NIM",
-        "description": "NVIDIA NIM · OpenAI 兼容"
+        "description": "OpenAI 兼容"
       },
       "zhipu": {
         "name": "智谱 AI",
-        "description": "GLM · Claude + OpenAI 兼容"
+        "description": "Claude + OpenAI 兼容"
       },
       "deepseek": {
         "name": "DeepSeek",
-        "description": "DeepSeek · Claude + OpenAI 兼容"
+        "description": "Claude + OpenAI 兼容"
       }
     },
     "grok": {
