@@ -1844,19 +1844,19 @@
       },
       "freeduck": {
         "name": "Free Duck",
-        "description": "免费站点 · 只有 Claude Code"
+        "description": "Claude"
       },
       "nvidia": {
         "name": "NVIDIA NIM",
-        "description": "NVIDIA NIM · OpenAI 兼容"
+        "description": "OpenAI"
       },
       "zhipu": {
         "name": "智谱 AI",
-        "description": "GLM · Claude + OpenAI 兼容"
+        "description": "Claude + OpenAI"
       },
       "deepseek": {
         "name": "DeepSeek",
-        "description": "DeepSeek · Claude + OpenAI 兼容"
+        "description": "Claude + OpenAI"
       }
     },
     "grok": {

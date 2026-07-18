@@ -224,7 +224,7 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'freeduck',
     name: 'Free Duck',
-    description: '免费站点 · 只有 Claude Code',
+    description: 'Claude',
     nameKey: 'addProvider.templates.freeduck.name',
     descriptionKey: 'addProvider.templates.freeduck.description',
     icon: 'grid',
@@ -237,7 +237,7 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'nvidia',
     name: 'NVIDIA',
-    description: 'NVIDIA NIM · OpenAI 兼容',
+    description: 'OpenAI',
     nameKey: 'addProvider.templates.nvidia.name',
     descriptionKey: 'addProvider.templates.nvidia.description',
     icon: 'layers',
@@ -251,7 +251,7 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'zhipu',
     name: '智谱 AI',
-    description: 'GLM · Claude + OpenAI 兼容',
+    description: 'Claude + OpenAI',
     nameKey: 'addProvider.templates.zhipu.name',
     descriptionKey: 'addProvider.templates.zhipu.description',
     icon: 'grid',
@@ -265,7 +265,7 @@ export const quickTemplates: QuickTemplate[] = [
   {
     id: 'deepseek',
     name: 'DeepSeek',
-    description: 'DeepSeek · Claude + OpenAI 兼容',
+    description: 'Claude + OpenAI',
     nameKey: 'addProvider.templates.deepseek.name',
     descriptionKey: 'addProvider.templates.deepseek.description',
     icon: 'grid',
