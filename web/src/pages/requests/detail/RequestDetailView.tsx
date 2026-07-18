@@ -403,6 +403,19 @@ export function RequestDetailView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                   <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    {t('requests.mappedModel')}
+                  </dt>
+                  <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">
+                    {request.mappedModel || '-'}
+                    {request.mappedModel && request.requestModel !== request.mappedModel && (
+                      <span className="ml-2 text-muted-foreground text-[10px]">
+                        {t('requests.converted')}
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+                  <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     {t('requests.responseModel')}
                   </dt>
                   <dd className="sm:col-span-2 font-mono text-xs text-foreground bg-muted px-2 py-1 rounded">

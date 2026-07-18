@@ -172,7 +172,7 @@ func TestProxyRequestListCursorIncludesFinalAttemptMappedModel(t *testing.T) {
 	}
 }
 
-func TestProxyRequestListActiveFallsBackToResponseModelBeforeFinalAttempt(t *testing.T) {
+func TestProxyRequestListActiveUsesLatestAttemptMappedModelBeforeFinalAttempt(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
@@ -180,11 +180,23 @@ func TestProxyRequestListActiveFallsBackToResponseModelBeforeFinalAttempt(t *tes
 	defer db.Close()
 
 	reqRepo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
 	req := buildTestProxyRequest("IN_PROGRESS", 1)
 	req.RequestModel = "claude-3-5-sonnet"
-	req.ResponseModel = "openrouter/anthropic/claude-3.5-sonnet"
+	req.ResponseModel = ""
 	if err := reqRepo.Create(req); err != nil {
 		t.Fatalf("create request: %v", err)
+	}
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		TenantID:       req.TenantID,
+		ProxyRequestID: req.ID,
+		Status:         "IN_PROGRESS",
+		RequestModel:   "claude-3-5-sonnet",
+		MappedModel:    "openrouter/anthropic/claude-3.5-sonnet",
+	}
+	if err := attemptRepo.Create(attempt); err != nil {
+		t.Fatalf("create attempt: %v", err)
 	}
 
 	items, err := reqRepo.ListActive(1)

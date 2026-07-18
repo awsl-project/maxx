@@ -117,7 +117,7 @@ func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
 func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool) string {
 	mappedModelColumn := "proxy_requests.response_model AS mapped_model"
 	if r.hasProxyUpstreamAttemptsTable {
-		mappedModelColumn = "COALESCE(NULLIF(final_attempt.mapped_model, ''), proxy_requests.response_model) AS mapped_model"
+		mappedModelColumn = "COALESCE(NULLIF(final_attempt.mapped_model, ''), NULLIF(latest_attempt.mapped_model, ''), proxy_requests.response_model) AS mapped_model"
 	}
 	columns := "proxy_requests.id, proxy_requests.created_at, proxy_requests.updated_at, proxy_requests.instance_id, proxy_requests.request_id, proxy_requests.session_id, proxy_requests.client_type, proxy_requests.request_model, " + mappedModelColumn + ", proxy_requests.response_model, proxy_requests.start_time, proxy_requests.end_time, proxy_requests.duration_ms"
 	if includeTTFT {
@@ -130,11 +130,13 @@ func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool)
 	return columns
 }
 
-func (r *ProxyRequestRepository) joinFinalProxyUpstreamAttempt(query *gorm.DB) *gorm.DB {
+func (r *ProxyRequestRepository) joinProxyUpstreamAttemptModels(query *gorm.DB) *gorm.DB {
 	if !r.hasProxyUpstreamAttemptsTable {
 		return query
 	}
-	return query.Joins("LEFT JOIN proxy_upstream_attempts AS final_attempt ON final_attempt.id = proxy_requests.final_proxy_upstream_attempt_id")
+	return query.
+		Joins("LEFT JOIN proxy_upstream_attempts AS final_attempt ON final_attempt.id = proxy_requests.final_proxy_upstream_attempt_id").
+		Joins("LEFT JOIN proxy_upstream_attempts AS latest_attempt ON latest_attempt.id = (SELECT MAX(id) FROM proxy_upstream_attempts WHERE proxy_request_id = proxy_requests.id)")
 }
 
 // initCount 从数据库初始化计数缓存
@@ -217,7 +219,7 @@ func (r *ProxyRequestRepository) List(tenantID uint64, limit, offset int) ([]*do
 func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, after uint64, filter *repository.ProxyRequestFilter) ([]*domain.ProxyRequest, error) {
 	// 使用 Select 排除大字段
 	selectColumns := r.proxyRequestListSelectColumns(true)
-	baseQuery := r.joinFinalProxyUpstreamAttempt(r.db.gorm.Model(&ProxyRequest{}).
+	baseQuery := r.joinProxyUpstreamAttemptModels(r.db.gorm.Model(&ProxyRequest{}).
 		Select(selectColumns))
 	if tenantID != domain.TenantIDAll {
 		baseQuery = baseQuery.Where("proxy_requests.tenant_id = ?", tenantID)
@@ -248,7 +250,7 @@ func (r *ProxyRequestRepository) ListCursor(tenantID uint64, limit int, before, 
 // ListActive 获取所有活跃请求 (PENDING 或 IN_PROGRESS 状态)
 func (r *ProxyRequestRepository) ListActive(tenantID uint64) ([]*domain.ProxyRequest, error) {
 	selectColumns := r.proxyRequestListSelectColumns(false)
-	query := r.joinFinalProxyUpstreamAttempt(r.db.gorm.Model(&ProxyRequest{}).
+	query := r.joinProxyUpstreamAttemptModels(r.db.gorm.Model(&ProxyRequest{}).
 		Select(selectColumns)).
 		Where("proxy_requests.status IN ?", activeProxyRequestStatuses)
 	if tenantID != domain.TenantIDAll {
