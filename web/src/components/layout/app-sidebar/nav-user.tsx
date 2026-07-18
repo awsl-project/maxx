@@ -346,8 +346,6 @@ export function NavUser() {
     avatar: '/logo.png',
   };
   const displayUserFallback = (displayUser.name || 'U').slice(0, 2).toUpperCase();
-  const menuDisplayName = displayUser.name || 'Maxx';
-  const menuDisplayFallback = menuDisplayName.slice(0, 2).toUpperCase();
   const accountTitle = displayUser.name || undefined;
   const footerActionButtonClass =
     'inline-flex h-9 w-full items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/20 transition-colors hover:bg-sidebar-accent';
@@ -360,27 +358,9 @@ export function NavUser() {
       sideOffset={4}
     >
       <DropdownMenuGroup>
-        <DropdownMenuLabel>
-          <div className="flex items-start gap-2 w-full">
-            <Avatar className="h-8 w-8 rounded-lg">
-              <AvatarImage src={displayUser.avatar} alt={menuDisplayName} />
-              <AvatarFallback className="rounded-lg">{menuDisplayFallback}</AvatarFallback>
-            </Avatar>
-            <div className="grid flex-1 text-left text-sm leading-tight gap-0.5">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{menuDisplayName}</span>
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {displayUser.status}
-                </span>
-              </div>
-              <span className="truncate text-xs text-muted-foreground">{displayUser.subtitle}</span>
-              <span className="truncate text-[10px] text-muted-foreground/80">
-                {displayUser.identity}
-              </span>
-            </div>
-          </div>
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {t('nav.settings')}
         </DropdownMenuLabel>
-        <DropdownMenuSeparator />
       </DropdownMenuGroup>
 
       {authEnabled && (
