@@ -357,12 +357,6 @@ export function NavUser() {
       align="end"
       sideOffset={4}
     >
-      <DropdownMenuGroup>
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          {t('nav.settings')}
-        </DropdownMenuLabel>
-      </DropdownMenuGroup>
-
       {authEnabled && (
         <DropdownMenuGroup>
           <DropdownMenuLabel className="text-xs text-muted-foreground">
