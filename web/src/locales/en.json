@@ -1848,19 +1848,19 @@
       },
       "freeduck": {
         "name": "Free Duck",
-        "description": "Free site · Claude"
+        "description": "Claude"
       },
       "nvidia": {
         "name": "NVIDIA NIM",
-        "description": "OpenAI Compatible"
+        "description": "OpenAI"
       },
       "zhipu": {
         "name": "Zhipu AI",
-        "description": "Claude + OpenAI Compatible"
+        "description": "Claude + OpenAI"
       },
       "deepseek": {
         "name": "DeepSeek",
-        "description": "Claude + OpenAI Compatible"
+        "description": "Claude + OpenAI"
       }
     },
     "grok": {
