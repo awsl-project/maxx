@@ -92,7 +92,15 @@ func (a *Adapter) SupportedClientTypes() []domain.ClientType {
 }
 
 // Execute delegates to the custom core, passing the synthesized provider so the
-// custom config drives base URL and auth.
+// custom config drives base URL and auth. Before delegating it normalizes any
+// image sizing into the form the target OpenRouter endpoint honors (see
+// normalizeImageConfigBody), so each protocol can express sizing its own standard
+// way and still reach the upstream image model correctly.
 func (a *Adapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
+	if body := flow.GetRequestBody(c); len(body) > 0 {
+		if nb := normalizeImageConfigBody(body, flow.GetRequestURI(c)); len(nb) > 0 {
+			c.Set(flow.KeyRequestBody, nb)
+		}
+	}
 	return a.inner.Execute(c, a.synth)
 }
