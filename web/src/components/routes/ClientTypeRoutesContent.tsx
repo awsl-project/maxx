@@ -13,6 +13,8 @@ import {
   Trash2,
   Zap,
   Workflow,
+  Gauge,
+  ArrowUpDown,
   Settings2,
   Pin,
 } from 'lucide-react';
@@ -47,6 +49,8 @@ import {
   useRoutingStrategies,
   useProjects,
   routeKeys,
+  useUsageStats,
+  getTimeRange,
 } from '@/hooks/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { useStreamingRequests } from '@/hooks/use-streaming';
@@ -103,6 +107,7 @@ import {
   type ProviderTypeKey,
 } from '@/pages/providers/types';
 import { invertVisibleProviderSelection } from '@/pages/providers/utils/selection';
+import { buildTtftRoutePositionUpdates } from '@/pages/client-routes/utils/ttft-sort';
 
 function isSameProviderStats(a: ProviderStats, b: ProviderStats): boolean {
   return (
@@ -146,6 +151,7 @@ interface ClientTypeRoutesContentProps {
   clientType: ClientType;
   projectID: number; // 0 for global routes
   searchQuery?: string; // Optional search query from parent
+  isActive?: boolean; // False when a tab is mounted but hidden
 }
 
 // Small banner above the routes list telling the user which routing strategy is
@@ -476,6 +482,7 @@ function ClientTypeRoutesContentInner({
   clientType,
   projectID,
   searchQuery = '',
+  isActive = true,
 }: ClientTypeRoutesContentProps) {
   const { t } = useTranslation();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -486,6 +493,7 @@ function ClientTypeRoutesContentInner({
   const [bulkAddError, setBulkAddError] = useState<string | null>(null);
   const [bulkAddFailures, setBulkAddFailures] = useState<BulkAddRouteFailure[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [ttftSortMessage, setTtftSortMessage] = useState<string | null>(null);
   const { data: providerStats = {} } = useProviderStats(clientType, projectID || undefined);
   const stableProviderStats = useStableProviderStats(providerStats);
   const queryClient = useQueryClient();
@@ -508,6 +516,20 @@ function ClientTypeRoutesContentInner({
   const { data: providers = [], isLoading: providersLoading } = useProviders();
   const { data: projects = [] } = useProjects();
   const { data: strategies = [] } = useRoutingStrategies();
+  const ttftUsageStatsFilter = useMemo(() => {
+    const { start, end, granularity } = getTimeRange('last_24_hours');
+    return {
+      granularity,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      clientType,
+      projectId: projectID,
+    };
+  }, [clientType, projectID]);
+  const { data: ttftUsageStats, isFetching: isLoadingTtftStats } = useUsageStats(
+    ttftUsageStatsFilter,
+    { enabled: isActive },
+  );
 
   // Resolve the effective strategy for this scope, mirroring the backend's
   // order: project-specific first, then the global (projectID 0) strategy,
@@ -644,6 +666,18 @@ function ClientTypeRoutesContentInner({
   const allVisibleSelected =
     visibleRouteIds.length > 0 && selectedRouteIds.size === visibleRouteIds.length;
   const someVisibleSelected = selectedRouteIds.size > 0 && !allVisibleSelected;
+
+  const ttftSortUpdates = useMemo(
+    () => buildTtftRoutePositionUpdates(clientRoutes, ttftUsageStats),
+    [clientRoutes, ttftUsageStats],
+  );
+  const hasTtftSortCandidates = isActive && clientRoutes.length > 1;
+  const canApplyTtftSort =
+    hasTtftSortCandidates && !isLoadingTtftStats && !updatePositions.isPending;
+
+  useEffect(() => {
+    setTtftSortMessage(null);
+  }, [clientType, projectID, ttftSortUpdates.length]);
 
   const availableProviders = useMemo(() => {
     return providers.filter((p) => !routeByProviderId.has(Number(p.id)));
@@ -793,6 +827,29 @@ function ClientTypeRoutesContentInner({
     setBulkAddError(null);
     setBulkAddFailures([]);
     setSelectedAvailableProviderIds(new Set());
+  };
+
+  const handleSortByTtft = () => {
+    if (!canApplyTtftSort) return;
+
+    if (ttftSortUpdates.length === 0) {
+      setTtftSortMessage(t('routes.sortByTtftNoChanges'));
+      return;
+    }
+
+    const updates = Object.fromEntries(
+      ttftSortUpdates.map((update) => [update.id, update.position]),
+    ) as Record<number, number>;
+
+    updatePositions.mutate(updates, {
+      onSuccess: () => {
+        setTtftSortMessage(t('routes.sortByTtftApplied', { count: ttftSortUpdates.length }));
+      },
+      onError: (error) => {
+        console.error('Failed to sort routes by TTFT:', error);
+        setTtftSortMessage(t('routes.sortByTtftFailed'));
+      },
+    });
   };
 
   const handleBulkAddRoutes = async () => {
@@ -957,6 +1014,22 @@ function ClientTypeRoutesContentInner({
               />
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {hasTtftSortCandidates && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSortByTtft}
+                  disabled={!canApplyTtftSort}
+                  title={t('routes.sortByTtftHint')}
+                  className="h-7 shrink-0 text-xs"
+                >
+                  <Gauge className="mr-1.5 h-3.5 w-3.5" />
+                  {t('routes.sortByTtft')}
+                  {(updatePositions.isPending || isLoadingTtftStats) && (
+                    <ArrowUpDown className="ml-1.5 h-3.5 w-3.5 animate-pulse" />
+                  )}
+                </Button>
+              )}
               {clientType === 'claude' && (
                 <ClaudeProviderBatchTestDialog
                   providers={providers}
@@ -972,6 +1045,8 @@ function ClientTypeRoutesContentInner({
               />
             </div>
           </div>
+
+          {ttftSortMessage && <p className="text-xs text-muted-foreground">{ttftSortMessage}</p>}
 
           {items.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 px-4 py-3 shadow-sm">
