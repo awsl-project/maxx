@@ -805,6 +805,9 @@ type RetryConfig struct {
 
 	// 最大间隔上限
 	MaxInterval time.Duration `json:"maxInterval"`
+
+	// 是否强制将安全的上游/provider 错误纳入本重试策略
+	ForceRetryUpstreamErrors bool `json:"forceRetryUpstreamErrors"`
 }
 
 // 路由策略类型

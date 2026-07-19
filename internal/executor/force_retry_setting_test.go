@@ -60,16 +60,16 @@ func (a *forceRetrySequenceAdapter) Execute(c *flow.Ctx, _ *domain.Provider) err
 	return nil
 }
 
-func TestDispatchForceRetryUpstreamErrorsSettingRetriesProviderError(t *testing.T) {
+func TestDispatchForceRetryUpstreamErrorsRetryConfigRetriesProviderError(t *testing.T) {
 	retryErr := domain.NewProxyErrorWithMessage(errors.New("upstream error"), false, "failed to connect to upstream")
 	retryErr.Scope = domain.ScopeProvider
 	retryErr.Reason = domain.CooldownReasonNetworkError
 
 	adapter, proxyReq, c, e := newForceRetryDispatchHarness(
 		t,
-		true,
+		false,
 		&forceRetrySequenceAdapter{errs: []error{retryErr}},
-		&domain.RetryConfig{MaxRetries: 1, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+		&domain.RetryConfig{MaxRetries: 1, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0, ForceRetryUpstreamErrors: true},
 	)
 
 	e.dispatch(c)

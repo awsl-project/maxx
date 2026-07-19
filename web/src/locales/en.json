@@ -1000,7 +1000,10 @@
     "executeImmediately": "Execute immediately",
     "retry": "Retry {{num}}",
     "waitMs": "Wait {{ms}}ms",
-    "moreRetries": "... and {{count}} more retries"
+    "moreRetries": "... and {{count}} more retries",
+    "forceRetryUpstreamErrors": "Force retry upstream errors",
+    "forceRetryUpstreamErrorsDesc": "When enabled, this policy retries safe provider/upstream/network/server failures.",
+    "forceRetryUpstreamErrorsHint": "Request errors, invalid credentials, canceled requests, unsafe committed responses, and exhausted retry budgets are still not retried."
   },
   "login": {
     "title": "Maxx Admin",

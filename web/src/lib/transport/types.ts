@@ -114,7 +114,6 @@ export interface ProviderConfigOpenRouter {
   apiKey: string;
 }
 
-
 export interface ProviderConfigGrok {
   type?: 'xai';
   authKind?: 'oauth';
@@ -384,6 +383,7 @@ export interface RetryConfig {
   initialInterval: number; // nanoseconds
   backoffRate: number;
   maxInterval: number; // nanoseconds
+  forceRetryUpstreamErrors: boolean;
 }
 
 export type CreateRetryConfigData = Omit<RetryConfig, 'id' | 'createdAt' | 'updatedAt'>;
@@ -428,7 +428,12 @@ export interface ResponseInfo {
 }
 
 export type ProxyRequestStatus =
-  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
+  | 'PENDING'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'REJECTED';
 
 export type ProxyRequestErrorMode = 'all' | 'only' | 'exclude';
 
@@ -515,7 +520,11 @@ export interface ProxyRequest {
 // ===== ProxyUpstreamAttempt =====
 
 export type ProxyUpstreamAttemptStatus =
-  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  | 'PENDING'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
 
 export interface ProxyUpstreamAttempt {
   id: number;
@@ -1266,6 +1275,7 @@ export interface BackupRetryConfig {
   initialIntervalMs: number;
   backoffRate: number;
   maxIntervalMs: number;
+  forceRetryUpstreamErrors?: boolean;
 }
 
 export interface BackupRoute {

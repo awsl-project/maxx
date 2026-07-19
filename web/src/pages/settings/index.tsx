@@ -67,7 +67,6 @@ function parseRetentionInteger(value: string): number | null {
 }
 
 const CODEX_REASONING_GUARD_SETTING_KEY = 'codex_reasoning_guard';
-const FORCE_RETRY_UPSTREAM_ERRORS_SETTING_KEY = 'force_retry_upstream_errors';
 const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
 const DEFAULT_CODEX_REASONING_GUARD_SETTING = JSON.stringify(
   {
@@ -123,7 +122,6 @@ const PROXY_ROUTE_EXPOSURE_SETTINGS: ProxyRouteExposureSetting[] = [
   },
 ];
 
-
 export function SettingsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -150,7 +148,6 @@ export function SettingsPage() {
               <RequestDiagnosticsSection />
               <ForceProjectSection />
               <CodexReasoningGuardSection />
-              <RetryBehaviorSection />
               <APITokenConcurrencySection />
               <ProxyRouteExposureSection />
               <AntigravitySection />
@@ -823,7 +820,6 @@ function ForceProjectSection() {
   );
 }
 
-
 function CodexReasoningGuardSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
@@ -1040,70 +1036,8 @@ function RequestDiagnosticsSection() {
         <Label className="text-sm font-medium text-foreground">
           {t('settings.enhancedFailureDetails')}
         </Label>
-        <p className="text-xs text-muted-foreground">
-          {t('settings.enhancedFailureDetailsDesc')}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {t('settings.defaultOff')}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function RetryBehaviorSection() {
-  const { data: settings, isLoading } = useSettings();
-  const updateSetting = useUpdateSetting();
-  const { t } = useTranslation();
-
-  const forceRetryUpstreamErrors =
-    settings?.[FORCE_RETRY_UPSTREAM_ERRORS_SETTING_KEY] === 'true';
-
-  const handleToggle = async (checked: boolean) => {
-    await updateSetting.mutateAsync({
-      key: FORCE_RETRY_UPSTREAM_ERRORS_SETTING_KEY,
-      value: checked ? 'true' : 'false',
-    });
-  };
-
-  if (isLoading) return null;
-
-  return (
-    <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base font-medium flex items-center gap-2">
-              <Zap className="h-4 w-4 text-muted-foreground" />
-              {t('settings.retryBehavior')}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('settings.retryBehaviorDesc')}
-            </p>
-          </div>
-          <Switch
-            aria-label={t('settings.forceRetryUpstreamErrors')}
-            checked={forceRetryUpstreamErrors}
-            onCheckedChange={handleToggle}
-            disabled={updateSetting.isPending}
-          />
-        </div>
-      </CardHeader>
-      <CardContent className="p-6 space-y-3">
-        <div>
-          <Label className="text-sm font-medium text-foreground">
-            {t('settings.forceRetryUpstreamErrors')}
-          </Label>
-          <p className="text-xs text-muted-foreground mt-1">
-            {t('settings.forceRetryUpstreamErrorsDesc')}
-          </p>
-        </div>
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
-          <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-          <p className="text-xs text-amber-700 dark:text-amber-300">
-            {t('settings.forceRetryUpstreamErrorsHint')}
-          </p>
-        </div>
+        <p className="text-xs text-muted-foreground">{t('settings.enhancedFailureDetailsDesc')}</p>
+        <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
       </CardContent>
     </Card>
   );

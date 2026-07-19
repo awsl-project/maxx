@@ -116,6 +116,7 @@ func TestLatestMigrationsAreOrderedAndUnique(t *testing.T) {
 	lastVersion := 0
 	v18Count := 0
 	v19Count := 0
+	v20Count := 0
 	for _, migration := range migrations {
 		if migration.Version <= lastVersion {
 			t.Fatalf("migrations are not strictly ordered: v%d follows v%d", migration.Version, lastVersion)
@@ -127,15 +128,21 @@ func TestLatestMigrationsAreOrderedAndUnique(t *testing.T) {
 		if migration.Version == 19 {
 			v19Count++
 		}
+		if migration.Version == 20 {
+			v20Count++
+		}
 	}
-	if lastVersion != 19 {
-		t.Fatalf("latest migration = v%d, want v19", lastVersion)
+	if lastVersion != 20 {
+		t.Fatalf("latest migration = v%d, want v20", lastVersion)
 	}
 	if v18Count != 1 {
 		t.Fatalf("migration v18 registered %d times, want once", v18Count)
 	}
 	if v19Count != 1 {
 		t.Fatalf("migration v19 registered %d times, want once", v19Count)
+	}
+	if v20Count != 1 {
+		t.Fatalf("migration v20 registered %d times, want once", v20Count)
 	}
 }
 

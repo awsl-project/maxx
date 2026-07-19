@@ -997,7 +997,10 @@
     "executeImmediately": "立即执行",
     "retry": "重试 {{num}}",
     "waitMs": "等待 {{ms}}ms",
-    "moreRetries": "... 还有 {{count}} 次重试"
+    "moreRetries": "... 还有 {{count}} 次重试",
+    "forceRetryUpstreamErrors": "强制重试上游错误",
+    "forceRetryUpstreamErrorsDesc": "开启后，本策略会将安全的 provider / 上游 / 网络 / 服务端错误纳入重试。",
+    "forceRetryUpstreamErrorsHint": "请求错误、无效凭据、取消的请求、不安全的已提交响应和耗尽的重试预算仍不会被重试。"
   },
   "login": {
     "title": "Maxx 管理后台",
