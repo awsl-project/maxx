@@ -15,7 +15,6 @@ import {
   Code2,
   ChevronLeft,
   ChevronRight,
-  Gauge,
 } from 'lucide-react';
 import { ClientIcon, getClientName } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
@@ -23,19 +22,10 @@ import type { ClientType } from '@/lib/transport';
 import { ClientTypeRoutesContent } from '@/components/routes/ClientTypeRoutesContent';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent, Switch, Button } from '@/components/ui';
-import {
-  useProjects,
-  useUpdateProject,
-  useRoutes,
-  useProviders,
-  routeKeys,
-  useUsageStats,
-  getTimeRange,
-} from '@/hooks/queries';
+import { useProjects, useUpdateProject, useRoutes, useProviders, routeKeys } from '@/hooks/queries';
 import { useTransport } from '@/lib/transport/context';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { buildTtftRoutePositionUpdates } from './utils/ttft-sort';
 
 const SCROLL_STEP = 200;
 
@@ -164,28 +154,6 @@ export function ClientRoutesPage() {
   const updateProject = useUpdateProject();
   const { transport } = useTransport();
   const queryClient = useQueryClient();
-  const selectedProjectIDNumber = Number(selectedProjectId);
-  const ttftUsageStatsFilter = useMemo(() => {
-    const { start, end, granularity } = getTimeRange('last_24_hours');
-    return {
-      granularity,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      clientType: activeClientType,
-      projectId: selectedProjectIDNumber,
-    };
-  }, [activeClientType, selectedProjectIDNumber]);
-  const { data: ttftUsageStats, isFetching: isLoadingTtftStats } =
-    useUsageStats(ttftUsageStatsFilter);
-
-  const currentScopeRoutes = useMemo(
-    () =>
-      (allRoutes ?? []).filter(
-        (route) =>
-          route.clientType === activeClientType && route.projectID === selectedProjectIDNumber,
-      ),
-    [activeClientType, allRoutes, selectedProjectIDNumber],
-  );
 
   const handleProjectHoverStart = useCallback(() => {
     if (!window.matchMedia('(hover: hover)').matches) return;
@@ -247,25 +215,6 @@ export function ClientRoutesPage() {
     }
   };
 
-  const ttftSortUpdates = useMemo(
-    () => buildTtftRoutePositionUpdates(currentScopeRoutes, ttftUsageStats),
-    [currentScopeRoutes, ttftUsageStats],
-  );
-
-  const handleSortByTtft = async () => {
-    if (ttftSortUpdates.length === 0) return;
-
-    setIsSorting(true);
-    try {
-      await transport.batchUpdateRoutePositions(ttftSortUpdates);
-      queryClient.invalidateQueries({ queryKey: routeKeys.list() });
-    } catch (error) {
-      console.error('Failed to sort routes by TTFT:', error);
-    } finally {
-      setIsSorting(false);
-    }
-  };
-
   const handleToggleCustomRoutes = (projectId: number, enabled: boolean) => {
     const project = projects?.find((p) => p.id === projectId);
     if (!project) return;
@@ -287,22 +236,6 @@ export function ClientRoutesPage() {
 
   const sortButtons = (
     <div className="flex items-center gap-2">
-      {currentScopeRoutes.length > 1 && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleSortByTtft}
-          disabled={isSorting || isLoadingTtftStats || ttftSortUpdates.length === 0}
-          title={t('routes.sortByTtftHint')}
-          className="h-8 text-xs"
-        >
-          <Gauge className="h-3.5 w-3.5 mr-1.5" />
-          {t('routes.sortByTtft')}
-          {(isSorting || isLoadingTtftStats) && (
-            <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />
-          )}
-        </Button>
-      )}
       {selectedProjectId === '0' && hasAntigravityRoutes && isClaudePage && (
         <Button
           variant="outline"
@@ -432,6 +365,7 @@ export function ClientRoutesPage() {
             clientType={activeClientType}
             projectID={0}
             searchQuery={searchQuery}
+            isActive={selectedProjectId === '0'}
           />
         </TabsContent>
 
@@ -478,6 +412,7 @@ export function ClientRoutesPage() {
                     clientType={activeClientType}
                     projectID={project.id}
                     searchQuery={searchQuery}
+                    isActive={selectedProjectId === String(project.id)}
                   />
                 </div>
               ) : (
