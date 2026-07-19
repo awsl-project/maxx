@@ -104,3 +104,12 @@ func NewScopedProxyError(err error, scope ErrorScope, reason CooldownReason) *Pr
 		Retryable: scope != ScopeRequest,
 	}
 }
+
+func NewUpstreamConnectionError(message string) *ProxyError {
+	if message == "" {
+		message = "failed to connect to upstream"
+	}
+	proxyErr := NewScopedProxyError(ErrUpstreamError, ScopeProvider, CooldownReasonNetworkError)
+	proxyErr.Message = message
+	return proxyErr
+}

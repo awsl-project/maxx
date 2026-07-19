@@ -242,9 +242,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 					if hasNextEndpoint(idx, len(baseURLs)) {
 						continue
 					}
-					proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-					proxyErr.Message = "failed to connect to upstream"
-					return proxyErr
+					return domain.NewUpstreamConnectionError("failed to connect to upstream")
 				}
 
 				// Check for 401 (token expired) and retry once
@@ -282,9 +280,7 @@ func (a *AntigravityAdapter) Execute(c *flow.Ctx, provider *domain.Provider) err
 						if hasNextEndpoint(idx, len(baseURLs)) {
 							continue
 						}
-						proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-						proxyErr.Message = "failed to connect to upstream after token refresh"
-						return proxyErr
+						return domain.NewUpstreamConnectionError("failed to connect to upstream after token refresh")
 					}
 				}
 

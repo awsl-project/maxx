@@ -102,3 +102,17 @@ func TestExtractStructuredResetTimeFindsNestedQuotaResetTime(t *testing.T) {
 		t.Fatalf("reset time = %v, want %v", got, want)
 	}
 }
+
+func TestClassifyHTTPErrorRequestTimeoutIsRetryableNetworkError(t *testing.T) {
+	proxyErr := classifyHTTPError(http.StatusRequestTimeout, []byte(`failed to connect to upstream: upstream error`), http.Header{}, domain.ClientTypeOpenAI, "gpt-4")
+
+	if proxyErr.Scope != domain.ScopeEndpoint {
+		t.Fatalf("scope = %q, want endpoint", proxyErr.Scope)
+	}
+	if proxyErr.Reason != domain.CooldownReasonNetworkError {
+		t.Fatalf("reason = %q, want network_error", proxyErr.Reason)
+	}
+	if !proxyErr.Retryable {
+		t.Fatal("408 upstream timeout should be retryable")
+	}
+}

@@ -269,9 +269,7 @@ func (a *CustomAdapter) Execute(c *flow.Ctx, provider *domain.Provider) error {
 	}
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
-		proxyErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
-		proxyErr.Message = "failed to connect to upstream"
-		return proxyErr
+		return domain.NewUpstreamConnectionError("failed to connect to upstream")
 	}
 	defer resp.Body.Close()
 
@@ -1305,8 +1303,15 @@ func classifyHTTPError(statusCode int, body []byte, headers http.Header, clientT
 			proxyErr.Reason = domain.CooldownReasonServerError
 		}
 
-	// 400, 408, 413, 422 — request-level errors
-	case statusCode == 400 || statusCode == 408 || statusCode == 413 || statusCode == 422:
+	// 408 is an upstream timeout before a useful response; retry/fail over instead
+	// of treating it like a client request validation error.
+	case statusCode == http.StatusRequestTimeout:
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Reason = domain.CooldownReasonNetworkError
+		proxyErr.Retryable = true
+
+	// 400, 413, 422 — request-level errors
+	case statusCode == 400 || statusCode == 413 || statusCode == 422:
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.Retryable = false
 
