@@ -425,7 +425,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			if ok && ctx.Err() != context.Canceled {
 				log.Printf("[Executor] ProxyError - Scope: %s, Reason: %s, Retryable: %v, Provider: %d",
 					proxyErr.Scope, proxyErr.Reason, proxyErr.Retryable, matchedRoute.Provider.ID)
-				if !shouldSkipErrorCooldown(matchedRoute.Provider) {
+				if !shouldSkipErrorCooldown(matchedRoute.Provider) && !shouldDeferNetworkErrorCooldown(proxyErr, attempt, retryConfig) {
 					e.handleCooldown(proxyErr, matchedRoute.Provider, currentClientType, mappedModel)
 					if e.broadcaster != nil {
 						e.broadcaster.BroadcastMessage("cooldown_update", map[string]interface{}{
@@ -507,6 +507,20 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	}
 	state.ctx = ctx
 	c.Err = state.lastErr
+}
+
+func shouldDeferNetworkErrorCooldown(proxyErr *domain.ProxyError, attempt int, retryConfig *domain.RetryConfig) bool {
+	if proxyErr == nil || !proxyErr.Retryable || proxyErr.Reason != domain.CooldownReasonNetworkError {
+		return false
+	}
+	if proxyErr.CooldownUntil != nil || proxyErr.RetryAfter > 0 {
+		return false
+	}
+	maxRetries := 0
+	if retryConfig != nil {
+		maxRetries = retryConfig.MaxRetries
+	}
+	return attempt < maxRetries
 }
 
 func clearProxyRequestDetail(req *domain.ProxyRequest, clearDetail bool) {

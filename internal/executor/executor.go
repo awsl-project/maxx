@@ -301,7 +301,7 @@ func (e *Executor) handleCooldown(proxyErr *domain.ProxyError, provider *domain.
 }
 
 func isConfigurableRateLimitFallback(reason cooldown.CooldownReason) bool {
-	return reason == cooldown.ReasonRateLimit || reason == cooldown.ReasonConcurrentLimit
+	return reason == cooldown.ReasonRateLimit || reason == cooldown.ReasonConcurrentLimit || reason == cooldown.ReasonNetworkError
 }
 
 func (e *Executor) rateLimitDefaultCooldownUntil() *time.Time {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/converter"
+	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 )
@@ -359,6 +360,10 @@ func TestMapModelForProviderProxyHonorsModelMapping(t *testing.T) {
 }
 
 func TestExecuteProviderProxyRetriesSameProvider(t *testing.T) {
+	providerID := uint64(99005)
+	cooldown.Default().ClearCooldown(providerID, "", "")
+	defer cooldown.Default().ClearCooldown(providerID, "", "")
+
 	proxyRepo := &codexGuardProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	retryErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
@@ -397,11 +402,11 @@ func TestExecuteProviderProxyRetriesSameProvider(t *testing.T) {
 		IsStream:      false,
 		Status:        "IN_PROGRESS",
 		RouteID:       11,
-		ProviderID:    7,
+		ProviderID:    providerID,
 		APITokenID:    46,
 	}
-	route := &domain.Route{ID: 11, ProviderID: 7, ClientType: domain.ClientTypeOpenAI}
-	provider := &domain.Provider{ID: 7, Type: "custom"}
+	route := &domain.Route{ID: 11, ProviderID: providerID, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: providerID, Type: "custom"}
 
 	if err := e.ExecuteProviderProxy(c, proxyReq, route, provider, adapter); err != nil {
 		t.Fatalf("ExecuteProviderProxy returned error: %v", err)
@@ -431,6 +436,67 @@ func TestExecuteProviderProxyRetriesSameProvider(t *testing.T) {
 		if created.MappedModel != "minimax-m3-upstream" {
 			t.Fatalf("attempt mapped model = %q, want minimax-m3-upstream", created.MappedModel)
 		}
+	}
+	if until := cooldown.Default().GetCooldownUntil(provider.ID, "", ""); !until.IsZero() {
+		t.Fatalf("provider cooldown remained after retry succeeded: %v", until)
+	}
+}
+
+func TestExecuteProviderProxyFreezesNetworkErrorAfterRetryExhaustion(t *testing.T) {
+	providerID := uint64(99006)
+	cooldown.Default().ClearCooldown(providerID, "", "")
+	defer cooldown.Default().ClearCooldown(providerID, "", "")
+
+	retryErr1 := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+	retryErr1.Message = "failed to connect to upstream"
+	retryErr2 := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
+	retryErr2.Message = "failed to connect to upstream"
+	adapter := &sequenceAdapter{errs: []error{retryErr1, retryErr2}}
+	e := &Executor{
+		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		attemptRepo:      &recordingAttemptRepo{},
+		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
+			MaxRetries:      1,
+			InitialInterval: 0,
+			BackoffRate:     1,
+			MaxInterval:     0,
+		}},
+		settingsRepo: fakeSystemSettingRepo{values: map[string]string{
+			domain.SettingKeyRateLimitCooldownDefaultSeconds: "15",
+		}},
+		modelMappingRepo: &staticModelMappingRepo{},
+		converter:        converter.GetGlobalRegistry(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/7/v1/chat/completions", nil).
+		WithContext(context.Background())
+	c := flow.NewCtx(httptest.NewRecorder(), req)
+	c.Set(flow.KeyRequestHeaders, http.Header{})
+	c.Set(flow.KeyRequestURI, "/provider/7/v1/chat/completions")
+
+	proxyReq := &domain.ProxyRequest{
+		TenantID:     1,
+		ID:           42,
+		ClientType:   domain.ClientTypeOpenAI,
+		RequestModel: "minimaxai/minimax-m3",
+		IsStream:     false,
+		Status:       "IN_PROGRESS",
+		RouteID:      11,
+		ProviderID:   providerID,
+	}
+	route := &domain.Route{ID: 11, ProviderID: providerID, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: providerID, Type: "custom"}
+
+	if err := e.ExecuteProviderProxy(c, proxyReq, route, provider, adapter); err == nil {
+		t.Fatal("expected upstream error after retry exhaustion")
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
+	}
+	until := cooldown.Default().GetCooldownUntil(provider.ID, "", "")
+	remaining := time.Until(until)
+	if remaining < 10*time.Second || remaining > 20*time.Second {
+		t.Fatalf("remaining cooldown = %v, want configurable 429 fallback around 15s", remaining)
 	}
 }
 
