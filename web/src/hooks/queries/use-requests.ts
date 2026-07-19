@@ -73,6 +73,62 @@ function matchesRequestTimeRange(
   return true;
 }
 
+export function mergeProxyRequestAttemptUpdate(
+  request: ProxyRequest,
+  attempt: ProxyUpstreamAttempt,
+): ProxyRequest {
+  if (request.id !== attempt.proxyRequestID) {
+    return request;
+  }
+
+  return {
+    ...request,
+    updatedAt: attempt.updatedAt || request.updatedAt,
+    routeID: attempt.routeID || request.routeID,
+    providerID: attempt.providerID || request.providerID,
+    mappedModel: attempt.mappedModel || request.mappedModel,
+    responseModel: attempt.responseModel || request.responseModel,
+    ttft: attempt.ttft || request.ttft,
+    inputTokenCount: attempt.inputTokenCount || request.inputTokenCount,
+    outputTokenCount: attempt.outputTokenCount || request.outputTokenCount,
+    cacheReadCount: attempt.cacheReadCount || request.cacheReadCount,
+    cacheWriteCount: attempt.cacheWriteCount || request.cacheWriteCount,
+    cache5mWriteCount: attempt.cache5mWriteCount || request.cache5mWriteCount,
+    cache1hWriteCount: attempt.cache1hWriteCount || request.cache1hWriteCount,
+    modelPriceId: attempt.modelPriceId || request.modelPriceId,
+    multiplier: attempt.multiplier || request.multiplier,
+    cost: attempt.cost || request.cost,
+  };
+}
+
+function matchesProxyRequestParams(
+  request: ProxyRequest,
+  params: CursorPaginationParams | undefined,
+): boolean {
+  if (params?.providerId !== undefined && request.providerID !== params.providerId) {
+    return false;
+  }
+  if (params?.status !== undefined && request.status !== params.status) {
+    return false;
+  }
+  if (params?.apiTokenId !== undefined && request.apiTokenID !== params.apiTokenId) {
+    return false;
+  }
+  if (params?.projectId !== undefined && request.projectID !== params.projectId) {
+    return false;
+  }
+  if (!matchesRequestTimeRange(request, params?.startTime, params?.endTime)) {
+    return false;
+  }
+  if (params?.errorMode === 'only' && !isProxyRequestError(request)) {
+    return false;
+  }
+  if (params?.errorMode === 'exclude' && isProxyRequestError(request)) {
+    return false;
+  }
+  return true;
+}
+
 /** Fetches proxy requests with cursor-based pagination. */
 export function useProxyRequests(params?: CursorPaginationParams) {
   return useQuery({
@@ -235,6 +291,100 @@ export function useProxyRequestUpdates() {
     const knownRequestIds = new Set<number>();
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const patchRequestCachesFromAttempt = (updatedAttempt: ProxyUpstreamAttempt) => {
+      const requestId = updatedAttempt.proxyRequestID;
+
+      const detailKey = requestKeys.detail(requestId);
+      const detailQuery = queryCache.find({ queryKey: detailKey, exact: true });
+      if (detailQuery && detailQuery.getObserversCount() > 0) {
+        queryClient.setQueryData<ProxyRequest>(detailKey, (old) =>
+          old ? mergeProxyRequestAttemptUpdate(old, updatedAttempt) : old,
+        );
+      }
+
+      const listQueries = queryCache
+        .findAll({ queryKey: requestKeys.lists() })
+        .filter((q) => q.getObserversCount() > 0);
+      for (const query of listQueries) {
+        const queryKey = query.queryKey as ReturnType<typeof requestKeys.list>;
+        const params = queryKey[2] as CursorPaginationParams | undefined;
+
+        queryClient.setQueryData<CursorPaginationResult<ProxyRequest>>(queryKey, (old) => {
+          if (!old || !old.items) return old;
+          const index = old.items.findIndex((r) => r.id === requestId);
+          if (index < 0) return old;
+
+          const updatedRequest = mergeProxyRequestAttemptUpdate(old.items[index], updatedAttempt);
+          if (!matchesProxyRequestParams(updatedRequest, params)) {
+            const items = prioritizeActiveRequests(old.items.filter((r) => r.id !== requestId));
+            return {
+              ...old,
+              items,
+              firstId: items[0]?.id,
+              lastId: items[items.length - 1]?.id,
+            };
+          }
+
+          const items = [...old.items];
+          items[index] = updatedRequest;
+          const normalized = prioritizeActiveRequests(items);
+          return {
+            ...old,
+            items: normalized,
+            firstId: normalized[0]?.id,
+            lastId: normalized[normalized.length - 1]?.id,
+          };
+        });
+      }
+
+      const infiniteQueries = queryCache
+        .findAll({ queryKey: [...requestKeys.all, 'infinite'] })
+        .filter((q) => q.getObserversCount() > 0);
+      for (const query of infiniteQueries) {
+        const queryKey = query.queryKey as ReturnType<typeof requestKeys.infinite>;
+        const params: CursorPaginationParams = {
+          providerId: queryKey[2] as number | undefined,
+          status: queryKey[3] as string | undefined,
+          apiTokenId: queryKey[4] as number | undefined,
+          projectId: queryKey[5] as number | undefined,
+          startTime: queryKey[6] as string | undefined,
+          endTime: queryKey[7] as string | undefined,
+          errorMode: queryKey[8] as ProxyRequestErrorMode | undefined,
+        };
+
+        queryClient.setQueryData<{
+          pages: CursorPaginationResult<ProxyRequest>[];
+          pageParams: (number | undefined)[];
+        }>(queryKey, (old) => {
+          if (!old || !old.pages || old.pages.length === 0) return old;
+
+          let changed = false;
+          const pages = old.pages.map((page) => {
+            const index = page.items.findIndex((r) => r.id === requestId);
+            if (index < 0) return page;
+
+            changed = true;
+            const updatedRequest = mergeProxyRequestAttemptUpdate(
+              page.items[index],
+              updatedAttempt,
+            );
+            if (!matchesProxyRequestParams(updatedRequest, params)) {
+              return {
+                ...page,
+                items: prioritizeActiveRequests(page.items.filter((r) => r.id !== requestId)),
+              };
+            }
+
+            const items = [...page.items];
+            items[index] = updatedRequest;
+            return { ...page, items: prioritizeActiveRequests(items) };
+          });
+
+          return changed ? { ...old, pages } : old;
+        });
+      }
+    };
+
     const flushAttempts = () => {
       if (pendingAttemptsByRequest.size === 0) {
         return;
@@ -246,11 +396,15 @@ export function useProxyRequestUpdates() {
       for (const [proxyRequestID, attemptsById] of entries) {
         const attemptsKey = requestKeys.attempts(proxyRequestID);
         const attemptsQuery = queryCache.find({ queryKey: attemptsKey, exact: true });
+        const updates = Array.from(attemptsById.values());
+
+        for (const updatedAttempt of updates) {
+          patchRequestCachesFromAttempt(updatedAttempt);
+        }
+
         if (!attemptsQuery || attemptsQuery.getObserversCount() === 0) {
           continue;
         }
-
-        const updates = Array.from(attemptsById.values());
 
         queryClient.setQueryData<ProxyUpstreamAttempt[]>(attemptsKey, (old) => {
           const list = old ? [...old] : [];
@@ -597,13 +751,6 @@ export function useProxyRequestUpdates() {
     const unsubscribeAttempt = transport.subscribe<ProxyUpstreamAttempt>(
       'proxy_upstream_attempt_update',
       (updatedAttempt) => {
-        // 仅当 attempts 查询正在被观察时才更新，避免列表页“写缓存造内存”
-        const attemptsKey = requestKeys.attempts(updatedAttempt.proxyRequestID);
-        const attemptsQuery = queryCache.find({ queryKey: attemptsKey, exact: true });
-        if (!attemptsQuery || attemptsQuery.getObserversCount() === 0) {
-          return;
-        }
-
         let perRequest = pendingAttemptsByRequest.get(updatedAttempt.proxyRequestID);
         if (!perRequest) {
           perRequest = new Map<number, ProxyUpstreamAttempt>();
