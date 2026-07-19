@@ -22,6 +22,11 @@ type ProviderConfigCustom struct {
 	// Backend selects the custom provider's upstream protocol implementation.
 	// Empty means legacy HTTP passthrough. "ollama" converts Claude-compatible
 	// requests to Ollama /api/chat and wraps responses back to Claude format.
+	//
+	// Deprecated: use a dedicated provider type instead (e.g. type "ollama").
+	// Retained for backward compatibility with existing custom+backend:ollama
+	// providers, which keep working unchanged. New setups should pick the matching
+	// first-class provider type so each upstream's quirks live in its own adapter.
 	Backend string `json:"backend,omitempty"`
 
 	// API Key

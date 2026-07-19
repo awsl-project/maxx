@@ -1,7 +1,7 @@
 import type { ClientType, DisguiseType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
-import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles, Cloud, Waypoints, Bot } from 'lucide-react';
+import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles, Cloud, Waypoints, Bot, Network, Boxes } from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
 import nvidiaLogo from '@/assets/icons/nvidia.svg';
@@ -14,7 +14,16 @@ import deepseekLogo from '@/assets/icons/deepseek.png';
 // 通用的 Provider 类型配置，添加新类型只需在这里配置
 
 export type ProviderTypeKey =
-  'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter' | 'grok';
+  | 'custom'
+  | 'antigravity'
+  | 'bedrock'
+  | 'kiro'
+  | 'codex'
+  | 'claude'
+  | 'openrouter'
+  | 'grok'
+  | 'newapi'
+  | 'ollama';
 
 export interface ProviderTypeConfig {
   key: ProviderTypeKey;
@@ -90,6 +99,22 @@ export const PROVIDER_TYPE_CONFIGS: Record<ProviderTypeKey, ProviderTypeConfig> 
     color: getProviderColorVar('grok'),
     isAccountBased: true,
     getDisplayInfo: (p) => p.config?.grok?.email || 'Grok Account',
+  },
+  newapi: {
+    key: 'newapi',
+    label: 'New API',
+    icon: Network,
+    color: getProviderColorVar('newapi'),
+    isAccountBased: false,
+    getDisplayInfo: (p) => p.config?.custom?.baseURL || 'Not configured',
+  },
+  ollama: {
+    key: 'ollama',
+    label: 'Ollama',
+    icon: Boxes,
+    color: getProviderColorVar('ollama'),
+    isAccountBased: false,
+    getDisplayInfo: (p) => p.config?.custom?.baseURL || 'Not configured',
   },
   custom: {
     key: 'custom',
@@ -298,7 +323,17 @@ export const defaultClients: ClientConfig[] = [
 
 // Form data types
 export type ProviderFormData = {
-  type: 'custom' | 'antigravity' | 'bedrock' | 'kiro' | 'codex' | 'claude' | 'openrouter' | 'grok';
+  type:
+    | 'custom'
+    | 'antigravity'
+    | 'bedrock'
+    | 'kiro'
+    | 'codex'
+    | 'claude'
+    | 'openrouter'
+    | 'grok'
+    | 'newapi'
+    | 'ollama';
   name: string;
   selectedTemplate: string | null;
   baseURL: string;

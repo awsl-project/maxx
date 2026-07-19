@@ -21,6 +21,8 @@ import (
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/custom"     // Register custom adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/grok"       // Register grok adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/kiro"       // Register kiro adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/newapi"     // Register newapi adapter
+	_ "github.com/awsl-project/maxx/internal/adapter/provider/ollama"     // Register ollama adapter
 	_ "github.com/awsl-project/maxx/internal/adapter/provider/openrouter" // Register openrouter adapter
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"

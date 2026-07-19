@@ -45,6 +45,8 @@ import { KiroProviderView } from './kiro-provider-view';
 import { CodexProviderView } from './codex-provider-view';
 import { ClaudeProviderView } from './claude-provider-view';
 import { OpenRouterProviderView } from './openrouter-provider-view';
+import { NewApiProviderView } from './newapi-provider-view';
+import { OllamaProviderView } from './ollama-provider-view';
 import { GrokProviderView } from './grok-provider-view';
 import { ProviderModelMappings } from './provider-model-mappings';
 import { Button } from '@/components/ui/button';
@@ -683,6 +685,46 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
     return (
       <>
         <OpenRouterProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // New API provider
+  if (provider.type === 'newapi') {
+    return (
+      <>
+        <NewApiProviderView
+          provider={provider}
+          onDelete={() => setShowDeleteConfirm(true)}
+          onClose={onClose}
+        />
+        <DeleteConfirmModal
+          providerName={provider.name}
+          deleting={deleting}
+          open={showDeleteConfirm}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      </>
+    );
+  }
+
+  // Ollama provider
+  if (provider.type === 'ollama') {
+    return (
+      <>
+        <OllamaProviderView
           provider={provider}
           onDelete={() => setShowDeleteConfirm(true)}
           onClose={onClose}

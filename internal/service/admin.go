@@ -379,6 +379,19 @@ func preserveExcludedProviderWriteOnlyMode(existing, incoming *domain.Provider) 
 	preserveEmptyExcludedProviderURLs(existing, incoming)
 }
 
+// providerUsesCustomConfig reports whether a provider type stores its
+// configuration under Config.Custom. The generic "custom" relay and the
+// first-class relay types built on the custom core (newapi, ollama) all share
+// that config shape, so config-preservation logic treats them alike.
+func providerUsesCustomConfig(providerType string) bool {
+	switch providerType {
+	case "custom", "newapi", "ollama":
+		return true
+	default:
+		return false
+	}
+}
+
 func preserveEmptyExcludedProviderURLs(existing, incoming *domain.Provider) {
 	if existing == nil || incoming == nil || existing.Config == nil || existing.Config.Custom == nil {
 		return
@@ -387,7 +400,7 @@ func preserveEmptyExcludedProviderURLs(existing, incoming *domain.Provider) {
 	if effectiveType == "" {
 		effectiveType = existing.Type
 	}
-	if effectiveType != "custom" || existing.Type != "custom" {
+	if !providerUsesCustomConfig(effectiveType) || !providerUsesCustomConfig(existing.Type) {
 		return
 	}
 	if incoming.Config == nil {
@@ -434,7 +447,8 @@ func preserveEmptyProviderSecrets(existing, incoming *domain.Provider) {
 	}
 
 	switch effectiveType {
-	case "custom":
+	case "custom", "newapi", "ollama":
+		// newapi/ollama are first-class relay types that reuse the custom config.
 		if existing.Config.Custom != nil {
 			if incoming.Config.Custom == nil {
 				custom := *existing.Config.Custom
@@ -1387,11 +1401,16 @@ func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
 		provider.SupportedClientTypes = []domain.ClientType{
 			domain.ClientTypeClaude,
 		}
-	case "custom":
-		// Custom providers use their configured SupportedClientTypes
-		// If not set, default to OpenAI
+	case "custom", "newapi":
+		// Custom and new-api providers use their configured SupportedClientTypes.
+		// If not set, default to OpenAI (both are OpenAI-compatible relays).
 		if len(provider.SupportedClientTypes) == 0 {
 			provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
+		}
+	case "ollama":
+		// Ollama's custom-core path only supports Claude-compatible requests.
+		provider.SupportedClientTypes = []domain.ClientType{
+			domain.ClientTypeClaude,
 		}
 	case "openrouter":
 		// OpenRouter natively serves both the OpenAI and Anthropic protocols, so

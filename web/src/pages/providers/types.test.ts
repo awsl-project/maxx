@@ -17,6 +17,8 @@ describe('provider type helpers', () => {
       'bedrock',
       'openrouter',
       'grok',
+      'newapi',
+      'ollama',
       'custom',
     ]);
   });
