@@ -116,14 +116,38 @@ func NewProxyRequestRepository(db *DB) *ProxyRequestRepository {
 
 func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool) string {
 	mappedModelColumn := "proxy_requests.response_model AS mapped_model"
+	responseModelColumn := "proxy_requests.response_model"
+	ttftColumn := "proxy_requests.ttft_ms"
+	durationColumn := "proxy_requests.duration_ms"
+	providerIDColumn := "proxy_requests.provider_id"
+	routeIDColumn := "proxy_requests.route_id"
+	inputTokenColumn := "proxy_requests.input_token_count"
+	outputTokenColumn := "proxy_requests.output_token_count"
+	cacheReadColumn := "proxy_requests.cache_read_count"
+	cacheWriteColumn := "proxy_requests.cache_write_count"
+	cache5mWriteColumn := "proxy_requests.cache_5m_write_count"
+	cache1hWriteColumn := "proxy_requests.cache_1h_write_count"
+	costColumn := "proxy_requests.cost"
 	if r.hasProxyUpstreamAttemptsTable {
 		mappedModelColumn = "COALESCE(NULLIF(final_attempt.mapped_model, ''), NULLIF(latest_attempt.mapped_model, ''), proxy_requests.response_model) AS mapped_model"
+		responseModelColumn = "COALESCE(NULLIF(final_attempt.response_model, ''), NULLIF(latest_attempt.response_model, ''), proxy_requests.response_model) AS response_model"
+		ttftColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.ttft_ms WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.ttft_ms ELSE proxy_requests.ttft_ms END AS ttft_ms"
+		durationColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.duration_ms WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.duration_ms ELSE proxy_requests.duration_ms END AS duration_ms"
+		providerIDColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.provider_id WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.provider_id ELSE proxy_requests.provider_id END AS provider_id"
+		routeIDColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.route_id WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.route_id ELSE proxy_requests.route_id END AS route_id"
+		inputTokenColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.input_token_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.input_token_count ELSE proxy_requests.input_token_count END AS input_token_count"
+		outputTokenColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.output_token_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.output_token_count ELSE proxy_requests.output_token_count END AS output_token_count"
+		cacheReadColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_read_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_read_count ELSE proxy_requests.cache_read_count END AS cache_read_count"
+		cacheWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_write_count ELSE proxy_requests.cache_write_count END AS cache_write_count"
+		cache5mWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_5m_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_5m_write_count ELSE proxy_requests.cache_5m_write_count END AS cache_5m_write_count"
+		cache1hWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_1h_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_1h_write_count ELSE proxy_requests.cache_1h_write_count END AS cache_1h_write_count"
+		costColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cost WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cost ELSE proxy_requests.cost END AS cost"
 	}
-	columns := "proxy_requests.id, proxy_requests.created_at, proxy_requests.updated_at, proxy_requests.instance_id, proxy_requests.request_id, proxy_requests.session_id, proxy_requests.client_type, proxy_requests.request_model, " + mappedModelColumn + ", proxy_requests.response_model, proxy_requests.start_time, proxy_requests.end_time, proxy_requests.duration_ms"
+	columns := "proxy_requests.id, proxy_requests.created_at, proxy_requests.updated_at, proxy_requests.instance_id, proxy_requests.request_id, proxy_requests.session_id, proxy_requests.client_type, proxy_requests.request_model, " + mappedModelColumn + ", " + responseModelColumn + ", proxy_requests.start_time, proxy_requests.end_time, " + durationColumn
 	if includeTTFT {
-		columns += ", proxy_requests.ttft_ms"
+		columns += ", " + ttftColumn
 	}
-	columns += ", proxy_requests.is_stream, proxy_requests.status, proxy_requests.status_code, proxy_requests.error, proxy_requests.proxy_upstream_attempt_count, proxy_requests.final_proxy_upstream_attempt_id, proxy_requests.route_id, proxy_requests.provider_id, proxy_requests.project_id, proxy_requests.input_token_count, proxy_requests.output_token_count, proxy_requests.cache_read_count, proxy_requests.cache_write_count, proxy_requests.cache_5m_write_count, proxy_requests.cache_1h_write_count, proxy_requests.cost, proxy_requests.api_token_id"
+	columns += ", proxy_requests.is_stream, proxy_requests.status, proxy_requests.status_code, proxy_requests.error, proxy_requests.proxy_upstream_attempt_count, proxy_requests.final_proxy_upstream_attempt_id, " + routeIDColumn + ", " + providerIDColumn + ", proxy_requests.project_id, " + inputTokenColumn + ", " + outputTokenColumn + ", " + cacheReadColumn + ", " + cacheWriteColumn + ", " + cache5mWriteColumn + ", " + cache1hWriteColumn + ", " + costColumn + ", proxy_requests.api_token_id"
 	if r.hasReasoningEffortColumn {
 		columns += ", proxy_requests.reasoning_effort"
 	}

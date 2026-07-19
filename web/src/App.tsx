@@ -19,6 +19,7 @@ import { SettingsPage } from '@/pages/settings';
 import { DocumentationPage } from '@/pages/documentation';
 import { LoginPage } from '@/pages/login';
 import { APITokensPage } from '@/pages/api-tokens';
+import { APITokenLimitsPage } from '@/pages/api-token-limits';
 import { StatsPage } from '@/pages/stats';
 import { ModelMappingsPage } from '@/pages/model-mappings';
 import { ModelPricesPage } from '@/pages/model-prices';
@@ -130,6 +131,14 @@ function AppRoutes() {
           <Route path="model-mappings" element={<ModelMappingsPage />} />
           <Route path="model-prices" element={<ModelPricesPage />} />
           <Route path="retry-configs" element={<RetryConfigsPage />} />
+          <Route
+            path="api-token-limits"
+            element={
+              <AdminRoute>
+                <APITokenLimitsPage />
+              </AdminRoute>
+            }
+          />
           <Route
             path="routing-strategies"
             element={

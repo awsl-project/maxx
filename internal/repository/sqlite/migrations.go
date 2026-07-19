@@ -564,6 +564,38 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     20,
+		Description: "Move force retry upstream errors setting into retry configs",
+		Up: func(db *gorm.DB) error {
+			return runForceRetryUpstreamErrorsRetryConfigMigration(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Keep the column on rollback; older application versions ignore it.
+			return nil
+		},
+	},
+}
+
+func runForceRetryUpstreamErrorsRetryConfigMigration(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&RetryConfig{}, "force_retry_upstream_errors") {
+		if err := db.Migrator().AddColumn(&RetryConfig{}, "ForceRetryUpstreamErrors"); err != nil && !isDuplicateColumnError(err) {
+			return err
+		}
+	}
+
+	var legacyValue string
+	if err := db.Table("system_settings").
+		Select("value").
+		Where("setting_key = ?", "force_retry_upstream_errors").
+		Limit(1).
+		Scan(&legacyValue).Error; err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(legacyValue), "true") {
+		return db.Exec("UPDATE retry_configs SET force_retry_upstream_errors = 1 WHERE force_retry_upstream_errors = 0").Error
+	}
+	return nil
 }
 
 func runAttemptErrorColumnMigration(db *gorm.DB) error {

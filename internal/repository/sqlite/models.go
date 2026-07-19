@@ -143,13 +143,14 @@ func (Route) TableName() string { return "routes" }
 // RetryConfig model
 type RetryConfig struct {
 	SoftDeleteModel
-	TenantID          uint64 `gorm:"index"`
-	Name              string `gorm:"size:255"`
-	IsDefault         int
-	MaxRetries        int     `gorm:"default:3"`
-	InitialIntervalMs int     `gorm:"default:1000"`
-	BackoffRate       float64 `gorm:"default:2.0"`
-	MaxIntervalMs     int     `gorm:"default:30000"`
+	TenantID                 uint64 `gorm:"index"`
+	Name                     string `gorm:"size:255"`
+	IsDefault                int
+	MaxRetries               int     `gorm:"default:3"`
+	InitialIntervalMs        int     `gorm:"default:1000"`
+	BackoffRate              float64 `gorm:"default:2.0"`
+	MaxIntervalMs            int     `gorm:"default:30000"`
+	ForceRetryUpstreamErrors int     `gorm:"default:0"`
 }
 
 func (RetryConfig) TableName() string { return "retry_configs" }

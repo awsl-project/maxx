@@ -67,7 +67,6 @@ function parseRetentionInteger(value: string): number | null {
 }
 
 const CODEX_REASONING_GUARD_SETTING_KEY = 'codex_reasoning_guard';
-const FORCE_RETRY_UPSTREAM_ERRORS_SETTING_KEY = 'force_retry_upstream_errors';
 const REQUEST_FAILURE_DETAILS_SETTING_KEY = 'request_failure_details_enabled';
 const DEFAULT_CODEX_REASONING_GUARD_SETTING = JSON.stringify(
   {
@@ -123,7 +122,6 @@ const PROXY_ROUTE_EXPOSURE_SETTINGS: ProxyRouteExposureSetting[] = [
   },
 ];
 
-
 export function SettingsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -150,8 +148,6 @@ export function SettingsPage() {
               <RequestDiagnosticsSection />
               <ForceProjectSection />
               <CodexReasoningGuardSection />
-              <RetryBehaviorSection />
-              <APITokenConcurrencySection />
               <ProxyRouteExposureSection />
               <AntigravitySection />
               <PprofSection />
@@ -823,7 +819,6 @@ function ForceProjectSection() {
   );
 }
 
-
 function CodexReasoningGuardSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
@@ -1040,210 +1035,8 @@ function RequestDiagnosticsSection() {
         <Label className="text-sm font-medium text-foreground">
           {t('settings.enhancedFailureDetails')}
         </Label>
-        <p className="text-xs text-muted-foreground">
-          {t('settings.enhancedFailureDetailsDesc')}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {t('settings.defaultOff')}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function RetryBehaviorSection() {
-  const { data: settings, isLoading } = useSettings();
-  const updateSetting = useUpdateSetting();
-  const { t } = useTranslation();
-
-  const forceRetryUpstreamErrors =
-    settings?.[FORCE_RETRY_UPSTREAM_ERRORS_SETTING_KEY] === 'true';
-
-  const handleToggle = async (checked: boolean) => {
-    await updateSetting.mutateAsync({
-      key: FORCE_RETRY_UPSTREAM_ERRORS_SETTING_KEY,
-      value: checked ? 'true' : 'false',
-    });
-  };
-
-  if (isLoading) return null;
-
-  return (
-    <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base font-medium flex items-center gap-2">
-              <Zap className="h-4 w-4 text-muted-foreground" />
-              {t('settings.retryBehavior')}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('settings.retryBehaviorDesc')}
-            </p>
-          </div>
-          <Switch
-            aria-label={t('settings.forceRetryUpstreamErrors')}
-            checked={forceRetryUpstreamErrors}
-            onCheckedChange={handleToggle}
-            disabled={updateSetting.isPending}
-          />
-        </div>
-      </CardHeader>
-      <CardContent className="p-6 space-y-3">
-        <div>
-          <Label className="text-sm font-medium text-foreground">
-            {t('settings.forceRetryUpstreamErrors')}
-          </Label>
-          <p className="text-xs text-muted-foreground mt-1">
-            {t('settings.forceRetryUpstreamErrorsDesc')}
-          </p>
-        </div>
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
-          <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-          <p className="text-xs text-amber-700 dark:text-amber-300">
-            {t('settings.forceRetryUpstreamErrorsHint')}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function APITokenConcurrencySection() {
-  const { data: settings, isLoading } = useSettings();
-  const updateSetting = useUpdateSetting();
-  const { t } = useTranslation();
-
-  const currentLimit = settings?.api_token_concurrent_limit || '5';
-  const currentRateLimitCooldown = settings?.cooldown_rate_limit_default_seconds || '5';
-  const [limitDraft, setLimitDraft] = useState('');
-  const [rateLimitCooldownDraft, setRateLimitCooldownDraft] = useState('');
-  const [initialized, setInitialized] = useState(false);
-
-  useEffect(() => {
-    if (!isLoading && !initialized) {
-      setLimitDraft(currentLimit);
-      setRateLimitCooldownDraft(currentRateLimitCooldown);
-      setInitialized(true);
-    }
-  }, [isLoading, initialized, currentLimit, currentRateLimitCooldown]);
-
-  const hasLimitChanges = initialized && limitDraft !== currentLimit;
-  const hasRateLimitCooldownChanges =
-    initialized && rateLimitCooldownDraft !== currentRateLimitCooldown;
-  const hasChanges = hasLimitChanges || hasRateLimitCooldownChanges;
-
-  useEffect(() => {
-    if (initialized && !hasChanges) {
-      setLimitDraft(currentLimit);
-      setRateLimitCooldownDraft(currentRateLimitCooldown);
-    }
-  }, [currentLimit, currentRateLimitCooldown, initialized, hasChanges]);
-
-  const parsedLimit = /^\d+$/.test(limitDraft.trim()) ? Number(limitDraft.trim()) : NaN;
-  const isLimitValid = Number.isInteger(parsedLimit) && parsedLimit >= 1;
-  const parsedRateLimitCooldown = /^\d+$/.test(rateLimitCooldownDraft.trim())
-    ? Number(rateLimitCooldownDraft.trim())
-    : NaN;
-  const isRateLimitCooldownValid =
-    Number.isInteger(parsedRateLimitCooldown) &&
-    parsedRateLimitCooldown >= 1 &&
-    parsedRateLimitCooldown <= 86400;
-  const isValid = isLimitValid && isRateLimitCooldownValid;
-
-  const handleSaveLimit = async () => {
-    if (!isValid || !hasChanges) return;
-    if (hasLimitChanges) {
-      await updateSetting.mutateAsync({
-        key: 'api_token_concurrent_limit',
-        value: String(parsedLimit),
-      });
-    }
-    if (hasRateLimitCooldownChanges) {
-      await updateSetting.mutateAsync({
-        key: 'cooldown_rate_limit_default_seconds',
-        value: String(parsedRateLimitCooldown),
-      });
-    }
-  };
-
-  if (isLoading || !initialized) return null;
-
-  return (
-    <Card className="border-border bg-card">
-      <CardHeader className="border-b border-border py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-base font-medium flex items-center gap-2">
-              <Activity className="h-4 w-4 text-muted-foreground" />
-              {t('settings.apiTokenConcurrency')}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('settings.apiTokenConcurrencyDesc')}
-            </p>
-          </div>
-          <Button
-            onClick={handleSaveLimit}
-            disabled={!hasChanges || !isValid || updateSetting.isPending}
-            size="sm"
-          >
-            {updateSetting.isPending ? t('common.saving') : t('common.save')}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="p-6 space-y-4">
-        <div className="space-y-1.5">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <Label className="text-sm font-medium text-muted-foreground shrink-0">
-              {t('settings.apiTokenConcurrencyLimit')}
-            </Label>
-            <Input
-              type="number"
-              value={limitDraft}
-              onChange={(e) => setLimitDraft(e.target.value)}
-              className="w-24"
-              min={1}
-              disabled={updateSetting.isPending}
-            />
-            <span className="text-xs text-muted-foreground">
-              {t('settings.concurrentRequestsUnit')}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              ({t('settings.defaultValue', { value: 5 })})
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('settings.apiTokenConcurrencyHint')}</p>
-        </div>
-
-        <div className="space-y-1.5 pt-4 border-t border-border">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <Label className="text-sm font-medium text-muted-foreground shrink-0">
-              {t('settings.rateLimitCooldownDefaultSeconds')}
-            </Label>
-            <Input
-              type="number"
-              value={rateLimitCooldownDraft}
-              onChange={(e) => setRateLimitCooldownDraft(e.target.value)}
-              className="w-24"
-              min={1}
-              max={86400}
-              step={1}
-              disabled={updateSetting.isPending}
-            />
-            <span className="text-xs text-muted-foreground">{t('common.seconds')}</span>
-            <span className="text-xs text-muted-foreground">
-              ({t('settings.defaultValue', { value: 5 })})
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {t('settings.rateLimitCooldownDefaultSecondsHint')}
-          </p>
-          {!isRateLimitCooldownValid && (
-            <p className="text-xs text-destructive">
-              {t('settings.rateLimitCooldownDefaultSecondsInvalid')}
-            </p>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground">{t('settings.enhancedFailureDetailsDesc')}</p>
+        <p className="text-xs text-muted-foreground">{t('settings.defaultOff')}</p>
       </CardContent>
     </Card>
   );

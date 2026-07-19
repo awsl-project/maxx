@@ -107,7 +107,8 @@
     "logout": "退出登录",
     "users": "用户管理",
     "changePassword": "修改密码",
-    "managePasskeys": "管理 Passkey"
+    "managePasskeys": "管理 Passkey",
+    "apiTokenLimits": "API Token 限流"
   },
   "userPanel": {
     "title": "用户控制台",
@@ -999,7 +1000,10 @@
     "executeImmediately": "立即执行",
     "retry": "重试 {{num}}",
     "waitMs": "等待 {{ms}}ms",
-    "moreRetries": "... 还有 {{count}} 次重试"
+    "moreRetries": "... 还有 {{count}} 次重试",
+    "forceRetryUpstreamErrors": "强制重试上游错误",
+    "forceRetryUpstreamErrorsDesc": "开启后，本策略会将安全的 provider / 上游 / 网络 / 服务端错误纳入重试。",
+    "forceRetryUpstreamErrorsHint": "请求错误、无效凭据、取消的请求、不安全的已提交响应和耗尽的重试预算仍不会被重试。"
   },
   "login": {
     "title": "Maxx 管理后台",
@@ -1338,9 +1342,9 @@
     "apiTokenConcurrencyDesc": "配置每个 API Token 允许同时进行中的请求数上限",
     "apiTokenConcurrencyLimit": "并发请求上限",
     "apiTokenConcurrencyHint": "超过限制时，同一 Token 的新请求会返回标准 429 限流响应，直到已有请求完成。",
-    "rateLimitCooldownDefaultSeconds": "429 默认冻结时间",
-    "rateLimitCooldownDefaultSecondsHint": "当上游 429 / 并发限制没有返回 Retry-After 时，使用此秒数作为自动冻结时长；上游返回 Retry-After 时仍优先使用上游时间。",
-    "rateLimitCooldownDefaultSecondsInvalid": "429 默认冻结时间必须是 1 到 86400 之间的整数。",
+    "rateLimitCooldownDefaultSeconds": "自动冻结默认时长",
+    "rateLimitCooldownDefaultSecondsHint": "当上游 429 / 并发限制没有返回 Retry-After，或上游连接错误在重试耗尽后需要自动冻结时，使用此秒数作为冻结时长；上游返回 Retry-After 或显式 CooldownUntil 时仍优先使用上游时间。",
+    "rateLimitCooldownDefaultSecondsInvalid": "自动冻结默认时长必须是 1 到 86400 之间的整数。",
     "concurrentRequestsUnit": "个请求",
     "defaultValue": "默认 {{value}}",
     "minutes": "分钟",
@@ -1918,5 +1922,20 @@
     "invalid": "请输入有效的 http(s) URL",
     "corsHint": "后端需通过 MAXX_CORS_ALLOW_ORIGINS 允许此来源。",
     "storageError": "无法保存：浏览器存储不可用（如隐私模式）。"
+  },
+  "apiTokenLimits": {
+    "title": "API Token 限流",
+    "description": "配置 API Token 并发保护与自动冻结默认时长。",
+    "concurrencyTitle": "API Token 并发限制",
+    "concurrencyDesc": "配置每个 API Token 允许同时进行中的请求数上限。",
+    "concurrentLimit": "并发请求上限",
+    "concurrentRequestsUnit": "个请求",
+    "concurrencyHint": "超过限制时，同一 Token 的新请求会返回标准 429 限流响应，直到已有请求完成。",
+    "concurrentLimitInvalid": "并发请求上限必须是不小于 1 的整数。",
+    "autoCooldownTitle": "自动冻结默认时长",
+    "autoCooldownDesc": "配置没有显式上游冻结时间时使用的默认冻结秒数。",
+    "autoCooldownSeconds": "默认冻结时长",
+    "autoCooldownHint": "当上游 429 / 并发限制没有返回 Retry-After，或上游连接错误在重试耗尽后需要自动冻结时，使用此秒数作为冻结时长；上游返回 Retry-After 或显式 CooldownUntil 时仍优先使用上游时间。",
+    "autoCooldownInvalid": "自动冻结默认时长必须是 1 到 86400 之间的整数。"
   }
 }

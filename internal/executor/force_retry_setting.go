@@ -4,25 +4,20 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/awsl-project/maxx/internal/domain"
 )
 
-// forceRetryUpstreamErrorsEnabled reports whether the admin opted into
-// retrying upstream/provider failures that were previously classified as
-// non-retryable. It intentionally defaults to false: the normal per-error
-// retry classification remains the safe default.
-func (e *Executor) forceRetryUpstreamErrorsEnabled() bool {
-	if e == nil || e.settingsRepo == nil {
-		return false
-	}
-	value, err := e.settingsRepo.Get(domain.SettingKeyForceRetryUpstreamErrors)
-	return err == nil && strings.EqualFold(strings.TrimSpace(value), "true")
+// forceRetryUpstreamErrorsEnabled reports whether the matched retry policy opts
+// into retrying upstream/provider failures that were previously classified as
+// non-retryable. It intentionally defaults to false: the normal per-error retry
+// classification remains the safe default.
+func (e *Executor) forceRetryUpstreamErrorsEnabled(config *domain.RetryConfig) bool {
+	return config != nil && config.ForceRetryUpstreamErrors
 }
 
 // forceRetryUpstreamErrorIfSafe upgrades only upstream/provider-side failures
-// to retryable when the admin setting is enabled. Hard safety boundaries stay
+// to retryable when the matched retry policy enables it. Hard safety boundaries stay
 // intact: request/client errors, auth/key errors, canceled request contexts,
 // committed responses that are not explicitly safe to retry, and exhausted
 // retry budgets are still handled by the dispatch loop.

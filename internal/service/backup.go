@@ -144,12 +144,13 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 	for _, rc := range retryConfigs {
 		retryConfigIDToName[rc.ID] = rc.Name
 		backup.Data.RetryConfigs = append(backup.Data.RetryConfigs, domain.BackupRetryConfig{
-			Name:              rc.Name,
-			IsDefault:         rc.IsDefault,
-			MaxRetries:        rc.MaxRetries,
-			InitialIntervalMs: rc.InitialInterval.Milliseconds(),
-			BackoffRate:       rc.BackoffRate,
-			MaxIntervalMs:     rc.MaxInterval.Milliseconds(),
+			Name:                     rc.Name,
+			IsDefault:                rc.IsDefault,
+			MaxRetries:               rc.MaxRetries,
+			InitialIntervalMs:        rc.InitialInterval.Milliseconds(),
+			BackoffRate:              rc.BackoffRate,
+			MaxIntervalMs:            rc.MaxInterval.Milliseconds(),
+			ForceRetryUpstreamErrors: rc.ForceRetryUpstreamErrors,
 		})
 	}
 
@@ -479,13 +480,14 @@ func (s *BackupService) importRetryConfigs(tenantID uint64, configs []domain.Bac
 		}
 
 		rc := &domain.RetryConfig{
-			TenantID:        tenantID,
-			Name:            bc.Name,
-			IsDefault:       bc.IsDefault,
-			MaxRetries:      bc.MaxRetries,
-			InitialInterval: time.Duration(bc.InitialIntervalMs) * time.Millisecond,
-			BackoffRate:     bc.BackoffRate,
-			MaxInterval:     time.Duration(bc.MaxIntervalMs) * time.Millisecond,
+			TenantID:                 tenantID,
+			Name:                     bc.Name,
+			IsDefault:                bc.IsDefault,
+			MaxRetries:               bc.MaxRetries,
+			InitialInterval:          time.Duration(bc.InitialIntervalMs) * time.Millisecond,
+			BackoffRate:              bc.BackoffRate,
+			MaxInterval:              time.Duration(bc.MaxIntervalMs) * time.Millisecond,
+			ForceRetryUpstreamErrors: bc.ForceRetryUpstreamErrors,
 		}
 
 		if !opts.DryRun {
