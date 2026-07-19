@@ -373,40 +373,101 @@ func TestPriceTable_Get_PrefixMatch(t *testing.T) {
 	pt := DefaultPriceTable()
 
 	tests := []struct {
-		modelID   string
-		wantFound bool
+		modelID     string
+		wantModelID string
 	}{
-		{"claude-sonnet-4-5", true},
-		{"claude-sonnet-4-5-20250514", true},
-		{"claude-opus-4-5", true},
-		{"claude-opus-4-5-20251001", true},
-		{"claude-opus-4-6", true},
-		{"claude-opus-4-6-20260205", true},
-		{"claude-haiku-4-5", true},
-		{"claude-haiku-4-5-20251001", true},
-		{"gpt-5.1", true},
-		{"gpt-5.1-codex", true},
-		{"gpt-5.4", true},
-		{"gpt-5.4-mini", true},
-		{"gpt-5.5", true},
-		{"gpt-5.5-pro", true},
-		{"gpt-5.6", true},
-		{"gpt-5.6-sol", true},
-		{"gpt-5.6-terra", true},
-		{"gpt-5.6-luna", true},
-		{"gemini-2.5-pro", true},
-		{"gemini-3-pro-preview", true},
-		{"unknown-model", false},
+		{"claude-sonnet-4-5", "claude-sonnet-4-5"},
+		{"claude-sonnet-4-5-20250514", "claude-sonnet-4-5-20250514"},
+		{"claude-sonnet-4-5-20260719", "claude-sonnet-4-5"},
+		{"claude-opus-4-5", "claude-opus-4-5"},
+		{"claude-opus-4-5-20251001", "claude-opus-4-5"},
+		{"claude-opus-4-6", "claude-opus-4-6"},
+		{"claude-opus-4-6-20260205", "claude-opus-4-6-20260205"},
+		{"claude-haiku-4-5", "claude-haiku-4-5"},
+		{"claude-haiku-4-5-20251001", "claude-haiku-4-5"},
+		{"gpt-5.1", "gpt-5.1"},
+		{"gpt-5.1-codex", "gpt-5.1-codex"},
+		{"gpt-5.1-codex-20260719", "gpt-5.1-codex"},
+		{"gpt-5.4", "gpt-5.4"},
+		{"gpt-5.4-20260719", "gpt-5.4"},
+		{"gpt-5.4-mini", "gpt-5.4-mini"},
+		{"gpt-5.4-mini-20260719", "gpt-5.4-mini"},
+		{"gpt-5.5", "gpt-5.5"},
+		{"gpt-5.5-pro", "gpt-5.5-pro"},
+		{"gpt-5.6", "gpt-5.6"},
+		{"gpt-5.6-sol", "gpt-5.6-sol"},
+		{"gpt-5.6-terra", "gpt-5.6-terra"},
+		{"gpt-5.6-luna", "gpt-5.6-luna"},
+		{"gemini-2.5-pro", "gemini-2.5-pro"},
+		{"gemini-3-pro-preview", "gemini-3-pro-preview"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.modelID, func(t *testing.T) {
 			pricing := pt.Get(tt.modelID)
-			if tt.wantFound && pricing == nil {
-				t.Errorf("Get(%s) = nil, want non-nil", tt.modelID)
+			if pricing == nil {
+				t.Fatalf("Get(%s) = nil, want %s", tt.modelID, tt.wantModelID)
 			}
-			if !tt.wantFound && pricing != nil {
-				t.Errorf("Get(%s) = %v, want nil", tt.modelID, pricing)
+			if pricing.ModelID != tt.wantModelID {
+				t.Errorf("Get(%s).ModelID = %s, want %s", tt.modelID, pricing.ModelID, tt.wantModelID)
+			}
+		})
+	}
+
+	if pricing := pt.Get("unknown-model"); pricing != nil {
+		t.Errorf("Get(unknown-model) = %v, want nil", pricing)
+	}
+}
+
+func TestCalculator_Calculate_GPT54ExactPricing(t *testing.T) {
+	calc := NewCalculator()
+
+	tests := []struct {
+		name    string
+		model   string
+		metrics *usage.Metrics
+		want    uint64
+	}{
+		{
+			name:  "gpt-5.4 exact slug",
+			model: "gpt-5.4",
+			metrics: &usage.Metrics{
+				InputTokens:          100_000,
+				OutputTokens:         10_000,
+				CacheReadCount:       20_000,
+				Cache5mCreationCount: 4_000,
+				Cache1hCreationCount: 2_000,
+			},
+			want: 427_500_000,
+		},
+		{
+			name:  "gpt-5.4 suffix uses prefix price",
+			model: "gpt-5.4-20260719",
+			metrics: &usage.Metrics{
+				InputTokens:  100_000,
+				OutputTokens: 10_000,
+			},
+			want: 400_000_000,
+		},
+		{
+			name:  "gpt-5.4-mini suffix uses longest prefix price",
+			model: "gpt-5.4-mini-20260719",
+			metrics: &usage.Metrics{
+				InputTokens:  100_000,
+				OutputTokens: 10_000,
+			},
+			want: 120_000_000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := calc.Calculate(tt.model, tt.metrics, 0)
+			if got.Cost != tt.want {
+				t.Errorf("Calculate(%s) Cost = %d, want %d", tt.model, got.Cost, tt.want)
+			}
+			if got.Multiplier != DefaultMultiplier {
+				t.Errorf("Calculate(%s) Multiplier = %d, want %d", tt.model, got.Multiplier, DefaultMultiplier)
 			}
 		})
 	}
