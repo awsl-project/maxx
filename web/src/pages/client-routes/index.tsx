@@ -15,6 +15,7 @@ import {
   Code2,
   ChevronLeft,
   ChevronRight,
+  Gauge,
 } from 'lucide-react';
 import { ClientIcon, getClientName } from '@/components/icons/client-icons';
 import { PageHeader } from '@/components/layout/page-header';
@@ -22,10 +23,19 @@ import type { ClientType } from '@/lib/transport';
 import { ClientTypeRoutesContent } from '@/components/routes/ClientTypeRoutesContent';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent, Switch, Button } from '@/components/ui';
-import { useProjects, useUpdateProject, useRoutes, useProviders, routeKeys } from '@/hooks/queries';
+import {
+  useProjects,
+  useUpdateProject,
+  useRoutes,
+  useProviders,
+  routeKeys,
+  useUsageStats,
+  getTimeRange,
+} from '@/hooks/queries';
 import { useTransport } from '@/lib/transport/context';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
+import { buildTtftRoutePositionUpdates } from './utils/ttft-sort';
 
 const SCROLL_STEP = 200;
 
@@ -154,6 +164,28 @@ export function ClientRoutesPage() {
   const updateProject = useUpdateProject();
   const { transport } = useTransport();
   const queryClient = useQueryClient();
+  const selectedProjectIDNumber = Number(selectedProjectId);
+  const ttftUsageStatsFilter = useMemo(() => {
+    const { start, end, granularity } = getTimeRange('last_24_hours');
+    return {
+      granularity,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      clientType: activeClientType,
+      projectId: selectedProjectIDNumber,
+    };
+  }, [activeClientType, selectedProjectIDNumber]);
+  const { data: ttftUsageStats, isFetching: isLoadingTtftStats } =
+    useUsageStats(ttftUsageStatsFilter);
+
+  const currentScopeRoutes = useMemo(
+    () =>
+      (allRoutes ?? []).filter(
+        (route) =>
+          route.clientType === activeClientType && route.projectID === selectedProjectIDNumber,
+      ),
+    [activeClientType, allRoutes, selectedProjectIDNumber],
+  );
 
   const handleProjectHoverStart = useCallback(() => {
     if (!window.matchMedia('(hover: hover)').matches) return;
@@ -215,6 +247,25 @@ export function ClientRoutesPage() {
     }
   };
 
+  const ttftSortUpdates = useMemo(
+    () => buildTtftRoutePositionUpdates(currentScopeRoutes, ttftUsageStats),
+    [currentScopeRoutes, ttftUsageStats],
+  );
+
+  const handleSortByTtft = async () => {
+    if (ttftSortUpdates.length === 0) return;
+
+    setIsSorting(true);
+    try {
+      await transport.batchUpdateRoutePositions(ttftSortUpdates);
+      queryClient.invalidateQueries({ queryKey: routeKeys.list() });
+    } catch (error) {
+      console.error('Failed to sort routes by TTFT:', error);
+    } finally {
+      setIsSorting(false);
+    }
+  };
+
   const handleToggleCustomRoutes = (projectId: number, enabled: boolean) => {
     const project = projects?.find((p) => p.id === projectId);
     if (!project) return;
@@ -233,6 +284,53 @@ export function ClientRoutesPage() {
       },
     });
   };
+
+  const sortButtons = (
+    <div className="flex items-center gap-2">
+      {currentScopeRoutes.length > 1 && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSortByTtft}
+          disabled={isSorting || isLoadingTtftStats || ttftSortUpdates.length === 0}
+          title={t('routes.sortByTtftHint')}
+          className="h-8 text-xs"
+        >
+          <Gauge className="h-3.5 w-3.5 mr-1.5" />
+          {t('routes.sortByTtft')}
+          {(isSorting || isLoadingTtftStats) && (
+            <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />
+          )}
+        </Button>
+      )}
+      {selectedProjectId === '0' && hasAntigravityRoutes && isClaudePage && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSortAntigravity}
+          disabled={isSorting}
+          className="h-8 text-xs"
+        >
+          <Zap className="h-3.5 w-3.5 mr-1.5" />
+          {t('routes.sortAntigravity')}
+          {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
+        </Button>
+      )}
+      {selectedProjectId === '0' && hasCodexRoutes && isCodexPage && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSortCodex}
+          disabled={isSorting}
+          className="h-8 text-xs"
+        >
+          <Code2 className="h-3.5 w-3.5 mr-1.5" />
+          {t('routes.sortCodex')}
+          {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
+        </Button>
+      )}
+    </div>
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -288,40 +386,8 @@ export function ClientRoutesPage() {
                 />
               </div>
 
-              {/* Sort Buttons - Only show when viewing Global routes and on appropriate pages */}
-              {selectedProjectId === '0' &&
-                ((hasAntigravityRoutes && isClaudePage) || (hasCodexRoutes && isCodexPage)) && (
-                  <div className="flex items-center gap-2">
-                    {/* Only show Antigravity sort button for Claude page */}
-                    {hasAntigravityRoutes && isClaudePage && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSortAntigravity}
-                        disabled={isSorting}
-                        className="h-8 text-xs"
-                      >
-                        <Zap className="h-3.5 w-3.5 mr-1.5" />
-                        {t('routes.sortAntigravity')}
-                        {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
-                      </Button>
-                    )}
-                    {/* Only show Codex sort button for Codex page */}
-                    {hasCodexRoutes && isCodexPage && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSortCodex}
-                        disabled={isSorting}
-                        className="h-8 text-xs"
-                      >
-                        <Code2 className="h-3.5 w-3.5 mr-1.5" />
-                        {t('routes.sortCodex')}
-                        {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
-                      </Button>
-                    )}
-                  </div>
-                )}
+              {/* Sort Buttons */}
+              {sortButtons}
             </div>
 
             {/* Full-width hover panel: all projects */}
@@ -352,6 +418,11 @@ export function ClientRoutesPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {sortedProjects.length === 0 && (
+          <div className="px-6 py-3 border-b border-border bg-card">
+            <div className="mx-auto max-w-[1400px] flex justify-end">{sortButtons}</div>
           </div>
         )}
 
