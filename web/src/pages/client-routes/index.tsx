@@ -285,6 +285,53 @@ export function ClientRoutesPage() {
     });
   };
 
+  const sortButtons = (
+    <div className="flex items-center gap-2">
+      {currentScopeRoutes.length > 1 && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSortByTtft}
+          disabled={isSorting || isLoadingTtftStats || ttftSortUpdates.length === 0}
+          title={t('routes.sortByTtftHint')}
+          className="h-8 text-xs"
+        >
+          <Gauge className="h-3.5 w-3.5 mr-1.5" />
+          {t('routes.sortByTtft')}
+          {(isSorting || isLoadingTtftStats) && (
+            <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />
+          )}
+        </Button>
+      )}
+      {selectedProjectId === '0' && hasAntigravityRoutes && isClaudePage && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSortAntigravity}
+          disabled={isSorting}
+          className="h-8 text-xs"
+        >
+          <Zap className="h-3.5 w-3.5 mr-1.5" />
+          {t('routes.sortAntigravity')}
+          {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
+        </Button>
+      )}
+      {selectedProjectId === '0' && hasCodexRoutes && isCodexPage && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSortCodex}
+          disabled={isSorting}
+          className="h-8 text-xs"
+        >
+          <Code2 className="h-3.5 w-3.5 mr-1.5" />
+          {t('routes.sortCodex')}
+          {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
+        </Button>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -340,50 +387,7 @@ export function ClientRoutesPage() {
               </div>
 
               {/* Sort Buttons */}
-              <div className="flex items-center gap-2">
-                {currentScopeRoutes.length > 1 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSortByTtft}
-                    disabled={isSorting || isLoadingTtftStats || ttftSortUpdates.length === 0}
-                    title={t('routes.sortByTtftHint')}
-                    className="h-8 text-xs"
-                  >
-                    <Gauge className="h-3.5 w-3.5 mr-1.5" />
-                    {t('routes.sortByTtft')}
-                    {(isSorting || isLoadingTtftStats) && (
-                      <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />
-                    )}
-                  </Button>
-                )}
-                {selectedProjectId === '0' && hasAntigravityRoutes && isClaudePage && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSortAntigravity}
-                    disabled={isSorting}
-                    className="h-8 text-xs"
-                  >
-                    <Zap className="h-3.5 w-3.5 mr-1.5" />
-                    {t('routes.sortAntigravity')}
-                    {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
-                  </Button>
-                )}
-                {selectedProjectId === '0' && hasCodexRoutes && isCodexPage && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSortCodex}
-                    disabled={isSorting}
-                    className="h-8 text-xs"
-                  >
-                    <Code2 className="h-3.5 w-3.5 mr-1.5" />
-                    {t('routes.sortCodex')}
-                    {isSorting && <ArrowUpDown className="h-3.5 w-3.5 ml-1.5 animate-pulse" />}
-                  </Button>
-                )}
-              </div>
+              {sortButtons}
             </div>
 
             {/* Full-width hover panel: all projects */}
@@ -414,6 +418,11 @@ export function ClientRoutesPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {sortedProjects.length === 0 && (
+          <div className="px-6 py-3 border-b border-border bg-card">
+            <div className="mx-auto max-w-[1400px] flex justify-end">{sortButtons}</div>
           </div>
         )}
 
