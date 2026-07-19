@@ -14,6 +14,7 @@ import {
   BookOpen,
   Ticket,
   Workflow,
+  Gauge,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -161,6 +162,15 @@ export const sidebarConfig: SidebarConfig = {
           to: '/retry-configs',
           icon: RefreshCw,
           labelKey: 'nav.retryConfigs',
+        },
+        {
+          type: 'standard',
+          key: 'api-token-limits',
+          to: '/api-token-limits',
+          icon: Gauge,
+          labelKey: 'nav.apiTokenLimits',
+          adminOnly: true,
+          authOnly: true,
         },
         {
           type: 'standard',

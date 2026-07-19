@@ -3,7 +3,9 @@ import { sidebarConfig } from './sidebar-config';
 import type { MenuItem } from '@/types/sidebar';
 
 function findItem(key: string): MenuItem | undefined {
-  return sidebarConfig.sections.flatMap((section) => section.items).find((item) => item.key === key);
+  return sidebarConfig.sections
+    .flatMap((section) => section.items)
+    .find((item) => item.key === key);
 }
 
 describe('sidebarConfig', () => {
@@ -16,5 +18,17 @@ describe('sidebarConfig', () => {
       adminOnly: true,
     });
     expect(item).not.toHaveProperty('authOnly', true);
+  });
+
+  it('exposes API token limits as an authenticated admin config page', () => {
+    const item = findItem('api-token-limits');
+
+    expect(item).toMatchObject({
+      type: 'standard',
+      to: '/api-token-limits',
+      labelKey: 'nav.apiTokenLimits',
+      adminOnly: true,
+      authOnly: true,
+    });
   });
 });
