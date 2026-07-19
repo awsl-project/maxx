@@ -1097,7 +1097,9 @@ function getVisibleMappedModel(request: ProxyRequest) {
 
 function getVisibleResponseModel(request: ProxyRequest) {
   const previousModel = getVisibleMappedModel(request) || request.requestModel;
-  return request.responseModel && request.responseModel !== previousModel ? request.responseModel : '';
+  return request.responseModel && request.responseModel !== previousModel
+    ? request.responseModel
+    : '';
 }
 
 function LogRow({
@@ -1248,7 +1250,7 @@ function LogRow({
               className="text-[10px] text-muted-foreground truncate"
               title={`Response model: ${visibleResponseModel}`}
             >
-              ↳ {visibleResponseModel}
+              response: {visibleResponseModel}
             </span>
           )}
         </div>

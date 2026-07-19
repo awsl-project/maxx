@@ -417,6 +417,19 @@ func TestExecuteProviderProxyRetriesSameProvider(t *testing.T) {
 	if len(attemptRepo.created) != 2 {
 		t.Fatalf("attempts created = %d, want 2", len(attemptRepo.created))
 	}
+	var routedUpdate *domain.ProxyRequest
+	for _, updated := range proxyRepo.updated {
+		if updated.RouteID == route.ID && updated.ProviderID == provider.ID {
+			routedUpdate = updated
+			break
+		}
+	}
+	if routedUpdate == nil {
+		t.Fatal("missing request update after route/provider selection")
+	}
+	if routedUpdate.MappedModel != "minimax-m3-upstream" {
+		t.Fatalf("routed request update mapped model = %q, want minimax-m3-upstream", routedUpdate.MappedModel)
+	}
 	if proxyReq.ProviderID != provider.ID {
 		t.Fatalf("provider changed to %d, want same provider %d", proxyReq.ProviderID, provider.ID)
 	}

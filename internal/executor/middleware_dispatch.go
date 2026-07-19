@@ -58,15 +58,16 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			return
 		}
 
+		clientType := state.clientType
+		mappedModel := e.mapModel(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
+
 		proxyReq.RouteID = matchedRoute.Route.ID
 		proxyReq.ProviderID = matchedRoute.Provider.ID
+		proxyReq.MappedModel = mappedModel
 		_ = e.proxyRequestRepo.Update(proxyReq)
 		if e.broadcaster != nil {
 			e.broadcaster.BroadcastProxyRequest(proxyReq)
 		}
-
-		clientType := state.clientType
-		mappedModel := e.mapModel(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
 
 		originalClientType := clientType
 		currentClientType := clientType
