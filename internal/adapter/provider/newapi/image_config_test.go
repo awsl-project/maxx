@@ -23,8 +23,8 @@ func TestNormalizeImageConfig_ChatTopLevelToExtraBodyGoogle(t *testing.T) {
 }
 
 func TestNormalizeImageConfig_ChatSizeDerivesAspect(t *testing.T) {
-	// Standard OpenAI client only sent pixel size → derive a coarse aspect ratio
-	// and emit it in new-api's dialect.
+	// Standard OpenAI client only sent pixel size → derive the nearest supported
+	// aspect ratio and emit it in new-api's dialect.
 	body := []byte(`{"model":"gemini-2.5-flash-image","messages":[{"role":"user","content":"a cat"}],"size":"1536x1024"}`)
 	out := normalizeImageConfigBody(body, "/v1/chat/completions")
 
@@ -115,10 +115,56 @@ func TestSizeAspectHelpers(t *testing.T) {
 	if got := sizeFromAspect("garbage"); got != "" {
 		t.Errorf("sizeFromAspect(garbage) = %q, want empty", got)
 	}
-	if got := aspectFromSize("1536x1024"); got != "3:2" {
-		t.Errorf("aspectFromSize landscape = %q, want 3:2", got)
+	// aspectFromSize picks the nearest supported Gemini ratio, not a coarse
+	// landscape/portrait/square bucket.
+	aspectCases := []struct {
+		size string
+		want string
+	}{
+		{"1024x1024", "1:1"},
+		{"1536x1024", "3:2"},  // exact 1.5
+		{"1024x1536", "2:3"},  // exact 0.667
+		{"1920x1080", "16:9"}, // widescreen no longer collapses to 3:2
+		{"1080x1920", "9:16"},
+		{"2560x1080", "21:9"}, // ultrawide
+		{"1280x1024", "5:4"},  // 1.25 exact
+		{"1024x1280", "4:5"},  // 0.8 exact
+		{"1024x768", "4:3"},   // 1.333 exact
+		{"768x1024", "3:4"},   // 0.75 exact
+		{"garbage", ""},
 	}
-	if got := aspectFromSize("1024x1024"); got != "1:1" {
-		t.Errorf("aspectFromSize square = %q, want 1:1", got)
+	for _, c := range aspectCases {
+		if got := aspectFromSize(c.size); got != c.want {
+			t.Errorf("aspectFromSize(%q) = %q, want %q", c.size, got, c.want)
+		}
+	}
+}
+
+// TestAspectFromSize_ResolutionInvariant proves the mapping is scale-free: the
+// same aspect ratio at different pixel resolutions (SD → 1K → 2K → 4K) must map
+// to the same ratio. This is the whole point of matching in log space — clarity
+// and framing are independent, so bumping resolution must never flip the aspect.
+func TestAspectFromSize_ResolutionInvariant(t *testing.T) {
+	groups := []struct {
+		want  string
+		sizes []string
+	}{
+		{"16:9", []string{"1280x720", "1920x1080", "2560x1440", "3840x2160"}},
+		{"9:16", []string{"720x1280", "1080x1920", "1440x2560", "2160x3840"}},
+		{"1:1", []string{"512x512", "1024x1024", "2048x2048", "4096x4096"}},
+		{"4:3", []string{"1024x768", "1600x1200", "2048x1536", "4096x3072"}},
+		{"3:4", []string{"768x1024", "1200x1600", "1536x2048"}},
+		{"3:2", []string{"1536x1024", "3000x2000", "6000x4000"}},
+		{"2:3", []string{"1024x1536", "2000x3000", "4000x6000"}},
+		{"21:9", []string{"2560x1080", "3440x1440", "5120x2160"}},
+		{"4:5", []string{"1024x1280", "2048x2560", "3200x4000"}},
+		{"5:4", []string{"1280x1024", "2560x2048", "5000x4000"}},
+	}
+	for _, g := range groups {
+		for _, size := range g.sizes {
+			if got := aspectFromSize(size); got != g.want {
+				t.Errorf("aspectFromSize(%q) = %q, want %q (resolution must not change aspect)", size, got, g.want)
+			}
+		}
 	}
 }

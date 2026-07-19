@@ -1,6 +1,7 @@
 package openrouter
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -107,22 +108,55 @@ func sizeFromAspect(aspect string) string {
 	}
 }
 
-// aspectFromSize maps a pixel size ("1536x1024") to a coarse aspect ratio bucket
-// that Gemini image models honor on the chat endpoint.
+// geminiAspectRatios is the set of aspect ratios Gemini image models
+// ("Nano Banana" family: 2.5 Flash Image, 3.x Flash Image) actually honor via
+// image_config.aspect_ratio. Kept ordered widescreen→square→tall for readability;
+// order does not affect matching.
+var geminiAspectRatios = []struct {
+	label string
+	ratio float64
+}{
+	{"21:9", 21.0 / 9.0},
+	{"16:9", 16.0 / 9.0},
+	{"3:2", 3.0 / 2.0},
+	{"4:3", 4.0 / 3.0},
+	{"5:4", 5.0 / 4.0},
+	{"1:1", 1.0},
+	{"4:5", 4.0 / 5.0},
+	{"3:4", 3.0 / 4.0},
+	{"2:3", 2.0 / 3.0},
+	{"9:16", 9.0 / 16.0},
+}
+
+// aspectFromSize maps a pixel size ("1920x1080") to the nearest aspect ratio
+// Gemini image models honor on the chat endpoint. Matching is by log-distance so
+// it is scale-free and symmetric (a ratio and its inverse are equidistant from
+// square), which correctly rounds e.g. 1920x1080→16:9 and 1024x1280→4:5 instead
+// of collapsing everything to a coarse landscape/portrait/square bucket.
 func aspectFromSize(size string) string {
 	w, h := parsePixelSize(size)
 	if w == 0 || h == 0 {
 		return ""
 	}
-	r := float64(w) / float64(h)
-	switch {
-	case r >= 1.15:
-		return "3:2"
-	case r <= 0.87:
-		return "2:3"
-	default:
-		return "1:1"
+	return nearestGeminiAspect(float64(w) / float64(h))
+}
+
+// nearestGeminiAspect returns the label of the supported aspect ratio closest to
+// r (a width/height ratio) in log space, or "" when r is non-positive.
+func nearestGeminiAspect(r float64) string {
+	if r <= 0 {
+		return ""
 	}
+	target := math.Log(r)
+	best := ""
+	bestDist := math.MaxFloat64
+	for _, a := range geminiAspectRatios {
+		if d := math.Abs(math.Log(a.ratio) - target); d < bestDist {
+			bestDist = d
+			best = a.label
+		}
+	}
+	return best
 }
 
 // ratioOfAspect parses "W:H" into a width/height ratio, or 0 when unparseable.
