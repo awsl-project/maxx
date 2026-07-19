@@ -330,7 +330,8 @@ func (h *AdminHandler) fetchProviderRuntimeModels(r *http.Request, provider *dom
 			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "openrouter api key unavailable"}
 		}
 		return fetchOpenAICompatibleModels(r, "https://openrouter.ai/api/v1/models", provider.Config.OpenRouter.APIKey, "openrouter")
-	case "custom":
+	case "custom", "newapi":
+		// new-api is OpenAI-compatible, so /v1/models discovery works the same way.
 		if provider.Config.Custom == nil || strings.TrimSpace(customRuntimeModelsBaseURL(provider.Config.Custom)) == "" {
 			return providerRuntimeModelsResult{Available: false, Models: []string{}, Error: "custom provider base url unavailable"}
 		}

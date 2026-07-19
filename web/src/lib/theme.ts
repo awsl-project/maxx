@@ -22,7 +22,9 @@ export type ProviderType =
   | 'codex'
   | 'claude'
   | 'openrouter'
-  | 'grok';
+  | 'grok'
+  | 'newapi'
+  | 'ollama';
 
 /**
  * Client 类型定义

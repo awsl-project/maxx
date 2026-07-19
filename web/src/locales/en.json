@@ -1818,6 +1818,24 @@
       "name": "Custom Provider",
       "description": "Configure your own API endpoint"
     },
+    "newapi": {
+      "name": "New API",
+      "description": "new-api / one-api relay · OpenAI & Gemini compatible",
+      "baseURL": "Base URL",
+      "baseURLHint": "Root URL of your new-api / one-api instance (without the /v1 path).",
+      "apiKey": "API Key",
+      "clientsTitle": "Client Types",
+      "clientsDesc": "Which protocols this relay serves. Defaults to OpenAI; image sizing is translated to extra_body.google automatically."
+    },
+    "ollama": {
+      "name": "Ollama",
+      "description": "Local model server · Claude-compatible",
+      "baseURL": "Base URL",
+      "baseURLHint": "Ollama server address, e.g. http://localhost:11434.",
+      "apiKey": "API Key",
+      "apiKeyHint": "Optional — only needed if your Ollama endpoint is protected.",
+      "apiKeyPlaceholder": "Optional"
+    },
     "openrouter": {
       "name": "OpenRouter",
       "description": "Aggregation gateway · OpenAI & Anthropic compatible",
