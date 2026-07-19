@@ -131,17 +131,17 @@ func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool)
 	if r.hasProxyUpstreamAttemptsTable {
 		mappedModelColumn = "COALESCE(NULLIF(final_attempt.mapped_model, ''), NULLIF(latest_attempt.mapped_model, ''), proxy_requests.response_model) AS mapped_model"
 		responseModelColumn = "COALESCE(NULLIF(final_attempt.response_model, ''), NULLIF(latest_attempt.response_model, ''), proxy_requests.response_model) AS response_model"
-		ttftColumn = "COALESCE(NULLIF(final_attempt.ttft_ms, 0), NULLIF(latest_attempt.ttft_ms, 0), proxy_requests.ttft_ms) AS ttft_ms"
-		durationColumn = "COALESCE(NULLIF(final_attempt.duration_ms, 0), NULLIF(latest_attempt.duration_ms, 0), proxy_requests.duration_ms) AS duration_ms"
-		providerIDColumn = "COALESCE(NULLIF(final_attempt.provider_id, 0), NULLIF(latest_attempt.provider_id, 0), proxy_requests.provider_id) AS provider_id"
-		routeIDColumn = "COALESCE(NULLIF(final_attempt.route_id, 0), NULLIF(latest_attempt.route_id, 0), proxy_requests.route_id) AS route_id"
-		inputTokenColumn = "COALESCE(NULLIF(final_attempt.input_token_count, 0), NULLIF(latest_attempt.input_token_count, 0), proxy_requests.input_token_count) AS input_token_count"
-		outputTokenColumn = "COALESCE(NULLIF(final_attempt.output_token_count, 0), NULLIF(latest_attempt.output_token_count, 0), proxy_requests.output_token_count) AS output_token_count"
-		cacheReadColumn = "COALESCE(NULLIF(final_attempt.cache_read_count, 0), NULLIF(latest_attempt.cache_read_count, 0), proxy_requests.cache_read_count) AS cache_read_count"
-		cacheWriteColumn = "COALESCE(NULLIF(final_attempt.cache_write_count, 0), NULLIF(latest_attempt.cache_write_count, 0), proxy_requests.cache_write_count) AS cache_write_count"
-		cache5mWriteColumn = "COALESCE(NULLIF(final_attempt.cache_5m_write_count, 0), NULLIF(latest_attempt.cache_5m_write_count, 0), proxy_requests.cache_5m_write_count) AS cache_5m_write_count"
-		cache1hWriteColumn = "COALESCE(NULLIF(final_attempt.cache_1h_write_count, 0), NULLIF(latest_attempt.cache_1h_write_count, 0), proxy_requests.cache_1h_write_count) AS cache_1h_write_count"
-		costColumn = "COALESCE(NULLIF(final_attempt.cost, 0), NULLIF(latest_attempt.cost, 0), proxy_requests.cost) AS cost"
+		ttftColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.ttft_ms WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.ttft_ms ELSE proxy_requests.ttft_ms END AS ttft_ms"
+		durationColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.duration_ms WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.duration_ms ELSE proxy_requests.duration_ms END AS duration_ms"
+		providerIDColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.provider_id WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.provider_id ELSE proxy_requests.provider_id END AS provider_id"
+		routeIDColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.route_id WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.route_id ELSE proxy_requests.route_id END AS route_id"
+		inputTokenColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.input_token_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.input_token_count ELSE proxy_requests.input_token_count END AS input_token_count"
+		outputTokenColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.output_token_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.output_token_count ELSE proxy_requests.output_token_count END AS output_token_count"
+		cacheReadColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_read_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_read_count ELSE proxy_requests.cache_read_count END AS cache_read_count"
+		cacheWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_write_count ELSE proxy_requests.cache_write_count END AS cache_write_count"
+		cache5mWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_5m_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_5m_write_count ELSE proxy_requests.cache_5m_write_count END AS cache_5m_write_count"
+		cache1hWriteColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cache_1h_write_count WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cache_1h_write_count ELSE proxy_requests.cache_1h_write_count END AS cache_1h_write_count"
+		costColumn = "CASE WHEN final_attempt.id IS NOT NULL THEN final_attempt.cost WHEN latest_attempt.id IS NOT NULL THEN latest_attempt.cost ELSE proxy_requests.cost END AS cost"
 	}
 	columns := "proxy_requests.id, proxy_requests.created_at, proxy_requests.updated_at, proxy_requests.instance_id, proxy_requests.request_id, proxy_requests.session_id, proxy_requests.client_type, proxy_requests.request_model, " + mappedModelColumn + ", " + responseModelColumn + ", proxy_requests.start_time, proxy_requests.end_time, " + durationColumn
 	if includeTTFT {

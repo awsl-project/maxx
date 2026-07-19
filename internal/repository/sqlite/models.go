@@ -150,7 +150,7 @@ type RetryConfig struct {
 	InitialIntervalMs        int     `gorm:"default:1000"`
 	BackoffRate              float64 `gorm:"default:2.0"`
 	MaxIntervalMs            int     `gorm:"default:30000"`
-	ForceRetryUpstreamErrors int
+	ForceRetryUpstreamErrors int     `gorm:"default:0"`
 }
 
 func (RetryConfig) TableName() string { return "retry_configs" }

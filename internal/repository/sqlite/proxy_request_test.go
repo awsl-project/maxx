@@ -235,6 +235,66 @@ func TestProxyRequestListCursorDerivesSummaryFromFinalAttempt(t *testing.T) {
 	}
 }
 
+func TestProxyRequestListCursorPreservesZeroValuesFromFinalAttempt(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	reqRepo := NewProxyRequestRepository(db)
+	attemptRepo := NewProxyUpstreamAttemptRepository(db)
+	req := buildTestProxyRequest("COMPLETED", 1)
+	req.ResponseModel = "request-response"
+	req.RouteID = 71
+	req.ProviderID = 81
+	req.InputTokenCount = 123
+	req.OutputTokenCount = 456
+	req.CacheReadCount = 7
+	req.CacheWriteCount = 8
+	req.Cache5mWriteCount = 9
+	req.Cache1hWriteCount = 10
+	req.Cost = 98765
+	req.TTFT = 350 * time.Millisecond
+	req.Duration = 4 * time.Second
+	if err := reqRepo.Create(req); err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	attempt := &domain.ProxyUpstreamAttempt{
+		TenantID:       req.TenantID,
+		ProxyRequestID: req.ID,
+		Status:         "COMPLETED",
+		MappedModel:    "mapped-from-attempt",
+		ResponseModel:  "response-from-attempt",
+	}
+	if err := attemptRepo.Create(attempt); err != nil {
+		t.Fatalf("create attempt: %v", err)
+	}
+	req.FinalProxyUpstreamAttemptID = attempt.ID
+	if err := reqRepo.Update(req); err != nil {
+		t.Fatalf("update request: %v", err)
+	}
+
+	items, err := reqRepo.ListCursor(1, 10, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("ListCursor failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items length = %d, want 1", len(items))
+	}
+	got := items[0]
+	if got.ProviderID != 0 || got.RouteID != 0 {
+		t.Fatalf("route/provider = (%d, %d), want zero values from final attempt", got.RouteID, got.ProviderID)
+	}
+	if got.InputTokenCount != 0 || got.OutputTokenCount != 0 || got.CacheReadCount != 0 || got.CacheWriteCount != 0 || got.Cache5mWriteCount != 0 || got.Cache1hWriteCount != 0 || got.Cost != 0 {
+		t.Fatalf("usage summary did not preserve zero attempt values: %+v", got)
+	}
+	if got.TTFT != 0 || got.Duration != 0 {
+		t.Fatalf("timing = (%v, %v), want zero values from final attempt", got.TTFT, got.Duration)
+	}
+}
+
 func TestProxyRequestListActiveUsesLatestAttemptMappedModelBeforeFinalAttempt(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {

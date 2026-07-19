@@ -105,6 +105,53 @@ describe('mergeProxyRequestAttemptUpdate', () => {
     expect(merged.cost).toBe(999);
   });
 
+  it('preserves zero values from live attempt summaries', () => {
+    const original = {
+      ...request('IN_PROGRESS'),
+      routeID: 7,
+      providerID: 9,
+      ttft: 123,
+      inputTokenCount: 101,
+      outputTokenCount: 202,
+      cacheReadCount: 303,
+      cacheWriteCount: 404,
+      cache5mWriteCount: 50,
+      cache1hWriteCount: 60,
+      modelPriceId: 12,
+      multiplier: 15000,
+      cost: 999,
+    };
+
+    const merged = mergeProxyRequestAttemptUpdate(original, {
+      ...attempt,
+      routeID: 0,
+      providerID: 0,
+      ttft: 0,
+      inputTokenCount: 0,
+      outputTokenCount: 0,
+      cacheReadCount: 0,
+      cacheWriteCount: 0,
+      cache5mWriteCount: 0,
+      cache1hWriteCount: 0,
+      modelPriceId: 0,
+      multiplier: 0,
+      cost: 0,
+    });
+
+    expect(merged.routeID).toBe(0);
+    expect(merged.providerID).toBe(0);
+    expect(merged.ttft).toBe(0);
+    expect(merged.inputTokenCount).toBe(0);
+    expect(merged.outputTokenCount).toBe(0);
+    expect(merged.cacheReadCount).toBe(0);
+    expect(merged.cacheWriteCount).toBe(0);
+    expect(merged.cache5mWriteCount).toBe(0);
+    expect(merged.cache1hWriteCount).toBe(0);
+    expect(merged.modelPriceId).toBe(0);
+    expect(merged.multiplier).toBe(0);
+    expect(merged.cost).toBe(0);
+  });
+
   it('ignores updates for another request', () => {
     const original = request('IN_PROGRESS');
     const merged = mergeProxyRequestAttemptUpdate(original, { ...attempt, proxyRequestID: 2 });
