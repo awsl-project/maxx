@@ -13,7 +13,7 @@ func TestNewAdapter_RequiresCustomConfig(t *testing.T) {
 	}
 
 	p := &domain.Provider{
-		Name:                 "code0",
+		Name:                 "example-relay",
 		Type:                 "newapi",
 		Config:               &domain.ProviderConfig{Custom: &domain.ProviderConfigCustom{BaseURL: "https://example.com"}},
 		SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI},
