@@ -170,7 +170,6 @@ export const sidebarConfig: SidebarConfig = {
           icon: Gauge,
           labelKey: 'nav.apiTokenLimits',
           adminOnly: true,
-          authOnly: true,
         },
         {
           type: 'standard',

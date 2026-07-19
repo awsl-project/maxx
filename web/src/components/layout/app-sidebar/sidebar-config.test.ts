@@ -20,7 +20,7 @@ describe('sidebarConfig', () => {
     expect(item).not.toHaveProperty('authOnly', true);
   });
 
-  it('exposes API token limits as an authenticated admin config page', () => {
+  it('keeps API token limits visible when admin auth is disabled', () => {
     const item = findItem('api-token-limits');
 
     expect(item).toMatchObject({
@@ -28,7 +28,7 @@ describe('sidebarConfig', () => {
       to: '/api-token-limits',
       labelKey: 'nav.apiTokenLimits',
       adminOnly: true,
-      authOnly: true,
     });
+    expect(item).not.toHaveProperty('authOnly', true);
   });
 });
