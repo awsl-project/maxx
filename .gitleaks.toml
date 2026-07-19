@@ -1,0 +1,29 @@
+# gitleaks configuration for maxx (used by .github/workflows/secret-scan.yml).
+#
+# Extends the built-in rule set, then allowlists a small set of PUBLIC OAuth
+# client identifiers that maxx intentionally embeds to impersonate official CLI
+# clients. These are NOT maxx secrets:
+#   - They are extracted from the shipped official clients and are identical for
+#     every user (not per-deployment, nothing to rotate).
+#   - OAuth client IDs are public by design.
+#   - For installed/desktop apps, Google itself documents that the "client
+#     secret" is not treated as confidential.
+# gitleaks flags them only because they look like high-entropy keys. New/unknown
+# secrets are still caught — the allowlist matches these exact known values only.
+
+title = "maxx gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public OAuth client identifiers embedded to mimic official CLI clients (Claude Code, Antigravity) — not maxx secrets."
+regexTarget = "line"
+regexes = [
+  # Claude Code CLI public OAuth client ID (internal/adapter/provider/claude/settings.go)
+  '''9d1c250a-e61b-44d9-88ed-5944d1962f5e''',
+  # Antigravity (Google installed-app) public OAuth client ID + secret
+  # (internal/adapter/provider/antigravity/service.go)
+  '''1071006060591-tmhssin2h21lcre235vtolojh4g403ep\.apps\.googleusercontent\.com''',
+  '''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''',
+]

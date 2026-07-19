@@ -1,5 +1,5 @@
 // Package newapi implements a first-class provider adapter for new-api / one-api
-// style relay gateways (e.g. code0), a widely self-hosted aggregation gateway that
+// style relay gateways — a widely self-hosted aggregation gateway family that
 // speaks the OpenAI Chat Completions API and proxies Gemini through Google's
 // OpenAI-compatibility layer. Like the openrouter adapter it is a thin wrapper over
 // the proven `custom` proxy core: everything about forwarding, streaming, auth and
