@@ -1513,7 +1513,9 @@
     },
     "editDialog": {
       "title": "Edit API Token",
-      "description": "Update the token settings. The token value cannot be changed."
+      "description": "Update the token settings. The token value cannot be changed.",
+      "resetExpiresAt": "Reset expiration",
+      "resetExpiresAtHint": "Saving will make this token never expire."
     },
     "deleteDialog": {
       "title": "Delete API Token",

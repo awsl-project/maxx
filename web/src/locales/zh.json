@@ -1510,7 +1510,9 @@
     },
     "editDialog": {
       "title": "编辑 API 令牌",
-      "description": "更新令牌设置。令牌值无法更改。"
+      "description": "更新令牌设置。令牌值无法更改。",
+      "resetExpiresAt": "重置过期时间",
+      "resetExpiresAtHint": "保存后此令牌将永不过期。"
     },
     "deleteDialog": {
       "title": "删除 API 令牌",

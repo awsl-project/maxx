@@ -47,11 +47,13 @@ import {
   Terminal,
   CircleCheck,
   CircleAlert,
+  RotateCcw,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 import { isAPITokenExpired } from '@/lib/api-token-expiry';
 import type { APIToken } from '@/lib/transport';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
+import { buildAPITokenUpdatePayload } from './form-utils';
 
 type CodexConfigDialogState = {
   tokenName: string;
@@ -106,6 +108,7 @@ export function APITokensPage() {
   const [description, setDescription] = useState('');
   const [projectID, setProjectID] = useState<string>('0');
   const [expiresAt, setExpiresAt] = useState('');
+  const [expiresAtTouched, setExpiresAtTouched] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
 
@@ -118,6 +121,7 @@ export function APITokensPage() {
     setDescription('');
     setProjectID('0');
     setExpiresAt('');
+    setExpiresAtTouched(false);
     setDevMode(false);
     setShowProjectPicker(false);
   };
@@ -159,13 +163,14 @@ export function APITokensPage() {
     updateToken.mutate(
       {
         id: editingToken.id,
-        data: {
+        data: buildAPITokenUpdatePayload({
           name,
           description,
-          projectID: parseInt(projectID) || 0,
-          expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+          projectID,
+          expiresAt,
+          expiresAtTouched,
           devMode,
-        },
+        }),
       },
       {
         onSuccess: () => closeEditDialog(),
@@ -202,6 +207,7 @@ export function APITokensPage() {
     setDescription(token.description);
     setProjectID(token.projectID.toString());
     setExpiresAt(token.expiresAt ? token.expiresAt.split('T')[0] : '');
+    setExpiresAtTouched(false);
     setDevMode(!!token.devMode);
   };
 
@@ -280,7 +286,8 @@ export function APITokensPage() {
 
   const getCodexCheckHint = (checkKey: string) => {
     if (checkKey === 'proxy') return t('apiTokens.codexConfigDialog.checksHint.proxy');
-    if (checkKey === 'tokenEnabled') return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
+    if (checkKey === 'tokenEnabled')
+      return t('apiTokens.codexConfigDialog.checksHint.tokenEnabled');
     return t('apiTokens.codexConfigDialog.checksHint.tokenExpiry');
   };
 
@@ -733,12 +740,34 @@ export function APITokensPage() {
               <label className="text-xs font-medium text-text-secondary uppercase tracking-wider">
                 {t('apiTokens.createDialog.expiresAt')}
               </label>
-              <Input
-                type="date"
-                value={expiresAt}
-                onChange={(e) => setExpiresAt(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-              />
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={expiresAt}
+                  onChange={(e) => {
+                    setExpiresAt(e.target.value);
+                    setExpiresAtTouched(true);
+                  }}
+                  min={new Date().toISOString().split('T')[0]}
+                />
+                <Button
+                  type="button"
+                  variant={editingToken && isExpired(editingToken) ? 'outline' : 'ghost'}
+                  onClick={() => {
+                    setExpiresAt('');
+                    setExpiresAtTouched(true);
+                  }}
+                  disabled={updateToken.isPending || !expiresAt}
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  {t('apiTokens.editDialog.resetExpiresAt')}
+                </Button>
+              </div>
+              <p className="text-xs text-text-muted">
+                {expiresAtTouched && !expiresAt
+                  ? t('apiTokens.editDialog.resetExpiresAtHint')
+                  : t('apiTokens.createDialog.expiresAtHint')}
+              </p>
             </div>
             <div className="flex items-center justify-between">
               <label
@@ -760,11 +789,7 @@ export function APITokensPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={closeEditDialog}
-              >
+              <Button type="button" variant="outline" onClick={closeEditDialog}>
                 {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={updateToken.isPending || !name}>
@@ -814,9 +839,7 @@ export function APITokensPage() {
               onClick={handleCleanupExpiredTokens}
               disabled={cleanupExpiredTokens.isPending || expiredTokenCount === 0}
             >
-              {cleanupExpiredTokens.isPending && (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              )}
+              {cleanupExpiredTokens.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {t('apiTokens.cleanupExpired.confirm', { count: expiredTokenCount })}
             </Button>
           </DialogFooter>
@@ -984,7 +1007,9 @@ export function APITokensPage() {
                       : t('apiTokens.codexConfigDialog.copyToClipboard')}
                   </Button>
                   <pre className="max-h-64 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto rounded-md border border-border bg-muted/40 p-3 pr-24 text-xs font-mono">
-                    <code className="block min-w-full whitespace-pre">{codexBundle.configToml}</code>
+                    <code className="block min-w-full whitespace-pre">
+                      {codexBundle.configToml}
+                    </code>
                   </pre>
                 </div>
               </div>
