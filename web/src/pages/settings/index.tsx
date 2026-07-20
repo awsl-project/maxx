@@ -145,12 +145,10 @@ export function SettingsPage() {
               <MultiTenantUISection />
               <TimezoneSection />
               <DataRetentionSection />
-              <RequestDiagnosticsSection />
               <ForceProjectSection />
               <CodexReasoningGuardSection />
               <ProxyRouteExposureSection />
               <AntigravitySection />
-              <PprofSection />
               <BackupSection />
             </>
           )}
@@ -994,7 +992,7 @@ function CodexReasoningGuardSection() {
   );
 }
 
-function RequestDiagnosticsSection() {
+export function RequestDiagnosticsSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const { t } = useTranslation();
@@ -1215,7 +1213,7 @@ function AntigravitySection() {
   );
 }
 
-function PprofSection() {
+export function PprofSection() {
   const { data: settings, isLoading } = useSettings();
   const updateSetting = useUpdateSetting();
   const deleteSetting = useDeleteSetting();
