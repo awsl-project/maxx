@@ -1840,12 +1840,13 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		var body struct {
-			Name        *string `json:"name"`
-			Description *string `json:"description"`
-			ProjectID   *uint64 `json:"projectID"`
-			IsEnabled   *bool   `json:"isEnabled"`
-			DevMode     *bool   `json:"devMode"`
-			ExpiresAt   *string `json:"expiresAt"`
+			Name          *string `json:"name"`
+			Description   *string `json:"description"`
+			ProjectID     *uint64 `json:"projectID"`
+			IsEnabled     *bool   `json:"isEnabled"`
+			DevMode       *bool   `json:"devMode"`
+			ExpiresAt     *string `json:"expiresAt"`
+			ResetValidity *bool   `json:"resetValidity"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -1881,6 +1882,13 @@ func (h *AdminHandler) handleAPITokens(w http.ResponseWriter, r *http.Request, i
 				}
 				existing.ExpiresAt = &t
 			}
+		}
+		if body.ResetValidity != nil && *body.ResetValidity {
+			existing.IsEnabled = true
+			existing.ExpiresAt = nil
+			existing.LastUsedAt = nil
+			existing.LastIP = ""
+			existing.LastIPAt = nil
 		}
 		if err := h.svc.UpdateAPIToken(tenantID, existing); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

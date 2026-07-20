@@ -2,8 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +55,84 @@ func newAdminAPITokenRequest(method string, path string) *http.Request {
 	ctx := maxxctx.WithUserRole(req.Context(), string(domain.UserRoleAdmin))
 	ctx = maxxctx.WithTenantID(ctx, 1)
 	return req.WithContext(ctx)
+}
+
+func TestAdminHandlerResetAPITokenValidityClearsExpiryAndActivityState(t *testing.T) {
+	h, repo := newAdminHandlerForAPITokenTests(t)
+	now := time.Now().UTC()
+	expiredAt := now.Add(-time.Hour)
+	lastUsedAt := now.Add(-domain.APITokenInactiveExpiry - time.Minute)
+	lastIPAt := now.Add(-2 * time.Hour)
+	token := &domain.APIToken{
+		TenantID:    1,
+		Token:       "maxx_expired_reset_validity",
+		TokenPrefix: "maxx_exp",
+		Name:        "expired-token",
+		ProjectID:   7,
+		IsEnabled:   false,
+		ExpiresAt:   &expiredAt,
+		LastUsedAt:  &lastUsedAt,
+		LastIP:      "203.0.113.9",
+		LastIPAt:    &lastIPAt,
+		UseCount:    12,
+	}
+	if err := repo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := newAdminAPITokenRequest(http.MethodPut, fmt.Sprintf("/admin/api-tokens/%d", token.ID))
+	req.Body = io.NopCloser(strings.NewReader(`{"resetValidity":true}`))
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	updated, err := repo.GetByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if !updated.IsEnabled {
+		t.Fatalf("token IsEnabled = false, want true")
+	}
+	if updated.ExpiresAt != nil || updated.LastUsedAt != nil || updated.LastIPAt != nil || updated.LastIP != "" {
+		t.Fatalf("activity/expiry state = expiresAt:%v lastUsedAt:%v lastIP:%q lastIPAt:%v, want cleared", updated.ExpiresAt, updated.LastUsedAt, updated.LastIP, updated.LastIPAt)
+	}
+	if updated.UseCount != 12 || updated.ProjectID != 7 || updated.Token != "maxx_expired_reset_validity" {
+		t.Fatalf("stable fields changed unexpectedly: %+v", updated)
+	}
+}
+
+func TestAdminHandlerResetAPITokenValidityClearsInactiveOnlyExpiry(t *testing.T) {
+	h, repo := newAdminHandlerForAPITokenTests(t)
+	lastUsedAt := time.Now().UTC().Add(-domain.APITokenInactiveExpiry - time.Minute)
+	token := &domain.APIToken{
+		TenantID:    1,
+		Token:       "maxx_inactive_reset_validity",
+		TokenPrefix: "maxx_ina",
+		Name:        "inactive-token",
+		IsEnabled:   true,
+		LastUsedAt:  &lastUsedAt,
+	}
+	if err := repo.Create(token); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := newAdminAPITokenRequest(http.MethodPut, fmt.Sprintf("/admin/api-tokens/%d", token.ID))
+	req.Body = io.NopCloser(strings.NewReader(`{"resetValidity":true}`))
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	updated, err := repo.GetByID(1, token.ID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if updated.LastUsedAt != nil || !updated.IsEnabled {
+		t.Fatalf("updated token = %+v, want active token with cleared lastUsedAt", updated)
+	}
 }
 
 func TestAdminHandlerCleanupExpiredAPITokens(t *testing.T) {

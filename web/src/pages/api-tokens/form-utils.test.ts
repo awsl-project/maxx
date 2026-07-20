@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAPITokenUpdatePayload } from './form-utils';
+import { buildAPITokenReactivatePayload, buildAPITokenUpdatePayload } from './form-utils';
 
 describe('buildAPITokenUpdatePayload', () => {
   it('does not clear expiration when the date field was not touched', () => {
@@ -45,5 +45,13 @@ describe('buildAPITokenUpdatePayload', () => {
     });
 
     expect(payload.expiresAt).toBe(new Date('2026-07-20').toISOString());
+  });
+});
+
+it('builds a validity reset payload', () => {
+  expect(buildAPITokenReactivatePayload()).toEqual({
+    isEnabled: true,
+    expiresAt: '',
+    resetValidity: true,
   });
 });

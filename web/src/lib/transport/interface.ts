@@ -70,6 +70,7 @@ import type {
   APIToken,
   APITokenCleanupResult,
   APITokenCreateResult,
+  APITokenUpdateData,
   CreateAPITokenData,
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
@@ -298,7 +299,7 @@ export interface Transport {
   regenerateUserPanelAPIToken(): Promise<APITokenCreateResult>;
   revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
-  updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
+  updateAPIToken(id: number, data: APITokenUpdateData): Promise<APIToken>;
   deleteAPIToken(id: number): Promise<void>;
   cleanupExpiredAPITokens(): Promise<APITokenCleanupResult>;
 

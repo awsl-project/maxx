@@ -33,13 +33,16 @@ func (r *APITokenRepository) Create(t *domain.APIToken) error {
 func (r *APITokenRepository) Update(t *domain.APIToken) error {
 	t.UpdatedAt = time.Now()
 	updates := map[string]any{
-		"updated_at":  toTimestamp(t.UpdatedAt),
-		"name":        t.Name,
-		"description": LongText(t.Description),
-		"project_id":  t.ProjectID,
-		"is_enabled":  boolToInt(t.IsEnabled),
-		"dev_mode":    boolToInt(t.DevMode),
-		"expires_at":  toTimestampPtr(t.ExpiresAt),
+		"updated_at":   toTimestamp(t.UpdatedAt),
+		"name":         t.Name,
+		"description":  LongText(t.Description),
+		"project_id":   t.ProjectID,
+		"is_enabled":   boolToInt(t.IsEnabled),
+		"dev_mode":     boolToInt(t.DevMode),
+		"expires_at":   toTimestampPtr(t.ExpiresAt),
+		"last_used_at": toTimestampPtr(t.LastUsedAt),
+		"last_ip":      t.LastIP,
+		"last_ip_at":   toTimestampPtr(t.LastIPAt),
 	}
 	if t.Token != "" {
 		updates["token"] = t.Token

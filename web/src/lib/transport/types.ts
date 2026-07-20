@@ -1126,6 +1126,10 @@ export interface APITokenCleanupResult {
   tokens: APITokenCleanupItem[];
 }
 
+export interface APITokenUpdateData extends Partial<APIToken> {
+  resetValidity?: boolean;
+}
+
 export interface CreateAPITokenData {
   name: string;
   description?: string;

@@ -53,7 +53,7 @@ import { PageHeader } from '@/components/layout';
 import { isAPITokenExpired } from '@/lib/api-token-expiry';
 import type { APIToken } from '@/lib/transport';
 import { buildCodexConfigBundle, buildProxyBaseUrl } from '@/lib/codex-config';
-import { buildAPITokenUpdatePayload } from './form-utils';
+import { buildAPITokenReactivatePayload, buildAPITokenUpdatePayload } from './form-utils';
 
 type CodexConfigDialogState = {
   tokenName: string;
@@ -163,14 +163,27 @@ export function APITokensPage() {
     updateToken.mutate(
       {
         id: editingToken.id,
-        data: buildAPITokenUpdatePayload({
-          name,
-          description,
-          projectID,
-          expiresAt,
-          expiresAtTouched,
-          devMode,
-        }),
+        data:
+          editingToken && isExpired(editingToken) && expiresAtTouched && !expiresAt
+            ? {
+                ...buildAPITokenUpdatePayload({
+                  name,
+                  description,
+                  projectID,
+                  expiresAt,
+                  expiresAtTouched,
+                  devMode,
+                }),
+                ...buildAPITokenReactivatePayload(),
+              }
+            : buildAPITokenUpdatePayload({
+                name,
+                description,
+                projectID,
+                expiresAt,
+                expiresAtTouched,
+                devMode,
+              }),
       },
       {
         onSuccess: () => closeEditDialog(),
@@ -182,6 +195,13 @@ export function APITokensPage() {
     updateToken.mutate({
       id: token.id,
       data: { isEnabled: !token.isEnabled },
+    });
+  };
+
+  const handleReactivateToken = (token: APIToken) => {
+    updateToken.mutate({
+      id: token.id,
+      data: buildAPITokenReactivatePayload(),
     });
   };
 
@@ -537,6 +557,18 @@ export function APITokensPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
+                            {isExpired(token) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={t('apiTokens.reactivateToken')}
+                                title={t('apiTokens.reactivateToken')}
+                                disabled={updateToken.isPending}
+                                onClick={() => handleReactivateToken(token)}
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -757,15 +789,22 @@ export function APITokensPage() {
                     setExpiresAt('');
                     setExpiresAtTouched(true);
                   }}
-                  disabled={updateToken.isPending || !expiresAt}
+                  disabled={
+                    updateToken.isPending ||
+                    (!expiresAt && !(editingToken && isExpired(editingToken)))
+                  }
                 >
                   <RotateCcw className="h-4 w-4 mr-2" />
-                  {t('apiTokens.editDialog.resetExpiresAt')}
+                  {editingToken && isExpired(editingToken)
+                    ? t('apiTokens.reactivateToken')
+                    : t('apiTokens.editDialog.resetExpiresAt')}
                 </Button>
               </div>
               <p className="text-xs text-text-muted">
                 {expiresAtTouched && !expiresAt
-                  ? t('apiTokens.editDialog.resetExpiresAtHint')
+                  ? editingToken && isExpired(editingToken)
+                    ? t('apiTokens.reactivateHint')
+                    : t('apiTokens.editDialog.resetExpiresAtHint')
                   : t('apiTokens.createDialog.expiresAtHint')}
               </p>
             </div>
