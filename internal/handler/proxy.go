@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"math"
@@ -356,7 +357,7 @@ func (h *ProxyHandler) dispatch(c *flow.Ctx) {
 	if err == nil {
 		return
 	}
-	proxyErr, ok := err.(*domain.ProxyError)
+	proxyErr, ok := asHandlerProxyError(err)
 	if ok {
 		if stream {
 			writeStreamError(c.Writer, proxyErr)
@@ -530,4 +531,15 @@ func writeStreamError(w http.ResponseWriter, err *domain.ProxyError) {
 
 func isOpenAIChatCompletionsPath(path string) bool {
 	return strings.HasPrefix(path, "/v1/chat/completions") || strings.HasPrefix(path, "/chat/completions")
+}
+
+func asHandlerProxyError(err error) (*domain.ProxyError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	var proxyErr *domain.ProxyError
+	if errors.As(err, &proxyErr) {
+		return proxyErr, true
+	}
+	return nil, false
 }

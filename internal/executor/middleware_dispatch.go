@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -358,8 +359,9 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				}
 			}
 
-			proxyErr, ok := err.(*domain.ProxyError)
+			proxyErr, ok := asProxyError(err)
 			if ok {
+				normalizeUpstreamConnectionError(proxyErr)
 				applyDisabledErrorCooldownRetryPolicy(matchedRoute.Provider, proxyErr)
 				applyCommittedStreamReadRetryPolicy(proxyErr)
 			}
@@ -491,7 +493,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	proxyReq.Duration = proxyReq.EndTime.Sub(proxyReq.StartTime)
 	if state.lastErr != nil {
 		proxyReq.Error = state.lastErr.Error()
-		if proxyErr, ok := state.lastErr.(*domain.ProxyError); ok && proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+		if proxyErr, ok := asProxyError(state.lastErr); ok && proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
 			proxyReq.StatusCode = proxyErr.HTTPStatusCode
 		}
 	}
@@ -530,4 +532,27 @@ func clearProxyRequestDetail(req *domain.ProxyRequest, clearDetail bool) {
 	}
 	req.RequestInfo = nil
 	req.ResponseInfo = nil
+}
+
+func asProxyError(err error) (*domain.ProxyError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	var proxyErr *domain.ProxyError
+	if errors.As(err, &proxyErr) {
+		return proxyErr, true
+	}
+	return nil, false
+}
+
+func normalizeUpstreamConnectionError(proxyErr *domain.ProxyError) {
+	if proxyErr == nil || !errors.Is(proxyErr.Err, domain.ErrUpstreamError) {
+		return
+	}
+	if proxyErr.Message != "failed to connect to upstream" && proxyErr.Message != "failed to connect to upstream after token refresh" {
+		return
+	}
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonNetworkError
+	proxyErr.Retryable = true
 }
