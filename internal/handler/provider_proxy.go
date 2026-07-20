@@ -143,7 +143,7 @@ func (h *ProviderProxyHandler) directDispatch(provider *domain.Provider) flow.Ha
 			return
 		}
 
-		if proxyErr, ok := err.(*domain.ProxyError); ok {
+		if proxyErr, ok := asHandlerProxyError(err); ok {
 			if isStream {
 				writeStreamError(c.Writer, proxyErr)
 			} else {

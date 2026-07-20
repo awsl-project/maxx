@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -510,6 +511,106 @@ func TestExecuteProviderProxyFreezesNetworkErrorAfterRetryExhaustion(t *testing.
 	remaining := time.Until(until)
 	if remaining < 10*time.Second || remaining > 20*time.Second {
 		t.Fatalf("remaining cooldown = %v, want configurable 429 fallback around 15s", remaining)
+	}
+}
+
+func TestExecuteProviderProxyRetriesWrappedUpstreamConnectionError(t *testing.T) {
+	providerID := uint64(99008)
+	cooldown.Default().ClearCooldown(providerID, "", "")
+	defer cooldown.Default().ClearCooldown(providerID, "", "")
+
+	adapterErr := domain.NewUpstreamConnectionError("failed to connect to upstream")
+	adapter := &sequenceAdapter{errs: []error{fmt.Errorf("adapter wrapper: %w", adapterErr)}}
+	e := &Executor{
+		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		attemptRepo:      &recordingAttemptRepo{},
+		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
+			MaxRetries:      1,
+			InitialInterval: 0,
+			BackoffRate:     1,
+			MaxInterval:     0,
+		}},
+		modelMappingRepo: &staticModelMappingRepo{},
+		converter:        converter.GetGlobalRegistry(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/7/v1/chat/completions", nil).
+		WithContext(context.Background())
+	c := flow.NewCtx(httptest.NewRecorder(), req)
+	c.Set(flow.KeyRequestHeaders, http.Header{})
+	c.Set(flow.KeyRequestURI, "/provider/7/v1/chat/completions")
+
+	proxyReq := &domain.ProxyRequest{
+		TenantID:     1,
+		ID:           42,
+		ClientType:   domain.ClientTypeOpenAI,
+		RequestModel: "minimaxai/minimax-m3",
+		IsStream:     false,
+		Status:       "IN_PROGRESS",
+		RouteID:      11,
+		ProviderID:   providerID,
+	}
+	route := &domain.Route{ID: 11, ProviderID: providerID, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: providerID, Type: "custom"}
+
+	if err := e.ExecuteProviderProxy(c, proxyReq, route, provider, adapter); err != nil {
+		t.Fatalf("ExecuteProviderProxy returned error: %v", err)
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 2 {
+		t.Fatalf("attempt count = %d, want 2", proxyReq.ProxyUpstreamAttemptCount)
+	}
+}
+
+func TestExecuteProviderProxyNormalizesLegacyUpstreamConnectionError(t *testing.T) {
+	providerID := uint64(99009)
+	cooldown.Default().ClearCooldown(providerID, "", "")
+	defer cooldown.Default().ClearCooldown(providerID, "", "")
+
+	legacyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to connect to upstream")
+	adapter := &sequenceAdapter{errs: []error{legacyErr}}
+	e := &Executor{
+		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		attemptRepo:      &recordingAttemptRepo{},
+		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
+			MaxRetries:      1,
+			InitialInterval: 0,
+			BackoffRate:     1,
+			MaxInterval:     0,
+		}},
+		modelMappingRepo: &staticModelMappingRepo{},
+		converter:        converter.GetGlobalRegistry(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/provider/7/v1/chat/completions", nil).
+		WithContext(context.Background())
+	c := flow.NewCtx(httptest.NewRecorder(), req)
+	c.Set(flow.KeyRequestHeaders, http.Header{})
+	c.Set(flow.KeyRequestURI, "/provider/7/v1/chat/completions")
+
+	proxyReq := &domain.ProxyRequest{
+		TenantID:     1,
+		ID:           42,
+		ClientType:   domain.ClientTypeOpenAI,
+		RequestModel: "minimaxai/minimax-m3",
+		IsStream:     false,
+		Status:       "IN_PROGRESS",
+		RouteID:      11,
+		ProviderID:   providerID,
+	}
+	route := &domain.Route{ID: 11, ProviderID: providerID, ClientType: domain.ClientTypeOpenAI}
+	provider := &domain.Provider{ID: providerID, Type: "custom"}
+
+	if err := e.ExecuteProviderProxy(c, proxyReq, route, provider, adapter); err != nil {
+		t.Fatalf("ExecuteProviderProxy returned error: %v", err)
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("adapter calls = %d, want 2", adapter.calls)
+	}
+	if proxyReq.ProxyUpstreamAttemptCount != 2 {
+		t.Fatalf("attempt count = %d, want 2", proxyReq.ProxyUpstreamAttemptCount)
 	}
 }
 
