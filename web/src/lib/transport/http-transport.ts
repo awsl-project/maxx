@@ -71,6 +71,7 @@ import type {
   APIToken,
   APITokenCleanupResult,
   APITokenCreateResult,
+  APITokenUpdateData,
   CreateAPITokenData,
   UserPanelAPITokenResponse,
   UserPanelAPITokenRevealResult,
@@ -1084,7 +1085,9 @@ export class HttpTransport implements Transport {
   }
 
   async revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult> {
-    const { data } = await this.client.post<UserPanelAPITokenRevealResult>('/user-panel-token/reveal');
+    const { data } = await this.client.post<UserPanelAPITokenRevealResult>(
+      '/user-panel-token/reveal',
+    );
     return data;
   }
 
@@ -1093,7 +1096,7 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async updateAPIToken(id: number, payload: Partial<APIToken>): Promise<APIToken> {
+  async updateAPIToken(id: number, payload: APITokenUpdateData): Promise<APIToken> {
     const { data } = await this.adminClient.put<APIToken>(`/api-tokens/${id}`, payload);
     return data;
   }

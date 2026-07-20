@@ -1569,7 +1569,9 @@
         "tokenEnabled": "该令牌当前已禁用，复制后请先启用再使用。",
         "tokenExpiry": "该令牌已过期，复制后请更换有效令牌。"
       }
-    }
+    },
+    "reactivateToken": "恢复有效",
+    "reactivateHint": "保存后会清除过期时间和非活跃状态。"
   },
   "app": {
     "title": "Maxx Next"

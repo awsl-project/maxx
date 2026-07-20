@@ -3,7 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getTransport, type APIToken, type CreateAPITokenData } from '@/lib/transport';
+import { getTransport, type APITokenUpdateData, type CreateAPITokenData } from '@/lib/transport';
 
 // Query Keys
 export const apiTokenKeys = {
@@ -55,7 +55,7 @@ export function useUpdateAPIToken() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<APIToken> }) =>
+    mutationFn: ({ id, data }: { id: number; data: APITokenUpdateData }) =>
       getTransport().updateAPIToken(id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: apiTokenKeys.detail(id) });

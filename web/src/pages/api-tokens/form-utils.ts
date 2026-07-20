@@ -1,4 +1,4 @@
-import type { APIToken } from '@/lib/transport';
+import type { APITokenUpdateData } from '@/lib/transport';
 
 type BuildAPITokenUpdatePayloadInput = {
   name: string;
@@ -16,8 +16,8 @@ export function buildAPITokenUpdatePayload({
   devMode,
   expiresAt,
   expiresAtTouched,
-}: BuildAPITokenUpdatePayloadInput): Partial<APIToken> {
-  const payload: Partial<APIToken> = {
+}: BuildAPITokenUpdatePayloadInput): APITokenUpdateData {
+  const payload: APITokenUpdateData = {
     name,
     description,
     projectID: parseInt(projectID) || 0,
@@ -29,4 +29,12 @@ export function buildAPITokenUpdatePayload({
   }
 
   return payload;
+}
+
+export function buildAPITokenReactivatePayload(): APITokenUpdateData {
+  return {
+    isEnabled: true,
+    expiresAt: '',
+    resetValidity: true,
+  };
 }

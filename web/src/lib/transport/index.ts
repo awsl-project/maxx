@@ -118,6 +118,7 @@ export type {
   APITokenCleanupItem,
   APITokenCleanupResult,
   APITokenCreateResult,
+  APITokenUpdateData,
   CreateAPITokenData,
   UserPanelAPITokenResponse,
   // Usage Stats

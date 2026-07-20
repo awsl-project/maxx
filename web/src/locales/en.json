@@ -1572,7 +1572,9 @@
         "tokenEnabled": "This token is disabled. Enable it before using the copied config.",
         "tokenExpiry": "This token has expired. Replace it with a valid token."
       }
-    }
+    },
+    "reactivateToken": "Reset validity",
+    "reactivateHint": "Saving will clear expiration and inactivity state."
   },
   "app": {
     "title": "Maxx Next"
