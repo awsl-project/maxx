@@ -42,3 +42,9 @@ export function useRegenerateUserPanelAPIToken() {
     onSuccess: () => refreshUserPanelTokenDependents(queryClient),
   });
 }
+
+export function useRevealUserPanelAPIToken() {
+  return useMutation({
+    mutationFn: () => getTransport().revealUserPanelAPIToken(),
+  });
+}

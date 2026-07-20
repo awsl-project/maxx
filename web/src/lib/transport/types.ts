@@ -1111,6 +1111,10 @@ export interface UserPanelAPITokenResponse {
   apiToken: APIToken | null;
 }
 
+export interface UserPanelAPITokenRevealResult {
+  token: string;
+}
+
 export interface APITokenCleanupItem {
   id: number;
   name: string;

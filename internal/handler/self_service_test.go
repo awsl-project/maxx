@@ -2332,6 +2332,72 @@ func TestSelfServiceHandler_UserPanelExistingTokenProjectBindingIsCleared(t *tes
 	}
 }
 
+func TestSelfServiceHandler_UserPanelTokenRevealReturnsCurrentUsersSecret(t *testing.T) {
+	marker := userPanelAPITokenDescription(9)
+	tokenRepo := &selfServiceAPITokenRepo{
+		tokens: []*domain.APIToken{
+			{ID: 10, TenantID: 1, Name: "user 9", Description: marker, Token: "maxx_full_user_key", TokenPrefix: "maxx_full...", IsEnabled: true, ProjectID: 42},
+			{ID: 11, TenantID: 1, Name: "other", Description: userPanelAPITokenDescription(10), Token: "maxx_other_user_key", TokenPrefix: "maxx_other...", IsEnabled: true},
+		},
+	}
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: tokenRepo,
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token/reveal"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["token"] != "maxx_full_user_key" {
+		t.Fatalf("token = %q, want current user's full token", result["token"])
+	}
+	if tokenRepo.tokens[0].ProjectID != 0 {
+		t.Fatalf("reveal should normalize user panel token projectID = %d, want 0", tokenRepo.tokens[0].ProjectID)
+	}
+}
+
+func TestSelfServiceHandler_UserPanelTokenRevealRequiresPost(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: &selfServiceAPITokenRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodGet, "/user-panel-token/reveal"))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusMethodNotAllowed, rec.Body.String())
+	}
+}
+
+func TestSelfServiceHandler_UserPanelTokenRevealMissingToken(t *testing.T) {
+	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
+		settingsRepo: &selfServiceSettingsRepo{values: map[string]string{
+			"ui_multitenant_enabled": "true",
+			"ui_multitenant_layout":  "user_panel",
+		}},
+		apiTokenRepo: &selfServiceAPITokenRepo{},
+	})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newSelfServiceRequest(http.MethodPost, "/user-panel-token/reveal"))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
 func TestSelfServiceHandler_UserPanelRegenerateRotatesExistingTokenInPlace(t *testing.T) {
 	marker := userPanelAPITokenDescription(9)
 	tokenRepo := &selfServiceAPITokenRepo{

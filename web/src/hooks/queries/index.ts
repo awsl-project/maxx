@@ -125,6 +125,7 @@ export {
   useUserPanelAPIToken,
   useCreateUserPanelAPIToken,
   useRegenerateUserPanelAPIToken,
+  useRevealUserPanelAPIToken,
 } from './use-user-panel-token';
 
 // Invite Code hooks

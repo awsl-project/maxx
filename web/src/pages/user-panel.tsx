@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Clock3, Copy, KeyRound, ListChecks, LogOut, Server, UserRound } from 'lucide-react';
+import { Clock3, Copy, Eye, EyeOff, KeyRound, ListChecks, LogOut, Server, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Badge,
@@ -22,6 +22,7 @@ import {
   useCreateUserPanelAPIToken,
   useProxyRequests,
   useRegenerateUserPanelAPIToken,
+  useRevealUserPanelAPIToken,
   useUserPanelAPIToken,
   useProxyRequestUpdates,
   usePublicSettings,
@@ -174,10 +175,13 @@ export function UserPanelPage() {
   useProxyRequestUpdates();
   const createUserPanelToken = useCreateUserPanelAPIToken();
   const regenerateUserPanelToken = useRegenerateUserPanelAPIToken();
+  const revealUserPanelToken = useRevealUserPanelAPIToken();
   const [copiedEndpointId, setCopiedEndpointId] = useState('');
   const [exampleCopied, setExampleCopied] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [oneTimeToken, setOneTimeToken] = useState('');
+  const [revealedUserPanelToken, setRevealedUserPanelToken] = useState('');
+  const [revealKeyError, setRevealKeyError] = useState('');
   const tabStorageKey = getUserPanelTabStorageKey(user?.id);
   const [activeTab, setActiveTab] = useState<UserPanelTab>(() => {
     if (typeof window === 'undefined') return 'main';
@@ -197,6 +201,8 @@ export function UserPanelPage() {
     userPanelRequests?.items.filter((request) => isActiveUserPanelRequest(request)).length ?? 0;
   const userPanelToken = userPanelTokenResponse?.apiToken ?? undefined;
   const maskedUserPanelToken = userPanelToken?.tokenPrefix || 'maxx_••••';
+  const userPanelTokenValue = revealedUserPanelToken || maskedUserPanelToken;
+  const userPanelTokenRevealed = Boolean(revealedUserPanelToken);
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const endpointHints = buildUserPanelEndpointHints(origin, publicSettings).map((endpoint) => ({
     ...endpoint,
@@ -211,6 +217,11 @@ export function UserPanelPage() {
   const curlExample = showChatCompletionsExample
     ? buildUserPanelChatCompletionsExample({ origin })
     : '';
+
+  useEffect(() => {
+    setRevealedUserPanelToken('');
+    setRevealKeyError('');
+  }, [userPanelToken?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -248,6 +259,22 @@ export function UserPanelPage() {
     window.setTimeout(() => setKeyCopied(false), 1600);
   };
 
+  const handleToggleUserPanelTokenReveal = async () => {
+    if (revealedUserPanelToken) {
+      setRevealedUserPanelToken('');
+      setRevealKeyError('');
+      return;
+    }
+
+    setRevealKeyError('');
+    try {
+      const result = await revealUserPanelToken.mutateAsync();
+      setRevealedUserPanelToken(result.token);
+    } catch {
+      setRevealKeyError(t('userPanel.revealKeyError'));
+    }
+  };
+
   const handleCopyExample = async () => {
     if (!curlExample || typeof navigator === 'undefined' || !navigator.clipboard) return;
     await navigator.clipboard.writeText(curlExample);
@@ -258,16 +285,21 @@ export function UserPanelPage() {
   const handleCreateUserPanelToken = async () => {
     const result = await createUserPanelToken.mutateAsync();
     setOneTimeToken(result.token);
+    setRevealedUserPanelToken(result.token);
+    setRevealKeyError('');
   };
 
   const handleRegenerateUserPanelToken = async () => {
     if (typeof window !== 'undefined' && !window.confirm(t('userPanel.regenerateConfirm'))) return;
     const result = await regenerateUserPanelToken.mutateAsync();
     setOneTimeToken(result.token);
+    setRevealedUserPanelToken(result.token);
+    setRevealKeyError('');
     setKeyCopied(false);
   };
 
   const tokenActionPending = createUserPanelToken.isPending || regenerateUserPanelToken.isPending;
+  const revealActionPending = revealUserPanelToken.isPending;
 
   return (
     <main className="min-h-svh bg-muted/30 px-4 py-6 text-foreground sm:px-6 lg:px-8">
@@ -364,13 +396,38 @@ export function UserPanelPage() {
                     </div>
 
                     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
-                      <Input
-                        readOnly
-                        type="password"
-                        value={maskedUserPanelToken}
-                        className="h-9 font-mono text-xs"
-                        aria-label={t('userPanel.myKey')}
-                      />
+                      <div className="space-y-1">
+                        <div className="relative">
+                          <Input
+                            readOnly
+                            type={userPanelTokenRevealed ? 'text' : 'password'}
+                            value={userPanelTokenValue}
+                            className="h-9 pr-10 font-mono text-xs"
+                            aria-label={t('userPanel.myKey')}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
+                            disabled={tokenActionPending || revealActionPending}
+                            aria-label={t(userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey')}
+                            title={t(userPanelTokenRevealed ? 'userPanel.hideKey' : 'userPanel.showKey')}
+                            onClick={handleToggleUserPanelTokenReveal}
+                          >
+                            {userPanelTokenRevealed ? (
+                              <EyeOff className="size-3.5" />
+                            ) : (
+                              <Eye className="size-3.5" />
+                            )}
+                          </Button>
+                        </div>
+                        {revealKeyError ? (
+                          <p className="text-xs text-destructive">{revealKeyError}</p>
+                        ) : userPanelTokenRevealed ? (
+                          <p className="text-xs text-muted-foreground">{t('userPanel.fullKeyVisible')}</p>
+                        ) : null}
+                      </div>
                       <div className="grid grid-cols-3 gap-2">
                         <div className="rounded-md border border-border bg-muted/25 px-3 py-2">
                           <p className="text-[11px] text-muted-foreground">
