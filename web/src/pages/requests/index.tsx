@@ -87,6 +87,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useAuth } from '@/lib/auth-context';
 import { calculateVirtualRange } from './virtual-range';
+import { getRequestModelChain } from './model-chain';
 import {
   PROVIDER_TYPE_CONFIGS,
   PROVIDER_TYPE_ORDER,
@@ -1089,19 +1090,6 @@ type LogRowProps = {
   onOpenRequest: (id: number) => void;
 };
 
-function getVisibleMappedModel(request: ProxyRequest) {
-  return request.mappedModel && request.mappedModel !== request.requestModel
-    ? request.mappedModel
-    : '';
-}
-
-function getVisibleResponseModel(request: ProxyRequest) {
-  const previousModel = getVisibleMappedModel(request) || request.requestModel;
-  return request.responseModel && request.responseModel !== previousModel
-    ? request.responseModel
-    : '';
-}
-
 function LogRow({
   request,
   providerName,
@@ -1135,8 +1123,7 @@ function LogRow({
   const startTimeMs = useMemo(() => new Date(request.startTime).getTime(), [request.startTime]);
   const liveDurationMs =
     isPending && Number.isFinite(startTimeMs) ? Math.max(0, nowMs - startTimeMs) : null;
-  const visibleMappedModel = getVisibleMappedModel(request);
-  const visibleResponseModel = getVisibleResponseModel(request);
+  const modelChain = getRequestModelChain(request);
 
   const formatDuration = (ns?: number | null) => {
     if (ns === undefined || ns === null) return '-';
@@ -1230,27 +1217,13 @@ function LogRow({
 
       {/* Model */}
       <TableCell className="w-[200px] min-w-[200px] px-2 py-1">
-        <div className="flex items-center gap-2 min-w-0 max-w-[280px]">
-          <span
-            className="text-sm text-foreground font-medium truncate"
-            title={request.requestModel}
-          >
-            {request.requestModel || '-'}
+        <div className="flex items-center gap-2 min-w-0 max-w-[280px]" title={modelChain.title}>
+          <span className="text-sm text-foreground font-medium truncate">
+            {modelChain.requestModel || '-'}
           </span>
-          {visibleMappedModel && (
-            <span
-              className="text-[10px] text-muted-foreground truncate"
-              title={`Mapped model: ${visibleMappedModel}`}
-            >
-              → {visibleMappedModel}
-            </span>
-          )}
-          {visibleResponseModel && (
-            <span
-              className="text-[10px] text-muted-foreground truncate"
-              title={`Response model: ${visibleResponseModel}`}
-            >
-              response: {visibleResponseModel}
+          {modelChain.mappedModel && (
+            <span className="text-[10px] text-muted-foreground truncate">
+              → {modelChain.mappedModel}
             </span>
           )}
         </div>
@@ -1433,8 +1406,7 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
     request.endTime && new Date(request.endTime).getTime() > 0
       ? formatTime(request.endTime)
       : formatTime(request.startTime || request.createdAt);
-  const visibleMappedModel = getVisibleMappedModel(request);
-  const visibleResponseModel = getVisibleResponseModel(request);
+  const modelChain = getRequestModelChain(request);
 
   return (
     <div
@@ -1450,18 +1422,15 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
       {/* Row 1: Client + Model + Status */}
       <div className="flex items-center gap-2 mb-1">
         <ClientIcon type={request.clientType} size={14} className="shrink-0" />
-        <span className="text-sm font-medium text-foreground truncate flex-1">
-          {request.requestModel || '-'}
-          {visibleMappedModel && (
+        <span
+          className="text-sm font-medium text-foreground truncate flex-1"
+          title={modelChain.title}
+        >
+          {modelChain.requestModel || '-'}
+          {modelChain.mappedModel && (
             <span className="text-xs text-muted-foreground font-normal">
               {' '}
-              → {visibleMappedModel}
-            </span>
-          )}
-          {visibleResponseModel && (
-            <span className="text-xs text-muted-foreground font-normal">
-              {' '}
-              ↳ {visibleResponseModel}
+              → {modelChain.mappedModel}
             </span>
           )}
         </span>
