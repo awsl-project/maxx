@@ -81,7 +81,8 @@
     "modelPrices": "模型价格",
     "retryConfigs": "重试配置",
     "routingStrategies": "路由策略",
-    "settings": "设置",
+    "settings": "常规设置",
+    "diagnostics": "诊断调试",
     "stats": "统计",
     "routes": "路由",
     "management": "管理",
@@ -1257,9 +1258,13 @@
     "tokenManagement": "Token 管理",
     "tokenManagementDesc": "前往「API 令牌」页面创建和管理 API Token。Token 格式为 maxx_ 开头的 64 位字符串。"
   },
+  "diagnostics": {
+    "title": "诊断调试",
+    "description": "集中管理请求诊断和 pprof 性能分析工具。"
+  },
   "settings": {
-    "title": "设置",
-    "description": "配置您的 Maxx 实例",
+    "title": "常规设置",
+    "description": "管理主题、语言、时区和基础偏好。",
     "general": "通用",
     "appearance": "外观",
     "themePreference": "主题偏好",

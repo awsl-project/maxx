@@ -31,4 +31,17 @@ describe('sidebarConfig', () => {
     });
     expect(item).not.toHaveProperty('authOnly', true);
   });
+
+  it('keeps diagnostics visible when admin auth is disabled', () => {
+    const item = findItem('diagnostics');
+
+    expect(item).toMatchObject({
+      type: 'standard',
+      to: '/diagnostics',
+      labelKey: 'nav.diagnostics',
+      adminOnly: true,
+    });
+    expect(item).not.toHaveProperty('authOnly', true);
+  });
+
 });

@@ -15,6 +15,7 @@ import {
   Ticket,
   Workflow,
   Gauge,
+  Activity,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/sidebar';
 import { RequestsNavItem } from './requests-nav-item';
@@ -169,6 +170,14 @@ export const sidebarConfig: SidebarConfig = {
           to: '/api-token-limits',
           icon: Gauge,
           labelKey: 'nav.apiTokenLimits',
+          adminOnly: true,
+        },
+        {
+          type: 'standard',
+          key: 'diagnostics',
+          to: '/diagnostics',
+          icon: Activity,
+          labelKey: 'nav.diagnostics',
           adminOnly: true,
         },
         {

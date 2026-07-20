@@ -81,7 +81,8 @@
     "modelPrices": "Model Prices",
     "retryConfigs": "Retry Configs",
     "routingStrategies": "Routing Strategies",
-    "settings": "Settings",
+    "settings": "General Settings",
+    "diagnostics": "Diagnostics",
     "stats": "Statistics",
     "routes": "ROUTES",
     "management": "MANAGEMENT",
@@ -1260,9 +1261,13 @@
     "tokenManagement": "Token Management",
     "tokenManagementDesc": "Go to the 'API Tokens' page to create and manage API tokens. Token format: 64-character string starting with maxx_."
   },
+  "diagnostics": {
+    "title": "Diagnostics",
+    "description": "Manage request diagnostics and pprof profiling tools in one place."
+  },
   "settings": {
-    "title": "Settings",
-    "description": "Configure your maxx instance",
+    "title": "General Settings",
+    "description": "Manage theme, language, timezone, and basic preferences.",
     "general": "General",
     "appearance": "Appearance",
     "themePreference": "Theme Preference",
