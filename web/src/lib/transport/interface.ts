@@ -72,6 +72,7 @@ import type {
   APITokenCreateResult,
   CreateAPITokenData,
   UserPanelAPITokenResponse,
+  UserPanelAPITokenRevealResult,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,
   RouteSyncRequest,
@@ -295,6 +296,7 @@ export interface Transport {
   getUserPanelAPIToken(): Promise<UserPanelAPITokenResponse>;
   createUserPanelAPIToken(): Promise<APITokenCreateResult>;
   regenerateUserPanelAPIToken(): Promise<APITokenCreateResult>;
+  revealUserPanelAPIToken(): Promise<UserPanelAPITokenRevealResult>;
   createAPIToken(data: CreateAPITokenData): Promise<APITokenCreateResult>;
   updateAPIToken(id: number, data: Partial<APIToken>): Promise<APIToken>;
   deleteAPIToken(id: number): Promise<void>;

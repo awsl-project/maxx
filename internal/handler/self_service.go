@@ -231,6 +231,8 @@ func (h *SelfServiceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleUserPanelAPIToken(w, r, false)
 		case len(parts) == 3 && parts[2] == "regenerate":
 			h.handleUserPanelAPIToken(w, r, true)
+		case len(parts) == 3 && parts[2] == "reveal":
+			h.handleUserPanelAPITokenReveal(w, r)
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		}
@@ -1179,6 +1181,46 @@ func getUserPanelUsageStatsForUser(svc *service.AdminService, tenantID uint64, u
 		stats = append(stats, tokenStats...)
 	}
 	return stats, nil
+}
+
+func (h *SelfServiceHandler) handleUserPanelAPITokenReveal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if !h.userPanelLayoutEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel token is not enabled"})
+		return
+	}
+
+	tenantID := maxxctx.GetTenantID(r.Context())
+	userID := maxxctx.GetUserID(r.Context())
+	if tenantID == 0 || userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "authenticated user required"})
+		return
+	}
+
+	existing, err := findUserPanelAPITokensForUser(h.svc, tenantID, userID)
+	if err != nil {
+		writeSelfServiceInternalError(w, "GetUserPanelAPITokens failed", err)
+		return
+	}
+	canonicalToken, err := normalizeUserPanelAPITokensForUser(h.svc, tenantID, userID, existing)
+	if err != nil {
+		writeSelfServiceInternalError(w, "NormalizeUserPanelAPITokens failed", err)
+		return
+	}
+	if canonicalToken == nil || !canonicalToken.IsEnabled {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel token not found"})
+		return
+	}
+	if canonicalToken.Token == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user panel token secret is not available"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"token": canonicalToken.Token})
 }
 
 func (h *SelfServiceHandler) handleUserPanelAPIToken(w http.ResponseWriter, r *http.Request, regenerate bool) {

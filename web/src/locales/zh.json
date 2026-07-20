@@ -181,7 +181,11 @@
     "noRequestsDescription": "这里只显示你自己的专用 Key 发起的请求。",
     "requestDuration": "耗时",
     "requestInputTokens": "输入 Token",
-    "requestOutputTokens": "输出 Token"
+    "requestOutputTokens": "输出 Token",
+    "showKey": "显示密钥",
+    "hideKey": "隐藏密钥",
+    "fullKeyVisible": "完整密钥已显示，使用后请及时隐藏。",
+    "revealKeyError": "密钥显示失败，请重试。"
   },
   "dashboard": {
     "title": "仪表板",

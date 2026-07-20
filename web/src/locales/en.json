@@ -181,7 +181,11 @@
     "noRequestsDescription": "Only requests made with your dedicated key will appear here.",
     "requestDuration": "Duration",
     "requestInputTokens": "Input tokens",
-    "requestOutputTokens": "Output tokens"
+    "requestOutputTokens": "Output tokens",
+    "showKey": "Show key",
+    "hideKey": "Hide key",
+    "fullKeyVisible": "Full key is visible. Hide it when you are done.",
+    "revealKeyError": "Failed to reveal key. Please try again."
   },
   "dashboard": {
     "title": "Dashboard",
