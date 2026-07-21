@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/awsl-project/maxx/internal/codexguard"
 	"github.com/awsl-project/maxx/internal/converter"
 	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/domain"
@@ -31,7 +30,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	proxyReq := state.proxyReq
 	ctx := state.ctx
 	clearDetail := e.shouldClearRequestDetailFor(state)
-	codexGuardConfig := e.getCodexGuardConfig()
 
 	// Pre-warm tokens for all matched routes in parallel.
 	// This avoids serial token refresh delays when failing over between providers.
@@ -137,7 +135,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 
 		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
 
-		guardFailures := 0
 		for attempt := 0; attempt <= retryConfig.MaxRetries; {
 			if ctx.Err() != nil {
 				state.lastErr = ctx.Err()
@@ -188,7 +185,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			c.Set(flow.KeyUpstreamAttempt, attemptRecord)
 			c.Set(flow.KeyEventChan, eventChan)
 			c.Set(flow.KeyBroadcaster, e.broadcaster)
-			c.Set(flow.KeyCodexReasoningGuard, codexGuardConfig)
 			eventDone := make(chan struct{})
 			go e.processAdapterEventsRealtime(eventChan, attemptRecord, eventDone, clearDetail)
 
@@ -348,15 +344,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			_ = e.proxyRequestRepo.Update(proxyReq)
 			if e.broadcaster != nil {
 				e.broadcaster.BroadcastProxyRequest(proxyReq)
-			}
-
-			if codexguardErr := codexguard.IsReasoningGuardError(err); codexguardErr && !responseCapture.WroteToClient() {
-				guardFailures++
-				if shouldRetryCodexGuard(err, codexGuardConfig, guardFailures) {
-					log.Printf("[Executor] Codex reasoning guard triggered for provider %d, retrying guarded attempt %d/%d",
-						matchedRoute.Provider.ID, guardFailures+1, codexGuardConfig.MaxAttempts)
-					continue
-				}
 			}
 
 			proxyErr, ok := asProxyError(err)

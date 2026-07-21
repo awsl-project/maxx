@@ -19,7 +19,7 @@ func TestExecutorRouteMatchFailureCreatesRejectedProxyRequest(t *testing.T) {
 	projectRepo := cached.NewProjectRepository(nil)
 	r := router.NewRouter(routeRepo, providerRepo, strategyRepo, retryRepo, projectRepo)
 
-	proxyRepo := &codexGuardProxyRequestRepo{}
+	proxyRepo := &recordingProxyRequestRepo{}
 	exec := &Executor{
 		router:           r,
 		proxyRequestRepo: proxyRepo,

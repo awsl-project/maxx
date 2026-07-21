@@ -54,10 +54,10 @@ func paramPolicyDispatchCtx(t *testing.T, requestBody string, policy *domain.Rea
 	}
 	c.Set(flow.KeyExecutorState, state)
 	e := &Executor{
-		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		proxyRequestRepo: &recordingProxyRequestRepo{},
 		attemptRepo:      &recordingAttemptRepo{},
 		modelMappingRepo: &staticModelMappingRepo{},
-		settingsRepo:     &codexGuardSettingsRepo{},
+		settingsRepo:     &stubExecutorSettingsRepo{},
 		converter:        converter.GetGlobalRegistry(),
 	}
 	return c, e

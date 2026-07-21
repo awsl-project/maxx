@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/awsl-project/maxx/internal/codexguard"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -589,34 +588,6 @@ func TestHandleNonStreamResponseForwardsCacheReadCount(t *testing.T) {
 	}
 	if metrics.CacheReadCount != 80 {
 		t.Fatalf("expected CacheReadCount=80, got %d", metrics.CacheReadCount)
-	}
-}
-
-func TestHandleNonStreamResponseReturnsReasoningGuardBeforeWritingClient(t *testing.T) {
-	a := &CodexAdapter{}
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/v1/responses", nil)
-	rec := httptest.NewRecorder()
-	ctx := flow.NewCtx(rec, req)
-	cfg := codexguard.DefaultConfig()
-	cfg.Enabled = true
-	ctx.Set(flow.KeyCodexReasoningGuard, cfg)
-
-	body := `{"id":"resp_1","object":"response","model":"gpt-5","usage":{"output_tokens_details":{"reasoning_tokens":516}}}`
-	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(body)),
-	}
-
-	err := a.handleNonStreamResponse(ctx, resp)
-	if err == nil {
-		t.Fatalf("expected reasoning guard error")
-	}
-	if !codexguard.IsReasoningGuardError(err) {
-		t.Fatalf("expected reasoning guard error, got %v", err)
-	}
-	if rec.Body.Len() != 0 {
-		t.Fatalf("expected no client body before guard retry, got %q", rec.Body.String())
 	}
 }
 

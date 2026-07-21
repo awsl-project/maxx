@@ -155,7 +155,7 @@ func TestDispatchDoesNotRetryAfterRequestContextCanceled(t *testing.T) {
 		},
 	}
 	c.Set(flow.KeyExecutorState, state)
-	e := newDisabledCooldownStreamTestExecutor(&codexGuardProxyRequestRepo{}, &recordingAttemptRepo{})
+	e := newDisabledCooldownStreamTestExecutor(&recordingProxyRequestRepo{}, &recordingAttemptRepo{})
 
 	go func() {
 		for adapter.calls == 0 {
@@ -215,18 +215,18 @@ func TestRequestFailureStatusOnlyCancelsForClientDisconnectEvidence(t *testing.T
 	}
 }
 
-func newDisabledCooldownStreamTestExecutor(proxyRepo *codexGuardProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
+func newDisabledCooldownStreamTestExecutor(proxyRepo *recordingProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
 	return &Executor{
 		proxyRequestRepo: proxyRepo,
 		attemptRepo:      attemptRepo,
-		modelMappingRepo: &codexGuardModelMappingRepo{},
-		settingsRepo:     &codexGuardSettingsRepo{},
+		modelMappingRepo: &stubModelMappingRepo{},
+		settingsRepo:     &stubExecutorSettingsRepo{},
 		converter:        converter.GetGlobalRegistry(),
 	}
 }
 
-func newDisabledCooldownStreamDispatchCtx(disableErrorCooldown bool, maxRetriesOverride ...int) (*flow.Ctx, *disabledCooldownStreamRetryAdapter, *recordingAttemptRepo, *codexGuardProxyRequestRepo) {
-	proxyRepo := &codexGuardProxyRequestRepo{}
+func newDisabledCooldownStreamDispatchCtx(disableErrorCooldown bool, maxRetriesOverride ...int) (*flow.Ctx, *disabledCooldownStreamRetryAdapter, *recordingAttemptRepo, *recordingProxyRequestRepo) {
+	proxyRepo := &recordingProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	adapter := &disabledCooldownStreamRetryAdapter{}
 	maxRetries := 1
