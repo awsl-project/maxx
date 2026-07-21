@@ -186,3 +186,15 @@ func GetBroadcaster(c *Ctx) event.Broadcaster {
 	}
 	return nil
 }
+
+func GetResponsesWebSocketExchange(c *Ctx) *domain.ResponsesWebSocketExchange {
+	if c == nil {
+		return nil
+	}
+	v, ok := c.Get(KeyResponsesWebSocketExchange)
+	if !ok {
+		return nil
+	}
+	exchange, _ := v.(*domain.ResponsesWebSocketExchange)
+	return exchange
+}

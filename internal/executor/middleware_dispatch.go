@@ -30,6 +30,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 	proxyReq := state.proxyReq
 	ctx := state.ctx
 	clearDetail := e.shouldClearRequestDetailFor(state)
+	if state.wsExchange != nil {
+		e.dispatchResponsesWebSocket(c)
+		return
+	}
 
 	// Pre-warm tokens for all matched routes in parallel.
 	// This avoids serial token refresh delays when failing over between providers.

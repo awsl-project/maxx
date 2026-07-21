@@ -1,33 +1,39 @@
 package codex
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
+	pathpkg "path"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/awsl-project/maxx/internal/codexutil"
-	maxxctx "github.com/awsl-project/maxx/internal/context"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 const (
-	codexResponsesWebSocketBetaHeader = "responses_websockets=2026-02-06"
-	codexResponsesWebSocketHandshake  = 30 * time.Second
+	codexResponsesWebSocketBetaHeader         = "responses_websockets=2026-02-06"
+	codexResponsesWebSocketHandshake          = 30 * time.Second
+	codexResponsesWebSocketReadQueueSize      = 256
+	codexResponsesWebSocketMaxQueuedBytes     = 8 << 20
+	codexResponsesWebSocketMaxFrameBytes      = 32 << 20
+	codexResponsesWebSocketWriteTimeout       = 30 * time.Second
+	codexResponsesWebSocketFirstEventTimeout  = 20 * time.Second
+	codexResponsesWebSocketEventIdleTimeout   = 5 * time.Minute
+	codexResponsesWebSocketSessionIdleTimeout = 65 * time.Minute
+	codexResponsesWebSocketMaxSessions        = 512
 )
 
 type codexWebSocketRead struct {
@@ -45,18 +51,25 @@ type codexWebSocketSession struct {
 	handshakeHeader http.Header
 	reads           chan codexWebSocketRead
 	done            chan struct{}
+	queuedBytes     atomic.Int64
+	maxQueuedBytes  int64
+	fingerprint     string
+	lastUsedAt      atomic.Int64
+	activeTurns     atomic.Int32
 }
 
-func newCodexWebSocketSession(conn *websocket.Conn, handshakeHeader http.Header) *codexWebSocketSession {
+func newCodexWebSocketSession(conn *websocket.Conn, handshakeHeader http.Header, fingerprint string) *codexWebSocketSession {
 	session := &codexWebSocketSession{
 		conn:            conn,
 		handshakeHeader: handshakeHeader.Clone(),
-		reads:           make(chan codexWebSocketRead, 4096),
+		reads:           make(chan codexWebSocketRead, codexResponsesWebSocketReadQueueSize),
 		done:            make(chan struct{}),
+		maxQueuedBytes:  codexResponsesWebSocketMaxQueuedBytes,
+		fingerprint:     fingerprint,
 	}
+	session.touch()
+	conn.SetReadLimit(codexResponsesWebSocketMaxFrameBytes)
 	conn.SetPingHandler(func(data string) error {
-		session.writeMu.Lock()
-		defer session.writeMu.Unlock()
 		return conn.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(10*time.Second))
 	})
 	go session.readLoop()
@@ -68,32 +81,47 @@ func (s *codexWebSocketSession) readLoop() {
 	for {
 		messageType, payload, err := s.conn.ReadMessage()
 		if err != nil {
-			select {
-			case s.reads <- codexWebSocketRead{err: err}:
-			case <-s.done:
-			}
+			s.enqueueError(err)
+			s.close()
+			return
+		}
+		size := int64(len(payload))
+		if s.queuedBytes.Add(size) > s.maxQueuedBytes {
+			s.queuedBytes.Add(-size)
+			s.enqueueError(errors.New("codex websocket read queue byte limit exceeded"))
 			s.close()
 			return
 		}
 		select {
 		case s.reads <- codexWebSocketRead{messageType: messageType, payload: payload}:
 		case <-s.done:
+			s.queuedBytes.Add(-size)
+			return
+		default:
+			s.queuedBytes.Add(-size)
+			s.enqueueError(errors.New("codex websocket read queue is full"))
+			s.close()
 			return
 		}
 	}
 }
 
-func (s *codexWebSocketSession) write(payload []byte) error {
-	if s == nil || s.conn == nil {
-		return errors.New("codex websocket session is not connected")
-	}
+func (s *codexWebSocketSession) enqueueError(err error) {
 	select {
-	case <-s.done:
-		return errors.New("codex websocket session is closed")
+	case s.reads <- codexWebSocketRead{err: err}:
 	default:
+	}
+}
+
+func (s *codexWebSocketSession) write(payload []byte) error {
+	if s == nil || s.conn == nil || s.isClosed() {
+		return errors.New("codex websocket session is closed")
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := s.conn.SetWriteDeadline(time.Now().Add(codexResponsesWebSocketWriteTimeout)); err != nil {
+		return err
+	}
 	return s.conn.WriteMessage(websocket.TextMessage, payload)
 }
 
@@ -121,37 +149,90 @@ func (s *codexWebSocketSession) isClosed() bool {
 	}
 }
 
+func (s *codexWebSocketSession) touch() {
+	s.lastUsedAt.Store(time.Now().UnixNano())
+}
+
+func (s *codexWebSocketSession) lastUsed() time.Time {
+	return time.Unix(0, s.lastUsedAt.Load())
+}
+
+type codexWebSocketSessionKey struct {
+	ConnectionID string
+	ProviderID   uint64
+}
+
 type codexWebSocketSessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]*codexWebSocketSession
+	mu         sync.Mutex
+	sessions   map[codexWebSocketSessionKey]*codexWebSocketSession
+	maxEntries int
 }
 
 var globalCodexWebSocketSessions = &codexWebSocketSessionStore{
-	sessions: make(map[string]*codexWebSocketSession),
+	sessions:   make(map[codexWebSocketSessionKey]*codexWebSocketSession),
+	maxEntries: codexResponsesWebSocketMaxSessions,
 }
 
-func (s *codexWebSocketSessionStore) get(key string) *codexWebSocketSession {
+func (s *codexWebSocketSessionStore) get(key codexWebSocketSessionKey) *codexWebSocketSession {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	session := s.sessions[key]
-	if session != nil && session.isClosed() {
+	if session != nil && (session.isClosed() ||
+		(session.activeTurns.Load() == 0 && time.Since(session.lastUsed()) >= codexResponsesWebSocketSessionIdleTimeout)) {
 		delete(s.sessions, key)
+		s.mu.Unlock()
+		session.close()
 		return nil
 	}
+	if session != nil {
+		session.activeTurns.Add(1)
+		session.touch()
+	}
+	s.mu.Unlock()
 	return session
 }
 
-func (s *codexWebSocketSessionStore) put(key string, session *codexWebSocketSession) {
+func (s *codexWebSocketSessionStore) put(key codexWebSocketSessionKey, session *codexWebSocketSession) bool {
+	var stale []*codexWebSocketSession
+	canStore := true
 	s.mu.Lock()
-	previous := s.sessions[key]
-	s.sessions[key] = session
-	s.mu.Unlock()
-	if previous != nil && previous != session {
-		previous.close()
+	stale = append(stale, s.pruneIdleLocked(time.Now())...)
+	if previous := s.sessions[key]; previous != nil && previous != session {
+		if previous.activeTurns.Load() > 0 {
+			canStore = false
+		} else {
+			delete(s.sessions, key)
+			stale = append(stale, previous)
+		}
 	}
+	if canStore && s.maxEntries > 0 && len(s.sessions) >= s.maxEntries && s.sessions[key] == nil {
+		var oldestKey codexWebSocketSessionKey
+		var oldest *codexWebSocketSession
+		for candidateKey, candidate := range s.sessions {
+			if candidate.activeTurns.Load() > 0 {
+				continue
+			}
+			if oldest == nil || candidate.lastUsed().Before(oldest.lastUsed()) {
+				oldestKey, oldest = candidateKey, candidate
+			}
+		}
+		if oldest != nil {
+			delete(s.sessions, oldestKey)
+			stale = append(stale, oldest)
+		} else {
+			canStore = false
+		}
+	}
+	if canStore {
+		s.sessions[key] = session
+	}
+	s.mu.Unlock()
+	for _, candidate := range stale {
+		candidate.close()
+	}
+	return canStore
 }
 
-func (s *codexWebSocketSessionStore) remove(key string, session *codexWebSocketSession) {
+func (s *codexWebSocketSessionStore) remove(key codexWebSocketSessionKey, session *codexWebSocketSession) {
 	s.mu.Lock()
 	if s.sessions[key] == session {
 		delete(s.sessions, key)
@@ -162,266 +243,409 @@ func (s *codexWebSocketSessionStore) remove(key string, session *codexWebSocketS
 	}
 }
 
-func (a *CodexAdapter) executeResponsesWebSocket(c *flow.Ctx, provider *domain.Provider) (bool, error) {
-	if c == nil || provider == nil || c.Request == nil ||
-		flow.GetClientType(c) != domain.ClientTypeCodex ||
-		flow.GetOriginalClientType(c) != domain.ClientTypeCodex ||
-		flow.IsProtocolConversion(c) {
-		return false, nil
+func (s *codexWebSocketSessionStore) closeForConnection(connectionID string) {
+	var sessions []*codexWebSocketSession
+	s.mu.Lock()
+	for key, session := range s.sessions {
+		if key.ConnectionID == connectionID {
+			delete(s.sessions, key)
+			sessions = append(sessions, session)
+		}
 	}
-
-	metadata, ok := maxxctx.GetResponsesWebSocketRequest(c.Request.Context())
-	if !ok {
-		return false, nil
+	s.mu.Unlock()
+	for _, session := range sessions {
+		session.close()
 	}
+}
 
-	rawRequest, err := prepareCodexWebSocketRequest(metadata.Payload, c, provider)
-	if err != nil {
+func (s *codexWebSocketSessionStore) pruneIdle(now time.Time) {
+	s.mu.Lock()
+	stale := s.pruneIdleLocked(now)
+	s.mu.Unlock()
+	for _, session := range stale {
+		session.close()
+	}
+}
+
+func (s *codexWebSocketSessionStore) pruneIdleLocked(now time.Time) []*codexWebSocketSession {
+	var stale []*codexWebSocketSession
+	for key, session := range s.sessions {
+		if session.isClosed() ||
+			(session.activeTurns.Load() == 0 && now.Sub(session.lastUsed()) >= codexResponsesWebSocketSessionIdleTimeout) {
+			delete(s.sessions, key)
+			stale = append(stale, session)
+		}
+	}
+	return stale
+}
+
+func (a *CodexAdapter) CloseResponsesWebSocketConnection(connectionID string) {
+	globalCodexWebSocketSessions.closeForConnection(connectionID)
+}
+
+func (a *CodexAdapter) ExecuteResponsesWebSocket(
+	c *flow.Ctx,
+	provider *domain.Provider,
+	exchange *domain.ResponsesWebSocketExchange,
+) (*domain.ResponsesWebSocketResult, error) {
+	if c == nil || provider == nil || c.Request == nil || exchange == nil || exchange.Sink == nil {
+		return nil, newCodexWebSocketAttemptError(domain.ErrResponsesWebSocketProtocol, false, false)
+	}
+	if err := validateOutboundCodexWebSocketFrame(exchange.Frame); err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "invalid Codex websocket request")
 		proxyErr.Scope = domain.ScopeRequest
+		proxyErr.Code = "websocket_protocol_error"
 		proxyErr.HTTPStatusCode = http.StatusBadRequest
-		return true, proxyErr
-	}
-
-	key := strconv.FormatUint(provider.ID, 10) + ":" + metadata.SessionID
-	session := globalCodexWebSocketSessions.get(key)
-	previousResponseID := strings.TrimSpace(gjson.GetBytes(rawRequest, "previous_response_id").String())
-	if session == nil && previousResponseID != "" {
-		// A response ID is tied to the provider/session that produced it. If route
-		// selection moved elsewhere, use the handler's full-transcript HTTP fallback.
-		log.Printf("[Codex] Responses WebSocket session unavailable for provider=%d; falling back to HTTP/SSE", provider.ID)
-		return false, nil
+		return nil, newCodexWebSocketAttemptError(proxyErr, false, false)
 	}
 
 	ctx := c.Request.Context()
 	config := ensureCodexConfig(provider)
+	target, err := codexResponsesWebSocketURL(config)
+	if err != nil {
+		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to build Codex websocket URL")
+		proxyErr.Scope = domain.ScopeEndpoint
+		return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+	}
+	if isCodexWebSocketUnsupported(provider.ID, target) {
+		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoResponsesWebSocketProviders, true, "Codex websocket endpoint is temporarily marked unsupported")
+		proxyErr.Scope = domain.ScopeEndpoint
+		proxyErr.Code = "upstream_websocket_upgrade_rejected"
+		attemptErr := newCodexWebSocketAttemptError(proxyErr, true, true)
+		return nil, attemptErr
+	}
+
 	accessToken, err := a.getAccessToken(ctx, false, "")
 	if err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
-		return true, proxyErr
+		return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+	}
+	headers := buildCodexWebSocketHeaders(c, accessToken, config.AccountID, exchange.Frame)
+	fingerprint := codexWebSocketFingerprint(provider.ID, target, headers)
+	key := codexWebSocketSessionKey{ConnectionID: exchange.ConnectionID, ProviderID: provider.ID}
+	session := globalCodexWebSocketSessions.get(key)
+	if session != nil && session.fingerprint != fingerprint {
+		session.activeTurns.Add(-1)
+		globalCodexWebSocketSessions.remove(key, session)
+		session = nil
+	}
+	if session == nil && exchange.PreviousResponseID != "" {
+		return nil, newCodexWebSocketAttemptError(domain.ErrResponsesWebSocketSessionUnavailable, false, false)
 	}
 
-	webSocketURL, err := codexResponsesWebSocketURL(c, config)
-	if err != nil {
-		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to build Codex websocket URL")
-		proxyErr.Scope = domain.ScopeEndpoint
-		return true, proxyErr
-	}
-	headers := buildCodexWebSocketHeaders(c, accessToken, config.AccountID, rawRequest)
-
+	reused := session != nil
 	if session == nil {
-		var response *http.Response
-		session, response, err = dialCodexWebSocket(ctx, webSocketURL, headers)
-		if err != nil && response != nil && response.StatusCode == http.StatusUnauthorized {
-			body := readCodexWebSocketHandshakeBody(response)
-			accessToken, err = a.getAccessToken(ctx, true, accessToken)
-			if err != nil {
-				return true, classifyCodexHTTPError(http.StatusUnauthorized, body, response.Header, flow.GetMappedModel(c))
-			}
-			headers.Set("Authorization", "Bearer "+accessToken)
-			session, response, err = dialCodexWebSocket(ctx, webSocketURL, headers)
-		}
+		session, err = a.dialResponsesWebSocketSession(ctx, provider, config, target, headers, fingerprint, accessToken)
 		if err != nil {
-			if response != nil {
-				body := readCodexWebSocketHandshakeBody(response)
-				if response.StatusCode == http.StatusUpgradeRequired {
-					log.Printf("[Codex] Responses WebSocket upgrade rejected with status=%d url=%s; falling back to HTTP/SSE", response.StatusCode, webSocketURL)
-					return false, nil
-				}
-				return true, classifyCodexHTTPError(response.StatusCode, body, response.Header, flow.GetMappedModel(c))
-			}
-			// A transport-level upgrade failure is safe to retry through the existing
-			// HTTP/SSE path because no upstream WebSocket event reached the client.
-			log.Printf("[Codex] Responses WebSocket upgrade failed url=%s error=%v; falling back to HTTP/SSE", webSocketURL, err)
-			return false, nil
+			return nil, err
 		}
-		globalCodexWebSocketSessions.put(key, session)
-		if done := ctx.Done(); done != nil {
-			go func() {
-				<-done
-				globalCodexWebSocketSessions.remove(key, session)
-			}()
+		session.activeTurns.Add(1)
+		if !globalCodexWebSocketSessions.put(key, session) {
+			session.activeTurns.Add(-1)
+			session.close()
+			proxyErr := domain.NewProxyErrorWithMessage(errors.New("Codex websocket session capacity reached"), true, "Codex websocket session capacity reached")
+			proxyErr.Scope = domain.ScopeRequest
+			proxyErr.Code = "upstream_websocket_session_capacity"
+			proxyErr.HTTPStatusCode = http.StatusServiceUnavailable
+			return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
 		}
 	}
 
-	session.requestMu.Lock()
-	defer session.requestMu.Unlock()
+	result, execErr := session.executeTurn(ctx, exchange.Frame, exchange.Sink, flow.GetEventChan(c), provider.ID)
+	if result != nil {
+		result.ProviderID = provider.ID
+		result.Reused = reused
+	}
+	if execErr != nil {
+		var wsErr *domain.ResponsesWebSocketAttemptError
+		if errors.As(execErr, &wsErr) && (wsErr.RequestFrameMayHaveBeenSent || session.isClosed()) {
+			globalCodexWebSocketSessions.remove(key, session)
+		}
+		return result, execErr
+	}
+	return result, nil
+}
 
-	eventChan := flow.GetEventChan(c)
+func (a *CodexAdapter) dialResponsesWebSocketSession(
+	ctx context.Context,
+	provider *domain.Provider,
+	config *domain.ProviderConfigCodex,
+	target string,
+	headers http.Header,
+	fingerprint string,
+	accessToken string,
+) (*codexWebSocketSession, error) {
+	session, response, err := dialCodexWebSocket(ctx, target, headers, fingerprint)
+	if err != nil && response != nil && response.StatusCode == http.StatusUnauthorized && canRefreshCodexAccessToken(config) {
+		body := readCodexWebSocketHandshakeBody(response)
+		_ = body
+		refreshed, refreshErr := a.getAccessToken(ctx, true, accessToken)
+		if refreshErr != nil {
+			proxyErr := classifyCodexHTTPError(http.StatusUnauthorized, body, response.Header, "")
+			return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+		}
+		headers.Set("Authorization", "Bearer "+refreshed)
+		fingerprint = codexWebSocketFingerprint(provider.ID, target, headers)
+		session, response, err = dialCodexWebSocket(ctx, target, headers, fingerprint)
+	}
+	if err == nil {
+		return session, nil
+	}
+
+	if response != nil {
+		status := response.StatusCode
+		body := readCodexWebSocketHandshakeBody(response)
+		proxyErr := classifyCodexHTTPError(status, body, response.Header, "")
+		proxyErr.Code = "upstream_websocket_upgrade_rejected"
+		capabilityFailure := isCodexWebSocketCapabilityStatus(status)
+		if capabilityFailure {
+			markCodexWebSocketUnsupported(provider.ID, target, http.StatusText(status))
+		}
+		return nil, newCodexWebSocketAttemptError(proxyErr, true, capabilityFailure)
+	}
+
+	proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to upgrade Codex websocket connection")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonNetworkError
+	proxyErr.Code = "upstream_websocket_upgrade_rejected"
+	proxyErr.HTTPStatusCode = http.StatusBadGateway
+	return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+}
+
+func newCodexWebSocketAttemptError(err error, safeToTryNext, capabilityFailure bool) *domain.ResponsesWebSocketAttemptError {
+	return &domain.ResponsesWebSocketAttemptError{
+		Err:                   err,
+		SafeToTryNextProvider: safeToTryNext,
+		CapabilityFailure:     capabilityFailure,
+	}
+}
+
+func canRefreshCodexAccessToken(config *domain.ProviderConfigCodex) bool {
+	return config != nil && strings.TrimSpace(config.RefreshToken) != ""
+}
+
+func isCodexWebSocketCapabilityStatus(status int) bool {
+	switch status {
+	case http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusUpgradeRequired, http.StatusNotImplemented:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateOutboundCodexWebSocketFrame(frame []byte) error {
+	if !gjson.ValidBytes(frame) || !gjson.ParseBytes(frame).IsObject() {
+		return domain.ErrResponsesWebSocketProtocol
+	}
+	if gjson.GetBytes(frame, "type").String() != "response.create" {
+		return domain.ErrResponsesWebSocketProtocol
+	}
+	if strings.TrimSpace(gjson.GetBytes(frame, "model").String()) == "" {
+		return domain.ErrResponsesWebSocketProtocol
+	}
+	return nil
+}
+
+func (s *codexWebSocketSession) executeTurn(
+	ctx context.Context,
+	frame []byte,
+	sink domain.ResponsesWebSocketFrameSink,
+	eventChan domain.AdapterEventChan,
+	providerID uint64,
+) (*domain.ResponsesWebSocketResult, error) {
+	defer func() { s.activeTurns.Add(-1) }()
+	s.requestMu.Lock()
+	defer s.requestMu.Unlock()
+	s.touch()
+
+	result := &domain.ResponsesWebSocketResult{ProviderID: providerID}
+	if s.isClosed() {
+		return result, newCodexWebSocketAttemptError(errors.New("codex websocket session is closed"), true, false)
+	}
 	if eventChan != nil {
 		eventChan.SendRequestInfo(&domain.RequestInfo{
 			Method:  "WEBSOCKET",
-			URL:     webSocketURL,
-			Headers: flattenHeaders(headers),
-			Body:    string(rawRequest),
+			Headers: flattenHeaders(s.handshakeHeader),
+			Body:    string(frame),
 		})
 	}
 
-	if err = session.write(rawRequest); err != nil {
-		globalCodexWebSocketSessions.remove(key, session)
-		log.Printf("[Codex] Responses WebSocket write failed provider=%d error=%v; falling back to HTTP/SSE", provider.ID, err)
-		return false, nil
-	}
-
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		globalCodexWebSocketSessions.remove(key, session)
-		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "streaming not supported")
-		proxyErr.Scope = domain.ScopeRequest
-		return true, proxyErr
+	result.RequestFrameMayHaveBeenSent = true
+	if err := s.write(frame); err != nil {
+		return result, &domain.ResponsesWebSocketAttemptError{
+			Err:                         err,
+			RequestFrameMayHaveBeenSent: true,
+		}
 	}
 
 	var collector usage.StreamCollector
-	responseModel := ""
-	firstChunkSent := false
+	firstEvent := true
+	timer := time.NewTimer(codexResponsesWebSocketFirstEventTimeout)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			globalCodexWebSocketSessions.remove(key, session)
-			proxyErr := domain.NewProxyErrorWithMessage(ctx.Err(), false, "client disconnected")
-			proxyErr.Scope = domain.ScopeRequest
-			return true, proxyErr
-		case read, open := <-session.reads:
+			return result, &domain.ResponsesWebSocketAttemptError{
+				Err:                         ctx.Err(),
+				RequestFrameMayHaveBeenSent: true,
+				FirstEventReceived:          result.FirstEventReceived,
+				ClientEventSent:             result.ClientEventSent,
+			}
+		case <-timer.C:
+			code := "upstream_websocket_first_event_timeout"
+			message := "Codex websocket first event timeout"
+			if result.FirstEventReceived {
+				code = "upstream_websocket_closed_before_terminal"
+				message = "Codex websocket event idle timeout"
+			}
+			proxyErr := domain.NewProxyErrorWithMessage(context.DeadlineExceeded, false, message)
+			proxyErr.Scope = domain.ScopeProvider
+			proxyErr.Reason = domain.CooldownReasonNetworkError
+			proxyErr.Code = code
+			proxyErr.HTTPStatusCode = http.StatusGatewayTimeout
+			return result, &domain.ResponsesWebSocketAttemptError{
+				Err:                         proxyErr,
+				RequestFrameMayHaveBeenSent: true,
+				FirstEventReceived:          result.FirstEventReceived,
+				ClientEventSent:             result.ClientEventSent,
+			}
+		case read, open := <-s.reads:
+			if len(read.payload) > 0 {
+				s.queuedBytes.Add(-int64(len(read.payload)))
+			}
 			if !open || read.err != nil {
-				globalCodexWebSocketSessions.remove(key, session)
 				readErr := read.err
 				if readErr == nil {
 					readErr = io.ErrUnexpectedEOF
 				}
-				// The request frame was already written successfully, so retrying it
-				// through HTTP or another provider could duplicate side effects.
-				proxyErr := domain.NewProxyErrorWithMessage(readErr, false, "Codex websocket closed before response.completed")
-				proxyErr.Scope = domain.ScopeRequest
+				proxyErr := domain.NewProxyErrorWithMessage(readErr, false, "Codex websocket closed before terminal event")
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Reason = domain.CooldownReasonNetworkError
+				proxyErr.Code = "upstream_websocket_closed_before_terminal"
 				proxyErr.HTTPStatusCode = http.StatusBadGateway
-				return true, proxyErr
+				return result, &domain.ResponsesWebSocketAttemptError{
+					Err:                         proxyErr,
+					RequestFrameMayHaveBeenSent: true,
+					FirstEventReceived:          result.FirstEventReceived,
+					ClientEventSent:             result.ClientEventSent,
+				}
 			}
-			if read.messageType != websocket.TextMessage {
-				continue
-			}
-			payload := bytes.TrimSpace(read.payload)
-			if len(payload) == 0 {
-				continue
-			}
-
-			eventType := gjson.GetBytes(payload, "type").String()
-			if eventType == "error" || eventType == "response.failed" {
-				globalCodexWebSocketSessions.remove(key, session)
-				return true, classifyCodexWebSocketEvent(payload, flow.GetMappedModel(c))
-			}
-
-			collector.ProcessSSEPayload(payload)
-			if model := strings.TrimSpace(gjson.GetBytes(payload, "response.model").String()); model != "" {
-				responseModel = model
-			} else if model := strings.TrimSpace(gjson.GetBytes(payload, "model").String()); model != "" {
-				responseModel = model
+			if read.messageType != websocket.TextMessage || !gjson.ValidBytes(read.payload) || !gjson.ParseBytes(read.payload).IsObject() {
+				proxyErr := domain.NewProxyErrorWithMessage(domain.ErrResponsesWebSocketProtocol, false, "invalid Codex websocket application frame")
+				proxyErr.Scope = domain.ScopeProvider
+				proxyErr.Code = "websocket_protocol_error"
+				proxyErr.HTTPStatusCode = http.StatusBadGateway
+				return result, &domain.ResponsesWebSocketAttemptError{
+					Err:                         proxyErr,
+					RequestFrameMayHaveBeenSent: true,
+					FirstEventReceived:          result.FirstEventReceived,
+					ClientEventSent:             result.ClientEventSent,
+				}
 			}
 
-			if _, err = c.Writer.Write([]byte("data: ")); err == nil {
-				_, err = c.Writer.Write(payload)
-			}
-			if err == nil {
-				_, err = c.Writer.Write([]byte("\n\n"))
-			}
-			if err != nil {
-				globalCodexWebSocketSessions.remove(key, session)
-				proxyErr := domain.NewProxyErrorWithMessage(err, false, "client disconnected")
-				proxyErr.Scope = domain.ScopeRequest
-				return true, proxyErr
-			}
-			flusher.Flush()
-			if !firstChunkSent {
-				firstChunkSent = true
+			result.FirstEventReceived = true
+			if firstEvent {
+				firstEvent = false
 				if eventChan != nil {
 					eventChan.SendFirstToken(time.Now().UnixMilli())
 				}
 			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(codexResponsesWebSocketEventIdleTimeout)
 
-			if eventType == "response.completed" || eventType == "response.done" {
-				sendCodexWebSocketFinalEvents(eventChan, session.handshakeHeader, &collector, responseModel)
-				return true, nil
+			if err := sink.WriteTextFrame(read.payload); err != nil {
+				return result, &domain.ResponsesWebSocketAttemptError{
+					Err:                         err,
+					RequestFrameMayHaveBeenSent: true,
+					FirstEventReceived:          true,
+					ClientEventSent:             result.ClientEventSent,
+				}
+			}
+			result.ClientEventSent = true
+			collector.ProcessSSEPayload(read.payload)
+			if model := strings.TrimSpace(gjson.GetBytes(read.payload, "response.model").String()); model != "" {
+				result.ResponseModel = model
+			} else if model := strings.TrimSpace(gjson.GetBytes(read.payload, "model").String()); model != "" {
+				result.ResponseModel = model
+			}
+
+			eventType := gjson.GetBytes(read.payload, "type").String()
+			if !isCodexWebSocketTerminalEvent(eventType) {
+				continue
+			}
+			result.TerminalEvent = eventType
+			sendCodexWebSocketFinalEvents(eventChan, s.handshakeHeader, &collector, result.ResponseModel)
+			if eventType == "response.completed" || eventType == "response.incomplete" {
+				return result, nil
+			}
+			proxyErr := classifyCodexWebSocketEvent(read.payload, result.ResponseModel)
+			result.TerminalErrorEventSent = true
+			return result, &domain.ResponsesWebSocketAttemptError{
+				Err:                         proxyErr,
+				RequestFrameMayHaveBeenSent: true,
+				FirstEventReceived:          true,
+				ClientEventSent:             true,
+				TerminalErrorEventSent:      true,
 			}
 		}
 	}
 }
 
-func prepareCodexWebSocketRequest(raw []byte, c *flow.Ctx, provider *domain.Provider) ([]byte, error) {
-	if !gjson.ValidBytes(raw) || !gjson.ParseBytes(raw).IsObject() {
-		return nil, errors.New("expected a JSON object")
+func isCodexWebSocketTerminalEvent(eventType string) bool {
+	switch eventType {
+	case "response.completed", "response.failed", "response.incomplete", "error":
+		return true
+	default:
+		return false
 	}
-	body := bytes.Clone(raw)
-	body, _ = sjson.SetBytes(body, "type", "response.create")
-	if model := strings.TrimSpace(flow.GetMappedModel(c)); model != "" {
-		body, _ = sjson.SetBytes(body, "model", model)
-	}
-	body, _ = sjson.DeleteBytes(body, "stream")
-	body, _ = sjson.DeleteBytes(body, "background")
-	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
-	body, _ = sjson.DeleteBytes(body, "safety_identifier")
-	if maxOutput := gjson.GetBytes(body, "max_output_tokens"); maxOutput.Exists() {
-		if !gjson.GetBytes(body, "max_tokens").Exists() {
-			body, _ = sjson.SetBytes(body, "max_tokens", maxOutput.Value())
-		}
-		body, _ = sjson.DeleteBytes(body, "max_output_tokens")
-	}
-	if !gjson.GetBytes(body, "previous_response_id").Exists() && !gjson.GetBytes(body, "instructions").Exists() {
-		body, _ = sjson.SetBytes(body, "instructions", "")
-	}
-	body = codexutil.NormalizeCodexInput(body)
-
-	config := ensureCodexConfig(provider)
-	if config.Reasoning != "" {
-		body, _ = sjson.SetBytes(body, "reasoning.effort", config.Reasoning)
-	}
-	if config.ServiceTier != "" {
-		body, _ = sjson.SetBytes(body, "service_tier", config.ServiceTier)
-	}
-	return body, nil
 }
 
-func codexResponsesWebSocketURL(c *flow.Ctx, config *domain.ProviderConfigCodex) (string, error) {
-	baseURL := CodexBaseURL
-	custom := config != nil && strings.TrimSpace(config.BaseURL) != ""
-	if custom {
-		baseURL = strings.TrimRight(config.BaseURL, "/")
+func codexResponsesWebSocketURL(config *domain.ProviderConfigCodex) (string, error) {
+	base := CodexBaseURL
+	if config != nil && strings.TrimSpace(config.BaseURL) != "" {
+		base = strings.TrimSpace(config.BaseURL)
 	}
+	return joinResponsesWebSocketURL(base)
+}
 
-	path := "/responses"
-	if custom && domain.ResponsesPassthroughEnabled(config.ResponsesPassthrough) {
-		path = flow.GetResponsesClientPath(c)
-		if path == "" {
-			path = "/v1/responses"
-		}
-	}
-	parsed, err := url.Parse(baseURL + path)
+func joinResponsesWebSocketURL(base string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(base))
 	if err != nil {
 		return "", err
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return "", errors.New("websocket URL host is empty")
+	}
+	if pathpkg.Base(strings.TrimRight(parsed.Path, "/")) != "responses" {
+		parsed.Path = pathpkg.Join(parsed.Path, "responses")
+		if !strings.HasPrefix(parsed.Path, "/") {
+			parsed.Path = "/" + parsed.Path
+		}
 	}
 	switch strings.ToLower(parsed.Scheme) {
 	case "http":
 		parsed.Scheme = "ws"
 	case "https":
 		parsed.Scheme = "wss"
+	case "ws", "wss":
 	default:
 		return "", fmt.Errorf("unsupported URL scheme %q", parsed.Scheme)
-	}
-	if strings.TrimSpace(parsed.Host) == "" {
-		return "", errors.New("websocket URL host is empty")
 	}
 	return parsed.String(), nil
 }
 
-func buildCodexWebSocketHeaders(c *flow.Ctx, accessToken, accountID string, body []byte) http.Header {
+func buildCodexWebSocketHeaders(c *flow.Ctx, accessToken, accountID string, frame []byte) http.Header {
 	headers := make(http.Header)
 	if c != nil && c.Request != nil {
 		for key, values := range c.Request.Header {
-			lowerKey := strings.ToLower(key)
-			if codexFilteredHeaders[lowerKey] || lowerKey == "authorization" || strings.HasPrefix(lowerKey, "sec-websocket-") {
+			if isForbiddenCodexWebSocketHeader(key) {
 				continue
 			}
 			for _, value := range values {
@@ -432,16 +656,15 @@ func buildCodexWebSocketHeaders(c *flow.Ctx, accessToken, accountID string, body
 	if strings.TrimSpace(accessToken) != "" {
 		headers.Set("Authorization", "Bearer "+accessToken)
 	}
-	betaHeader := strings.TrimSpace(headers.Get("OpenAI-Beta"))
-	if !strings.Contains(betaHeader, "responses_websockets=") {
-		headers.Set("OpenAI-Beta", codexResponsesWebSocketBetaHeader)
-	}
+	headers.Set("OpenAI-Beta", mergeCommaSeparatedHeader(headers.Get("OpenAI-Beta"), codexResponsesWebSocketBetaHeader))
 	if c != nil {
 		headers.Set("User-Agent", flow.ResolveUpstreamUserAgent(c, CodexUserAgent))
 	}
-	if sessionID := strings.TrimSpace(headers.Get("Session_id")); sessionID == "" {
-		if promptCacheKey := strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()); promptCacheKey != "" {
+	if promptCacheKey := strings.TrimSpace(gjson.GetBytes(frame, "prompt_cache_key").String()); promptCacheKey != "" {
+		if headers.Get("Session_id") == "" {
 			headers.Set("Session_id", promptCacheKey)
+		}
+		if headers.Get("Conversation_id") == "" {
 			headers.Set("Conversation_id", promptCacheKey)
 		}
 	}
@@ -456,7 +679,57 @@ func buildCodexWebSocketHeaders(c *flow.Ctx, accessToken, accountID string, body
 	return headers
 }
 
-func dialCodexWebSocket(ctx context.Context, target string, headers http.Header) (*codexWebSocketSession, *http.Response, error) {
+func mergeCommaSeparatedHeader(existing, required string) string {
+	parts := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+	for _, value := range []string{existing, required} {
+		for _, part := range strings.Split(value, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" {
+				continue
+			}
+			key := strings.ToLower(trimmed)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			parts = append(parts, trimmed)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func isForbiddenCodexWebSocketHeader(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "authorization" || lower == "host" || lower == "accept" || lower == "content-type" ||
+		lower == "content-length" || lower == "transfer-encoding" || lower == "connection" || lower == "upgrade" ||
+		lower == "cookie" || lower == "origin" || lower == "x-api-key" || lower == "x-goog-api-key" || lower == "api-key" ||
+		strings.HasPrefix(lower, "x-maxx-") ||
+		strings.HasPrefix(lower, "sec-websocket-") {
+		return true
+	}
+	return lower != "user-agent" && codexFilteredHeaders[lower]
+}
+
+func codexWebSocketFingerprint(providerID uint64, target string, headers http.Header) string {
+	keys := make([]string, 0, len(headers))
+	for key := range headers {
+		keys = append(keys, strings.ToLower(key))
+	}
+	sort.Strings(keys)
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "%d\n%s\n", providerID, target)
+	for _, key := range keys {
+		builder.WriteString(key)
+		builder.WriteByte(':')
+		builder.WriteString(strings.Join(headers.Values(key), "\x00"))
+		builder.WriteByte('\n')
+	}
+	sum := sha256.Sum256([]byte(builder.String()))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func dialCodexWebSocket(ctx context.Context, target string, headers http.Header, fingerprint string) (*codexWebSocketSession, *http.Response, error) {
 	dialer := &websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  codexResponsesWebSocketHandshake,
@@ -477,7 +750,7 @@ func dialCodexWebSocket(ctx context.Context, target string, headers http.Header)
 			_ = response.Body.Close()
 		}
 	}
-	return newCodexWebSocketSession(conn, responseHeaders), response, nil
+	return newCodexWebSocketSession(conn, responseHeaders, fingerprint), response, nil
 }
 
 func readCodexWebSocketHandshakeBody(response *http.Response) []byte {
@@ -495,13 +768,24 @@ func classifyCodexWebSocketEvent(payload []byte, model string) *domain.ProxyErro
 		message = strings.TrimSpace(gjson.GetBytes(payload, "response.error.message").String())
 	}
 	if message == "" {
+		message = strings.TrimSpace(gjson.GetBytes(payload, "message").String())
+	}
+	if message == "" {
 		message = "upstream websocket returned an error"
 	}
 	code := strings.TrimSpace(gjson.GetBytes(payload, "error.code").String())
 	if code == "" {
 		code = strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String())
 	}
-	errorType := strings.ToLower(gjson.GetBytes(payload, "error.type").String() + " " + code)
+	if code == "" {
+		code = strings.TrimSpace(gjson.GetBytes(payload, "code").String())
+	}
+	errorType := strings.ToLower(strings.Join([]string{
+		gjson.GetBytes(payload, "error.type").String(),
+		gjson.GetBytes(payload, "response.error.type").String(),
+		gjson.GetBytes(payload, "type").String(),
+		code,
+	}, " "))
 	proxyErr := domain.NewProxyErrorWithMessage(errors.New(string(payload)), true, message)
 	proxyErr.Code = code
 	proxyErr.ClientType = string(domain.ClientTypeCodex)

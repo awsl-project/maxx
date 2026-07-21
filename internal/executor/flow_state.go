@@ -29,6 +29,7 @@ type execState struct {
 	originalRequestBody []byte
 	requestHeaders      http.Header
 	requestURI          string
+	wsExchange          *domain.ResponsesWebSocketExchange
 }
 
 func getExecState(c *flow.Ctx) (*execState, bool) {

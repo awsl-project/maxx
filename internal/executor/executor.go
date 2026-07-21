@@ -71,6 +71,12 @@ func (e *Executor) Use(handlers ...flow.HandlerFunc) {
 	e.middlewares = append(e.middlewares, handlers...)
 }
 
+func (e *Executor) CloseResponsesWebSocketConnection(connectionID string) {
+	if e != nil && e.router != nil {
+		e.router.CloseResponsesWebSocketConnection(connectionID)
+	}
+}
+
 // Execute runs the executor middleware chain with a new flow context.
 func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	c := flow.NewCtx(w, req)
