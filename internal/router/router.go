@@ -284,7 +284,13 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		// the historical routes.is_native snapshot for WebSocket eligibility.
 		native := domain.RouteIsNative(prov, route)
 		if ctx.RequireResponsesWebSocket {
-			if !native || !adapterSupportsResponsesWebSocket(adp) {
+			wsAdapter := adapterSupportsResponsesWebSocket(adp)
+			wsEnabled := domain.ProviderResponsesWebSocketEnabled(prov)
+			if !native || !wsAdapter || !wsEnabled {
+				log.Printf(
+					"[Router] skip codex websocket candidate provider=%d type=%s native=%v wsAdapter=%v wsEnabled=%v adapter=%T",
+					prov.ID, prov.Type, native, wsAdapter, wsEnabled, adp,
+				)
 				continue
 			}
 		}
@@ -398,6 +404,50 @@ func adapterSupportsResponsesWebSocket(adapter provider.ProviderAdapter) bool {
 	}
 	_, ok := adapter.(provider.ResponsesWebSocketAdapter)
 	return ok
+}
+
+// HasResponsesWebSocketProvider reports whether any enabled Codex route can
+// currently serve Responses over WebSocket (native + adapter + opt-in flag).
+// Used to reject the WebSocket upgrade with HTTP 426 so Codex clients fall
+// back to HTTP/SSE immediately (see codex-rs core websocket_fallback tests).
+func (r *Router) HasResponsesWebSocketProvider(tenantID uint64) bool {
+	if r == nil {
+		return false
+	}
+	routes, err := r.routeRepo.List(tenantID)
+	if err != nil {
+		return false
+	}
+	providers := r.providerRepo.GetAll()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, route := range routes {
+		if route == nil || !route.IsEnabled || route.ClientType != domain.ClientTypeCodex {
+			continue
+		}
+		if tenantID > 0 && route.TenantID != tenantID {
+			continue
+		}
+		prov, ok := providers[route.ProviderID]
+		if !ok || prov == nil {
+			continue
+		}
+		adp, ok := r.adapters[route.ProviderID]
+		if !ok {
+			continue
+		}
+		if !domain.RouteIsNative(prov, route) {
+			continue
+		}
+		if !adapterSupportsResponsesWebSocket(adp) {
+			continue
+		}
+		if !domain.ProviderResponsesWebSocketEnabled(prov) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (r *Router) CloseResponsesWebSocketConnection(connectionID string) {

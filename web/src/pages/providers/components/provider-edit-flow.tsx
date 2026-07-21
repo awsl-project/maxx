@@ -299,6 +299,8 @@ type EditFormData = {
   disableErrorCooldown?: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
+  // false/undefined = 不启用 Codex Responses WebSocket；true = 允许 WS 上游。
+  responsesWebSocket?: boolean;
 };
 
 export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
@@ -362,6 +364,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
       responsesPassthrough: provider.config?.custom?.responsesPassthrough,
+      responsesWebSocket: provider.config?.custom?.responsesWebSocket === true,
     };
   });
   const providerConfigIsWriteOnly = !!provider.excludeFromExport;
@@ -453,6 +456,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey: formData.apiKey.trim() || '',
             responsesPassthrough: formData.responsesPassthrough,
+            responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -521,6 +525,7 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
               (providerConfigIsWriteOnly ? '' : provider.config?.custom?.apiKey) ||
               '',
             responsesPassthrough: formData.responsesPassthrough,
+            responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -970,6 +975,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                     cloakSensitiveWords:
                       updates?.claudeCodeSensitiveWords ?? prev.cloakSensitiveWords,
                   }))
+                }
+                responsesWebSocket={formData.responsesWebSocket === true}
+                onUpdateResponsesWebSocket={(checked) =>
+                  setFormData((prev) => ({ ...prev, responsesWebSocket: checked }))
                 }
               />
             </div>

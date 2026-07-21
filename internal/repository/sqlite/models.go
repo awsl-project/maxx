@@ -127,8 +127,8 @@ func (Session) TableName() string { return "sessions" }
 // Route model
 type Route struct {
 	SoftDeleteModel
-	TenantID      uint64 `gorm:"index"`
-	IsEnabled     int    `gorm:"default:1"`
+	TenantID  uint64 `gorm:"index"`
+	IsEnabled int    `gorm:"default:1"`
 	// IsNative has no gorm default tag: a zero value must persist as 0.
 	// With default:1, GORM Create omits the field and the column falls back to 1.
 	IsNative      int
@@ -309,10 +309,12 @@ type ProxyRequest struct {
 	RouteID                     uint64
 	ProviderID                  uint64 `gorm:"index"`
 	IsStream                    int
-	StatusCode                  int
-	ProjectID                   uint64 `gorm:"index"`
-	APITokenID                  uint64
-	DevMode                     int `gorm:"default:0"`
+	// Protocol: "http" | "sse" | "websocket". Empty on pre-protocol historical rows.
+	Protocol   string `gorm:"size:16"`
+	StatusCode int
+	ProjectID  uint64 `gorm:"index"`
+	APITokenID uint64
+	DevMode    int `gorm:"default:0"`
 	// detail_cleared 列**故意不放在 struct 上**:
 	//
 	// 该列由 migration v15 raw SQL 添加,带有 500k 行 threshold-skip 保护。

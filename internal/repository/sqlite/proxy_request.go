@@ -147,7 +147,7 @@ func (r *ProxyRequestRepository) proxyRequestListSelectColumns(includeTTFT bool)
 	if includeTTFT {
 		columns += ", " + ttftColumn
 	}
-	columns += ", proxy_requests.is_stream, proxy_requests.status, proxy_requests.status_code, proxy_requests.error, proxy_requests.proxy_upstream_attempt_count, proxy_requests.final_proxy_upstream_attempt_id, " + routeIDColumn + ", " + providerIDColumn + ", proxy_requests.project_id, " + inputTokenColumn + ", " + outputTokenColumn + ", " + cacheReadColumn + ", " + cacheWriteColumn + ", " + cache5mWriteColumn + ", " + cache1hWriteColumn + ", " + costColumn + ", proxy_requests.api_token_id"
+	columns += ", proxy_requests.is_stream, proxy_requests.protocol, proxy_requests.status, proxy_requests.status_code, proxy_requests.error, proxy_requests.proxy_upstream_attempt_count, proxy_requests.final_proxy_upstream_attempt_id, " + routeIDColumn + ", " + providerIDColumn + ", proxy_requests.project_id, " + inputTokenColumn + ", " + outputTokenColumn + ", " + cacheReadColumn + ", " + cacheWriteColumn + ", " + cache5mWriteColumn + ", " + cache1hWriteColumn + ", " + costColumn + ", proxy_requests.api_token_id"
 	if r.hasReasoningEffortColumn {
 		columns += ", proxy_requests.reasoning_effort"
 	}
@@ -1045,6 +1045,7 @@ func (r *ProxyRequestRepository) toModelMeta(p *domain.ProxyRequest) *ProxyReque
 		DurationMs:                  p.Duration.Milliseconds(),
 		TTFTMs:                      p.TTFT.Milliseconds(),
 		IsStream:                    boolToInt(p.IsStream),
+		Protocol:                    p.Protocol,
 		Status:                      p.Status,
 		StatusCode:                  p.StatusCode,
 		Error:                       LongText(p.Error),
@@ -1086,6 +1087,7 @@ func (r *ProxyRequestRepository) toDomain(m *ProxyRequest) *domain.ProxyRequest 
 		Duration:                    time.Duration(m.DurationMs) * time.Millisecond,
 		TTFT:                        time.Duration(m.TTFTMs) * time.Millisecond,
 		IsStream:                    m.IsStream == 1,
+		Protocol:                    m.Protocol,
 		Status:                      m.Status,
 		StatusCode:                  m.StatusCode,
 		RequestInfo:                 fromJSON[*domain.RequestInfo](string(m.RequestInfo)),

@@ -130,6 +130,7 @@ export function CustomConfigStep() {
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
             apiKey: formData.apiKey,
             responsesPassthrough: formData.responsesPassthrough,
+            responsesWebSocket: formData.responsesWebSocket === true,
             clientBaseURL: Object.keys(clientBaseURL).length > 0 ? clientBaseURL : undefined,
             clientMultiplier:
               Object.keys(clientMultiplier).length > 0 ? clientMultiplier : undefined,
@@ -311,6 +312,10 @@ export function CustomConfigStep() {
                   cloakSensitiveWords:
                     updates?.claudeCodeSensitiveWords ?? formData.cloakSensitiveWords,
                 })
+              }
+              responsesWebSocket={formData.responsesWebSocket === true}
+              onUpdateResponsesWebSocket={(checked) =>
+                updateFormData({ responsesWebSocket: checked })
               }
             />
           </div>

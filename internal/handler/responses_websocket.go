@@ -220,6 +220,12 @@ func (h *ProxyHandler) serveResponsesWebSocket(w http.ResponseWriter, r *http.Re
 			if writeErr := writeResponsesWebSocketClientError(client, status, message, errorBody); writeErr != nil {
 				return
 			}
+			// No WS-capable providers left: close so the next handshake can return
+			// 426 and Codex falls back to HTTP/SSE instead of spinning reconnects.
+			if responsesWebSocketShouldForceReconnectForHTTPFallback(flowCtx.Err) {
+				client.close(websocket.CloseTryAgainLater, "websocket not supported; reconnect for HTTP fallback")
+				return
+			}
 			if responsesWebSocketTurnCommitted(flowCtx.Err) {
 				client.close(websocket.CloseInternalServerErr, "upstream websocket turn failed")
 				return
@@ -359,6 +365,10 @@ func responsesWebSocketTurnError(err error, writer *responsesWebSocketTurnWriter
 		if proxyErr.Code != "" {
 			detail["code"] = proxyErr.Code
 		}
+		// Hint Codex clients to use HTTP/SSE when no WS-capable provider exists.
+		if proxyErr.Code == "websocket_not_supported" || proxyErr.Code == "websocket_transport_unavailable" {
+			detail["fallback"] = "http_sse"
+		}
 		if encoded, marshalErr := jsonutil.Marshal(detail); marshalErr == nil {
 			errorBody = encoded
 		}
@@ -380,6 +390,22 @@ func responsesWebSocketTurnError(err error, writer *responsesWebSocketTurnWriter
 		}
 	}
 	return status, message, errorBody
+}
+
+func responsesWebSocketShouldForceReconnectForHTTPFallback(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, domain.ErrNoResponsesWebSocketProviders) {
+		return true
+	}
+	if proxyErr, ok := asHandlerProxyError(err); ok {
+		switch proxyErr.Code {
+		case "websocket_not_supported", "websocket_transport_unavailable":
+			return true
+		}
+	}
+	return false
 }
 
 func writeResponsesWebSocketClientError(client *responsesWebSocketClient, status int, message string, errorBody stdjson.RawMessage) error {

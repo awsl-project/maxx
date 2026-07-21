@@ -29,6 +29,9 @@ interface ClientsConfigSectionProps {
   onUpdateClient: (clientId: ClientType, updates: Partial<ClientConfig>) => void;
   disguise?: DisguiseProp;
   onUpdateDisguise?: (updates: Partial<DisguiseProp>) => void;
+  /** Codex client-level: allow Responses WebSocket upstream (custom providers). */
+  responsesWebSocket?: boolean;
+  onUpdateResponsesWebSocket?: (checked: boolean) => void;
 }
 
 // Separate component for multiplier input to manage local state
@@ -82,6 +85,8 @@ export function ClientsConfigSection({
   onUpdateClient,
   disguise,
   onUpdateDisguise,
+  responsesWebSocket,
+  onUpdateResponsesWebSocket,
 }: ClientsConfigSectionProps) {
   const { t } = useTranslation();
   return (
@@ -247,6 +252,27 @@ export function ClientsConfigSection({
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {client.id === 'codex' && onUpdateResponsesWebSocket && (
+                <div className="mt-5 space-y-4">
+                  <div className="border-t border-border/60" />
+                  <div className="flex items-center justify-between">
+                    <div className="pr-4">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">
+                        {t('provider.responsesWebSocket')}
+                      </label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t('provider.responsesWebSocketDesc')}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={responsesWebSocket === true}
+                      onCheckedChange={(checked) => onUpdateResponsesWebSocket(checked)}
+                      disabled={!client.enabled}
+                    />
+                  </div>
                 </div>
               )}
             </div>

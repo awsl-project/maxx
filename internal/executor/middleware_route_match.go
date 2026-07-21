@@ -47,10 +47,12 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, message)
 		if errors.Is(err, domain.ErrNoResponsesWebSocketProviders) {
-			message = "no eligible native Codex Responses WebSocket adapter is available"
+			// Tell Codex clients to fall back to HTTP/SSE when no provider
+			// opts into Responses WebSocket (or none are adapter-capable).
+			message = "no provider supports Codex Responses WebSocket; fall back to HTTP/SSE"
 			status = http.StatusServiceUnavailable
 			proxyErr = domain.NewProxyErrorWithMessage(err, true, message)
-			proxyErr.Code = "websocket_transport_unavailable"
+			proxyErr.Code = "websocket_not_supported"
 		} else if errors.Is(err, domain.ErrResponsesWebSocketSessionUnavailable) {
 			message = "the pinned Codex WebSocket provider/session is unavailable"
 			status = http.StatusBadGateway

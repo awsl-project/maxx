@@ -215,6 +215,10 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
   const [responsesPassthrough, setResponsesPassthrough] = useState(
     () => config?.responsesPassthrough !== false,
   );
+  // Native codex defaults WS on unless CLIProxy; explicit flag wins.
+  const [responsesWebSocket, setResponsesWebSocket] = useState(
+    () => config?.responsesWebSocket ?? !config?.useCLIProxyAPI,
+  );
 
   useEffect(() => {
     setUseCLIProxyAPI(config?.useCLIProxyAPI ?? false);
@@ -231,6 +235,9 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
   useEffect(() => {
     setResponsesPassthrough(config?.responsesPassthrough !== false);
   }, [config?.responsesPassthrough]);
+  useEffect(() => {
+    setResponsesWebSocket(config?.responsesWebSocket ?? !config?.useCLIProxyAPI);
+  }, [config?.responsesWebSocket, config?.useCLIProxyAPI]);
 
   const handleToggleCLIProxyAPI = async (checked: boolean) => {
     if (!config) return;
@@ -345,6 +352,29 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
       });
     } catch {
       setResponsesPassthrough(prev);
+    }
+  };
+
+  const handleToggleResponsesWebSocket = async (checked: boolean) => {
+    if (!config) return;
+    const prev = responsesWebSocket;
+    setResponsesWebSocket(checked);
+    try {
+      await updateProvider.mutateAsync({
+        id: provider.id,
+        data: {
+          ...provider,
+          config: {
+            ...provider.config,
+            codex: {
+              ...config,
+              responsesWebSocket: checked,
+            },
+          },
+        },
+      });
+    } catch {
+      setResponsesWebSocket(prev);
     }
   };
 
@@ -598,6 +628,22 @@ export function CodexProviderView({ provider, onDelete, onClose }: CodexProvider
                 <Switch
                   checked={responsesPassthrough}
                   onCheckedChange={handleToggleResponsesPassthrough}
+                  disabled={updateProvider.isPending}
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border">
+                <div className="pr-4">
+                  <div className="text-sm font-medium text-foreground">
+                    {t('providers.codex.responsesWebSocket')}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('providers.codex.responsesWebSocketDesc')}
+                  </p>
+                </div>
+                <Switch
+                  checked={responsesWebSocket}
+                  onCheckedChange={handleToggleResponsesWebSocket}
                   disabled={updateProvider.isPending}
                 />
               </div>

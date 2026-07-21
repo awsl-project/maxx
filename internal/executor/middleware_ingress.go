@@ -169,6 +169,7 @@ func (e *Executor) newProxyRequest(c *flow.Ctx, state *execState, status string)
 		ReasoningEffort: requestmeta.ReasoningEffort(reasoningBody),
 		StartTime:       time.Now(),
 		IsStream:        state.isStream,
+		Protocol:        domain.ResolveProxyRequestProtocol(state.isStream, state.wsExchange != nil),
 		Status:          status,
 		APITokenID:      state.apiTokenID,
 		DevMode:         state.apiTokenDevMode,
