@@ -135,19 +135,8 @@ func wsMatchedRoute(id, providerID uint64, adapter *recordingWSAdapter, native b
 
 func preWriteWSErr() *domain.ResponsesWebSocketAttemptError {
 	return &domain.ResponsesWebSocketAttemptError{
-		Err:                   errors.New("handshake failed before request frame write"),
-		SafeToTryNextProvider: true,
+		Err: errors.New("handshake failed before request frame write"),
 	}
-}
-
-func postWriteWSErr(flags domain.ResponsesWebSocketAttemptError) *domain.ResponsesWebSocketAttemptError {
-	flags.Err = errors.New("attempt failed after downstream commitment")
-	if !flags.SafeToTryNextProvider {
-		// Keep the flag true so tests assert the secondary safety gates
-		// (frame sent / first event / client write), not SafeToTryNext alone.
-		flags.SafeToTryNextProvider = true
-	}
-	return &flags
 }
 
 // dispatch must take the native WS path and never call ProviderAdapter.Execute.
@@ -192,8 +181,8 @@ func TestDispatch_ResponsesWebSocketBypassesHTTPExecute(t *testing.T) {
 	}
 }
 
-// Failover is allowed only while the attempt is still pre-write / pre-event.
-func TestDispatch_ResponsesWebSocketFailsOverBeforeClientWrite(t *testing.T) {
+// One WebSocket turn executes only the first matched provider; second is never tried.
+func TestDispatch_ResponsesWebSocketExecutesFirstProviderOnly(t *testing.T) {
 	first := &recordingWSAdapter{errSequence: []error{preWriteWSErr()}}
 	second := &recordingWSAdapter{resultModel: "gpt-test"}
 	frame := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
@@ -205,33 +194,25 @@ func TestDispatch_ResponsesWebSocketFailsOverBeforeClientWrite(t *testing.T) {
 
 	e.dispatch(c)
 
-	if c.Err != nil {
-		t.Fatalf("dispatch error: %v", c.Err)
+	if c.Err == nil {
+		t.Fatal("expected dispatch error from first provider")
 	}
 	if first.httpExecuteCalls != 0 || second.httpExecuteCalls != 0 {
 		t.Fatalf("HTTP Execute calls first=%d second=%d, want 0/0", first.httpExecuteCalls, second.httpExecuteCalls)
 	}
-	if first.wsCalls != 1 || second.wsCalls != 1 {
-		t.Fatalf("WS calls first=%d second=%d, want 1/1 (pre-write failover)", first.wsCalls, second.wsCalls)
+	if first.wsCalls != 1 || second.wsCalls != 0 {
+		t.Fatalf("WS calls first=%d second=%d, want 1/0 (no cross-provider fallback)", first.wsCalls, second.wsCalls)
 	}
-	if len(attemptRepo.created) != 2 {
-		t.Fatalf("created attempts = %d, want 2", len(attemptRepo.created))
+	if len(attemptRepo.created) != 1 {
+		t.Fatalf("created attempts = %d, want 1", len(attemptRepo.created))
 	}
-	if attemptRepo.created[0].ProviderID != 21 || attemptRepo.created[1].ProviderID != 22 {
-		t.Fatalf("attempt providers = [%d %d], want [21 22]",
-			attemptRepo.created[0].ProviderID, attemptRepo.created[1].ProviderID)
+	if attemptRepo.created[0].ProviderID != 21 {
+		t.Fatalf("attempt provider = %d, want 21", attemptRepo.created[0].ProviderID)
 	}
-	state, _ := getExecState(c)
-	if state.wsExchange.PinnedProviderID != 22 {
-		t.Fatalf("PinnedProviderID = %d, want second provider 22", state.wsExchange.PinnedProviderID)
-	}
-	last := proxyRepo.updated[len(proxyRepo.updated)-1]
-	if last.Status != "COMPLETED" || last.ProviderID != 22 {
-		t.Fatalf("final proxy = status=%s provider=%d, want COMPLETED/22", last.Status, last.ProviderID)
-	}
+	_ = proxyRepo
 }
 
-func TestDispatch_ResponsesWebSocketRecordsCooldownBeforeFailover(t *testing.T) {
+func TestDispatch_ResponsesWebSocketRecordsCooldownWithoutSecondProvider(t *testing.T) {
 	const firstProviderID = uint64(920021)
 	cooldown.Default().ClearCooldown(firstProviderID, string(domain.ClientTypeCodex), "")
 	t.Cleanup(func() {
@@ -242,8 +223,7 @@ func TestDispatch_ResponsesWebSocketRecordsCooldownBeforeFailover(t *testing.T) 
 	proxyErr.Reason = domain.CooldownReasonNetworkError
 	proxyErr.HTTPStatusCode = http.StatusBadGateway
 	first := &recordingWSAdapter{errSequence: []error{&domain.ResponsesWebSocketAttemptError{
-		Err:                   proxyErr,
-		SafeToTryNextProvider: true,
+		Err: proxyErr,
 	}}}
 	second := &recordingWSAdapter{resultModel: "gpt-test"}
 	frame := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
@@ -255,121 +235,80 @@ func TestDispatch_ResponsesWebSocketRecordsCooldownBeforeFailover(t *testing.T) 
 
 	e.dispatch(c)
 
+	if c.Err == nil {
+		t.Fatal("expected error without second provider")
+	}
+	if second.wsCalls != 0 {
+		t.Fatalf("second WS calls = %d, want 0", second.wsCalls)
+	}
+	if !cooldown.Default().IsInCooldown(firstProviderID, string(domain.ClientTypeCodex), "") {
+		t.Fatal("provider failure did not enter cooldown")
+	}
+	_ = proxyRepo
+	_ = attemptRepo
+}
+
+// Dispatcher no longer re-checks Route.IsNative — a stale false snapshot still executes.
+func TestDispatch_ResponsesWebSocketDoesNotRecheckStoredNativeFlag(t *testing.T) {
+	adapter := &recordingWSAdapter{resultModel: "gpt-test"}
+	frame := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
+	c, _, attemptRepo := newWSDispatchCtx(t, frame, nil, []*router.MatchedRoute{
+		wsMatchedRoute(1, 51, adapter, false),
+	})
+	e := newWSDispatchExecutor(&recordingProxyRequestRepo{}, attemptRepo)
+
+	e.dispatch(c)
+
 	if c.Err != nil {
 		t.Fatalf("dispatch error: %v", c.Err)
 	}
-	if !cooldown.Default().IsInCooldown(firstProviderID, string(domain.ClientTypeCodex), "") {
-		t.Fatal("pre-write provider failure did not enter cooldown before failover")
+	if adapter.wsCalls != 1 {
+		t.Fatalf("WS calls = %d, want 1 despite IsNative=false snapshot", adapter.wsCalls)
+	}
+	if len(attemptRepo.created) != 1 || attemptRepo.created[0].ProviderID != 51 {
+		t.Fatalf("attempts = %#v, want provider 51", attemptRepo.created)
 	}
 }
 
-// After a downstream frame/client write (or first event), failover is forbidden.
-func TestDispatch_ResponsesWebSocketNoFailoverAfterClientWrite(t *testing.T) {
-	cases := []struct {
-		name string
-		err  *domain.ResponsesWebSocketAttemptError
-	}{
-		{
-			name: "client_event_sent",
-			err:  postWriteWSErr(domain.ResponsesWebSocketAttemptError{ClientEventSent: true}),
-		},
-		{
-			name: "first_event_received",
-			err:  postWriteWSErr(domain.ResponsesWebSocketAttemptError{FirstEventReceived: true}),
-		},
-		{
-			name: "request_frame_may_have_been_sent",
-			err:  postWriteWSErr(domain.ResponsesWebSocketAttemptError{RequestFrameMayHaveBeenSent: true}),
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			first := &recordingWSAdapter{errSequence: []error{tc.err}}
-			second := &recordingWSAdapter{resultModel: "gpt-test"}
-			frame := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
-			c, proxyRepo, attemptRepo := newWSDispatchCtx(t, frame, nil, []*router.MatchedRoute{
-				wsMatchedRoute(1, 31, first, true),
-				wsMatchedRoute(2, 32, second, true),
-			})
-			e := newWSDispatchExecutor(proxyRepo, attemptRepo)
-
-			e.dispatch(c)
-
-			if c.Err == nil {
-				t.Fatal("expected dispatch error without failover")
-			}
-			if !errors.Is(c.Err, tc.err) {
-				t.Fatalf("c.Err = %v, want %v", c.Err, tc.err)
-			}
-			if first.wsCalls != 1 {
-				t.Fatalf("first WS calls = %d, want 1", first.wsCalls)
-			}
-			if second.wsCalls != 0 {
-				t.Fatalf("second WS calls = %d, want 0 (no failover after client/write commitment)", second.wsCalls)
-			}
-			if first.httpExecuteCalls != 0 || second.httpExecuteCalls != 0 {
-				t.Fatalf("HTTP Execute must stay unused; first=%d second=%d", first.httpExecuteCalls, second.httpExecuteCalls)
-			}
-			if len(attemptRepo.created) != 1 {
-				t.Fatalf("created attempts = %d, want 1", len(attemptRepo.created))
-			}
-			_ = proxyRepo
-		})
-	}
-}
-
-// A pinned session must not fail over even when the error is still "safe".
-func TestDispatch_ResponsesWebSocketNoFailoverWhenPinned(t *testing.T) {
-	first := &recordingWSAdapter{errSequence: []error{preWriteWSErr()}}
-	second := &recordingWSAdapter{resultModel: "gpt-test"}
-	frame := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
-	exchange := &domain.ResponsesWebSocketExchange{
-		ConnectionID:     "ws-conn-pinned",
-		Frame:            frame,
-		PinnedProviderID: 41,
-	}
-	c, _, attemptRepo := newWSDispatchCtx(t, frame, exchange, []*router.MatchedRoute{
-		wsMatchedRoute(1, 41, first, true),
-		wsMatchedRoute(2, 42, second, true),
+func TestDispatch_ResponsesWebSocketPreservesProtocolFields(t *testing.T) {
+	adapter := &recordingWSAdapter{}
+	frame := []byte(`{"type":"response.create","model":"gpt-test","stream":true,"store":true,"generate":false,"previous_response_id":"resp_1","stream_options":{"include_obfuscation":true},"client_metadata":{"x":1},"prompt_cache_key":"pc","input":[],"tools":[{"type":"function"}],"tool_choice":"auto","parallel_tool_calls":true,"unknown_field":"keep"}`)
+	c, _, _ := newWSDispatchCtx(t, frame, nil, []*router.MatchedRoute{
+		wsMatchedRoute(1, 61, adapter, true),
 	})
-	e := newWSDispatchExecutor(&recordingProxyRequestRepo{}, attemptRepo)
+	e := newWSDispatchExecutor(&recordingProxyRequestRepo{}, &recordingAttemptRepo{})
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch error: %v", c.Err)
+	}
+	for _, path := range []string{
+		"type", "stream", "store", "generate", "previous_response_id",
+		"stream_options", "client_metadata", "prompt_cache_key",
+		"input", "tools", "tool_choice", "parallel_tool_calls", "unknown_field",
+	} {
+		if !gjson.GetBytes(adapter.lastFrame, path).Exists() {
+			t.Fatalf("outbound frame lost field %q: %s", path, adapter.lastFrame)
+		}
+	}
+	if gjson.GetBytes(adapter.lastFrame, "type").String() != "response.create" {
+		t.Fatalf("type mutated: %s", adapter.lastFrame)
+	}
+}
+
+func TestDispatch_ResponsesWebSocketUnavailableWhenNoAdapter(t *testing.T) {
+	frame := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
+	c, _, _ := newWSDispatchCtx(t, frame, nil, []*router.MatchedRoute{})
+	e := newWSDispatchExecutor(&recordingProxyRequestRepo{}, &recordingAttemptRepo{})
 
 	e.dispatch(c)
 
 	if c.Err == nil {
-		t.Fatal("expected error when pinned provider fails")
+		t.Fatal("expected unavailable error")
 	}
-	if first.wsCalls != 1 || second.wsCalls != 0 {
-		t.Fatalf("WS calls first=%d second=%d, want 1/0 with pin", first.wsCalls, second.wsCalls)
-	}
-	if len(attemptRepo.created) != 1 || attemptRepo.created[0].ProviderID != 41 {
-		t.Fatalf("attempts = %#v, want single attempt on pinned provider 41", attemptRepo.created)
-	}
-}
-
-// Non-native routes are skipped even if the adapter implements the WS interface.
-func TestDispatch_ResponsesWebSocketSkipsNonNativeRoutes(t *testing.T) {
-	nonNative := &recordingWSAdapter{resultModel: "should-not-run"}
-	native := &recordingWSAdapter{resultModel: "gpt-test"}
-	frame := []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)
-	c, _, attemptRepo := newWSDispatchCtx(t, frame, nil, []*router.MatchedRoute{
-		wsMatchedRoute(1, 51, nonNative, false),
-		wsMatchedRoute(2, 52, native, true),
-	})
-	e := newWSDispatchExecutor(&recordingProxyRequestRepo{}, attemptRepo)
-
-	e.dispatch(c)
-
-	if c.Err != nil {
-		t.Fatalf("dispatch error: %v", c.Err)
-	}
-	if nonNative.wsCalls != 0 {
-		t.Fatalf("non-native WS calls = %d, want 0", nonNative.wsCalls)
-	}
-	if native.wsCalls != 1 {
-		t.Fatalf("native WS calls = %d, want 1", native.wsCalls)
-	}
-	if len(attemptRepo.created) != 1 || attemptRepo.created[0].ProviderID != 52 {
-		t.Fatalf("attempts = %#v, want provider 52 only", attemptRepo.created)
+	proxyErr, ok := asProxyError(c.Err)
+	if !ok || proxyErr.Code != "websocket_transport_unavailable" {
+		t.Fatalf("error = %#v, want websocket_transport_unavailable", c.Err)
 	}
 }

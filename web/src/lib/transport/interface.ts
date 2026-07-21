@@ -14,6 +14,7 @@ import type {
   Session,
   Route,
   CreateRouteData,
+  UpdateRouteData,
   RetryConfig,
   CreateRetryConfigData,
   RoutingStrategy,
@@ -125,7 +126,7 @@ export interface Transport {
   getRoutes(): Promise<Route[]>;
   getRoute(id: number): Promise<Route>;
   createRoute(data: CreateRouteData): Promise<Route>;
-  updateRoute(id: number, data: Partial<Route>): Promise<Route>;
+  updateRoute(id: number, data: UpdateRouteData): Promise<Route>;
   deleteRoute(id: number): Promise<void>;
   bulkDeleteRoutes(data: RouteBulkDeleteRequest): Promise<RouteBulkDeleteResult>;
   syncRoutesFromProject(data: RouteSyncRequest): Promise<RouteSyncResult>;

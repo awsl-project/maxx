@@ -129,7 +129,9 @@ type Route struct {
 	SoftDeleteModel
 	TenantID      uint64 `gorm:"index"`
 	IsEnabled     int    `gorm:"default:1"`
-	IsNative      int    `gorm:"default:1"`
+	// IsNative has no gorm default tag: a zero value must persist as 0.
+	// With default:1, GORM Create omits the field and the column falls back to 1.
+	IsNative      int
 	ProjectID     uint64
 	ClientType    string `gorm:"size:64"`
 	ProviderID    uint64

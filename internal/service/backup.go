@@ -56,6 +56,7 @@ func NewBackupService(
 // importContext holds ID mappings during import
 type importContext struct {
 	providerNameToID    map[string]uint64
+	providerByName      map[string]*domain.Provider
 	projectSlugToID     map[string]uint64
 	retryConfigNameToID map[string]uint64
 	apiTokenNameToID    map[string]uint64
@@ -68,6 +69,7 @@ type importContext struct {
 func newImportContext() *importContext {
 	return &importContext{
 		providerNameToID:    make(map[string]uint64),
+		providerByName:      make(map[string]*domain.Provider),
 		projectSlugToID:     make(map[string]uint64),
 		retryConfigNameToID: make(map[string]uint64),
 		apiTokenNameToID:    make(map[string]uint64),
@@ -86,6 +88,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 
 	// Build lookup maps for ID to name conversion
 	providerIDToName := make(map[uint64]string)
+	providerByID := make(map[uint64]*domain.Provider)
 	projectIDToSlug := make(map[uint64]string)
 	retryConfigIDToName := make(map[uint64]string)
 	apiTokenIDToName := make(map[uint64]string)
@@ -108,6 +111,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 		return nil, fmt.Errorf("failed to export providers: %w", err)
 	}
 	for _, p := range providers {
+		providerByID[p.ID] = p
 		if p.ExcludeFromExport || p.BlackBox {
 			continue
 		}
@@ -175,7 +179,7 @@ func (s *BackupService) Export(tenantID uint64) (*domain.BackupFile, error) {
 	for _, r := range routes {
 		backup.Data.Routes = append(backup.Data.Routes, domain.BackupRoute{
 			IsEnabled:       r.IsEnabled,
-			IsNative:        r.IsNative,
+			IsNative:        domain.RouteIsNative(providerByID[r.ProviderID], r),
 			ProjectSlug:     projectIDToSlug[r.ProjectID],
 			ClientType:      r.ClientType,
 			ProviderName:    providerIDToName[r.ProviderID],
@@ -324,6 +328,7 @@ func (s *BackupService) loadExistingMappings(tenantID uint64, ctx *importContext
 	}
 	for _, p := range providers {
 		ctx.providerNameToID[p.Name] = p.ID
+		ctx.providerByName[p.Name] = p
 	}
 	providerIDToName := make(map[uint64]string, len(providers))
 	for _, p := range providers {
@@ -533,6 +538,7 @@ func (s *BackupService) importProviders(tenantID uint64, providers []domain.Back
 			SupportedClientTypes: bp.SupportedClientTypes,
 			SupportModels:        bp.SupportModels,
 		}
+		domain.NormalizeProviderSupportedClientTypes(p)
 
 		if !opts.DryRun {
 			if err := s.providerRepo.Create(p); err != nil {
@@ -540,10 +546,13 @@ func (s *BackupService) importProviders(tenantID uint64, providers []domain.Back
 				continue
 			}
 			ctx.providerNameToID[bp.Name] = p.ID
+			ctx.providerByName[bp.Name] = p
 			// Refresh adapter
 			if s.adapterRefresher != nil {
 				s.adapterRefresher.RefreshAdapter(p)
 			}
+		} else {
+			ctx.providerByName[bp.Name] = p
 		}
 		summary.Imported++
 	}
@@ -698,10 +707,20 @@ func (s *BackupService) importRoutes(tenantID uint64, routes []domain.BackupRout
 		if weight <= 0 {
 			weight = 1
 		}
+
+		// Prefer in-memory provider capability (covers dry-run and just-imported
+		// providers). Fall back to repo lookup for providers that already existed.
+		provider := ctx.providerByName[br.ProviderName]
+		if provider == nil {
+			if existing, err := s.providerRepo.GetByID(tenantID, providerID); err == nil {
+				provider = existing
+			}
+		}
+
 		r := &domain.Route{
 			TenantID:      tenantID,
 			IsEnabled:     br.IsEnabled,
-			IsNative:      br.IsNative,
+			IsNative:      domain.ProviderNativelySupports(provider, br.ClientType),
 			ProjectID:     projectID,
 			ClientType:    br.ClientType,
 			ProviderID:    providerID,

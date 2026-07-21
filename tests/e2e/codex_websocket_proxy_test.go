@@ -174,6 +174,191 @@ func TestCodexWebSocketE2E_DeltaThenCloseSendsTerminalError(t *testing.T) {
 	}
 }
 
+// Client-supplied isNative is ignored; server derives true for native Codex providers.
+func TestCodexWebSocketDirectsThroughCanonicalNativeRoute(t *testing.T) {
+	var websocketConnections atomic.Int32
+	var codexHTTPPosts atomic.Int32
+	upstreamFrames := make(chan []byte, 1)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !websocket.IsWebSocketUpgrade(r) {
+			codexHTTPPosts.Add(1)
+			http.Error(w, "HTTP fallback is forbidden", http.StatusInternalServerError)
+			return
+		}
+		if r.URL.Path != "/v1/responses" {
+			t.Errorf("upstream path = %q, want /v1/responses", r.URL.Path)
+		}
+		conn, err := websocket.Upgrade(w, r, nil, 4096, 4096)
+		if err != nil {
+			t.Errorf("upgrade upstream: %v", err)
+			return
+		}
+		defer conn.Close()
+		websocketConnections.Add(1)
+		messageType, frame, readErr := conn.ReadMessage()
+		if readErr != nil {
+			t.Errorf("read upstream: %v", readErr)
+			return
+		}
+		if messageType != websocket.TextMessage {
+			t.Errorf("upstream message type = %d, want text", messageType)
+			return
+		}
+		upstreamFrames <- bytes.Clone(frame)
+		response := `{"type":"response.completed","response":{"id":"resp_canonical","model":"gpt-test","output":[]}}`
+		if writeErr := conn.WriteMessage(websocket.TextMessage, []byte(response)); writeErr != nil {
+			t.Errorf("write upstream: %v", writeErr)
+		}
+	}))
+	defer upstream.Close()
+
+	var openaiHTTPCalls atomic.Int32
+	openaiHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		openaiHTTPCalls.Add(1)
+		http.Error(w, "OpenAI conversion route must not be selected", http.StatusInternalServerError)
+	}))
+	defer openaiHTTP.Close()
+
+	env := NewProxyTestEnv(t)
+	codexProviderID := createCodexProvider(t, env, map[string]any{
+		"accessToken": "static-token",
+		"baseURL":     upstream.URL + "/v1",
+	})
+	// Deliberately submit isNative=false; server must recompute to true for codex→codex.
+	createResp := env.AdminPost("/api/admin/routes", map[string]any{
+		"isEnabled":  true,
+		"isNative":   false,
+		"clientType": "codex",
+		"providerID": codexProviderID,
+		"position":   1,
+	})
+	if createResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(createResp.Body)
+		createResp.Body.Close()
+		t.Fatalf("create route with isNative=false: status=%d body=%s", createResp.StatusCode, body)
+	}
+	var created struct {
+		ID       uint64 `json:"id"`
+		IsNative bool   `json:"isNative"`
+	}
+	DecodeJSON(t, createResp, &created)
+	if !created.IsNative {
+		t.Fatalf("create response isNative = false, want true (server-derived)")
+	}
+
+	getResp := env.AdminGet("/api/admin/routes/" + itoa(created.ID))
+	if getResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(getResp.Body)
+		getResp.Body.Close()
+		t.Fatalf("GET route: status=%d body=%s", getResp.StatusCode, body)
+	}
+	var fetched struct {
+		ID       uint64 `json:"id"`
+		IsNative bool   `json:"isNative"`
+	}
+	DecodeJSON(t, getResp, &fetched)
+	if !fetched.IsNative {
+		t.Fatalf("GET route isNative = false, want true")
+	}
+
+	// Competing non-native conversion candidate must not receive traffic.
+	openaiProviderID := createProvider(t, env, "OpenAI conversion candidate", openaiHTTP.URL, []string{"openai"})
+	createNativeRoute(t, env, "codex", openaiProviderID, 2)
+
+	downstreamURL := "ws" + strings.TrimPrefix(env.Server.URL, "http") + "/v1/responses"
+	downstream, response, err := websocket.DefaultDialer.Dial(downstreamURL, nil)
+	if err != nil {
+		if response != nil && response.Body != nil {
+			body, _ := io.ReadAll(response.Body)
+			response.Body.Close()
+			t.Fatalf("dial downstream: %v: %s", err, body)
+		}
+		t.Fatalf("dial downstream: %v", err)
+	}
+	defer downstream.Close()
+
+	frame := []byte(`{"type":"response.create","model":"gpt-test","stream":true,"store":true,"input":[]}`)
+	if err := downstream.WriteMessage(websocket.TextMessage, frame); err != nil {
+		t.Fatalf("write downstream: %v", err)
+	}
+	messageType, event, err := downstream.ReadMessage()
+	if err != nil {
+		t.Fatalf("read downstream: %v", err)
+	}
+	if messageType != websocket.TextMessage || !bytes.Contains(event, []byte(`"type":"response.completed"`)) {
+		t.Fatalf("downstream event = %s", event)
+	}
+	if got := <-upstreamFrames; !bytes.Equal(got, frame) {
+		t.Fatalf("upstream frame mutated:\n got %s\nwant %s", got, frame)
+	}
+	if got := websocketConnections.Load(); got != 1 {
+		t.Fatalf("upstream websocket connections = %d, want 1", got)
+	}
+	if got := codexHTTPPosts.Load(); got != 0 {
+		t.Fatalf("Codex HTTP POST calls = %d, want 0", got)
+	}
+	if got := openaiHTTPCalls.Load(); got != 0 {
+		t.Fatalf("OpenAI conversion HTTP calls = %d, want 0", got)
+	}
+}
+
+// OpenAI HTTP conversion routes are never eligible for Responses WebSocket.
+func TestCodexWebSocketRejectsOpenAIConversionRoute(t *testing.T) {
+	var openaiHTTPCalls atomic.Int32
+	openaiHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		openaiHTTPCalls.Add(1)
+		http.Error(w, "OpenAI HTTP upstream must not be called for WS", http.StatusInternalServerError)
+	}))
+	defer openaiHTTP.Close()
+
+	env := NewProxyTestEnv(t)
+	openaiProviderID := createProvider(t, env, "OpenAI conversion only", openaiHTTP.URL, []string{"openai"})
+	// Codex client route targeting an OpenAI-only provider is non-native conversion.
+	routeResp := env.AdminPost("/api/admin/routes", map[string]any{
+		"isEnabled":  true,
+		"isNative":   true, // client claim ignored; server derives false
+		"clientType": "codex",
+		"providerID": openaiProviderID,
+		"position":   1,
+	})
+	if routeResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(routeResp.Body)
+		routeResp.Body.Close()
+		t.Fatalf("create conversion route: status=%d body=%s", routeResp.StatusCode, body)
+	}
+	var route struct {
+		ID       uint64 `json:"id"`
+		IsNative bool   `json:"isNative"`
+	}
+	DecodeJSON(t, routeResp, &route)
+	if route.IsNative {
+		t.Fatalf("conversion route isNative = true, want false")
+	}
+
+	downstreamURL := "ws" + strings.TrimPrefix(env.Server.URL, "http") + "/v1/responses"
+	downstream, _, err := websocket.DefaultDialer.Dial(downstreamURL, nil)
+	if err != nil {
+		t.Fatalf("dial downstream: %v", err)
+	}
+	defer downstream.Close()
+	_ = downstream.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err = downstream.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)); err != nil {
+		t.Fatalf("write downstream: %v", err)
+	}
+	_, event, err := downstream.ReadMessage()
+	if err != nil {
+		t.Fatalf("read downstream error event: %v", err)
+	}
+	if !bytes.Contains(event, []byte(`"type":"error"`)) ||
+		!bytes.Contains(event, []byte(`"code":"websocket_transport_unavailable"`)) {
+		t.Fatalf("downstream event = %s, want websocket_transport_unavailable", event)
+	}
+	if got := openaiHTTPCalls.Load(); got != 0 {
+		t.Fatalf("OpenAI HTTP upstream calls = %d, want 0", got)
+	}
+}
+
 func createNativeRoute(t *testing.T, env *ProxyTestEnv, clientType string, providerID uint64, position int) uint64 {
 	t.Helper()
 	resp := env.AdminPost("/api/admin/routes", map[string]any{

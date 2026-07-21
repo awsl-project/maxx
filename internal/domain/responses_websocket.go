@@ -29,15 +29,21 @@ type ResponsesWebSocketResult struct {
 	ResponseModel string
 }
 
+// ResponsesWebSocketAttemptError describes a failed WS turn.
+// CapabilityFailure distinguishes unsupported-WS endpoints from ordinary
+// network/model errors for cooldown/unsupported-cache only — it must never
+// switch providers.
 type ResponsesWebSocketAttemptError struct {
 	Err error
 
-	SafeToTryNextProvider       bool
 	RequestFrameMayHaveBeenSent bool
 	FirstEventReceived          bool
 	ClientEventSent             bool
 	TerminalErrorEventSent      bool
-	CapabilityFailure           bool
+
+	// CapabilityFailure is used only for cooldown/unsupported cache.
+	// It must never trigger cross-provider fallback.
+	CapabilityFailure bool
 }
 
 func (e *ResponsesWebSocketAttemptError) Error() string {
@@ -52,9 +58,4 @@ func (e *ResponsesWebSocketAttemptError) Unwrap() error {
 		return nil
 	}
 	return e.Err
-}
-
-func (e *ResponsesWebSocketAttemptError) CanTryNextProvider() bool {
-	return e != nil && e.SafeToTryNextProvider &&
-		!e.RequestFrameMayHaveBeenSent && !e.FirstEventReceived && !e.ClientEventSent
 }

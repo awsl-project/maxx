@@ -255,7 +255,6 @@ function routesForScope(routes: Route[] | undefined, projectID: number, clientTy
 function routeConfigDiffers(target: Route, source: Route, position: number): boolean {
   return (
     target.isEnabled !== source.isEnabled ||
-    target.isNative !== source.isNative ||
     target.position !== position ||
     (target.weight || 1) !== (source.weight || 1) ||
     target.retryConfigID !== source.retryConfigID
@@ -591,7 +590,8 @@ function ClientTypeRoutesContentInner({
     for (const route of clientRoutes) {
       const provider = providerById.get(Number(route.providerID));
       if (!provider) continue;
-      const isNative = (provider.supportedClientTypes || []).includes(clientType);
+      // Existing routes: trust server-derived route.isNative only.
+      const isNative = route.isNative;
       allItems.push({
         id: `${clientType}-provider-${provider.id}`,
         provider,
@@ -774,7 +774,6 @@ function ClientTypeRoutesContentInner({
     } else {
       createRoute.mutate({
         isEnabled: true,
-        isNative: item.isNative,
         projectID,
         clientType,
         providerID: item.provider.id,
@@ -863,7 +862,6 @@ function ClientTypeRoutesContentInner({
       targetProviders.map((provider, index) =>
         createRoute.mutateAsync({
           isEnabled: true,
-          isNative: (provider.supportedClientTypes || []).includes(clientType),
           projectID,
           clientType,
           providerID: provider.id,

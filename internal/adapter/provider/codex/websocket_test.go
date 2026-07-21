@@ -227,8 +227,8 @@ func TestExecuteResponsesWebSocket_Upgrade404IsCachedSafeBeforeWrite(t *testing.
 		}
 		_, err := adapter.ExecuteResponsesWebSocket(newCodexWebSocketTestContext(t), provider, exchange)
 		var wsErr *domain.ResponsesWebSocketAttemptError
-		if !errors.As(err, &wsErr) || !wsErr.CapabilityFailure || !wsErr.CanTryNextProvider() {
-			t.Fatalf("turn %d error = %#v, want cached safe capability failure", turn, wsErr)
+		if !errors.As(err, &wsErr) || !wsErr.CapabilityFailure {
+			t.Fatalf("turn %d error = %#v, want cached capability failure", turn, wsErr)
 		}
 	}
 	if handshakes.Load() != 1 {
@@ -311,8 +311,8 @@ func TestExecuteResponsesWebSocket_SinkWriteErrorIsNotReplayable(t *testing.T) {
 	if !errors.As(err, &wsErr) || !errors.Is(err, sinkErr) {
 		t.Fatalf("error = %#v, want downstream write error", err)
 	}
-	if wsErr.CanTryNextProvider() || !wsErr.RequestFrameMayHaveBeenSent || !wsErr.FirstEventReceived {
-		t.Fatalf("attempt flags = %#v, want committed non-replayable failure", wsErr)
+	if !wsErr.RequestFrameMayHaveBeenSent || !wsErr.FirstEventReceived {
+		t.Fatalf("attempt flags = %#v, want committed failure", wsErr)
 	}
 }
 

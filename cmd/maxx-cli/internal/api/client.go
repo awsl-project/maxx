@@ -324,7 +324,8 @@ func (c *Client) CreateRoute(r *domain.Route) (*domain.Route, error) {
 }
 
 // UpdateRoute sends a partial JSON patch. The server picks up isEnabled,
-// isNative, projectID, clientType, providerID, position, weight, retryConfigID.
+// projectID, clientType, providerID, position, weight, retryConfigID.
+// isNative is server-derived and ignored if present.
 func (c *Client) UpdateRoute(id uint64, patch map[string]any) (*domain.Route, error) {
 	var out domain.Route
 	return &out, c.do(http.MethodPut, fmt.Sprintf("/api/admin/routes/%d", id), patch, &out)

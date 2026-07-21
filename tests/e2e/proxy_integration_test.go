@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/converter"
+	"github.com/awsl-project/maxx/internal/cooldown"
 	"github.com/awsl-project/maxx/internal/testutil/mockserver"
 	"github.com/tidwall/gjson"
 )
@@ -1148,15 +1149,25 @@ func TestProxyNoMatchingRoute(t *testing.T) {
 func TestProxyRouteWithoutConfiguredProviderRecordsRejectedRequest(t *testing.T) {
 	env := NewProxyTestEnv(t)
 
+	// Route create requires a resolvable provider (IsNative is server-derived).
+	// Put that provider into cooldown so Match skips every candidate and returns
+	// no_available_provider — equivalent to the old dangling providerID case.
+	providerID := createProvider(t, env, "cooldown-only-provider", "http://127.0.0.1:1", []string{"openai"})
 	routeResp := env.AdminPost("/api/admin/routes", map[string]any{
 		"isEnabled":  true,
-		"isNative":   false,
 		"clientType": "openai",
-		"providerID": 999999,
+		"providerID": providerID,
 		"projectID":  0,
 		"position":   1,
 	})
 	AssertStatus(t, routeResp, http.StatusCreated)
+
+	cooldown.Default().UpdateCooldown(providerID, "openai", "", time.Now().Add(time.Hour))
+	cooldown.Default().UpdateCooldown(providerID, "openai", "gpt-4o", time.Now().Add(time.Hour))
+	cooldown.Default().UpdateCooldown(providerID, "", "", time.Now().Add(time.Hour))
+	t.Cleanup(func() {
+		cooldown.Default().ClearCooldown(providerID, "", "")
+	})
 
 	resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
 	AssertStatus(t, resp, http.StatusServiceUnavailable)

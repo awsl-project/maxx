@@ -2,6 +2,7 @@ package codex
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -53,5 +54,18 @@ func isCodexWebSocketUnsupported(providerID uint64, target string) bool {
 func clearCodexWebSocketUnsupportedForTests() {
 	globalCodexWebSocketUnsupported.mu.Lock()
 	globalCodexWebSocketUnsupported.entries = make(map[string]codexWebSocketUnsupportedEntry)
+	globalCodexWebSocketUnsupported.mu.Unlock()
+}
+
+// clearCodexWebSocketUnsupported drops unsupported-cache entries for a
+// provider so configuration/URL updates can re-probe the endpoint.
+func clearCodexWebSocketUnsupported(providerID uint64) {
+	prefix := fmt.Sprintf("%d:", providerID)
+	globalCodexWebSocketUnsupported.mu.Lock()
+	for key := range globalCodexWebSocketUnsupported.entries {
+		if strings.HasPrefix(key, prefix) {
+			delete(globalCodexWebSocketUnsupported.entries, key)
+		}
+	}
 	globalCodexWebSocketUnsupported.mu.Unlock()
 }

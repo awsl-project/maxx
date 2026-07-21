@@ -638,11 +638,7 @@ func (h *AdminHandler) handleRoutes(w http.ResponseWriter, r *http.Request, id u
 				existing.IsEnabled = b
 			}
 		}
-		if v, ok := updates["isNative"]; ok {
-			if b, ok := v.(bool); ok {
-				existing.IsNative = b
-			}
-		}
+		// isNative is a server-derived field; ignore client-supplied values.
 		if v, ok := updates["projectID"]; ok {
 			if f, ok := v.(float64); ok {
 				existing.ProjectID = uint64(f)

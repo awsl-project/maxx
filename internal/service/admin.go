@@ -184,6 +184,12 @@ func (s *AdminService) UpdateProvider(tenantID uint64, provider *domain.Provider
 	if s.adapterRefresher != nil {
 		s.adapterRefresher.RefreshAdapter(provider)
 	}
+	// Best-effort: keep route is_native snapshots in sync with provider capability.
+	// Runtime match/API reads use canonical helpers, so a failed reconcile does
+	// not break request correctness.
+	if err := s.reconcileProviderRouteNative(tenantID, provider); err != nil {
+		log.Printf("[Admin] reconcile provider %d route native flags: %v", provider.ID, err)
+	}
 	return nil
 }
 
@@ -616,21 +622,131 @@ type ImportResult struct {
 
 // ===== Route API =====
 
+func cloneRoute(route *domain.Route) *domain.Route {
+	if route == nil {
+		return nil
+	}
+	cloned := *route
+	return &cloned
+}
+
+func (s *AdminService) canonicalRouteCopy(tenantID uint64, route *domain.Route) (*domain.Route, error) {
+	cloned := cloneRoute(route)
+	if cloned == nil || cloned.ProviderID == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	provider, err := s.providerRepo.GetByID(tenantID, cloned.ProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve route provider %d: %w", cloned.ProviderID, err)
+	}
+
+	cloned.TenantID = tenantID
+	cloned.IsNative = domain.RouteIsNative(provider, cloned)
+	return cloned, nil
+}
+
+func (s *AdminService) canonicalRouteCopies(tenantID uint64, routes []*domain.Route) ([]*domain.Route, error) {
+	providers, err := s.providerRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	providerByID := make(map[uint64]*domain.Provider, len(providers))
+	for _, provider := range providers {
+		providerByID[provider.ID] = provider
+	}
+
+	result := make([]*domain.Route, 0, len(routes))
+	for _, route := range routes {
+		cloned := cloneRoute(route)
+		if cloned == nil {
+			continue
+		}
+		cloned.IsNative = domain.RouteIsNative(providerByID[cloned.ProviderID], cloned)
+		result = append(result, cloned)
+	}
+	return result, nil
+}
+
+func (s *AdminService) reconcileProviderRouteNative(tenantID uint64, provider *domain.Provider) error {
+	if provider == nil {
+		return domain.ErrInvalidInput
+	}
+	if s.routeRepo == nil {
+		return nil
+	}
+
+	routes, err := s.routeRepo.List(tenantID)
+	if err != nil {
+		return err
+	}
+
+	for _, cachedRoute := range routes {
+		if cachedRoute == nil || cachedRoute.ProviderID != provider.ID {
+			continue
+		}
+
+		native := domain.RouteIsNative(provider, cachedRoute)
+		if cachedRoute.IsNative == native {
+			continue
+		}
+
+		updated := cloneRoute(cachedRoute)
+		updated.IsNative = native
+		if err := s.routeRepo.Update(updated); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *AdminService) GetRoutes(tenantID uint64) ([]*domain.Route, error) {
-	return s.routeRepo.List(tenantID)
+	routes, err := s.routeRepo.List(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.canonicalRouteCopies(tenantID, routes)
 }
 
 func (s *AdminService) GetRoute(tenantID uint64, id uint64) (*domain.Route, error) {
-	return s.routeRepo.GetByID(tenantID, id)
+	route, err := s.routeRepo.GetByID(tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.canonicalRouteCopy(tenantID, route)
 }
 
 func (s *AdminService) CreateRoute(tenantID uint64, route *domain.Route) error {
-	route.TenantID = tenantID
-	return s.routeRepo.Create(route)
+	canonical, err := s.canonicalRouteCopy(tenantID, route)
+	if err != nil {
+		return err
+	}
+
+	canonical.ID = 0
+	canonical.CreatedAt = time.Time{}
+	canonical.UpdatedAt = time.Time{}
+
+	if err := s.routeRepo.Create(canonical); err != nil {
+		return err
+	}
+
+	*route = *canonical
+	return nil
 }
 
 func (s *AdminService) UpdateRoute(tenantID uint64, route *domain.Route) error {
-	return s.routeRepo.Update(route)
+	canonical, err := s.canonicalRouteCopy(tenantID, route)
+	if err != nil {
+		return err
+	}
+
+	if err := s.routeRepo.Update(canonical); err != nil {
+		return err
+	}
+
+	*route = *canonical
+	return nil
 }
 
 func (s *AdminService) BatchUpdateRoutePositions(tenantID uint64, updates []domain.RoutePositionUpdate) error {
@@ -723,11 +839,15 @@ func (s *AdminService) SyncRoutesFromProject(tenantID uint64, req domain.RouteSy
 			}
 			maxPosition++
 			created := cloneRouteForTarget(source, tenantID, req.TargetProjectID, maxPosition)
-			if err := s.routeRepo.Create(created); err != nil {
+			canonical, err := s.canonicalRouteCopy(tenantID, created)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.routeRepo.Create(canonical); err != nil {
 				return nil, err
 			}
 			result.CreatedCount++
-			result.Routes = append(result.Routes, created)
+			result.Routes = append(result.Routes, canonical)
 		}
 	} else {
 		sourceProviderIDs := make(map[uint64]struct{}, len(sourceRoutes))
@@ -735,22 +855,35 @@ func (s *AdminService) SyncRoutesFromProject(tenantID uint64, req domain.RouteSy
 			sourceProviderIDs[source.ProviderID] = struct{}{}
 			position := index + 1
 			if target, exists := targetByProvider[source.ProviderID]; exists {
-				if copyRouteFields(target, source, position) {
-					if err := s.routeRepo.Update(target); err != nil {
+				updated := cloneRoute(target)
+				changed := copyRouteFields(updated, source, position)
+				canonical, err := s.canonicalRouteCopy(tenantID, updated)
+				if err != nil {
+					return nil, err
+				}
+				if canonical.IsNative != target.IsNative {
+					changed = true
+				}
+				if changed {
+					if err := s.routeRepo.Update(canonical); err != nil {
 						return nil, err
 					}
 					result.UpdatedCount++
 				}
-				result.Routes = append(result.Routes, target)
+				result.Routes = append(result.Routes, canonical)
 				continue
 			}
 
 			created := cloneRouteForTarget(source, tenantID, req.TargetProjectID, position)
-			if err := s.routeRepo.Create(created); err != nil {
+			canonical, err := s.canonicalRouteCopy(tenantID, created)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.routeRepo.Create(canonical); err != nil {
 				return nil, err
 			}
 			result.CreatedCount++
-			result.Routes = append(result.Routes, created)
+			result.Routes = append(result.Routes, canonical)
 		}
 
 		for _, target := range targetRoutes {
@@ -795,7 +928,8 @@ func cloneRouteForTarget(source *domain.Route, tenantID, targetProjectID uint64,
 	return &domain.Route{
 		TenantID:      tenantID,
 		IsEnabled:     source.IsEnabled,
-		IsNative:      source.IsNative,
+		// IsNative is always recomputed from provider capability before save.
+		IsNative:      false,
 		ProjectID:     targetProjectID,
 		ClientType:    source.ClientType,
 		ProviderID:    source.ProviderID,
@@ -811,10 +945,7 @@ func copyRouteFields(target, source *domain.Route, position int) bool {
 		target.IsEnabled = source.IsEnabled
 		changed = true
 	}
-	if target.IsNative != source.IsNative {
-		target.IsNative = source.IsNative
-		changed = true
-	}
+	// IsNative is not a syncable config field; it is recomputed by canonicalRouteCopy.
 	if target.Position != position {
 		target.Position = position
 		changed = true
@@ -1376,56 +1507,11 @@ func (s *AdminService) GetLogs(limit int) (*LogsResult, error) {
 
 // ===== Private helpers =====
 
-// autoSetSupportedClientTypes sets SupportedClientTypes based on provider type
+// autoSetSupportedClientTypes sets SupportedClientTypes based on provider type.
+// Delegates to domain.NormalizeProviderSupportedClientTypes so Admin, Backup,
+// Migration, and Router share one capability rule.
 func (s *AdminService) autoSetSupportedClientTypes(provider *domain.Provider) {
-	switch provider.Type {
-	case "antigravity":
-		// Antigravity natively supports Claude and Gemini.
-		// Conversion preference is Gemini-first.
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeGemini,
-			domain.ClientTypeClaude,
-		}
-	case "kiro":
-		// Kiro natively supports Claude protocol only
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeClaude,
-		}
-	case "codex":
-		// Codex natively supports Codex protocol only
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeCodex,
-		}
-	case "claude":
-		// Claude natively supports Claude protocol only
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeClaude,
-		}
-	case "custom", "newapi":
-		// Custom and new-api providers use their configured SupportedClientTypes.
-		// If not set, default to OpenAI (both are OpenAI-compatible relays).
-		if len(provider.SupportedClientTypes) == 0 {
-			provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
-		}
-	case "ollama":
-		// Ollama's custom-core path only supports Claude-compatible requests.
-		provider.SupportedClientTypes = []domain.ClientType{
-			domain.ClientTypeClaude,
-		}
-	case "openrouter":
-		// OpenRouter natively serves both the OpenAI and Anthropic protocols, so
-		// honor whatever the client configured. If left empty, default to both
-		// rather than leaving the provider with no serviceable client types.
-		if len(provider.SupportedClientTypes) == 0 {
-			provider.SupportedClientTypes = []domain.ClientType{
-				domain.ClientTypeClaude,
-				domain.ClientTypeOpenAI,
-			}
-		}
-	case "grok":
-		// Grok CPA xAI executor speaks OpenAI-compatible chat only.
-		provider.SupportedClientTypes = []domain.ClientType{domain.ClientTypeOpenAI}
-	}
+	domain.NormalizeProviderSupportedClientTypes(provider)
 }
 
 // ===== API Token API =====

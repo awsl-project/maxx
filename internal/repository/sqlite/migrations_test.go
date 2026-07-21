@@ -117,6 +117,7 @@ func TestLatestMigrationsAreOrderedAndUnique(t *testing.T) {
 	v18Count := 0
 	v19Count := 0
 	v20Count := 0
+	v21Count := 0
 	for _, migration := range migrations {
 		if migration.Version <= lastVersion {
 			t.Fatalf("migrations are not strictly ordered: v%d follows v%d", migration.Version, lastVersion)
@@ -131,9 +132,12 @@ func TestLatestMigrationsAreOrderedAndUnique(t *testing.T) {
 		if migration.Version == 20 {
 			v20Count++
 		}
+		if migration.Version == 21 {
+			v21Count++
+		}
 	}
-	if lastVersion != 20 {
-		t.Fatalf("latest migration = v%d, want v20", lastVersion)
+	if lastVersion != 21 {
+		t.Fatalf("latest migration = v%d, want v21", lastVersion)
 	}
 	if v18Count != 1 {
 		t.Fatalf("migration v18 registered %d times, want once", v18Count)
@@ -143,6 +147,217 @@ func TestLatestMigrationsAreOrderedAndUnique(t *testing.T) {
 	}
 	if v20Count != 1 {
 		t.Fatalf("migration v20 registered %d times, want once", v20Count)
+	}
+	if v21Count != 1 {
+		t.Fatalf("migration v21 registered %d times, want once", v21Count)
+	}
+}
+
+func TestMigrationV21CanonicalizesProviderClientTypes(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&Provider{}, &Route{}); err != nil {
+		t.Fatalf("AutoMigrate Provider/Route: %v", err)
+	}
+
+	fixtures := []struct {
+		name string
+		row  Provider
+		want string
+	}{
+		{
+			name: "codex ignores stale openai config",
+			row: Provider{
+				TenantID:             1,
+				Type:                 "codex",
+				Name:                 "codex-stale",
+				SupportedClientTypes: LongText(`["openai"]`),
+			},
+			want: `["codex"]`,
+		},
+		{
+			name: "custom empty defaults openai",
+			row: Provider{
+				TenantID:             1,
+				Type:                 "custom",
+				Name:                 "custom-empty",
+				SupportedClientTypes: LongText(""),
+			},
+			want: `["openai"]`,
+		},
+		{
+			name: "custom keeps configured openai",
+			row: Provider{
+				TenantID:             1,
+				Type:                 "custom",
+				Name:                 "custom-openai",
+				SupportedClientTypes: LongText(`["openai"]`),
+			},
+			want: `["openai"]`,
+		},
+		{
+			name: "custom keeps configured codex",
+			row: Provider{
+				TenantID:             1,
+				Type:                 "custom",
+				Name:                 "custom-codex",
+				SupportedClientTypes: LongText(`["codex"]`),
+			},
+			want: `["codex"]`,
+		},
+	}
+
+	for i := range fixtures {
+		if err := db.Create(&fixtures[i].row).Error; err != nil {
+			t.Fatalf("insert provider %s: %v", fixtures[i].name, err)
+		}
+	}
+
+	migration := findMigrationByVersion(t, 21)
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("run migration v21: %v", err)
+	}
+
+	for _, fixture := range fixtures {
+		var got string
+		if err := db.Model(&Provider{}).
+			Select("supported_client_types").
+			Where("id = ?", fixture.row.ID).
+			Scan(&got).Error; err != nil {
+			t.Fatalf("read provider %s supported_client_types: %v", fixture.name, err)
+		}
+		if got != fixture.want {
+			t.Fatalf("provider %s supported_client_types = %q, want %q", fixture.name, got, fixture.want)
+		}
+	}
+}
+
+func TestMigrationV21BackfillsRouteNativeFlags(t *testing.T) {
+	db := openRawSQLiteDB(t)
+	if err := db.AutoMigrate(&Provider{}, &Route{}); err != nil {
+		t.Fatalf("AutoMigrate Provider/Route: %v", err)
+	}
+
+	providers := map[string]*Provider{
+		"codex": {
+			TenantID:             1,
+			Type:                 "codex",
+			Name:                 "codex-provider",
+			SupportedClientTypes: LongText(`["openai"]`),
+		},
+		"custom-openai": {
+			TenantID:             1,
+			Type:                 "custom",
+			Name:                 "custom-openai-provider",
+			SupportedClientTypes: LongText(`["openai"]`),
+		},
+		"custom-empty": {
+			TenantID:             1,
+			Type:                 "custom",
+			Name:                 "custom-empty-provider",
+			SupportedClientTypes: LongText(""),
+		},
+		"custom-codex": {
+			TenantID:             1,
+			Type:                 "custom",
+			Name:                 "custom-codex-provider",
+			SupportedClientTypes: LongText(`["codex"]`),
+		},
+	}
+	for name, provider := range providers {
+		if err := db.Create(provider).Error; err != nil {
+			t.Fatalf("insert provider %s: %v", name, err)
+		}
+	}
+
+	type routeFixture struct {
+		name       string
+		route      Route
+		wantNative int
+	}
+	routes := []routeFixture{
+		{
+			name: "codex provider + codex route forces native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["codex"].ID,
+				ClientType: "codex",
+				IsNative:   0,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 1,
+		},
+		{
+			name: "custom openai + codex route clears native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["custom-openai"].ID,
+				ClientType: "codex",
+				IsNative:   1,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 0,
+		},
+		{
+			name: "custom empty defaults openai + codex route clears native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["custom-empty"].ID,
+				ClientType: "codex",
+				IsNative:   1,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 0,
+		},
+		{
+			name: "custom codex + codex route forces native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["custom-codex"].ID,
+				ClientType: "codex",
+				IsNative:   0,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 1,
+		},
+		{
+			name: "codex provider + openai route clears native",
+			route: Route{
+				TenantID:   1,
+				ProviderID: providers["codex"].ID,
+				ClientType: "openai",
+				IsNative:   1,
+				IsEnabled:  1,
+				Weight:     1,
+			},
+			wantNative: 0,
+		},
+	}
+	for i := range routes {
+		if err := db.Create(&routes[i].route).Error; err != nil {
+			t.Fatalf("insert route %s: %v", routes[i].name, err)
+		}
+	}
+
+	migration := findMigrationByVersion(t, 21)
+	if err := migration.Up(db); err != nil {
+		t.Fatalf("run migration v21: %v", err)
+	}
+
+	for _, fixture := range routes {
+		var got int
+		if err := db.Model(&Route{}).
+			Select("is_native").
+			Where("id = ?", fixture.route.ID).
+			Scan(&got).Error; err != nil {
+			t.Fatalf("read route %s is_native: %v", fixture.name, err)
+		}
+		if got != fixture.wantNative {
+			t.Fatalf("route %s is_native = %d, want %d", fixture.name, got, fixture.wantNative)
+		}
 	}
 }
 

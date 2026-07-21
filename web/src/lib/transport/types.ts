@@ -249,7 +249,8 @@ export interface Route {
   createdAt: string;
   updatedAt: string;
   isEnabled: boolean;
-  isNative: boolean; // 是否为原生支持（自动创建），false 表示转换支持（手动创建）
+  /** Server-derived: target provider natively supports clientType. Read-only. */
+  readonly isNative: boolean;
   projectID: number;
   clientType: ClientType;
   providerID: number;
@@ -271,7 +272,9 @@ export interface ProviderBulkDeleteResult {
   modelMappingDeletedCount: number;
 }
 
-export type CreateRouteData = Omit<Route, 'id' | 'createdAt' | 'updatedAt'>;
+export type CreateRouteData = Omit<Route, 'id' | 'createdAt' | 'updatedAt' | 'isNative'>;
+
+export type UpdateRouteData = Partial<CreateRouteData>;
 
 export interface RoutePositionUpdate {
   id: number;
