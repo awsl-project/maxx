@@ -6,8 +6,8 @@ import (
 
 type responsesWebSocketRequestKey struct{}
 
-// ResponsesWebSocketRequest carries the original downstream WebSocket event
-// alongside the HTTP/SSE fallback request built by the handler.
+// ResponsesWebSocketRequest carries the immutable response.create frame and
+// downstream WebSocket connection ID used by the control-plane request.
 type ResponsesWebSocketRequest struct {
 	SessionID string
 	Payload   []byte

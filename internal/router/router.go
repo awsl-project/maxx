@@ -51,13 +51,15 @@ type StickyWrite struct {
 // nil we fall back to context.Background; nil is allowed so existing
 // non-proxy call sites don't have to plumb a context in.
 type MatchContext struct {
-	Ctx          context.Context
-	TenantID     uint64
-	ClientType   domain.ClientType
-	ProjectID    uint64
-	RequestModel string
-	APITokenID   uint64
-	SessionID    string
+	Ctx                       context.Context
+	TenantID                  uint64
+	ClientType                domain.ClientType
+	ProjectID                 uint64
+	RequestModel              string
+	APITokenID                uint64
+	SessionID                 string
+	RequireResponsesWebSocket bool
+	RequiredProviderID        uint64
 }
 
 // Router handles route matching and selection
@@ -220,6 +222,9 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	}
 
 	if len(filtered) == 0 {
+		if ctx.RequireResponsesWebSocket {
+			return nil, domain.ErrNoResponsesWebSocketProviders
+		}
 		return nil, domain.ErrNoRoutes
 	}
 
@@ -272,6 +277,14 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		if !ok {
 			continue
 		}
+		if ctx.RequiredProviderID != 0 && prov.ID != ctx.RequiredProviderID {
+			continue
+		}
+		if ctx.RequireResponsesWebSocket {
+			if !route.IsNative || !adapterSupportsResponsesWebSocket(adp) {
+				continue
+			}
+		}
 
 		// Check if provider supports the request model only when the adapter
 		// natively speaks the request protocol. Converted routes (for example an
@@ -303,6 +316,12 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 	r.mu.RUnlock()
 
 	if len(matched) == 0 {
+		if ctx.RequireResponsesWebSocket {
+			if ctx.RequiredProviderID != 0 {
+				return nil, domain.ErrResponsesWebSocketSessionUnavailable
+			}
+			return nil, domain.ErrNoResponsesWebSocketProviders
+		}
 		// Only blame the model when the emptiness is entirely due to SupportModels
 		// rejections; a transient skip (cooldown) may hide a provider that does
 		// support it, so fall back to the generic error to avoid mislabeling.
@@ -362,6 +381,31 @@ func adapterSupportsClientType(adapter provider.ProviderAdapter, clientType doma
 		}
 	}
 	return false
+}
+
+func adapterSupportsResponsesWebSocket(adapter provider.ProviderAdapter) bool {
+	if adapter == nil || !adapterSupportsClientType(adapter, domain.ClientTypeCodex) {
+		return false
+	}
+	_, ok := adapter.(provider.ResponsesWebSocketAdapter)
+	return ok
+}
+
+func (r *Router) CloseResponsesWebSocketConnection(connectionID string) {
+	if r == nil || connectionID == "" {
+		return
+	}
+	r.mu.RLock()
+	cleaners := make([]provider.ResponsesWebSocketSessionCleaner, 0, len(r.adapters))
+	for _, adapter := range r.adapters {
+		if cleaner, ok := adapter.(provider.ResponsesWebSocketSessionCleaner); ok {
+			cleaners = append(cleaners, cleaner)
+		}
+	}
+	r.mu.RUnlock()
+	for _, cleaner := range cleaners {
+		cleaner.CloseResponsesWebSocketConnection(connectionID)
+	}
 }
 
 // isModelSupported checks if a model matches any pattern in the support list

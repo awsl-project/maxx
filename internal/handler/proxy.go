@@ -104,15 +104,19 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if h.uploadLimiter != nil {
 			readLimit = h.uploadLimiter.maxBytes
 		}
-		serveResponsesWebSocket(w, r, h, readLimit)
+		h.serveResponsesWebSocket(w, r, readLimit)
 		return
 	}
 
 	ctx := flow.NewCtx(w, r)
+	h.engine.HandleWith(ctx, h.proxyHandlers()...)
+}
+
+func (h *ProxyHandler) proxyHandlers() []flow.HandlerFunc {
 	handlers := make([]flow.HandlerFunc, len(h.extra)+1)
 	copy(handlers, h.extra)
 	handlers[len(h.extra)] = h.dispatch
-	h.engine.HandleWith(ctx, handlers...)
+	return handlers
 }
 
 func (h *ProxyHandler) ingress(c *flow.Ctx) {
@@ -355,6 +359,11 @@ func (h *ProxyHandler) dispatch(c *flow.Ctx) {
 
 	err := h.executor.ExecuteWith(c)
 	if err == nil {
+		return
+	}
+	if flow.GetResponsesWebSocketExchange(c) != nil {
+		c.Err = err
+		c.Abort()
 		return
 	}
 	proxyErr, ok := asHandlerProxyError(err)

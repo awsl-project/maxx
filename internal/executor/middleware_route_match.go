@@ -21,14 +21,21 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 		return
 	}
 
+	requireWS := state.wsExchange != nil
+	requiredProviderID := uint64(0)
+	if requireWS {
+		requiredProviderID = state.wsExchange.PinnedProviderID
+	}
 	result, err := e.router.Match(&router.MatchContext{
-		Ctx:          state.ctx,
-		TenantID:     state.tenantID,
-		ClientType:   state.clientType,
-		ProjectID:    state.projectID,
-		RequestModel: state.requestModel,
-		APITokenID:   state.apiTokenID,
-		SessionID:    state.sessionID,
+		Ctx:                       state.ctx,
+		TenantID:                  state.tenantID,
+		ClientType:                state.clientType,
+		ProjectID:                 state.projectID,
+		RequestModel:              state.requestModel,
+		APITokenID:                state.apiTokenID,
+		SessionID:                 state.sessionID,
+		RequireResponsesWebSocket: requireWS,
+		RequiredProviderID:        requiredProviderID,
 	})
 	if err != nil {
 		// Default: the match failed for a transient/server reason (no routes, all
@@ -39,7 +46,17 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 		status := http.StatusServiceUnavailable
 
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, message)
-		if errors.Is(err, domain.ErrModelNotSupported) {
+		if errors.Is(err, domain.ErrNoResponsesWebSocketProviders) {
+			message = "no native Codex Responses WebSocket provider is available"
+			status = http.StatusServiceUnavailable
+			proxyErr = domain.NewProxyErrorWithMessage(err, true, message)
+			proxyErr.Code = "websocket_transport_unavailable"
+		} else if errors.Is(err, domain.ErrResponsesWebSocketSessionUnavailable) {
+			message = "the pinned Codex WebSocket provider/session is unavailable"
+			status = http.StatusBadGateway
+			proxyErr = domain.NewProxyErrorWithMessage(err, false, message)
+			proxyErr.Code = "websocket_session_unavailable"
+		} else if errors.Is(err, domain.ErrModelNotSupported) {
 			message = fmt.Sprintf("model %q is not supported by any configured provider", state.requestModel)
 			status = http.StatusBadRequest
 			proxyErr = domain.NewProxyErrorWithMessage(domain.ErrModelNotSupported, false, message)

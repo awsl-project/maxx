@@ -86,6 +86,24 @@ func (e *Executor) ingress(c *flow.Ctx) {
 			state.requestURI = uri
 		}
 	}
+	state.wsExchange = flow.GetResponsesWebSocketExchange(c)
+	if state.wsExchange != nil {
+		if state.clientType != domain.ClientTypeCodex {
+			proxyErr := domain.NewProxyErrorWithMessage(
+				domain.ErrResponsesWebSocketProtocol,
+				false,
+				"responses websocket request was not detected as Codex",
+			)
+			proxyErr.Scope = domain.ScopeRequest
+			proxyErr.Code = "websocket_protocol_error"
+			proxyErr.HTTPStatusCode = http.StatusBadRequest
+			state.lastErr = proxyErr
+			c.Err = proxyErr
+			c.Abort()
+			return
+		}
+		state.isStream = true
+	}
 
 	state.ctx = ctx
 
