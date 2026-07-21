@@ -307,19 +307,19 @@ func TestDispatchFailsClosedWhenOpenAIToClaudeResponseConversionFails(t *testing
 	}
 }
 
-func newClaudeOpenAIConversionTestExecutor(proxyRepo *codexGuardProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
+func newClaudeOpenAIConversionTestExecutor(proxyRepo *recordingProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
 	return &Executor{
 		proxyRequestRepo: proxyRepo,
 		attemptRepo:      attemptRepo,
-		modelMappingRepo: &codexGuardModelMappingRepo{},
-		settingsRepo:     &codexGuardSettingsRepo{},
+		modelMappingRepo: &stubModelMappingRepo{},
+		settingsRepo:     &stubExecutorSettingsRepo{},
 		converter:        converter.GetGlobalRegistry(),
 	}
 }
 
-func newClaudeOpenAIConversionDispatchCtx(t *testing.T, requestBody string, adapter *openAIOnlyConversionAdapter) (*flow.Ctx, *codexGuardProxyRequestRepo, *recordingAttemptRepo) {
+func newClaudeOpenAIConversionDispatchCtx(t *testing.T, requestBody string, adapter *openAIOnlyConversionAdapter) (*flow.Ctx, *recordingProxyRequestRepo, *recordingAttemptRepo) {
 	t.Helper()
-	proxyRepo := &codexGuardProxyRequestRepo{}
+	proxyRepo := &recordingProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(requestBody)).WithContext(context.Background())
@@ -362,7 +362,7 @@ func newClaudeOpenAIConversionDispatchCtx(t *testing.T, requestBody string, adap
 }
 
 type staticModelMappingRepo struct {
-	codexGuardModelMappingRepo
+	stubModelMappingRepo
 	mappings []*domain.ModelMapping
 }
 
@@ -370,21 +370,21 @@ func (r *staticModelMappingRepo) ListByQuery(uint64, *domain.ModelMappingQuery) 
 	return r.mappings, nil
 }
 
-func newOpenAIClaudeConversionTestExecutor(proxyRepo *codexGuardProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
+func newOpenAIClaudeConversionTestExecutor(proxyRepo *recordingProxyRequestRepo, attemptRepo *recordingAttemptRepo) *Executor {
 	return &Executor{
 		proxyRequestRepo: proxyRepo,
 		attemptRepo:      attemptRepo,
 		modelMappingRepo: &staticModelMappingRepo{mappings: []*domain.ModelMapping{
 			{Pattern: "gpt-4o", Target: "claude-3-5-sonnet", Priority: 0},
 		}},
-		settingsRepo: &codexGuardSettingsRepo{},
+		settingsRepo: &stubExecutorSettingsRepo{},
 		converter:    converter.GetGlobalRegistry(),
 	}
 }
 
-func newOpenAIClaudeConversionDispatchCtx(t *testing.T, requestBody string, adapter *claudeOnlyConversionAdapter) (*flow.Ctx, *codexGuardProxyRequestRepo, *recordingAttemptRepo) {
+func newOpenAIClaudeConversionDispatchCtx(t *testing.T, requestBody string, adapter *claudeOnlyConversionAdapter) (*flow.Ctx, *recordingProxyRequestRepo, *recordingAttemptRepo) {
 	t.Helper()
-	proxyRepo := &codexGuardProxyRequestRepo{}
+	proxyRepo := &recordingProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(requestBody)).WithContext(context.Background())

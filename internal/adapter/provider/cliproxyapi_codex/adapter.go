@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/adapter/provider"
-	"github.com/awsl-project/maxx/internal/codexguard"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/flow"
 	"github.com/awsl-project/maxx/internal/usage"
@@ -332,10 +331,6 @@ func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseW
 		return proxyErr
 	}
 
-	if proxyErr := codexReasoningGuardProxyError(c, resp.Payload); proxyErr != nil {
-		return proxyErr
-	}
-
 	if eventChan := flow.GetEventChan(c); eventChan != nil {
 		// Send response info
 		eventChan.SendResponseInfo(&domain.ResponseInfo{
@@ -363,34 +358,6 @@ func (a *CLIProxyAPICodexAdapter) executeNonStream(c *flow.Ctx, w http.ResponseW
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(resp.Payload)
 
-	return nil
-}
-
-func codexReasoningGuardProxyError(c *flow.Ctx, body []byte) *domain.ProxyError {
-	v, ok := c.Get(flow.KeyCodexReasoningGuard)
-	if !ok {
-		return nil
-	}
-	cfg, ok := v.(codexguard.Config)
-	if !ok || !cfg.Enabled || cfg.Mode != codexguard.ModeNonStream {
-		return nil
-	}
-
-	tokens, err := codexguard.ExtractReasoningTokensFromJSON(body)
-	if err != nil {
-		log.Printf("[CLIProxyAPI-Codex] reasoning guard skipped invalid JSON response: %v", err)
-		return nil
-	}
-	for _, token := range tokens {
-		if codexguard.IsBlockedToken(token, cfg.BlockedReasoningTokens) {
-			guardErr := codexguard.NewReasoningGuardError(token, cfg)
-			proxyErr := domain.NewProxyErrorWithMessage(guardErr, false, "codex reasoning guard triggered")
-			proxyErr.Scope = domain.ScopeRequest
-			proxyErr.HTTPStatusCode = guardErr.StatusCode
-			proxyErr.Code = guardErr.ErrorCode
-			return proxyErr
-		}
-	}
 	return nil
 }
 

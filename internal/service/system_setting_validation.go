@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/awsl-project/maxx/internal/codexguard"
 	"github.com/awsl-project/maxx/internal/domain"
 	"github.com/awsl-project/maxx/internal/reqpolicy"
 )
@@ -14,8 +13,6 @@ func validateSystemSettingValue(key, value string) error {
 	switch key {
 	case domain.SettingKeyReasoningPolicy:
 		return reqpolicy.ValidatePolicyJSON(value)
-	case domain.SettingKeyCodexReasoningGuard:
-		return validateCodexReasoningGuardSetting(value)
 	case domain.SettingKeyForceRetryUpstreamErrors, domain.SettingKeyRequestFailureDetailsEnabled:
 		return validateBooleanSystemSetting(key, value)
 	case domain.SettingKeyRateLimitCooldownDefaultSeconds:
@@ -42,16 +39,6 @@ func validateRateLimitCooldownDefaultSeconds(value string) error {
 	seconds, err := strconv.Atoi(trimmed)
 	if err != nil || seconds < 1 || seconds > 86400 {
 		return fmt.Errorf("%w: %s must be an integer between 1 and 86400", domain.ErrInvalidInput, domain.SettingKeyRateLimitCooldownDefaultSeconds)
-	}
-	return nil
-}
-
-func validateCodexReasoningGuardSetting(value string) error {
-	if strings.TrimSpace(value) == "" {
-		return fmt.Errorf("%w: %s cannot be empty", domain.ErrInvalidInput, domain.SettingKeyCodexReasoningGuard)
-	}
-	if _, err := codexguard.ParseConfigJSON([]byte(value)); err != nil {
-		return fmt.Errorf("%w: invalid %s: %v", domain.ErrInvalidInput, domain.SettingKeyCodexReasoningGuard, err)
 	}
 	return nil
 }

@@ -365,7 +365,7 @@ func TestExecuteProviderProxyRetriesSameProvider(t *testing.T) {
 	cooldown.Default().ClearCooldown(providerID, "", "")
 	defer cooldown.Default().ClearCooldown(providerID, "", "")
 
-	proxyRepo := &codexGuardProxyRequestRepo{}
+	proxyRepo := &recordingProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
 	retryErr := domain.NewScopedProxyError(domain.ErrUpstreamError, domain.ScopeProvider, domain.CooldownReasonNetworkError)
 	retryErr.Message = "failed to connect to upstream"
@@ -467,7 +467,7 @@ func TestExecuteProviderProxyFreezesNetworkErrorAfterRetryExhaustion(t *testing.
 	retryErr2.Message = "failed to connect to upstream"
 	adapter := &sequenceAdapter{errs: []error{retryErr1, retryErr2}}
 	e := &Executor{
-		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		proxyRequestRepo: &recordingProxyRequestRepo{},
 		attemptRepo:      &recordingAttemptRepo{},
 		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
 			MaxRetries:      1,
@@ -522,7 +522,7 @@ func TestExecuteProviderProxyRetriesWrappedUpstreamConnectionError(t *testing.T)
 	adapterErr := domain.NewUpstreamConnectionError("failed to connect to upstream")
 	adapter := &sequenceAdapter{errs: []error{fmt.Errorf("adapter wrapper: %w", adapterErr)}}
 	e := &Executor{
-		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		proxyRequestRepo: &recordingProxyRequestRepo{},
 		attemptRepo:      &recordingAttemptRepo{},
 		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
 			MaxRetries:      1,
@@ -572,7 +572,7 @@ func TestExecuteProviderProxyNormalizesLegacyUpstreamConnectionError(t *testing.
 	legacyErr := domain.NewProxyErrorWithMessage(domain.ErrUpstreamError, false, "failed to connect to upstream")
 	adapter := &sequenceAdapter{errs: []error{legacyErr}}
 	e := &Executor{
-		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		proxyRequestRepo: &recordingProxyRequestRepo{},
 		attemptRepo:      &recordingAttemptRepo{},
 		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
 			MaxRetries:      1,
@@ -619,7 +619,7 @@ func TestExecuteProviderProxyHonorsZeroMaxRetries(t *testing.T) {
 	retryErr.Message = "failed to connect to upstream"
 	adapter := &sequenceAdapter{errs: []error{retryErr, nil}}
 	e := &Executor{
-		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		proxyRequestRepo: &recordingProxyRequestRepo{},
 		attemptRepo:      &recordingAttemptRepo{},
 		retryConfigRepo: &staticRetryConfigRepo{defaultConfig: &domain.RetryConfig{
 			MaxRetries:      0,

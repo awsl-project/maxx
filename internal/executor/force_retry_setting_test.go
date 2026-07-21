@@ -218,9 +218,9 @@ func newForceRetryDispatchHarnessWithContext(
 	}
 	c.Set(flow.KeyExecutorState, state)
 	e := &Executor{
-		proxyRequestRepo: &codexGuardProxyRequestRepo{},
+		proxyRequestRepo: &recordingProxyRequestRepo{},
 		attemptRepo:      &recordingAttemptRepo{},
-		modelMappingRepo: &codexGuardModelMappingRepo{},
+		modelMappingRepo: &stubModelMappingRepo{},
 		settingsRepo: &forceRetrySettingsRepo{values: map[string]string{
 			domain.SettingKeyForceRetryUpstreamErrors: map[bool]string{true: "true", false: "false"}[forceRetry],
 		}},
