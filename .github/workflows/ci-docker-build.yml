@@ -37,14 +37,26 @@ jobs:
 
       - name: Set image name
         id: image
+        env:
+          # Pass via env to avoid Actions template injection into the shell script.
+          RAW_TAG: ${{ inputs.tag || github.event.inputs.tag || github.ref_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REGISTRY: ${{ env.REGISTRY }}
         run: |
-          echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          NAME="${GITHUB_REPOSITORY,,}"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           # workflow_call / workflow_dispatch may pass inputs.tag; otherwise use ref name.
           # Sanitize branch names so tags are valid docker references.
-          RAW="${{ inputs.tag || github.event.inputs.tag || github.ref_name }}"
+          RAW="$RAW_TAG"
           TAG=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' | sed 's#/#-#g' | sed 's/[^a-z0-9._-]/-/g')
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "raw=${RAW}" >> "$GITHUB_OUTPUT"
+          TAGS="${REGISTRY}/${NAME}:${TAG}"
+          # Only default-branch builds should retag :latest (not fix/** deploy probes).
+          if [ "$REF_NAME" = "main" ] || [ "$REF_NAME" = "master" ]; then
+            TAGS="${TAGS},${REGISTRY}/${NAME}:latest"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -114,6 +126,4 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: mode=max
           sbom: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:latest
+          tags: ${{ steps.image.outputs.tags }}

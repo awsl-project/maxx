@@ -146,26 +146,52 @@ func (wsRouterStrategyRepo) GetByProjectID(uint64, uint64) (*domain.RoutingStrat
 }
 func (wsRouterStrategyRepo) List(uint64) ([]*domain.RoutingStrategy, error) { return nil, nil }
 
-type wsRouterProjectRepo struct{}
+type wsRouterProjectRepo struct{ projects []*domain.Project }
 
-func (wsRouterProjectRepo) Create(*domain.Project) error { return nil }
-func (wsRouterProjectRepo) Update(*domain.Project) error { return nil }
-func (wsRouterProjectRepo) Delete(uint64, uint64) error  { return nil }
-func (wsRouterProjectRepo) GetByID(uint64, uint64) (*domain.Project, error) {
+func (r *wsRouterProjectRepo) Create(p *domain.Project) error {
+	r.projects = append(r.projects, p)
+	return nil
+}
+func (r *wsRouterProjectRepo) Update(*domain.Project) error { return nil }
+func (r *wsRouterProjectRepo) Delete(uint64, uint64) error  { return nil }
+func (r *wsRouterProjectRepo) GetByID(tenantID, id uint64) (*domain.Project, error) {
+	for _, p := range r.projects {
+		if p.TenantID == tenantID && p.ID == id {
+			return p, nil
+		}
+	}
 	return nil, domain.ErrNotFound
 }
-func (wsRouterProjectRepo) GetBySlug(uint64, string) (*domain.Project, error) {
+func (r *wsRouterProjectRepo) GetBySlug(uint64, string) (*domain.Project, error) {
 	return nil, domain.ErrNotFound
 }
-func (wsRouterProjectRepo) List(uint64) ([]*domain.Project, error) { return nil, nil }
+func (r *wsRouterProjectRepo) List(tenantID uint64) ([]*domain.Project, error) {
+	var out []*domain.Project
+	for _, p := range r.projects {
+		if tenantID == domain.TenantIDAll || p.TenantID == tenantID {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
 
 func newResponsesWebSocketTestRouter(t *testing.T, routes []*domain.Route, providers []*domain.Provider) *Router {
+	t.Helper()
+	return newResponsesWebSocketTestRouterWithProjects(t, routes, providers, nil)
+}
+
+func newResponsesWebSocketTestRouterWithProjects(
+	t *testing.T,
+	routes []*domain.Route,
+	providers []*domain.Provider,
+	projects []*domain.Project,
+) *Router {
 	t.Helper()
 	routeRepo := cached.NewRouteRepository(&wsRouterRouteRepo{routes: routes})
 	providerRepo := cached.NewProviderRepository(&wsRouterProviderRepo{providers: providers})
 	retryRepo := cached.NewRetryConfigRepository(wsRouterRetryRepo{})
 	strategyRepo := cached.NewRoutingStrategyRepository(wsRouterStrategyRepo{})
-	projectRepo := cached.NewProjectRepository(wsRouterProjectRepo{})
+	projectRepo := cached.NewProjectRepository(&wsRouterProjectRepo{projects: projects})
 	for name, load := range map[string]func() error{
 		"routes":     routeRepo.Load,
 		"providers":  providerRepo.Load,
@@ -204,7 +230,7 @@ func TestHasResponsesWebSocketProvider(t *testing.T) {
 			{ID: 101, TenantID: 1, Type: wsRouterNativeType, Name: "ws", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
 		},
 	)
-	if !r.HasResponsesWebSocketProvider(1) {
+	if !r.HasResponsesWebSocketProvider(1, 0) {
 		t.Fatal("expected HasResponsesWebSocketProvider true for native WS adapter")
 	}
 
@@ -216,13 +242,50 @@ func TestHasResponsesWebSocketProvider(t *testing.T) {
 			{ID: 201, TenantID: 1, Type: wsRouterHTTPOnlyType, Name: "http-only", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
 		},
 	)
-	if rHTTPOnly.HasResponsesWebSocketProvider(1) {
+	if rHTTPOnly.HasResponsesWebSocketProvider(1, 0) {
 		t.Fatal("HTTP-only adapter should not count as WebSocket-capable")
 	}
 
 	rEmpty := newResponsesWebSocketTestRouter(t, nil, nil)
-	if rEmpty.HasResponsesWebSocketProvider(1) {
+	if rEmpty.HasResponsesWebSocketProvider(1, 0) {
 		t.Fatal("empty routes should not report WebSocket capability")
+	}
+
+	// Project-only WS routes must not make the global (projectID=0) pre-check pass.
+	// Otherwise upgrade succeeds (101) and Codex will not auto-fallback to SSE.
+	rProjectOnly := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProjectID: 9, ProviderID: 301, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+		},
+		[]*domain.Provider{
+			{ID: 301, TenantID: 1, Type: wsRouterNativeType, Name: "project-ws", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+	if rProjectOnly.HasResponsesWebSocketProvider(1, 0) {
+		t.Fatal("project-only WS route must not satisfy global projectID=0 check")
+	}
+
+	// Project custom Codex routes exist but are HTTP-only, while global is WS.
+	// Match uses only project routes → no WS. Pre-check must be false so callers
+	// return 426 (not 101 + later failure).
+	rProjectHTTPOnlyWithGlobalWS := newResponsesWebSocketTestRouterWithProjects(t,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProjectID: 9, ProviderID: 401, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+			{ID: 2, TenantID: 1, ProjectID: 0, ProviderID: 402, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 2},
+		},
+		[]*domain.Provider{
+			{ID: 401, TenantID: 1, Type: wsRouterHTTPOnlyType, Name: "project-http", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			{ID: 402, TenantID: 1, Type: wsRouterNativeType, Name: "global-ws", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+		[]*domain.Project{
+			{ID: 9, TenantID: 1, EnabledCustomRoutes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+	if rProjectHTTPOnlyWithGlobalWS.HasResponsesWebSocketProvider(1, 9) {
+		t.Fatal("project HTTP-only custom routes must force 426 even when global WS exists")
+	}
+	if !rProjectHTTPOnlyWithGlobalWS.HasResponsesWebSocketProvider(1, 0) {
+		t.Fatal("global projectID=0 should still see the global WS route")
 	}
 }
 

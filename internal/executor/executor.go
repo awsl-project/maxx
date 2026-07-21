@@ -78,12 +78,13 @@ func (e *Executor) CloseResponsesWebSocketConnection(connectionID string) {
 }
 
 // HasResponsesWebSocketProvider reports whether any Codex route can serve
-// Responses WebSocket. Used to reject upgrades with HTTP 426 for Codex fallback.
-func (e *Executor) HasResponsesWebSocketProvider(tenantID uint64) bool {
+// Responses WebSocket for the given project scope (same rules as Match).
+// Used to reject upgrades with HTTP 426 for Codex fallback.
+func (e *Executor) HasResponsesWebSocketProvider(tenantID, projectID uint64) bool {
 	if e == nil || e.router == nil {
 		return false
 	}
-	return e.router.HasResponsesWebSocketProvider(tenantID)
+	return e.router.HasResponsesWebSocketProvider(tenantID, projectID)
 }
 
 // Execute runs the executor middleware chain with a new flow context.
