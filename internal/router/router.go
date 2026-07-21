@@ -406,11 +406,15 @@ func adapterSupportsResponsesWebSocket(adapter provider.ProviderAdapter) bool {
 	return ok
 }
 
-// HasResponsesWebSocketProvider reports whether any enabled Codex route can
-// currently serve Responses over WebSocket (native + adapter + opt-in flag).
-// Used to reject the WebSocket upgrade with HTTP 426 so Codex clients fall
-// back to HTTP/SSE immediately (see codex-rs core websocket_fallback tests).
-func (r *Router) HasResponsesWebSocketProvider(tenantID uint64) bool {
+// HasResponsesWebSocketProvider reports whether Match would find any Codex route
+// that can serve Responses over WebSocket (native + adapter + opt-in flag).
+//
+// Route scope MUST match Match exactly: when the project enables custom Codex
+// routes and has project-scoped Codex routes, only those are considered;
+// otherwise only global (ProjectID == 0) routes. A false positive here lets the
+// upgrade succeed (101) and Codex will not auto-fallback to HTTP/SSE — only an
+// immediate 426 Upgrade Required triggers FallbackToHttp in official Codex.
+func (r *Router) HasResponsesWebSocketProvider(tenantID, projectID uint64) bool {
 	if r == nil {
 		return false
 	}
@@ -418,16 +422,60 @@ func (r *Router) HasResponsesWebSocketProvider(tenantID uint64) bool {
 	if err != nil {
 		return false
 	}
+
+	// Mirror Match's project custom-route gate for ClientTypeCodex.
+	useProjectRoutes := false
+	if projectID != 0 && r.projectRepo != nil {
+		project, err := r.projectRepo.GetByID(tenantID, projectID)
+		if err == nil && project != nil && len(project.EnabledCustomRoutes) > 0 {
+			for _, ct := range project.EnabledCustomRoutes {
+				if ct == domain.ClientTypeCodex {
+					useProjectRoutes = true
+					break
+				}
+			}
+		}
+	}
+
+	// Select the same candidate set Match would use before capability filters.
+	var candidates []*domain.Route
+	if useProjectRoutes {
+		for _, route := range routes {
+			if route == nil || !route.IsEnabled {
+				continue
+			}
+			if tenantID > 0 && route.TenantID != tenantID {
+				continue
+			}
+			if route.ClientType != domain.ClientTypeCodex {
+				continue
+			}
+			if route.ProjectID == projectID && projectID != 0 {
+				candidates = append(candidates, route)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		for _, route := range routes {
+			if route == nil || !route.IsEnabled {
+				continue
+			}
+			if tenantID > 0 && route.TenantID != tenantID {
+				continue
+			}
+			if route.ClientType != domain.ClientTypeCodex {
+				continue
+			}
+			if route.ProjectID == 0 {
+				candidates = append(candidates, route)
+			}
+		}
+	}
+
 	providers := r.providerRepo.GetAll()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, route := range routes {
-		if route == nil || !route.IsEnabled || route.ClientType != domain.ClientTypeCodex {
-			continue
-		}
-		if tenantID > 0 && route.TenantID != tenantID {
-			continue
-		}
+	for _, route := range candidates {
 		prov, ok := providers[route.ProviderID]
 		if !ok || prov == nil {
 			continue

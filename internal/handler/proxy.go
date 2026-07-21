@@ -94,20 +94,25 @@ func (h *ProxyHandler) SetRequestTracker(tracker RequestTracker) {
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isResponsesWebSocketUpgrade(r) {
 		tenantID := domain.DefaultTenantID
+		var projectID uint64
 		if h.tokenAuth != nil {
 			apiToken, err := h.tokenAuth.ValidateRequest(r, domain.ClientTypeCodex)
 			if err != nil {
 				writeError(w, http.StatusUnauthorized, err.Error())
 				return
 			}
-			if apiToken != nil && apiToken.TenantID > 0 {
-				tenantID = apiToken.TenantID
+			if apiToken != nil {
+				if apiToken.TenantID > 0 {
+					tenantID = apiToken.TenantID
+				}
+				// Token-bound project is known before upgrade; session binding is not.
+				projectID = apiToken.ProjectID
 			}
 		}
 
 		// Codex only immediately falls back to HTTP/SSE when the WebSocket
 		// handshake fails with 426 Upgrade Required (not after 101 + JSON error).
-		if h.executor == nil || !h.executor.HasResponsesWebSocketProvider(tenantID) {
+		if h.executor == nil || !h.executor.HasResponsesWebSocketProvider(tenantID, projectID) {
 			writeResponsesWebSocketUpgradeRequired(w)
 			return
 		}
