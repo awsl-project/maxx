@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - "*"
+    # Allow fork/feature branches to publish images for deploy testing.
+    branches:
+      - "fix/**"
+      - "hotfix/**"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag override (defaults to branch/ref name)"
+        required: false
+        type: string
   workflow_call:
     inputs:
       tag:
@@ -29,8 +39,12 @@ jobs:
         id: image
         run: |
           echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-          TAG="${{ inputs.tag || github.ref_name }}"
+          # workflow_call / workflow_dispatch may pass inputs.tag; otherwise use ref name.
+          # Sanitize branch names so tags are valid docker references.
+          RAW="${{ inputs.tag || github.event.inputs.tag || github.ref_name }}"
+          TAG=$(echo "$RAW" | tr '[:upper:]' '[:lower:]' | sed 's#/#-#g' | sed 's/[^a-z0-9._-]/-/g')
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "raw=${RAW}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

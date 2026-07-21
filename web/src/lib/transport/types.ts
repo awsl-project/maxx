@@ -47,6 +47,8 @@ export interface ProviderConfigCustom {
   // Codex Responses 请求是否透传客户端原始路径(/v1/responses)。
   // 不设置=默认透传;false=用旧的、被砍掉 /v1 的 /responses。
   responsesPassthrough?: boolean;
+  // 是否允许作为 Codex Responses WebSocket 上游（默认 false，需显式开启）。
+  responsesWebSocket?: boolean;
 }
 
 export interface ProviderConfigAntigravity {
@@ -88,6 +90,8 @@ export interface ProviderConfigCodex {
   // 转发到自定义 baseURL 时是否透传客户端原始 Responses 路径(/v1/responses)。
   // 不设置=默认透传;false=用旧的硬编码 /responses。
   responsesPassthrough?: boolean;
+  // 是否承接 Codex Responses WebSocket（官方路径默认 true；CLIProxy 默认 false）。
+  responsesWebSocket?: boolean;
 }
 
 export interface ProviderConfigClaude {
@@ -495,6 +499,8 @@ export interface ProxyRequest {
   duration: number; // nanoseconds
   ttft: number; // nanoseconds - Time To First Token (首字时长)
   isStream: boolean; // 是否为 SSE 流式请求
+  /** Client→Maxx transport: "http" | "sse" | "websocket". Empty on historical rows. */
+  protocol?: string;
   status: ProxyRequestStatus;
   statusCode: number; // HTTP 状态码（冗余存储，用于列表查询优化）
   requestInfo: RequestInfo | null;

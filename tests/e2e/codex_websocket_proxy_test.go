@@ -70,7 +70,10 @@ func TestCodexWebSocketE2E_UsesNativeUpstreamAndReusesConnection(t *testing.T) {
 		"accessToken": "static-token",
 		"baseURL":     upstream.URL + "/v1",
 	})
-	customProviderID := createProvider(t, env, "HTTP-only Codex candidate", customHTTP.URL, []string{"codex"})
+	// OpenAI-only custom is not natively Codex, so Match must skip it for WS
+	// even if a codex route points at it. (Custom adapters that declare codex
+	// natively are now eligible for Responses WebSocket.)
+	customProviderID := createProvider(t, env, "HTTP-only non-native candidate", customHTTP.URL, []string{"openai"})
 	createNativeRoute(t, env, "codex", customProviderID, 1)
 	createNativeRoute(t, env, "codex", codexProviderID, 2)
 
@@ -171,6 +174,94 @@ func TestCodexWebSocketE2E_DeltaThenCloseSendsTerminalError(t *testing.T) {
 	}
 	if _, _, err = downstream.ReadMessage(); err == nil {
 		t.Fatal("downstream connection remained open after committed upstream turn failure")
+	}
+}
+
+// Custom type=custom providers that declare native Codex support must dial
+// upstream WebSocket (production pattern: clientBaseURL.codex + API key).
+func TestCodexWebSocketCustomNativeProvider(t *testing.T) {
+	var websocketConnections atomic.Int32
+	var httpPosts atomic.Int32
+	upstreamFrames := make(chan []byte, 1)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !websocket.IsWebSocketUpgrade(r) {
+			httpPosts.Add(1)
+			http.Error(w, "HTTP fallback is forbidden", http.StatusInternalServerError)
+			return
+		}
+		if r.Header.Get("Authorization") == "" {
+			t.Error("missing Authorization on custom websocket dial")
+		}
+		conn, err := websocket.Upgrade(w, r, nil, 4096, 4096)
+		if err != nil {
+			t.Errorf("upgrade upstream: %v", err)
+			return
+		}
+		defer conn.Close()
+		websocketConnections.Add(1)
+		_, frame, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("read upstream: %v", err)
+			return
+		}
+		upstreamFrames <- bytes.Clone(frame)
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"resp_custom","model":"gpt-test","output":[]}}`))
+	}))
+	defer upstream.Close()
+
+	env := NewProxyTestEnv(t)
+	// Custom codex WebSocket is opt-in via responsesWebSocket=true.
+	resp := env.AdminPost("/api/admin/providers", map[string]any{
+		"name": "custom-codex-ws",
+		"type": "custom",
+		"config": map[string]any{
+			"custom": map[string]any{
+				"baseURL":            upstream.URL + "/v1",
+				"apiKey":             "sk-mock-test-key",
+				"responsesWebSocket": true,
+			},
+		},
+		"supportedClientTypes": []string{"codex"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("create custom ws provider: status=%d body=%s", resp.StatusCode, body)
+	}
+	var createdProvider struct {
+		ID uint64 `json:"id"`
+	}
+	DecodeJSON(t, resp, &createdProvider)
+	providerID := createdProvider.ID
+	createNativeRoute(t, env, "codex", providerID, 1)
+
+	downstreamURL := "ws" + strings.TrimPrefix(env.Server.URL, "http") + "/v1/responses"
+	downstream, _, err := websocket.DefaultDialer.Dial(downstreamURL, nil)
+	if err != nil {
+		t.Fatalf("dial downstream: %v", err)
+	}
+	defer downstream.Close()
+
+	frame := []byte(`{"type":"response.create","model":"gpt-test","stream":true,"input":[]}`)
+	if err := downstream.WriteMessage(websocket.TextMessage, frame); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, event, err := downstream.ReadMessage()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !bytes.Contains(event, []byte(`"type":"response.completed"`)) {
+		t.Fatalf("event = %s", event)
+	}
+	if got := <-upstreamFrames; !bytes.Equal(got, frame) {
+		t.Fatalf("upstream frame mutated:\n got %s\nwant %s", got, frame)
+	}
+	if websocketConnections.Load() != 1 {
+		t.Fatalf("ws connections = %d", websocketConnections.Load())
+	}
+	if httpPosts.Load() != 0 {
+		t.Fatalf("HTTP posts = %d", httpPosts.Load())
 	}
 }
 
@@ -336,23 +427,26 @@ func TestCodexWebSocketRejectsOpenAIConversionRoute(t *testing.T) {
 		t.Fatalf("conversion route isNative = true, want false")
 	}
 
+	// Codex falls back to HTTP/SSE only when the handshake is rejected with 426.
 	downstreamURL := "ws" + strings.TrimPrefix(env.Server.URL, "http") + "/v1/responses"
-	downstream, _, err := websocket.DefaultDialer.Dial(downstreamURL, nil)
-	if err != nil {
-		t.Fatalf("dial downstream: %v", err)
+	_, resp, err := websocket.DefaultDialer.Dial(downstreamURL, nil)
+	if err == nil {
+		t.Fatal("expected websocket dial to fail with 426 when no WS-capable provider exists")
 	}
-	defer downstream.Close()
-	_ = downstream.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if err = downstream.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-test","input":[]}`)); err != nil {
-		t.Fatalf("write downstream: %v", err)
+	if resp == nil {
+		t.Fatalf("dial error = %v, want HTTP response with 426", err)
 	}
-	_, event, err := downstream.ReadMessage()
-	if err != nil {
-		t.Fatalf("read downstream error event: %v", err)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUpgradeRequired {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 426 body=%s err=%v", resp.StatusCode, body, err)
 	}
-	if !bytes.Contains(event, []byte(`"type":"error"`)) ||
-		!bytes.Contains(event, []byte(`"code":"websocket_transport_unavailable"`)) {
-		t.Fatalf("downstream event = %s, want websocket_transport_unavailable", event)
+	body, _ := io.ReadAll(resp.Body)
+	if !bytes.Contains(body, []byte(`"code":"websocket_not_supported"`)) {
+		t.Fatalf("body = %s, want websocket_not_supported", body)
+	}
+	if !bytes.Contains(body, []byte(`"fallback":"http_sse"`)) {
+		t.Fatalf("body = %s, want fallback=http_sse", body)
 	}
 	if got := openaiHTTPCalls.Load(); got != 0 {
 		t.Fatalf("OpenAI HTTP upstream calls = %d, want 0", got)

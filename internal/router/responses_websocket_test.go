@@ -195,6 +195,37 @@ func matchedProviderIDs(result *MatchResult) []uint64 {
 	return ids
 }
 
+func TestHasResponsesWebSocketProvider(t *testing.T) {
+	r := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProviderID: 101, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+		},
+		[]*domain.Provider{
+			{ID: 101, TenantID: 1, Type: wsRouterNativeType, Name: "ws", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+	if !r.HasResponsesWebSocketProvider(1) {
+		t.Fatal("expected HasResponsesWebSocketProvider true for native WS adapter")
+	}
+
+	rHTTPOnly := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{
+			{ID: 1, TenantID: 1, ProviderID: 201, ClientType: domain.ClientTypeCodex, IsEnabled: true, Position: 1},
+		},
+		[]*domain.Provider{
+			{ID: 201, TenantID: 1, Type: wsRouterHTTPOnlyType, Name: "http-only", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+	if rHTTPOnly.HasResponsesWebSocketProvider(1) {
+		t.Fatal("HTTP-only adapter should not count as WebSocket-capable")
+	}
+
+	rEmpty := newResponsesWebSocketTestRouter(t, nil, nil)
+	if rEmpty.HasResponsesWebSocketProvider(1) {
+		t.Fatal("empty routes should not report WebSocket capability")
+	}
+}
+
 // Only providers that natively support Codex and whose adapter implements
 // ResponsesWebSocketAdapter are eligible. Stale is_native=false is ignored.
 func TestMatch_ResponsesWebSocketOnlyNativeCapableAdaptersEligible(t *testing.T) {

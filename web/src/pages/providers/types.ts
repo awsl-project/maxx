@@ -354,6 +354,7 @@ export type ProviderFormData = {
   blackBox?: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
+  responsesWebSocket?: boolean;
 };
 
 // Create step type

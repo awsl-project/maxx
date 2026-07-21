@@ -1,5 +1,14 @@
-﻿import { useState, useMemo, useRef, useEffect, type UIEvent, type ReactNode } from 'react';
-import { useCallback, memo } from 'react';
+﻿import {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+  memo,
+  type UIEvent,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -28,6 +37,21 @@ import {
   BarChart3,
   Trash2,
 } from 'lucide-react';
+import {
+  type RequestColumnId,
+  type RequestColumnPrefs,
+  MIN_COLUMN_WIDTHS,
+  MAX_COLUMN_WIDTH,
+  REQUEST_COLUMNS_STORAGE_KEY,
+  columnLabelKey,
+  columnShortLabelKey,
+  isCenteredColumn,
+  readColumnPrefs,
+  resolveVisibleColumns,
+  writeColumnPrefs,
+} from './column-prefs';
+import { RequestsColumnSettings } from './column-settings';
+import { requestProtocolLabelKey, resolveRequestProtocol } from './request-protocol';
 import { format as formatDate } from 'date-fns';
 import {
   CartesianGrid,
@@ -102,6 +126,25 @@ const REQUEST_TOKEN_FILTER_STORAGE_KEY = 'maxx-requests-token-filter';
 const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
+
+function ProtocolBadge({ request }: { request: Pick<ProxyRequest, 'protocol' | 'isStream' | 'statusCode'> }) {
+  const { t } = useTranslation();
+  const protocol = resolveRequestProtocol(request);
+  const label = t(requestProtocolLabelKey(protocol));
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide',
+        protocol === 'websocket' && 'bg-violet-500/15 text-violet-400',
+        protocol === 'sse' && 'bg-sky-500/15 text-sky-400',
+        protocol === 'http' && 'bg-muted text-muted-foreground',
+      )}
+      title={label}
+    >
+      {protocol === 'websocket' ? 'WS' : protocol === 'sse' ? 'SSE' : 'HTTP'}
+    </span>
+  );
+}
 
 function dateToISOString(value: Date | undefined): string | undefined {
   if (!value || !Number.isFinite(value.getTime())) {
@@ -244,6 +287,14 @@ export function RequestsPage() {
     () => buildScopedStorageKey(REQUEST_PROJECT_FILTER_STORAGE_KEY, user?.tenantID, user?.id),
     [user?.id, user?.tenantID],
   );
+  const columnPrefsStorageKey = useMemo(
+    () => buildScopedStorageKey(REQUEST_COLUMNS_STORAGE_KEY, user?.tenantID, user?.id),
+    [user?.id, user?.tenantID],
+  );
+
+  const [columnPrefs, setColumnPrefs] = useState<RequestColumnPrefs>(() =>
+    readColumnPrefs(columnPrefsStorageKey),
+  );
 
   // 过滤维度（默认令牌）
   const [filterMode, setFilterMode] = useState<RequestFilterMode>(() =>
@@ -356,6 +407,68 @@ export function RequestsPage() {
   // Check if there are any projects
   const hasProjects = projects.length > 0;
 
+  const columnAvailability = useMemo(
+    () => ({ hasProjects, apiTokenAuthEnabled }),
+    [apiTokenAuthEnabled, hasProjects],
+  );
+  const visibleColumns = useMemo(
+    () => resolveVisibleColumns(columnPrefs, columnAvailability),
+    [columnAvailability, columnPrefs],
+  );
+
+  useEffect(() => {
+    setColumnPrefs(readColumnPrefs(columnPrefsStorageKey));
+  }, [columnPrefsStorageKey]);
+
+  useEffect(() => {
+    writeColumnPrefs(columnPrefsStorageKey, columnPrefs);
+  }, [columnPrefs, columnPrefsStorageKey]);
+
+  const handleColumnPrefsChange = useCallback((next: RequestColumnPrefs) => {
+    setColumnPrefs(next);
+  }, []);
+
+  const handleColumnResizeStart = useCallback(
+    (columnId: RequestColumnId, event: ReactMouseEvent<HTMLSpanElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidth = columnPrefs.widths[columnId];
+
+      const onMove = (moveEvent: MouseEvent) => {
+        const delta = moveEvent.clientX - startX;
+        const nextWidth = startWidth + delta;
+        setColumnPrefs((prev) => {
+          const min = MIN_COLUMN_WIDTHS[columnId];
+          const clamped = Math.min(MAX_COLUMN_WIDTH, Math.max(min, Math.round(nextWidth)));
+          if (prev.widths[columnId] === clamped) {
+            return prev;
+          }
+          return {
+            ...prev,
+            widths: {
+              ...prev.widths,
+              [columnId]: clamped,
+            },
+          };
+        });
+      };
+
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [columnPrefs.widths],
+  );
+
   // Subscribe to real-time updates
   useProxyRequestUpdates();
 
@@ -425,7 +538,7 @@ export function RequestsPage() {
   // 高频实时更新时，仅保留可视区域附近的桌面行，减少表格重排和重绘成本。
   const shouldVirtualizeDesktop =
     !isMobile && allRequests.length >= REQUESTS_VIRTUALIZE_THRESHOLD && viewportHeight > 0;
-  const desktopColumnCount = 15 + (hasProjects ? 1 : 0) + (apiTokenAuthEnabled ? 1 : 0);
+  const desktopColumnCount = Math.max(visibleColumns.length, 1);
   const desktopVirtualRange = useMemo(() => {
     if (!shouldVirtualizeDesktop) {
       return {
@@ -498,7 +611,7 @@ export function RequestsPage() {
     if (nextHeight > 0 && Math.abs(nextHeight - desktopRowHeight) > 1) {
       setDesktopRowHeight(nextHeight);
     }
-  }, [apiTokenAuthEnabled, desktopRowHeight, desktopVisibleRequests, hasProjects, isMobile]);
+  }, [desktopRowHeight, desktopVisibleRequests, isMobile, visibleColumns]);
 
   // IntersectionObserver 触底检测
   useEffect(() => {
@@ -693,41 +806,39 @@ export function RequestsPage() {
   const desktopTableHeader = (
     <TableHeader className="bg-card/80 backdrop-blur-md sticky top-0 z-10 shadow-sm border-b border-border">
       <TableRow className="hover:bg-transparent border-none text-sm">
-        <TableHead className="w-[180px] font-medium">{t('requests.time')}</TableHead>
-        <TableHead className="w-[120px] pr-4 font-medium">{t('requests.client')}</TableHead>
-        <TableHead className="w-[200px] min-w-[200px] font-medium">{t('requests.model')}</TableHead>
-        <TableHead className="w-[90px] min-w-[90px] text-center font-medium">
-          {t('requests.reasoningEffort')}
-        </TableHead>
-        {hasProjects && (
-          <TableHead className="w-[100px] font-medium">{t('requests.project')}</TableHead>
-        )}
-        {apiTokenAuthEnabled && (
-          <TableHead className="w-[100px] font-medium">{t('requests.token')}</TableHead>
-        )}
-        <TableHead className="min-w-[100px] font-medium">{t('requests.provider')}</TableHead>
-        <TableHead className="w-[100px] font-medium">{t('common.status')}</TableHead>
-        <TableHead className="w-[60px] text-center font-medium">{t('requests.code')}</TableHead>
-        <TableHead className="w-[60px] text-center font-medium" title={t('requests.ttft')}>
-          TTFT
-        </TableHead>
-        <TableHead className="w-[80px] text-center font-medium">{t('requests.duration')}</TableHead>
-        <TableHead className="w-[45px] text-center font-medium" title={t('requests.attempts')}>
-          {t('requests.attShort')}
-        </TableHead>
-        <TableHead className="w-[65px] text-center font-medium" title={t('requests.inputTokens')}>
-          {t('requests.inShort')}
-        </TableHead>
-        <TableHead className="w-[65px] text-center font-medium" title={t('requests.outputTokens')}>
-          {t('requests.outShort')}
-        </TableHead>
-        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheRead')}>
-          {t('requests.cacheRShort')}
-        </TableHead>
-        <TableHead className="w-[65px] text-center font-medium" title={t('requests.cacheWrite')}>
-          {t('requests.cacheWShort')}
-        </TableHead>
-        <TableHead className="w-[80px] text-center font-medium">{t('requests.cost')}</TableHead>
+        {visibleColumns.map((columnId) => {
+          const width = columnPrefs.widths[columnId];
+          const shortKey = columnShortLabelKey(columnId);
+          const fullLabel =
+            columnId === 'ttft' ? 'TTFT' : t(columnLabelKey(columnId));
+          const displayLabel =
+            columnId === 'ttft'
+              ? 'TTFT'
+              : shortKey
+                ? t(shortKey)
+                : fullLabel;
+          return (
+            <TableHead
+              key={columnId}
+              className={cn(
+                'relative font-medium select-none',
+                isCenteredColumn(columnId) && 'text-center',
+                columnId === 'client' && 'pr-4',
+              )}
+              style={{ width, minWidth: width, maxWidth: width }}
+              title={fullLabel}
+            >
+              <span className="block truncate pr-2">{displayLabel}</span>
+              <span
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t('requests.columns.resize', { column: fullLabel })}
+                onMouseDown={(event) => handleColumnResizeStart(columnId, event)}
+                className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60"
+              />
+            </TableHead>
+          );
+        })}
       </TableRow>
     </TableHeader>
   );
@@ -798,6 +909,13 @@ export function RequestsPage() {
           onChange={handleTimeRangeChange}
           onClear={handleClearTimeRange}
         />
+        {!isMobile && (
+          <RequestsColumnSettings
+            prefs={columnPrefs}
+            availability={columnAvailability}
+            onChange={handleColumnPrefsChange}
+          />
+        )}
         <button
           onClick={handleRefresh}
           disabled={isFetching || waitingFilterValidation}
@@ -910,8 +1028,8 @@ export function RequestsPage() {
                         providerName={providerMap.get(req.providerID)}
                         projectName={projectMap.get(req.projectID)}
                         tokenName={tokenMap.get(req.apiTokenID)}
-                        showProjectColumn={hasProjects}
-                        showTokenColumn={apiTokenAuthEnabled}
+                        columns={visibleColumns}
+                        widths={columnPrefs.widths}
                         forceProjectBinding={forceProjectBinding}
                         nowMs={nowMs}
                         onOpenRequest={handleOpenRequest}
@@ -1083,8 +1201,8 @@ type LogRowProps = {
   providerName?: string;
   projectName?: string;
   tokenName?: string;
-  showProjectColumn?: boolean;
-  showTokenColumn?: boolean;
+  columns: RequestColumnId[];
+  widths: Record<RequestColumnId, number>;
   forceProjectBinding?: boolean;
   nowMs: number;
   onOpenRequest: (id: number) => void;
@@ -1095,8 +1213,8 @@ function LogRow({
   providerName,
   projectName,
   tokenName,
-  showProjectColumn,
-  showTokenColumn,
+  columns,
+  widths,
   forceProjectBinding,
   nowMs,
   onOpenRequest,
@@ -1163,6 +1281,197 @@ function LogRow({
 
   const handleClick = () => onOpenRequest(request.id);
 
+  const renderCell = (columnId: RequestColumnId) => {
+    const width = widths[columnId];
+    const cellStyle = { width, minWidth: width, maxWidth: width };
+    const center = isCenteredColumn(columnId);
+
+    switch (columnId) {
+      case 'time':
+        return (
+          <TableCell
+            key={columnId}
+            className="px-2 py-1 font-mono text-sm whitespace-nowrap"
+            style={cellStyle}
+          >
+            {request.endTime && new Date(request.endTime).getTime() > 0 ? (
+              <span className="text-foreground font-medium">{formatTime(request.endTime)}</span>
+            ) : (
+              <span className="text-muted-foreground">
+                {formatTime(request.startTime || request.createdAt)}
+              </span>
+            )}
+          </TableCell>
+        );
+      case 'client':
+        return (
+          <TableCell key={columnId} className="px-2 pr-4 py-1" style={cellStyle}>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <ClientIcon type={request.clientType} size={16} className="shrink-0" />
+              <span className="text-sm text-foreground capitalize font-medium truncate">
+                {request.clientType}
+              </span>
+            </div>
+          </TableCell>
+        );
+      case 'model':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <div className="flex items-center gap-2 min-w-0" title={modelChain.title}>
+              <span className="text-sm text-foreground font-medium truncate">
+                {modelChain.requestModel || '-'}
+              </span>
+              {modelChain.mappedModel && (
+                <span className="text-[10px] text-muted-foreground truncate">
+                  → {modelChain.mappedModel}
+                </span>
+              )}
+            </div>
+          </TableCell>
+        );
+      case 'protocol':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <ProtocolBadge request={request} />
+          </TableCell>
+        );
+      case 'reasoningEffort':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <span className="text-xs font-mono text-foreground/80">
+              {request.reasoningEffort || '-'}
+            </span>
+          </TableCell>
+        );
+      case 'project':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <span className="text-sm text-muted-foreground truncate block" title={projectName}>
+              {projectName || '-'}
+            </span>
+          </TableCell>
+        );
+      case 'token':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <span className="text-sm text-muted-foreground truncate block" title={tokenName}>
+              {tokenName || '-'}
+            </span>
+          </TableCell>
+        );
+      case 'provider':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <span className="text-sm text-muted-foreground truncate block" title={providerName}>
+              {providerName || '-'}
+            </span>
+          </TableCell>
+        );
+      case 'status':
+        return (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            <RequestStatusBadge
+              status={request.status}
+              projectID={request.projectID}
+              forceProjectBinding={forceProjectBinding}
+            />
+          </TableCell>
+        );
+      case 'code':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <span
+              className={cn(
+                'font-mono text-xs font-medium px-1.5 py-0.5 rounded',
+                isFailed
+                  ? 'bg-red-400/10 text-red-400'
+                  : statusCode && statusCode >= 200 && statusCode < 300
+                    ? 'bg-blue-400/10 text-blue-400'
+                    : 'bg-muted text-muted-foreground',
+              )}
+            >
+              {statusCode && statusCode > 0 ? statusCode : '-'}
+            </span>
+          </TableCell>
+        );
+      case 'ttft':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <span className="text-xs font-mono text-muted-foreground">
+              {request.ttft && request.ttft > 0
+                ? `${(request.ttft / 1_000_000_000).toFixed(2)}s`
+                : '-'}
+            </span>
+          </TableCell>
+        );
+      case 'duration':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <span
+              className={`text-xs font-mono ${durationColor}`}
+              title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
+            >
+              {isPending ? formatLiveDuration(liveDurationMs) : formatDuration(displayDuration)}
+            </span>
+          </TableCell>
+        );
+      case 'attempts':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            {request.proxyUpstreamAttemptCount > 1 ? (
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning/10 text-warning text-[10px] font-bold">
+                {request.proxyUpstreamAttemptCount}
+              </span>
+            ) : request.proxyUpstreamAttemptCount === 1 ? (
+              <span className="text-xs text-muted-foreground/30">1</span>
+            ) : (
+              <span className="text-xs text-muted-foreground/30">-</span>
+            )}
+          </TableCell>
+        );
+      case 'inputTokens':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <TokenCell count={request.inputTokenCount} color="text-sky-400" />
+          </TableCell>
+        );
+      case 'outputTokens':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <TokenCell count={request.outputTokenCount} color="text-emerald-400" />
+          </TableCell>
+        );
+      case 'cacheRead':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <TokenCell count={request.cacheReadCount} color="text-violet-400" />
+          </TableCell>
+        );
+      case 'cacheWrite':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
+          </TableCell>
+        );
+      case 'cost':
+        return (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            <CostCell cost={request.cost} />
+          </TableCell>
+        );
+      default:
+        return center ? (
+          <TableCell key={columnId} className="px-2 py-1 text-center" style={cellStyle}>
+            -
+          </TableCell>
+        ) : (
+          <TableCell key={columnId} className="px-2 py-1" style={cellStyle}>
+            -
+          </TableCell>
+        );
+    }
+  };
+
   return (
     <TableRow
       data-server-restarted-request={isServerRestarted ? 'true' : undefined}
@@ -1194,158 +1503,7 @@ function LogRow({
         isRecent && !isPending && !isPendingBinding && 'bg-accent/20',
       )}
     >
-      {/* Time - 显示结束时间，如果没有结束时间则显示开始时间（更浅样式） */}
-      <TableCell className="w-[180px] px-2 py-1 font-mono text-sm whitespace-nowrap">
-        {request.endTime && new Date(request.endTime).getTime() > 0 ? (
-          <span className="text-foreground font-medium">{formatTime(request.endTime)}</span>
-        ) : (
-          <span className="text-muted-foreground">
-            {formatTime(request.startTime || request.createdAt)}
-          </span>
-        )}
-      </TableCell>
-
-      {/* Client */}
-      <TableCell className="w-[120px] px-2 pr-4 py-1">
-        <div className="flex items-center gap-1.5">
-          <ClientIcon type={request.clientType} size={16} className="shrink-0" />
-          <span className="text-sm text-foreground capitalize font-medium">
-            {request.clientType}
-          </span>
-        </div>
-      </TableCell>
-
-      {/* Model */}
-      <TableCell className="w-[200px] min-w-[200px] px-2 py-1">
-        <div className="flex items-center gap-2 min-w-0 max-w-[280px]" title={modelChain.title}>
-          <span className="text-sm text-foreground font-medium truncate">
-            {modelChain.requestModel || '-'}
-          </span>
-          {modelChain.mappedModel && (
-            <span className="text-[10px] text-muted-foreground truncate">
-              → {modelChain.mappedModel}
-            </span>
-          )}
-        </div>
-      </TableCell>
-
-      {/* Reasoning effort */}
-      <TableCell className="w-[90px] min-w-[90px] px-2 py-1 text-center">
-        <span className="text-xs font-mono text-foreground/80">
-          {request.reasoningEffort || '-'}
-        </span>
-      </TableCell>
-
-      {/* Project */}
-      {showProjectColumn && (
-        <TableCell className="w-[100px] px-2 py-1">
-          <span
-            className="text-sm text-muted-foreground truncate max-w-[100px] block"
-            title={projectName}
-          >
-            {projectName || '-'}
-          </span>
-        </TableCell>
-      )}
-
-      {/* Token */}
-      {showTokenColumn && (
-        <TableCell className="w-[100px] px-2 py-1">
-          <span
-            className="text-sm text-muted-foreground truncate max-w-[100px] block"
-            title={tokenName}
-          >
-            {tokenName || '-'}
-          </span>
-        </TableCell>
-      )}
-
-      {/* Provider */}
-      <TableCell className="min-w-[100px] px-2 py-1">
-        <span className="text-sm text-muted-foreground" title={providerName}>
-          {providerName || '-'}
-        </span>
-      </TableCell>
-
-      {/* Status */}
-      <TableCell className="w-[100px] px-2 py-1">
-        <RequestStatusBadge
-          status={request.status}
-          projectID={request.projectID}
-          forceProjectBinding={forceProjectBinding}
-        />
-      </TableCell>
-
-      {/* Code */}
-      <TableCell className="w-[60px] px-2 py-1 text-center">
-        <span
-          className={cn(
-            'font-mono text-xs font-medium px-1.5 py-0.5 rounded',
-            isFailed
-              ? 'bg-red-400/10 text-red-400'
-              : statusCode && statusCode >= 200 && statusCode < 300
-                ? 'bg-blue-400/10 text-blue-400'
-                : 'bg-muted text-muted-foreground',
-          )}
-        >
-          {statusCode && statusCode > 0 ? statusCode : '-'}
-        </span>
-      </TableCell>
-
-      {/* TTFT (Time To First Token) */}
-      <TableCell className="w-[60px] px-2 py-1 text-center">
-        <span className="text-xs font-mono text-muted-foreground">
-          {request.ttft && request.ttft > 0 ? `${(request.ttft / 1_000_000_000).toFixed(2)}s` : '-'}
-        </span>
-      </TableCell>
-
-      {/* Duration */}
-      <TableCell className="w-[80px] px-2 py-1 text-center">
-        <span
-          className={`text-xs font-mono ${durationColor}`}
-          title={`${formatTime(request.startTime || request.createdAt)} → ${request.endTime && new Date(request.endTime).getTime() > 0 ? formatTime(request.endTime) : '...'}`}
-        >
-          {isPending ? formatLiveDuration(liveDurationMs) : formatDuration(displayDuration)}
-        </span>
-      </TableCell>
-
-      {/* Attempts */}
-      <TableCell className="w-[45px] px-2 py-1 text-center">
-        {request.proxyUpstreamAttemptCount > 1 ? (
-          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-warning/10 text-warning text-[10px] font-bold">
-            {request.proxyUpstreamAttemptCount}
-          </span>
-        ) : request.proxyUpstreamAttemptCount === 1 ? (
-          <span className="text-xs text-muted-foreground/30">1</span>
-        ) : (
-          <span className="text-xs text-muted-foreground/30">-</span>
-        )}
-      </TableCell>
-
-      {/* Input Tokens - sky blue */}
-      <TableCell className="w-[65px] px-2 py-1 text-center">
-        <TokenCell count={request.inputTokenCount} color="text-sky-400" />
-      </TableCell>
-
-      {/* Output Tokens - emerald green */}
-      <TableCell className="w-[65px] px-2 py-1 text-center">
-        <TokenCell count={request.outputTokenCount} color="text-emerald-400" />
-      </TableCell>
-
-      {/* Cache Read - violet */}
-      <TableCell className="w-[65px] px-2 py-1 text-center">
-        <TokenCell count={request.cacheReadCount} color="text-violet-400" />
-      </TableCell>
-
-      {/* Cache Write - amber */}
-      <TableCell className="w-[65px] px-2 py-1 text-center">
-        <TokenCell count={request.cacheWriteCount} color="text-amber-400" />
-      </TableCell>
-
-      {/* Cost */}
-      <TableCell className="w-[80px] px-2 py-1 text-center">
-        <CostCell cost={request.cost} />
-      </TableCell>
+      {columns.map((columnId) => renderCell(columnId))}
     </TableRow>
   );
 }
@@ -1355,8 +1513,8 @@ const MemoLogRow = memo(LogRow, (prev: Readonly<LogRowProps>, next: Readonly<Log
   if (prev.providerName !== next.providerName) return false;
   if (prev.projectName !== next.projectName) return false;
   if (prev.tokenName !== next.tokenName) return false;
-  if (prev.showProjectColumn !== next.showProjectColumn) return false;
-  if (prev.showTokenColumn !== next.showTokenColumn) return false;
+  if (prev.columns !== next.columns) return false;
+  if (prev.widths !== next.widths) return false;
   if (prev.forceProjectBinding !== next.forceProjectBinding) return false;
   if (prev.onOpenRequest !== next.onOpenRequest) return false;
 
@@ -1419,7 +1577,7 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
         isServerRestarted && 'line-through decoration-red-300/80 decoration-2 opacity-70',
       )}
     >
-      {/* Row 1: Client + Model + Status */}
+      {/* Row 1: Client + Model + Protocol + Status */}
       <div className="flex items-center gap-2 mb-1">
         <ClientIcon type={request.clientType} size={14} className="shrink-0" />
         <span
@@ -1434,6 +1592,7 @@ function MobileRequestCard({ request, providerName, onOpenRequest }: MobileReque
             </span>
           )}
         </span>
+        <ProtocolBadge request={request} />
         {request.reasoningEffort && (
           <span className="text-[10px] font-mono text-muted-foreground">
             {request.reasoningEffort}

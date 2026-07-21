@@ -59,6 +59,11 @@ type ProviderConfigCustom struct {
 	// 不设置(nil)= 默认透传;显式 false = 用旧的、被砍掉 /v1 的 /responses。
 	// 用于适配只认 /responses 的特殊上游,或修正 base_url 已含 /v1 的旧配置。
 	ResponsesPassthrough *bool `json:"responsesPassthrough,omitempty"`
+
+	// ResponsesWebSocket 控制本 custom 下游是否可作为 Codex Responses WebSocket 上游。
+	// 许多中转站只支持 HTTP/SSE；未显式开启时默认 false（opt-in），避免 WS 路由到
+	// 不支持的上游导致持续失败。
+	ResponsesWebSocket *bool `json:"responsesWebSocket,omitempty"`
 }
 
 // Disguise type constants. Use these instead of magic strings when dispatching
@@ -249,6 +254,11 @@ type ProviderConfigCodex struct {
 	// 官方 ChatGPT 后端(未配 BaseURL)不受此开关影响。
 	ResponsesPassthrough *bool `json:"responsesPassthrough,omitempty"`
 
+	// ResponsesWebSocket 控制本 Codex Provider 是否承接 Responses WebSocket。
+	// 不设置(nil)：官方路径(非 CLIProxy)默认 true；UseCLIProxyAPI 默认 false。
+	// 显式 true/false 始终优先。
+	ResponsesWebSocket *bool `json:"responsesWebSocket,omitempty"`
+
 	// 强制 reasoning effort（覆盖请求中的值）
 	// 可选值: "low", "medium", "high"
 	Reasoning string `json:"reasoning,omitempty"`
@@ -263,6 +273,36 @@ type ProviderConfigCodex struct {
 // an explicit false restores the legacy hardcoded /responses path.
 func ResponsesPassthroughEnabled(flag *bool) bool {
 	return flag == nil || *flag
+}
+
+// ProviderResponsesWebSocketEnabled reports whether a provider is allowed to
+// serve Codex Responses over WebSocket. Custom/newapi relays default to false
+// (opt-in). Native codex adapters default to true unless CLIProxy is used.
+func ProviderResponsesWebSocketEnabled(provider *Provider) bool {
+	if provider == nil {
+		return false
+	}
+	switch provider.Type {
+	case "custom", "newapi":
+		if provider.Config != nil && provider.Config.Custom != nil && provider.Config.Custom.ResponsesWebSocket != nil {
+			return *provider.Config.Custom.ResponsesWebSocket
+		}
+		return false
+	case "codex":
+		if provider.Config != nil && provider.Config.Codex != nil {
+			if provider.Config.Codex.ResponsesWebSocket != nil {
+				return *provider.Config.Codex.ResponsesWebSocket
+			}
+			if provider.Config.Codex.UseCLIProxyAPI {
+				return false
+			}
+		}
+		return true
+	default:
+		// First-class adapters (and test doubles) that implement the WS
+		// interface remain eligible unless they use custom/newapi opt-in rules.
+		return true
+	}
 }
 
 // ProviderConfigCLIProxyAPIAntigravity CLIProxyAPI Antigravity 内部配置
@@ -591,6 +631,25 @@ type ResponseInfo struct {
 	Body    string            `json:"body"`
 }
 
+// Client→Maxx transport protocol for a ProxyRequest.
+const (
+	ProxyRequestProtocolHTTP      = "http"
+	ProxyRequestProtocolSSE       = "sse"
+	ProxyRequestProtocolWebSocket = "websocket"
+)
+
+// ResolveProxyRequestProtocol returns the transport protocol for a new request.
+// WebSocket takes precedence over stream flags because Responses WS also sets isStream.
+func ResolveProxyRequestProtocol(isStream bool, isWebSocket bool) string {
+	if isWebSocket {
+		return ProxyRequestProtocolWebSocket
+	}
+	if isStream {
+		return ProxyRequestProtocolSSE
+	}
+	return ProxyRequestProtocolHTTP
+}
+
 // 追踪
 type ProxyRequest struct {
 	ID        uint64    `json:"id"`
@@ -621,6 +680,10 @@ type ProxyRequest struct {
 
 	// 是否为 SSE 流式请求
 	IsStream bool `json:"isStream"`
+
+	// Protocol 是客户端到 Maxx 的传输协议: "http" | "sse" | "websocket"。
+	// 历史记录可能为空，读侧应结合 IsStream / StatusCode 兜底。
+	Protocol string `json:"protocol"`
 
 	// PENDING, IN_PROGRESS, COMPLETED, FAILED, REJECTED
 	// REJECTED: 请求被拒绝（如：强制项目绑定超时）

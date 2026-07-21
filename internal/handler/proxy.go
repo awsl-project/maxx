@@ -93,11 +93,23 @@ func (h *ProxyHandler) SetRequestTracker(tracker RequestTracker) {
 // ServeHTTP handles proxy requests
 func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if isResponsesWebSocketUpgrade(r) {
+		tenantID := domain.DefaultTenantID
 		if h.tokenAuth != nil {
-			if _, err := h.tokenAuth.ValidateRequest(r, domain.ClientTypeCodex); err != nil {
+			apiToken, err := h.tokenAuth.ValidateRequest(r, domain.ClientTypeCodex)
+			if err != nil {
 				writeError(w, http.StatusUnauthorized, err.Error())
 				return
 			}
+			if apiToken != nil && apiToken.TenantID > 0 {
+				tenantID = apiToken.TenantID
+			}
+		}
+
+		// Codex only immediately falls back to HTTP/SSE when the WebSocket
+		// handshake fails with 426 Upgrade Required (not after 101 + JSON error).
+		if h.executor == nil || !h.executor.HasResponsesWebSocketProvider(tenantID) {
+			writeResponsesWebSocketUpgradeRequired(w)
+			return
 		}
 
 		var readLimit int64
@@ -420,6 +432,25 @@ func writeError(w http.ResponseWriter, status int, message string) {
 		"error": map[string]interface{}{
 			"message": message,
 			"type":    "proxy_error",
+		},
+	})
+}
+
+// writeResponsesWebSocketUpgradeRequired rejects the WebSocket upgrade with
+// HTTP 426 so official Codex clients immediately switch to HTTP/SSE.
+// See openai/codex codex-rs/core/src/client.rs (UPGRADE_REQUIRED → FallbackToHttp)
+// and core/tests/suite/websocket_fallback.rs.
+func writeResponsesWebSocketUpgradeRequired(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Connection", "close")
+	w.WriteHeader(http.StatusUpgradeRequired)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]interface{}{
+			"message":   "no provider supports Codex Responses WebSocket; use HTTP/SSE",
+			"type":      "proxy_error",
+			"code":      "websocket_not_supported",
+			"fallback":  "http_sse",
+			"retryable": true,
 		},
 	})
 }

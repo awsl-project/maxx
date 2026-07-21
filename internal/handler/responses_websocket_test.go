@@ -15,6 +15,35 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestWriteResponsesWebSocketUpgradeRequired(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeResponsesWebSocketUpgradeRequired(rec)
+	if rec.Code != http.StatusUpgradeRequired {
+		t.Fatalf("status = %d, want 426", rec.Code)
+	}
+	body := rec.Body.String()
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"websocket_not_supported"`)) {
+		t.Fatalf("body = %s, want websocket_not_supported", body)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"fallback":"http_sse"`)) {
+		t.Fatalf("body = %s, want fallback=http_sse", body)
+	}
+}
+
+func TestResponsesWebSocketShouldForceReconnectForHTTPFallback(t *testing.T) {
+	if !responsesWebSocketShouldForceReconnectForHTTPFallback(domain.ErrNoResponsesWebSocketProviders) {
+		t.Fatal("expected force reconnect for no providers")
+	}
+	proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoResponsesWebSocketProviders, true, "no ws")
+	proxyErr.Code = "websocket_not_supported"
+	if !responsesWebSocketShouldForceReconnectForHTTPFallback(proxyErr) {
+		t.Fatal("expected force reconnect for websocket_not_supported")
+	}
+	if responsesWebSocketShouldForceReconnectForHTTPFallback(errors.New("other")) {
+		t.Fatal("did not expect force reconnect for unrelated error")
+	}
+}
+
 func TestResponsesWebSocket_PreservesResponseCreateFrame(t *testing.T) {
 	payload := []byte(`{"type":"response.create","model":"gpt-test","stream":true,"store":true,"generate":false,"previous_response_id":"resp_1","stream_options":{"include_usage":true},"client_metadata":{"source":"test"},"unknown":42,"input":[]}`)
 	previous, err := validateResponsesWebSocketFrame(payload)

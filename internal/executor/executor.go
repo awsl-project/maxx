@@ -77,6 +77,15 @@ func (e *Executor) CloseResponsesWebSocketConnection(connectionID string) {
 	}
 }
 
+// HasResponsesWebSocketProvider reports whether any Codex route can serve
+// Responses WebSocket. Used to reject upgrades with HTTP 426 for Codex fallback.
+func (e *Executor) HasResponsesWebSocketProvider(tenantID uint64) bool {
+	if e == nil || e.router == nil {
+		return false
+	}
+	return e.router.HasResponsesWebSocketProvider(tenantID)
+}
+
 // Execute runs the executor middleware chain with a new flow context.
 func (e *Executor) Execute(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	c := flow.NewCtx(w, req)
@@ -205,6 +214,8 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 	if len(reasoningBody) == 0 {
 		reasoningBody = flow.GetRequestBody(c)
 	}
+	isStream := flow.GetIsStream(c)
+	isWebSocket := flow.GetResponsesWebSocketExchange(c) != nil
 	proxyReq := &domain.ProxyRequest{
 		TenantID:        tenantID,
 		InstanceID:      e.instanceID,
@@ -217,7 +228,8 @@ func (e *Executor) RecordRejectedProxyRequest(c *flow.Ctx, apiToken *domain.APIT
 		StartTime:       now,
 		EndTime:         now,
 		Duration:        0,
-		IsStream:        flow.GetIsStream(c),
+		IsStream:        isStream,
+		Protocol:        domain.ResolveProxyRequestProtocol(isStream, isWebSocket),
 		Status:          "REJECTED",
 		StatusCode:      statusCode,
 		Error:           errMsg,
