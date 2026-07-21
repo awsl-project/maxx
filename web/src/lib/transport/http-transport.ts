@@ -16,6 +16,7 @@ import type {
   Session,
   Route,
   CreateRouteData,
+  UpdateRouteData,
   RetryConfig,
   CreateRetryConfigData,
   RoutingStrategy,
@@ -363,7 +364,7 @@ export class HttpTransport implements Transport {
     return data;
   }
 
-  async updateRoute(id: number, payload: Partial<Route>): Promise<Route> {
+  async updateRoute(id: number, payload: UpdateRouteData): Promise<Route> {
     const { data } = await this.client.put<Route>(`/routes/${id}`, payload);
     return data;
   }

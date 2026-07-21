@@ -121,7 +121,6 @@ func newRouteUpdateCmd() *cobra.Command {
 	var (
 		fromFile      string
 		isEnabled     string
-		isNative      string
 		projectID     int64
 		clientType    string
 		providerID    int64
@@ -134,7 +133,9 @@ func newRouteUpdateCmd() *cobra.Command {
 		Short: "Patch a route — only flags you pass are sent",
 		Long: `Update a route via partial PUT. Only the flags you actually pass on the
 command line are included in the request. Pass -f to send a full JSON patch
-instead, which overrides any individual flags.`,
+instead, which overrides any individual flags.
+
+isNative is server-derived from provider capability and cannot be set here.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := strconv.ParseUint(args[0], 10, 64)
@@ -158,13 +159,6 @@ instead, which overrides any individual flags.`,
 						return fmt.Errorf("--enabled: %w", err)
 					}
 					patch["isEnabled"] = b
-				}
-				if cmd.Flags().Changed("native") {
-					b, err := strconv.ParseBool(isNative)
-					if err != nil {
-						return fmt.Errorf("--native: %w", err)
-					}
-					patch["isNative"] = b
 				}
 				if cmd.Flags().Changed("project-id") {
 					if projectID < 0 {
@@ -197,7 +191,7 @@ instead, which overrides any individual flags.`,
 					patch["retryConfigID"] = uint64(retryConfigID)
 				}
 				if len(patch) == 0 {
-					return fmt.Errorf("no fields to update; pass one of --enabled/--native/--project-id/--client-type/--provider-id/--position/--weight/--retry-config-id, or use -f")
+					return fmt.Errorf("no fields to update; pass one of --enabled/--project-id/--client-type/--provider-id/--position/--weight/--retry-config-id, or use -f")
 				}
 			}
 			if flagDryRun {
@@ -216,7 +210,6 @@ instead, which overrides any individual flags.`,
 	}
 	cmd.Flags().StringVarP(&fromFile, "file", "f", "", "JSON patch file (overrides individual flags when set)")
 	cmd.Flags().StringVar(&isEnabled, "enabled", "", "true|false")
-	cmd.Flags().StringVar(&isNative, "native", "", "true|false")
 	cmd.Flags().Int64Var(&projectID, "project-id", 0, "")
 	cmd.Flags().StringVar(&clientType, "client-type", "", "")
 	cmd.Flags().Int64Var(&providerID, "provider-id", 0, "")

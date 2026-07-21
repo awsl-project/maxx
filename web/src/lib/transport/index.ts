@@ -24,6 +24,7 @@ export type {
   Session,
   Route,
   CreateRouteData,
+  UpdateRouteData,
   RoutePositionUpdate,
   RouteBulkDeleteRequest,
   RouteBulkDeleteResult,

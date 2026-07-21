@@ -687,9 +687,15 @@ func (r *selfServiceProviderRepoWithListError) List(tenantID uint64) ([]*domain.
 }
 
 func newSelfServiceHandlerForTests(deps selfServiceTestDeps) *SelfServiceHandler {
+	// Avoid typed-nil RouteRepository: (*selfServiceRouteRepo)(nil) is non-nil as
+	// an interface and panics on method call during provider update reconcile.
+	routeRepo := deps.routeRepo
+	if routeRepo == nil {
+		routeRepo = &selfServiceRouteRepo{}
+	}
 	adminSvc := service.NewAdminService(
 		deps.providerRepo,
-		deps.routeRepo,
+		routeRepo,
 		deps.projectRepo,
 		nil,
 		deps.retryConfigRepo,
@@ -1941,9 +1947,15 @@ func TestSelfServiceHandler_SyncRoutesFromProject_OverwriteDefaultToProject(t *t
 		projects: []*domain.Project{{ID: 42, TenantID: 1, Name: "demo", Slug: "demo"}},
 	}
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
-		providerRepo: &selfServiceProviderRepo{},
-		routeRepo:    routeRepo,
-		projectRepo:  projectRepo,
+		providerRepo: &selfServiceProviderRepo{
+			providers: []*domain.Provider{
+				{ID: 10, TenantID: 1, Type: "claude", Name: "p10", SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude}},
+				{ID: 11, TenantID: 1, Type: "claude", Name: "p11", SupportedClientTypes: []domain.ClientType{domain.ClientTypeClaude}},
+				{ID: 99, TenantID: 1, Type: "custom", Name: "p99", SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI}},
+			},
+		},
+		routeRepo:   routeRepo,
+		projectRepo: projectRepo,
 	})
 
 	rec := httptest.NewRecorder()
@@ -1998,9 +2010,15 @@ func TestSelfServiceHandler_SyncRoutesFromProject_AddMissingUsesEffectiveSource(
 		},
 	}
 	handler := newSelfServiceHandlerForTests(selfServiceTestDeps{
-		providerRepo: &selfServiceProviderRepo{},
-		routeRepo:    routeRepo,
-		projectRepo:  projectRepo,
+		providerRepo: &selfServiceProviderRepo{
+			providers: []*domain.Provider{
+				{ID: 10, TenantID: 1, Type: "codex", Name: "p10", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+				{ID: 20, TenantID: 1, Type: "codex", Name: "p20", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+				{ID: 77, TenantID: 1, Type: "codex", Name: "p77", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			},
+		},
+		routeRepo:   routeRepo,
+		projectRepo: projectRepo,
 	})
 
 	rec := httptest.NewRecorder()
@@ -2694,9 +2712,13 @@ func TestSelfServiceHandler_BulkDeleteProvidersErrorStatusCodes(t *testing.T) {
 }
 
 func newAdminHandlerForSelfServiceTestDeps(deps selfServiceTestDeps) *AdminHandler {
+	routeRepo := deps.routeRepo
+	if routeRepo == nil {
+		routeRepo = &selfServiceRouteRepo{}
+	}
 	adminSvc := service.NewAdminService(
 		deps.providerRepo,
-		deps.routeRepo,
+		routeRepo,
 		deps.projectRepo,
 		nil,
 		deps.retryConfigRepo,

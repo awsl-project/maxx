@@ -505,8 +505,9 @@ type Route struct {
 
 	IsEnabled bool `json:"isEnabled"`
 
-	// 是否为原生支持的路由（自动创建，跟随 Provider 设置）
-	// false 表示通过 API 转换支持（手动创建，独立管理）
+	// IsNative 是后端根据目标 Provider 的原生 ClientType 能力计算出的
+	// 只读派生字段。客户端提交值会被忽略。
+	// 数据库 routes.is_native 仅保存物化快照，运行时不得直接信任历史值。
 	IsNative bool `json:"isNative"`
 
 	// 0 表示没有项目即全局

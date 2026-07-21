@@ -117,6 +117,9 @@ func NewAdapter(p *domain.Provider) (provider.ProviderAdapter, error) {
 		}
 	}
 
+	// Provider rebuild/update may change BaseURL; clear unsupported WS cache.
+	clearCodexWebSocketUnsupported(p.ID)
+
 	return adapter, nil
 }
 

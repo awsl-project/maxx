@@ -1,4 +1,4 @@
-package codex
+﻿package codex
 
 import (
 	"context"
@@ -289,14 +289,14 @@ func (a *CodexAdapter) ExecuteResponsesWebSocket(
 	exchange *domain.ResponsesWebSocketExchange,
 ) (*domain.ResponsesWebSocketResult, error) {
 	if c == nil || provider == nil || c.Request == nil || exchange == nil || exchange.Sink == nil {
-		return nil, newCodexWebSocketAttemptError(domain.ErrResponsesWebSocketProtocol, false, false)
+		return nil, newCodexWebSocketAttemptError(domain.ErrResponsesWebSocketProtocol, false)
 	}
 	if err := validateOutboundCodexWebSocketFrame(exchange.Frame); err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "invalid Codex websocket request")
 		proxyErr.Scope = domain.ScopeRequest
 		proxyErr.Code = "websocket_protocol_error"
 		proxyErr.HTTPStatusCode = http.StatusBadRequest
-		return nil, newCodexWebSocketAttemptError(proxyErr, false, false)
+		return nil, newCodexWebSocketAttemptError(proxyErr, false)
 	}
 
 	ctx := c.Request.Context()
@@ -305,13 +305,13 @@ func (a *CodexAdapter) ExecuteResponsesWebSocket(
 	if err != nil {
 		proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to build Codex websocket URL")
 		proxyErr.Scope = domain.ScopeEndpoint
-		return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+		return nil, newCodexWebSocketAttemptError(proxyErr, false)
 	}
 	if isCodexWebSocketUnsupported(provider.ID, target) {
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoResponsesWebSocketProviders, true, "Codex websocket endpoint is temporarily marked unsupported")
 		proxyErr.Scope = domain.ScopeEndpoint
 		proxyErr.Code = "upstream_websocket_upgrade_rejected"
-		attemptErr := newCodexWebSocketAttemptError(proxyErr, true, true)
+		attemptErr := newCodexWebSocketAttemptError(proxyErr, true)
 		return nil, attemptErr
 	}
 
@@ -320,7 +320,7 @@ func (a *CodexAdapter) ExecuteResponsesWebSocket(
 		proxyErr := domain.NewProxyErrorWithMessage(err, false, "failed to get access token")
 		proxyErr.Scope = domain.ScopeKey
 		proxyErr.Reason = domain.CooldownReasonAuthFailure
-		return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+		return nil, newCodexWebSocketAttemptError(proxyErr, false)
 	}
 	headers := buildCodexWebSocketHeaders(c, accessToken, config.AccountID, exchange.Frame)
 	fingerprint := codexWebSocketFingerprint(provider.ID, target, headers)
@@ -332,7 +332,7 @@ func (a *CodexAdapter) ExecuteResponsesWebSocket(
 		session = nil
 	}
 	if session == nil && exchange.PreviousResponseID != "" {
-		return nil, newCodexWebSocketAttemptError(domain.ErrResponsesWebSocketSessionUnavailable, false, false)
+		return nil, newCodexWebSocketAttemptError(domain.ErrResponsesWebSocketSessionUnavailable, false)
 	}
 
 	reused := session != nil
@@ -349,7 +349,7 @@ func (a *CodexAdapter) ExecuteResponsesWebSocket(
 			proxyErr.Scope = domain.ScopeRequest
 			proxyErr.Code = "upstream_websocket_session_capacity"
 			proxyErr.HTTPStatusCode = http.StatusServiceUnavailable
-			return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+			return nil, newCodexWebSocketAttemptError(proxyErr, false)
 		}
 	}
 
@@ -384,7 +384,7 @@ func (a *CodexAdapter) dialResponsesWebSocketSession(
 		refreshed, refreshErr := a.getAccessToken(ctx, true, accessToken)
 		if refreshErr != nil {
 			proxyErr := classifyCodexHTTPError(http.StatusUnauthorized, body, response.Header, "")
-			return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+			return nil, newCodexWebSocketAttemptError(proxyErr, false)
 		}
 		headers.Set("Authorization", "Bearer "+refreshed)
 		fingerprint = codexWebSocketFingerprint(provider.ID, target, headers)
@@ -403,7 +403,7 @@ func (a *CodexAdapter) dialResponsesWebSocketSession(
 		if capabilityFailure {
 			markCodexWebSocketUnsupported(provider.ID, target, http.StatusText(status))
 		}
-		return nil, newCodexWebSocketAttemptError(proxyErr, true, capabilityFailure)
+		return nil, newCodexWebSocketAttemptError(proxyErr, capabilityFailure)
 	}
 
 	proxyErr := domain.NewProxyErrorWithMessage(err, true, "failed to upgrade Codex websocket connection")
@@ -411,14 +411,13 @@ func (a *CodexAdapter) dialResponsesWebSocketSession(
 	proxyErr.Reason = domain.CooldownReasonNetworkError
 	proxyErr.Code = "upstream_websocket_upgrade_rejected"
 	proxyErr.HTTPStatusCode = http.StatusBadGateway
-	return nil, newCodexWebSocketAttemptError(proxyErr, true, false)
+	return nil, newCodexWebSocketAttemptError(proxyErr, false)
 }
 
-func newCodexWebSocketAttemptError(err error, safeToTryNext, capabilityFailure bool) *domain.ResponsesWebSocketAttemptError {
+func newCodexWebSocketAttemptError(err error, capabilityFailure bool) *domain.ResponsesWebSocketAttemptError {
 	return &domain.ResponsesWebSocketAttemptError{
-		Err:                   err,
-		SafeToTryNextProvider: safeToTryNext,
-		CapabilityFailure:     capabilityFailure,
+		Err:               err,
+		CapabilityFailure: capabilityFailure,
 	}
 }
 
@@ -462,7 +461,7 @@ func (s *codexWebSocketSession) executeTurn(
 
 	result := &domain.ResponsesWebSocketResult{ProviderID: providerID}
 	if s.isClosed() {
-		return result, newCodexWebSocketAttemptError(errors.New("codex websocket session is closed"), true, false)
+		return result, newCodexWebSocketAttemptError(errors.New("codex websocket session is closed"), false)
 	}
 	if eventChan != nil {
 		eventChan.SendRequestInfo(&domain.RequestInfo{

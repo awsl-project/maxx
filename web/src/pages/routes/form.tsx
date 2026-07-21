@@ -70,7 +70,6 @@ export function RouteForm({ route, onClose, isGlobal, projectId }: RouteFormProp
       position: Number(position),
       weight: Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : 1,
       isEnabled,
-      isNative: route?.isNative ?? false, // 手动创建的 Route 默认为转换路由
       retryConfigID: route?.retryConfigID ?? 0,
       modelMapping: Object.keys(modelMapping).length > 0 ? modelMapping : undefined,
     };

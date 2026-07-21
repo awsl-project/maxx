@@ -3,6 +3,7 @@ package sqlite
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
+	"github.com/awsl-project/maxx/internal/domain"
 	"gorm.io/gorm"
 )
 
@@ -575,6 +577,89 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     21,
+		Description: "Canonicalize provider client types and route native flags",
+		Up: func(db *gorm.DB) error {
+			return backfillRouteNativeFlags(db)
+		},
+		Down: func(db *gorm.DB) error {
+			// Data-only correction; no schema change to reverse.
+			return nil
+		},
+	},
+}
+
+func backfillRouteNativeFlags(db *gorm.DB) error {
+	var providers []Provider
+	if err := db.
+		Where("deleted_at = 0").
+		Find(&providers).Error; err != nil {
+		return err
+	}
+
+	nativeTypesByProvider := make(map[uint64]map[string]struct{}, len(providers))
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		for _, row := range providers {
+			var configured []domain.ClientType
+
+			raw := strings.TrimSpace(string(row.SupportedClientTypes))
+			if raw != "" {
+				if err := json.Unmarshal([]byte(raw), &configured); err != nil {
+					return fmt.Errorf("decode provider %d supported_client_types: %w", row.ID, err)
+				}
+			}
+
+			canonical := domain.CanonicalSupportedClientTypes(row.Type, configured)
+			encoded, err := json.Marshal(canonical)
+			if err != nil {
+				return err
+			}
+
+			if err := tx.
+				Model(&Provider{}).
+				Where("id = ?", row.ID).
+				Update("supported_client_types", string(encoded)).Error; err != nil {
+				return err
+			}
+
+			set := make(map[string]struct{}, len(canonical))
+			for _, clientType := range canonical {
+				set[string(clientType)] = struct{}{}
+			}
+			nativeTypesByProvider[row.ID] = set
+		}
+
+		var routes []Route
+		if err := tx.
+			Where("deleted_at = 0").
+			Find(&routes).Error; err != nil {
+			return err
+		}
+
+		for _, route := range routes {
+			native := 0
+			if _, ok := nativeTypesByProvider[route.ProviderID][route.ClientType]; ok {
+				native = 1
+			}
+			if route.IsNative == native {
+				continue
+			}
+			if err := tx.
+				Model(&Route{}).
+				Where("id = ?", route.ID).
+				Update("is_native", native).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func runForceRetryUpstreamErrorsRetryConfigMigration(db *gorm.DB) error {

@@ -5,8 +5,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getTransport,
-  type Route,
   type CreateRouteData,
+  type UpdateRouteData,
   type ClaudeProviderBatchRequest,
   type RouteBulkDeleteRequest,
   type RouteSyncRequest,
@@ -56,7 +56,7 @@ export function useUpdateRoute() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<Route> }) =>
+    mutationFn: ({ id, data }: { id: number; data: UpdateRouteData }) =>
       getTransport().updateRoute(id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: routeKeys.detail(id) });

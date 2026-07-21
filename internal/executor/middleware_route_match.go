@@ -47,7 +47,7 @@ func (e *Executor) routeMatch(c *flow.Ctx) {
 
 		proxyErr := domain.NewProxyErrorWithMessage(domain.ErrNoRoutes, false, message)
 		if errors.Is(err, domain.ErrNoResponsesWebSocketProviders) {
-			message = "no native Codex Responses WebSocket provider is available"
+			message = "no eligible native Codex Responses WebSocket adapter is available"
 			status = http.StatusServiceUnavailable
 			proxyErr = domain.NewProxyErrorWithMessage(err, true, message)
 			proxyErr.Code = "websocket_transport_unavailable"

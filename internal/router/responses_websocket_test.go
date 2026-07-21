@@ -195,8 +195,8 @@ func matchedProviderIDs(result *MatchResult) []uint64 {
 	return ids
 }
 
-// Only native routes whose adapter implements ResponsesWebSocketAdapter (and
-// Codex) are eligible when RequireResponsesWebSocket is set.
+// Only providers that natively support Codex and whose adapter implements
+// ResponsesWebSocketAdapter are eligible. Stale is_native=false is ignored.
 func TestMatch_ResponsesWebSocketOnlyNativeCapableAdaptersEligible(t *testing.T) {
 	const (
 		nativeWSProviderID  = uint64(101)
@@ -205,14 +205,16 @@ func TestMatch_ResponsesWebSocketOnlyNativeCapableAdaptersEligible(t *testing.T)
 	)
 	r := newResponsesWebSocketTestRouter(t,
 		[]*domain.Route{
-			{ID: 1, TenantID: 1, ProviderID: nativeWSProviderID, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: true, Position: 1},
+			{ID: 1, TenantID: 1, ProviderID: nativeWSProviderID, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: false, Position: 1},
 			{ID: 2, TenantID: 1, ProviderID: httpOnlyProviderID, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: true, Position: 2},
-			{ID: 3, TenantID: 1, ProviderID: nonNativeWSProvider, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: false, Position: 3},
+			{ID: 3, TenantID: 1, ProviderID: nonNativeWSProvider, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: true, Position: 3},
 		},
 		[]*domain.Provider{
+			// Stale IsNative=false still eligible via canonical native check.
 			{ID: nativeWSProviderID, TenantID: 1, Type: wsRouterNativeType, Name: "native-ws", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
 			{ID: httpOnlyProviderID, TenantID: 1, Type: wsRouterHTTPOnlyType, Name: "http-only", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
-			{ID: nonNativeWSProvider, TenantID: 1, Type: wsRouterNativeType, Name: "non-native-ws", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			// Stale IsNative=true but provider does not natively support Codex.
+			{ID: nonNativeWSProvider, TenantID: 1, Type: wsRouterNativeType, Name: "non-native-ws", SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI}},
 		},
 	)
 
@@ -228,6 +230,37 @@ func TestMatch_ResponsesWebSocketOnlyNativeCapableAdaptersEligible(t *testing.T)
 	ids := matchedProviderIDs(result)
 	if len(ids) != 1 || ids[0] != nativeWSProviderID {
 		t.Fatalf("matched provider IDs = %v, want only native capable %d", ids, nativeWSProviderID)
+	}
+}
+
+func TestMatch_ResponsesWebSocketReturnsOneProvider(t *testing.T) {
+	const (
+		providerA = uint64(401)
+		providerB = uint64(402)
+	)
+	r := newResponsesWebSocketTestRouter(t,
+		[]*domain.Route{
+			{ID: 41, TenantID: 1, ProviderID: providerA, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: true, Position: 1},
+			{ID: 42, TenantID: 1, ProviderID: providerB, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: true, Position: 2},
+		},
+		[]*domain.Provider{
+			{ID: providerA, TenantID: 1, Type: wsRouterNativeType, Name: "ws-a", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			{ID: providerB, TenantID: 1, Type: wsRouterNativeType, Name: "ws-b", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+		},
+	)
+
+	result, err := r.Match(&MatchContext{
+		TenantID:                  1,
+		ClientType:                domain.ClientTypeCodex,
+		RequestModel:              "gpt-test",
+		RequireResponsesWebSocket: true,
+	})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	ids := matchedProviderIDs(result)
+	if len(ids) != 1 || ids[0] != providerA {
+		t.Fatalf("matched provider IDs = %v, want single first provider %d", ids, providerA)
 	}
 }
 
@@ -280,13 +313,13 @@ func TestMatch_ResponsesWebSocketNoEligibleProviders(t *testing.T) {
 	r := newResponsesWebSocketTestRouter(t,
 		[]*domain.Route{
 			{ID: 21, TenantID: 1, ProviderID: 301, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: true, Position: 1},
-			{ID: 22, TenantID: 1, ProviderID: 302, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: false, Position: 2},
+			{ID: 22, TenantID: 1, ProviderID: 302, ClientType: domain.ClientTypeCodex, IsEnabled: true, IsNative: true, Position: 2},
 		},
 		[]*domain.Provider{
 			// Native route but HTTP-only adapter → not WS-capable.
 			{ID: 301, TenantID: 1, Type: wsRouterHTTPOnlyType, Name: "http-only", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
-			// WS adapter on a non-native route → still ineligible under RequireResponsesWebSocket.
-			{ID: 302, TenantID: 1, Type: wsRouterNativeType, Name: "ws-non-native", SupportedClientTypes: []domain.ClientType{domain.ClientTypeCodex}},
+			// WS adapter but provider does not natively support Codex.
+			{ID: 302, TenantID: 1, Type: wsRouterNativeType, Name: "ws-non-native", SupportedClientTypes: []domain.ClientType{domain.ClientTypeOpenAI}},
 		},
 	)
 

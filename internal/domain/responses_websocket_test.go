@@ -1,23 +1,23 @@
 package domain
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
-func TestResponsesWebSocketAttemptError_SafeRetryInvariant(t *testing.T) {
-	tests := []struct {
-		name string
-		err  *ResponsesWebSocketAttemptError
-		want bool
-	}{
-		{name: "pre-send", err: &ResponsesWebSocketAttemptError{SafeToTryNextProvider: true}, want: true},
-		{name: "may have sent", err: &ResponsesWebSocketAttemptError{SafeToTryNextProvider: true, RequestFrameMayHaveBeenSent: true}},
-		{name: "event received", err: &ResponsesWebSocketAttemptError{SafeToTryNextProvider: true, FirstEventReceived: true}},
-		{name: "client event sent", err: &ResponsesWebSocketAttemptError{SafeToTryNextProvider: true, ClientEventSent: true}},
+func TestResponsesWebSocketAttemptError_UnwrapAndMessage(t *testing.T) {
+	inner := errors.New("dial failed")
+	err := &ResponsesWebSocketAttemptError{
+		Err:               inner,
+		CapabilityFailure: true,
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := test.err.CanTryNextProvider(); got != test.want {
-				t.Fatalf("CanTryNextProvider = %v, want %v", got, test.want)
-			}
-		})
+	if err.Error() != "dial failed" {
+		t.Fatalf("Error() = %q", err.Error())
+	}
+	if !errors.Is(err, inner) {
+		t.Fatalf("Unwrap/Is failed for %#v", err)
+	}
+	if (&ResponsesWebSocketAttemptError{}).Error() != "responses websocket attempt failed" {
+		t.Fatal("empty attempt error message mismatch")
 	}
 }

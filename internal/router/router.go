@@ -280,8 +280,11 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 		if ctx.RequiredProviderID != 0 && prov.ID != ctx.RequiredProviderID {
 			continue
 		}
+		// Derive native capability from provider + client type; never trust
+		// the historical routes.is_native snapshot for WebSocket eligibility.
+		native := domain.RouteIsNative(prov, route)
 		if ctx.RequireResponsesWebSocket {
-			if !route.IsNative || !adapterSupportsResponsesWebSocket(adp) {
+			if !native || !adapterSupportsResponsesWebSocket(adp) {
 				continue
 			}
 		}
@@ -369,6 +372,12 @@ func (r *Router) Match(ctx *MatchContext) (*MatchResult, error) {
 			matched = promoteByProvider(matched, pinned)
 		}
 		stickyCancel()
+	}
+
+	// Codex Responses WebSocket turns execute exactly one provider: no
+	// cross-provider fallback is allowed after match.
+	if ctx.RequireResponsesWebSocket && len(matched) > 1 {
+		matched = matched[:1]
 	}
 
 	return &MatchResult{Routes: matched, Sticky: stickyWrite}, nil
