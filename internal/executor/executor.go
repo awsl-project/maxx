@@ -349,11 +349,10 @@ func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *
 		return
 	}
 
-	// disableErrorCooldown means upstream failures should not poison the provider
-	// with cooldown state. Keep that same switch from turning provider failures
-	// into early exits: when the provider opts out of error cooldowns, upstream
-	// HTTP errors and transport/stream read failures follow the route retry
-	// policy first, then normal failover.
+	// disableErrorCooldown is an explicit operator escape hatch: failures from
+	// this provider should not create cooldown state and should keep retrying the
+	// same provider beyond the matched retry config until the request succeeds or
+	// its context is cancelled.
 	proxyErr.Retryable = true
 }
 

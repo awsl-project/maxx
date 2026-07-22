@@ -18,6 +18,11 @@ type disabledCooldownStreamRetryAdapter struct {
 	calls int
 }
 
+type disabledCooldownHTTPErrorAdapter struct {
+	calls        int
+	succeedAfter int
+}
+
 func (a *disabledCooldownStreamRetryAdapter) SupportedClientTypes() []domain.ClientType {
 	return []domain.ClientType{domain.ClientTypeOpenAI}
 }
@@ -39,6 +44,22 @@ func (a *disabledCooldownStreamRetryAdapter) Execute(c *flow.Ctx, _ *domain.Prov
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	_, _ = c.Writer.Write([]byte("data: fallback\n\ndata: [DONE]\n\n"))
 	return nil
+}
+
+func (a *disabledCooldownHTTPErrorAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *disabledCooldownHTTPErrorAdapter) Execute(_ *flow.Ctx, _ *domain.Provider) error {
+	a.calls++
+	if a.succeedAfter > 0 && a.calls > a.succeedAfter {
+		return nil
+	}
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream returned 500"), false, "upstream returned 500")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+	proxyErr.HTTPStatusCode = http.StatusInternalServerError
+	return proxyErr
 }
 
 func TestDispatchRetriesCommittedStreamReadErrorWhenErrorCooldownDisabled(t *testing.T) {
@@ -107,6 +128,23 @@ func TestDispatchDoesNotRetryCommittedStreamReadErrorWithoutRetryBudget(t *testi
 	}
 	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "FAILED" {
 		t.Fatalf("expected failed proxy request update, got %#v", proxyRepo.updated)
+	}
+}
+
+func TestDispatchDisableErrorCooldownRetriesHTTPErrorBeyondRetryBudget(t *testing.T) {
+	c, adapter, _, proxyRepo := newDisabledCooldownHTTPErrorDispatchCtx(true, 0, 3)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	if adapter.calls != 4 {
+		t.Fatalf("adapter calls = %d, want 4; disableErrorCooldown should retry beyond MaxRetries", adapter.calls)
+	}
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
 	}
 }
 
@@ -258,6 +296,45 @@ func newDisabledCooldownStreamDispatchCtx(disableErrorCooldown bool, maxRetriesO
 					TenantID: domain.DefaultTenantID,
 					Type:     "custom",
 					Name:     "custom-disabled-cooldown",
+					Config:   &domain.ProviderConfig{DisableErrorCooldown: disableErrorCooldown},
+				},
+				ProviderAdapter: adapter,
+				RetryConfig:     &domain.RetryConfig{MaxRetries: maxRetries, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+			},
+		},
+	}
+	c.Set(flow.KeyExecutorState, state)
+	return c, adapter, attemptRepo, proxyRepo
+}
+
+func newDisabledCooldownHTTPErrorDispatchCtx(disableErrorCooldown bool, maxRetries int, succeedAfter int) (*flow.Ctx, *disabledCooldownHTTPErrorAdapter, *recordingAttemptRepo, *recordingProxyRequestRepo) {
+	proxyRepo := &recordingProxyRequestRepo{}
+	attemptRepo := &recordingAttemptRepo{}
+	adapter := &disabledCooldownHTTPErrorAdapter{succeedAfter: succeedAfter}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
+	c := flow.NewCtx(rec, req)
+	proxyReq := &domain.ProxyRequest{
+		ID:         102,
+		TenantID:   domain.DefaultTenantID,
+		ClientType: domain.ClientTypeOpenAI,
+		Status:     "IN_PROGRESS",
+		StartTime:  time.Now(),
+	}
+	state := &execState{
+		ctx:          context.Background(),
+		proxyReq:     proxyReq,
+		tenantID:     domain.DefaultTenantID,
+		clientType:   domain.ClientTypeOpenAI,
+		requestModel: "gpt-4o",
+		routes: []*router.MatchedRoute{
+			{
+				Route: &domain.Route{ID: 10, TenantID: domain.DefaultTenantID, ProviderID: 21, ClientType: domain.ClientTypeOpenAI},
+				Provider: &domain.Provider{
+					ID:       21,
+					TenantID: domain.DefaultTenantID,
+					Type:     "custom",
+					Name:     "custom-disabled-cooldown-http-error",
 					Config:   &domain.ProviderConfig{DisableErrorCooldown: disableErrorCooldown},
 				},
 				ProviderAdapter: adapter,

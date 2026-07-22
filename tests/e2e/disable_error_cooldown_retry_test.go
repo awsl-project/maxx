@@ -9,11 +9,11 @@ import (
 	"testing"
 )
 
-// TestDisableErrorCooldownRetriesAllHTTPErrorStatuses verifies the provider
-// switch contract: when disableErrorCooldown is enabled, upstream HTTP error
-// responses must not become request-level early exits. Every HTTP 4xx/5xx error
-// should follow the route retry policy first, then fail over to the next route.
-func TestDisableErrorCooldownRetriesAllHTTPErrorStatuses(t *testing.T) {
+// TestDisableErrorCooldownRetriesBeyondRetryPolicy verifies the provider switch
+// contract: when disableErrorCooldown is enabled, matching upstream HTTP errors
+// neither create cooldown state nor obey the retry-attempt limit. The same
+// provider keeps retrying until it succeeds or the request context is cancelled.
+func TestDisableErrorCooldownRetriesBeyondRetryPolicy(t *testing.T) {
 	cases := []struct {
 		status int
 		name   string
@@ -34,13 +34,29 @@ func TestDisableErrorCooldownRetriesAllHTTPErrorStatuses(t *testing.T) {
 			env := NewProxyTestEnv(t)
 
 			var failingHits atomic.Int64
-			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				failingHits.Add(1)
+			resilient := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hit := failingHits.Add(1)
+				if hit > 4 {
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"id":      "chatcmpl-eventual-success",
+						"object":  "chat.completion",
+						"model":   "gpt-4o",
+						"created": 1700000000,
+						"choices": []map[string]any{{
+							"index":         0,
+							"message":       map[string]any{"role": "assistant", "content": "eventual-success"},
+							"finish_reason": "stop",
+						}},
+						"usage": map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+					})
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.status)
 				_, _ = w.Write([]byte(`{"error":{"message":"Insufficient balance","type":"bad_response_status_code","code":"bad_response_status_code"}}`))
 			}))
-			defer failing.Close()
+			defer resilient.Close()
 
 			var fallbackHits atomic.Int64
 			fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,11 +77,11 @@ func TestDisableErrorCooldownRetriesAllHTTPErrorStatuses(t *testing.T) {
 			}))
 			defer fallback.Close()
 
-			failingID := createDisableErrorCooldownProvider(t, env, "failing-disable-cooldown", failing.URL, true)
+			resilientID := createDisableErrorCooldownProvider(t, env, "resilient-disable-cooldown", resilient.URL, true)
 			fallbackID := createDisableErrorCooldownProvider(t, env, "fallback", fallback.URL, false)
-			retryID := createFastRetryConfig(t, env, "retry-all-http-errors")
+			retryID := createFastRetryConfig(t, env, "retry-limit-zero")
 
-			createRouteWithOptionalRetryConfig(t, env, "openai", failingID, 1, retryID)
+			createRouteWithOptionalRetryConfig(t, env, "openai", resilientID, 1, retryID)
 			createRouteWithOptionalRetryConfig(t, env, "openai", fallbackID, 2, 0)
 
 			resp := env.ProxyPost("/v1/chat/completions", openaiRequest("gpt-4o"), nil)
@@ -73,15 +89,15 @@ func TestDisableErrorCooldownRetriesAllHTTPErrorStatuses(t *testing.T) {
 			resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("final status=%d body=%s, want 200 from fallback", resp.StatusCode, body)
+				t.Fatalf("final status=%d body=%s, want 200 from retried provider", resp.StatusCode, body)
 			}
-			if failingHits.Load() != 3 {
-				t.Fatalf("status %d failing hits=%d, want 3 (initial + 2 retries)", tt.status, failingHits.Load())
+			if failingHits.Load() != 5 {
+				t.Fatalf("status %d provider hits=%d, want 5 (4 failures beyond retry limit + success)", tt.status, failingHits.Load())
 			}
-			if fallbackHits.Load() != 1 {
-				t.Fatalf("status %d fallback hits=%d, want 1", tt.status, fallbackHits.Load())
+			if fallbackHits.Load() != 0 {
+				t.Fatalf("status %d fallback hits=%d, want 0 when disabled freeze keeps retrying same provider", tt.status, fallbackHits.Load())
 			}
-			assertNoCooldownForProvider(t, env, failingID)
+			assertNoCooldownForProvider(t, env, resilientID)
 		})
 	}
 }
@@ -115,7 +131,7 @@ func createFastRetryConfig(t *testing.T, env *ProxyTestEnv, name string) uint64 
 	t.Helper()
 	resp := env.AdminPost("/api/admin/retry-configs", map[string]any{
 		"name":            name,
-		"maxRetries":      2,
+		"maxRetries":      0,
 		"initialInterval": 1,
 		"backoffRate":     1.0,
 		"maxInterval":     1,
