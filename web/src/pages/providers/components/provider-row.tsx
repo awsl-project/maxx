@@ -59,6 +59,7 @@ function formatCost(nanoUsd: number): string {
 interface ProviderRowProps {
   provider: Provider;
   stats?: ProviderStats;
+  statsLoading?: boolean;
   streamingCount: number;
   providerModelMappings?: ModelMapping[];
   onClick?: () => void;
@@ -219,6 +220,7 @@ function getCodexWeekQuotaInfo(
 export function ProviderRow({
   provider,
   stats,
+  statsLoading = false,
   streamingCount,
   providerModelMappings = [],
   onClick,
@@ -726,6 +728,11 @@ export function ProviderRow({
               </span>
             </div>
           </>
+        ) : statsLoading ? (
+          <div className="px-6 py-2 flex items-center gap-2 text-muted-foreground/50">
+            <Activity size={12} className="animate-pulse" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">—</span>
+          </div>
         ) : (
           <div className="px-6 py-2 flex items-center gap-2 text-muted-foreground/30">
             <Activity size={12} />

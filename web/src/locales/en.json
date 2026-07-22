@@ -282,7 +282,7 @@
     "columns": {
       "action": "Columns display & order",
       "title": "Columns display & order",
-      "hint": "Toggle columns here, drag to reorder, and drag header edges to resize. At least one column must remain visible.",
+      "hint": "Toggle visibility and drag to reorder. Keep at least one column.",
       "reset": "Reset",
       "resize": "Resize {{column}} column"
     },

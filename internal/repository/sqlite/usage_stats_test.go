@@ -162,6 +162,135 @@ func TestQueryDashboardHistoricalDays_EmptyResult(t *testing.T) {
 	}
 }
 
+func TestGetProviderStatsIncludesPersistedRawBackfillAfterRestart(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewUsageStatsRepository(db)
+	now := time.Now().UTC().Truncate(time.Minute)
+	oldHour := now.Add(-3 * time.Hour).Truncate(time.Hour)
+	recent := now.Add(-10 * time.Minute)
+
+	if err := db.gorm.Create(&UsageStats{
+		TenantID:           1,
+		TimeBucket:         toTimestamp(oldHour),
+		Granularity:        string(domain.GranularityHour),
+		ProviderID:         10,
+		ClientType:         "openai",
+		ProjectID:          20,
+		Model:              "glm-5.2",
+		TotalRequests:      2,
+		SuccessfulRequests: 1,
+		FailedRequests:     1,
+		InputTokens:        100,
+		OutputTokens:       50,
+		Cost:               300,
+	}).Error; err != nil {
+		t.Fatalf("seed usage_stats: %v", err)
+	}
+
+	request := &ProxyRequest{TenantID: 1, ClientType: "openai", ProjectID: 20, Status: "COMPLETED"}
+	if err := db.gorm.Create(request).Error; err != nil {
+		t.Fatalf("seed request: %v", err)
+	}
+	attempts := []*ProxyUpstreamAttempt{
+		{TenantID: 1, ProxyRequestID: request.ID, ProviderID: 10, Status: "COMPLETED", EndTime: toTimestamp(recent), InputTokenCount: 40, OutputTokenCount: 20, Cost: 70},
+		{TenantID: 1, ProxyRequestID: request.ID, ProviderID: 10, Status: "FAILED", EndTime: toTimestamp(recent.Add(time.Minute)), InputTokenCount: 5, OutputTokenCount: 1, Cost: 3},
+	}
+	if err := db.gorm.Create(&attempts).Error; err != nil {
+		t.Fatalf("seed attempts: %v", err)
+	}
+
+	got, err := repo.GetProviderStats(1, "openai", 20)
+	if err != nil {
+		t.Fatalf("GetProviderStats: %v", err)
+	}
+	ps := got[10]
+	if ps == nil {
+		t.Fatal("missing provider 10 stats")
+	}
+	if ps.TotalRequests != 4 || ps.SuccessfulRequests != 2 || ps.FailedRequests != 2 {
+		t.Fatalf("requests = total:%d success:%d failed:%d, want 4/2/2", ps.TotalRequests, ps.SuccessfulRequests, ps.FailedRequests)
+	}
+	if ps.TotalInputTokens != 145 || ps.TotalOutputTokens != 71 || ps.TotalCost != 373 {
+		t.Fatalf("tokens/cost = input:%d output:%d cost:%d, want 145/71/373", ps.TotalInputTokens, ps.TotalOutputTokens, ps.TotalCost)
+	}
+	if ps.SuccessRate != 50 {
+		t.Fatalf("successRate = %v, want 50", ps.SuccessRate)
+	}
+}
+
+func TestGetProviderStatsRawBackfillIsBounded(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewUsageStatsRepository(db)
+	now := time.Now().UTC().Truncate(time.Minute)
+	request := &ProxyRequest{TenantID: 1, ClientType: "openai", ProjectID: 20, Status: "COMPLETED"}
+	if err := db.gorm.Create(request).Error; err != nil {
+		t.Fatalf("seed request: %v", err)
+	}
+	attempts := []*ProxyUpstreamAttempt{
+		{TenantID: 1, ProxyRequestID: request.ID, ProviderID: 10, Status: "COMPLETED", EndTime: toTimestamp(now.Add(-3 * time.Hour)), InputTokenCount: 999},
+		{TenantID: 1, ProxyRequestID: request.ID, ProviderID: 10, Status: "COMPLETED", EndTime: toTimestamp(now.Add(-30 * time.Minute)), InputTokenCount: 7, OutputTokenCount: 3},
+	}
+	if err := db.gorm.Create(&attempts).Error; err != nil {
+		t.Fatalf("seed attempts: %v", err)
+	}
+
+	got, err := repo.GetProviderStats(1, "openai", 20)
+	if err != nil {
+		t.Fatalf("GetProviderStats: %v", err)
+	}
+	ps := got[10]
+	if ps == nil {
+		t.Fatal("missing provider 10 stats")
+	}
+	if ps.TotalRequests != 1 || ps.TotalInputTokens != 7 || ps.TotalOutputTokens != 3 {
+		t.Fatalf("raw backfill = requests:%d input:%d output:%d, want only the bounded recent attempt", ps.TotalRequests, ps.TotalInputTokens, ps.TotalOutputTokens)
+	}
+}
+
+func TestGetProviderStatsAppliesClientAndProjectFiltersToRawBackfill(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewUsageStatsRepository(db)
+	now := time.Now().UTC().Truncate(time.Minute)
+	matching := &ProxyRequest{TenantID: 1, ClientType: "openai", ProjectID: 20, Status: "COMPLETED"}
+	wrongClient := &ProxyRequest{TenantID: 1, ClientType: "claude", ProjectID: 20, Status: "COMPLETED"}
+	wrongProject := &ProxyRequest{TenantID: 1, ClientType: "openai", ProjectID: 21, Status: "COMPLETED"}
+	if err := db.gorm.Create([]*ProxyRequest{matching, wrongClient, wrongProject}).Error; err != nil {
+		t.Fatalf("seed requests: %v", err)
+	}
+	attempts := []*ProxyUpstreamAttempt{
+		{TenantID: 1, ProxyRequestID: matching.ID, ProviderID: 10, Status: "COMPLETED", EndTime: toTimestamp(now.Add(-5 * time.Minute)), InputTokenCount: 11},
+		{TenantID: 1, ProxyRequestID: wrongClient.ID, ProviderID: 10, Status: "COMPLETED", EndTime: toTimestamp(now.Add(-5 * time.Minute)), InputTokenCount: 100},
+		{TenantID: 1, ProxyRequestID: wrongProject.ID, ProviderID: 10, Status: "COMPLETED", EndTime: toTimestamp(now.Add(-5 * time.Minute)), InputTokenCount: 200},
+	}
+	if err := db.gorm.Create(&attempts).Error; err != nil {
+		t.Fatalf("seed attempts: %v", err)
+	}
+
+	got, err := repo.GetProviderStats(1, "openai", 20)
+	if err != nil {
+		t.Fatalf("GetProviderStats: %v", err)
+	}
+	ps := got[10]
+	if ps == nil || ps.TotalRequests != 1 || ps.TotalInputTokens != 11 {
+		t.Fatalf("filtered stats = %+v, want only matching request", ps)
+	}
+}
+
 func TestUsageStatsRepositoryReassignAPITokenIDMergesHistoricalRows(t *testing.T) {
 	db, err := NewDBWithDSN("sqlite://:memory:")
 	if err != nil {

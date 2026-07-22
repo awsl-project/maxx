@@ -146,7 +146,7 @@ export function ProvidersPage() {
   const providers = useMemo(() => normalizeProviderList(providerData), [providerData]);
   const { data: routes } = useRoutes();
   const { data: modelMappings } = useModelMappings();
-  const { data: providerStats = {} } = useAllProviderStats();
+  const { data: providerStats = {}, isLoading: isProviderStatsLoading } = useAllProviderStats();
   const { countsByProvider } = useStreamingRequests();
   const [importStatus, setImportStatus] = useState<ImportResult | null>(null);
   const [bulkDeleteStatus, setBulkDeleteStatus] = useState<ProviderBulkDeleteStatus | null>(null);
@@ -894,6 +894,7 @@ export function ProvidersPage() {
                                 <ProviderRow
                                   provider={provider}
                                   stats={providerStats[provider.id]}
+                                  statsLoading={isProviderStatsLoading}
                                   streamingCount={countsByProvider.get(provider.id) || 0}
                                   providerModelMappings={(modelMappings ?? []).filter(
                                     (mapping) =>
