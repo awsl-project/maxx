@@ -49,7 +49,7 @@ func (a *disabledCooldownHTTPErrorAdapter) SupportedClientTypes() []domain.Clien
 	return []domain.ClientType{domain.ClientTypeOpenAI}
 }
 
-func (a *disabledCooldownHTTPErrorAdapter) Execute(*flow.Ctx, _ *domain.Provider) error {
+func (a *disabledCooldownHTTPErrorAdapter) Execute(_ *flow.Ctx, _ *domain.Provider) error {
 	a.calls++
 	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream returned 500"), false, "upstream returned 500")
 	proxyErr.Scope = domain.ScopeProvider
