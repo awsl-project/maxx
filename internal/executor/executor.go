@@ -341,6 +341,31 @@ func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown
 }
 
+func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *domain.ProxyError) {
+	if !shouldSkipErrorCooldown(provider) || proxyErr == nil {
+		return
+	}
+	if !isDisabledErrorCooldownRetryableError(proxyErr) {
+		return
+	}
+
+	// disableErrorCooldown is an explicit operator escape hatch: failures from
+	// this provider should not create cooldown state and should keep retrying the
+	// same provider beyond the matched retry config until the request succeeds or
+	// its context is cancelled.
+	proxyErr.Retryable = true
+}
+
+func isDisabledErrorCooldownRetryableError(proxyErr *domain.ProxyError) bool {
+	if proxyErr == nil {
+		return false
+	}
+	if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
+		return true
+	}
+	return isCommittedStreamReadRetryableError(proxyErr)
+}
+
 func applyCommittedStreamReadRetryPolicy(proxyErr *domain.ProxyError) {
 	if isCommittedStreamReadRetryableError(proxyErr) {
 		proxyErr.Retryable = true

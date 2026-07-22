@@ -139,7 +139,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 
 		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
 
-		for attempt := 0; attempt <= retryConfig.MaxRetries; {
+		for attempt := 0; ; {
+			if attempt > retryConfig.MaxRetries && !shouldSkipErrorCooldown(matchedRoute.Provider) {
+				break
+			}
 			if ctx.Err() != nil {
 				state.lastErr = ctx.Err()
 				c.Err = state.lastErr
@@ -353,6 +356,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			proxyErr, ok := asProxyError(err)
 			if ok {
 				normalizeUpstreamConnectionError(proxyErr)
+				applyDisabledErrorCooldownRetryPolicy(matchedRoute.Provider, proxyErr)
 				applyCommittedStreamReadRetryPolicy(proxyErr)
 			}
 			if responseCapture.WroteToClient() && !shouldRetryCommittedResponseError(proxyErr) {
@@ -448,7 +452,7 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				break
 			}
 
-			if attempt < retryConfig.MaxRetries {
+			if attempt < retryConfig.MaxRetries || shouldSkipErrorCooldown(matchedRoute.Provider) {
 				waitTime := e.calculateBackoff(retryConfig, attempt)
 				if proxyErr.RetryAfter > 0 {
 					waitTime = proxyErr.RetryAfter

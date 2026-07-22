@@ -1680,7 +1680,7 @@
     "endpointOverride": "端点覆盖",
     "errorCooldownTitle": "3. 错误自动冻结",
     "disableErrorCooldown": "禁止错误自动冻结",
-    "disableErrorCooldownDesc": "开启后，该提供商的上游错误不会触发新的自动冻结；此开关不改变重试策略，失败请求仍按当前重试配置决定是否重试和重试次数。已存在的冻结仍需过期或手动清除。",
+    "disableErrorCooldownDesc": "开启后，该提供商的上游错误不会触发新的自动冻结；相关失败会绕过当前重试次数限制，持续重试该提供商，直到请求成功或请求被取消/超时。已存在的冻结仍需过期或手动清除。",
     "responsesPassthrough": "透传 Responses 路径",
     "responsesPassthroughDesc": "Codex Responses 请求按客户端原始路径转发（如 /v1/responses），而不是硬编码 /responses。仅当上游只认 /responses、或 Base URL 已自带 /v1 时才需要关闭。",
     "responsesWebSocket": "支持 Responses WebSocket",

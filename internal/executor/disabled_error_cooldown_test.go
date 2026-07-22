@@ -19,7 +19,8 @@ type disabledCooldownStreamRetryAdapter struct {
 }
 
 type disabledCooldownHTTPErrorAdapter struct {
-	calls int
+	calls        int
+	succeedAfter int
 }
 
 func (a *disabledCooldownStreamRetryAdapter) SupportedClientTypes() []domain.ClientType {
@@ -51,6 +52,9 @@ func (a *disabledCooldownHTTPErrorAdapter) SupportedClientTypes() []domain.Clien
 
 func (a *disabledCooldownHTTPErrorAdapter) Execute(_ *flow.Ctx, _ *domain.Provider) error {
 	a.calls++
+	if a.succeedAfter > 0 && a.calls > a.succeedAfter {
+		return nil
+	}
 	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream returned 500"), false, "upstream returned 500")
 	proxyErr.Scope = domain.ScopeProvider
 	proxyErr.Reason = domain.CooldownReasonServerError
@@ -127,20 +131,20 @@ func TestDispatchDoesNotRetryCommittedStreamReadErrorWithoutRetryBudget(t *testi
 	}
 }
 
-func TestDispatchDisableErrorCooldownDoesNotForceHTTPErrorRetryable(t *testing.T) {
-	c, adapter, _, proxyRepo := newDisabledCooldownHTTPErrorDispatchCtx(true, 3)
+func TestDispatchDisableErrorCooldownRetriesHTTPErrorBeyondRetryBudget(t *testing.T) {
+	c, adapter, _, proxyRepo := newDisabledCooldownHTTPErrorDispatchCtx(true, 0, 3)
 	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
 
 	e.dispatch(c)
 
-	if c.Err == nil {
-		t.Fatal("expected upstream HTTP error")
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
 	}
-	if adapter.calls != 1 {
-		t.Fatalf("adapter calls = %d, want 1; disableErrorCooldown must not override retry policy", adapter.calls)
+	if adapter.calls != 4 {
+		t.Fatalf("adapter calls = %d, want 4; disableErrorCooldown should retry beyond MaxRetries", adapter.calls)
 	}
-	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "FAILED" {
-		t.Fatalf("expected failed proxy request update, got %#v", proxyRepo.updated)
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
 	}
 }
 
@@ -303,10 +307,10 @@ func newDisabledCooldownStreamDispatchCtx(disableErrorCooldown bool, maxRetriesO
 	return c, adapter, attemptRepo, proxyRepo
 }
 
-func newDisabledCooldownHTTPErrorDispatchCtx(disableErrorCooldown bool, maxRetries int) (*flow.Ctx, *disabledCooldownHTTPErrorAdapter, *recordingAttemptRepo, *recordingProxyRequestRepo) {
+func newDisabledCooldownHTTPErrorDispatchCtx(disableErrorCooldown bool, maxRetries int, succeedAfter int) (*flow.Ctx, *disabledCooldownHTTPErrorAdapter, *recordingAttemptRepo, *recordingProxyRequestRepo) {
 	proxyRepo := &recordingProxyRequestRepo{}
 	attemptRepo := &recordingAttemptRepo{}
-	adapter := &disabledCooldownHTTPErrorAdapter{}
+	adapter := &disabledCooldownHTTPErrorAdapter{succeedAfter: succeedAfter}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
 	c := flow.NewCtx(rec, req)

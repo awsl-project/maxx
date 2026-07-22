@@ -1683,7 +1683,7 @@
     "endpointOverride": "Endpoint Override",
     "errorCooldownTitle": "3. Automatic Error Freeze",
     "disableErrorCooldown": "Disable Automatic Error Freeze",
-    "disableErrorCooldownDesc": "When enabled, upstream errors from this provider won't create new automatic freezes. This switch does not change the retry policy; failed requests still follow the current retry configuration for whether and how many times to retry. Existing freezes must expire or be cleared manually.",
+    "disableErrorCooldownDesc": "When enabled, upstream errors from this provider won't create new automatic freezes. Related failures bypass the current retry-attempt limit and keep retrying this provider until the request succeeds or is cancelled/times out. Existing freezes must expire or be cleared manually.",
     "responsesPassthrough": "Passthrough Responses Path",
     "responsesPassthroughDesc": "For Codex Responses requests, forward the client's original path (e.g. /v1/responses) instead of a hardcoded /responses. Turn off only for upstreams that expect /responses, or when the Base URL already ends with /v1.",
     "responsesWebSocket": "Support Responses WebSocket",
