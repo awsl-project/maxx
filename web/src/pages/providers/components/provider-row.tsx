@@ -384,14 +384,16 @@ export function ProviderRow({
           )}
           {provider.config?.disableErrorCooldown && (
             <span
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/15 px-1 py-0.5 pr-1.5 text-[10px] font-black text-amber-700 shadow-[0_0_0_1px_rgba(245,158,11,0.08)] dark:text-amber-200"
+              className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/15 px-1 pr-1.5 text-[10px] font-black leading-none text-amber-700 shadow-[0_0_0_1px_rgba(245,158,11,0.08)] dark:text-amber-200"
               title={t('provider.disableSwitchBadgeDesc')}
               aria-label={t('provider.disableSwitchBadgeDesc')}
             >
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-background shadow-sm">
-                <Ban className="h-3 w-3 stroke-[3]" />
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-background shadow-sm">
+                <Ban className="h-2.5 w-2.5 stroke-[3]" />
               </span>
-              <span className="hidden sm:inline">{t('provider.disableSwitchBadge')}</span>
+              <span className="hidden h-3.5 items-center leading-none sm:inline-flex">
+                {t('provider.disableSwitchBadge')}
+              </span>
             </span>
           )}
         </div>
