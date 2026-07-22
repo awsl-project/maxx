@@ -802,11 +802,11 @@
     "routesConfigured_other": "为该项目配置了 {{count}} 条路由",
     "sortAntigravity": "一键排序 Antigravity",
     "sortCodex": "一键排序 Codex",
-    "sortByTtft": "按 TTFT 排序",
-    "sortByTtftHint": "按最近 24 小时平均 TTFT 排序当前路由；成功请求少于 3 次的路由保留原槽位。",
-    "sortByTtftApplied": "已按 TTFT 更新 {{count}} 条路由顺序。",
+    "sortByTtft": "测速 TTFT 并排序",
+    "sortByTtftHint": "对当前范围内每条启用路由发起真实探测请求，再按实测 TTFT 排序；失败探测会排在成功路由之后。",
+    "sortByTtftApplied": "已按实测 TTFT 更新 {{count}} 条路由顺序（成功 {{success}}，失败 {{failed}}）。",
     "sortByTtftNoChanges": "当前没有可调整的 TTFT 顺序：可能样本不足，或已经是最快优先。",
-    "sortByTtftFailed": "按 TTFT 排序失败，请稍后重试。",
+    "sortByTtftFailed": "TTFT 测速排序失败，请稍后重试。",
     "clientRoutesTitle": "{{client}} 路由",
     "configureRoutingFor": "为 {{client}} 配置路由",
     "usingProjectRoutes": "使用项目专属路由",
@@ -952,7 +952,13 @@
       "updateFailed": "自定义提供商 Key 更新失败。",
       "save": "保存 Key",
       "placeholder": "留空保持当前 Key"
-    }
+    },
+    "sortByTtftRunningShort": "正在测速...",
+    "sortByTtftRunning": "正在通过真实探测请求测量 {{count}} 条路由的 TTFT...",
+    "sortByTtftNoCandidates": "至少需要两条已启用且绑定提供方的路由才能测速排序。",
+    "sortByTtftNoChangesAfterProbe": "已完成路由 TTFT 测速；当前无需调整顺序（成功 {{success}}，失败 {{failed}}）。",
+    "sortByTtftNoSuccessfulProbe": "没有路由返回成功的 TTFT 探测结果（失败 {{count}}），顺序未改变。",
+    "sortByTtftProbeResults": "TTFT 探测结果"
   },
   "console": {
     "title": "控制台",
