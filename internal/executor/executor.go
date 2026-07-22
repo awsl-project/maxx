@@ -341,32 +341,6 @@ func shouldSkipErrorCooldown(provider *domain.Provider) bool {
 	return provider != nil && provider.Config != nil && provider.Config.DisableErrorCooldown
 }
 
-func applyDisabledErrorCooldownRetryPolicy(provider *domain.Provider, proxyErr *domain.ProxyError) {
-	if !shouldSkipErrorCooldown(provider) || proxyErr == nil {
-		return
-	}
-	if !isDisabledErrorCooldownRetryableError(proxyErr) {
-		return
-	}
-
-	// disableErrorCooldown means upstream failures should not poison the provider
-	// with cooldown state. Keep that same switch from turning provider failures
-	// into early exits: when the provider opts out of error cooldowns, upstream
-	// HTTP errors and transport/stream read failures follow the route retry
-	// policy first, then normal failover.
-	proxyErr.Retryable = true
-}
-
-func isDisabledErrorCooldownRetryableError(proxyErr *domain.ProxyError) bool {
-	if proxyErr == nil {
-		return false
-	}
-	if proxyErr.HTTPStatusCode >= 400 && proxyErr.HTTPStatusCode < 600 {
-		return true
-	}
-	return isCommittedStreamReadRetryableError(proxyErr)
-}
-
 func applyCommittedStreamReadRetryPolicy(proxyErr *domain.ProxyError) {
 	if isCommittedStreamReadRetryableError(proxyErr) {
 		proxyErr.Retryable = true

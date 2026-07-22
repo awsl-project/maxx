@@ -353,7 +353,6 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 			proxyErr, ok := asProxyError(err)
 			if ok {
 				normalizeUpstreamConnectionError(proxyErr)
-				applyDisabledErrorCooldownRetryPolicy(matchedRoute.Provider, proxyErr)
 				applyCommittedStreamReadRetryPolicy(proxyErr)
 			}
 			if responseCapture.WroteToClient() && !shouldRetryCommittedResponseError(proxyErr) {
