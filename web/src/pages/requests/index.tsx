@@ -127,7 +127,11 @@ const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
 
-function ProtocolBadge({ request }: { request: Pick<ProxyRequest, 'protocol' | 'isStream' | 'statusCode'> }) {
+function ProtocolBadge({
+  request,
+}: {
+  request: Pick<ProxyRequest, 'protocol' | 'isStream' | 'statusCode'>;
+}) {
   const { t } = useTranslation();
   const protocol = resolveRequestProtocol(request);
   const label = t(requestProtocolLabelKey(protocol));
@@ -809,14 +813,8 @@ export function RequestsPage() {
         {visibleColumns.map((columnId) => {
           const width = columnPrefs.widths[columnId];
           const shortKey = columnShortLabelKey(columnId);
-          const fullLabel =
-            columnId === 'ttft' ? 'TTFT' : t(columnLabelKey(columnId));
-          const displayLabel =
-            columnId === 'ttft'
-              ? 'TTFT'
-              : shortKey
-                ? t(shortKey)
-                : fullLabel;
+          const fullLabel = columnId === 'ttft' ? 'TTFT' : t(columnLabelKey(columnId));
+          const displayLabel = columnId === 'ttft' ? 'TTFT' : shortKey ? t(shortKey) : fullLabel;
           return (
             <TableHead
               key={columnId}

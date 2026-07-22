@@ -280,9 +280,9 @@
     "cacheWrite": "Cache Write",
     "cacheWShort": "CacheW",
     "columns": {
-      "action": "Columns",
-      "title": "Visible columns",
-      "hint": "Toggle visibility, drag to reorder; drag header edges to resize.",
+      "action": "Columns display & order",
+      "title": "Columns display & order",
+      "hint": "Toggle columns here, drag to reorder, and drag header edges to resize. At least one column must remain visible.",
       "reset": "Reset",
       "resize": "Resize {{column}} column"
     },

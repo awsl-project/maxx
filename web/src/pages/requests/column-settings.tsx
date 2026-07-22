@@ -40,12 +40,14 @@ function SortableColumnRow({
   id,
   checked,
   disabled,
+  toggleDisabled,
   label,
   onToggle,
 }: {
   id: RequestColumnId;
   checked: boolean;
   disabled: boolean;
+  toggleDisabled: boolean;
   label: string;
   onToggle: (id: RequestColumnId, next: boolean) => void;
 }) {
@@ -84,7 +86,7 @@ function SortableColumnRow({
           type="checkbox"
           className="size-3.5 accent-primary shrink-0"
           checked={checked}
-          disabled={disabled}
+          disabled={toggleDisabled}
           onChange={(event) => onToggle(id, event.target.checked)}
         />
         <span className="text-sm truncate">{label}</span>
@@ -103,6 +105,10 @@ export function RequestsColumnSettings({ prefs, availability, onChange }: Column
   const configurableIds = useMemo(
     () => prefs.order.filter((id) => isColumnAvailable(id, availability)),
     [availability, prefs.order],
+  );
+  const visibleCount = useMemo(
+    () => configurableIds.filter((id) => prefs.visibility[id] !== false).length,
+    [configurableIds, prefs.visibility],
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -179,6 +185,7 @@ export function RequestsColumnSettings({ prefs, availability, onChange }: Column
                   id={id}
                   checked={prefs.visibility[id] !== false}
                   disabled={false}
+                  toggleDisabled={prefs.visibility[id] !== false && visibleCount <= 1}
                   label={t(columnLabelKey(id))}
                   onToggle={handleToggle}
                 />
