@@ -299,6 +299,7 @@ export function RequestsPage() {
   const [columnPrefs, setColumnPrefs] = useState<RequestColumnPrefs>(() =>
     readColumnPrefs(columnPrefsStorageKey),
   );
+  const skipNextColumnPrefsWriteRef = useRef(false);
 
   // 过滤维度（默认令牌）
   const [filterMode, setFilterMode] = useState<RequestFilterMode>(() =>
@@ -421,10 +422,15 @@ export function RequestsPage() {
   );
 
   useEffect(() => {
+    skipNextColumnPrefsWriteRef.current = true;
     setColumnPrefs(readColumnPrefs(columnPrefsStorageKey));
   }, [columnPrefsStorageKey]);
 
   useEffect(() => {
+    if (skipNextColumnPrefsWriteRef.current) {
+      skipNextColumnPrefsWriteRef.current = false;
+      return;
+    }
     writeColumnPrefs(columnPrefsStorageKey, columnPrefs);
   }, [columnPrefs, columnPrefsStorageKey]);
 
