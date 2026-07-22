@@ -895,6 +895,12 @@ export function ProvidersPage() {
                                   provider={provider}
                                   stats={providerStats[provider.id]}
                                   streamingCount={countsByProvider.get(provider.id) || 0}
+                                  providerModelMappings={(modelMappings ?? []).filter(
+                                    (mapping) =>
+                                      mapping.scope === 'provider' &&
+                                      mapping.providerID === provider.id &&
+                                      mapping.isEnabled !== false,
+                                  )}
                                   className={cn(
                                     canManageProviderSettings && 'pl-12',
                                     isSelected &&

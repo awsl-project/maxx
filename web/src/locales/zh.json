@@ -1697,7 +1697,14 @@
     "excludeFromExport": "不导出此提供商配置",
     "excludeFromExportDesc": "开启后，此提供商及其配置不会被包含在提供商导出或系统备份中；保存后的 API 端点和提供商密钥也不会在编辑页回显，只能重新输入轮换。",
     "cloneExcludeFromExportDesc": "仅用于新克隆出的提供商。开启后，克隆出的提供商不会被导出，且保存后的 API 端点和提供商密钥不会在编辑页回显。",
-    "excludeFromExportLockedDesc": "该提供商已进入密钥隐藏模式。为了避免通过关闭开关读回旧密钥，当前开关不可直接关闭。"
+    "excludeFromExportLockedDesc": "该提供商已进入密钥隐藏模式。为了避免通过关闭开关读回旧密钥，当前开关不可直接关闭。",
+    "shareCommand": "分享命令",
+    "shareCommandTitle": "分享自定义提供商命令",
+    "shareCommandDesc": "复制一条可粘贴到批量导入框的 provider add 命令。",
+    "copyShareCommand": "复制命令",
+    "shareCommandApiKeyHint": "为避免泄露密钥，命令中的 API Key 默认使用占位符 <YOUR_API_KEY>。",
+    "shareCommandHiddenSecretHint": "该提供商已启用隐藏密钥/不导出配置；分享命令只会使用可见配置和占位符。",
+    "shareCommandBlackBoxDisabled": "黑盒提供商不暴露配置，不能生成分享命令。"
   },
   "cooldown": {
     "title": "冷却保护中",
