@@ -20,7 +20,7 @@ type UsageStatsRepository struct {
 	db *DB
 }
 
-const providerStatsRawBackfillWindow = 2 * time.Hour
+const usageStatsRawBackfillWindow = 2 * time.Hour
 
 func NewUsageStatsRepository(db *DB) *UsageStatsRepository {
 	return &UsageStatsRepository{db: db}
@@ -200,10 +200,12 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 	currentHour := truncateToHourInLocation(now, loc)
 	currentMinute := now.Truncate(time.Minute)
 	twoMinutesAgo := currentMinute.Add(-time.Minute)
+	realtimeStart := r.rawBackfillStart(tenantID, loc, currentMinute)
 
-	// 判断是否需要补全实时数据（仅当查询范围包含最近 2 分钟内的数据）
-	// 如果 EndTime 在 2 分钟之前，说明是纯历史查询，预聚合数据已完整覆盖
-	needRealtimeData := filter.EndTime == nil || !filter.EndTime.Before(twoMinutesAgo)
+	// 判断是否需要补全实时数据（查询范围触及 raw backfill 窗口）。
+	// raw backfill 窗口会从最新已聚合 minute 往前 overlap 2 分钟开始；如果尚无 minute 聚合,
+	// 最多回扫 2 小时,避免服务重启后统计页在后台聚合前误显示空数据。
+	needRealtimeData := filter.EndTime == nil || !filter.EndTime.Before(realtimeStart)
 
 	// 1. 查询历史数据（使用目标粒度的预聚合数据）
 	// 如果需要补全实时数据，则排除当前时间桶（避免查出会被替换的数据）
@@ -271,14 +273,17 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 		})
 	}
 
-	// 2c. 查询当前小时内已完成的分钟数据（不包括最近 2 分钟）
+	// 2c. 查询当前小时内已完成的分钟数据（不包括 raw backfill 窗口）
 	minuteStart := currentHour
 	if currentBucket.After(currentHour) {
 		minuteStart = currentBucket
 	}
-	if twoMinutesAgo.After(minuteStart) {
+	if realtimeStart.After(twoMinutesAgo) {
+		realtimeStart = twoMinutesAgo
+	}
+	if realtimeStart.After(minuteStart) {
 		g.Go(func() error {
-			minuteStats, err := r.queryStatsInRange(tenantID, domain.GranularityMinute, minuteStart, twoMinutesAgo, filter)
+			minuteStats, err := r.queryStatsInRange(tenantID, domain.GranularityMinute, minuteStart, realtimeStart, filter)
 			if err != nil {
 				return err
 			}
@@ -289,9 +294,13 @@ func (r *UsageStatsRepository) Query(tenantID uint64, filter repository.UsageSta
 		})
 	}
 
-	// 2d. 查询最近 2 分钟的实时数据
+	// 2d. 查询 raw backfill 窗口内的实时数据
+	rawStart := realtimeStart
+	if filter.StartTime != nil && filter.StartTime.After(rawStart) {
+		rawStart = *filter.StartTime
+	}
 	g.Go(func() error {
-		realtimeStats, err := r.queryRecentMinutesStats(tenantID, twoMinutesAgo, filter)
+		realtimeStats, err := r.queryRecentMinutesStats(tenantID, rawStart, filter)
 		if err != nil {
 			return err
 		}
@@ -662,13 +671,7 @@ func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType stri
 
 	loc := r.getConfiguredTimezone()
 	now := time.Now().In(loc)
-	backfillStart := now.Add(-providerStatsRawBackfillWindow).Truncate(time.Minute)
-	if latestMinute, err := r.GetLatestTimeBucket(tenantID, domain.GranularityMinute); err == nil && latestMinute != nil {
-		candidate := latestMinute.In(loc).Add(-2 * time.Minute)
-		if candidate.After(backfillStart) {
-			backfillStart = candidate
-		}
-	}
+	backfillStart := r.rawBackfillStart(tenantID, loc, now.Truncate(time.Minute))
 
 	result, err := r.queryPersistedProviderStatsBefore(tenantID, filter, backfillStart)
 	if err != nil {
@@ -681,6 +684,17 @@ func (r *UsageStatsRepository) GetProviderStats(tenantID uint64, clientType stri
 	}
 	mergeProviderStats(result, rawStats)
 	return result, nil
+}
+
+func (r *UsageStatsRepository) rawBackfillStart(tenantID uint64, loc *time.Location, currentMinute time.Time) time.Time {
+	backfillStart := currentMinute.In(loc).Add(-usageStatsRawBackfillWindow).Truncate(time.Minute)
+	if latestMinute, err := r.GetLatestTimeBucket(tenantID, domain.GranularityMinute); err == nil && latestMinute != nil {
+		candidate := latestMinute.In(loc).Add(-2 * time.Minute)
+		if candidate.After(backfillStart) {
+			backfillStart = candidate
+		}
+	}
+	return backfillStart
 }
 
 func mergeProviderStats(dst, src map[uint64]*domain.ProviderStats) {
