@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/awsl-project/maxx/internal/domain"
+	"github.com/awsl-project/maxx/internal/repository"
 )
 
 // TestQueryDashboardHistoricalDays_GroupsByDimensions 锁住 PR573 R2 修复的"GROUP BY 下推"合约:
@@ -220,6 +221,61 @@ func TestGetProviderStatsIncludesPersistedRawBackfillAfterRestart(t *testing.T) 
 	}
 	if ps.SuccessRate != 50 {
 		t.Fatalf("successRate = %v, want 50", ps.SuccessRate)
+	}
+}
+
+func TestQueryIncludesPersistedRawBackfillAfterRestart(t *testing.T) {
+	db, err := NewDBWithDSN("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewUsageStatsRepository(db)
+	now := time.Now().UTC().Truncate(time.Minute)
+	recent := now.Add(-10 * time.Minute)
+	request := &ProxyRequest{TenantID: 1, ClientType: "openai", ProjectID: 20, Status: "COMPLETED"}
+	if err := db.gorm.Create(request).Error; err != nil {
+		t.Fatalf("seed request: %v", err)
+	}
+	attempt := &ProxyUpstreamAttempt{
+		TenantID:         1,
+		ProxyRequestID:   request.ID,
+		ProviderID:       10,
+		Status:           "COMPLETED",
+		EndTime:          toTimestamp(recent),
+		ResponseModel:    "glm-5.2",
+		InputTokenCount:  1234,
+		OutputTokenCount: 567,
+		CacheReadCount:   11,
+		CacheWriteCount:  22,
+		Cost:             890,
+	}
+	if err := db.gorm.Create(attempt).Error; err != nil {
+		t.Fatalf("seed attempt: %v", err)
+	}
+
+	start := now.Add(-30 * time.Minute)
+	got, err := repo.Query(1, repository.UsageStatsFilter{
+		Granularity: domain.GranularityMinute,
+		StartTime:   &start,
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	var found *domain.UsageStats
+	for _, s := range got {
+		if s.ProviderID == 10 && s.Model == "glm-5.2" {
+			found = s
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("missing raw backfill stats in query result: %+v", got)
+	}
+	if found.TotalRequests != 1 || found.InputTokens != 1234 || found.OutputTokens != 567 || found.CacheRead != 11 || found.CacheWrite != 22 || found.Cost != 890 {
+		t.Fatalf("raw query stats = %+v, want persisted raw attempt values", found)
 	}
 }
 
