@@ -36,7 +36,6 @@ import {
   Clock,
   BarChart3,
   Trash2,
-  EyeOff,
 } from 'lucide-react';
 import {
   type RequestColumnId,
@@ -433,28 +432,6 @@ export function RequestsPage() {
     setColumnPrefs(next);
   }, []);
 
-  const handleHideColumn = useCallback(
-    (columnId: RequestColumnId) => {
-      setColumnPrefs((prev) => {
-        if (prev.visibility[columnId] === false) {
-          return prev;
-        }
-        const remainingVisibleColumns = visibleColumns.filter((id) => id !== columnId);
-        if (remainingVisibleColumns.length === 0) {
-          return prev;
-        }
-        return {
-          ...prev,
-          visibility: {
-            ...prev.visibility,
-            [columnId]: false,
-          },
-        };
-      });
-    },
-    [visibleColumns],
-  );
-
   const handleColumnResizeStart = useCallback(
     (columnId: RequestColumnId, event: ReactMouseEvent<HTMLSpanElement>) => {
       event.preventDefault();
@@ -842,31 +819,14 @@ export function RequestsPage() {
             <TableHead
               key={columnId}
               className={cn(
-                'group relative font-medium select-none',
+                'relative font-medium select-none',
                 isCenteredColumn(columnId) && 'text-center',
                 columnId === 'client' && 'pr-4',
               )}
               style={{ width, minWidth: width, maxWidth: width }}
               title={fullLabel}
             >
-              <div className="flex min-w-0 items-center gap-1 pr-2">
-                <span className="block min-w-0 flex-1 truncate">{displayLabel}</span>
-                {visibleColumns.length > 1 && (
-                  <button
-                    type="button"
-                    className="shrink-0 rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    aria-label={t('requests.columns.hide', { column: fullLabel })}
-                    title={t('requests.columns.hide', { column: fullLabel })}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleHideColumn(columnId);
-                    }}
-                    onMouseDown={(event) => event.stopPropagation()}
-                  >
-                    <EyeOff className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
+              <span className="block truncate pr-2">{displayLabel}</span>
               <span
                 role="separator"
                 aria-orientation="vertical"
