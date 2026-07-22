@@ -62,81 +62,10 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 		}
 
 		clientType := state.clientType
-		mappedModel := e.mapModel(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
-
-		proxyReq.RouteID = matchedRoute.Route.ID
-		proxyReq.ProviderID = matchedRoute.Provider.ID
-		proxyReq.MappedModel = mappedModel
-		_ = e.proxyRequestRepo.Update(proxyReq)
-		if e.broadcaster != nil {
-			e.broadcaster.BroadcastProxyRequest(proxyReq)
-		}
-
-		originalClientType := clientType
-		currentClientType := clientType
-		needsConversion := false
-		convertedBody := []byte(nil)
-		var convErr error
-		requestBody := state.requestBody
-		requestURI := state.requestURI
-
-		supportedTypes := matchedRoute.ProviderAdapter.SupportedClientTypes()
-		if shouldBridgeCustomCodexViaOpenAI(matchedRoute.Provider, clientType, supportedTypes) {
-			currentClientType = domain.ClientTypeOpenAI
-			needsConversion = true
-			log.Printf("[Executor] OpenRouter-compatible custom provider %s: bridging Codex request through OpenAI Chat Completions",
-				matchedRoute.Provider.Name)
-
-			convertedBody, convErr = e.converter.TransformRequest(
-				clientType, currentClientType, requestBody, mappedModel, state.isStream)
-			if convErr != nil {
-				log.Printf("[Executor] OpenRouter Codex->OpenAI conversion failed: %v, proceeding with original format", convErr)
-				needsConversion = false
-				currentClientType = clientType
-			} else {
-				requestBody = convertedBody
-
-				originalURI := requestURI
-				convertedURI := ConvertRequestURI(requestURI, clientType, currentClientType, mappedModel, state.isStream)
-				if convertedURI != originalURI {
-					requestURI = convertedURI
-					log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
-				}
-			}
-		} else if e.converter.NeedConvert(clientType, supportedTypes) {
-			currentClientType = GetPreferredTargetType(supportedTypes, clientType, matchedRoute.Provider.Type)
-			if currentClientType != clientType {
-				needsConversion = true
-				log.Printf("[Executor] Format conversion needed: %s -> %s for provider %s",
-					clientType, currentClientType, matchedRoute.Provider.Name)
-
-				if currentClientType == domain.ClientTypeCodex {
-					if headers := state.requestHeaders; headers != nil {
-						requestBody = converter.InjectCodexUserAgent(requestBody, headers.Get("User-Agent"))
-					}
-				}
-				convertedBody, convErr = e.converter.TransformRequest(
-					clientType, currentClientType, requestBody, mappedModel, state.isStream)
-				if convErr != nil {
-					log.Printf("[Executor] Request conversion failed: %v; refusing to send original %s payload to %s provider %s",
-						convErr, clientType, currentClientType, matchedRoute.Provider.Name)
-					proxyErr := domain.NewProxyErrorWithMessage(convErr, true, "request format conversion failed")
-					proxyErr.Scope = domain.ScopeRequest
-					state.lastErr = proxyErr
-					continue
-				}
-
-				requestBody = convertedBody
-
-				originalURI := requestURI
-				convertedURI := ConvertRequestURI(requestURI, clientType, currentClientType, mappedModel, state.isStream)
-				if convertedURI != originalURI {
-					requestURI = convertedURI
-					log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
-				}
-			}
-		}
-
+		modelCandidates := e.mapModelCandidates(state.tenantID, state.requestModel, matchedRoute.Route, matchedRoute.Provider, clientType, state.projectID, state.apiTokenID)
+		useSmartMappingRetry := shouldUseSmartMappingRetry(matchedRoute.Provider, len(modelCandidates))
+		smartMappingRetryLimit := getSmartMappingRetryLimit(matchedRoute.Provider)
+		modelCandidateIndex := 0
 		retryConfig := e.getRetryConfig(state.tenantID, matchedRoute.RetryConfig)
 
 		for attempt := 0; ; {
@@ -147,6 +76,83 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				state.lastErr = ctx.Err()
 				c.Err = state.lastErr
 				return
+			}
+			if modelCandidateIndex >= len(modelCandidates) {
+				break
+			}
+
+			mappedModel := modelCandidates[modelCandidateIndex]
+			proxyReq.RouteID = matchedRoute.Route.ID
+			proxyReq.ProviderID = matchedRoute.Provider.ID
+			proxyReq.MappedModel = mappedModel
+			_ = e.proxyRequestRepo.Update(proxyReq)
+			if e.broadcaster != nil {
+				e.broadcaster.BroadcastProxyRequest(proxyReq)
+			}
+
+			originalClientType := clientType
+			currentClientType := clientType
+			needsConversion := false
+			convertedBody := []byte(nil)
+			var convErr error
+			requestBody := state.requestBody
+			requestURI := state.requestURI
+
+			supportedTypes := matchedRoute.ProviderAdapter.SupportedClientTypes()
+			if shouldBridgeCustomCodexViaOpenAI(matchedRoute.Provider, clientType, supportedTypes) {
+				currentClientType = domain.ClientTypeOpenAI
+				needsConversion = true
+				log.Printf("[Executor] OpenRouter-compatible custom provider %s: bridging Codex request through OpenAI Chat Completions",
+					matchedRoute.Provider.Name)
+
+				convertedBody, convErr = e.converter.TransformRequest(
+					clientType, currentClientType, requestBody, mappedModel, state.isStream)
+				if convErr != nil {
+					log.Printf("[Executor] OpenRouter Codex->OpenAI conversion failed: %v, proceeding with original format", convErr)
+					needsConversion = false
+					currentClientType = clientType
+				} else {
+					requestBody = convertedBody
+
+					originalURI := requestURI
+					convertedURI := ConvertRequestURI(requestURI, clientType, currentClientType, mappedModel, state.isStream)
+					if convertedURI != originalURI {
+						requestURI = convertedURI
+						log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
+					}
+				}
+			} else if e.converter.NeedConvert(clientType, supportedTypes) {
+				currentClientType = GetPreferredTargetType(supportedTypes, clientType, matchedRoute.Provider.Type)
+				if currentClientType != clientType {
+					needsConversion = true
+					log.Printf("[Executor] Format conversion needed: %s -> %s for provider %s",
+						clientType, currentClientType, matchedRoute.Provider.Name)
+
+					if currentClientType == domain.ClientTypeCodex {
+						if headers := state.requestHeaders; headers != nil {
+							requestBody = converter.InjectCodexUserAgent(requestBody, headers.Get("User-Agent"))
+						}
+					}
+					convertedBody, convErr = e.converter.TransformRequest(
+						clientType, currentClientType, requestBody, mappedModel, state.isStream)
+					if convErr != nil {
+						log.Printf("[Executor] Request conversion failed: %v; refusing to send original %s payload to %s provider %s",
+							convErr, clientType, currentClientType, matchedRoute.Provider.Name)
+						proxyErr := domain.NewProxyErrorWithMessage(convErr, true, "request format conversion failed")
+						proxyErr.Scope = domain.ScopeRequest
+						state.lastErr = proxyErr
+						break
+					}
+
+					requestBody = convertedBody
+
+					originalURI := requestURI
+					convertedURI := ConvertRequestURI(requestURI, clientType, currentClientType, mappedModel, state.isStream)
+					if convertedURI != originalURI {
+						requestURI = convertedURI
+						log.Printf("[Executor] URI converted: %s -> %s", originalURI, convertedURI)
+					}
+				}
 			}
 
 			attemptStartTime := time.Now()
@@ -452,6 +458,17 @@ func (e *Executor) dispatch(c *flow.Ctx) {
 				break
 			}
 
+			if useSmartMappingRetry && attempt+1 >= smartMappingRetryLimit {
+				modelCandidateIndex++
+				attempt = 0
+				if modelCandidateIndex < len(modelCandidates) {
+					log.Printf("[Executor] Smart mapping retry switching provider %d mapped model %q -> %q after %d failed attempts",
+						matchedRoute.Provider.ID, mappedModel, modelCandidates[modelCandidateIndex], smartMappingRetryLimit)
+					continue
+				}
+				break
+			}
+
 			if attempt < retryConfig.MaxRetries || shouldSkipErrorCooldown(matchedRoute.Provider) {
 				waitTime := e.calculateBackoff(retryConfig, attempt)
 				if proxyErr.RetryAfter > 0 {
@@ -549,4 +566,18 @@ func normalizeUpstreamConnectionError(proxyErr *domain.ProxyError) {
 	proxyErr.Scope = domain.ScopeProvider
 	proxyErr.Reason = domain.CooldownReasonNetworkError
 	proxyErr.Retryable = true
+}
+
+func shouldUseSmartMappingRetry(provider *domain.Provider, candidateCount int) bool {
+	if provider == nil || provider.Config == nil {
+		return false
+	}
+	return provider.Config.DisableErrorCooldown && provider.Config.SmartMappingRetryEnabled && candidateCount > 1
+}
+
+func getSmartMappingRetryLimit(provider *domain.Provider) int {
+	if provider == nil || provider.Config == nil || provider.Config.SmartMappingRetryLimit <= 0 {
+		return 1
+	}
+	return provider.Config.SmartMappingRetryLimit
 }

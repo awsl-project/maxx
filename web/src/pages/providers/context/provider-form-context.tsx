@@ -43,6 +43,8 @@ const initialFormData: ProviderFormData = {
   cloakStrictMode: false,
   cloakSensitiveWords: '',
   disableErrorCooldown: false,
+  smartMappingRetryEnabled: false,
+  smartMappingRetryLimit: 1,
   excludeFromExport: false,
   blackBox: false,
 };

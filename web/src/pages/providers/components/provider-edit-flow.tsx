@@ -49,6 +49,7 @@ import { NewApiProviderView } from './newapi-provider-view';
 import { OllamaProviderView } from './ollama-provider-view';
 import { GrokProviderView } from './grok-provider-view';
 import { ProviderModelMappings } from './provider-model-mappings';
+import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui';
@@ -297,6 +298,8 @@ type EditFormData = {
   cloakSensitiveWords?: string;
   responseModelMapping: Record<string, string>;
   disableErrorCooldown?: boolean;
+  smartMappingRetryEnabled?: boolean;
+  smartMappingRetryLimit?: number;
   // undefined = 默认透传;false = 旧的硬编码 /responses。
   responsesPassthrough?: boolean;
   // false/undefined = 不启用 Codex Responses WebSocket；true = 允许 WS 上游。
@@ -363,6 +366,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       cloakSensitiveWords: (cc?.sensitiveWords || []).join('\n'),
       responseModelMapping: provider.config?.custom?.responseModelMapping || {},
       disableErrorCooldown: provider.config?.disableErrorCooldown ?? false,
+      smartMappingRetryEnabled: provider.config?.smartMappingRetryEnabled ?? false,
+      smartMappingRetryLimit: provider.config?.smartMappingRetryLimit ?? 1,
       responsesPassthrough: provider.config?.custom?.responsesPassthrough,
       responsesWebSocket: provider.config?.custom?.responsesWebSocket === true,
     };
@@ -393,6 +398,23 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
       },
     };
   }, [formData.apiKey, formData.backend, formData.baseURL, formData.clients, provider.type]);
+
+  const providerMappingTargetCount = useMemo(
+    () =>
+      new Set(
+        (allMappings ?? [])
+          .filter(
+            (mapping) => mapping.providerID === Number(provider.id) && mapping.isEnabled !== false,
+          )
+          .map((mapping) => mapping.target.trim())
+          .filter(Boolean),
+      ).size,
+    [allMappings, provider.id],
+  );
+  const smartMappingRetryEnabled =
+    !!formData.disableErrorCooldown &&
+    providerMappingTargetCount > 1 &&
+    !!formData.smartMappingRetryEnabled;
 
   const updateClient = (clientId: ClientType, updates: Partial<ClientConfig>) => {
     setFormData((prev) => ({
@@ -451,6 +473,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         type: provider.type || 'custom', // Preserve the provider type
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
+          smartMappingRetryEnabled,
+          smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -517,6 +541,8 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
         logo: provider.logo,
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
+          smartMappingRetryEnabled,
+          smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -999,10 +1025,26 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
                 <Switch
                   checked={!!formData.disableErrorCooldown}
                   onCheckedChange={(checked) =>
-                    setFormData((prev) => ({ ...prev, disableErrorCooldown: checked }))
+                    setFormData((prev) => ({
+                      ...prev,
+                      disableErrorCooldown: checked,
+                      smartMappingRetryEnabled: checked ? prev.smartMappingRetryEnabled : false,
+                    }))
                   }
                 />
               </div>
+              <SmartMappingRetrySettings
+                disableErrorCooldown={!!formData.disableErrorCooldown}
+                enabled={formData.smartMappingRetryEnabled}
+                retryLimit={formData.smartMappingRetryLimit}
+                mappingTargetCount={providerMappingTargetCount}
+                onEnabledChange={(checked) =>
+                  setFormData((prev) => ({ ...prev, smartMappingRetryEnabled: checked }))
+                }
+                onRetryLimitChange={(limit) =>
+                  setFormData((prev) => ({ ...prev, smartMappingRetryLimit: limit }))
+                }
+              />
               <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
                 <div className="pr-4">
                   <div className="text-sm font-medium text-foreground">
@@ -1028,7 +1070,10 @@ export function ProviderEditFlow({ provider, onClose }: ProviderEditFlowProps) {
             />
 
             {/* Provider Model Mappings */}
-            <ProviderModelMappings provider={provider} runtimeModelsPreview={runtimeModelsPreview} />
+            <ProviderModelMappings
+              provider={provider}
+              runtimeModelsPreview={runtimeModelsPreview}
+            />
 
             <ResponseModelMappings
               mappings={formData.responseModelMapping}

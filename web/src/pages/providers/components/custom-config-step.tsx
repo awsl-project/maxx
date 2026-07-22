@@ -38,6 +38,7 @@ import { useProviderForm } from '../context/provider-form-context';
 import { useProviderNavigation } from '../hooks/use-provider-navigation';
 import { buildDisguisePayload } from '../utils/disguise';
 import { buildProviderRuntimeModelOptions } from './provider-model-mappings';
+import { SmartMappingRetrySettings } from './smart-mapping-retry-settings';
 
 export function CustomConfigStep() {
   const [showApiKey, setShowApiKey] = useState(false);
@@ -92,6 +93,17 @@ export function CustomConfigStep() {
       ),
     [runtimeModels?.models, t],
   );
+  const mappingTargetCount = useMemo(
+    () =>
+      new Set(
+        (formData.modelMappings ?? []).map((mapping) => mapping.target.trim()).filter(Boolean),
+      ).size,
+    [formData.modelMappings],
+  );
+  const smartMappingRetryEnabled =
+    !!formData.disableErrorCooldown &&
+    mappingTargetCount > 1 &&
+    !!formData.smartMappingRetryEnabled;
 
   const handleSave = async () => {
     if (!isValid()) return;
@@ -125,6 +137,8 @@ export function CustomConfigStep() {
         logo: formData.logo,
         config: {
           disableErrorCooldown: !!formData.disableErrorCooldown,
+          smartMappingRetryEnabled,
+          smartMappingRetryLimit: formData.smartMappingRetryLimit ?? 1,
           custom: {
             baseURL: formData.baseURL,
             backend: formData.backend === 'ollama' ? 'ollama' : undefined,
@@ -335,9 +349,22 @@ export function CustomConfigStep() {
               </div>
               <Switch
                 checked={!!formData.disableErrorCooldown}
-                onCheckedChange={(checked) => updateFormData({ disableErrorCooldown: checked })}
+                onCheckedChange={(checked) =>
+                  updateFormData({
+                    disableErrorCooldown: checked,
+                    smartMappingRetryEnabled: checked ? formData.smartMappingRetryEnabled : false,
+                  })
+                }
               />
             </div>
+            <SmartMappingRetrySettings
+              disableErrorCooldown={!!formData.disableErrorCooldown}
+              enabled={formData.smartMappingRetryEnabled}
+              retryLimit={formData.smartMappingRetryLimit}
+              mappingTargetCount={mappingTargetCount}
+              onEnabledChange={(checked) => updateFormData({ smartMappingRetryEnabled: checked })}
+              onRetryLimitChange={(limit) => updateFormData({ smartMappingRetryLimit: limit })}
+            />
             <div className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
               <div className="pr-4">
                 <div className="text-sm font-medium text-foreground">
