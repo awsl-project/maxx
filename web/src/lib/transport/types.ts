@@ -378,6 +378,45 @@ export interface ClaudeProviderBatchResponse {
   routesSkipped: number;
 }
 
+export interface RouteTTFTProbeRequest {
+  routeIDs: number[];
+  clientType: ClientType;
+  projectID: number;
+  testModel?: string;
+  concurrency?: number;
+  timeoutMs?: number;
+}
+
+export interface RouteTTFTProbeResult {
+  routeID: number;
+  providerID: number;
+  providerName: string;
+  ok: boolean;
+  status:
+    | 'success'
+    | 'timeout'
+    | 'http_error'
+    | 'network_error'
+    | 'unsupported'
+    | 'cancelled'
+    | 'route_unavailable'
+    | 'protocol_error'
+    | 'validation_failed';
+  metric: 'ttft' | 'first_byte' | 'none';
+  ttftMs?: number;
+  durationMs: number;
+  httpStatus?: number;
+  error?: string;
+}
+
+export interface RouteTTFTProbeResponse {
+  clientType: ClientType;
+  projectID: number;
+  testModel: string;
+  concurrency: number;
+  results: RouteTTFTProbeResult[];
+}
+
 // ===== RetryConfig =====
 
 export interface RetryConfig {
@@ -435,12 +474,7 @@ export interface ResponseInfo {
 }
 
 export type ProxyRequestStatus =
-  | 'PENDING'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED'
-  | 'REJECTED';
+  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'REJECTED';
 
 export type ProxyRequestErrorMode = 'all' | 'only' | 'exclude';
 
@@ -529,11 +563,7 @@ export interface ProxyRequest {
 // ===== ProxyUpstreamAttempt =====
 
 export type ProxyUpstreamAttemptStatus =
-  | 'PENDING'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED';
+  'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 export interface ProxyUpstreamAttempt {
   id: number;

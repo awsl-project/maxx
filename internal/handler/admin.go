@@ -25,12 +25,13 @@ import (
 // AdminHandler handles admin API requests over HTTP
 // Delegates business logic to AdminService
 type AdminHandler struct {
-	svc         *service.AdminService
-	backupSvc   *service.BackupService
-	userRepo    repository.UserRepository
-	logPath     string
-	restartFn   func() error
-	authEnabled bool
+	svc                  *service.AdminService
+	backupSvc            *service.BackupService
+	userRepo             repository.UserRepository
+	logPath              string
+	restartFn            func() error
+	authEnabled          bool
+	providerProxyHandler *ProviderProxyHandler
 }
 
 // NewAdminHandler creates a new admin handler
@@ -56,6 +57,10 @@ func (h *AdminHandler) SetRestartFunc(fn func() error) {
 // SetAuthEnabled sets whether auth is enabled for this handler.
 func (h *AdminHandler) SetAuthEnabled(enabled bool) {
 	h.authEnabled = enabled
+}
+
+func (h *AdminHandler) SetProviderProxyHandler(providerProxyHandler *ProviderProxyHandler) {
+	h.providerProxyHandler = providerProxyHandler
 }
 
 // ServeHTTP routes admin requests
@@ -96,6 +101,8 @@ func (h *AdminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.handleBatchUpdateRoutePositions(w, r)
 		} else if len(parts) > 2 && parts[2] == "bulk-delete" {
 			h.handleBulkDeleteRoutes(w, r)
+		} else if len(parts) > 2 && parts[2] == "ttft-probe" {
+			h.handleRouteTTFTProbe(w, r)
 		} else {
 			h.handleRoutes(w, r, id)
 		}

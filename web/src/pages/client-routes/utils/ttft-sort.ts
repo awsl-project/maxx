@@ -1,17 +1,6 @@
-import type { Route } from '@/lib/transport';
+import type { Route, RouteTTFTProbeResult } from '@/lib/transport';
 
-export interface RouteTtftProbeResult {
-  routeID: number;
-  providerID: number;
-  providerName: string;
-  ok: boolean;
-  status: 'success' | 'timeout' | 'http_error' | 'network_error' | 'unsupported' | 'cancelled';
-  metric: 'ttft' | 'first_byte' | 'none';
-  ttftMs?: number;
-  durationMs: number;
-  httpStatus?: number;
-  error?: string;
-}
+export type RouteTtftProbeResult = RouteTTFTProbeResult;
 
 export interface TtftRoutePositionUpdate {
   id: number;

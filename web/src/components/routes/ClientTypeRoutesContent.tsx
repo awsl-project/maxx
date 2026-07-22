@@ -819,23 +819,8 @@ function ClientTypeRoutesContentInner({
     if (!canApplyTtftSort) return;
 
     const probeInputs = clientRoutes
-      .filter((route) => route.isEnabled)
-      .map((route) => ({
-        route,
-        provider: providerById.get(route.providerID),
-        clientType,
-        projectID,
-      }))
-      .filter(
-        (
-          input,
-        ): input is {
-          route: Route;
-          provider: Provider;
-          clientType: ClientType;
-          projectID: number;
-        } => Boolean(input.provider),
-      );
+      .filter((route) => route.isEnabled && providerById.has(route.providerID))
+      .map((route) => ({ route, clientType, projectID }));
 
     if (probeInputs.length <= 1) {
       setTtftSortMessage(t('routes.sortByTtftNoCandidates'));

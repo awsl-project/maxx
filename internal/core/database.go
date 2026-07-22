@@ -468,6 +468,8 @@ func InitializeServerComponents(
 	claudeOAuthServer := NewClaudeOAuthServer(claudeHandler)
 	claudeHandler.SetOAuthServer(claudeOAuthServer)
 	projectProxyHandler := handler.NewProjectProxyHandler(proxyHandler, protectedModelsHandler, repos.CachedProjectRepo, repos.SettingRepo)
+	providerProxyHandler := handler.NewProviderProxyHandler(proxyHandler, protectedModelsHandler, repos.CachedProviderRepo, repos.CachedRouteRepo, repos.ProxyRequestRepo, repos.SettingRepo)
+	adminHandler.SetProviderProxyHandler(providerProxyHandler)
 
 	log.Printf("[Core] Creating request tracker for graceful shutdown")
 	requestTracker := NewRequestTracker()
@@ -492,7 +494,7 @@ func InitializeServerComponents(
 		ClaudeHandler:          claudeHandler,
 		ClaudeOAuthServer:      claudeOAuthServer,
 		ProjectProxyHandler:    projectProxyHandler,
-		ProviderProxyHandler:   handler.NewProviderProxyHandler(proxyHandler, protectedModelsHandler, repos.CachedProviderRepo, repos.CachedRouteRepo, repos.ProxyRequestRepo, repos.SettingRepo),
+		ProviderProxyHandler:   providerProxyHandler,
 		RequestTracker:         requestTracker,
 		PprofManager:           pprofMgr,
 		AuthMiddleware:         authMiddleware,

@@ -83,6 +83,8 @@ import type {
   RoutePositionUpdate,
   ClaudeProviderBatchRequest,
   ClaudeProviderBatchResponse,
+  RouteTTFTProbeRequest,
+  RouteTTFTProbeResponse,
   UsageStats,
   UsageStatsFilter,
   RecalculateCostsResult,
@@ -406,6 +408,18 @@ export class HttpTransport implements Transport {
       data,
       '/routes/claude-provider-batch-test',
     );
+  }
+
+  async probeRouteTTFT(
+    payload: RouteTTFTProbeRequest,
+    signal?: AbortSignal,
+  ): Promise<RouteTTFTProbeResponse> {
+    const { data } = await this.adminClient.post<RouteTTFTProbeResponse>(
+      '/routes/ttft-probe',
+      payload,
+      { signal },
+    );
+    return this.expectObject<RouteTTFTProbeResponse>(data, '/admin/routes/ttft-probe');
   }
 
   // ===== Session API =====
