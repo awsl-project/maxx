@@ -284,7 +284,8 @@
       "title": "Visible columns",
       "hint": "Toggle visibility, drag to reorder; drag header edges to resize.",
       "reset": "Reset",
-      "resize": "Resize {{column}} column"
+      "resize": "Resize {{column}} column",
+      "hide": "Hide {{column}} column"
     },
     "page": "Page {{current}}",
     "pageInfo": "Page {{page}}, showing {{count}} items of {{total}} total",

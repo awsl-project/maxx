@@ -36,6 +36,7 @@ import {
   Clock,
   BarChart3,
   Trash2,
+  EyeOff,
 } from 'lucide-react';
 import {
   type RequestColumnId,
@@ -127,7 +128,11 @@ const REQUEST_PROJECT_FILTER_STORAGE_KEY = 'maxx-requests-project-filter';
 const REQUESTS_VIRTUALIZE_THRESHOLD = 40;
 const DEFAULT_DESKTOP_ROW_HEIGHT = 38;
 
-function ProtocolBadge({ request }: { request: Pick<ProxyRequest, 'protocol' | 'isStream' | 'statusCode'> }) {
+function ProtocolBadge({
+  request,
+}: {
+  request: Pick<ProxyRequest, 'protocol' | 'isStream' | 'statusCode'>;
+}) {
   const { t } = useTranslation();
   const protocol = resolveRequestProtocol(request);
   const label = t(requestProtocolLabelKey(protocol));
@@ -427,6 +432,28 @@ export function RequestsPage() {
   const handleColumnPrefsChange = useCallback((next: RequestColumnPrefs) => {
     setColumnPrefs(next);
   }, []);
+
+  const handleHideColumn = useCallback(
+    (columnId: RequestColumnId) => {
+      setColumnPrefs((prev) => {
+        if (prev.visibility[columnId] === false) {
+          return prev;
+        }
+        const remainingVisibleColumns = visibleColumns.filter((id) => id !== columnId);
+        if (remainingVisibleColumns.length === 0) {
+          return prev;
+        }
+        return {
+          ...prev,
+          visibility: {
+            ...prev.visibility,
+            [columnId]: false,
+          },
+        };
+      });
+    },
+    [visibleColumns],
+  );
 
   const handleColumnResizeStart = useCallback(
     (columnId: RequestColumnId, event: ReactMouseEvent<HTMLSpanElement>) => {
@@ -809,26 +836,37 @@ export function RequestsPage() {
         {visibleColumns.map((columnId) => {
           const width = columnPrefs.widths[columnId];
           const shortKey = columnShortLabelKey(columnId);
-          const fullLabel =
-            columnId === 'ttft' ? 'TTFT' : t(columnLabelKey(columnId));
-          const displayLabel =
-            columnId === 'ttft'
-              ? 'TTFT'
-              : shortKey
-                ? t(shortKey)
-                : fullLabel;
+          const fullLabel = columnId === 'ttft' ? 'TTFT' : t(columnLabelKey(columnId));
+          const displayLabel = columnId === 'ttft' ? 'TTFT' : shortKey ? t(shortKey) : fullLabel;
           return (
             <TableHead
               key={columnId}
               className={cn(
-                'relative font-medium select-none',
+                'group relative font-medium select-none',
                 isCenteredColumn(columnId) && 'text-center',
                 columnId === 'client' && 'pr-4',
               )}
               style={{ width, minWidth: width, maxWidth: width }}
               title={fullLabel}
             >
-              <span className="block truncate pr-2">{displayLabel}</span>
+              <div className="flex min-w-0 items-center gap-1 pr-2">
+                <span className="block min-w-0 flex-1 truncate">{displayLabel}</span>
+                {visibleColumns.length > 1 && (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-label={t('requests.columns.hide', { column: fullLabel })}
+                    title={t('requests.columns.hide', { column: fullLabel })}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleHideColumn(columnId);
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <EyeOff className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
               <span
                 role="separator"
                 aria-orientation="vertical"

@@ -283,7 +283,8 @@
       "title": "显示列",
       "hint": "勾选显示、拖拽排序；表头边缘可拖拽调整宽度。",
       "reset": "重置",
-      "resize": "调整{{column}}列宽"
+      "resize": "调整{{column}}列宽",
+      "hide": "隐藏{{column}}整列"
     },
     "page": "第 {{current}} 页",
     "pageInfo": "第 {{page}} 页，显示 {{count}} 条，共 {{total}} 条",
