@@ -125,7 +125,9 @@ func (r *stubExecutorSettingsRepo) Delete(key string) error {
 	return nil
 }
 
-type stubModelMappingRepo struct{}
+type stubModelMappingRepo struct {
+	mappings []*domain.ModelMapping
+}
 
 func (r *stubModelMappingRepo) Create(*domain.ModelMapping) error { return nil }
 func (r *stubModelMappingRepo) Update(*domain.ModelMapping) error { return nil }
@@ -143,7 +145,7 @@ func (r *stubModelMappingRepo) ListByClientType(uint64, domain.ClientType) ([]*d
 	return nil, nil
 }
 func (r *stubModelMappingRepo) ListByQuery(uint64, *domain.ModelMappingQuery) ([]*domain.ModelMapping, error) {
-	return nil, nil
+	return r.mappings, nil
 }
 func (r *stubModelMappingRepo) Count(uint64) (int, error) { return 0, nil }
 func (r *stubModelMappingRepo) DeleteAll(uint64) error    { return nil }

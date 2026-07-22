@@ -375,15 +375,20 @@ type ProviderConfigGrok struct {
 
 type ProviderConfig struct {
 	// 禁用错误自动冷冻（只影响错误触发的冷冻）
-	DisableErrorCooldown bool                       `json:"disableErrorCooldown,omitempty"`
-	Custom               *ProviderConfigCustom      `json:"custom,omitempty"`
-	Antigravity          *ProviderConfigAntigravity `json:"antigravity,omitempty"`
-	Bedrock              *ProviderConfigBedrock     `json:"bedrock,omitempty"`
-	Kiro                 *ProviderConfigKiro        `json:"kiro,omitempty"`
-	Codex                *ProviderConfigCodex       `json:"codex,omitempty"`
-	Claude               *ProviderConfigClaude      `json:"claude,omitempty"`
-	OpenRouter           *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
-	Grok                 *ProviderConfigGrok        `json:"grok,omitempty"`
+	DisableErrorCooldown bool `json:"disableErrorCooldown,omitempty"`
+	// 智能映射轮询重试：禁用错误自动冻结时，按候选映射模型轮询失败重试。
+	SmartMappingRetryEnabled bool `json:"smartMappingRetryEnabled,omitempty"`
+	// 每个映射模型失败多少次后切换到下一个候选模型。
+	SmartMappingRetryLimit int `json:"smartMappingRetryLimit,omitempty"`
+
+	Custom      *ProviderConfigCustom      `json:"custom,omitempty"`
+	Antigravity *ProviderConfigAntigravity `json:"antigravity,omitempty"`
+	Bedrock     *ProviderConfigBedrock     `json:"bedrock,omitempty"`
+	Kiro        *ProviderConfigKiro        `json:"kiro,omitempty"`
+	Codex       *ProviderConfigCodex       `json:"codex,omitempty"`
+	Claude      *ProviderConfigClaude      `json:"claude,omitempty"`
+	OpenRouter  *ProviderConfigOpenRouter  `json:"openrouter,omitempty"`
+	Grok        *ProviderConfigGrok        `json:"grok,omitempty"`
 
 	// Reasoning is the provider-scoped outbound reasoning-effort policy, applied
 	// by the executor's param stage for ALL provider types (not just Codex).

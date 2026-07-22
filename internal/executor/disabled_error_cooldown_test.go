@@ -131,6 +131,27 @@ func TestDispatchDoesNotRetryCommittedStreamReadErrorWithoutRetryBudget(t *testi
 	}
 }
 
+type smartMappingRetryAdapter struct {
+	models []string
+}
+
+func (a *smartMappingRetryAdapter) SupportedClientTypes() []domain.ClientType {
+	return []domain.ClientType{domain.ClientTypeOpenAI}
+}
+
+func (a *smartMappingRetryAdapter) Execute(c *flow.Ctx, _ *domain.Provider) error {
+	model := flow.GetMappedModel(c)
+	a.models = append(a.models, model)
+	if model == "mapped-b" {
+		return nil
+	}
+	proxyErr := domain.NewProxyErrorWithMessage(errors.New("upstream returned 500"), true, "upstream returned 500")
+	proxyErr.Scope = domain.ScopeProvider
+	proxyErr.Reason = domain.CooldownReasonServerError
+	proxyErr.HTTPStatusCode = http.StatusInternalServerError
+	return proxyErr
+}
+
 func TestDispatchDisableErrorCooldownRetriesHTTPErrorBeyondRetryBudget(t *testing.T) {
 	c, adapter, _, proxyRepo := newDisabledCooldownHTTPErrorDispatchCtx(true, 0, 3)
 	e := newDisabledCooldownStreamTestExecutor(proxyRepo, &recordingAttemptRepo{})
@@ -142,6 +163,79 @@ func TestDispatchDisableErrorCooldownRetriesHTTPErrorBeyondRetryBudget(t *testin
 	}
 	if adapter.calls != 4 {
 		t.Fatalf("adapter calls = %d, want 4; disableErrorCooldown should retry beyond MaxRetries", adapter.calls)
+	}
+	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
+		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)
+	}
+}
+
+func TestDispatchSmartMappingRetrySwitchesMappedModelAfterLimit(t *testing.T) {
+	proxyRepo := &recordingProxyRequestRepo{}
+	attemptRepo := &recordingAttemptRepo{}
+	adapter := &smartMappingRetryAdapter{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.Background())
+	c := flow.NewCtx(rec, req)
+	proxyReq := &domain.ProxyRequest{
+		ID:         103,
+		TenantID:   domain.DefaultTenantID,
+		ClientType: domain.ClientTypeOpenAI,
+		Status:     "IN_PROGRESS",
+		StartTime:  time.Now(),
+	}
+	state := &execState{
+		ctx:          context.Background(),
+		proxyReq:     proxyReq,
+		tenantID:     domain.DefaultTenantID,
+		clientType:   domain.ClientTypeOpenAI,
+		requestModel: "requested-model",
+		routes: []*router.MatchedRoute{
+			{
+				Route: &domain.Route{ID: 10, TenantID: domain.DefaultTenantID, ProviderID: 22, ClientType: domain.ClientTypeOpenAI},
+				Provider: &domain.Provider{
+					ID:       22,
+					TenantID: domain.DefaultTenantID,
+					Type:     "custom",
+					Name:     "custom-smart-mapping",
+					Config: &domain.ProviderConfig{
+						DisableErrorCooldown:     true,
+						SmartMappingRetryEnabled: true,
+						SmartMappingRetryLimit:   2,
+					},
+				},
+				ProviderAdapter: adapter,
+				RetryConfig:     &domain.RetryConfig{MaxRetries: 0, InitialInterval: 0, BackoffRate: 1, MaxInterval: 0},
+			},
+		},
+	}
+	c.Set(flow.KeyExecutorState, state)
+	e := newDisabledCooldownStreamTestExecutor(proxyRepo, attemptRepo)
+	e.modelMappingRepo = &stubModelMappingRepo{mappings: []*domain.ModelMapping{
+		{Pattern: "requested-*", Target: "mapped-a"},
+		{Pattern: "requested-*", Target: "mapped-b"},
+	}}
+
+	e.dispatch(c)
+
+	if c.Err != nil {
+		t.Fatalf("dispatch returned error: %v", c.Err)
+	}
+	want := []string{"mapped-a", "mapped-a", "mapped-b"}
+	if len(adapter.models) != len(want) {
+		t.Fatalf("adapter models = %#v, want %#v", adapter.models, want)
+	}
+	for i := range want {
+		if adapter.models[i] != want[i] {
+			t.Fatalf("adapter models = %#v, want %#v", adapter.models, want)
+		}
+	}
+	if len(attemptRepo.created) != len(want) {
+		t.Fatalf("created attempts = %d, want %d", len(attemptRepo.created), len(want))
+	}
+	for i, model := range want {
+		if attemptRepo.created[i].MappedModel != model {
+			t.Fatalf("attempt %d mapped model = %q, want %q", i, attemptRepo.created[i].MappedModel, model)
+		}
 	}
 	if len(proxyRepo.updated) == 0 || proxyRepo.updated[len(proxyRepo.updated)-1].Status != "COMPLETED" {
 		t.Fatalf("expected completed proxy request update, got %#v", proxyRepo.updated)

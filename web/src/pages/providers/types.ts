@@ -1,7 +1,20 @@
 import type { ClientType, DisguiseType, Provider } from '@/lib/transport';
 import { getProviderColorVar } from '@/lib/theme';
 import type { LucideIcon } from 'lucide-react';
-import { Wand2, Zap, Server, Mail, Globe, Code2, Sparkles, Cloud, Waypoints, Bot, Network, Boxes } from 'lucide-react';
+import {
+  Wand2,
+  Zap,
+  Server,
+  Mail,
+  Globe,
+  Code2,
+  Sparkles,
+  Cloud,
+  Waypoints,
+  Bot,
+  Network,
+  Boxes,
+} from 'lucide-react';
 import duckcodingLogo from '@/assets/icons/duckcoding.gif';
 import freeDuckLogo from '@/assets/icons/free-duck.gif';
 import nvidiaLogo from '@/assets/icons/nvidia.svg';
@@ -350,6 +363,8 @@ export type ProviderFormData = {
   modelMappings?: TemplateModelMapping[]; // 模型映射
   logo?: string; // Logo URL
   disableErrorCooldown?: boolean;
+  smartMappingRetryEnabled?: boolean;
+  smartMappingRetryLimit?: number;
   excludeFromExport?: boolean;
   blackBox?: boolean;
   // undefined = 默认透传;false = 旧的硬编码 /responses。

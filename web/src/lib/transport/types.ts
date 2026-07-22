@@ -176,6 +176,8 @@ export interface ProviderRuntimeModelsPreviewRequest {
 
 export interface ProviderConfig {
   disableErrorCooldown?: boolean;
+  smartMappingRetryEnabled?: boolean;
+  smartMappingRetryLimit?: number;
   custom?: ProviderConfigCustom;
   antigravity?: ProviderConfigAntigravity;
   bedrock?: ProviderConfigBedrock;

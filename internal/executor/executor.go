@@ -119,7 +119,11 @@ func (e *Executor) ExecuteWith(c *flow.Ctx) error {
 }
 
 func (e *Executor) mapModel(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) string {
-	// Database model mapping with full query conditions
+	candidates := e.mapModelCandidates(tenantID, requestModel, route, provider, clientType, projectID, apiTokenID)
+	return candidates[0]
+}
+
+func (e *Executor) mapModelCandidates(tenantID uint64, requestModel string, route *domain.Route, provider *domain.Provider, clientType domain.ClientType, projectID uint64, apiTokenID uint64) []string {
 	query := &domain.ModelMappingQuery{
 		ClientType:   clientType,
 		ProviderType: provider.Type,
@@ -129,14 +133,22 @@ func (e *Executor) mapModel(tenantID uint64, requestModel string, route *domain.
 		APITokenID:   apiTokenID,
 	}
 	mappings, _ := e.modelMappingRepo.ListByQuery(tenantID, query)
+	candidates := make([]string, 0, len(mappings))
+	seen := make(map[string]struct{}, len(mappings))
 	for _, m := range mappings {
-		if domain.MatchWildcard(m.Pattern, requestModel) {
-			return m.Target
+		if m == nil || !domain.MatchWildcard(m.Pattern, requestModel) {
+			continue
 		}
+		if _, exists := seen[m.Target]; exists {
+			continue
+		}
+		seen[m.Target] = struct{}{}
+		candidates = append(candidates, m.Target)
 	}
-
-	// No mapping, use original
-	return requestModel
+	if len(candidates) == 0 {
+		return []string{requestModel}
+	}
+	return candidates
 }
 
 func (e *Executor) getRetryConfig(tenantID uint64, config *domain.RetryConfig) *domain.RetryConfig {
