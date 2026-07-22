@@ -805,11 +805,11 @@
     "routesConfigured_other": "{{count}} routes configured for this project",
     "sortAntigravity": "Sort Antigravity",
     "sortCodex": "Sort Codex",
-    "sortByTtft": "Sort by TTFT",
-    "sortByTtftHint": "Sort current routes by average TTFT from the last 24 hours. Routes with fewer than 3 successful requests keep their slot.",
-    "sortByTtftApplied": "Updated {{count}} route positions by TTFT.",
+    "sortByTtft": "Measure TTFT and sort",
+    "sortByTtftHint": "Send real probe requests through each enabled route in this scope, then sort by measured TTFT. Failed probes move behind successful routes.",
+    "sortByTtftApplied": "Measured TTFT and updated {{count}} route positions ({{success}} succeeded, {{failed}} failed).",
     "sortByTtftNoChanges": "No TTFT order changes are available: samples may be insufficient, or fastest routes are already first.",
-    "sortByTtftFailed": "Failed to sort routes by TTFT. Please try again later.",
+    "sortByTtftFailed": "Failed to measure and sort routes by TTFT. Please try again later.",
     "clientRoutesTitle": "{{client}} Routes",
     "configureRoutingFor": "Configure routing for {{client}}",
     "usingProjectRoutes": "Using project-specific routes",
@@ -955,7 +955,13 @@
       "updateFailed": "Failed to update the custom provider key.",
       "save": "Save key",
       "placeholder": "Leave empty to keep current key"
-    }
+    },
+    "sortByTtftRunningShort": "Measuring TTFT...",
+    "sortByTtftRunning": "Measuring TTFT with real probe requests across {{count}} routes...",
+    "sortByTtftNoCandidates": "At least two enabled routes with providers are required for TTFT measurement.",
+    "sortByTtftNoChangesAfterProbe": "Measured TTFT across routes; no order change needed ({{success}} succeeded, {{failed}} failed).",
+    "sortByTtftNoSuccessfulProbe": "No route returned a successful TTFT probe ({{count}} failed). Order was not changed.",
+    "sortByTtftProbeResults": "TTFT probe results"
   },
   "console": {
     "title": "Console",

@@ -82,6 +82,8 @@ import type {
   RoutePositionUpdate,
   ClaudeProviderBatchRequest,
   ClaudeProviderBatchResponse,
+  RouteTTFTProbeRequest,
+  RouteTTFTProbeResponse,
   UsageStats,
   UsageStatsFilter,
   RecalculateCostsResult,
@@ -135,6 +137,10 @@ export interface Transport {
     data: ClaudeProviderBatchRequest,
     signal?: AbortSignal,
   ): Promise<ClaudeProviderBatchResponse>;
+  probeRouteTTFT(
+    data: RouteTTFTProbeRequest,
+    signal?: AbortSignal,
+  ): Promise<RouteTTFTProbeResponse>;
 
   // ===== Session API =====
   getSessions(): Promise<Session[]>;

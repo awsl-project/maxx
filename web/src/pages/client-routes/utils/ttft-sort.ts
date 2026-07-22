@@ -1,88 +1,51 @@
-import type { Route, UsageStats } from '@/lib/transport';
+import type { Route, RouteTTFTProbeResult } from '@/lib/transport';
 
-const MIN_SUCCESSFUL_REQUESTS_FOR_TTFT_SORT = 3;
-
-type RouteLike = Pick<Route, 'id' | 'position'>;
-
-type UsageStatsLike = Pick<UsageStats, 'routeID' | 'successfulRequests' | 'totalTtftMs'>;
-
-export interface RouteTtftSummary {
-  routeID: number;
-  successfulRequests: number;
-  avgTtftMs: number;
-}
+export type RouteTtftProbeResult = RouteTTFTProbeResult;
 
 export interface TtftRoutePositionUpdate {
   id: number;
   position: number;
 }
 
-export function summarizeRouteTtft(stats: UsageStatsLike[] | undefined): Map<number, RouteTtftSummary> {
-  const summaries = new Map<number, RouteTtftSummary>();
-
-  for (const stat of stats ?? []) {
-    if (stat.routeID === 0 || stat.successfulRequests <= 0 || stat.totalTtftMs <= 0) continue;
-
-    const existing = summaries.get(stat.routeID);
-    if (existing) {
-      const totalTtftMs = existing.avgTtftMs * existing.successfulRequests + stat.totalTtftMs;
-      const successfulRequests = existing.successfulRequests + stat.successfulRequests;
-      summaries.set(stat.routeID, {
-        routeID: stat.routeID,
-        successfulRequests,
-        avgTtftMs: totalTtftMs / successfulRequests,
-      });
-      continue;
-    }
-
-    summaries.set(stat.routeID, {
-      routeID: stat.routeID,
-      successfulRequests: stat.successfulRequests,
-      avgTtftMs: stat.totalTtftMs / stat.successfulRequests,
-    });
-  }
-
-  return summaries;
-}
+type RouteLike = Pick<Route, 'id' | 'position' | 'isEnabled' | 'providerID'>;
 
 export function buildTtftRoutePositionUpdates(
   routes: RouteLike[],
-  stats: UsageStatsLike[] | undefined,
-  minSuccessfulRequests = MIN_SUCCESSFUL_REQUESTS_FOR_TTFT_SORT,
+  results: RouteTtftProbeResult[],
 ): TtftRoutePositionUpdate[] {
-  const summaries = summarizeRouteTtft(stats);
   const originalOrder = routes.slice().sort((a, b) => {
     const posDiff = (a.position ?? 0) - (b.position ?? 0);
     if (posDiff !== 0) return posDiff;
     return a.id - b.id;
   });
   const originalIndexByRouteId = new Map(originalOrder.map((route, index) => [route.id, index]));
+  const resultByRouteId = new Map(results.map((result) => [result.routeID, result]));
 
-  const sortableRoutes = originalOrder.filter((route) => {
-    const summary = summaries.get(route.id);
-    return summary && summary.successfulRequests >= minSuccessfulRequests;
-  });
+  const probedRoutes = originalOrder.filter((route) => resultByRouteId.has(route.id));
+  if (probedRoutes.length <= 1) return [];
 
-  const unsortedRoutes = originalOrder.filter((route) => !sortableRoutes.includes(route));
+  const sortedProbedRoutes = probedRoutes.slice().sort((a, b) => {
+    const aResult = resultByRouteId.get(a.id)!;
+    const bResult = resultByRouteId.get(b.id)!;
 
-  sortableRoutes.sort((a, b) => {
-    const aSummary = summaries.get(a.id)!;
-    const bSummary = summaries.get(b.id)!;
-    const ttftDiff = aSummary.avgTtftMs - bSummary.avgTtftMs;
-    if (ttftDiff !== 0) return ttftDiff;
-    const requestDiff = bSummary.successfulRequests - aSummary.successfulRequests;
-    if (requestDiff !== 0) return requestDiff;
+    if (aResult.ok !== bResult.ok) return aResult.ok ? -1 : 1;
+    if (aResult.ok && bResult.ok) {
+      const ttftDiff =
+        (aResult.ttftMs ?? Number.MAX_SAFE_INTEGER) - (bResult.ttftMs ?? Number.MAX_SAFE_INTEGER);
+      if (ttftDiff !== 0) return ttftDiff;
+    }
+
+    const statusDiff = aResult.status.localeCompare(bResult.status);
+    if (!aResult.ok && !bResult.ok && statusDiff !== 0) return statusDiff;
     return (originalIndexByRouteId.get(a.id) ?? 0) - (originalIndexByRouteId.get(b.id) ?? 0);
   });
 
-  const sortedQueue = [...sortableRoutes];
-  const stableQueue = [...unsortedRoutes];
+  const sortedQueue = [...sortedProbedRoutes];
   const reordered = originalOrder.map((route) => {
-    const summary = summaries.get(route.id);
-    if (summary && summary.successfulRequests >= minSuccessfulRequests) {
+    if (resultByRouteId.has(route.id)) {
       return sortedQueue.shift()!;
     }
-    return stableQueue.shift()!;
+    return route;
   });
 
   return reordered
@@ -91,4 +54,22 @@ export function buildTtftRoutePositionUpdates(
       const route = routes.find((candidate) => candidate.id === update.id);
       return route?.position !== update.position;
     });
+}
+
+export function summarizeTtftProbeResults(results: RouteTtftProbeResult[]) {
+  const successful = results.filter((result) => result.ok);
+  const failed = results.length - successful.length;
+  const fastest = successful.reduce<RouteTtftProbeResult | undefined>((best, result) => {
+    if (!best) return result;
+    return (result.ttftMs ?? Number.MAX_SAFE_INTEGER) < (best.ttftMs ?? Number.MAX_SAFE_INTEGER)
+      ? result
+      : best;
+  }, undefined);
+
+  return {
+    total: results.length,
+    successful: successful.length,
+    failed,
+    fastest,
+  };
 }
