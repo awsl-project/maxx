@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Activity, Check, Copy, Globe, Mail, Share2, Snowflake } from 'lucide-react';
+import { Activity, Ban, Check, Copy, Globe, Mail, Share2, Snowflake } from 'lucide-react';
 import { CooldownTimer } from '@/components/cooldown-timer';
 import { useCooldowns } from '@/hooks/use-cooldowns';
 import { Button } from '@/components/ui/button';
@@ -380,6 +380,15 @@ export function ProviderRow({
           {provider.blackBox && (
             <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
               {t('provider.blackBoxBadge')}
+            </span>
+          )}
+          {provider.config?.disableErrorCooldown && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-300"
+              title={t('provider.disableSwitchBadgeDesc')}
+            >
+              <Ban className="h-2.5 w-2.5" />
+              {t('provider.disableSwitchBadge')}
             </span>
           )}
         </div>
