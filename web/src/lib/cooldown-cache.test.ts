@@ -42,7 +42,7 @@ describe('removeClearedCooldowns', () => {
     expect(result).toEqual([providerLevel, claude, modelLevel]);
   });
 
-  it('removes only the matching model cooldown', () => {
+  it('removes only the matching client and model cooldown', () => {
     const providerLevel = cooldown(1);
     const keyLevel = cooldown(1, 'openai');
     const targetModel = cooldown(1, 'openai', 'gpt-5');
@@ -54,5 +54,18 @@ describe('removeClearedCooldowns', () => {
     });
 
     expect(result).toEqual([providerLevel, keyLevel, otherModel]);
+  });
+
+  it('removes only the matching model-only cooldown', () => {
+    const providerLevel = cooldown(1);
+    const keyLevel = cooldown(1, 'openai');
+    const targetModel = cooldown(1, undefined, 'gpt-5');
+    const clientModel = cooldown(1, 'openai', 'gpt-5');
+
+    const result = removeClearedCooldowns([providerLevel, keyLevel, targetModel, clientModel], 1, {
+      model: 'gpt-5',
+    });
+
+    expect(result).toEqual([providerLevel, keyLevel, clientModel]);
   });
 });
